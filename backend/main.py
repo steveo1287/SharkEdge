@@ -11,8 +11,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from fastapi import FastAPI
 from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException
 
 load_dotenv(Path(__file__).with_name(".env"))
 
@@ -80,8 +80,34 @@ def get_bookmakers() -> str:
     return ",".join(DEFAULT_BOOKMAKERS)
 
 
+def get_scores_days() -> int:
+    raw_value = os.getenv("ODDS_API_SCORES_DAYS", "3").strip()
+    try:
+        return max(1, min(3, int(raw_value)))
+    except ValueError:
+        return 3
+
+
 def format_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def request_json(path: str, params: dict[str, Any], title: str) -> Any:
+    request = Request(
+        f"{ODDS_API_BASE_URL}/{path}?{urlencode(params)}",
+        headers={"User-Agent": "Shark Odds/1.0"},
+    )
+
+    try:
+        with urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        body = error.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(
+            f"{title} request failed with {error.code}: {body}"
+        ) from error
+    except URLError as error:
+        raise RuntimeError(f"{title} request failed: {error.reason}") from error
 
 
 def serialize_market(market: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -204,6 +230,34 @@ def summarize_market(
     return offers
 
 
+def collect_points(
+    bookmakers: list[dict[str, Any]], market_name: str, outcome_name: str
+) -> list[float]:
+    points = []
+
+    for bookmaker in bookmakers:
+        for outcome in bookmaker.get("markets", {}).get(market_name, []):
+            if outcome.get("name") != outcome_name:
+                continue
+
+            point = outcome.get("point")
+            if isinstance(point, (int, float)):
+                points.append(float(point))
+
+    return points
+
+
+def build_point_range(points: list[float]) -> dict[str, Any] | None:
+    if not points:
+        return None
+
+    return {
+        "min": min(points),
+        "max": max(points),
+        "span": round(max(points) - min(points), 2),
+    }
+
+
 def normalize_game(game: dict[str, Any]) -> dict[str, Any]:
     normalized_bookmakers = [
         normalize_bookmaker(bookmaker)
@@ -254,34 +308,18 @@ def collect_unique_bookmakers(sports: list[dict[str, Any]]) -> int:
 
 
 def fetch_sport_odds(sport: dict[str, str], api_key: str) -> dict[str, Any]:
-    bookmakers = get_bookmakers()
-    params = urlencode(
+    payload = request_json(
+        f"{sport['key']}/odds/",
         {
             "apiKey": api_key,
             "regions": get_regions(),
-            "bookmakers": bookmakers,
+            "bookmakers": get_bookmakers(),
             "markets": ODDS_API_MARKETS,
             "oddsFormat": "american",
             "dateFormat": "iso",
-        }
+        },
+        f"{sport['title']} odds",
     )
-    request = Request(
-        f"{ODDS_API_BASE_URL}/{sport['key']}/odds?{params}",
-        headers={"User-Agent": "Shark Odds/1.0"},
-    )
-
-    try:
-        with urlopen(request, timeout=20) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except HTTPError as error:
-        body = error.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(
-            f"{sport['title']} odds request failed with {error.code}: {body}"
-        ) from error
-    except URLError as error:
-        raise RuntimeError(
-            f"{sport['title']} odds request failed: {error.reason}"
-        ) from error
 
     if not isinstance(payload, list):
         raise RuntimeError(f"{sport['title']} returned an unexpected response.")
@@ -300,11 +338,183 @@ def fetch_sport_odds(sport: dict[str, str], api_key: str) -> dict[str, Any]:
     }
 
 
+def fetch_sport_scores(sport_key: str, api_key: str) -> list[dict[str, Any]]:
+    payload = request_json(
+        f"{sport_key}/scores/",
+        {
+            "apiKey": api_key,
+            "daysFrom": get_scores_days(),
+            "dateFormat": "iso",
+        },
+        f"{sport_key} scores",
+    )
+
+    if not isinstance(payload, list):
+        raise RuntimeError(f"{sport_key} scores returned an unexpected response.")
+
+    return payload
+
+
+def find_sport(sport_key: str) -> dict[str, str]:
+    for sport in SPORTS:
+        if sport["key"] == sport_key:
+            return sport
+
+    raise HTTPException(status_code=404, detail="Sport not supported.")
+
+
+def find_score_value(scores: list[dict[str, Any]] | None, team_name: str) -> int | None:
+    if not scores:
+        return None
+
+    for score in scores:
+        if score.get("name") == team_name:
+            try:
+                return int(score.get("score"))
+            except (TypeError, ValueError):
+                return None
+
+    return None
+
+
+def build_recent_results(
+    score_games: list[dict[str, Any]], team_name: str
+) -> list[dict[str, Any]]:
+    relevant_games = [
+        game
+        for game in score_games
+        if game.get("completed")
+        and team_name in {game.get("home_team"), game.get("away_team")}
+    ]
+
+    relevant_games.sort(key=lambda game: game.get("commence_time") or "", reverse=True)
+
+    results = []
+
+    for game in relevant_games:
+        home_team = game.get("home_team")
+        away_team = game.get("away_team")
+        home_score = find_score_value(game.get("scores"), home_team)
+        away_score = find_score_value(game.get("scores"), away_team)
+
+        if home_score is None or away_score is None:
+            continue
+
+        is_home = team_name == home_team
+        opponent = away_team if is_home else home_team
+        team_score = home_score if is_home else away_score
+        opponent_score = away_score if is_home else home_score
+
+        if team_score > opponent_score:
+            result = "W"
+        elif team_score < opponent_score:
+            result = "L"
+        else:
+            result = "T"
+
+        results.append(
+            {
+                "id": game.get("id"),
+                "commence_time": game.get("commence_time"),
+                "opponent": opponent,
+                "location": "Home" if is_home else "Away",
+                "result": result,
+                "team_score": team_score,
+                "opponent_score": opponent_score,
+                "margin": team_score - opponent_score,
+                "game_total": team_score + opponent_score,
+            }
+        )
+
+        if len(results) == 5:
+            break
+
+    return results
+
+
+def summarize_recent_results(results: list[dict[str, Any]]) -> dict[str, Any]:
+    if not results:
+        return {
+            "games": 0,
+            "record": "0-0",
+            "avg_points_for": None,
+            "avg_points_against": None,
+            "avg_margin": None,
+            "avg_total": None,
+        }
+
+    wins = sum(1 for result in results if result["result"] == "W")
+    losses = sum(1 for result in results if result["result"] == "L")
+
+    return {
+        "games": len(results),
+        "record": f"{wins}-{losses}",
+        "avg_points_for": round(
+            sum(result["team_score"] for result in results) / len(results), 1
+        ),
+        "avg_points_against": round(
+            sum(result["opponent_score"] for result in results) / len(results), 1
+        ),
+        "avg_margin": round(sum(result["margin"] for result in results) / len(results), 1),
+        "avg_total": round(
+            sum(result["game_total"] for result in results) / len(results), 1
+        ),
+    }
+
+
+def build_game_detail(game: dict[str, Any], score_games: list[dict[str, Any]]) -> dict[str, Any]:
+    away_team = game["away_team"]
+    home_team = game["home_team"]
+    bookmakers = game["bookmakers"]
+
+    away_form = build_recent_results(score_games, away_team)
+    home_form = build_recent_results(score_games, home_team)
+
+    return {
+        "game": game,
+        "line_analytics": {
+            "spread_range": {
+                away_team: build_point_range(collect_points(bookmakers, "spread", away_team)),
+                home_team: build_point_range(collect_points(bookmakers, "spread", home_team)),
+            },
+            "total_range": {
+                "over": build_point_range(collect_points(bookmakers, "total", "Over")),
+                "under": build_point_range(collect_points(bookmakers, "total", "Under")),
+            },
+        },
+        "team_form": {
+            away_team: {
+                "recent_results": away_form,
+                "summary": summarize_recent_results(away_form),
+            },
+            home_team: {
+                "recent_results": home_form,
+                "summary": summarize_recent_results(home_form),
+            },
+        },
+        "verified_user_stats": {
+            "available": False,
+            "message": "Verified bettor handle, tickets, bet history, and connected sportsbook tracking require auth, linked accounts, and persistent storage.",
+            "features": [
+                "Bet handle",
+                "Total bets",
+                "History tracking",
+                "Connected sportsbook syncing",
+            ],
+        },
+        "notes": [
+            "Recent form uses the Odds API scores endpoint. The documented scores window covers up to 3 days back, so a full last-five sample may not always be available.",
+            "Public money percentages are not included in the current provider feed.",
+        ],
+    }
+
+
 @app.get("/")
 def root() -> dict[str, Any]:
     return {
         "message": "Shark Odds API is live",
         "odds_board_endpoint": "/api/odds/board",
+        "game_detail_endpoint_template": "/api/games/{sport_key}/{event_id}",
         "demo_endpoint": "/api/signals/demo",
     }
 
@@ -383,4 +593,40 @@ def odds_board() -> dict[str, Any]:
         "split_stats_note": split_stats_note,
         "errors": errors,
         "sports": sports,
+    }
+
+
+@app.get("/api/games/{sport_key}/{event_id}")
+def game_detail(sport_key: str, event_id: str) -> dict[str, Any]:
+    api_key = get_api_key()
+    if not api_key:
+        return {
+            "configured": False,
+            "generated_at": format_now(),
+            "message": "Set ODDS_API_KEY on the backend service to load game details.",
+        }
+
+    sport = find_sport(sport_key)
+
+    try:
+        sport_odds = fetch_sport_odds(sport, api_key)
+        score_games = fetch_sport_scores(sport_key, api_key)
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    game = next((item for item in sport_odds["games"] if item["id"] == event_id), None)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found.")
+
+    detail = build_game_detail(game, score_games)
+
+    return {
+        "configured": True,
+        "generated_at": format_now(),
+        "sport": {
+            "key": sport["key"],
+            "title": sport["title"],
+            "short_title": sport["short_title"],
+        },
+        **detail,
     }

@@ -1,176 +1,60 @@
-type MarketOutcome = {
-  name: string;
-  price: number | null;
-  point: number | null;
-};
+import Link from "next/link";
+import type { ReactNode } from "react";
 
-type MarketOffer = {
-  name: string;
-  best_price: number | null;
-  best_bookmakers: string[];
-  average_price: number | null;
-  book_count: number;
-  consensus_point: number | null;
-  point_frequency: number;
-};
-
-type Bookmaker = {
-  key: string;
-  title: string;
-  last_update: string | null;
-  markets: {
-    moneyline: MarketOutcome[];
-    spread: MarketOutcome[];
-    total: MarketOutcome[];
-  };
-};
-
-type GameCard = {
-  id: string;
-  commence_time: string;
-  home_team: string;
-  away_team: string;
-  bookmakers_available: number;
-  bookmakers: Bookmaker[];
-  market_stats: {
-    moneyline: MarketOffer[];
-    spread: MarketOffer[];
-    total: MarketOffer[];
-  };
-};
-
-type SportBoard = {
-  key: string;
-  title: string;
-  short_title: string;
-  game_count: number;
-  games: GameCard[];
-  error?: string;
-};
-
-type OddsBoardResponse = {
-  configured: boolean;
-  generated_at: string;
-  regions?: string;
-  bookmakers?: string;
-  message?: string;
-  sport_count?: number;
-  game_count?: number;
-  bookmaker_count?: number;
-  split_stats_supported?: boolean;
-  split_stats_note?: string;
-  errors?: string[];
-  sports: SportBoard[];
-};
-
-const BASE_URL = "https://shark-odds-1.onrender.com";
+import {
+  BASE_URL,
+  type MarketOffer,
+  type OddsBoardResponse,
+  getBestOfferText,
+  getOddsBoard,
+  formatBoardUpdatedTime,
+  formatCommenceTime,
+  summarizeBookmakers
+} from "../lib/shark-odds";
 
 export const dynamic = "force-dynamic";
 
-async function getOddsBoard(): Promise<OddsBoardResponse> {
-  const response = await fetch(`${BASE_URL}/api/odds/board`, {
-    cache: "no-store"
-  });
+type HomePageProps = {
+  searchParams?: Promise<{
+    league?: string | string[];
+  }>;
+};
 
-  if (!response.ok) {
-    throw new Error("Failed to load the multi-sport odds board.");
-  }
-
-  return response.json();
-}
-
-function formatAmericanOdds(price: number | null) {
-  if (price === null || price === undefined) {
-    return "--";
-  }
-
-  const rounded = Math.round(price);
-  return rounded > 0 ? `+${rounded}` : `${rounded}`;
-}
-
-function formatPoint(point: number | null) {
-  if (point === null || point === undefined) {
-    return "--";
-  }
-
-  return point > 0 ? `+${point}` : `${point}`;
-}
-
-function formatTimeInZone(value: string, timeZone: string, suffix: string) {
-  return `${new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone
-  }).format(new Date(value))} ${suffix}`;
-}
-
-function formatCommenceTime(value: string) {
-  try {
-    const dateLabel = new Intl.DateTimeFormat("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      timeZone: "America/New_York"
-    }).format(new Date(value));
-
-    return `${dateLabel} | ${formatTimeInZone(
-      value,
-      "America/New_York",
-      "ET"
-    )} | ${formatTimeInZone(value, "America/Chicago", "CT")} | ${formatTimeInZone(
-      value,
-      "America/Denver",
-      "MT"
-    )} | ${formatTimeInZone(value, "America/Los_Angeles", "PT")}`;
-  } catch {
-    return value;
-  }
-}
-
-function formatBoardUpdatedTime(value: string) {
-  try {
-    return `${new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      timeZone: "America/Chicago"
-    }).format(new Date(value))} CT`;
-  } catch {
-    return value;
-  }
-}
-
-function summarizeBookmakers(bookmakers: string[]) {
-  if (!bookmakers.length) {
-    return "No book";
-  }
-
-  if (bookmakers.length <= 2) {
-    return bookmakers.join(", ");
-  }
-
-  return `${bookmakers.slice(0, 2).join(", ")} +${bookmakers.length - 2} more`;
-}
-
-function statCard(label: string, value: string, accent?: string) {
+function shellCard(children: ReactNode) {
   return (
     <div
       style={{
-        background: "rgba(255, 255, 255, 0.06)",
-        border: "1px solid rgba(255, 255, 255, 0.12)",
-        borderRadius: 20,
-        padding: "20px 22px",
-        boxShadow: "0 18px 45px rgba(0, 0, 0, 0.22)",
-        backdropFilter: "blur(10px)"
+        background:
+          "linear-gradient(180deg, rgba(22, 16, 48, 0.92), rgba(10, 11, 28, 0.9))",
+        border: "1px solid rgba(102, 232, 255, 0.18)",
+        borderRadius: 28,
+        boxShadow:
+          "0 24px 60px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.04)",
+        backdropFilter: "blur(18px)"
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function statCard(label: string, value: string, accent: string) {
+  return (
+    <div
+      style={{
+        padding: 22,
+        borderRadius: 22,
+        background: "rgba(255, 255, 255, 0.04)",
+        border: "1px solid rgba(255, 255, 255, 0.08)"
       }}
     >
       <div
         style={{
-          marginBottom: 10,
-          color: accent ?? "#8ccfe8",
-          fontSize: 13,
+          color: accent,
+          fontSize: 12,
+          fontWeight: 800,
           letterSpacing: "0.14em",
+          marginBottom: 10,
           textTransform: "uppercase"
         }}
       >
@@ -178,8 +62,9 @@ function statCard(label: string, value: string, accent?: string) {
       </div>
       <div
         style={{
-          color: "#ffffff",
-          fontSize: 28,
+          color: "#fff7fb",
+          fontFamily: "var(--font-display), 'Avenir Next', sans-serif",
+          fontSize: 30,
           fontWeight: 700
         }}
       >
@@ -189,221 +74,146 @@ function statCard(label: string, value: string, accent?: string) {
   );
 }
 
-function marketSnapshot(title: string, offers: MarketOffer[]) {
+function leagueTab(
+  label: string,
+  href: string,
+  isActive: boolean,
+  count: number | string
+) {
+  return (
+    <Link
+      href={href}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "12px 16px",
+        borderRadius: 999,
+        border: isActive
+          ? "1px solid rgba(255, 76, 181, 0.52)"
+          : "1px solid rgba(255, 255, 255, 0.08)",
+        background: isActive
+          ? "linear-gradient(90deg, rgba(255, 76, 181, 0.22), rgba(73, 231, 255, 0.2))"
+          : "rgba(255, 255, 255, 0.04)",
+        color: "#fff7fb",
+        fontSize: 14,
+        fontWeight: 700,
+        letterSpacing: "0.02em",
+        textDecoration: "none"
+      }}
+    >
+      <span>{label}</span>
+      <span
+        style={{
+          padding: "3px 8px",
+          borderRadius: 999,
+          background: "rgba(8, 8, 20, 0.35)",
+          color: isActive ? "#49e7ff" : "#ffa8da",
+          fontSize: 12
+        }}
+      >
+        {count}
+      </span>
+    </Link>
+  );
+}
+
+function marketSnapshot(title: string, offers: MarketOffer[], accent: string) {
   return (
     <div
       style={{
+        padding: 16,
+        borderRadius: 18,
         background: "rgba(255, 255, 255, 0.04)",
-        border: "1px solid rgba(255, 255, 255, 0.08)",
-        borderRadius: 16,
-        padding: 16
+        border: "1px solid rgba(255, 255, 255, 0.08)"
       }}
     >
       <div
         style={{
-          color: "#7ccfe7",
-          fontSize: 12,
-          fontWeight: 700,
-          letterSpacing: "0.12em",
-          marginBottom: 12,
+          color: accent,
+          fontSize: 11,
+          fontWeight: 800,
+          letterSpacing: "0.14em",
+          marginBottom: 10,
           textTransform: "uppercase"
         }}
       >
         {title}
       </div>
-
-      {offers.length ? (
+      <div
+        style={{
+          color: "#fff7fb",
+          fontWeight: 800,
+          marginBottom: 6
+        }}
+      >
+        {getBestOfferText(offers, "No line")}
+      </div>
+      {offers[0] ? (
         <div
           style={{
-            display: "grid",
-            gap: 12
+            color: "#c5d4ff",
+            fontSize: 13,
+            lineHeight: 1.5
           }}
         >
-          {offers.map((offer) => (
-            <div
-              key={`${title}-${offer.name}`}
-              style={{
-                display: "grid",
-                gap: 6
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 12
-                }}
-              >
-                <div style={{ color: "#ffffff", fontWeight: 700 }}>{offer.name}</div>
-                <div style={{ color: "#9fe7ff", fontWeight: 700 }}>
-                  Best {formatAmericanOdds(offer.best_price)}
-                </div>
-              </div>
-
-              <div
-                style={{
-                  color: "#c4dfeb",
-                  fontSize: 13,
-                  lineHeight: 1.5
-                }}
-              >
-                Best at {summarizeBookmakers(offer.best_bookmakers)}
-              </div>
-
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 10,
-                  color: "#9cbfcd",
-                  fontSize: 12
-                }}
-              >
-                <span>{offer.book_count} books</span>
-                <span>Avg {formatAmericanOdds(offer.average_price)}</span>
-                {offer.consensus_point !== null ? (
-                  <span>
-                    Consensus {formatPoint(offer.consensus_point)} at{" "}
-                    {offer.point_frequency} books
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          ))}
+          Best at {summarizeBookmakers(offers[0].best_bookmakers)}
         </div>
       ) : (
-        <div style={{ color: "#92b3c0", fontSize: 14 }}>No line available yet.</div>
+        <div style={{ color: "#8d96b8", fontSize: 13 }}>No line available yet.</div>
       )}
     </div>
   );
 }
 
-function findOutcome(outcomes: MarketOutcome[], name: string) {
-  return outcomes.find((outcome) => outcome.name === name);
-}
-
-function formatBookmakerMarket(
-  outcomes: MarketOutcome[],
-  type: "moneyline" | "spread" | "total",
-  homeTeam: string,
-  awayTeam: string
-) {
-  if (!outcomes.length) {
-    return "No line";
-  }
-
-  if (type === "moneyline") {
-    const away = findOutcome(outcomes, awayTeam);
-    const home = findOutcome(outcomes, homeTeam);
-    return `${awayTeam} ${formatAmericanOdds(away?.price ?? null)} | ${homeTeam} ${formatAmericanOdds(home?.price ?? null)}`;
-  }
-
-  if (type === "spread") {
-    const away = findOutcome(outcomes, awayTeam);
-    const home = findOutcome(outcomes, homeTeam);
-    return `${awayTeam} ${formatPoint(away?.point ?? null)} (${formatAmericanOdds(
-      away?.price ?? null
-    )}) | ${homeTeam} ${formatPoint(home?.point ?? null)} (${formatAmericanOdds(
-      home?.price ?? null
-    )})`;
-  }
-
-  const over = findOutcome(outcomes, "Over");
-  const under = findOutcome(outcomes, "Under");
-  return `Over ${formatPoint(over?.point ?? null)} (${formatAmericanOdds(
-    over?.price ?? null
-  )}) | Under ${formatPoint(under?.point ?? null)} (${formatAmericanOdds(
-    under?.price ?? null
-  )})`;
-}
-
-function bookmakerCard(bookmaker: Bookmaker, game: GameCard) {
+function verifiedPreviewCard() {
   return (
-    <article
-      key={bookmaker.key}
+    <div
       style={{
-        background: "rgba(255, 255, 255, 0.04)",
-        border: "1px solid rgba(255, 255, 255, 0.08)",
-        borderRadius: 18,
-        padding: 16,
-        display: "grid",
-        gap: 12
+        padding: 18,
+        borderRadius: 20,
+        background:
+          "linear-gradient(135deg, rgba(255, 76, 181, 0.14), rgba(73, 231, 255, 0.12))",
+        border: "1px solid rgba(255, 255, 255, 0.1)"
       }}
     >
       <div
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12
+          color: "#ffa8da",
+          fontSize: 11,
+          fontWeight: 800,
+          letterSpacing: "0.14em",
+          marginBottom: 10,
+          textTransform: "uppercase"
         }}
       >
-        <div style={{ color: "#ffffff", fontWeight: 800, fontSize: 16 }}>
-          {bookmaker.title}
-        </div>
-        <div
-          style={{
-            color: "#88b4c7",
-            fontSize: 11,
-            textTransform: "uppercase",
-            letterSpacing: "0.08em"
-          }}
-        >
-          Sportsbook
-        </div>
+        Verified Bettor Mode
       </div>
-
       <div
         style={{
-          display: "grid",
-          gap: 10,
-          color: "#d7edf6",
-          fontSize: 13,
-          lineHeight: 1.5
+          color: "#fff7fb",
+          fontSize: 18,
+          fontWeight: 800,
+          marginBottom: 8
         }}
       >
-        <div>
-          <div style={{ color: "#7ccfe7", marginBottom: 4 }}>Moneyline</div>
-          <div>
-            {formatBookmakerMarket(
-              bookmaker.markets.moneyline,
-              "moneyline",
-              game.home_team,
-              game.away_team
-            )}
-          </div>
-        </div>
-
-        <div>
-          <div style={{ color: "#7ccfe7", marginBottom: 4 }}>Spread</div>
-          <div>
-            {formatBookmakerMarket(
-              bookmaker.markets.spread,
-              "spread",
-              game.home_team,
-              game.away_team
-            )}
-          </div>
-        </div>
-
-        <div>
-          <div style={{ color: "#7ccfe7", marginBottom: 4 }}>Total</div>
-          <div>
-            {formatBookmakerMarket(
-              bookmaker.markets.total,
-              "total",
-              game.home_team,
-              game.away_team
-            )}
-          </div>
-        </div>
+        Handle, tickets, history, and connected-book tracking
       </div>
-    </article>
+      <div
+        style={{
+          color: "#d9d3ff",
+          fontSize: 14,
+          lineHeight: 1.6
+        }}
+      >
+        The UI is designed for it, but the live app still needs auth, linked
+        sportsbook accounts, and storage before those stats can be verified.
+      </div>
+    </div>
   );
 }
 
-export default async function HomePage() {
+export default async function HomePage({ searchParams }: HomePageProps) {
   let board: OddsBoardResponse | null = null;
   let loadError = "";
 
@@ -414,182 +224,215 @@ export default async function HomePage() {
       error instanceof Error ? error.message : "Unable to load live odds.";
   }
 
+  const resolvedParams = (await searchParams) ?? {};
+  const leagueParam = Array.isArray(resolvedParams.league)
+    ? resolvedParams.league[0]
+    : resolvedParams.league;
+
   const sports = board?.sports ?? [];
   const totalGames = sports.reduce((count, sport) => count + sport.game_count, 0);
+  const selectedLeague =
+    leagueParam && sports.some((sport) => sport.key === leagueParam)
+      ? leagueParam
+      : "all";
+  const filteredSports =
+    selectedLeague === "all"
+      ? sports
+      : sports.filter((sport) => sport.key === selectedLeague);
 
   return (
     <main
       style={{
         minHeight: "100vh",
-        padding: "32px 20px 60px"
+        padding: "28px 18px 64px"
       }}
     >
       <section
         style={{
           width: "100%",
-          maxWidth: 1320,
+          maxWidth: 1380,
           margin: "0 auto",
           display: "grid",
           gap: 24
         }}
       >
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-            gap: 24
-          }}
-        >
-          <div
-            style={{
-              background: "rgba(255, 255, 255, 0.07)",
-              border: "1px solid rgba(255, 255, 255, 0.12)",
-              borderRadius: 28,
-              padding: 32,
-              boxShadow: "0 24px 60px rgba(0, 0, 0, 0.28)",
-              backdropFilter: "blur(14px)"
-            }}
-          >
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "8px 12px",
-                borderRadius: 999,
-                background: "rgba(28, 194, 255, 0.14)",
-                border: "1px solid rgba(28, 194, 255, 0.24)",
-                color: "#9fe7ff",
-                fontSize: 13,
-                fontWeight: 600
-              }}
-            >
-              Live Sportsbook Board
-            </div>
-
-            <h1
-              style={{
-                margin: "18px 0 14px",
-                fontSize: "clamp(2.3rem, 5vw, 4.8rem)",
-                lineHeight: 1,
-                letterSpacing: "-0.04em"
-              }}
-            >
-              Shark Odds
-            </h1>
-
-            <p
-              style={{
-                margin: 0,
-                maxWidth: 720,
-                color: "#c8e6f2",
-                fontSize: 18,
-                lineHeight: 1.7
-              }}
-            >
-              Compare NCAA men&apos;s basketball, NBA, MLB, and NHL lines across
-              the main U.S. books, with DraftKings, FanDuel, and BetMGM pushed to
-              the front and consensus stats layered on top.
-            </p>
-
-            <div
-              style={{
-                marginTop: 28,
-                padding: 24,
-                borderRadius: 24,
-                background: "linear-gradient(135deg, #0e2433, #13384e)",
-                border: "1px solid rgba(159, 231, 255, 0.16)"
-              }}
-            >
-              <div
-                style={{
-                  marginBottom: 10,
-                  color: "#7ccfe7",
-                  fontSize: 12,
-                  letterSpacing: "0.16em",
-                  textTransform: "uppercase"
-                }}
-              >
-                Board Status
-              </div>
-
-              <div
-                style={{
-                  color: "#ffffff",
-                  fontSize: "clamp(1.4rem, 3vw, 2.3rem)",
-                  fontWeight: 800
-                }}
-              >
-                {board?.configured
-                  ? `${totalGames} games, ${board.bookmaker_count ?? 0} books`
-                  : "Backend needs one odds API key"}
-              </div>
-
-              <p
-                style={{
-                  margin: "12px 0 0",
-                  color: "#d5eef8",
-                  lineHeight: 1.7
-                }}
-              >
-                {loadError
-                  ? `${loadError} Render apps sometimes need a few seconds to wake up.`
-                  : board?.configured
-                    ? `Updated ${formatBoardUpdatedTime(board.generated_at)} from ${BASE_URL}/api/odds/board using curated U.S. books: ${board.bookmakers ?? "draftkings,fanduel,betmgm"}.`
-                    : board?.message ??
-                      "Live odds will appear here once the backend is configured."}
-              </p>
-            </div>
-          </div>
-
+        {shellCard(
           <div
             style={{
               display: "grid",
-              gap: 18
+              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+              gap: 22,
+              padding: 28
             }}
           >
-            {statCard("Leagues", `${sports.length || 4}`)}
-            {statCard("Games", `${totalGames}`)}
-            {statCard("Sportsbooks", `${board?.bookmaker_count ?? 0}`)}
-            {statCard("Priority", "DK / FD / MGM")}
-            {statCard(
-              "Split Data",
-              board?.split_stats_supported ? "Live" : "Not Wired",
-              board?.split_stats_supported ? "#9fe7ff" : "#ffd7a8"
-            )}
+            <div>
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "8px 12px",
+                  borderRadius: 999,
+                  background: "rgba(255, 76, 181, 0.14)",
+                  border: "1px solid rgba(255, 76, 181, 0.24)",
+                  color: "#ffc1e8",
+                  fontSize: 12,
+                  fontWeight: 800,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase"
+                }}
+              >
+                Miami Vice Board
+              </div>
+
+              <h1
+                style={{
+                  margin: "18px 0 12px",
+                  color: "#fff7fb",
+                  fontFamily: "var(--font-display), 'Avenir Next', sans-serif",
+                  fontSize: "clamp(2.7rem, 6vw, 5.4rem)",
+                  lineHeight: 0.95,
+                  letterSpacing: "-0.05em"
+                }}
+              >
+                Shark Odds
+              </h1>
+
+              <p
+                style={{
+                  margin: 0,
+                  maxWidth: 760,
+                  color: "#d9d3ff",
+                  fontSize: 18,
+                  lineHeight: 1.7
+                }}
+              >
+                A stats-lover&apos;s dream board for NCAA men&apos;s basketball, NBA,
+                MLB, and NHL. Sort by league, skim the clean card view, then click
+                into any game for deeper betting analytics.
+              </p>
+
+              <div
+                style={{
+                  marginTop: 22,
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 12
+                }}
+              >
+                {leagueTab("All Leagues", "/", selectedLeague === "all", totalGames)}
+                {sports.map((sport) => (
+                  <span key={sport.key}>
+                    {leagueTab(
+                      sport.short_title,
+                      `/?league=${sport.key}`,
+                      selectedLeague === sport.key,
+                      sport.game_count
+                    )}
+                  </span>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  marginTop: 24,
+                  padding: 20,
+                  borderRadius: 22,
+                  background:
+                    "linear-gradient(135deg, rgba(73, 231, 255, 0.18), rgba(255, 76, 181, 0.16))",
+                  border: "1px solid rgba(255, 255, 255, 0.1)"
+                }}
+              >
+                <div
+                  style={{
+                    color: "#49e7ff",
+                    fontSize: 12,
+                    fontWeight: 800,
+                    letterSpacing: "0.16em",
+                    marginBottom: 8,
+                    textTransform: "uppercase"
+                  }}
+                >
+                  Live Status
+                </div>
+
+                <div
+                  style={{
+                    color: "#fff7fb",
+                    fontFamily: "var(--font-display), 'Avenir Next', sans-serif",
+                    fontSize: "clamp(1.3rem, 3vw, 2.25rem)",
+                    fontWeight: 700
+                  }}
+                >
+                  {board?.configured
+                    ? `${totalGames} live and upcoming games from ${board.bookmaker_count ?? 0} U.S. books`
+                    : "Backend setup still needed"}
+                </div>
+
+                <p
+                  style={{
+                    margin: "10px 0 0",
+                    color: "#ebe8ff",
+                    lineHeight: 1.6
+                  }}
+                >
+                  {loadError
+                    ? `${loadError} Render apps sometimes need a few seconds to wake up.`
+                    : board?.configured
+                      ? `Updated ${formatBoardUpdatedTime(board.generated_at)} from ${BASE_URL}/api/odds/board using ${board.bookmakers ?? "draftkings,fanduel,betmgm"}.`
+                      : board?.message ??
+                        "Live odds will appear here once the backend is configured."}
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gap: 16
+              }}
+            >
+              {statCard("Leagues", `${sports.length || 4}`, "#49e7ff")}
+              {statCard("Games", `${totalGames}`, "#ff76c1")}
+              {statCard(
+                "Sportsbooks",
+                `${board?.bookmaker_count ?? 0}`,
+                "#ffd28f"
+              )}
+              {statCard("Priority Books", "DK / FD / MGM", "#9ff7b8")}
+            </div>
           </div>
-        </div>
+        )}
 
         {board?.split_stats_note ? (
-          <div
-            style={{
-              background: "rgba(255, 191, 122, 0.1)",
-              border: "1px solid rgba(255, 191, 122, 0.22)",
-              borderRadius: 20,
-              padding: 18,
-              color: "#ffe1bb",
-              lineHeight: 1.6
-            }}
-          >
-            {board.split_stats_note}
-          </div>
+          shellCard(
+            <div
+              style={{
+                padding: 20,
+                color: "#ffd9a7",
+                lineHeight: 1.6
+              }}
+            >
+              {board.split_stats_note}
+            </div>
+          )
         ) : null}
 
         {board?.errors?.length ? (
-          <div
-            style={{
-              background: "rgba(255, 154, 122, 0.1)",
-              border: "1px solid rgba(255, 154, 122, 0.22)",
-              borderRadius: 20,
-              padding: 18,
-              color: "#ffd7cb",
-              lineHeight: 1.6
-            }}
-          >
-            Some sports could not load right now:
-            <div style={{ marginTop: 8 }}>{board.errors.join(" | ")}</div>
-          </div>
+          shellCard(
+            <div
+              style={{
+                padding: 20,
+                color: "#ffc3db",
+                lineHeight: 1.6
+              }}
+            >
+              Some sports could not load right now: {board.errors.join(" | ")}
+            </div>
+          )
         ) : null}
+
+        {verifiedPreviewCard()}
 
         <div
           style={{
@@ -597,201 +440,226 @@ export default async function HomePage() {
             gap: 24
           }}
         >
-          {sports.map((sport) => (
-            <section
-              key={sport.key}
-              style={{
-                background: "rgba(255, 255, 255, 0.05)",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                borderRadius: 26,
-                padding: 24
-              }}
-            >
-              <div
+          {filteredSports.map((sport) => (
+            <div key={sport.key}>
+              {shellCard(
+                <section
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 12,
-                  flexWrap: "wrap",
-                  marginBottom: 18
+                  padding: 24
                 }}
               >
-                <div>
-                  <div
-                    style={{
-                      color: "#9fe7ff",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      letterSpacing: "0.14em",
-                      textTransform: "uppercase",
-                      marginBottom: 6
-                    }}
-                  >
-                    {sport.short_title}
-                  </div>
-                  <h2
-                    style={{
-                      margin: 0,
-                      color: "#ffffff",
-                      fontSize: 30
-                    }}
-                  >
-                    {sport.title}
-                  </h2>
-                </div>
-
                 <div
                   style={{
-                    color: "#c5e4ef",
-                    fontSize: 15
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    flexWrap: "wrap",
+                    marginBottom: 18
                   }}
                 >
-                  {sport.game_count} games
-                </div>
-              </div>
-
-              {sport.error ? (
-                <div
-                  style={{
-                    color: "#ffd7cb",
-                    background: "rgba(255, 154, 122, 0.08)",
-                    border: "1px solid rgba(255, 154, 122, 0.2)",
-                    borderRadius: 16,
-                    padding: 16
-                  }}
-                >
-                  {sport.error}
-                </div>
-              ) : null}
-
-              {!sport.error && !sport.games.length ? (
-                <div
-                  style={{
-                    color: "#9abecb",
-                    background: "rgba(255, 255, 255, 0.03)",
-                    borderRadius: 16,
-                    padding: 18
-                  }}
-                >
-                  No games are available for this league right now.
-                </div>
-              ) : null}
-
-              {!!sport.games.length ? (
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-                    gap: 18
-                  }}
-                >
-                  {sport.games.map((game) => (
-                    <article
-                      key={game.id}
+                  <div>
+                    <div
                       style={{
-                        background: "rgba(8, 20, 29, 0.78)",
-                        border: "1px solid rgba(255, 255, 255, 0.08)",
-                        borderRadius: 22,
-                        padding: 18,
-                        display: "grid",
-                        gap: 16
+                        color: "#49e7ff",
+                        fontSize: 12,
+                        fontWeight: 800,
+                        letterSpacing: "0.14em",
+                        marginBottom: 6,
+                        textTransform: "uppercase"
                       }}
                     >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "flex-start",
-                          justifyContent: "space-between",
-                          gap: 12
-                        }}
-                      >
-                        <div>
-                          <div
-                            style={{
-                              color: "#9fe7ff",
-                              fontSize: 12,
-                              fontWeight: 700,
-                              letterSpacing: "0.12em",
-                              textTransform: "uppercase",
-                              marginBottom: 8
-                            }}
-                          >
-                            {formatCommenceTime(game.commence_time)}
-                          </div>
-                          <div
-                            style={{
-                              color: "#ffffff",
-                              fontSize: 21,
-                              fontWeight: 800,
-                              lineHeight: 1.25
-                            }}
-                          >
-                            {game.away_team} at {game.home_team}
-                          </div>
-                        </div>
+                      {sport.short_title}
+                    </div>
+                    <h2
+                      style={{
+                        margin: 0,
+                        color: "#fff7fb",
+                        fontFamily: "var(--font-display), 'Avenir Next', sans-serif",
+                        fontSize: "clamp(1.8rem, 4vw, 2.6rem)"
+                      }}
+                    >
+                      {sport.title}
+                    </h2>
+                  </div>
 
-                        <div
-                          style={{
-                            color: "#95b7c6",
-                            fontSize: 13,
-                            textAlign: "right"
-                          }}
-                        >
-                          <div>{game.bookmakers_available} books</div>
-                          <div>All listed</div>
-                        </div>
-                      </div>
+                  <div
+                    style={{
+                      color: "#d9d3ff",
+                      fontSize: 15
+                    }}
+                  >
+                    {sport.game_count} games
+                  </div>
+                </div>
 
-                      <div
+                {sport.error ? (
+                  <div
+                    style={{
+                      borderRadius: 18,
+                      padding: 18,
+                      background: "rgba(255, 76, 181, 0.08)",
+                      border: "1px solid rgba(255, 76, 181, 0.18)",
+                      color: "#ffc3db"
+                    }}
+                  >
+                    {sport.error}
+                  </div>
+                ) : null}
+
+                {!sport.error && !sport.games.length ? (
+                  <div
+                    style={{
+                      borderRadius: 18,
+                      padding: 18,
+                      background: "rgba(255, 255, 255, 0.04)",
+                      color: "#b7b9d9"
+                    }}
+                  >
+                    No games are available for this league right now.
+                  </div>
+                ) : null}
+
+                {!!sport.games.length ? (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(310px, 1fr))",
+                      gap: 18
+                    }}
+                  >
+                    {sport.games.map((game) => (
+                      <article
+                        key={game.id}
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                          gap: 12
+                          gap: 16,
+                          padding: 18,
+                          borderRadius: 22,
+                          background:
+                            "linear-gradient(180deg, rgba(17, 15, 36, 0.94), rgba(12, 10, 28, 0.9))",
+                          border: "1px solid rgba(255, 255, 255, 0.08)"
                         }}
                       >
-                        {marketSnapshot("Moneyline", game.market_stats.moneyline)}
-                        {marketSnapshot("Spread", game.market_stats.spread)}
-                        {marketSnapshot("Total", game.market_stats.total)}
-                      </div>
-
-                      <details
-                        style={{
-                          background: "rgba(255, 255, 255, 0.03)",
-                          border: "1px solid rgba(255, 255, 255, 0.08)",
-                          borderRadius: 18,
-                          padding: 16
-                        }}
-                      >
-                        <summary
+                        <div
                           style={{
-                            cursor: "pointer",
-                            color: "#ffffff",
-                            fontWeight: 700
+                            display: "flex",
+                            alignItems: "flex-start",
+                            justifyContent: "space-between",
+                            gap: 12
                           }}
                         >
-                          Compare U.S. sportsbooks for this game
-                        </summary>
+                          <div>
+                            <div
+                              style={{
+                                color: "#ff76c1",
+                                fontSize: 11,
+                                fontWeight: 800,
+                                letterSpacing: "0.14em",
+                                marginBottom: 8,
+                                textTransform: "uppercase"
+                              }}
+                            >
+                              {formatCommenceTime(game.commence_time)}
+                            </div>
+                            <div
+                              style={{
+                                color: "#fff7fb",
+                                fontFamily:
+                                  "var(--font-display), 'Avenir Next', sans-serif",
+                                fontSize: 24,
+                                fontWeight: 700,
+                                lineHeight: 1.15
+                              }}
+                            >
+                              {game.away_team}
+                              <br />
+                              at {game.home_team}
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              color: "#b9c8f0",
+                              fontSize: 13,
+                              textAlign: "right"
+                            }}
+                          >
+                            <div>{game.bookmakers_available} books</div>
+                            <div>Tap for deep dive</div>
+                          </div>
+                        </div>
 
                         <div
                           style={{
                             display: "grid",
-                            gridTemplateColumns:
-                              "repeat(auto-fit, minmax(240px, 1fr))",
-                            gap: 14,
-                            marginTop: 16
+                            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                            gap: 12
                           }}
                         >
-                          {game.bookmakers.map((bookmaker) =>
-                            bookmakerCard(bookmaker, game)
+                          {marketSnapshot(
+                            "Moneyline",
+                            game.market_stats.moneyline,
+                            "#49e7ff"
+                          )}
+                          {marketSnapshot(
+                            "Spread",
+                            game.market_stats.spread,
+                            "#ff76c1"
+                          )}
+                          {marketSnapshot(
+                            "Total",
+                            game.market_stats.total,
+                            "#ffd28f"
                           )}
                         </div>
-                      </details>
-                    </article>
-                  ))}
-                </div>
-              ) : null}
-            </section>
+
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 12,
+                            flexWrap: "wrap"
+                          }}
+                        >
+                          <div
+                            style={{
+                              color: "#d9d3ff",
+                              fontSize: 13,
+                              lineHeight: 1.6
+                            }}
+                          >
+                            Game page adds line ranges, recent form, book-by-book
+                            markets, and the verified-user tracking shell.
+                          </div>
+
+                          <Link
+                            href={`/games/${sport.key}/${game.id}`}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              padding: "12px 16px",
+                              borderRadius: 14,
+                              background:
+                                "linear-gradient(90deg, #49e7ff 0%, #ff4cb5 100%)",
+                              color: "#12091f",
+                              fontSize: 14,
+                              fontWeight: 800,
+                              textDecoration: "none"
+                            }}
+                          >
+                            Open analytics
+                          </Link>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+                </section>
+              )}
+            </div>
           ))}
         </div>
       </section>
