@@ -1,0 +1,57 @@
+import type { ReactNode } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import { brandKit } from "@/lib/brand/brand-kit";
+
+const titles: Record<string, { title: string; subtitle: string }> = {
+  "/": {
+    title: "Odds Board",
+    subtitle: "Scan pregame markets, compare books, and surface where price matters."
+  },
+  "/props": {
+    title: "Props Explorer",
+    subtitle: "Filter player markets, compare price, and log the best entry fast."
+  },
+  "/bets": {
+    title: "Bet Tracker",
+    subtitle: "Track wagers manually with a future-ready path to sportsbook sync."
+  },
+  "/performance": {
+    title: "Performance",
+    subtitle: "Review what is working, where the leaks are, and how the portfolio is trending."
+  },
+  "/trends": {
+    title: "Trends Builder",
+    subtitle: "Preview the coming query engine for situational angles and repeatable edges."
+  }
+};
+
+type HeaderProps = {
+  pathname: string;
+  toggleMobileNav?: ReactNode;
+};
+
+export function Header({ pathname, toggleMobileNav }: HeaderProps) {
+  const active = titles[pathname] ?? titles["/"];
+
+  return (
+    <header className="sticky top-0 z-20 border-b border-line/80 bg-slate-950/85 px-4 py-4 backdrop-blur xl:px-8">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          {toggleMobileNav}
+          <div>
+            <div className="font-display text-2xl font-semibold tracking-tight text-white">
+              {active.title}
+            </div>
+            <p className="mt-1 text-sm text-slate-400">{active.subtitle}</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Badge tone="premium">{brandKit.headerBadges.premium}</Badge>
+          <Badge tone="brand">{brandKit.headerBadges.brand}</Badge>
+        </div>
+      </div>
+    </header>
+  );
+}

@@ -1,0 +1,314 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SportCode {
+  BASKETBALL
+  BASEBALL
+  HOCKEY
+  FOOTBALL
+  OTHER
+}
+
+enum GameStatus {
+  PREGAME
+  LIVE
+  FINAL
+  POSTPONED
+}
+
+enum MarketType {
+  spread
+  moneyline
+  total
+  player_points
+  player_rebounds
+  player_assists
+  player_threes
+}
+
+enum PlayerStatus {
+  ACTIVE
+  QUESTIONABLE
+  DOUBTFUL
+  OUT
+}
+
+enum BetResult {
+  OPEN
+  WIN
+  LOSS
+  PUSH
+  VOID
+}
+
+model League {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  name      String
+  sport     SportCode
+  teams     Team[]
+  players   Player[]
+  games     Game[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sport, key])
+  @@map("leagues")
+}
+
+model Team {
+  id            String         @id @default(cuid())
+  leagueId      String
+  league        League         @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  name          String
+  abbreviation  String
+  externalIds   Json
+  players       Player[]
+  homeGames     Game[]         @relation("HomeTeam")
+  awayGames     Game[]         @relation("AwayTeam")
+  teamGameStats TeamGameStat[]
+  injuries      Injury[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([leagueId, abbreviation])
+  @@map("teams")
+}
+
+model Player {
+  id              String           @id @default(cuid())
+  leagueId        String
+  teamId          String
+  league          League           @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  team            Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  name            String
+  position        String
+  externalIds     Json
+  status          PlayerStatus     @default(ACTIVE)
+  markets         Market[]
+  playerGameStats PlayerGameStat[]
+  injuries        Injury[]
+  bets            Bet[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([leagueId, teamId])
+  @@index([name])
+  @@map("players")
+}
+
+model Game {
+  id             String           @id @default(cuid())
+  leagueId       String
+  league         League           @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  externalEventId String          @unique
+  startTime      DateTime
+  homeTeamId     String
+  awayTeamId     String
+  homeTeam       Team             @relation("HomeTeam", fields: [homeTeamId], references: [id], onDelete: Restrict)
+  awayTeam       Team             @relation("AwayTeam", fields: [awayTeamId], references: [id], onDelete: Restrict)
+  status         GameStatus       @default(PREGAME)
+  venue          String?
+  scoreJson      Json?
+  liveStateJson  Json?
+  markets        Market[]
+  playerGameStats PlayerGameStat[]
+  teamGameStats  TeamGameStat[]
+  injuries       Injury[]
+  bets           Bet[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([leagueId, startTime])
+  @@index([status, startTime])
+  @@map("games")
+}
+
+model Sportsbook {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  name      String
+  region    String
+  markets   Market[]
+  bets      Bet[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([region, key])
+  @@map("sportsbooks")
+}
+
+model Market {
+  id                 String           @id @default(cuid())
+  gameId             String
+  sportsbookId       String
+  marketType         MarketType
+  period             String
+  side               String
+  playerId           String?
+  line               Float?
+  oddsAmerican       Int
+  oddsDecimal        Float
+  impliedProbability Float
+  isLive             Boolean          @default(false)
+  updatedAt          DateTime
+  createdAt          DateTime         @default(now())
+  game               Game             @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  sportsbook         Sportsbook       @relation(fields: [sportsbookId], references: [id], onDelete: Cascade)
+  player             Player?          @relation(fields: [playerId], references: [id], onDelete: SetNull)
+  snapshots          MarketSnapshot[]
+
+  @@index([gameId, marketType, sportsbookId])
+  @@index([playerId, marketType])
+  @@index([updatedAt])
+  @@map("markets")
+}
+
+model MarketSnapshot {
+  id                 String   @id @default(cuid())
+  marketId           String
+  capturedAt         DateTime
+  line               Float?
+  oddsAmerican       Int
+  impliedProbability Float
+  market             Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  @@index([marketId, capturedAt])
+  @@map("market_snapshots")
+}
+
+model PlayerGameStat {
+  id            String   @id @default(cuid())
+  gameId        String
+  playerId      String
+  statsJson     Json
+  minutes       Float?
+  starter       Boolean  @default(false)
+  outcomeStatus String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  game          Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  player        Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, playerId])
+  @@index([playerId, gameId])
+  @@map("player_game_stats")
+}
+
+model TeamGameStat {
+  id        String   @id @default(cuid())
+  gameId    String
+  teamId    String
+  statsJson Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  game      Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, teamId])
+  @@index([teamId, gameId])
+  @@map("team_game_stats")
+}
+
+model Injury {
+  id         String        @id @default(cuid())
+  playerId   String?
+  teamId     String?
+  gameId     String?
+  status     PlayerStatus
+  source     String
+  reportedAt DateTime
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  player     Player?       @relation(fields: [playerId], references: [id], onDelete: SetNull)
+  team       Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  game       Game?         @relation(fields: [gameId], references: [id], onDelete: SetNull)
+
+  @@index([gameId, status])
+  @@index([teamId, reportedAt])
+  @@map("injuries")
+}
+
+model User {
+  id                   String       @id @default(cuid())
+  email                String?      @unique
+  username             String?      @unique
+  bankrollSettingsJson Json?
+  bets                 Bet[]
+  savedTrends          SavedTrend[]
+  trendRuns            TrendRun[]
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@map("users")
+}
+
+model Bet {
+  id           String      @id @default(cuid())
+  userId       String?
+  placedAt     DateTime
+  sport        SportCode
+  league       String
+  gameId       String?
+  playerId     String?
+  marketType   MarketType
+  side         String
+  line         Float?
+  oddsAmerican Int
+  sportsbookId String
+  stake        Float
+  toWin        Float
+  result       BetResult   @default(OPEN)
+  closingLine  Float?
+  clvValue     Float?
+  notes        String?
+  tagsJson     Json?
+  isLive       Boolean     @default(false)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  user         User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  game         Game?       @relation(fields: [gameId], references: [id], onDelete: SetNull)
+  player       Player?     @relation(fields: [playerId], references: [id], onDelete: SetNull)
+  sportsbook   Sportsbook  @relation(fields: [sportsbookId], references: [id], onDelete: Restrict)
+
+  @@index([placedAt, result])
+  @@index([sport, marketType])
+  @@index([sportsbookId, result])
+  @@map("bets")
+}
+
+model SavedTrend {
+  id        String      @id @default(cuid())
+  userId    String
+  name      String
+  sport     SportCode
+  queryJson Json
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trendRuns TrendRun[]
+
+  @@index([userId, sport])
+  @@map("saved_trends")
+}
+
+model TrendRun {
+  id           String      @id @default(cuid())
+  savedTrendId String?
+  userId       String?
+  queryJson    Json
+  resultJson   Json
+  createdAt    DateTime    @default(now())
+  savedTrend   SavedTrend? @relation(fields: [savedTrendId], references: [id], onDelete: SetNull)
+  user         User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([savedTrendId, createdAt])
+  @@map("trend_runs")
+}
