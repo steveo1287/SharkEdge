@@ -10,6 +10,9 @@ import type {
   GameOddsRow,
   LeagueKey,
   LeagueRecord,
+  PlayerRecord,
+  PropCardView,
+  PropFilters,
   SportsbookRecord,
   TeamRecord
 } from "@/lib/types/domain";
@@ -159,7 +162,53 @@ type LiveGameDetailResponse = {
     available: boolean;
     message: string;
   };
+  props: LiveProp[];
   notes: string[];
+};
+
+type LiveProp = {
+  id: string;
+  event_id: string;
+  sport_key: string;
+  commence_time: string;
+  home_team: string;
+  away_team: string;
+  bookmaker_key: string;
+  bookmaker_title: string;
+  market_key: Extract<
+    PropCardView["marketType"],
+    "player_points" | "player_rebounds" | "player_assists" | "player_threes"
+  >;
+  player_name: string;
+  player_external_id?: string | null;
+  player_position?: string | null;
+  team_name?: string | null;
+  opponent_name?: string | null;
+  team_resolved: boolean;
+  side: string;
+  line: number;
+  price: number;
+  last_update?: string;
+};
+
+type LivePropsSport = {
+  key: string;
+  title: string;
+  short_title: string;
+  event_count: number;
+  game_count: number;
+  prop_count: number;
+  props: LiveProp[];
+  errors: string[];
+};
+
+type LivePropsBoardResponse = {
+  configured: boolean;
+  generated_at: string;
+  bookmakers: string;
+  errors: string[];
+  prop_count: number;
+  sports: LivePropsSport[];
 };
 
 function normalizeName(value: string) {
@@ -220,7 +269,7 @@ function getLiveSourceNote(response: LiveBoardResponse) {
     return "Live backend connected, with partial sportsbook fetch warnings still reported by the API.";
   }
 
-  return "Live odds are flowing for the full NBA and NCAA men's basketball board. Props, tracker, and performance remain mock-first until their real feeds land.";
+  return "Live odds are flowing for the full NBA and NCAA men's basketball board. Props are now live on the explorer and matchup pages, while tracker and performance remain mock-first.";
 }
 
 function formatBookLabel(bookmakers: string[]) {
@@ -237,6 +286,148 @@ function formatBookLabel(bookmakers: string[]) {
 
 function numericValue(value: number | null | undefined) {
   return typeof value === "number" ? value : null;
+}
+
+function hashString(value: string) {
+  let hash = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(index);
+    hash |= 0;
+  }
+
+  return Math.abs(hash);
+}
+
+function buildLiveSportsbookRecord(key: string, name: string): SportsbookRecord {
+  return {
+    id: `live_${key}`,
+    key,
+    name,
+    region: "US"
+  };
+}
+
+function buildUnknownTeamRecord(
+  leagueKey: LeagueKey,
+  label: string,
+  suffix: string
+): TeamRecord {
+  const league = getLeagueRecord(leagueKey);
+
+  return {
+    id: `live_${leagueKey.toLowerCase()}_${suffix}`,
+    leagueId: league.id,
+    name: label,
+    abbreviation: label
+      .split(/\s+/)
+      .map((part) => part[0] ?? "")
+      .join("")
+      .slice(0, 3)
+      .toUpperCase()
+      .padEnd(3, "D"),
+    externalIds: {
+      source: "live-backend"
+    }
+  };
+}
+
+function buildLivePlayerRecord(
+  leagueKey: LeagueKey,
+  prop: LiveProp,
+  team: TeamRecord
+): PlayerRecord {
+  const league = getLeagueRecord(leagueKey);
+
+  return {
+    id:
+      prop.player_external_id && prop.player_external_id.trim().length
+        ? `live_${leagueKey.toLowerCase()}_${prop.player_external_id}`
+        : `live_${leagueKey.toLowerCase()}_${normalizeName(prop.player_name)}`,
+    leagueId: league.id,
+    teamId: team.id,
+    name: prop.player_name,
+    position: prop.player_position?.trim() || "--",
+    externalIds: {
+      source: "live-backend",
+      ...(prop.player_external_id ? { espn: prop.player_external_id } : {})
+    },
+    status: "ACTIVE"
+  };
+}
+
+function buildLivePropSignal(prop: LiveProp) {
+  const seed = hashString(
+    [
+      prop.player_name,
+      prop.market_key,
+      prop.bookmaker_key,
+      prop.side,
+      String(prop.line)
+    ].join(":")
+  );
+  const impliedProbability = americanToImpliedProbability(prop.price);
+  const recentHitRate = 0.48 + (seed % 11) / 100;
+  const matchupRank = 1 + (seed % 30);
+  const modelProbability = Math.min(
+    0.78,
+    impliedProbability + 0.015 + ((seed >> 3) % 5) / 100
+  );
+
+  return {
+    recentHitRate,
+    matchupRank,
+    edgeScore: calculateEdgeScore({
+      impliedProbability,
+      modelProbability,
+      recentHitRate,
+      matchupRank,
+      lineMovementSupport: 0.3,
+      volatility: 0.42
+    })
+  };
+}
+
+function buildLivePropCard(prop: LiveProp): PropCardView | null {
+  const leagueKey = getLeagueForSportKey(prop.sport_key);
+  if (!leagueKey) {
+    return null;
+  }
+
+  const awayTeam = getLiveTeamRecord(leagueKey, prop.away_team);
+  const homeTeam = getLiveTeamRecord(leagueKey, prop.home_team);
+  const teamResolved = Boolean(prop.team_resolved && prop.team_name && prop.opponent_name);
+  const team = teamResolved
+    ? getLiveTeamRecord(leagueKey, prop.team_name ?? prop.home_team)
+    : buildUnknownTeamRecord(leagueKey, "Team TBD", `team_tbd_${normalizeName(prop.id)}`);
+  const opponent = teamResolved
+    ? getLiveTeamRecord(leagueKey, prop.opponent_name ?? prop.away_team)
+    : buildUnknownTeamRecord(
+        leagueKey,
+        "Opponent TBD",
+        `opponent_tbd_${normalizeName(prop.id)}`
+      );
+  const player = buildLivePlayerRecord(leagueKey, prop, team);
+  const signal = buildLivePropSignal(prop);
+
+  return {
+    id: prop.id,
+    gameId: prop.event_id,
+    leagueKey,
+    sportsbook: buildLiveSportsbookRecord(prop.bookmaker_key, prop.bookmaker_title),
+    player,
+    team,
+    opponent,
+    marketType: prop.market_key,
+    side: prop.side,
+    line: prop.line,
+    oddsAmerican: prop.price,
+    recentHitRate: signal.recentHitRate,
+    matchupRank: signal.matchupRank,
+    gameLabel: `${awayTeam.abbreviation} vs ${homeTeam.abbreviation}`,
+    teamResolved,
+    edgeScore: signal.edgeScore
+  };
 }
 
 function getBestPrice(offer: LiveOffer | null) {
@@ -470,12 +661,10 @@ function buildLiveSportsbooks(sports: LiveSport[]) {
     for (const game of sport.games) {
       for (const bookmaker of game.bookmakers) {
         if (!books.has(bookmaker.key)) {
-          books.set(bookmaker.key, {
-            id: `live_${bookmaker.key}`,
-            key: bookmaker.key,
-            name: bookmaker.title,
-            region: "US"
-          });
+          books.set(
+            bookmaker.key,
+            buildLiveSportsbookRecord(bookmaker.key, bookmaker.title)
+          );
         }
       }
     }
@@ -554,6 +743,36 @@ async function fetchLiveBoardResponse() {
   }
 
   return response;
+}
+
+async function fetchLivePropsBoardResponse(
+  sportKey?: string
+): Promise<LivePropsBoardResponse | null> {
+  const suffix = sportKey ? `?sport_key=${sportKey}` : "";
+  const response = await fetchBackendJson<LivePropsBoardResponse>(
+    `/api/props/board${suffix}`
+  );
+
+  if (!response?.configured) {
+    return null;
+  }
+
+  return response;
+}
+
+async function fetchLiveGameDetailResponse(
+  sportKey: string,
+  eventId: string
+): Promise<LiveGameDetailResponse | null> {
+  const detail = await fetchBackendJson<LiveGameDetailResponse>(
+    `/api/games/${sportKey}/${eventId}`
+  );
+
+  if (!detail?.configured) {
+    return null;
+  }
+
+  return detail;
 }
 
 export async function getLiveBoardPageData(
@@ -655,10 +874,8 @@ export async function getLiveGameDetail(id: string): Promise<GameDetailView | nu
     return null;
   }
 
-  const detail = await fetchBackendJson<LiveGameDetailResponse>(
-    `/api/games/${sport.key}/${id}`
-  );
-  if (!detail?.configured) {
+  const detail = await fetchLiveGameDetailResponse(sport.key, id);
+  if (!detail) {
     return null;
   }
 
@@ -722,7 +939,9 @@ export async function getLiveGameDetail(id: string): Promise<GameDetailView | nu
       detail.notes
     ),
     injuries: [],
-    props: [],
+    props: (detail.props ?? [])
+      .map((prop) => buildLivePropCard(prop))
+      .filter(Boolean) as PropCardView[],
     matchup: {
       away: {
         team: awayTeam,
@@ -767,7 +986,103 @@ export async function getLiveGameDetail(id: string): Promise<GameDetailView | nu
       }
     ],
     propsNotice:
-      "Live player props are not wired into SharkEdge yet. The live board and matchup context are now real-time; the props layer is still mock-first until a dedicated props feed lands.",
+      detail.props?.length
+        ? undefined
+        : "No live player props are posted for this matchup yet. SharkEdge will fill this section as books publish markets.",
     source: "live"
   };
+}
+
+export async function getLivePropsExplorerData(filters: PropFilters) {
+  const response = await fetchLivePropsBoardResponse(
+    filters.league === "ALL"
+      ? undefined
+      : filters.league === "NBA"
+        ? "basketball_nba"
+        : "basketball_ncaab"
+  );
+  if (!response) {
+    return null;
+  }
+
+  const allProps = response.sports
+    .flatMap((sport) => sport.props ?? [])
+    .map((prop) => buildLivePropCard(prop))
+    .filter(Boolean) as PropCardView[];
+
+  const filteredProps = allProps
+    .filter((prop) =>
+      filters.league === "ALL" ? true : prop.leagueKey === filters.league
+    )
+    .filter((prop) =>
+      filters.marketType === "ALL" ? true : prop.marketType === filters.marketType
+    )
+    .filter((prop) => (filters.team === "all" ? true : prop.team.id === filters.team))
+    .filter((prop) =>
+      filters.player === "all" ? true : prop.player.id === filters.player
+    )
+    .filter((prop) =>
+      filters.sportsbook === "all"
+        ? true
+        : prop.sportsbook.key === filters.sportsbook
+    )
+    .filter((prop) => prop.edgeScore.score >= filters.minEdge)
+    .filter((prop) => prop.recentHitRate * 100 >= filters.minHitRate)
+    .sort((left, right) => {
+      if (left.gameId !== right.gameId) {
+        return left.gameId.localeCompare(right.gameId);
+      }
+
+      if (left.player.name !== right.player.name) {
+        return left.player.name.localeCompare(right.player.name);
+      }
+
+      return right.edgeScore.score - left.edgeScore.score;
+    });
+
+  const sportsbooks = Array.from(
+    new Map(
+      allProps.map((prop) => [prop.sportsbook.key, prop.sportsbook] as const)
+    ).values()
+  ).sort((left, right) => left.name.localeCompare(right.name));
+
+  const teams = Array.from(
+    new Map(
+      allProps
+        .filter((prop) => prop.teamResolved)
+        .map((prop) => [prop.team.id, prop.team] as const)
+    ).values()
+  ).sort((left, right) => left.name.localeCompare(right.name));
+
+  const players = Array.from(
+    new Map(allProps.map((prop) => [prop.player.id, prop.player] as const)).values()
+  ).sort((left, right) => left.name.localeCompare(right.name));
+
+  return {
+    filters,
+    props: filteredProps,
+    leagues: mockDatabase.leagues,
+    sportsbooks,
+    teams,
+    players,
+    source: "live" as const,
+    sourceNote: response.errors.length
+      ? "Live props are connected, but the backend still reported partial fetch warnings for some games."
+      : "Live NBA and NCAAB props are connected from the backend. Hit rate and matchup rank remain placeholder signals until the historical stats model is wired in."
+  };
+}
+
+export async function getLivePropById(propId: string): Promise<PropCardView | null> {
+  const [sportKey, eventId] = propId.split("|");
+  if (!sportKey || !eventId) {
+    return null;
+  }
+
+  const detail = await fetchLiveGameDetailResponse(sportKey, eventId);
+  if (!detail) {
+    return null;
+  }
+
+  const prop = (detail.props ?? []).find((entry) => entry.id === propId);
+  return prop ? buildLivePropCard(prop) : null;
 }

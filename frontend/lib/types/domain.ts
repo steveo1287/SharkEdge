@@ -353,6 +353,8 @@ export type PropCardView = {
   oddsAmerican: number;
   recentHitRate: number;
   matchupRank: number;
+  gameLabel?: string;
+  teamResolved?: boolean;
   edgeScore: {
     score: number;
     label: EdgeBand;

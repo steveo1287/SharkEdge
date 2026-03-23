@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from difflib import get_close_matches
 from functools import lru_cache
 from pathlib import Path
+from time import monotonic
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -130,6 +131,16 @@ PLAYER_LEADER_BLUEPRINTS = [
     {"key": "avgBlocks", "label": "BPG"},
     {"key": "avgRebounds", "label": "RPG"},
 ]
+PLAYER_PROP_MARKETS = [
+    ("player_points", "Points"),
+    ("player_rebounds", "Rebounds"),
+    ("player_assists", "Assists"),
+    ("player_threes", "3PM"),
+]
+PLAYER_PROP_MARKET_KEYS = [market_key for market_key, _ in PLAYER_PROP_MARKETS]
+PLAYER_PROP_MARKET_SET = set(PLAYER_PROP_MARKET_KEYS)
+BASKETBALL_PROP_SPORT_KEYS = {"basketball_nba", "basketball_ncaab"}
+REQUEST_CACHE: dict[str, tuple[float, Any]] = {}
 
 
 def get_api_key() -> str:
@@ -154,6 +165,30 @@ def get_scores_days() -> int:
         return max(1, min(3, int(raw_value)))
     except ValueError:
         return 3
+
+
+def get_props_markets() -> str:
+    configured = os.getenv("ODDS_API_PROP_MARKETS", "").strip()
+    if configured:
+        return configured
+
+    return ",".join(PLAYER_PROP_MARKET_KEYS)
+
+
+def get_props_cache_seconds() -> int:
+    raw_value = os.getenv("ODDS_API_PROPS_CACHE_SECONDS", "90").strip()
+    try:
+        return max(15, min(300, int(raw_value)))
+    except ValueError:
+        return 90
+
+
+def get_props_workers() -> int:
+    raw_value = os.getenv("ODDS_API_PROPS_WORKERS", "4").strip()
+    try:
+        return max(1, min(8, int(raw_value)))
+    except ValueError:
+        return 4
 
 
 def format_now() -> str:
@@ -187,6 +222,33 @@ def request_json_with_base(
 
 def request_json(path: str, params: dict[str, Any], title: str) -> Any:
     return request_json_with_base(ODDS_API_BASE_URL, path, params, title)
+
+
+def build_request_cache_key(
+    base_url: str, path: str, params: dict[str, Any]
+) -> str:
+    query = urlencode(
+        sorted(
+            (key, value)
+            for key, value in params.items()
+            if value is not None
+        )
+    )
+    return f"{base_url}/{path}?{query}"
+
+
+def request_json_cached(
+    base_url: str, path: str, params: dict[str, Any], title: str
+) -> Any:
+    cache_key = build_request_cache_key(base_url, path, params)
+    now = monotonic()
+    cached = REQUEST_CACHE.get(cache_key)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    payload = request_json_with_base(base_url, path, params, title)
+    REQUEST_CACHE[cache_key] = (now + get_props_cache_seconds(), payload)
+    return payload
 
 
 def serialize_market(market: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -417,6 +479,23 @@ def fetch_sport_odds(sport: dict[str, str], api_key: str) -> dict[str, Any]:
     }
 
 
+def fetch_sport_events(sport_key: str, api_key: str) -> list[dict[str, Any]]:
+    payload = request_json_cached(
+        ODDS_API_BASE_URL,
+        f"{sport_key}/events/",
+        {
+            "apiKey": api_key,
+            "dateFormat": "iso",
+        },
+        f"{sport_key} events",
+    )
+
+    if not isinstance(payload, list):
+        raise RuntimeError(f"{sport_key} events returned an unexpected response.")
+
+    return sorted(payload, key=lambda event: event.get("commence_time") or "")
+
+
 def fetch_sport_scores(sport_key: str, api_key: str) -> list[dict[str, Any]]:
     payload = request_json(
         f"{sport_key}/scores/",
@@ -464,6 +543,22 @@ def build_team_aliases(team: dict[str, Any]) -> set[str]:
     }
 
     return {candidate for candidate in candidates if candidate}
+
+
+def normalize_person_name(name: str | None) -> str:
+    if not name:
+        return ""
+
+    normalized = str(name).lower()
+    normalized = normalized.replace("&", " and ")
+    normalized = normalized.replace(".", "")
+    normalized = normalized.replace("'", "")
+    normalized = re.sub(r"[^a-z0-9]+", "", normalized)
+    return normalized
+
+
+def strip_name_suffix(normalized_name: str) -> str:
+    return re.sub(r"(jr|sr|ii|iii|iv|v)$", "", normalized_name)
 
 
 def get_espn_sport_config(sport_key: str) -> dict[str, Any] | None:
@@ -558,6 +653,147 @@ def fetch_espn_team_schedule(sport_key: str, team_id: str) -> dict[str, Any]:
         )
 
     return payload
+
+
+@lru_cache(maxsize=256)
+def fetch_espn_team_roster(sport_key: str, team_id: str) -> dict[str, Any]:
+    config = get_espn_sport_config(sport_key)
+    if not config:
+        raise RuntimeError("ESPN team rosters are not configured for this sport.")
+
+    payload = request_json_cached(
+        ESPN_SITE_BASE_URL,
+        f"{config['site']}/teams/{team_id}/roster",
+        {},
+        f"{sport_key} ESPN team roster",
+    )
+
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{sport_key} ESPN team roster returned an unexpected response.")
+
+    return payload
+
+
+def build_player_aliases(athlete: dict[str, Any]) -> set[str]:
+    first_name = athlete.get("firstName")
+    last_name = athlete.get("lastName")
+    candidates = {
+        athlete.get("fullName"),
+        athlete.get("displayName"),
+        athlete.get("shortName"),
+        f"{first_name} {last_name}" if first_name and last_name else None,
+    }
+
+    return {candidate for candidate in candidates if candidate}
+
+
+def build_team_roster_index(
+    sport_key: str, team_name: str
+) -> dict[str, dict[str, Any] | None]:
+    matched_team = find_espn_team(sport_key, team_name)
+    if not matched_team:
+        return {}
+
+    try:
+        roster_payload = fetch_espn_team_roster(sport_key, matched_team["id"])
+    except RuntimeError:
+        return {}
+
+    athletes = roster_payload.get("athletes", [])
+    if not isinstance(athletes, list):
+        return {}
+
+    lookup: dict[str, dict[str, Any] | None] = {}
+    for athlete in athletes:
+        entry = {
+            "team_name": team_name,
+            "team_id": matched_team["id"],
+            "player_id": str(athlete.get("id")) if athlete.get("id") else None,
+            "position": athlete.get("position", {}).get("abbreviation"),
+        }
+
+        for alias in build_player_aliases(athlete):
+            normalized = normalize_person_name(alias)
+            if not normalized:
+                continue
+
+            for key in {normalized, strip_name_suffix(normalized)}:
+                if not key:
+                    continue
+
+                existing = lookup.get(key)
+                if existing and existing.get("team_id") != entry["team_id"]:
+                    lookup[key] = None
+                elif existing is None and key in lookup:
+                    continue
+                else:
+                    lookup[key] = entry
+
+    return lookup
+
+
+def build_event_player_index(
+    sport_key: str,
+    away_team: str,
+    home_team: str,
+) -> dict[str, dict[str, Any] | None]:
+    away_index = build_team_roster_index(sport_key, away_team)
+    home_index = build_team_roster_index(sport_key, home_team)
+
+    player_index: dict[str, dict[str, Any] | None] = {}
+    for source in (away_index, home_index):
+        for alias, entry in source.items():
+            existing = player_index.get(alias)
+            if existing and entry and existing.get("team_id") != entry.get("team_id"):
+                player_index[alias] = None
+            elif alias not in player_index:
+                player_index[alias] = entry
+
+    return player_index
+
+
+def resolve_prop_player_context(
+    player_index: dict[str, dict[str, Any] | None],
+    player_name: str,
+    away_team: str,
+    home_team: str,
+) -> dict[str, Any]:
+    normalized = normalize_person_name(player_name)
+    candidates = [normalized, strip_name_suffix(normalized)]
+
+    entry = None
+    for candidate in candidates:
+        if candidate and player_index.get(candidate):
+            entry = player_index[candidate]
+            break
+
+    if entry is None:
+        searchable_keys = [
+            key for key, value in player_index.items() if value is not None
+        ]
+        close = get_close_matches(normalized, searchable_keys, n=1, cutoff=0.92)
+        if close:
+            entry = player_index.get(close[0])
+
+    if not entry:
+        return {
+            "team_name": None,
+            "opponent_name": None,
+            "player_id": None,
+            "position": None,
+            "resolved": False,
+        }
+
+    team_name = entry.get("team_name")
+    opponent_name = home_team if team_name == away_team else away_team
+
+    return {
+        "team_name": team_name,
+        "opponent_name": opponent_name,
+        "player_id": entry.get("player_id"),
+        "position": entry.get("position"),
+        "resolved": True,
+    }
 
 
 def flatten_espn_stat_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -999,8 +1235,244 @@ def build_player_leader_block(
     }
 
 
+def build_live_prop_id(
+    sport_key: str,
+    event_id: str,
+    bookmaker_key: str,
+    market_key: str,
+    player_name: str,
+    side: str,
+    point: float | int | None,
+) -> str:
+    point_key = "na" if point is None else str(point).replace("+", "")
+    return "|".join(
+        [
+            sport_key,
+            event_id,
+            bookmaker_key,
+            market_key,
+            normalize_person_name(player_name),
+            normalize_person_name(side),
+            point_key,
+        ]
+    )
+
+
+def normalize_prop_outcome(
+    sport_key: str,
+    event_payload: dict[str, Any],
+    bookmaker: dict[str, Any],
+    market: dict[str, Any],
+    outcome: dict[str, Any],
+    player_index: dict[str, dict[str, Any] | None],
+) -> dict[str, Any] | None:
+    player_name = outcome.get("description")
+    side = outcome.get("name")
+    point = outcome.get("point")
+    price = outcome.get("price")
+
+    if (
+        not player_name
+        or not side
+        or not isinstance(point, (int, float))
+        or not isinstance(price, (int, float))
+    ):
+        return None
+
+    away_team = event_payload.get("away_team")
+    home_team = event_payload.get("home_team")
+    if not away_team or not home_team:
+        return None
+
+    player_context = resolve_prop_player_context(
+        player_index,
+        str(player_name),
+        str(away_team),
+        str(home_team),
+    )
+    bookmaker_key = bookmaker.get("key")
+    market_key = market.get("key")
+    if not bookmaker_key or not market_key:
+        return None
+
+    return {
+        "id": build_live_prop_id(
+            sport_key,
+            str(event_payload.get("id")),
+            str(bookmaker_key),
+            str(market_key),
+            str(player_name),
+            str(side),
+            point,
+        ),
+        "event_id": event_payload.get("id"),
+        "sport_key": sport_key,
+        "commence_time": event_payload.get("commence_time"),
+        "home_team": home_team,
+        "away_team": away_team,
+        "bookmaker_key": bookmaker_key,
+        "bookmaker_title": bookmaker.get("title"),
+        "market_key": market_key,
+        "player_name": player_name,
+        "player_external_id": player_context["player_id"],
+        "player_position": player_context["position"],
+        "team_name": player_context["team_name"],
+        "opponent_name": player_context["opponent_name"],
+        "team_resolved": player_context["resolved"],
+        "side": str(side).upper(),
+        "line": float(point),
+        "price": int(price),
+        "last_update": market.get("last_update"),
+    }
+
+
+def build_props_from_event_payload(
+    sport_key: str, event_payload: dict[str, Any]
+) -> list[dict[str, Any]]:
+    away_team = event_payload.get("away_team")
+    home_team = event_payload.get("home_team")
+    if not away_team or not home_team:
+        return []
+
+    player_index = build_event_player_index(
+        sport_key,
+        str(away_team),
+        str(home_team),
+    )
+    props = []
+
+    for bookmaker in sort_bookmakers(event_payload.get("bookmakers", [])):
+        markets = bookmaker.get("markets", [])
+        for market in markets:
+            if market.get("key") not in PLAYER_PROP_MARKET_SET:
+                continue
+
+            for outcome in market.get("outcomes", []):
+                normalized = normalize_prop_outcome(
+                    sport_key,
+                    event_payload,
+                    bookmaker,
+                    market,
+                    outcome,
+                    player_index,
+                )
+                if normalized:
+                    props.append(normalized)
+
+    market_order = {
+        market_key: index for index, market_key in enumerate(PLAYER_PROP_MARKET_KEYS)
+    }
+
+    props.sort(
+        key=lambda prop: (
+            prop.get("commence_time") or "",
+            prop.get("player_name") or "",
+            market_order.get(prop.get("market_key"), 999),
+            prop.get("bookmaker_title") or "",
+            0 if prop.get("side") == "OVER" else 1,
+            prop.get("line") or 0,
+        )
+    )
+    return props
+
+
+def fetch_game_props(
+    sport_key: str,
+    event_id: str,
+    api_key: str,
+) -> list[dict[str, Any]]:
+    if sport_key not in BASKETBALL_PROP_SPORT_KEYS:
+        return []
+
+    payload = request_json_cached(
+        ODDS_API_BASE_URL,
+        f"{sport_key}/events/{event_id}/odds/",
+        {
+            "apiKey": api_key,
+            "regions": get_regions(),
+            "bookmakers": get_bookmakers(),
+            "markets": get_props_markets(),
+            "oddsFormat": "american",
+            "dateFormat": "iso",
+        },
+        f"{sport_key} props",
+    )
+
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{sport_key} props returned an unexpected response.")
+
+    return build_props_from_event_payload(sport_key, payload)
+
+
+def fetch_sport_prop_board(
+    sport: dict[str, str],
+    api_key: str,
+) -> dict[str, Any]:
+    events = fetch_sport_events(sport["key"], api_key)
+    prop_games: list[dict[str, Any]] = []
+    props: list[dict[str, Any]] = []
+    errors: list[str] = []
+
+    if not events:
+        return {
+            "key": sport["key"],
+            "title": sport["title"],
+            "short_title": sport["short_title"],
+            "event_count": 0,
+            "game_count": 0,
+            "prop_count": 0,
+            "games": [],
+            "errors": [],
+        }
+
+    max_workers = min(get_props_workers(), len(events))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_event = {
+            executor.submit(fetch_game_props, sport["key"], str(event.get("id")), api_key): event
+            for event in events
+            if event.get("id")
+        }
+
+        for future, event in future_to_event.items():
+            try:
+                game_props = future.result()
+            except Exception as error:
+                message = f"{sport['short_title']} {event.get('away_team')} @ {event.get('home_team')}: {error}"
+                errors.append(message)
+                continue
+
+            if not game_props:
+                continue
+
+            prop_games.append(
+                {
+                    "event_id": event.get("id"),
+                    "commence_time": event.get("commence_time"),
+                    "home_team": event.get("home_team"),
+                    "away_team": event.get("away_team"),
+                    "prop_count": len(game_props),
+                }
+            )
+            props.extend(game_props)
+
+    return {
+        "key": sport["key"],
+        "title": sport["title"],
+        "short_title": sport["short_title"],
+        "event_count": len(events),
+        "game_count": len(prop_games),
+        "prop_count": len(props),
+        "games": sorted(prop_games, key=lambda game: game.get("commence_time") or ""),
+        "props": props,
+        "errors": errors,
+    }
+
+
 def build_game_detail(
-    sport_key: str, game: dict[str, Any], score_games: list[dict[str, Any]]
+    sport_key: str,
+    game: dict[str, Any],
+    score_games: list[dict[str, Any]],
+    props: list[dict[str, Any]],
 ) -> dict[str, Any]:
     away_team = game["away_team"]
     home_team = game["home_team"]
@@ -1041,6 +1513,7 @@ def build_game_detail(
             home_team: home_context["stats"],
         },
         "player_leaders": player_leaders,
+        "props": props,
         "verified_user_stats": {
             "available": False,
             "message": "Verified bettor handle, tickets, bet history, and connected sportsbook tracking require auth, linked accounts, and persistent storage.",
@@ -1064,6 +1537,7 @@ def root() -> dict[str, Any]:
     return {
         "message": "Shark Odds API is live",
         "odds_board_endpoint": "/api/odds/board",
+        "props_board_endpoint": "/api/props/board",
         "game_detail_endpoint_template": "/api/games/{sport_key}/{event_id}",
         "demo_endpoint": "/api/signals/demo",
     }
@@ -1146,6 +1620,83 @@ def odds_board() -> dict[str, Any]:
     }
 
 
+@app.get("/api/props/board")
+def props_board(sport_key: str | None = None) -> dict[str, Any]:
+    api_key = get_api_key()
+    bookmakers = get_bookmakers()
+    regions = get_regions()
+
+    if not api_key:
+        return {
+            "configured": False,
+            "generated_at": format_now(),
+            "regions": regions,
+            "bookmakers": bookmakers,
+            "markets": get_props_markets(),
+            "message": "Set ODDS_API_KEY on the backend service to load live props.",
+            "prop_count": 0,
+            "sports": [],
+        }
+
+    sports = [
+        sport
+        for sport in SPORTS
+        if sport["key"] in BASKETBALL_PROP_SPORT_KEYS
+        and (sport_key is None or sport["key"] == sport_key)
+    ]
+
+    if not sports:
+        raise HTTPException(status_code=404, detail="Props are only supported for NBA and NCAAB.")
+
+    responses: list[dict[str, Any]] = []
+    errors: list[str] = []
+
+    with ThreadPoolExecutor(max_workers=len(sports)) as executor:
+        future_to_sport = {
+            executor.submit(fetch_sport_prop_board, sport, api_key): sport
+            for sport in sports
+        }
+
+        for future, sport in future_to_sport.items():
+            try:
+                response = future.result()
+                responses.append(response)
+                errors.extend(response.get("errors", []))
+            except Exception as error:
+                errors.append(str(error))
+                responses.append(
+                    {
+                        "key": sport["key"],
+                        "title": sport["title"],
+                        "short_title": sport["short_title"],
+                        "event_count": 0,
+                        "game_count": 0,
+                        "prop_count": 0,
+                        "games": [],
+                        "props": [],
+                        "errors": [str(error)],
+                    }
+                )
+
+    responses.sort(key=lambda item: SPORT_ORDER.get(item["key"], 999))
+
+    return {
+        "configured": True,
+        "generated_at": format_now(),
+        "regions": regions,
+        "bookmakers": bookmakers,
+        "markets": get_props_markets(),
+        "sport_count": len(responses),
+        "game_count": sum(item["game_count"] for item in responses),
+        "prop_count": sum(item["prop_count"] for item in responses),
+        "resolution_note": (
+            "Player-to-team mapping is resolved from ESPN rosters when Shark Odds can map both teams cleanly."
+        ),
+        "errors": errors,
+        "sports": responses,
+    }
+
+
 @app.get("/api/games/{sport_key}/{event_id}")
 def game_detail(sport_key: str, event_id: str) -> dict[str, Any]:
     api_key = get_api_key()
@@ -1168,7 +1719,12 @@ def game_detail(sport_key: str, event_id: str) -> dict[str, Any]:
     if not game:
         raise HTTPException(status_code=404, detail="Game not found.")
 
-    detail = build_game_detail(sport_key, game, score_games)
+    try:
+        game_props = fetch_game_props(sport_key, event_id, api_key)
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    detail = build_game_detail(sport_key, game, score_games, game_props)
 
     return {
         "configured": True,

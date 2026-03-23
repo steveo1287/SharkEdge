@@ -11,7 +11,7 @@ type PageProps = {
 export default async function PropsPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
   const filters = parsePropsFilters(resolved);
-  const data = getPropsExplorerData(filters);
+  const data = await getPropsExplorerData(filters);
 
   return (
     <div className="grid gap-6">
@@ -19,6 +19,10 @@ export default async function PropsPage({ searchParams }: PageProps) {
         title="Props Explorer"
         description="Filter player markets across NBA and NCAAB without losing the board context."
       />
+
+      <Card className="p-4 text-sm leading-7 text-slate-400">
+        {data.sourceNote}
+      </Card>
 
       <Card className="p-4">
         <form className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">

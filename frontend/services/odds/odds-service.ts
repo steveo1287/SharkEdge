@@ -16,7 +16,12 @@ import type {
 } from "@/lib/types/domain";
 import { mockDatabase } from "@/prisma/seed-data";
 import { getLeagueSnapshots, getTeamStatComparison } from "@/services/stats/stats-service";
-import { getLiveBoardPageData, getLiveGameDetail } from "@/services/odds/live-odds";
+import {
+  getLiveBoardPageData,
+  getLiveGameDetail,
+  getLivePropById,
+  getLivePropsExplorerData
+} from "@/services/odds/live-odds";
 
 // TODO: Replace mockDatabase reads with bookmaker ingestion + Prisma-backed queries.
 
@@ -282,7 +287,7 @@ function buildOddsRow(game: GameRecord, sportsbook: SportsbookRecord) {
   } satisfies GameOddsRow;
 }
 
-function buildPropCard(angleId: string) {
+function buildPropCard(angleId: string): PropCardView | null {
   const angle = mockDatabase.propAngles.find((entry) => entry.id === angleId);
   if (!angle) {
     return null;
@@ -355,7 +360,7 @@ export function parsePropsFilters(searchParams: Record<string, string | string[]
   }) satisfies PropFilters;
 }
 
-export function getPropsExplorerData(filters: PropFilters) {
+function getMockPropsExplorerData(filters: PropFilters) {
   const props = mockDatabase.propAngles
     .map((angle) => buildPropCard(angle.id))
     .filter(Boolean)
@@ -373,11 +378,28 @@ export function getPropsExplorerData(filters: PropFilters) {
     leagues: mockDatabase.leagues,
     sportsbooks: mockDatabase.sportsbooks,
     teams: mockDatabase.teams,
-    players: mockDatabase.players
+    players: mockDatabase.players,
+    source: "mock" as const,
+    sourceNote:
+      "Showing the seeded SharkEdge props fallback. Connect the live backend to replace these rows with current player markets."
   };
 }
 
-export function getPropById(propId: string) {
+export async function getPropsExplorerData(filters: PropFilters) {
+  const liveData = await getLivePropsExplorerData(filters);
+  if (liveData) {
+    return liveData;
+  }
+
+  return getMockPropsExplorerData(filters);
+}
+
+export async function getPropById(propId: string): Promise<PropCardView | null> {
+  const liveProp = await getLivePropById(propId);
+  if (liveProp) {
+    return liveProp;
+  }
+
   return buildPropCard(propId);
 }
 

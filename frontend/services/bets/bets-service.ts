@@ -122,15 +122,21 @@ export function getBetTrackerData(filters: BetFilters) {
   };
 }
 
-export function getBetPrefill(selection: string | undefined) {
+export async function getBetPrefill(selection: string | undefined) {
   if (!selection) {
     return null;
   }
 
-  const prop = getPropById(selection);
+  const prop = await getPropById(selection);
   if (!prop) {
     return null;
   }
+
+  const sportsbookId =
+    bookMap.get(prop.sportsbook.id)?.id ??
+    mockDatabase.sportsbooks.find((book) => book.key === prop.sportsbook.key)?.id ??
+    mockDatabase.sportsbooks[0]?.id ??
+    "book_dk";
 
   return {
     date: new Date().toISOString().slice(0, 16),
@@ -140,9 +146,9 @@ export function getBetPrefill(selection: string | undefined) {
     side: prop.side,
     line: prop.line,
     oddsAmerican: prop.oddsAmerican,
-    sportsbookId: prop.sportsbook.id,
+    sportsbookId,
     stake: 1,
-    notes: `Pulled from ${prop.player.name} ${prop.marketType.replace("player_", "")}.`,
+    notes: `Pulled from ${prop.player.name} ${prop.marketType.replace("player_", "")} for ${prop.gameLabel ?? `${prop.team.abbreviation} vs ${prop.opponent.abbreviation}`}.`,
     tags: "quick-log,props",
     gameId: prop.gameId,
     playerId: prop.player.id
@@ -155,12 +161,20 @@ export function describePendingBet(input: BetFormInput) {
     if (player) {
       return `${player.name} ${formatMarketType(input.marketType)}`;
     }
+
+    if (input.notes.trim()) {
+      return input.notes.split(".")[0] ?? input.notes.trim();
+    }
   }
 
   if (input.gameId) {
     const game = gameMap.get(input.gameId);
     if (game) {
       return `${teamMap.get(game.awayTeamId)?.abbreviation} @ ${teamMap.get(game.homeTeamId)?.abbreviation}`;
+    }
+
+    if (input.notes.trim()) {
+      return input.notes.split(".")[0] ?? input.notes.trim();
     }
   }
 

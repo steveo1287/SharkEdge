@@ -15,9 +15,11 @@ export function PropsTable({ props }: PropsTableProps) {
       rows={props.map((prop) => [
         <div key={`${prop.id}-player`}>
           <div className="font-medium text-white">{prop.player.name}</div>
-          <div className="text-xs text-slate-500">{prop.team.abbreviation}</div>
+          <div className="text-xs text-slate-500">
+            {prop.teamResolved ? prop.team.abbreviation : "Team TBD"}
+          </div>
         </div>,
-        `${prop.team.abbreviation} vs ${prop.opponent.abbreviation}`,
+        prop.gameLabel ?? `${prop.team.abbreviation} vs ${prop.opponent.abbreviation}`,
         `${formatMarketType(prop.marketType)} ${prop.side}`,
         `${prop.line} | ${formatAmericanOdds(prop.oddsAmerican)}`,
         prop.sportsbook.name,

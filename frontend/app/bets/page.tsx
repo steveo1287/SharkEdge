@@ -11,7 +11,7 @@ export default async function BetsPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
   const filters = parseBetFilters(resolved);
   const selection = Array.isArray(resolved.selection) ? resolved.selection[0] : resolved.selection;
-  const prefill = getBetPrefill(selection);
+  const prefill = await getBetPrefill(selection);
   const data = getBetTrackerData(filters);
 
   return (

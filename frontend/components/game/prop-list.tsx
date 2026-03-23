@@ -31,13 +31,14 @@ export function PropList({ props, emptyMessage }: PropListProps) {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                {prop.team.abbreviation} vs {prop.opponent.abbreviation}
+                {prop.gameLabel ?? `${prop.team.abbreviation} vs ${prop.opponent.abbreviation}`}
               </div>
               <div className="mt-2 font-display text-2xl font-semibold text-white">
                 {prop.player.name}
               </div>
               <div className="mt-1 text-sm text-slate-400">
                 {formatMarketType(prop.marketType)} | {prop.side} {prop.line} | {prop.sportsbook.name}
+                {!prop.teamResolved ? " | Team pending" : ""}
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
