@@ -29,7 +29,7 @@ export function BoardFilterBar({
           defaultValue={defaults.league}
           className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
         >
-          <option value="ALL">All leagues</option>
+          <option value="ALL">NBA + NCAAB</option>
           {leagues.map((league) => (
             <option key={league.id} value={league.key}>
               {league.key}

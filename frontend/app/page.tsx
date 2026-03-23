@@ -16,6 +16,11 @@ export default async function HomePage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
   const filters = parseBoardFilters(resolved);
   const data = await getBoardPageData(filters);
+  const gamesByLeague = data.games.reduce<Record<string, typeof data.games>>((groups, game) => {
+    groups[game.leagueKey] = [...(groups[game.leagueKey] ?? []), game];
+    return groups;
+  }, {});
+  const leagueOrder = filters.league === "ALL" ? ["NCAAB", "NBA"] : [filters.league];
 
   return (
     <div className="grid gap-6">
@@ -23,7 +28,7 @@ export default async function HomePage({ searchParams }: PageProps) {
         title="Pregame market board"
         description={
           data.source === "live"
-            ? "Live pregame pricing is flowing into SharkEdge now. Use it to scan books and context faster, not to promise guaranteed winners."
+            ? "Live pregame pricing is flowing in for the full NBA and NCAA men's basketball slate. Use it to scan books and context faster, not to promise guaranteed winners."
             : "A sharp, premium read on current NBA and NCAAB pricing, with standings and previous results layered in for context."
         }
       />
@@ -57,10 +62,22 @@ export default async function HomePage({ searchParams }: PageProps) {
       ) : null}
 
       {data.games.length ? (
-        <div className="grid gap-4 2xl:grid-cols-2">
-          {data.games.map((game) => (
-            <GameCard key={game.id} game={game} focusMarket={filters.market} />
-          ))}
+        <div className="grid gap-6">
+          {leagueOrder.map((leagueKey) =>
+            gamesByLeague[leagueKey]?.length ? (
+              <section key={leagueKey} className="grid gap-4">
+                <SectionTitle
+                  title={`${leagueKey} Slate`}
+                  description={`${gamesByLeague[leagueKey].length} current games on the board.`}
+                />
+                <div className="grid gap-4 2xl:grid-cols-2">
+                  {gamesByLeague[leagueKey].map((game) => (
+                    <GameCard key={game.id} game={game} focusMarket={filters.market} />
+                  ))}
+                </div>
+              </section>
+            ) : null
+          )}
         </div>
       ) : (
         <EmptyState

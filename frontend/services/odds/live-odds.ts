@@ -220,7 +220,7 @@ function getLiveSourceNote(response: LiveBoardResponse) {
     return "Live backend connected, with partial sportsbook fetch warnings still reported by the API.";
   }
 
-  return "Live odds are flowing from the Shark Odds backend. Props, tracker, and performance remain mock-first until their real feeds land.";
+  return "Live odds are flowing for the full NBA and NCAA men's basketball board. Props, tracker, and performance remain mock-first until their real feeds land.";
 }
 
 function formatBookLabel(bookmakers: string[]) {
