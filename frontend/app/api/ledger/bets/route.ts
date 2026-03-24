@@ -2,6 +2,16 @@ import { NextResponse } from "next/server";
 
 import { createBet, getBetTrackerData, parseBetFilters } from "@/services/bets/bets-service";
 
+function getStatusCode(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+
+  if (/database|prisma|migration/i.test(message)) {
+    return 503;
+  }
+
+  return 500;
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -25,7 +35,7 @@ export async function GET(request: Request) {
         error: error instanceof Error ? error.message : "Failed to load bet ledger."
       },
       {
-        status: 500
+        status: getStatusCode(error)
       }
     );
   }
@@ -45,7 +55,7 @@ export async function POST(request: Request) {
         error: error instanceof Error ? error.message : "Failed to create bet."
       },
       {
-        status: 400
+        status: getStatusCode(error)
       }
     );
   }

@@ -2,6 +2,16 @@ import { NextResponse } from "next/server";
 
 import { archiveBet, deleteBet, updateBet } from "@/services/bets/bets-service";
 
+function getStatusCode(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+
+  if (/database|prisma|migration/i.test(message)) {
+    return 503;
+  }
+
+  return 400;
+}
+
 type RouteContext = {
   params: Promise<{
     id: string;
@@ -30,7 +40,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         error: error instanceof Error ? error.message : "Failed to update bet."
       },
       {
-        status: 400
+        status: getStatusCode(error)
       }
     );
   }
@@ -50,7 +60,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
         error: error instanceof Error ? error.message : "Failed to delete bet."
       },
       {
-        status: 400
+        status: getStatusCode(error)
       }
     );
   }

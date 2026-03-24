@@ -13,13 +13,13 @@ export const brandKit = {
     "sportsbook comparison"
   ],
   headerBadges: {
-    premium: "Elite shell",
-    brand: "Mock data"
+    premium: "Phase 1.5",
+    brand: "Live ledger"
   },
   sidebarNote: {
-    title: "Elite Standard",
+    title: "Multi-Sport Core",
     body:
-      "Built for disciplined bettors: sharp pricing first, quieter chrome second, and clean seams for real odds, stats, and account sync."
+      "Persisted bets, live sweat context, and a normalized event model now power NBA, NCAAB, MLB, NHL, NFL, NCAAF, UFC, and boxing without pretending every event is team-vs-team."
   },
   palette: {
     ink: "#04070d",

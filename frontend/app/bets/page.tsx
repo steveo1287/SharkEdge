@@ -107,6 +107,7 @@ export default async function BetsPage({ searchParams }: PageProps) {
         sportsbooks={data.sportsbooks}
         events={data.events}
         marketOptions={data.marketOptions}
+        setup={data.setup}
         prefill={data.prefill}
         liveNotes={data.liveNotes}
       />

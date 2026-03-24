@@ -14,7 +14,7 @@ const titles: Record<string, { title: string; subtitle: string }> = {
   },
   "/bets": {
     title: "Bet Tracker",
-    subtitle: "Track wagers manually with a future-ready path to sportsbook sync."
+    subtitle: "Use the real ledger, manage straight bets and parlays, and keep active tickets tied to live event state."
   },
   "/performance": {
     title: "Performance",
@@ -22,7 +22,7 @@ const titles: Record<string, { title: string; subtitle: string }> = {
   },
   "/trends": {
     title: "Trends Builder",
-    subtitle: "Preview the coming query engine for situational angles and repeatable edges."
+    subtitle: "Trend storage is in place now; the full query runner is the next layer on top."
   }
 };
 

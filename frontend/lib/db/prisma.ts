@@ -13,5 +13,3 @@ export const prisma =
 if (process.env.NODE_ENV !== "production") {
   global.prismaGlobal = prisma;
 }
-
-// TODO: Switch the service layer from mock data to Prisma queries when live ingestion lands.

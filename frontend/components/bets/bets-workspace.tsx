@@ -8,11 +8,13 @@ import { BetTable } from "@/components/bets/bet-table";
 import { SweatBoard } from "@/components/bets/sweat-board";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
+import { SetupStateCard } from "@/components/ui/setup-state-card";
 import { StatCard } from "@/components/ui/stat-card";
 import type {
   EventOption,
   LedgerBetFormInput,
   LedgerBetView,
+  LedgerSetupState,
   SportsbookOption,
   SweatBoardItem
 } from "@/lib/types/ledger";
@@ -36,9 +38,43 @@ type BetsWorkspaceProps = {
     value: LedgerBetFormInput["legs"][number]["marketType"];
     label: string;
   }>;
+  setup: LedgerSetupState | null;
   prefill: LedgerBetFormInput | null;
   liveNotes: string[];
 };
+
+function toFormValues(bet: LedgerBetView): LedgerBetFormInput {
+  return {
+    id: bet.id,
+    placedAt: bet.placedAt.slice(0, 16),
+    settledAt: bet.settledAt?.slice(0, 16) ?? null,
+    source: bet.source,
+    betType: bet.betType,
+    sport: bet.sport,
+    league: bet.league,
+    eventId: bet.eventId,
+    sportsbookId: bet.sportsbook?.id ?? null,
+    status: bet.result,
+    stake: bet.riskAmount,
+    notes: bet.notes,
+    tags: bet.tags.join(", "),
+    isLive: bet.isLive,
+    legs: bet.legs.map((leg) => ({
+      id: leg.id,
+      eventId: leg.eventId,
+      sportsbookId: leg.sportsbook?.id ?? null,
+      marketType: leg.marketType,
+      marketLabel: leg.marketLabel,
+      selection: leg.selection,
+      side: leg.side,
+      line: leg.line,
+      oddsAmerican: leg.oddsAmerican,
+      closingLine: leg.closingLine,
+      closingOddsAmerican: leg.closingOddsAmerican,
+      notes: ""
+    }))
+  };
+}
 
 export function BetsWorkspace({
   summary,
@@ -49,6 +85,7 @@ export function BetsWorkspace({
   sportsbooks,
   events,
   marketOptions,
+  setup,
   prefill,
   liveNotes
 }: BetsWorkspaceProps) {
@@ -162,15 +199,19 @@ export function BetsWorkspace({
         />
       )}
 
-      <BetForm
-        sportsbooks={sportsbooks}
-        events={events}
-        marketOptions={marketOptions}
-        initialValues={initialFormValues}
-        isSaving={isPending}
-        onSubmit={handleSubmit}
-        onCancelEdit={() => setEditingBet(null)}
-      />
+      {setup ? (
+        <SetupStateCard title={setup.title} detail={setup.detail} steps={setup.steps} />
+      ) : (
+        <BetForm
+          sportsbooks={sportsbooks}
+          events={events}
+          marketOptions={marketOptions}
+          initialValues={initialFormValues}
+          isSaving={isPending}
+          onSubmit={handleSubmit}
+          onCancelEdit={() => setEditingBet(null)}
+        />
+      )}
 
       {feedback ? (
         <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
@@ -186,38 +227,7 @@ export function BetsWorkspace({
       {openBets.length ? (
         <BetTable
           bets={openBets}
-          onEdit={(bet) =>
-            setEditingBet({
-              id: bet.id,
-              placedAt: bet.placedAt.slice(0, 16),
-              settledAt: bet.settledAt?.slice(0, 16) ?? null,
-              source: bet.source,
-              betType: bet.betType,
-              sport: bet.sport,
-              league: bet.league,
-              eventId: bet.eventId,
-              sportsbookId: bet.sportsbook?.id ?? null,
-              status: bet.result,
-              stake: bet.riskAmount,
-              notes: bet.notes,
-              tags: bet.tags.join(", "),
-              isLive: bet.isLive,
-              legs: bet.legs.map((leg) => ({
-                id: leg.id,
-                eventId: leg.eventId,
-                sportsbookId: leg.sportsbook?.id ?? null,
-                marketType: leg.marketType,
-                marketLabel: leg.marketLabel,
-                selection: leg.selection,
-                side: leg.side,
-                line: leg.line,
-                oddsAmerican: leg.oddsAmerican,
-                closingLine: leg.closingLine,
-                closingOddsAmerican: leg.closingOddsAmerican,
-                notes: ""
-              }))
-            })
-          }
+          onEdit={(bet) => setEditingBet(toFormValues(bet))}
           onArchive={handleArchive}
           onDelete={handleDelete}
         />
@@ -234,42 +244,25 @@ export function BetsWorkspace({
       />
 
       {settledBets.length ? (
-        <BetTable bets={settledBets} onEdit={(bet) => setEditingBet({
-          id: bet.id,
-          placedAt: bet.placedAt.slice(0, 16),
-          settledAt: bet.settledAt?.slice(0, 16) ?? null,
-          source: bet.source,
-          betType: bet.betType,
-          sport: bet.sport,
-          league: bet.league,
-          eventId: bet.eventId,
-          sportsbookId: bet.sportsbook?.id ?? null,
-          status: bet.result,
-          stake: bet.riskAmount,
-          notes: bet.notes,
-          tags: bet.tags.join(", "),
-          isLive: bet.isLive,
-          legs: bet.legs.map((leg) => ({
-            id: leg.id,
-            eventId: leg.eventId,
-            sportsbookId: leg.sportsbook?.id ?? null,
-            marketType: leg.marketType,
-            marketLabel: leg.marketLabel,
-            selection: leg.selection,
-            side: leg.side,
-            line: leg.line,
-            oddsAmerican: leg.oddsAmerican,
-            closingLine: leg.closingLine,
-            closingOddsAmerican: leg.closingOddsAmerican,
-            notes: ""
-          }))
-        })} onArchive={handleArchive} onDelete={handleDelete} />
+        <BetTable
+          bets={settledBets}
+          onEdit={(bet) => setEditingBet(toFormValues(bet))}
+          onArchive={handleArchive}
+          onDelete={handleDelete}
+        />
       ) : (
         <EmptyState
           title="No settled bets yet"
-          description="Once tickets close, they’ll move here and flow directly into ROI, record, and segment analytics."
+          description="Once tickets close, they'll move here and flow directly into ROI, record, and segment analytics."
         />
       )}
+
+      {!setup && !bets.length ? (
+        <EmptyState
+          title="Ledger is live but empty"
+          description="The database is ready. Seed the starter card or add your first real bet to turn on the tracker and performance views."
+        />
+      ) : null}
     </div>
   );
 }

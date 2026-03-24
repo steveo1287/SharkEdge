@@ -14,15 +14,15 @@ export function TrendsPlaceholder({ metrics, savedTrendName }: TrendsPlaceholder
   return (
     <div className="grid gap-6">
       <Card className="p-5">
-        <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-          Coming soon
+        <div className="text-xs uppercase tracking-[0.2em] text-sky-300">
+          Foundation Live
         </div>
         <div className="mt-3 font-display text-3xl font-semibold text-white">
           Save, rerun, and grade trend queries
         </div>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-400">
-          The MVP includes the data model and placeholder UX for a future trends
-          engine. That next phase will let you build filters across teams,
+          The data model and saved query foundation are already in place. The next
+          phase will let you run filters across teams,
           players, markets, opponents, date ranges, and sample thresholds.
         </p>
         <div className="mt-4 rounded-2xl border border-dashed border-line bg-slate-950/65 p-4 text-sm text-slate-300">

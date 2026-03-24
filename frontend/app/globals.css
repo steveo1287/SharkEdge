@@ -13,6 +13,9 @@
   --brand-gold: #c6a55b;
   --brand-text: #eef4ff;
   --brand-muted: #8ca0c1;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Space Grotesk", "Aptos", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", "Consolas", monospace;
 }
 
 html {

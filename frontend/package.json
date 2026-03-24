@@ -9,6 +9,7 @@
     "test": "tsx tests/ledger-utils.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed"
   },
   "prisma": {

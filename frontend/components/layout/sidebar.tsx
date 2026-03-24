@@ -51,8 +51,8 @@ export function Sidebar({ pathname, mobile = false, onNavigate }: SidebarProps) 
         })}
 
         <div className="rounded-2xl border border-line/80 bg-slate-900/60 px-4 py-3 text-sm text-slate-500">
-          <div className="mb-1 font-medium text-slate-300">Live</div>
-          <div>Coming soon with in-play odds and tracker hooks.</div>
+          <div className="mb-1 font-medium text-slate-300">Live Tracking</div>
+          <div>Open bets already sync against supported event states, while in-play odds remain a later layer.</div>
         </div>
       </div>
 

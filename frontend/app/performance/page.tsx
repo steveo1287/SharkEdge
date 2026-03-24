@@ -2,6 +2,7 @@ import { BreakdownPanel } from "@/components/performance/breakdown-panel";
 import { TrendChart } from "@/components/performance/trend-chart";
 import { Card } from "@/components/ui/card";
 import { SectionTitle } from "@/components/ui/section-title";
+import { SetupStateCard } from "@/components/ui/setup-state-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { getPerformanceDashboard } from "@/services/bets/bets-service";
 
@@ -16,6 +17,10 @@ export default async function PerformancePage() {
         title="Performance"
         description="Trustworthy ledger analytics only. ROI, units, and CLV are computed from persisted bets, and unsupported gaps stay plainly labeled instead of being faked."
       />
+
+      {data.setup ? (
+        <SetupStateCard title={data.setup.title} detail={data.setup.detail} steps={data.setup.steps} />
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <StatCard label="Total Bets" value={`${data.summary.totalBets}`} />

@@ -5,6 +5,7 @@ import type {
   EventOption,
   LedgerBetFormInput,
   LedgerBetResult,
+  LedgerSetupState,
   LedgerBetView,
   LedgerFilterWindow,
   LedgerFilters,
@@ -310,6 +311,161 @@ function sortBets(bets: LedgerBetView[], filters: LedgerFilters) {
   });
 }
 
+function buildEmptySummary() {
+  return {
+    record: "0-0-0",
+    winRate: 0,
+    roi: 0,
+    netUnits: 0,
+    averageOdds: 0,
+    averageStake: 0,
+    totalBets: 0,
+    openBets: 0,
+    settledBets: 0,
+    trackedClvBets: 0
+  };
+}
+
+function getStaticLeagueOptions() {
+  return LEAGUE_KEYS.map((leagueKey) => ({
+    key: leagueKey,
+    label: LEAGUE_LABELS[leagueKey] ?? leagueKey,
+    sportCode: LEAGUE_SPORT_MAP[leagueKey]
+  }));
+}
+
+function getSetupErrorCode(error: unknown) {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    return String(error.code);
+  }
+
+  return null;
+}
+
+function getSetupErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return "Unknown ledger service error.";
+}
+
+function buildLedgerSetupState(error?: unknown): LedgerSetupState {
+  const message = getSetupErrorMessage(error);
+  const code = getSetupErrorCode(error);
+
+  if (!process.env.DATABASE_URL) {
+    return {
+      status: "blocked",
+      title: "Ledger database is not configured",
+      detail:
+        "The Phase 1.5 ledger UI is live, but this runtime does not have a DATABASE_URL yet. Bets, active tracking, and performance can render only after the frontend can reach Postgres.",
+      steps: [
+        "Set DATABASE_URL in the frontend runtime.",
+        "Run npx prisma migrate deploy against that database.",
+        "Run npm run prisma:seed once to load the starter ledger data."
+      ]
+    };
+  }
+
+  if (code === "P2021" || code === "P2022" || /does not exist|no such table|relation .* does not exist/i.test(message)) {
+    return {
+      status: "blocked",
+      title: "Ledger tables are missing in the database",
+      detail:
+        "The app can reach Postgres, but the Phase 1.5 Prisma migration has not been applied yet. Until that happens, the ledger and performance pages stay in setup mode instead of falling back to the old shell.",
+      steps: [
+        "Run npx prisma migrate deploy.",
+        "Run npm run prisma:seed to load the starter sportsbook, event, and bet rows.",
+        "Redeploy the frontend after the migration completes."
+      ]
+    };
+  }
+
+  if (code === "P1001" || /can't reach database server|connect|connection/i.test(message)) {
+    return {
+      status: "blocked",
+      title: "Ledger database is unreachable",
+      detail:
+        "The frontend is pointed at a Postgres database, but Prisma cannot reach it from this runtime. The UI is intentionally showing a setup-blocked state rather than pretending the ledger is empty.",
+      steps: [
+        "Verify DATABASE_URL points to the correct Postgres host.",
+        "Confirm the database accepts connections from the deployment environment.",
+        "Redeploy once the connection test succeeds."
+      ]
+    };
+  }
+
+  return {
+    status: "blocked",
+    title: "Ledger services are unavailable",
+    detail:
+      "The Phase 1.5 ledger code is present, but the runtime could not initialize the database-backed ledger services cleanly.",
+    steps: [
+      "Check the deployment logs for the underlying Prisma error.",
+      "Verify DATABASE_URL and the Phase 1.5 migration are both in place.",
+      `Latest error: ${message}`
+    ]
+  };
+}
+
+function buildEmptyLedgerPage(
+  filters: LedgerFilters,
+  prefill: LedgerBetFormInput | null,
+  setup: LedgerSetupState
+): LedgerPageData {
+  return {
+    setup,
+    filters,
+    summary: buildEmptySummary(),
+    bets: [],
+    openBets: [],
+    settledBets: [],
+    sweatBoard: [],
+    sports: SPORT_CODES.filter((sport) => sport !== "OTHER").map((sport) => ({
+      code: sport,
+      label: SPORT_LABELS[sport]
+    })),
+    leagues: getStaticLeagueOptions(),
+    sportsbooks: [],
+    events: [],
+    marketOptions: [...LEDGER_MARKET_TYPES].map((value) => ({
+      value,
+      label: MARKET_LABELS[value]
+    })),
+    lastUpdatedAt: null,
+    liveNotes: [
+      "Ledger reads are blocked until Postgres is configured and migrated. Live event sync will populate once the database-backed ledger is available."
+    ],
+    prefill
+  };
+}
+
+function buildEmptyPerformanceDashboard(setup: LedgerSetupState): PerformanceDashboardView {
+  return {
+    setup,
+    summary: buildEmptySummary(),
+    bySport: [],
+    byLeague: [],
+    byMarket: [],
+    bySportsbook: [],
+    byWeek: [],
+    byMonth: [],
+    trend: [],
+    recentForm: [],
+    bestSegments: [],
+    worstSegments: []
+  };
+}
+
+function assertLedgerWritesAvailable() {
+  if (!process.env.DATABASE_URL) {
+    throw new Error(
+      "Ledger database is not configured. Set DATABASE_URL and apply the Prisma migration before creating or editing bets."
+    );
+  }
+}
+
 async function ensureDefaultUser() {
   await prisma.user.upsert({
     where: {
@@ -341,26 +497,7 @@ async function getBooks() {
 }
 
 async function getLeagueOptions() {
-  const leagues = await prisma.league.findMany({
-    where: {
-      key: {
-        in: [...LEAGUE_KEYS]
-      }
-    },
-    orderBy: {
-      key: "asc"
-    },
-    select: {
-      key: true,
-      name: true
-    }
-  });
-
-  return leagues.map((league) => ({
-    key: league.key as SupportedLeagueKey,
-    label: LEAGUE_LABELS[league.key as SupportedLeagueKey] ?? league.name,
-    sportCode: LEAGUE_SPORT_MAP[league.key as SupportedLeagueKey]
-  }));
+  return getStaticLeagueOptions();
 }
 
 async function getSportOptions() {
@@ -455,6 +592,7 @@ function buildPerformanceDashboardData(bets: LedgerBetView[]): PerformanceDashbo
   );
 
   return {
+    setup: null,
     summary: buildSummary(bets),
     bySport,
     byLeague,
@@ -542,75 +680,50 @@ export async function getBetPrefill(selection: string | undefined) {
 }
 
 export async function getBetTrackerData(filters: LedgerFilters, selection?: string): Promise<LedgerPageData> {
-  await ensureDefaultUser();
-  await syncSupportedEventCatalog();
-  const liveRefresh = await refreshTrackedEventsForOpenBets();
-  const [books, events, leagues, sports, bets, prefill] = await Promise.all([
-    getBooks(),
-    getLedgerEventOptions(),
-    getLeagueOptions(),
-    getSportOptions(),
-    getBets(filters),
-    getBetPrefill(selection)
-  ]);
+  const prefillPromise = getBetPrefill(selection).catch(() => null);
 
-  const mapped = sortBets(bets.map(mapBetView), filters);
-  const summary = buildSummary(mapped);
-  const openBets = mapped.filter((bet) => bet.result === "OPEN");
-  const settledBets = mapped.filter((bet) => bet.result !== "OPEN");
+  try {
+    await ensureDefaultUser();
+    await syncSupportedEventCatalog();
+    const liveRefresh = await refreshTrackedEventsForOpenBets();
+    const [books, events, leagues, sports, bets, prefill] = await Promise.all([
+      getBooks(),
+      getLedgerEventOptions(),
+      getLeagueOptions(),
+      getSportOptions(),
+      getBets(filters),
+      prefillPromise
+    ]);
 
-  return {
-    filters,
-    summary,
-    bets: mapped,
-    openBets,
-    settledBets,
-    sweatBoard: openBets.map((bet) =>
-      buildSweatBoardItem({
-        betId: bet.id,
-        label: bet.betType === "PARLAY" ? `${bet.legs.length}-leg parlay` : bet.selection,
-        sport: bet.sport,
-        league: bet.league,
-        betType: bet.betType,
-        result: bet.result,
-        event: bets.find((entry) => entry.id === bet.id)?.event
-          ? {
-              status: bets.find((entry) => entry.id === bet.id)?.event?.status ?? "SCHEDULED",
-              lastSyncedAt: bets.find((entry) => entry.id === bet.id)?.event?.lastSyncedAt ?? null,
-              stateJson:
-                (bets.find((entry) => entry.id === bet.id)?.event?.stateJson as Record<string, unknown> | null) ??
-                null,
-              participants:
-                bets.find((entry) => entry.id === bet.id)?.event?.participants.map((participant) => ({
-                  id: participant.id,
-                  role: participant.role,
-                  sortOrder: participant.sortOrder,
-                  score: participant.score,
-                  record: participant.record,
-                  isWinner: participant.isWinner,
-                  competitor: {
-                    id: participant.competitor.id,
-                    name: participant.competitor.name,
-                    abbreviation: participant.competitor.abbreviation,
-                    type: participant.competitor.type
-                  }
-                })) ?? [],
-              league: {
-                key: bets.find((entry) => entry.id === bet.id)?.event?.league.key ?? bet.league
-              }
-            }
-          : null,
-        legs:
-          bets.find((entry) => entry.id === bet.id)?.legs.map((leg) => ({
-            id: leg.id,
-            marketLabel: leg.marketLabel,
-            selection: leg.selection,
-            result: leg.result as LedgerBetResult,
-            event: leg.event
-              ? {
-                  id: leg.event.id,
-                  status: leg.event.status,
-                  participants: leg.event.participants.map((participant) => ({
+    const mapped = sortBets(bets.map(mapBetView), filters);
+    const summary = buildSummary(mapped);
+    const openBets = mapped.filter((bet) => bet.result === "OPEN");
+    const settledBets = mapped.filter((bet) => bet.result !== "OPEN");
+
+    return {
+      setup: null,
+      filters,
+      summary,
+      bets: mapped,
+      openBets,
+      settledBets,
+      sweatBoard: openBets.map((bet) =>
+        buildSweatBoardItem({
+          betId: bet.id,
+          label: bet.betType === "PARLAY" ? `${bet.legs.length}-leg parlay` : bet.selection,
+          sport: bet.sport,
+          league: bet.league,
+          betType: bet.betType,
+          result: bet.result,
+          event: bets.find((entry) => entry.id === bet.id)?.event
+            ? {
+                status: bets.find((entry) => entry.id === bet.id)?.event?.status ?? "SCHEDULED",
+                lastSyncedAt: bets.find((entry) => entry.id === bet.id)?.event?.lastSyncedAt ?? null,
+                stateJson:
+                  (bets.find((entry) => entry.id === bet.id)?.event?.stateJson as Record<string, unknown> | null) ??
+                  null,
+                participants:
+                  bets.find((entry) => entry.id === bet.id)?.event?.participants.map((participant) => ({
                     id: participant.id,
                     role: participant.role,
                     sortOrder: participant.sortOrder,
@@ -623,24 +736,56 @@ export async function getBetTrackerData(filters: LedgerFilters, selection?: stri
                       abbreviation: participant.competitor.abbreviation,
                       type: participant.competitor.type
                     }
-                  }))
+                  })) ?? [],
+                league: {
+                  key: bets.find((entry) => entry.id === bet.id)?.event?.league.key ?? bet.league
                 }
-              : null
-          })) ?? []
-      })
-    ),
-    sports,
-    leagues,
-    sportsbooks: books,
-    events,
-    marketOptions: [...LEDGER_MARKET_TYPES].map((value) => ({
-      value,
-      label: MARKET_LABELS[value]
-    })),
-    lastUpdatedAt: new Date().toISOString(),
-    liveNotes: liveRefresh.liveNotes,
-    prefill
-  };
+              }
+            : null,
+          legs:
+            bets.find((entry) => entry.id === bet.id)?.legs.map((leg) => ({
+              id: leg.id,
+              marketLabel: leg.marketLabel,
+              selection: leg.selection,
+              result: leg.result as LedgerBetResult,
+              event: leg.event
+                ? {
+                    id: leg.event.id,
+                    status: leg.event.status,
+                    participants: leg.event.participants.map((participant) => ({
+                      id: participant.id,
+                      role: participant.role,
+                      sortOrder: participant.sortOrder,
+                      score: participant.score,
+                      record: participant.record,
+                      isWinner: participant.isWinner,
+                      competitor: {
+                        id: participant.competitor.id,
+                        name: participant.competitor.name,
+                        abbreviation: participant.competitor.abbreviation,
+                        type: participant.competitor.type
+                      }
+                    }))
+                  }
+                : null
+            })) ?? []
+        })
+      ),
+      sports,
+      leagues,
+      sportsbooks: books,
+      events,
+      marketOptions: [...LEDGER_MARKET_TYPES].map((value) => ({
+        value,
+        label: MARKET_LABELS[value]
+      })),
+      lastUpdatedAt: new Date().toISOString(),
+      liveNotes: liveRefresh.liveNotes,
+      prefill
+    };
+  } catch (error) {
+    return buildEmptyLedgerPage(filters, await prefillPromise, buildLedgerSetupState(error));
+  }
 }
 
 async function getEventById(eventId: string | null | undefined) {
@@ -798,6 +943,7 @@ async function buildCreatePayload(input: LedgerBetFormInput) {
 }
 
 export async function createBet(input: LedgerBetFormInput) {
+  assertLedgerWritesAvailable();
   await ensureDefaultUser();
   const parsed = ledgerBetFormSchema.parse(input);
   const payload = await buildCreatePayload(parsed);
@@ -850,6 +996,7 @@ export async function createBet(input: LedgerBetFormInput) {
 }
 
 export async function updateBet(id: string, input: LedgerBetFormInput) {
+  assertLedgerWritesAvailable();
   await ensureDefaultUser();
   const parsed = ledgerBetFormSchema.parse({
     ...input,
@@ -921,6 +1068,7 @@ export async function updateBet(id: string, input: LedgerBetFormInput) {
 }
 
 export async function archiveBet(id: string) {
+  assertLedgerWritesAvailable();
   await prisma.bet.update({
     where: {
       id
@@ -932,6 +1080,7 @@ export async function archiveBet(id: string) {
 }
 
 export async function deleteBet(id: string) {
+  assertLedgerWritesAvailable();
   await prisma.bet.delete({
     where: {
       id
@@ -940,15 +1089,19 @@ export async function deleteBet(id: string) {
 }
 
 export async function getPerformanceDashboard(): Promise<PerformanceDashboardView> {
-  const bets = await prisma.bet.findMany({
-    where: {
-      archivedAt: null
-    },
-    include: betInclude,
-    orderBy: {
-      placedAt: "asc"
-    }
-  });
+  try {
+    const bets = await prisma.bet.findMany({
+      where: {
+        archivedAt: null
+      },
+      include: betInclude,
+      orderBy: {
+        placedAt: "asc"
+      }
+    });
 
-  return buildPerformanceDashboardData(bets.map(mapBetView));
+    return buildPerformanceDashboardData(bets.map(mapBetView));
+  } catch (error) {
+    return buildEmptyPerformanceDashboard(buildLedgerSetupState(error));
+  }
 }

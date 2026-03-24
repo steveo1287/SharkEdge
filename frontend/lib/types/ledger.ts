@@ -229,6 +229,13 @@ export type LedgerSummary = {
   trackedClvBets: number;
 };
 
+export type LedgerSetupState = {
+  status: "blocked";
+  title: string;
+  detail: string;
+  steps: string[];
+};
+
 export type PerformanceBreakdownRow = {
   label: string;
   bets: number;
@@ -245,6 +252,7 @@ export type PerformanceTrendPoint = {
 };
 
 export type PerformanceDashboardView = {
+  setup: LedgerSetupState | null;
   summary: LedgerSummary;
   bySport: PerformanceBreakdownRow[];
   byLeague: PerformanceBreakdownRow[];
@@ -263,6 +271,7 @@ export type PerformanceDashboardView = {
 };
 
 export type LedgerPageData = {
+  setup: LedgerSetupState | null;
   filters: LedgerFilters;
   summary: LedgerSummary;
   bets: LedgerBetView[];
