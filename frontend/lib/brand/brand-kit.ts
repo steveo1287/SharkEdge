@@ -13,8 +13,8 @@ export const brandKit = {
     "sportsbook comparison"
   ],
   headerBadges: {
-    premium: "Phase 1.5",
-    brand: "Live ledger"
+    premium: "Phase 1.5.1",
+    brand: "Deploy check"
   },
   sidebarNote: {
     title: "Multi-Sport Core",
