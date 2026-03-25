@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { archiveBet, deleteBet, updateBet } from "@/services/bets/bets-service";
+import { archiveBet, deleteBet, settleBet, updateBet } from "@/services/bets/bets-service";
 
 function getStatusCode(error: unknown) {
   const message = error instanceof Error ? error.message : "";
@@ -27,6 +27,13 @@ export async function PATCH(request: Request, context: RouteContext) {
       await archiveBet(id);
       return NextResponse.json({
         archived: true
+      });
+    }
+
+    if (body?.settle?.result) {
+      const bet = await settleBet(id, body.settle);
+      return NextResponse.json({
+        bet
       });
     }
 

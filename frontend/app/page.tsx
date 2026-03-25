@@ -2,11 +2,16 @@ import { BoardFilterBar } from "@/components/board/filter-bar";
 import { LeagueSnapshot } from "@/components/board/league-snapshot";
 import { SportSection } from "@/components/board/sport-section";
 import { SportSupportGrid } from "@/components/board/sport-support-grid";
+import { TopPlaysPanel } from "@/components/board/top-plays-panel";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { StatCard } from "@/components/ui/stat-card";
-import { parseBoardFilters, getBoardPageData } from "@/services/odds/odds-service";
+import {
+  getBoardPageData,
+  getTopPlayCards,
+  parseBoardFilters
+} from "@/services/odds/odds-service";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +22,10 @@ type PageProps = {
 export default async function HomePage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
   const filters = parseBoardFilters(resolved);
-  const data = await getBoardPageData(filters);
+  const [data, topPlays] = await Promise.all([
+    getBoardPageData(filters),
+    getTopPlayCards(3)
+  ]);
   const liveCount = data.sportSections.filter((section) => section.status === "LIVE").length;
   const partialCount = data.sportSections.filter((section) => section.status === "PARTIAL").length;
   const comingSoonCount = data.sportSections.filter((section) => section.status === "COMING_SOON").length;
@@ -82,6 +90,20 @@ export default async function HomePage({ searchParams }: PageProps) {
       </Card>
 
       <SportSupportGrid sections={data.sportSections} />
+
+      <section className="grid gap-4">
+        <SectionTitle
+          title="Top Plays"
+          description="Only real live signals show up here. Right now these are market-EV prop spots pulled from live multi-book pricing, not fake model certainty."
+        />
+        {topPlays.length ? (
+          <TopPlaysPanel plays={topPlays} />
+        ) : (
+          <Card className="p-5 text-sm leading-7 text-slate-400">
+            Top Plays is live only when the current prop mesh returns real positive market-EV spots. If there is no real edge in the feed, SharkEdge leaves this blank instead of inventing a play.
+          </Card>
+        )}
+      </section>
 
       {data.snapshots.length ? (
         <div className="grid gap-4 xl:grid-cols-2">

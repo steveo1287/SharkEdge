@@ -478,6 +478,9 @@ export function buildSweatBoardItem(args: {
   league: SweatBoardItem["league"];
   betType: SweatBoardItem["betType"];
   result: LedgerBetResult;
+  placedAt: string;
+  startTime: string | null;
+  exposure: SweatBoardItem["exposure"];
   event: {
     status: string;
     lastSyncedAt: Date | null;
@@ -539,6 +542,14 @@ export function buildSweatBoardItem(args: {
         stateJson: args.event.stateJson
       })
     : null;
+  const bucket =
+    args.event?.status === "LIVE"
+      ? "LIVE"
+      : args.event?.status === "FINAL" && args.result === "OPEN"
+        ? "NEARLY_SETTLED"
+        : args.startTime && new Date(args.startTime).getTime() > Date.now()
+          ? "UPCOMING"
+          : "PENDING";
 
   return {
     betId: args.betId,
@@ -547,6 +558,8 @@ export function buildSweatBoardItem(args: {
     league: args.league,
     betType: args.betType,
     result: args.result,
+    placedAt: args.placedAt,
+    startTime: args.startTime,
     eventLabel,
     eventStatus: (args.event?.status as SweatBoardItem["eventStatus"]) ?? null,
     eventStateDetail: stateDetail,
@@ -554,6 +567,8 @@ export function buildSweatBoardItem(args: {
     liveSupported,
     lastUpdatedAt,
     stale,
+    bucket,
+    exposure: args.exposure,
     notes: [
       liveSupported ? `Live sync ${stale ? "is stale" : "is current"} (${formatSyncAge(lastUpdatedAt)}).` : `${args.league} live sync is not wired yet; status stays neutral until a supported feed lands.`
     ],

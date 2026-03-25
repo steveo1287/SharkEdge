@@ -26,7 +26,8 @@ export async function GET(request: Request) {
       direction: searchParams.get("direction") ?? undefined
     });
     const selection = searchParams.get("selection") ?? undefined;
-    const data = await getBetTrackerData(filters, selection);
+    const prefill = searchParams.get("prefill") ?? undefined;
+    const data = await getBetTrackerData(filters, selection, prefill);
 
     return NextResponse.json(data);
   } catch (error) {

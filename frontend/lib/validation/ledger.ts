@@ -16,6 +16,28 @@ const nullableNumber = z
   .union([z.number(), z.nan(), z.null(), z.undefined()])
   .transform((value) => (typeof value === "number" && !Number.isNaN(value) ? value : null));
 
+const betContextSchema = z
+  .object({
+    sourcePage: z.enum(["board", "props", "matchup", "top_plays"]),
+    sourceLabel: z.string(),
+    sourcePath: z.string(),
+    eventLabel: z.string(),
+    matchupHref: z.string().optional().nullable(),
+    externalEventId: z.string().optional().nullable(),
+    sportsbookKey: z.string().optional().nullable(),
+    sportsbookName: z.string().optional().nullable(),
+    supportStatus: z.enum(["LIVE", "PARTIAL", "COMING_SOON"]).optional().nullable(),
+    supportNote: z.string().optional().nullable(),
+    marketDeltaAmerican: nullableNumber,
+    expectedValuePct: nullableNumber,
+    edgeScore: nullableNumber,
+    edgeLabel: z.enum(["Elite", "Strong", "Watchlist", "Pass"]).optional().nullable(),
+    confidenceTier: z.enum(["A", "B", "C"]).optional().nullable(),
+    valueFlag: z.enum(["BEST_PRICE", "MARKET_PLUS", "STEAM", "NONE"]).optional().nullable(),
+    capturedAt: z.string()
+  })
+  .strict();
+
 export const ledgerFiltersSchema = z.object({
   status: z
     .enum(["ALL", "SETTLED", ...BET_RESULTS])
@@ -48,7 +70,8 @@ export const ledgerBetLegSchema = z.object({
     .transform((value) =>
       typeof value === "number" && !Number.isNaN(value) ? Math.trunc(value) : null
     ),
-  notes: z.string().max(240).optional().default("")
+  notes: z.string().max(240).optional().default(""),
+  context: betContextSchema.optional().nullable()
 });
 
 export const ledgerBetFormSchema = z.object({
@@ -66,6 +89,7 @@ export const ledgerBetFormSchema = z.object({
   notes: z.string().max(500).optional().default(""),
   tags: z.string().optional().default(""),
   isLive: z.boolean().default(false),
+  context: betContextSchema.optional().nullable(),
   legs: z.array(ledgerBetLegSchema).min(1, "At least one leg is required.").max(8)
 }).superRefine((value, context) => {
   if (value.betType === "STRAIGHT" && value.legs.length !== 1) {

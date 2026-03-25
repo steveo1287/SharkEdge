@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { BetForm } from "@/components/bets/bet-form";
 import { BetTable } from "@/components/bets/bet-table";
@@ -27,6 +27,8 @@ type BetsWorkspaceProps = {
     netUnits: number;
     openBets: number;
     trackedClvBets: number;
+    averageClv: number | null;
+    averageEv: number | null;
   };
   bets: LedgerBetView[];
   openBets: LedgerBetView[];
@@ -59,6 +61,7 @@ function toFormValues(bet: LedgerBetView): LedgerBetFormInput {
     notes: bet.notes,
     tags: bet.tags.join(", "),
     isLive: bet.isLive,
+    context: bet.context,
     legs: bet.legs.map((leg) => ({
       id: leg.id,
       eventId: leg.eventId,
@@ -71,7 +74,8 @@ function toFormValues(bet: LedgerBetView): LedgerBetFormInput {
       oddsAmerican: leg.oddsAmerican,
       closingLine: leg.closingLine,
       closingOddsAmerican: leg.closingOddsAmerican,
-      notes: ""
+      notes: "",
+      context: leg.context
     }))
   };
 }
@@ -90,11 +94,21 @@ export function BetsWorkspace({
   liveNotes
 }: BetsWorkspaceProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [editingBet, setEditingBet] = useState<LedgerBetFormInput | null>(prefill);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const initialFormValues = useMemo(() => editingBet ?? prefill, [editingBet, prefill]);
+
+  function clearBetActionParams() {
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete("prefill");
+    nextParams.delete("selection");
+    const nextQuery = nextParams.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname);
+  }
 
   async function handleSubmit(values: LedgerBetFormInput) {
     setFeedback(null);
@@ -120,6 +134,7 @@ export function BetsWorkspace({
 
     setEditingBet(null);
     startTransition(() => {
+      clearBetActionParams();
       router.refresh();
     });
   }
@@ -139,6 +154,34 @@ export function BetsWorkspace({
     if (!response.ok) {
       const payload = (await response.json()) as { error?: string };
       setFeedback(payload.error ?? "Unable to archive bet.");
+      return;
+    }
+
+    startTransition(() => {
+      router.refresh();
+    });
+  }
+
+  async function handleQuickSettle(
+    bet: LedgerBetView,
+    result: Exclude<LedgerBetView["result"], "OPEN">
+  ) {
+    setFeedback(null);
+    const response = await fetch(`/api/ledger/bets/${bet.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        settle: {
+          result
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      setFeedback(payload.error ?? "Unable to settle bet.");
       return;
     }
 
@@ -176,7 +219,15 @@ export function BetsWorkspace({
         <StatCard label="ROI" value={`${summary.roi > 0 ? "+" : ""}${summary.roi.toFixed(1)}%`} />
         <StatCard label="Win Rate" value={`${summary.winRate.toFixed(1)}%`} />
         <StatCard label="Open Bets" value={`${summary.openBets}`} />
-        <StatCard label="Tracked CLV" value={`${summary.trackedClvBets}`} />
+        <StatCard
+          label="Tracked CLV / EV"
+          value={`${summary.trackedClvBets} / ${summary.averageEv === null ? "--" : `${summary.averageEv > 0 ? "+" : ""}${summary.averageEv.toFixed(2)}%`}`}
+          note={
+            summary.averageClv === null
+              ? "CLV unavailable"
+              : `Avg CLV ${summary.averageClv > 0 ? "+" : ""}${summary.averageClv.toFixed(2)}%`
+          }
+        />
       </div>
 
       {liveNotes.length ? (
@@ -191,7 +242,17 @@ export function BetsWorkspace({
       />
 
       {sweatBoard.length ? (
-        <SweatBoard items={sweatBoard} />
+        <SweatBoard
+          items={sweatBoard}
+          onQuickSettle={(betId, result) => {
+            const target = bets.find((bet) => bet.id === betId);
+            if (!target) {
+              return Promise.resolve();
+            }
+
+            return handleQuickSettle(target, result);
+          }}
+        />
       ) : (
         <EmptyState
           title="No active bets to sweat"
@@ -228,6 +289,7 @@ export function BetsWorkspace({
         <BetTable
           bets={openBets}
           onEdit={(bet) => setEditingBet(toFormValues(bet))}
+          onQuickSettle={handleQuickSettle}
           onArchive={handleArchive}
           onDelete={handleDelete}
         />
@@ -247,6 +309,7 @@ export function BetsWorkspace({
         <BetTable
           bets={settledBets}
           onEdit={(bet) => setEditingBet(toFormValues(bet))}
+          onQuickSettle={handleQuickSettle}
           onArchive={handleArchive}
           onDelete={handleDelete}
         />

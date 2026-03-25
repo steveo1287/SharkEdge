@@ -1,5 +1,8 @@
+"use client";
+
 import type { ReactNode } from "react";
 
+import { useBetSlip } from "@/components/bets/bet-slip-provider";
 import { Badge } from "@/components/ui/badge";
 import { brandKit } from "@/lib/brand/brand-kit";
 
@@ -33,6 +36,7 @@ type HeaderProps = {
 
 export function Header({ pathname, toggleMobileNav }: HeaderProps) {
   const active = titles[pathname] ?? titles["/"];
+  const { entries, setOpen } = useBetSlip();
 
   return (
     <header className="sticky top-0 z-20 border-b border-line/80 bg-slate-950/85 px-4 py-4 backdrop-blur xl:px-8">
@@ -48,6 +52,16 @@ export function Header({ pathname, toggleMobileNav }: HeaderProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="inline-flex items-center gap-2 rounded-2xl border border-line bg-slate-900/80 px-4 py-2 text-sm font-medium text-white"
+          >
+            Bet Slip
+            <span className="rounded-full border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-xs text-sky-300">
+              {entries.length}
+            </span>
+          </button>
           <Badge tone="premium">{brandKit.headerBadges.premium}</Badge>
           <Badge tone="brand">{brandKit.headerBadges.brand}</Badge>
         </div>

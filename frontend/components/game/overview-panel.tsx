@@ -1,6 +1,8 @@
+import { BetActionButton } from "@/components/bets/bet-action-button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import type { MatchupDetailView } from "@/lib/types/domain";
+import { buildSignalBetIntent } from "@/lib/utils/bet-intelligence";
 
 type OverviewPanelProps = {
   detail: MatchupDetailView;
@@ -62,6 +64,48 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
               </div>
             </div>
           </div>
+
+          {detail.betSignals.length ? (
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              {detail.betSignals.map((signal) => (
+                <div
+                  key={signal.id}
+                  className="rounded-2xl border border-line bg-slate-950/65 p-4"
+                >
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                    {signal.marketLabel}
+                  </div>
+                  <div className="mt-3 text-lg font-semibold text-white">{signal.selection}</div>
+                  <div className="mt-2 text-sm text-slate-400">
+                    {signal.sportsbookName ?? "Book pending"} | {signal.oddsAmerican > 0 ? "+" : ""}
+                    {signal.oddsAmerican}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Badge tone="muted">{signal.edgeScore.label} {signal.edgeScore.score}</Badge>
+                    {typeof signal.expectedValuePct === "number" ? (
+                      <Badge tone={signal.expectedValuePct > 0 ? "success" : "muted"}>
+                        EV {signal.expectedValuePct > 0 ? "+" : ""}
+                        {signal.expectedValuePct.toFixed(2)}%
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <BetActionButton
+                      intent={buildSignalBetIntent(signal, detail.league.key, `/game/${detail.routeId}`)}
+                    >
+                      Add to slip
+                    </BetActionButton>
+                    <BetActionButton
+                      intent={buildSignalBetIntent(signal, detail.league.key, `/game/${detail.routeId}`)}
+                      mode="log"
+                    >
+                      Log now
+                    </BetActionButton>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <div className="mt-5 grid gap-3">
             {detail.notes.length ? (

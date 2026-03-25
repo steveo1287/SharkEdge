@@ -13,7 +13,8 @@ export default async function BetsPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
   const filters = parseBetFilters(resolved);
   const selection = Array.isArray(resolved.selection) ? resolved.selection[0] : resolved.selection;
-  const data = await getBetTrackerData(filters, selection);
+  const prefill = Array.isArray(resolved.prefill) ? resolved.prefill[0] : resolved.prefill;
+  const data = await getBetTrackerData(filters, selection, prefill);
 
   return (
     <div className="grid gap-6">

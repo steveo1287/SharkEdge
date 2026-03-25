@@ -31,7 +31,9 @@ export const propsFiltersSchema = z.object({
   player: z.string().default("all"),
   sportsbook: z.string().default("all"),
   valueFlag: z.enum(["all", "BEST_PRICE", "MARKET_PLUS", "STEAM"]).default("all"),
-  sortBy: z.enum(["best_price", "line_movement", "league", "start_time"]).default("best_price")
+  sortBy: z
+    .enum(["best_price", "line_movement", "market_ev", "edge_score", "league", "start_time"])
+    .default("best_price")
 });
 
 export const betFiltersSchema = z.object({

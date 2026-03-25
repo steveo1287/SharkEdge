@@ -9,6 +9,7 @@ import type {
   SportsbookOption
 } from "@/lib/types/ledger";
 import { ledgerBetFormSchema } from "@/lib/validation/ledger";
+import { getConfidenceTierLabel } from "@/lib/utils/bet-intelligence";
 import {
   LEAGUE_LABELS,
   LEAGUE_SPORT_MAP,
@@ -41,6 +42,7 @@ type FormLegState = {
   closingLine: string;
   closingOddsAmerican: string;
   notes: string;
+  context: LedgerBetFormInput["legs"][number]["context"];
 };
 
 type FormState = {
@@ -57,6 +59,7 @@ type FormState = {
   notes: string;
   tags: string;
   isLive: boolean;
+  context: LedgerBetFormInput["context"];
   legs: FormLegState[];
 };
 
@@ -72,7 +75,8 @@ function emptyLeg(defaultBookId: string): FormLegState {
     oddsAmerican: "-110",
     closingLine: "",
     closingOddsAmerican: "",
-    notes: ""
+    notes: "",
+    context: null
   };
 }
 
@@ -91,6 +95,7 @@ function toFormState(values: LedgerBetFormInput | null, defaultBookId: string): 
     notes: values?.notes ?? "",
     tags: values?.tags ?? "",
     isLive: values?.isLive ?? false,
+    context: values?.context ?? null,
     legs:
       values?.legs.map((leg) => ({
         eventId: leg.eventId ?? "",
@@ -107,7 +112,8 @@ function toFormState(values: LedgerBetFormInput | null, defaultBookId: string): 
           leg.closingOddsAmerican === null || leg.closingOddsAmerican === undefined
             ? ""
             : String(leg.closingOddsAmerican),
-        notes: leg.notes ?? ""
+        notes: leg.notes ?? "",
+        context: leg.context ?? null
       })) ?? [emptyLeg(defaultBookId)]
   };
 }
@@ -139,14 +145,21 @@ export function BetForm({
     [events, values.league, values.sport]
   );
 
-  function updateField(field: keyof Omit<FormState, "legs" | "isLive">, value: string) {
+  function updateField(
+    field: keyof Omit<FormState, "legs" | "isLive" | "context">,
+    value: string
+  ) {
     setValues((current) => ({
       ...current,
       [field]: value
     }));
   }
 
-  function updateLeg(index: number, field: keyof FormLegState, value: string) {
+  function updateLeg(
+    index: number,
+    field: keyof Omit<FormLegState, "context">,
+    value: string
+  ) {
     setValues((current) => ({
       ...current,
       legs: current.legs.map((leg, legIndex) =>
@@ -218,6 +231,7 @@ export function BetForm({
       notes: values.notes,
       tags: values.tags,
       isLive: values.isLive,
+      context: values.context ?? null,
       legs: values.legs.map((leg) => ({
         eventId: leg.eventId || null,
         sportsbookId: leg.sportsbookId || values.sportsbookId || null,
@@ -230,7 +244,8 @@ export function BetForm({
         closingLine: leg.closingLine.trim() === "" ? null : Number(leg.closingLine),
         closingOddsAmerican:
           leg.closingOddsAmerican.trim() === "" ? null : Number(leg.closingOddsAmerican),
-        notes: leg.notes
+        notes: leg.notes,
+        context: leg.context ?? null
       }))
     });
 
@@ -399,6 +414,44 @@ export function BetForm({
           className="min-h-24 rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
         />
 
+        {values.context ? (
+          <div className="rounded-3xl border border-line/80 bg-slate-950/55 p-4">
+            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Bet Context</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="rounded-full border border-line px-3 py-1 text-xs text-slate-300">
+                {values.context.sourceLabel}
+              </span>
+              <span className="rounded-full border border-line px-3 py-1 text-xs text-slate-300">
+                {values.context.eventLabel}
+              </span>
+              {typeof values.context.expectedValuePct === "number" ? (
+                <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300">
+                  Market EV {values.context.expectedValuePct > 0 ? "+" : ""}
+                  {values.context.expectedValuePct.toFixed(2)}%
+                </span>
+              ) : (
+                <span className="rounded-full border border-line px-3 py-1 text-xs text-slate-400">
+                  EV unavailable
+                </span>
+              )}
+              {typeof values.context.edgeScore === "number" ? (
+                <span className="rounded-full border border-line px-3 py-1 text-xs text-slate-300">
+                  Edge {values.context.edgeScore} {values.context.edgeLabel ?? ""}
+                </span>
+              ) : null}
+              {values.context.confidenceTier ? (
+                <span className="rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-1 text-xs text-amber-200">
+                  {getConfidenceTierLabel(values.context.confidenceTier)}
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-3 text-sm leading-7 text-slate-400">
+              {values.context.supportNote ??
+                "Closing-line value and performance diagnostics will only populate when SharkEdge has the right closing inputs or linked event state."}
+            </div>
+          </div>
+        ) : null}
+
         <div className="grid gap-4">
           {values.legs.map((leg, index) => (
             <div key={index} className="rounded-3xl border border-line/80 bg-slate-950/55 p-4">
@@ -513,6 +566,32 @@ export function BetForm({
                   className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white xl:col-span-2"
                 />
               </div>
+
+              {leg.context ? (
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+                  {typeof leg.context.expectedValuePct === "number" ? (
+                    <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-emerald-300">
+                      Market EV {leg.context.expectedValuePct > 0 ? "+" : ""}
+                      {leg.context.expectedValuePct.toFixed(2)}%
+                    </span>
+                  ) : (
+                    <span className="rounded-full border border-line px-3 py-1">
+                      EV unavailable
+                    </span>
+                  )}
+                  {typeof leg.context.marketDeltaAmerican === "number" ? (
+                    <span className="rounded-full border border-line px-3 py-1">
+                      Delta {leg.context.marketDeltaAmerican > 0 ? "+" : ""}
+                      {leg.context.marketDeltaAmerican}
+                    </span>
+                  ) : null}
+                  {leg.context.valueFlag && leg.context.valueFlag !== "NONE" ? (
+                    <span className="rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-1 text-amber-200">
+                      {leg.context.valueFlag.replace(/_/g, " ")}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>

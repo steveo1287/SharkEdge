@@ -286,7 +286,7 @@ export type PropFilters = {
   player: string;
   sportsbook: string;
   valueFlag: "all" | "BEST_PRICE" | "MARKET_PLUS" | "STEAM";
-  sortBy: "best_price" | "line_movement" | "league" | "start_time";
+  sortBy: "best_price" | "line_movement" | "market_ev" | "edge_score" | "league" | "start_time";
 };
 
 export type BetFilters = {
@@ -424,12 +424,39 @@ export type PropCardView = {
   bestAvailableOddsAmerican?: number | null;
   bestAvailableSportsbookName?: string | null;
   averageOddsAmerican?: number | null;
+  marketDeltaAmerican?: number | null;
+  expectedValuePct?: number | null;
   lineMovement?: number | null;
   valueFlag?: "BEST_PRICE" | "MARKET_PLUS" | "STEAM" | "NONE";
   supportStatus?: BoardSupportStatus;
   supportNote?: string | null;
   gameHref?: string;
   source?: "live" | "mock";
+  edgeScore: {
+    score: number;
+    label: EdgeBand;
+  };
+};
+
+export type BetSignalView = {
+  id: string;
+  marketType: MarketType | PropMarketType;
+  marketLabel: string;
+  selection: string;
+  side?: string | null;
+  line?: number | null;
+  oddsAmerican: number;
+  sportsbookName: string | null;
+  sportsbookKey?: string | null;
+  eventLabel: string;
+  externalEventId?: string | null;
+  matchupHref?: string | null;
+  supportStatus: BoardSupportStatus;
+  supportNote?: string | null;
+  marketDeltaAmerican?: number | null;
+  expectedValuePct?: number | null;
+  valueFlag?: "BEST_PRICE" | "MARKET_PLUS" | "STEAM" | "NONE";
+  confidenceTier: "A" | "B" | "C";
   edgeScore: {
     score: number;
     label: EdgeBand;
@@ -502,6 +529,7 @@ export type MatchupDetailView = {
   oddsSummary: MatchupOddsSummaryView | null;
   books: GameOddsRow[];
   props: PropCardView[];
+  betSignals: BetSignalView[];
   propsSupport: {
     status: BoardSupportStatus;
     note: string;

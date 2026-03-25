@@ -1,4 +1,5 @@
 import type {
+  BetSignalView,
   BoardSupportStatus,
   EdgeBand,
   GameDetailView as LegacyGameDetailView,
@@ -13,6 +14,7 @@ import type {
   PropCardView
 } from "@/lib/types/domain";
 import { getBoardSportConfig } from "@/lib/config/board-sports";
+import { getConfidenceTierFromEdge } from "@/lib/utils/bet-intelligence";
 import { parseMatchupRouteId } from "@/lib/utils/matchups";
 import { mockDatabase } from "@/prisma/seed-data";
 import { getGameDetail as getLegacyGameDetail } from "@/services/odds/odds-service";
@@ -114,6 +116,67 @@ function buildOddsSummaryFromLegacy(detail: LegacyGameDetailView) {
     bestTotal: detail.bestMarkets.total.label,
     sourceLabel: "Current odds backend"
   };
+}
+
+function parseSignalLine(value: string) {
+  const match = value.match(/(-?\d+(?:\.\d+)?)/);
+  return match ? Number(match[1]) : null;
+}
+
+function buildLegacyBetSignals(detail: LegacyGameDetailView): BetSignalView[] {
+  return [
+    {
+      id: `${detail.game.id}-spread`,
+      marketType: "spread",
+      marketLabel: "Spread",
+      selection: detail.bestMarkets.spread.label,
+      side: detail.bestMarkets.spread.label,
+      line: parseSignalLine(detail.bestMarkets.spread.lineLabel),
+      oddsAmerican: detail.bestMarkets.spread.bestOdds,
+      sportsbookName: detail.bestMarkets.spread.bestBook,
+      eventLabel: `${detail.awayTeam.name} @ ${detail.homeTeam.name}`,
+      externalEventId: detail.game.externalEventId,
+      matchupHref: `/game/${detail.game.id}`,
+      supportStatus: "LIVE",
+      supportNote: "Current odds backend",
+      confidenceTier: getConfidenceTierFromEdge(detail.edgeScore.score),
+      edgeScore: detail.edgeScore
+    },
+    {
+      id: `${detail.game.id}-moneyline`,
+      marketType: "moneyline",
+      marketLabel: "Moneyline",
+      selection: detail.bestMarkets.moneyline.label,
+      side: null,
+      line: null,
+      oddsAmerican: detail.bestMarkets.moneyline.bestOdds,
+      sportsbookName: detail.bestMarkets.moneyline.bestBook,
+      eventLabel: `${detail.awayTeam.name} @ ${detail.homeTeam.name}`,
+      externalEventId: detail.game.externalEventId,
+      matchupHref: `/game/${detail.game.id}`,
+      supportStatus: "LIVE",
+      supportNote: "Current odds backend",
+      confidenceTier: getConfidenceTierFromEdge(detail.edgeScore.score),
+      edgeScore: detail.edgeScore
+    },
+    {
+      id: `${detail.game.id}-total`,
+      marketType: "total",
+      marketLabel: "Total",
+      selection: detail.bestMarkets.total.label,
+      side: detail.bestMarkets.total.label.startsWith("O ") ? "Over" : "Under",
+      line: parseSignalLine(detail.bestMarkets.total.lineLabel),
+      oddsAmerican: detail.bestMarkets.total.bestOdds,
+      sportsbookName: detail.bestMarkets.total.bestBook,
+      eventLabel: `${detail.awayTeam.name} @ ${detail.homeTeam.name}`,
+      externalEventId: detail.game.externalEventId,
+      matchupHref: `/game/${detail.game.id}`,
+      supportStatus: "LIVE",
+      supportNote: "Current odds backend",
+      confidenceTier: getConfidenceTierFromEdge(detail.edgeScore.score),
+      edgeScore: detail.edgeScore
+    }
+  ];
 }
 
 function buildLegacyTrendCards(detail: LegacyGameDetailView): MatchupTrendCardView[] {
@@ -387,6 +450,7 @@ function mergeMatchupDetail(args: {
     oddsSummary: payload?.oddsSummary ?? (legacyDetail ? buildOddsSummaryFromLegacy(legacyDetail) : null),
     books: legacyDetail?.books ?? [],
     props: legacyDetail?.props ?? [],
+    betSignals: legacyDetail ? buildLegacyBetSignals(legacyDetail) : [],
     propsSupport: derivePropsSupport(leagueKey, payload, legacyDetail),
     marketRanges: legacyDetail?.marketRanges ?? payload?.marketRanges ?? [],
     lineMovement: legacyDetail?.lineMovement ?? [],

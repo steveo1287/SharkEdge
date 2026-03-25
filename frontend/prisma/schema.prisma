@@ -502,6 +502,7 @@ model Bet {
   clvPercentage            Float?
   notes                    String?
   tagsJson                 Json?
+  contextJson              Json?
   isLive                   Boolean      @default(false)
   archivedAt               DateTime?
   createdAt                DateTime     @default(now())

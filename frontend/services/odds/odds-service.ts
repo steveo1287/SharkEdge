@@ -1,4 +1,5 @@
 import { calculateEdgeScore } from "@/lib/utils/edge-score";
+import { calculateMarketExpectedValuePct } from "@/lib/utils/bet-intelligence";
 import { formatAmericanOdds, formatLine } from "@/lib/formatters/odds";
 import { buildMatchupHref } from "@/lib/utils/matchups";
 import { boardFiltersSchema, propsFiltersSchema } from "@/lib/validation/filters";
@@ -368,6 +369,16 @@ function buildPropCard(angleId: string): PropCardView | null {
         0
       ) / Math.max(1, getMarketsForGame(game.id, angle.marketType, angle.playerId).length)
     ),
+    marketDeltaAmerican: priceDelta,
+    expectedValuePct: calculateMarketExpectedValuePct(
+      market.oddsAmerican,
+      Math.round(
+        getMarketsForGame(game.id, angle.marketType, angle.playerId).reduce(
+          (total, row) => total + row.oddsAmerican,
+          0
+        ) / Math.max(1, getMarketsForGame(game.id, angle.marketType, angle.playerId).length)
+      )
+    ),
     lineMovement,
     valueFlag: priceDelta >= 10 ? "MARKET_PLUS" : "BEST_PRICE",
     supportStatus: "LIVE",
@@ -434,6 +445,35 @@ function getMockPropsExplorerData(filters: PropFilters) {
 export async function getPropsExplorerData(filters: PropFilters) {
   const liveData = await getLivePropsExplorerData(filters);
   return liveData ?? getMockPropsExplorerData(filters);
+}
+
+export async function getTopPlayCards(limit = 3) {
+  const data = await getPropsExplorerData({
+    league: "ALL",
+    marketType: "ALL",
+    team: "all",
+    player: "all",
+    sportsbook: "all",
+    valueFlag: "all",
+    sortBy: "best_price"
+  });
+
+  return data.props
+    .filter(
+      (prop) =>
+        prop.source === "live" &&
+        typeof prop.expectedValuePct === "number" &&
+        prop.expectedValuePct > 0
+    )
+    .sort((left, right) => {
+      const evDelta = (right.expectedValuePct ?? -999) - (left.expectedValuePct ?? -999);
+      if (evDelta !== 0) {
+        return evDelta;
+      }
+
+      return right.edgeScore.score - left.edgeScore.score;
+    })
+    .slice(0, limit);
 }
 
 export async function getPropById(propId: string): Promise<PropCardView | null> {

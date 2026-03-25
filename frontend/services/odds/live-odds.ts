@@ -1,4 +1,5 @@
 import { calculateEdgeScore } from "@/lib/utils/edge-score";
+import { calculateMarketExpectedValuePct } from "@/lib/utils/bet-intelligence";
 import { americanToImpliedProbability } from "@/lib/utils/odds";
 import { formatAmericanOdds, formatLine } from "@/lib/formatters/odds";
 import { buildMatchupHref } from "@/lib/utils/matchups";
@@ -499,6 +500,13 @@ function buildLivePropCard(props: LiveProp[]): PropCardView | null {
         ? "BEST_PRICE"
         : "NONE";
 
+  const edgeScore = calculateEdgeScore({
+    impliedProbability: bestProbability,
+    modelProbability: Math.min(0.92, averageProbability + Math.max(0, (best.price - (averageOdds ?? best.price)) / 1000)),
+    lineMovementSupport: Math.min(0.45, Math.max(0, priceDelta / 25)),
+    volatility: props.length >= 3 ? 0.28 : 0.36
+  });
+
   return {
     id: buildLivePropGroupKey(prop),
     gameId: prop.event_id,
@@ -519,18 +527,15 @@ function buildLivePropCard(props: LiveProp[]): PropCardView | null {
     bestAvailableOddsAmerican: best.price,
     bestAvailableSportsbookName: best.bookmaker_title,
     averageOddsAmerican: averageOdds,
+    marketDeltaAmerican: typeof averageOdds === "number" ? priceDelta : null,
+    expectedValuePct: calculateMarketExpectedValuePct(best.price, averageOdds),
     lineMovement: null,
     valueFlag,
     supportStatus: registryEntry.propsStatus,
     supportNote: registryEntry.propsNote,
     gameHref: buildMatchupHref(leagueKey, prop.event_id),
     source: "live",
-    edgeScore: calculateEdgeScore({
-      impliedProbability: bestProbability,
-      modelProbability: Math.min(0.92, averageProbability + Math.max(0, (best.price - (averageOdds ?? best.price)) / 1000)),
-      lineMovementSupport: Math.min(0.45, Math.max(0, priceDelta / 25)),
-      volatility: props.length >= 3 ? 0.28 : 0.36
-    })
+    edgeScore
   };
 }
 
@@ -1499,6 +1504,14 @@ export async function getLivePropsExplorerData(filters: PropFilters) {
 
       if (filters.sortBy === "line_movement") {
         return (Math.abs(right.lineMovement ?? -1) - Math.abs(left.lineMovement ?? -1));
+      }
+
+      if (filters.sortBy === "market_ev") {
+        return (right.expectedValuePct ?? -999) - (left.expectedValuePct ?? -999);
+      }
+
+      if (filters.sortBy === "edge_score") {
+        return right.edgeScore.score - left.edgeScore.score;
       }
 
       if (filters.sortBy === "best_price") {

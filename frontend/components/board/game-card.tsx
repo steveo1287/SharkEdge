@@ -1,9 +1,11 @@
 import Link from "next/link";
 
+import { BetActionButton } from "@/components/bets/bet-action-button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { formatGameDateTime } from "@/lib/formatters/date";
 import { formatAmericanOdds } from "@/lib/formatters/odds";
+import { buildBoardBetIntent } from "@/lib/utils/bet-intelligence";
 import type { GameCardView } from "@/lib/types/domain";
 
 function getEdgeTone(label: GameCardView["edgeScore"]["label"]) {
@@ -49,6 +51,7 @@ export function GameCard({ game, focusMarket }: GameCardProps) {
       ? focusMarket
       : "spread";
   const movement = game[focus].movement;
+  const intent = buildBoardBetIntent(game, focus, "/");
 
   return (
     <Card className="p-5">
@@ -104,16 +107,22 @@ export function GameCard({ game, focusMarket }: GameCardProps) {
         </div>
       </div>
 
-      <div className="mt-5 flex items-center justify-between">
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm text-slate-400">
           {game.selectedBook ? `Locked to ${game.selectedBook.name}` : `${game.bestBookCount} books compared`}
         </div>
-        <Link
-          href={game.detailHref ?? `/game/${game.id}`}
-          className="rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300"
-        >
-          Open matchup
-        </Link>
+        <div className="flex flex-wrap gap-3">
+          <BetActionButton intent={intent}>Add {focus}</BetActionButton>
+          <BetActionButton intent={intent} mode="log">
+            Log now
+          </BetActionButton>
+          <Link
+            href={game.detailHref ?? `/game/${game.id}`}
+            className="rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300"
+          >
+            Open matchup
+          </Link>
+        </div>
       </div>
     </Card>
   );

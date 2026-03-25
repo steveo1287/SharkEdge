@@ -1,10 +1,12 @@
 import Link from "next/link";
 
+import { BetActionButton } from "@/components/bets/bet-action-button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { BoardSupportStatus, PropCardView, PropMarketType } from "@/lib/types/domain";
 import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
+import { buildPropBetIntent } from "@/lib/utils/bet-intelligence";
 
 type PropListProps = {
   props: PropCardView[];
@@ -113,6 +115,23 @@ export function PropList({ props, support }: PropListProps) {
               </div>
             </div>
           </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {typeof prop.expectedValuePct === "number" ? (
+              <Badge tone={prop.expectedValuePct > 0 ? "success" : "muted"}>
+                Market EV {prop.expectedValuePct > 0 ? "+" : ""}
+                {prop.expectedValuePct.toFixed(2)}%
+              </Badge>
+            ) : (
+              <Badge tone="muted">EV unavailable</Badge>
+            )}
+            {typeof prop.marketDeltaAmerican === "number" ? (
+              <Badge tone="premium">
+                Delta {prop.marketDeltaAmerican > 0 ? "+" : ""}
+                {prop.marketDeltaAmerican}
+              </Badge>
+            ) : null}
+            <Badge tone="muted">{prop.edgeScore.label} {prop.edgeScore.score}</Badge>
+          </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
             <div className="text-sm text-slate-300">
               {prop.supportNote ?? support.note}
@@ -124,12 +143,15 @@ export function PropList({ props, support }: PropListProps) {
               >
                 Matchup
               </Link>
-              <Link
-                href={`/bets?selection=${prop.id}`}
-                className="rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300"
+              <BetActionButton intent={buildPropBetIntent(prop, "matchup", prop.gameHref ?? "/game")}>
+                Add to slip
+              </BetActionButton>
+              <BetActionButton
+                intent={buildPropBetIntent(prop, "matchup", prop.gameHref ?? "/game")}
+                mode="log"
               >
                 Log bet
-              </Link>
+              </BetActionButton>
             </div>
           </div>
         </Card>

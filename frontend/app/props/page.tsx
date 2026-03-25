@@ -122,6 +122,8 @@ export default async function PropsPage({ searchParams }: PageProps) {
               className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
             >
               <option value="best_price">Best Price</option>
+              <option value="market_ev">Market EV</option>
+              <option value="edge_score">Edge Score</option>
               <option value="line_movement">Line Movement</option>
               <option value="league">League</option>
               <option value="start_time">Event</option>

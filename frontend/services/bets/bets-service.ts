@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { getServerDatabaseResolution, hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
+import type { BetIntent, LeakSignal } from "@/lib/types/bet-intelligence";
 import type {
   EventOption,
   LedgerBetFormInput,
@@ -22,6 +23,9 @@ import {
   LEDGER_MARKET_TYPES,
   SPORT_CODES
 } from "@/lib/types/ledger";
+import {
+  decodeBetIntent
+} from "@/lib/utils/bet-intelligence";
 import {
   calculateAverageClv,
   calculateLedgerAverageOdds,
@@ -47,6 +51,7 @@ import {
 } from "@/lib/utils/ledger";
 import { ledgerBetFormSchema, ledgerFiltersSchema } from "@/lib/validation/ledger";
 import { getPropById } from "@/services/odds/odds-service";
+import { getMatchupDetail } from "@/services/matchups/matchup-service";
 import {
   buildSweatBoardItem,
   getLedgerEventOptions,
@@ -120,6 +125,10 @@ type BetWithRelations = Prisma.BetGetPayload<{
   include: typeof betInclude;
 }>;
 
+function toJsonInput(value: unknown) {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
 function mapSportsbookOption(book: {
   id: string;
   key: string;
@@ -167,6 +176,11 @@ function mapEventParticipants(
 }
 
 function mapBetView(bet: BetWithRelations): LedgerBetView {
+  const rawContext = (bet.contextJson as { legContexts?: Array<LedgerBetView["context"] | null> } & LedgerBetView["context"]) ?? null;
+  const betContext =
+    rawContext && typeof rawContext === "object" && "sourcePage" in rawContext
+      ? (rawContext as LedgerBetView["context"])
+      : null;
   const eventLabel = bet.event
     ? formatEventLabelFromParticipants(mapEventParticipants(bet.event.participants))
     : bet.legs[0]?.event
@@ -205,7 +219,9 @@ function mapBetView(bet: BetWithRelations): LedgerBetView {
     closingOddsDecimal: bet.closingOddsDecimal,
     clvValue: bet.clvValue,
     clvPercentage: bet.clvPercentage,
-    legs: bet.legs.map((leg) => ({
+    eventStartTime: bet.event?.startTime?.toISOString() ?? null,
+    context: betContext,
+    legs: bet.legs.map((leg, index) => ({
       id: leg.id,
       eventId: leg.eventId,
       eventLabel: leg.event
@@ -225,7 +241,8 @@ function mapBetView(bet: BetWithRelations): LedgerBetView {
       closingOddsAmerican: leg.closingOddsAmerican,
       clvValue: leg.clvValue,
       clvPercentage: leg.clvPercentage,
-      eventStatus: (leg.event?.status as LedgerBetView["legs"][number]["eventStatus"]) ?? null
+      eventStatus: (leg.event?.status as LedgerBetView["legs"][number]["eventStatus"]) ?? null,
+      context: rawContext?.legContexts?.[index] ?? betContext
     }))
   };
 }
@@ -322,7 +339,9 @@ function buildEmptySummary() {
     totalBets: 0,
     openBets: 0,
     settledBets: 0,
-    trackedClvBets: 0
+    trackedClvBets: 0,
+    averageClv: null,
+    averageEv: null
   };
 }
 
@@ -450,12 +469,15 @@ function buildEmptyPerformanceDashboard(setup: LedgerSetupState): PerformanceDas
     byLeague: [],
     byMarket: [],
     bySportsbook: [],
+    byDayOfWeek: [],
+    byTiming: [],
     byWeek: [],
     byMonth: [],
     trend: [],
     recentForm: [],
     bestSegments: [],
-    worstSegments: []
+    worstSegments: [],
+    leakSignals: []
   };
 }
 
@@ -521,6 +543,7 @@ async function getBets(filters: LedgerFilters) {
 function buildSummary(bets: LedgerBetView[]) {
   const settled = bets.filter((bet) => bet.result !== "OPEN");
   const results = settled.map((bet) => bet.result);
+  const trackedEv = bets.filter((bet) => typeof bet.context?.expectedValuePct === "number");
 
   return {
     record: formatRecordString(results),
@@ -532,8 +555,111 @@ function buildSummary(bets: LedgerBetView[]) {
     totalBets: bets.length,
     openBets: bets.filter((bet) => bet.result === "OPEN").length,
     settledBets: settled.length,
-    trackedClvBets: bets.filter((bet) => typeof bet.clvPercentage === "number").length
+    trackedClvBets: bets.filter((bet) => typeof bet.clvPercentage === "number").length,
+    averageClv: calculateAverageClv(bets),
+    averageEv: trackedEv.length
+      ? Number(
+          (
+            trackedEv.reduce(
+              (total, bet) => total + (bet.context?.expectedValuePct ?? 0),
+              0
+            ) / trackedEv.length
+          ).toFixed(2)
+        )
+      : null
   };
+}
+
+function toDayOfWeekLabel(dateString: string) {
+  return new Date(dateString).toLocaleString("en-US", {
+    weekday: "short",
+    timeZone: "UTC"
+  });
+}
+
+function getBetTimingLabel(bet: LedgerBetView) {
+  if (bet.isLive) {
+    return "Live";
+  }
+
+  if (!bet.eventStartTime) {
+    return "Unlinked";
+  }
+
+  const deltaMinutes =
+    (new Date(bet.eventStartTime).getTime() - new Date(bet.placedAt).getTime()) / 60000;
+
+  if (deltaMinutes <= 120) {
+    return "Late";
+  }
+
+  if (deltaMinutes <= 1440) {
+    return "Same Day";
+  }
+
+  return "Early";
+}
+
+function buildLeakSignals(args: {
+  byMarket: PerformanceDashboardView["byMarket"];
+  bySportsbook: PerformanceDashboardView["bySportsbook"];
+  byTiming: PerformanceDashboardView["byTiming"];
+  settled: LedgerBetView[];
+}): LeakSignal[] {
+  const signals: LeakSignal[] = [];
+
+  for (const row of args.byMarket) {
+    if (row.bets >= 10 && row.roi < 0) {
+      signals.push({
+        id: `market-${row.label}`,
+        title: `${row.label} is leaking`,
+        detail: `${row.label} is down ${Math.abs(row.roi).toFixed(1)}% ROI over ${row.bets} settled bets.`,
+        sampleSize: row.bets,
+        severity: "danger"
+      });
+    }
+  }
+
+  for (const row of args.bySportsbook) {
+    if (row.bets >= 10 && row.roi < 0) {
+      signals.push({
+        id: `sportsbook-${row.label}`,
+        title: `${row.label} underperforms`,
+        detail: `${row.label} has ${row.roi.toFixed(1)}% ROI over ${row.bets} bets. Re-check whether this is a weak price source for you.`,
+        sampleSize: row.bets,
+        severity: "premium"
+      });
+    }
+  }
+
+  const late = args.byTiming.find((row) => row.label === "Late");
+  if (late && late.bets >= 10 && late.roi < 0) {
+    signals.push({
+      id: "timing-late",
+      title: "Late entries are underperforming",
+      detail: `Late bets are returning ${late.roi.toFixed(1)}% ROI across ${late.bets} settled entries.`,
+      sampleSize: late.bets,
+      severity: "danger"
+    });
+  }
+
+  const trackedClv = args.settled.filter((bet) => typeof bet.clvPercentage === "number");
+  if (trackedClv.length >= 10) {
+    const averageClv =
+      trackedClv.reduce((total, bet) => total + (bet.clvPercentage ?? 0), 0) / trackedClv.length;
+
+    if (averageClv < 0) {
+      signals.push({
+        id: "clv-negative",
+        title: "Average CLV is negative",
+        detail: `Tracked closing-line value is ${averageClv.toFixed(2)}% across ${trackedClv.length} bets. Price entry timing needs work.`,
+        sampleSize: trackedClv.length,
+        severity: "danger"
+      });
+    }
+  }
+
+  return signals.slice(0, 6);
 }
 
 function toWeekLabel(dateString: string) {
@@ -585,6 +711,8 @@ function buildPerformanceDashboardData(bets: LedgerBetView[]): PerformanceDashbo
   const byLeague = buildBreakdownRows(settled, (bet) => bet.league);
   const byMarket = buildBreakdownRows(settled, (bet) => formatLedgerMarketType(bet.marketType));
   const bySportsbook = buildBreakdownRows(settled, (bet) => bet.sportsbook?.name ?? "No book");
+  const byDayOfWeek = buildBreakdownRows(settled, (bet) => toDayOfWeekLabel(bet.placedAt));
+  const byTiming = buildBreakdownRows(settled, (bet) => getBetTimingLabel(bet));
   const byWeek = buildBreakdownRows(settled, (bet) => toWeekLabel(bet.placedAt));
   const byMonth = buildBreakdownRows(settled, (bet) => toMonthLabel(bet.placedAt));
 
@@ -599,6 +727,8 @@ function buildPerformanceDashboardData(bets: LedgerBetView[]): PerformanceDashbo
     byLeague,
     byMarket,
     bySportsbook,
+    byDayOfWeek,
+    byTiming,
     byWeek,
     byMonth,
     trend,
@@ -612,7 +742,13 @@ function buildPerformanceDashboardData(bets: LedgerBetView[]): PerformanceDashbo
       .slice(0, 3)
       .map(
         (row) => `${row.label}: ${row.units > 0 ? "+" : ""}${row.units.toFixed(2)}u, ${row.roi.toFixed(1)}% ROI`
-      )
+      ),
+    leakSignals: buildLeakSignals({
+      byMarket,
+      bySportsbook,
+      byTiming,
+      settled
+    })
   };
 }
 
@@ -636,6 +772,26 @@ function mapPrefillFromProp(prop: Awaited<ReturnType<typeof getPropById>>) {
       : `${prop.player.name} ${formatLedgerMarketType(prop.marketType as LedgerMarketType)}`,
     tags: "props,quick-log",
     isLive: false,
+    context: {
+      sourcePage: "props",
+      sourceLabel: "Props Explorer",
+      sourcePath: "/props",
+      eventLabel:
+        prop.gameLabel ?? `${prop.team.abbreviation} vs ${prop.opponent.abbreviation}`,
+      matchupHref: prop.gameHref ?? `/game/${prop.gameId}`,
+      externalEventId: prop.gameId,
+      sportsbookKey: prop.sportsbook.key,
+      sportsbookName: prop.bestAvailableSportsbookName ?? prop.sportsbook.name,
+      supportStatus: prop.supportStatus ?? null,
+      supportNote: prop.supportNote ?? null,
+      marketDeltaAmerican: prop.marketDeltaAmerican ?? null,
+      expectedValuePct: prop.expectedValuePct ?? null,
+      edgeScore: prop.edgeScore.score,
+      edgeLabel: prop.edgeScore.label,
+      confidenceTier: null,
+      valueFlag: prop.valueFlag ?? null,
+      capturedAt: new Date().toISOString()
+    },
     legs: [
       {
         eventId: null,
@@ -645,13 +801,149 @@ function mapPrefillFromProp(prop: Awaited<ReturnType<typeof getPropById>>) {
         selection: `${prop.player.name} ${prop.side} ${prop.line}`,
         side: prop.side,
         line: prop.line,
-        oddsAmerican: prop.oddsAmerican,
+        oddsAmerican: prop.bestAvailableOddsAmerican ?? prop.oddsAmerican,
         closingLine: null,
         closingOddsAmerican: null,
-        notes: ""
+        notes: "",
+        context: {
+          sourcePage: "props",
+          sourceLabel: "Props Explorer",
+          sourcePath: "/props",
+          eventLabel:
+            prop.gameLabel ?? `${prop.team.abbreviation} vs ${prop.opponent.abbreviation}`,
+          matchupHref: prop.gameHref ?? `/game/${prop.gameId}`,
+          externalEventId: prop.gameId,
+          sportsbookKey: prop.sportsbook.key,
+          sportsbookName: prop.bestAvailableSportsbookName ?? prop.sportsbook.name,
+          supportStatus: prop.supportStatus ?? null,
+          supportNote: prop.supportNote ?? null,
+          marketDeltaAmerican: prop.marketDeltaAmerican ?? null,
+          expectedValuePct: prop.expectedValuePct ?? null,
+          edgeScore: prop.edgeScore.score,
+          edgeLabel: prop.edgeScore.label,
+          confidenceTier: null,
+          valueFlag: prop.valueFlag ?? null,
+          capturedAt: new Date().toISOString()
+        }
       }
     ]
   } satisfies LedgerBetFormInput;
+}
+
+async function resolveLinkedEventId(
+  league: SupportedLeagueKey,
+  externalEventId: string | null | undefined,
+  matchupHref: string | null | undefined
+) {
+  if (externalEventId) {
+    const event = await prisma.event.findFirst({
+      where: {
+        externalEventId,
+        league: {
+          key: league
+        }
+      },
+      select: {
+        id: true
+      }
+    });
+
+    if (event?.id) {
+      return event.id;
+    }
+  }
+
+  if (matchupHref?.includes("/game/")) {
+    const routeId = matchupHref.split("/game/")[1] ?? null;
+    if (routeId) {
+      const detail = await getMatchupDetail(routeId);
+      if (detail?.externalEventId) {
+        const matchedEvent = await prisma.event.findFirst({
+          where: {
+            externalEventId: detail.externalEventId,
+            league: {
+              key: league
+            }
+          },
+          select: {
+            id: true
+          }
+        });
+
+        return matchedEvent?.id ?? null;
+      }
+    }
+  }
+
+  return null;
+}
+
+function resolveSportsbookIdFromContext(
+  books: SportsbookOption[],
+  sportsbookKey: string | null | undefined,
+  sportsbookName: string | null | undefined
+) {
+  return (
+    books.find((book) => book.key === sportsbookKey)?.id ??
+    books.find((book) => book.name === sportsbookName)?.id ??
+    null
+  );
+}
+
+async function mapPrefillFromIntent(
+  intent: BetIntent,
+  books: SportsbookOption[]
+): Promise<LedgerBetFormInput> {
+  const linkedEventId =
+    intent.eventId ??
+    (await resolveLinkedEventId(
+      intent.league,
+      intent.externalEventId ?? intent.legs[0]?.externalEventId ?? null,
+      intent.matchupHref ?? intent.context?.matchupHref ?? null
+    ));
+  const sportsbookId = resolveSportsbookIdFromContext(
+    books,
+    intent.sportsbookKey ?? intent.context?.sportsbookKey,
+    intent.sportsbookName ?? intent.context?.sportsbookName
+  );
+  const eventLinkNote = linkedEventId
+    ? ""
+    : " Event link is not available yet for this ticket, so live sync and auto-grading may require a manual relink.";
+
+  return {
+    placedAt: new Date().toISOString().slice(0, 16),
+    source: intent.source,
+    betType: intent.betType,
+    sport: intent.sport,
+    league: intent.league,
+    eventId: linkedEventId,
+    sportsbookId,
+    status: "OPEN",
+    stake: 1,
+    notes: `${intent.notes ?? `Logged from ${intent.context?.sourceLabel ?? "SharkEdge"}.`}${eventLinkNote}`.trim(),
+    tags: Array.from(new Set([...(intent.tags ?? []), "phase4"])).join(", "),
+    isLive: intent.isLive,
+    context: intent.context ?? null,
+    legs: intent.legs.map((leg) => ({
+      eventId: linkedEventId,
+      sportsbookId:
+        resolveSportsbookIdFromContext(
+          books,
+          leg.sportsbookKey ?? intent.sportsbookKey ?? intent.context?.sportsbookKey,
+          leg.sportsbookName ?? intent.sportsbookName ?? intent.context?.sportsbookName
+        ) ?? sportsbookId,
+      marketType: leg.marketType,
+      marketLabel: leg.marketLabel,
+      selection: leg.selection,
+      side: leg.side ?? null,
+      line: leg.line ?? null,
+      oddsAmerican: leg.oddsAmerican,
+      closingLine: null,
+      closingOddsAmerican: null,
+      notes: leg.notes ?? "",
+      context: leg.context ?? intent.context ?? null
+    }))
+  };
 }
 
 export function parseBetFilters(searchParams: Record<string, string | string[] | undefined>) {
@@ -671,7 +963,16 @@ export function parseBetFilters(searchParams: Record<string, string | string[] |
   }) satisfies LedgerFilters;
 }
 
-export async function getBetPrefill(selection: string | undefined) {
+export async function getBetPrefill(
+  selection: string | undefined,
+  prefillParam: string | undefined,
+  books: SportsbookOption[]
+) {
+  const decodedIntent = decodeBetIntent(prefillParam);
+  if (decodedIntent) {
+    return mapPrefillFromIntent(decodedIntent, books);
+  }
+
   if (!selection) {
     return null;
   }
@@ -680,21 +981,23 @@ export async function getBetPrefill(selection: string | undefined) {
   return mapPrefillFromProp(prop);
 }
 
-export async function getBetTrackerData(filters: LedgerFilters, selection?: string): Promise<LedgerPageData> {
-  const prefillPromise = getBetPrefill(selection).catch(() => null);
-
+export async function getBetTrackerData(
+  filters: LedgerFilters,
+  selection?: string,
+  prefillParam?: string
+): Promise<LedgerPageData> {
   try {
     await ensureDefaultUser();
     await syncSupportedEventCatalog();
     const liveRefresh = await refreshTrackedEventsForOpenBets();
-    const [books, events, leagues, sports, bets, prefill] = await Promise.all([
+    const [books, events, leagues, sports, bets] = await Promise.all([
       getBooks(),
       getLedgerEventOptions(),
       getLeagueOptions(),
       getSportOptions(),
-      getBets(filters),
-      prefillPromise
+      getBets(filters)
     ]);
+    const prefill = await getBetPrefill(selection, prefillParam, books).catch(() => null);
 
     const mapped = sortBets(bets.map(mapBetView), filters);
     const summary = buildSummary(mapped);
@@ -716,6 +1019,13 @@ export async function getBetTrackerData(filters: LedgerFilters, selection?: stri
           league: bet.league,
           betType: bet.betType,
           result: bet.result,
+          placedAt: bet.placedAt,
+          startTime: bet.eventStartTime,
+          exposure: {
+            riskAmount: bet.riskAmount,
+            toWin: bet.toWin,
+            potentialPayout: bet.payout
+          },
           event: bets.find((entry) => entry.id === bet.id)?.event
             ? {
                 status: bets.find((entry) => entry.id === bet.id)?.event?.status ?? "SCHEDULED",
@@ -785,7 +1095,8 @@ export async function getBetTrackerData(filters: LedgerFilters, selection?: stri
       prefill
     };
   } catch (error) {
-    return buildEmptyLedgerPage(filters, await prefillPromise, buildLedgerSetupState(error));
+    const prefill = await getBetPrefill(selection, prefillParam, []).catch(() => null);
+    return buildEmptyLedgerPage(filters, prefill, buildLedgerSetupState(error));
   }
 }
 
@@ -938,6 +1249,13 @@ async function buildCreatePayload(input: LedgerBetFormInput) {
       .split(",")
       .map((tag) => tag.trim())
       .filter(Boolean),
+    contextJson:
+      input.context || input.legs.some((leg) => leg.context)
+        ? toJsonInput({
+            ...(input.context ?? {}),
+            legContexts: input.legs.map((leg) => leg.context ?? null)
+          })
+        : null,
     isLive: input.isLive,
     legs: normalizedLegs
   };
@@ -981,6 +1299,7 @@ export async function createBet(input: LedgerBetFormInput) {
       clvPercentage: payload.clvPercentage,
       notes: payload.notes,
       tagsJson: payload.tagsJson,
+      contextJson: payload.contextJson ?? Prisma.JsonNull,
       isLive: payload.isLive,
       legs: {
         create: payload.legs.map((leg, index) => ({
@@ -1046,6 +1365,7 @@ export async function updateBet(id: string, input: LedgerBetFormInput) {
         clvPercentage: payload.clvPercentage,
         notes: payload.notes,
         tagsJson: payload.tagsJson,
+        contextJson: payload.contextJson ?? Prisma.JsonNull,
         isLive: payload.isLive,
         legs: {
           create: payload.legs.map((leg, index) => ({
@@ -1054,6 +1374,64 @@ export async function updateBet(id: string, input: LedgerBetFormInput) {
             result: payload.result === "OPEN" ? "OPEN" : payload.result
           }))
         }
+      }
+    });
+
+    return tx.bet.findUniqueOrThrow({
+      where: {
+        id
+      },
+      include: betInclude
+    });
+  });
+
+  return mapBetView(updated);
+}
+
+export async function settleBet(
+  id: string,
+  input: {
+    result: Exclude<LedgerBetResult, "OPEN">;
+    settledAt?: string | null;
+  }
+) {
+  assertLedgerWritesAvailable();
+
+  const existing = await prisma.bet.findUniqueOrThrow({
+    where: {
+      id
+    },
+    include: {
+      legs: true
+    }
+  });
+
+  const settledAt = input.settledAt ? new Date(input.settledAt) : new Date();
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.betLeg.updateMany({
+      where: {
+        betId: id,
+        result: "OPEN"
+      },
+      data: {
+        result: input.result
+      }
+    });
+
+    await tx.bet.update({
+      where: {
+        id
+      },
+      data: {
+        result: input.result,
+        settledAt,
+        payout:
+          input.result === "WIN"
+            ? existing.stake + existing.toWin
+            : input.result === "PUSH" || input.result === "VOID"
+              ? existing.stake
+              : existing.payout
       }
     });
 

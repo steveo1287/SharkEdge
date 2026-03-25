@@ -1,3 +1,8 @@
+import type {
+  BetSignalContext,
+  LeakSignal
+} from "@/lib/types/bet-intelligence";
+
 export const SPORT_CODES = [
   "BASKETBALL",
   "BASEBALL",
@@ -113,6 +118,7 @@ export type BetLegInput = {
   closingLine?: number | null;
   closingOddsAmerican?: number | null;
   notes?: string;
+  context?: BetSignalContext | null;
 };
 
 export type LedgerBetFormInput = {
@@ -130,6 +136,7 @@ export type LedgerBetFormInput = {
   notes: string;
   tags: string;
   isLive: boolean;
+  context?: BetSignalContext | null;
   legs: BetLegInput[];
 };
 
@@ -152,6 +159,7 @@ export type LedgerLegView = {
   clvValue: number | null;
   clvPercentage: number | null;
   eventStatus: LedgerEventStatus | null;
+  context: BetSignalContext | null;
 };
 
 export type LedgerBetView = {
@@ -186,6 +194,8 @@ export type LedgerBetView = {
   closingOddsDecimal: number | null;
   clvValue: number | null;
   clvPercentage: number | null;
+  eventStartTime: string | null;
+  context: BetSignalContext | null;
   legs: LedgerLegView[];
 };
 
@@ -205,6 +215,8 @@ export type SweatBoardItem = {
   league: SupportedLeagueKey;
   betType: LedgerBetType;
   result: LedgerBetResult;
+  placedAt: string;
+  startTime: string | null;
   eventLabel: string | null;
   eventStatus: LedgerEventStatus | null;
   eventStateDetail: string | null;
@@ -212,6 +224,12 @@ export type SweatBoardItem = {
   liveSupported: boolean;
   lastUpdatedAt: string | null;
   stale: boolean;
+  bucket: "LIVE" | "UPCOMING" | "NEARLY_SETTLED" | "PENDING";
+  exposure: {
+    riskAmount: number;
+    toWin: number;
+    potentialPayout: number | null;
+  };
   notes: string[];
   legs: SweatLegView[];
 };
@@ -227,6 +245,8 @@ export type LedgerSummary = {
   openBets: number;
   settledBets: number;
   trackedClvBets: number;
+  averageClv: number | null;
+  averageEv: number | null;
 };
 
 export type LedgerSetupState = {
@@ -258,6 +278,8 @@ export type PerformanceDashboardView = {
   byLeague: PerformanceBreakdownRow[];
   byMarket: PerformanceBreakdownRow[];
   bySportsbook: PerformanceBreakdownRow[];
+  byDayOfWeek: PerformanceBreakdownRow[];
+  byTiming: PerformanceBreakdownRow[];
   byWeek: PerformanceBreakdownRow[];
   byMonth: PerformanceBreakdownRow[];
   trend: PerformanceTrendPoint[];
@@ -268,6 +290,7 @@ export type PerformanceDashboardView = {
   }>;
   bestSegments: string[];
   worstSegments: string[];
+  leakSignals: LeakSignal[];
 };
 
 export type LedgerPageData = {

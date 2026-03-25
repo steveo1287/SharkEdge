@@ -1,8 +1,10 @@
 import Link from "next/link";
 
+import { BetActionButton } from "@/components/bets/bet-action-button";
 import { DataTable } from "@/components/ui/data-table";
 import type { PropCardView } from "@/lib/types/domain";
 import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
+import { buildPropBetIntent } from "@/lib/utils/bet-intelligence";
 
 type PropsTableProps = {
   props: PropCardView[];
@@ -25,6 +27,7 @@ export function PropsTable({ props }: PropsTableProps) {
         "Matchup",
         "Market",
         "Best Price",
+        "Market EV",
         "Books",
         "Signal",
         "Actions"
@@ -50,6 +53,18 @@ export function PropsTable({ props }: PropsTableProps) {
             {prop.bestAvailableSportsbookName ?? prop.sportsbook.name}
           </div>
         </div>,
+        <div key={`${prop.id}-ev`}>
+          <div className="text-white">
+            {typeof prop.expectedValuePct === "number"
+              ? `${prop.expectedValuePct > 0 ? "+" : ""}${prop.expectedValuePct.toFixed(2)}%`
+              : "Unavailable"}
+          </div>
+          <div className="text-xs text-slate-500">
+            {typeof prop.marketDeltaAmerican === "number"
+              ? `Delta ${prop.marketDeltaAmerican > 0 ? "+" : ""}${prop.marketDeltaAmerican}`
+              : "No consensus delta"}
+          </div>
+        </div>,
         `${prop.sportsbookCount ?? 1}`,
         <div key={`${prop.id}-signal`}>
           <div className="text-white">{renderValueFlag(prop.valueFlag)}</div>
@@ -63,9 +78,16 @@ export function PropsTable({ props }: PropsTableProps) {
           <Link href={prop.gameHref ?? `/game/${prop.gameId}`} className="text-sky-300">
             Game
           </Link>
-          <Link href={`/bets?selection=${prop.id}`} className="text-amber-200">
+          <BetActionButton intent={buildPropBetIntent(prop, "props", "/props")} className="px-3 py-1.5 text-xs">
+            Slip
+          </BetActionButton>
+          <BetActionButton
+            intent={buildPropBetIntent(prop, "props", "/props")}
+            mode="log"
+            className="px-3 py-1.5 text-xs"
+          >
             Log
-          </Link>
+          </BetActionButton>
         </div>
       ])}
     />

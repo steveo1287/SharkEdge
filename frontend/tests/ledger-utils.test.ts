@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 
+import { calculateMarketExpectedValuePct } from "@/lib/utils/bet-intelligence";
 import {
   calculateLineClv,
   calculateParlayToWin,
@@ -28,6 +29,11 @@ run("parlay payout compounds leg odds correctly", () => {
 run("price clv is positive when the closing price moves toward the bettor", () => {
   assert.equal(calculatePriceClv(-110, -125), 3.17);
   assert.equal(calculatePriceClv(+150, +130), 3.48);
+});
+
+run("market EV uses consensus odds instead of faking a model number", () => {
+  assert.equal(calculateMarketExpectedValuePct(+115, +102), 6.44);
+  assert.equal(calculateMarketExpectedValuePct(-120, -110), -3.97);
 });
 
 run("line clv is side-aware for totals", () => {
