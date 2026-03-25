@@ -1,5 +1,6 @@
 import { calculateEdgeScore } from "@/lib/utils/edge-score";
 import { formatAmericanOdds, formatLine } from "@/lib/formatters/odds";
+import { buildMatchupHref } from "@/lib/utils/matchups";
 import { boardFiltersSchema, propsFiltersSchema } from "@/lib/validation/filters";
 import type {
   BoardFilters,
@@ -17,6 +18,7 @@ import type {
 import { mockDatabase } from "@/prisma/seed-data";
 import { getLeagueSnapshots, getTeamStatComparison } from "@/services/stats/stats-service";
 import { buildBoardSportSections, getBoardVisibleLeagues } from "@/services/events/live-score-service";
+import { getProviderRegistryEntry } from "@/services/providers/registry";
 import {
   getLiveBoardPageData,
   getLiveGameDetail,
@@ -200,7 +202,8 @@ function buildGameCard(game: GameRecord, sportsbookKey: string) {
       matchupRank: angle?.matchupRank,
       lineMovementSupport: angle?.lineMovementSupport,
       volatility: angle?.volatility
-    })
+    }),
+    detailHref: buildMatchupHref(leagueMap.get(game.leagueId)!.key, game.id)
   } satisfies GameCardView;
 }
 
@@ -217,49 +220,43 @@ export function parseBoardFilters(searchParams: Record<string, string | string[]
 }
 
 async function getMockBoardPageData(filters: BoardFilters): Promise<BoardPageData> {
-  const availableDates = Array.from(
-    new Set(mockDatabase.games.map((game) => game.startTime.slice(0, 10)))
-  );
-  const filteredGames = mockDatabase.games
-    .filter((game) => (filters.league === "ALL" ? true : leagueMap.get(game.leagueId)?.key === filters.league))
-    .filter((game) => (filters.date === "all" ? true : game.startTime.startsWith(filters.date)))
-    .filter((game) => (filters.status === "pregame" ? game.status === "PREGAME" : true))
-    .map((game) => buildGameCard(game, filters.sportsbook));
-  const gamesByLeague = filteredGames.reduce<Partial<Record<LeagueKey, GameCardView[]>>>(
-    (groups, game) => {
-      groups[game.leagueKey] = [...(groups[game.leagueKey] ?? []), game];
-      return groups;
-    },
-    {}
-  );
   const sportSections = await buildBoardSportSections({
     selectedLeague: filters.league,
-    gamesByLeague
+    gamesByLeague: {}
   });
 
   return {
     filters,
-    availableDates,
+    availableDates: Array.from(
+      new Set(
+        sportSections.flatMap((section) =>
+          section.scoreboard.map((event) => event.startTime.slice(0, 10))
+        )
+      )
+    ).sort(),
     leagues: getBoardVisibleLeagues(filters.league),
     sportsbooks: [
       { id: "best", key: "best", name: "Best available", region: "US" } satisfies SportsbookRecord,
       ...mockDatabase.sportsbooks
     ],
-    games: filteredGames,
+    games: [],
     sportSections,
-    snapshots: getLeagueSnapshots(filters.league),
+    snapshots: [],
     summary: {
-      totalGames: sportSections.reduce((total, section) => total + section.games.length, 0),
-      totalProps: mockDatabase.propAngles.length,
+      totalGames: sportSections.reduce(
+        (total, section) => total + section.games.length + section.scoreboard.length,
+        0
+      ),
+      totalProps: 0,
       totalSportsbooks: mockDatabase.sportsbooks.length
     },
     liveMessage:
       filters.status === "live"
-        ? "Live tracking is architected into the MVP, but the current experience is pregame-first until live ingestion ships."
+        ? "The live scoreboard mesh is still active, but the current-odds backend did not respond. SharkEdge is staying honest instead of rendering seeded board rows."
         : null,
     source: "mock",
     sourceNote:
-      "Showing the seeded SharkEdge board fallback. Configure the live backend connection to replace these markets with current sportsbook pricing."
+      "Current odds are unavailable right now, so the homepage is rendering support-aware scoreboard sections only. No seeded game rows are being passed off as live coverage."
   };
 }
 
@@ -329,6 +326,14 @@ function buildPropCard(angleId: string): PropCardView | null {
 
   const snapshots = getSnapshots(market.id);
   const lineMovement = (market.line ?? 0) - (snapshots[0]?.line ?? market.line ?? 0);
+  const propMarketType = angle.marketType as PropCardView["marketType"];
+  const priceDelta =
+    market.oddsAmerican - Math.round(
+      getMarketsForGame(game.id, angle.marketType, angle.playerId).reduce(
+        (total, row) => total + row.oddsAmerican,
+        0
+      ) / Math.max(1, getMarketsForGame(game.id, angle.marketType, angle.playerId).length)
+    );
 
   return {
     id: angle.id,
@@ -338,7 +343,7 @@ function buildPropCard(angleId: string): PropCardView | null {
     player,
     team,
     opponent,
-    marketType: angle.marketType,
+    marketType: propMarketType,
     side: angle.preferredSide,
     line: market.line ?? 0,
     oddsAmerican: market.oddsAmerican,
@@ -351,7 +356,24 @@ function buildPropCard(angleId: string): PropCardView | null {
       matchupRank: angle.matchupRank,
       lineMovementSupport: lineMovement,
       volatility: angle.volatility
-    })
+    }),
+    sportsbookCount: new Set(
+      getMarketsForGame(game.id, angle.marketType, angle.playerId).map((row) => row.sportsbookId)
+    ).size,
+    bestAvailableOddsAmerican: market.oddsAmerican,
+    bestAvailableSportsbookName: preferredBook.name,
+    averageOddsAmerican: Math.round(
+      getMarketsForGame(game.id, angle.marketType, angle.playerId).reduce(
+        (total, row) => total + row.oddsAmerican,
+        0
+      ) / Math.max(1, getMarketsForGame(game.id, angle.marketType, angle.playerId).length)
+    ),
+    lineMovement,
+    valueFlag: priceDelta >= 10 ? "MARKET_PLUS" : "BEST_PRICE",
+    supportStatus: "LIVE",
+    supportNote: "Showing seeded prop history because the live props backend is unavailable in this runtime.",
+    gameHref: buildMatchupHref(leagueMap.get(game.leagueId)!.key, game.id),
+    source: "mock"
   } satisfies PropCardView;
 }
 
@@ -366,45 +388,52 @@ export function parsePropsFilters(searchParams: Record<string, string | string[]
     sportsbook: Array.isArray(searchParams.sportsbook)
       ? searchParams.sportsbook[0]
       : searchParams.sportsbook,
-    minEdge: Array.isArray(searchParams.minEdge) ? searchParams.minEdge[0] : searchParams.minEdge,
-    minHitRate: Array.isArray(searchParams.minHitRate)
-      ? searchParams.minHitRate[0]
-      : searchParams.minHitRate
+    valueFlag: Array.isArray(searchParams.valueFlag)
+      ? searchParams.valueFlag[0]
+      : searchParams.valueFlag,
+    sortBy: Array.isArray(searchParams.sortBy) ? searchParams.sortBy[0] : searchParams.sortBy
   }) satisfies PropFilters;
 }
 
 function getMockPropsExplorerData(filters: PropFilters) {
-  const props = mockDatabase.propAngles
-    .map((angle) => buildPropCard(angle.id))
-    .filter(Boolean)
-    .filter((prop) => (filters.league === "ALL" ? true : prop!.leagueKey === filters.league))
-    .filter((prop) => (filters.marketType === "ALL" ? true : prop!.marketType === filters.marketType))
-    .filter((prop) => (filters.team === "all" ? true : prop!.team.id === filters.team))
-    .filter((prop) => (filters.player === "all" ? true : prop!.player.id === filters.player))
-    .filter((prop) => (filters.sportsbook === "all" ? true : prop!.sportsbook.key === filters.sportsbook))
-    .filter((prop) => prop!.edgeScore.score >= filters.minEdge)
-    .filter((prop) => prop!.recentHitRate * 100 >= filters.minHitRate) as PropCardView[];
+  const coverage = [
+    "NBA",
+    "NCAAB",
+    "MLB",
+    "NHL",
+    "NFL",
+    "NCAAF",
+    "UFC",
+    "BOXING"
+  ].map((leagueKey) => {
+    const registry = getProviderRegistryEntry(leagueKey as LeagueKey);
+
+    return {
+      leagueKey,
+      status: registry.propsStatus,
+      providers: registry.propsProviders,
+      supportedMarkets: registry.supportedPropMarkets,
+      note: registry.propsNote
+    };
+  });
 
   return {
     filters,
-    props,
+    props: [],
+    coverage,
     leagues: mockDatabase.leagues,
     sportsbooks: mockDatabase.sportsbooks,
     teams: mockDatabase.teams,
     players: mockDatabase.players,
-    source: "mock" as const,
+    source: "catalog" as const,
     sourceNote:
-      "Showing the seeded SharkEdge props fallback. Connect the live backend to replace these rows with current player markets."
+      "Live props are not available from the current backend right now. SharkEdge keeps every sport visible with honest provider states instead of backfilling fake prop rows."
   };
 }
 
 export async function getPropsExplorerData(filters: PropFilters) {
   const liveData = await getLivePropsExplorerData(filters);
-  if (liveData) {
-    return liveData;
-  }
-
-  return getMockPropsExplorerData(filters);
+  return liveData ?? getMockPropsExplorerData(filters);
 }
 
 export async function getPropById(propId: string): Promise<PropCardView | null> {

@@ -6,9 +6,10 @@ import { OverviewPanel } from "@/components/game/overview-panel";
 import { PropList } from "@/components/game/prop-list";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { formatGameDateTime } from "@/lib/formatters/date";
-import { getGameDetail } from "@/services/odds/odds-service";
+import { getMatchupDetail } from "@/services/matchups/matchup-service";
 
 type PageProps = {
   params: Promise<{
@@ -16,9 +17,37 @@ type PageProps = {
   }>;
 };
 
+function getStatusTone(status: string) {
+  if (status === "LIVE") {
+    return "success" as const;
+  }
+
+  if (status === "FINAL") {
+    return "neutral" as const;
+  }
+
+  if (status === "POSTPONED" || status === "CANCELED") {
+    return "danger" as const;
+  }
+
+  return "muted" as const;
+}
+
+function getSupportTone(status: string) {
+  if (status === "LIVE") {
+    return "success" as const;
+  }
+
+  if (status === "PARTIAL") {
+    return "premium" as const;
+  }
+
+  return "muted" as const;
+}
+
 export default async function GamePage({ params }: PageProps) {
   const { id } = await params;
-  const detail = await getGameDetail(id);
+  const detail = await getMatchupDetail(id);
 
   if (!detail) {
     notFound();
@@ -30,20 +59,27 @@ export default async function GamePage({ params }: PageProps) {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-              {detail.league.key} | {formatGameDateTime(detail.game.startTime)}
+              {detail.league.key} | {formatGameDateTime(detail.startTime)}
             </div>
             <div className="mt-3 font-display text-4xl font-semibold text-white">
-              {detail.awayTeam.name} @ {detail.homeTeam.name}
+              {detail.eventLabel}
             </div>
-            <div className="mt-2 text-sm text-slate-400">{detail.game.venue}</div>
+            <div className="mt-2 text-sm text-slate-400">
+              {[detail.venue, detail.stateDetail, detail.scoreboard].filter(Boolean).join(" | ") ||
+                "Provider-backed matchup drill-in"}
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Badge tone="brand">{detail.edgeScore.label}</Badge>
-            <Badge tone="premium">Edge {detail.edgeScore.score}</Badge>
-            <Badge tone={detail.source === "live" ? "success" : "muted"}>
-              {detail.source === "live" ? "Live odds" : "Mock fallback"}
+            <Badge tone={getStatusTone(detail.status)}>{detail.status}</Badge>
+            <Badge tone={getSupportTone(detail.supportStatus)}>{detail.supportStatus}</Badge>
+            {detail.lastUpdatedAt ? <Badge tone="muted">Updated {detail.lastUpdatedAt.slice(11, 16)} UTC</Badge> : null}
+            <Badge tone={detail.source === "live" ? "success" : detail.source === "mock" ? "premium" : "muted"}>
+              {detail.source === "live"
+                ? "Live provider mesh"
+                : detail.source === "mock"
+                  ? "Seeded fallback"
+                  : "Catalog scaffold"}
             </Badge>
-            <Badge tone="muted">{detail.game.status}</Badge>
           </div>
         </div>
       </Card>
@@ -61,32 +97,62 @@ export default async function GamePage({ params }: PageProps) {
       </nav>
 
       <section id="overview" className="grid gap-4">
-        <SectionTitle title="Overview" description="Best prices, consensus, injuries, and high-signal matchup notes." />
+        <SectionTitle
+          title="Overview"
+          description="Provider-backed coverage state, odds summary, and product-honest context for this event."
+        />
         <OverviewPanel detail={detail} />
       </section>
 
       <section id="odds" className="grid gap-4">
-        <SectionTitle title="Odds" description="Book-by-book comparison and historical pricing snapshots." />
+        <SectionTitle
+          title="Odds"
+          description="Current book comparison and stored range or snapshot history when a real odds path exists."
+        />
         <OddsTable detail={detail} />
       </section>
 
       <section id="props" className="grid gap-4">
-        <SectionTitle title="Props" description="Related player props for the matchup with quick log actions." />
-        <PropList props={detail.props} emptyMessage={detail.propsNotice} />
+        <SectionTitle
+          title="Props"
+          description="Market support is shown honestly by sport. Live cards render only where a real prop provider exists."
+        />
+        <PropList props={detail.props} support={detail.propsSupport} />
       </section>
 
       <section id="matchup" className="grid gap-4">
-        <SectionTitle title="Matchup" description="Team pace, efficiency, form, and split context." />
+        <SectionTitle
+          title="Matchup"
+          description="Team or fighter panels, season metrics, leaders, box score context, and recent form where real sources return it."
+        />
         <MatchupPanel detail={detail} />
       </section>
 
       <section id="trends" className="grid gap-4">
-        <SectionTitle title="Trends" description="Future hook for saved matchup-specific trends and query output." />
-        <Card className="p-5 text-sm leading-7 text-slate-400">
-          The trends section is intentionally scaffolded but not fully live. The
-          MVP is already storing saved trend and run records in the schema so the
-          future engine can slot in without reworking page structure.
-        </Card>
+        <SectionTitle
+          title="Trends"
+          description="Real cards only. No predictive certainty, no fake edge language."
+        />
+        {detail.trendCards.length ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {detail.trendCards.map((card) => (
+              <Card key={card.id} className="p-5">
+                <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                  {card.title}
+                </div>
+                <div className="mt-3 font-display text-3xl font-semibold text-white">
+                  {card.value}
+                </div>
+                <div className="mt-2 text-sm leading-6 text-slate-400">{card.note}</div>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            title="Trend cards are limited for this matchup"
+            description="Historical or recent-form trend cards will appear here when the current providers return enough real data to support them honestly."
+          />
+        )}
       </section>
     </div>
   );

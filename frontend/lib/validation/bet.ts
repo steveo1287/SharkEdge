@@ -2,16 +2,22 @@ import { z } from "zod";
 
 export const betFormSchema = z.object({
   date: z.string().min(1, "Date is required."),
-  sport: z.enum(["BASKETBALL", "BASEBALL", "HOCKEY", "FOOTBALL", "OTHER"]),
-  league: z.enum(["NBA", "NCAAB"]),
+  sport: z.enum(["BASKETBALL", "BASEBALL", "HOCKEY", "FOOTBALL", "MMA", "BOXING", "OTHER"]),
+  league: z.enum(["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]),
   marketType: z.enum([
     "spread",
     "moneyline",
     "total",
+    "team_total",
     "player_points",
     "player_rebounds",
     "player_assists",
-    "player_threes"
+    "player_threes",
+    "fight_winner",
+    "method_of_victory",
+    "round_total",
+    "round_winner",
+    "other"
   ]),
   side: z.string().min(1, "Side is required."),
   line: z

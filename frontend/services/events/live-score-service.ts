@@ -1,5 +1,6 @@
 import { BOARD_SPORT_ORDER, BOARD_SPORTS, getBoardSportConfig } from "@/lib/config/board-sports";
 import { formatEventLabelFromParticipants, formatScoreboardFromParticipants } from "@/lib/utils/ledger";
+import { buildMatchupHref } from "@/lib/utils/matchups";
 import type {
   BoardSportSectionView,
   GameCardView,
@@ -8,12 +9,8 @@ import type {
   ScoreboardPreviewView
 } from "@/lib/types/domain";
 import type { SupportedLeagueKey } from "@/lib/types/ledger";
-
-import { boxingEventProvider } from "./boxing-provider";
-import { espnEventProvider } from "./espn-provider";
-import { ncaaFallbackEventProvider } from "./ncaa-fallback-provider";
+import { getScoreProviders } from "@/services/providers/registry";
 import type { EventProvider, ProviderEvent } from "./provider-types";
-import { ufcEventProvider } from "./ufc-provider";
 
 type ScoreboardResolution = {
   events: ProviderEvent[];
@@ -22,17 +19,6 @@ type ScoreboardResolution = {
   note: string;
   stale: boolean;
   failed: boolean;
-};
-
-const LIVE_SCORE_PROVIDER_CHAINS: Record<SupportedLeagueKey, EventProvider[]> = {
-  NBA: [espnEventProvider],
-  NCAAB: [espnEventProvider, ncaaFallbackEventProvider],
-  MLB: [espnEventProvider],
-  NHL: [espnEventProvider],
-  NFL: [espnEventProvider],
-  NCAAF: [espnEventProvider, ncaaFallbackEventProvider],
-  UFC: [ufcEventProvider],
-  BOXING: [boxingEventProvider]
 };
 
 function normalizeName(value: string) {
@@ -109,7 +95,8 @@ function toScoreboardPreview(event: ProviderEvent): ScoreboardPreviewView {
     ),
     startTime: event.startTime,
     providerKey: event.providerKey,
-    stale: false
+    stale: false,
+    detailHref: buildMatchupHref(event.leagueKey, event.externalEventId)
   };
 }
 
@@ -139,12 +126,13 @@ function applyScoreState(game: GameCardView, event: ProviderEvent | null): GameC
   return {
     ...game,
     status: mapProviderStatus(event.status),
-    venue: event.venue ?? game.venue
+    venue: event.venue ?? game.venue,
+    detailHref: buildMatchupHref(event.leagueKey, event.externalEventId)
   };
 }
 
 async function resolveLeagueScoreboard(leagueKey: SupportedLeagueKey): Promise<ScoreboardResolution> {
-  const providers = LIVE_SCORE_PROVIDER_CHAINS[leagueKey] ?? [];
+  const providers = getScoreProviders(leagueKey) as EventProvider[];
   let lastError: string | null = null;
 
   for (const provider of providers) {
@@ -229,6 +217,9 @@ export async function buildBoardSportSections(args: {
         liveScoreProvider: sport.liveScoreProvider,
         currentOddsProvider: sport.currentOddsProvider,
         historicalOddsProvider: sport.historicalOddsProvider,
+        propsStatus: sport.propsStatus,
+        propsProviders: sport.propsProviders,
+        propsNote: sport.propsNote,
         note: sport.note,
         detail: sport.detail,
         scoreboardDetail:

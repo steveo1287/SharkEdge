@@ -1,17 +1,19 @@
 import { SectionTitle } from "@/components/ui/section-title";
-import { TrendsPlaceholder } from "@/components/trends/trends-placeholder";
-import { getTrendPreview } from "@/services/trends/trends-service";
+import { TrendsDashboard } from "@/components/trends/trends-dashboard";
+import { getTrendDashboard } from "@/services/trends/trends-service";
 
-export default function TrendsPage() {
-  const preview = getTrendPreview();
+export const dynamic = "force-dynamic";
+
+export default async function TrendsPage() {
+  const data = await getTrendDashboard();
 
   return (
     <div className="grid gap-6">
       <SectionTitle
         title="Trends Builder"
-        description="The saved trend data model already exists, so the next iteration can move from placeholder to query engine without changing the product shell."
+        description="Historical movement, CLV, totals performance, and segment cards now run from stored data where the database is ready. If the runtime is missing Postgres or migrations, SharkEdge shows that honestly."
       />
-      <TrendsPlaceholder metrics={preview.metrics} savedTrendName={preview.savedTrendName} />
+      <TrendsDashboard data={data} />
     </div>
   );
 }

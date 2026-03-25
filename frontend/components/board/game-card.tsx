@@ -109,7 +109,7 @@ export function GameCard({ game, focusMarket }: GameCardProps) {
           {game.selectedBook ? `Locked to ${game.selectedBook.name}` : `${game.bestBookCount} books compared`}
         </div>
         <Link
-          href={`/game/${game.id}`}
+          href={game.detailHref ?? `/game/${game.id}`}
           className="rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300"
         >
           Open matchup

@@ -76,11 +76,13 @@ export default async function HomePage({ searchParams }: PageProps) {
 
       <SportSupportGrid sections={data.sportSections} />
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        {data.snapshots.map((snapshot) => (
-          <LeagueSnapshot key={snapshot.league.id} snapshot={snapshot} />
-        ))}
-      </div>
+      {data.snapshots.length ? (
+        <div className="grid gap-4 xl:grid-cols-2">
+          {data.snapshots.map((snapshot) => (
+            <LeagueSnapshot key={snapshot.league.id} snapshot={snapshot} />
+          ))}
+        </div>
+      ) : null}
 
       {data.liveMessage ? (
         <EmptyState title="Live board coming next" description={data.liveMessage} />

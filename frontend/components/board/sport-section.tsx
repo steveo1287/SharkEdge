@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -23,6 +25,18 @@ function formatStatusLabel(status: BoardSportSectionView["status"]) {
   return status.replace("_", " ");
 }
 
+function getPropsTone(status: BoardSportSectionView["propsStatus"]) {
+  if (status === "LIVE") {
+    return "success" as const;
+  }
+
+  if (status === "PARTIAL") {
+    return "premium" as const;
+  }
+
+  return "muted" as const;
+}
+
 type SportSectionProps = {
   section: BoardSportSectionView;
   focusMarket: string;
@@ -45,6 +59,21 @@ export function SportSection({ section, focusMarket }: SportSectionProps) {
           <div>Scores: {section.liveScoreProvider ?? "Not wired"}</div>
           <div>Current odds: {section.currentOddsProvider ?? "Pending"}</div>
           <div>Historical: {section.historicalOddsProvider ?? "Pending"}</div>
+          <div>
+            Props:{" "}
+            <span className="text-slate-300">
+              {formatStatusLabel(section.propsStatus)}
+              {section.propsProviders.length ? ` via ${section.propsProviders.join(", ")}` : ""}
+            </span>
+          </div>
+        </div>
+        <div className="xl:col-span-2">
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <Badge tone={getPropsTone(section.propsStatus)}>
+              Props {formatStatusLabel(section.propsStatus)}
+            </Badge>
+          </div>
+          <div className="mt-2 text-xs leading-6 text-slate-500">{section.propsNote}</div>
         </div>
       </Card>
 
@@ -77,6 +106,12 @@ export function SportSection({ section, focusMarket }: SportSectionProps) {
               <div className="text-lg font-medium text-white">
                 {event.scoreboard ?? "No score posted yet"}
               </div>
+              <Link
+                href={event.detailHref ?? `/game/${event.id}`}
+                className="w-fit rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300"
+              >
+                Open matchup
+              </Link>
             </Card>
           ))}
         </div>

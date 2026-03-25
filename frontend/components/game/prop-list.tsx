@@ -3,22 +3,53 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
-import type { PropCardView } from "@/lib/types/domain";
+import type { BoardSupportStatus, PropCardView, PropMarketType } from "@/lib/types/domain";
 import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
 
 type PropListProps = {
   props: PropCardView[];
-  emptyMessage?: string;
+  support: {
+    status: BoardSupportStatus;
+    note: string;
+    supportedMarkets: PropMarketType[];
+  };
 };
 
-export function PropList({ props, emptyMessage }: PropListProps) {
+function getTone(status: BoardSupportStatus) {
+  if (status === "LIVE") {
+    return "success" as const;
+  }
+
+  if (status === "PARTIAL") {
+    return "premium" as const;
+  }
+
+  return "muted" as const;
+}
+
+function formatValueFlag(flag: PropCardView["valueFlag"]) {
+  if (!flag || flag === "NONE") {
+    return null;
+  }
+
+  return flag.replace(/_/g, " ");
+}
+
+export function PropList({ props, support }: PropListProps) {
   if (!props.length) {
     return (
       <EmptyState
-        title="Props feed not connected yet"
-        description={
-          emptyMessage ??
-          "This matchup does not have a live props feed yet. The props explorer will stay mock-first until the live board work is stable."
+        title={`Props ${support.status.toLowerCase().replace("_", " ")}`}
+        description={support.note}
+        action={
+          support.supportedMarkets.length ? (
+            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+              Supported markets:{" "}
+              <span className="text-slate-300">
+                {support.supportedMarkets.map((market) => formatMarketType(market)).join(", ")}
+              </span>
+            </div>
+          ) : null
         }
       />
     );
@@ -26,6 +57,15 @@ export function PropList({ props, emptyMessage }: PropListProps) {
 
   return (
     <div className="grid gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={getTone(support.status)}>Props {support.status}</Badge>
+        {support.supportedMarkets.slice(0, 4).map((market) => (
+          <Badge key={market} tone="muted">
+            {formatMarketType(market)}
+          </Badge>
+        ))}
+      </div>
+
       {props.map((prop) => (
         <Card key={prop.id} className="p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -37,26 +77,60 @@ export function PropList({ props, emptyMessage }: PropListProps) {
                 {prop.player.name}
               </div>
               <div className="mt-1 text-sm text-slate-400">
-                {formatMarketType(prop.marketType)} | {prop.side} {prop.line} | {prop.sportsbook.name}
-                {!prop.teamResolved ? " | Team pending" : ""}
+                {formatMarketType(prop.marketType)} | {prop.side} {prop.line}
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="brand">{prop.edgeScore.label}</Badge>
-              <Badge tone="premium">{prop.edgeScore.score}</Badge>
+              {formatValueFlag(prop.valueFlag) ? (
+                <Badge tone="brand">{formatValueFlag(prop.valueFlag)}</Badge>
+              ) : null}
+              <Badge tone="premium">
+                {prop.bestAvailableSportsbookName ?? prop.sportsbook.name}
+              </Badge>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Best price</div>
+              <div className="mt-2 text-lg font-medium text-white">
+                {formatAmericanOdds(prop.bestAvailableOddsAmerican ?? prop.oddsAmerican)}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Books</div>
+              <div className="mt-2 text-lg font-medium text-white">
+                {prop.sportsbookCount ?? 1}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                Line movement
+              </div>
+              <div className="mt-2 text-lg font-medium text-white">
+                {typeof prop.lineMovement === "number"
+                  ? `${prop.lineMovement > 0 ? "+" : ""}${prop.lineMovement.toFixed(1)}`
+                  : "Pending"}
+              </div>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
             <div className="text-sm text-slate-300">
-              {formatAmericanOdds(prop.oddsAmerican)} | {Math.round(prop.recentHitRate * 100)}%
-              recent hit | Matchup rank {prop.matchupRank}
+              {prop.supportNote ?? support.note}
             </div>
-            <Link
-              href={`/bets?selection=${prop.id}`}
-              className="rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300"
-            >
-              Log bet
-            </Link>
+            <div className="flex gap-3">
+              <Link
+                href={prop.gameHref ?? `/game/${prop.gameId}`}
+                className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300"
+              >
+                Matchup
+              </Link>
+              <Link
+                href={`/bets?selection=${prop.id}`}
+                className="rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300"
+              >
+                Log bet
+              </Link>
+            </div>
           </div>
         </Card>
       ))}

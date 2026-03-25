@@ -5,12 +5,20 @@ const ODDS_API_BASE = "https://api.the-odds-api.com/v4";
 
 const ODDS_API_SPORT = {
   nba: "basketball_nba",
-  ncaab: "basketball_ncaab"
+  ncaab: "basketball_ncaab",
+  mlb: "baseball_mlb",
+  nhl: "icehockey_nhl",
+  nfl: "americanfootball_nfl",
+  ncaaf: "americanfootball_ncaaf"
 } as const;
 
 const LEAGUE_MAP = {
   nba: "basketball/nba",
-  ncaab: "basketball/mens-college-basketball"
+  ncaab: "basketball/mens-college-basketball",
+  mlb: "baseball/mlb",
+  nhl: "hockey/nhl",
+  nfl: "football/nfl",
+  ncaaf: "football/college-football"
 } as const;
 
 type LeagueParam = keyof typeof LEAGUE_MAP;

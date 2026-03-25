@@ -8,10 +8,27 @@ type PropsTableProps = {
   props: PropCardView[];
 };
 
+function renderValueFlag(flag: PropCardView["valueFlag"]) {
+  if (!flag || flag === "NONE") {
+    return "No flag";
+  }
+
+  return flag.replace(/_/g, " ");
+}
+
 export function PropsTable({ props }: PropsTableProps) {
   return (
     <DataTable
-      columns={["Player", "Game", "Market", "Line", "Book", "Hit Rate", "Edge", "Actions"]}
+      columns={[
+        "Player",
+        "League",
+        "Matchup",
+        "Market",
+        "Best Price",
+        "Books",
+        "Signal",
+        "Actions"
+      ]}
       rows={props.map((prop) => [
         <div key={`${prop.id}-player`}>
           <div className="font-medium text-white">{prop.player.name}</div>
@@ -19,14 +36,31 @@ export function PropsTable({ props }: PropsTableProps) {
             {prop.teamResolved ? prop.team.abbreviation : "Team TBD"}
           </div>
         </div>,
+        prop.leagueKey,
         prop.gameLabel ?? `${prop.team.abbreviation} vs ${prop.opponent.abbreviation}`,
-        `${formatMarketType(prop.marketType)} ${prop.side}`,
-        `${prop.line} | ${formatAmericanOdds(prop.oddsAmerican)}`,
-        prop.sportsbook.name,
-        `${Math.round(prop.recentHitRate * 100)}%`,
-        `${prop.edgeScore.label} ${prop.edgeScore.score}`,
+        <div key={`${prop.id}-market`}>
+          <div className="text-white">{formatMarketType(prop.marketType)} {prop.side}</div>
+          <div className="text-xs text-slate-500">{prop.line}</div>
+        </div>,
+        <div key={`${prop.id}-best`}>
+          <div className="text-white">
+            {formatAmericanOdds(prop.bestAvailableOddsAmerican ?? prop.oddsAmerican)}
+          </div>
+          <div className="text-xs text-slate-500">
+            {prop.bestAvailableSportsbookName ?? prop.sportsbook.name}
+          </div>
+        </div>,
+        `${prop.sportsbookCount ?? 1}`,
+        <div key={`${prop.id}-signal`}>
+          <div className="text-white">{renderValueFlag(prop.valueFlag)}</div>
+          <div className="text-xs text-slate-500">
+            {typeof prop.averageOddsAmerican === "number"
+              ? `Avg ${formatAmericanOdds(prop.averageOddsAmerican)}`
+              : "Market avg pending"}
+          </div>
+        </div>,
         <div key={`${prop.id}-actions`} className="flex gap-2">
-          <Link href={`/game/${prop.gameId}`} className="text-sky-300">
+          <Link href={prop.gameHref ?? `/game/${prop.gameId}`} className="text-sky-300">
             Game
           </Link>
           <Link href={`/bets?selection=${prop.id}`} className="text-amber-200">

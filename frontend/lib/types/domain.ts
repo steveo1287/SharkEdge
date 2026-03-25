@@ -11,7 +11,7 @@ export type SportCode =
   | "BOXING"
   | "OTHER";
 
-export type GameStatus = "PREGAME" | "LIVE" | "FINAL" | "POSTPONED";
+export type GameStatus = "PREGAME" | "LIVE" | "FINAL" | "POSTPONED" | "CANCELED";
 
 export type MarketType =
   | "spread"
@@ -27,6 +27,18 @@ export type MarketType =
   | "round_total"
   | "round_winner"
   | "other";
+
+export type PropMarketType = Extract<
+  MarketType,
+  | "player_points"
+  | "player_rebounds"
+  | "player_assists"
+  | "player_threes"
+  | "fight_winner"
+  | "method_of_victory"
+  | "round_total"
+  | "round_winner"
+>;
 
 export type BetResult = "OPEN" | "WIN" | "LOSS" | "PUSH" | "VOID";
 
@@ -269,12 +281,12 @@ export type BoardFilters = {
 
 export type PropFilters = {
   league: "ALL" | LeagueKey;
-  marketType: "ALL" | Exclude<MarketType, "spread" | "moneyline" | "total">;
+  marketType: "ALL" | PropMarketType;
   team: string;
   player: string;
   sportsbook: string;
-  minEdge: number;
-  minHitRate: number;
+  valueFlag: "all" | "BEST_PRICE" | "MARKET_PLUS" | "STEAM";
+  sortBy: "best_price" | "line_movement" | "league" | "start_time";
 };
 
 export type BetFilters = {
@@ -311,6 +323,7 @@ export type GameCardView = {
     score: number;
     label: EdgeBand;
   };
+  detailHref?: string;
 };
 
 export type ScoreboardPreviewView = {
@@ -322,6 +335,7 @@ export type ScoreboardPreviewView = {
   startTime: string;
   providerKey: string;
   stale: boolean;
+  detailHref?: string;
 };
 
 export type BoardSportSectionView = {
@@ -332,6 +346,9 @@ export type BoardSportSectionView = {
   liveScoreProvider: string | null;
   currentOddsProvider: string | null;
   historicalOddsProvider: string | null;
+  propsStatus: BoardSupportStatus;
+  propsProviders: string[];
+  propsNote: string;
   note: string;
   detail: string;
   scoreboardDetail: string;
@@ -393,18 +410,113 @@ export type PropCardView = {
   player: PlayerRecord;
   team: TeamRecord;
   opponent: TeamRecord;
-  marketType: Exclude<MarketType, "spread" | "moneyline" | "total">;
+  marketType: PropMarketType;
   side: string;
   line: number;
   oddsAmerican: number;
-  recentHitRate: number;
-  matchupRank: number;
+  recentHitRate?: number | null;
+  matchupRank?: number | null;
   gameLabel?: string;
   teamResolved?: boolean;
+  sportsbookCount?: number;
+  bestAvailableOddsAmerican?: number | null;
+  bestAvailableSportsbookName?: string | null;
+  averageOddsAmerican?: number | null;
+  lineMovement?: number | null;
+  valueFlag?: "BEST_PRICE" | "MARKET_PLUS" | "STEAM" | "NONE";
+  supportStatus?: BoardSupportStatus;
+  supportNote?: string | null;
+  gameHref?: string;
+  source?: "live" | "mock";
   edgeScore: {
     score: number;
     label: EdgeBand;
   };
+};
+
+export type MatchupMetricView = {
+  label: string;
+  value: string;
+  note?: string;
+};
+
+export type MatchupRecentResultView = {
+  id: string;
+  label: string;
+  result: string;
+  note: string;
+};
+
+export type MatchupParticipantView = {
+  id: string;
+  name: string;
+  abbreviation: string | null;
+  role: "HOME" | "AWAY" | "COMPETITOR_A" | "COMPETITOR_B" | "UNKNOWN";
+  record: string | null;
+  score: string | null;
+  isWinner: boolean | null;
+  subtitle: string | null;
+  stats: MatchupMetricView[];
+  leaders: MatchupMetricView[];
+  boxscore: MatchupMetricView[];
+  recentResults: MatchupRecentResultView[];
+  notes: string[];
+};
+
+export type MatchupTrendCardView = {
+  id: string;
+  title: string;
+  value: string;
+  note: string;
+  tone: "success" | "brand" | "premium" | "muted";
+};
+
+export type MatchupOddsSummaryView = {
+  bestSpread: string | null;
+  bestMoneyline: string | null;
+  bestTotal: string | null;
+  sourceLabel: string | null;
+};
+
+export type MatchupDetailView = {
+  routeId: string;
+  externalEventId: string;
+  league: LeagueRecord;
+  eventLabel: string;
+  eventType: "TEAM_HEAD_TO_HEAD" | "COMBAT_HEAD_TO_HEAD" | "OTHER";
+  status: GameStatus;
+  stateDetail: string | null;
+  scoreboard: string | null;
+  venue: string | null;
+  startTime: string;
+  supportStatus: BoardSupportStatus;
+  supportNote: string;
+  liveScoreProvider: string | null;
+  statsProvider: string | null;
+  currentOddsProvider: string | null;
+  historicalOddsProvider: string | null;
+  lastUpdatedAt: string | null;
+  participants: MatchupParticipantView[];
+  oddsSummary: MatchupOddsSummaryView | null;
+  books: GameOddsRow[];
+  props: PropCardView[];
+  propsSupport: {
+    status: BoardSupportStatus;
+    note: string;
+    supportedMarkets: PropMarketType[];
+  };
+  marketRanges: Array<{
+    label: string;
+    value: string;
+  }>;
+  lineMovement: Array<{
+    capturedAt: string;
+    spreadLine: number | null;
+    totalLine: number | null;
+  }>;
+  trendCards: MatchupTrendCardView[];
+  notes: string[];
+  source: "live" | "mock" | "catalog";
 };
 
 export type GameDetailView = {
@@ -496,6 +608,43 @@ export type TrendPreview = {
     note: string;
   }>;
   savedTrendName: string;
+};
+
+export type TrendSetupState = {
+  status: "blocked";
+  title: string;
+  detail: string;
+  steps: string[];
+};
+
+export type TrendMetricCard = {
+  label: string;
+  value: string;
+  note: string;
+};
+
+export type TrendInsightCard = {
+  id: string;
+  title: string;
+  value: string;
+  note: string;
+  tone: "success" | "brand" | "premium" | "muted";
+};
+
+export type TrendTableRow = {
+  label: string;
+  movement: string;
+  note: string;
+};
+
+export type TrendDashboardView = {
+  setup: TrendSetupState | null;
+  metrics: TrendMetricCard[];
+  insights: TrendInsightCard[];
+  movementRows: TrendTableRow[];
+  segmentRows: TrendTableRow[];
+  savedTrendName: string;
+  sourceNote: string;
 };
 
 export type BetFormInput = {

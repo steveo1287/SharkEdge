@@ -18,22 +18,12 @@ import {
   isSettledResult,
   LEAGUE_SPORT_MAP
 } from "@/lib/utils/ledger";
+import { getScoreProviders } from "@/services/providers/registry";
 
-import { boxingEventProvider } from "./boxing-provider";
-import { espnEventProvider } from "./espn-provider";
-import { ncaaFallbackEventProvider } from "./ncaa-fallback-provider";
 import type { EventProvider, ProviderEvent } from "./provider-types";
-import { ufcEventProvider } from "./ufc-provider";
 
 const LIVE_SYNC_THRESHOLD_MS = 2 * 60 * 1000;
 const UPCOMING_EVENT_WINDOW_DAYS = 7;
-
-const providers: EventProvider[] = [
-  espnEventProvider,
-  ncaaFallbackEventProvider,
-  ufcEventProvider,
-  boxingEventProvider
-];
 
 type EventWithParticipants = Awaited<ReturnType<typeof getUpcomingEvents>>[number];
 
@@ -42,7 +32,7 @@ function toJsonInput(value: unknown) {
 }
 
 function getProviderForLeague(leagueKey: SupportedLeagueKey) {
-  return providers.find((provider) => provider.supportsLeague(leagueKey)) ?? null;
+  return (getScoreProviders(leagueKey) as EventProvider[])[0] ?? null;
 }
 
 function getCompetitorKey(leagueKey: SupportedLeagueKey, externalCompetitorId: string | null, name: string) {

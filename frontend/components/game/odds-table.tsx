@@ -1,10 +1,10 @@
 import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
-import type { GameDetailView } from "@/lib/types/domain";
+import type { MatchupDetailView } from "@/lib/types/domain";
 import { formatLongDate } from "@/lib/formatters/date";
 
 type OddsTableProps = {
-  detail: GameDetailView;
+  detail: MatchupDetailView;
 };
 
 export function OddsTable({ detail }: OddsTableProps) {

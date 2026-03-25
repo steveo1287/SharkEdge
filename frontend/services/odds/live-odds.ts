@@ -1,6 +1,7 @@
 import { calculateEdgeScore } from "@/lib/utils/edge-score";
 import { americanToImpliedProbability } from "@/lib/utils/odds";
 import { formatAmericanOdds, formatLine } from "@/lib/formatters/odds";
+import { buildMatchupHref } from "@/lib/utils/matchups";
 import type {
   BoardFilters,
   BoardMarketView,
@@ -18,6 +19,7 @@ import type {
 } from "@/lib/types/domain";
 import { mockDatabase } from "@/prisma/seed-data";
 import { backendCurrentOddsProvider } from "@/services/current-odds/backend-provider";
+import { getProviderRegistryEntry } from "@/services/providers/registry";
 import type {
   CurrentOddsBoardResponse,
   CurrentOddsGame,
@@ -39,6 +41,22 @@ const LIVE_SPORT_TO_LEAGUE: Record<string, LeagueKey | null> = {
   americanfootball_nfl: "NFL",
   americanfootball_ncaaf: "NCAAF"
 };
+
+const LIVE_PROP_SPORT_KEYS: Partial<Record<LeagueKey, string>> = {
+  NBA: "basketball_nba",
+  NCAAB: "basketball_ncaab"
+};
+
+const PROP_COVERAGE_ORDER: LeagueKey[] = [
+  "NBA",
+  "NCAAB",
+  "MLB",
+  "NHL",
+  "NFL",
+  "NCAAF",
+  "UFC",
+  "BOXING"
+];
 
 const leagueByKey = new Map(
   mockDatabase.leagues.map((league) => [league.key, league] as const)
@@ -420,39 +438,23 @@ function buildLivePlayerRecord(
   };
 }
 
-function buildLivePropSignal(prop: LiveProp) {
-  const seed = hashString(
-    [
-      prop.player_name,
-      prop.market_key,
-      prop.bookmaker_key,
-      prop.side,
-      String(prop.line)
-    ].join(":")
-  );
-  const impliedProbability = americanToImpliedProbability(prop.price);
-  const recentHitRate = 0.48 + (seed % 11) / 100;
-  const matchupRank = 1 + (seed % 30);
-  const modelProbability = Math.min(
-    0.78,
-    impliedProbability + 0.015 + ((seed >> 3) % 5) / 100
-  );
-
-  return {
-    recentHitRate,
-    matchupRank,
-    edgeScore: calculateEdgeScore({
-      impliedProbability,
-      modelProbability,
-      recentHitRate,
-      matchupRank,
-      lineMovementSupport: 0.3,
-      volatility: 0.42
-    })
-  };
+function buildLivePropGroupKey(prop: LiveProp) {
+  return [
+    prop.sport_key,
+    prop.event_id,
+    normalizeName(prop.player_name),
+    prop.market_key,
+    prop.side.toUpperCase(),
+    String(prop.line)
+  ].join("|");
 }
 
-function buildLivePropCard(prop: LiveProp): PropCardView | null {
+function buildLivePropCard(props: LiveProp[]): PropCardView | null {
+  const prop = props[0];
+  if (!prop) {
+    return null;
+  }
+
   const leagueKey = getLeagueForSportKey(prop.sport_key);
   if (!leagueKey) {
     return null;
@@ -472,26 +474,76 @@ function buildLivePropCard(prop: LiveProp): PropCardView | null {
         `opponent_tbd_${normalizeName(prop.id)}`
       );
   const player = buildLivePlayerRecord(leagueKey, prop, team);
-  const signal = buildLivePropSignal(prop);
+  const sortedByPrice = [...props].sort((left, right) => right.price - left.price);
+  const best = sortedByPrice[0];
+  const averageOdds =
+    props.length > 0
+      ? Number(
+          (
+            props.reduce((total, entry) => total + entry.price, 0) / props.length
+          ).toFixed(2)
+        )
+      : null;
+  const averageProbability =
+    typeof averageOdds === "number"
+      ? americanToImpliedProbability(averageOdds)
+      : americanToImpliedProbability(best.price);
+  const bestProbability = americanToImpliedProbability(best.price);
+  const priceDelta =
+    typeof averageOdds === "number" ? Number((best.price - averageOdds).toFixed(2)) : 0;
+  const registryEntry = getProviderRegistryEntry(leagueKey);
+  const valueFlag =
+    props.length > 1 && priceDelta >= 12
+      ? "MARKET_PLUS"
+      : props.length > 1
+        ? "BEST_PRICE"
+        : "NONE";
 
   return {
-    id: prop.id,
+    id: buildLivePropGroupKey(prop),
     gameId: prop.event_id,
     leagueKey,
-    sportsbook: buildLiveSportsbookRecord(prop.bookmaker_key, prop.bookmaker_title),
+    sportsbook: buildLiveSportsbookRecord(best.bookmaker_key, best.bookmaker_title),
     player,
     team,
     opponent,
     marketType: prop.market_key,
     side: prop.side,
     line: prop.line,
-    oddsAmerican: prop.price,
-    recentHitRate: signal.recentHitRate,
-    matchupRank: signal.matchupRank,
+    oddsAmerican: best.price,
+    recentHitRate: null,
+    matchupRank: null,
     gameLabel: `${awayTeam.abbreviation} vs ${homeTeam.abbreviation}`,
     teamResolved,
-    edgeScore: signal.edgeScore
+    sportsbookCount: props.length,
+    bestAvailableOddsAmerican: best.price,
+    bestAvailableSportsbookName: best.bookmaker_title,
+    averageOddsAmerican: averageOdds,
+    lineMovement: null,
+    valueFlag,
+    supportStatus: registryEntry.propsStatus,
+    supportNote: registryEntry.propsNote,
+    gameHref: buildMatchupHref(leagueKey, prop.event_id),
+    source: "live",
+    edgeScore: calculateEdgeScore({
+      impliedProbability: bestProbability,
+      modelProbability: Math.min(0.92, averageProbability + Math.max(0, (best.price - (averageOdds ?? best.price)) / 1000)),
+      lineMovementSupport: Math.min(0.45, Math.max(0, priceDelta / 25)),
+      volatility: props.length >= 3 ? 0.28 : 0.36
+    })
   };
+}
+
+function buildLivePropCards(props: LiveProp[]) {
+  const groups = props.reduce<Map<string, LiveProp[]>>((map, prop) => {
+    const key = buildLivePropGroupKey(prop);
+    map.set(key, [...(map.get(key) ?? []), prop]);
+    return map;
+  }, new Map());
+
+  return Array.from(groups.values())
+    .map((group) => buildLivePropCard(group))
+    .filter(Boolean) as PropCardView[];
 }
 
 function getBestPrice(offer: LiveOffer | null) {
@@ -1095,7 +1147,8 @@ async function getEspnBoardPageData(
         spread: buildEspnSpreadView(game, homeTeam),
         moneyline: buildEspnMoneylineView(game, awayTeam, homeTeam),
         total: buildEspnTotalView(game),
-        edgeScore: buildEspnEdgeScore(game)
+        edgeScore: buildEspnEdgeScore(game),
+        detailHref: buildMatchupHref(leagueKey, game.id ?? game.oddsEventId ?? "")
       } satisfies GameCardView;
     })
     .filter((game) => (filters.status === "live" ? game.status === "LIVE" : game.status === "PREGAME"))
@@ -1197,7 +1250,8 @@ async function getBackendBoardPageData(
         spread: buildLiveMarketView(leagueKey, game, "spread", filters.sportsbook),
         moneyline: buildLiveMarketView(leagueKey, game, "moneyline", filters.sportsbook),
         total: buildLiveMarketView(leagueKey, game, "total", filters.sportsbook),
-        edgeScore: buildLiveEdgeScore(game)
+        edgeScore: buildLiveEdgeScore(game),
+        detailHref: buildMatchupHref(leagueKey, game.id)
       } satisfies GameCardView;
     });
 
@@ -1336,9 +1390,7 @@ export async function getLiveGameDetail(id: string): Promise<GameDetailView | nu
       detail.notes
     ),
     injuries: [],
-    props: (detail.props ?? [])
-      .map((prop) => buildLivePropCard(prop))
-      .filter(Boolean) as PropCardView[],
+    props: buildLivePropCards(detail.props ?? []),
     matchup: {
       away: {
         team: awayTeam,
@@ -1391,27 +1443,27 @@ export async function getLiveGameDetail(id: string): Promise<GameDetailView | nu
 }
 
 export async function getLivePropsExplorerData(filters: PropFilters) {
-  const requestedSportKey =
-    filters.league === "NBA"
-      ? "basketball_nba"
-      : filters.league === "NCAAB"
-        ? "basketball_ncaab"
-        : "basketball_nba";
+  const requestedSportKeys =
+    filters.league === "ALL"
+      ? (Object.values(LIVE_PROP_SPORT_KEYS).filter(Boolean) as string[])
+      : LIVE_PROP_SPORT_KEYS[filters.league]
+        ? [LIVE_PROP_SPORT_KEYS[filters.league] as string]
+        : [];
 
-  const response = await fetchLivePropsBoardResponse(
-    requestedSportKey,
-    LIVE_PROPS_EVENT_LIMIT
+  const responses = (
+    await Promise.all(
+      requestedSportKeys.map((sportKey) =>
+        fetchLivePropsBoardResponse(sportKey, LIVE_PROPS_EVENT_LIMIT)
+      )
+    )
+  ).filter(Boolean) as LivePropsBoardResponse[];
+
+  const allProps = responses.flatMap((response) =>
+    response.sports.flatMap((sport) => sport.props ?? [])
   );
-  if (!response) {
-    return null;
-  }
+  const mappedProps = buildLivePropCards(allProps);
 
-  const allProps = response.sports
-    .flatMap((sport) => sport.props ?? [])
-    .map((prop) => buildLivePropCard(prop))
-    .filter(Boolean) as PropCardView[];
-
-  const filteredProps = allProps
+  const filteredProps = mappedProps
     .filter((prop) =>
       filters.league === "ALL" ? true : prop.leagueKey === filters.league
     )
@@ -1427,11 +1479,27 @@ export async function getLivePropsExplorerData(filters: PropFilters) {
         ? true
         : prop.sportsbook.key === filters.sportsbook
     )
-    .filter((prop) => prop.edgeScore.score >= filters.minEdge)
-    .filter((prop) => prop.recentHitRate * 100 >= filters.minHitRate)
+    .filter((prop) =>
+      filters.valueFlag === "all" ? true : prop.valueFlag === filters.valueFlag
+    )
     .sort((left, right) => {
-      if (left.gameId !== right.gameId) {
+      if (filters.sortBy === "league" && left.leagueKey !== right.leagueKey) {
+        return left.leagueKey.localeCompare(right.leagueKey);
+      }
+
+      if (filters.sortBy === "start_time" && left.gameId !== right.gameId) {
         return left.gameId.localeCompare(right.gameId);
+      }
+
+      if (filters.sortBy === "line_movement") {
+        return (Math.abs(right.lineMovement ?? -1) - Math.abs(left.lineMovement ?? -1));
+      }
+
+      if (filters.sortBy === "best_price") {
+        return (
+          (right.bestAvailableOddsAmerican ?? right.oddsAmerican) -
+          (left.bestAvailableOddsAmerican ?? left.oddsAmerican)
+        );
       }
 
       if (left.player.name !== right.player.name) {
@@ -1443,47 +1511,72 @@ export async function getLivePropsExplorerData(filters: PropFilters) {
 
   const sportsbooks = Array.from(
     new Map(
-      allProps.map((prop) => [prop.sportsbook.key, prop.sportsbook] as const)
+      mappedProps.map((prop) => [prop.sportsbook.key, prop.sportsbook] as const)
     ).values()
   ).sort((left, right) => left.name.localeCompare(right.name));
 
   const teams = Array.from(
     new Map(
-      allProps
+      mappedProps
         .filter((prop) => prop.teamResolved)
         .map((prop) => [prop.team.id, prop.team] as const)
     ).values()
   ).sort((left, right) => left.name.localeCompare(right.name));
 
   const players = Array.from(
-    new Map(allProps.map((prop) => [prop.player.id, prop.player] as const)).values()
+    new Map(mappedProps.map((prop) => [prop.player.id, prop.player] as const)).values()
   ).sort((left, right) => left.name.localeCompare(right.name));
+
+  const coverage = PROP_COVERAGE_ORDER.map((leagueKey) => {
+    const registry = getProviderRegistryEntry(leagueKey);
+    return {
+      leagueKey,
+      status: registry.propsStatus,
+      providers: registry.propsProviders,
+      supportedMarkets: registry.supportedPropMarkets,
+      note: registry.propsNote
+    };
+  });
+
+  const responseErrors = responses.flatMap((response) => response.errors ?? []);
+  const quotaNotes = responses
+    .map((response) => response.quota_note)
+    .filter(Boolean)
+    .join(" ");
 
   return {
     filters,
     props: filteredProps,
+    coverage,
     leagues: mockDatabase.leagues,
     sportsbooks,
     teams,
     players,
-    source: "live" as const,
-    sourceNote: response.errors.length
-      ? `Live props are connected, but the backend still reported partial fetch warnings. ${response.quota_note ?? ""}`.trim()
-      : `${response.quota_note ?? "Live props are connected league-by-league to protect API quota."} Hit rate and matchup rank remain placeholder signals until the historical stats model is wired in.${filters.league === "ALL" ? " Showing NBA featured props by default. Select NCAAB to switch leagues." : ""}`
+    source: responses.length ? ("live" as const) : ("catalog" as const),
+    sourceNote: responseErrors.length
+      ? `Live props are partially connected, but the backend reported provider warnings: ${responseErrors.join(" | ")} ${quotaNotes}`.trim()
+      : responses.length
+        ? `${quotaNotes || "Live props are connected league-by-league to protect API quota."} Sports without a real props adapter stay visible as PARTIAL or COMING SOON instead of showing fake empty boards.`
+        : "No live props adapter responded for the selected league set. SharkEdge is keeping unsupported sports visible and honest instead of backfilling fake prop rows."
   };
 }
 
 export async function getLivePropById(propId: string): Promise<PropCardView | null> {
-  const [sportKey, eventId] = propId.split("|");
-  if (!sportKey || !eventId) {
-    return null;
-  }
+  const responses = (
+    await Promise.all(
+      Object.values(LIVE_PROP_SPORT_KEYS)
+        .filter(Boolean)
+        .map((sportKey) =>
+          fetchLivePropsBoardResponse(sportKey as string, LIVE_PROPS_EVENT_LIMIT)
+        )
+    )
+  ).filter(Boolean) as LivePropsBoardResponse[];
 
-  const detail = await fetchLiveGameDetailResponse(sportKey, eventId);
-  if (!detail) {
-    return null;
-  }
+  const props = buildLivePropCards(
+    responses.flatMap((response) =>
+      response.sports.flatMap((sport) => sport.props ?? [])
+    )
+  );
 
-  const prop = (detail.props ?? []).find((entry) => entry.id === propId);
-  return prop ? buildLivePropCard(prop) : null;
+  return props.find((prop) => prop.id === propId) ?? null;
 }
