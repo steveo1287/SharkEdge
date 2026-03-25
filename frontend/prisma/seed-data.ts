@@ -112,6 +112,22 @@ const leagues: LeagueRecord[] = [
     sport: "FOOTBALL",
     createdAt: timestamps.created,
     updatedAt: timestamps.updated
+  },
+  {
+    id: "league_ufc",
+    key: "UFC",
+    name: "UFC",
+    sport: "MMA",
+    createdAt: timestamps.created,
+    updatedAt: timestamps.updated
+  },
+  {
+    id: "league_boxing",
+    key: "BOXING",
+    name: "Boxing",
+    sport: "BOXING",
+    createdAt: timestamps.created,
+    updatedAt: timestamps.updated
   }
 ];
 

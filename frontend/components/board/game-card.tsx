@@ -22,6 +22,22 @@ function getEdgeTone(label: GameCardView["edgeScore"]["label"]) {
   return "muted";
 }
 
+function getStatusTone(status: GameCardView["status"]) {
+  if (status === "LIVE") {
+    return "success" as const;
+  }
+
+  if (status === "FINAL") {
+    return "neutral" as const;
+  }
+
+  if (status === "POSTPONED") {
+    return "danger" as const;
+  }
+
+  return "muted" as const;
+}
+
 type GameCardProps = {
   game: GameCardView;
   focusMarket: string;
@@ -50,6 +66,7 @@ export function GameCard({ game, focusMarket }: GameCardProps) {
         </div>
 
         <div className="flex flex-col items-end gap-2">
+          <Badge tone={getStatusTone(game.status)}>{game.status}</Badge>
           <Badge tone={getEdgeTone(game.edgeScore.label)}>
             {game.edgeScore.label} {game.edgeScore.score}
           </Badge>

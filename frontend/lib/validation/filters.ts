@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 export const boardFiltersSchema = z.object({
-  league: z.enum(["ALL", "NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"]).default("ALL"),
+  league: z
+    .enum(["ALL", "NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"])
+    .default("ALL"),
   date: z.string().default("all"),
   sportsbook: z.string().default("best"),
   market: z.enum(["all", "spread", "moneyline", "total"]).default("all"),

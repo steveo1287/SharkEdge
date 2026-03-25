@@ -17,10 +17,18 @@ import type {
   TeamRecord
 } from "@/lib/types/domain";
 import { mockDatabase } from "@/prisma/seed-data";
+import { backendCurrentOddsProvider } from "@/services/current-odds/backend-provider";
+import type {
+  CurrentOddsBoardResponse,
+  CurrentOddsGame,
+  CurrentOddsSport
+} from "@/services/current-odds/provider-types";
+import {
+  buildBoardSportSections,
+  getBoardSupportSummary,
+  getBoardVisibleLeagues
+} from "@/services/events/live-score-service";
 import { getLeagueSnapshots } from "@/services/stats/stats-service";
-
-const LIVE_BACKEND_URL =
-  process.env.SHARKEDGE_BACKEND_URL?.trim() || "https://shark-odds-1.onrender.com";
 const LIVE_PROPS_EVENT_LIMIT = 3;
 
 const LIVE_SPORT_TO_LEAGUE: Record<string, LeagueKey | null> = {
@@ -31,8 +39,6 @@ const LIVE_SPORT_TO_LEAGUE: Record<string, LeagueKey | null> = {
   americanfootball_nfl: "NFL",
   americanfootball_ncaaf: "NCAAF"
 };
-
-const SUPPORTED_BOARD_LEAGUES = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"] as const;
 
 const leagueByKey = new Map(
   mockDatabase.leagues.map((league) => [league.key, league] as const)
@@ -77,33 +83,9 @@ type LiveBookmaker = {
   };
 };
 
-type LiveGame = {
-  id: string;
-  commence_time: string;
-  home_team: string;
-  away_team: string;
-  bookmakers_available: number;
-  bookmakers: LiveBookmaker[];
-  market_stats: LiveMarketStatMap;
-};
-
-type LiveSport = {
-  key: string;
-  title: string;
-  short_title: string;
-  game_count: number;
-  games: LiveGame[];
-};
-
-type LiveBoardResponse = {
-  configured: boolean;
-  generated_at: string;
-  provider?: string | null;
-  provider_mode?: string | null;
-  bookmakers: string;
-  errors: string[];
-  sports: LiveSport[];
-};
+type LiveGame = CurrentOddsGame;
+type LiveSport = CurrentOddsSport;
+type LiveBoardResponse = CurrentOddsBoardResponse;
 
 type LiveTeamFormSummary = {
   games: number;
@@ -343,9 +325,7 @@ function getLiveTeamRecord(leagueKey: LeagueKey, teamName: string): TeamRecord {
 
 function getLiveSourceNote(response: LiveBoardResponse) {
   const providerLabel =
-    response.provider === "oddsharvester"
-      ? "OddsHarvester"
-      : response.provider === "odds_api"
+    response.provider === "odds_api"
         ? "The Odds API"
         : "the live backend";
 
@@ -840,7 +820,9 @@ async function fetchInternalJson<T>(path: string) {
 
 async function fetchBackendJson<T>(path: string) {
   try {
-    const response = await fetch(`${LIVE_BACKEND_URL}${path}`, {
+    const backendUrl =
+      process.env.SHARKEDGE_BACKEND_URL?.trim() || "https://shark-odds-1.onrender.com";
+    const response = await fetch(`${backendUrl}${path}`, {
       cache: "no-store",
       signal: AbortSignal.timeout(15000)
     });
@@ -856,7 +838,7 @@ async function fetchBackendJson<T>(path: string) {
 }
 
 async function fetchLiveBoardResponse() {
-  const response = await fetchBackendJson<LiveBoardResponse>("/api/odds/board");
+  const response = await backendCurrentOddsProvider.fetchBoard();
 
   if (!response?.configured) {
     return null;
@@ -1132,6 +1114,14 @@ async function getEspnBoardPageData(
       )
     )
   ).sort();
+  const gamesByLeague = games.reduce<Partial<Record<LeagueKey, GameCardView[]>>>((groups, game) => {
+    groups[game.leagueKey] = [...(groups[game.leagueKey] ?? []), game];
+    return groups;
+  }, {});
+  const sportSections = await buildBoardSportSections({
+    selectedLeague: filters.league,
+    gamesByLeague
+  });
 
   return {
     filters,
@@ -1139,6 +1129,7 @@ async function getEspnBoardPageData(
     leagues: getBoardLeagueRecords(["NBA", "NCAAB"]),
     sportsbooks: liveSportsbooks,
     games,
+    sportSections,
     snapshots: getLeagueSnapshots(filters.league),
     summary: {
       totalGames: games.length,
@@ -1156,18 +1147,19 @@ async function getEspnBoardPageData(
 
 async function getBackendBoardPageData(
   filters: BoardFilters
-): Promise<BoardPageData | null> {
+): Promise<BoardPageData> {
   const response = await fetchLiveBoardResponse();
-  if (!response) {
-    return null;
-  }
-
-  const supportedSports = response.sports.filter((sport) => {
+  const supportedSports = (response?.sports ?? []).filter((sport) => {
     const leagueKey = getLeagueForSportKey(sport.key);
     return leagueKey && (filters.league === "ALL" || filters.league === leagueKey);
   });
 
-  const liveSportsbooks = buildLiveSportsbooks(supportedSports);
+  const liveSportsbooks = supportedSports.length
+    ? buildLiveSportsbooks(supportedSports)
+    : [
+        { id: "best", key: "best", name: "Best available", region: "US" } satisfies SportsbookRecord,
+        ...mockDatabase.sportsbooks
+      ];
 
   const games = supportedSports
     .flatMap((sport) => {
@@ -1209,6 +1201,11 @@ async function getBackendBoardPageData(
       } satisfies GameCardView;
     });
 
+  const gamesByLeague = games.reduce<Partial<Record<LeagueKey, GameCardView[]>>>((groups, game) => {
+    groups[game.leagueKey] = [...(groups[game.leagueKey] ?? []), game];
+    return groups;
+  }, {});
+
   const availableDates = Array.from(
     new Set(
       supportedSports.flatMap((sport) =>
@@ -1216,57 +1213,47 @@ async function getBackendBoardPageData(
       )
     )
   ).sort();
-  const leagueKeys = Array.from(
+  const sportSections = await buildBoardSportSections({
+    selectedLeague: filters.league,
+    gamesByLeague
+  });
+  const sectionDates = Array.from(
     new Set(
-      supportedSports
-        .map((sport) => getLeagueForSportKey(sport.key))
-        .filter((league): league is LeagueKey => Boolean(league))
+      sportSections.flatMap((section) =>
+        section.scoreboard.map((event) => event.startTime.slice(0, 10))
+      )
     )
-  ).sort(
-    (left, right) =>
-      SUPPORTED_BOARD_LEAGUES.indexOf(left) - SUPPORTED_BOARD_LEAGUES.indexOf(right)
-  );
+  ).sort();
+  const supportSummary = getBoardSupportSummary();
 
   return {
     filters,
-    availableDates,
-    leagues: getBoardLeagueRecords(leagueKeys),
+    availableDates: Array.from(new Set([...availableDates, ...sectionDates])).sort(),
+    leagues: getBoardVisibleLeagues(filters.league),
     sportsbooks: liveSportsbooks,
     games,
+    sportSections,
     snapshots: getLeagueSnapshots(filters.league),
     summary: {
-      totalGames: games.length,
+      totalGames: sportSections.reduce((total, section) => total + section.games.length, 0),
       totalProps: mockDatabase.propAngles.length,
       totalSportsbooks: liveSportsbooks.length - 1
     },
     liveMessage:
       filters.status === "live"
-        ? "Live tracking is next. The current board is pulling fresh pregame prices from the live backend so you can monitor movement before the action starts."
+        ? "Live state is rendering league by league now. Sports without full odds coverage stay visible with adapter-pending states instead of disappearing behind empty board counts."
         : null,
     source: "live",
-    sourceNote: getLiveSourceNote(response)
+    sourceNote: response
+      ? `${getLiveSourceNote(response)} ${supportSummary.live} sports are live, ${supportSummary.partial} are partial, and ${supportSummary.comingSoon} are still coming soon.`
+      : `Current odds are temporarily unavailable, but the support model is still rendering honestly: ${supportSummary.live} sports live, ${supportSummary.partial} partial, ${supportSummary.comingSoon} coming soon.`
   };
 }
 
 export async function getLiveBoardPageData(
   filters: BoardFilters
 ): Promise<BoardPageData | null> {
-  const backendBoard = await getBackendBoardPageData(filters);
-  if (backendBoard) {
-    return backendBoard;
-  }
-
-  if (
-    filters.sportsbook === "best" &&
-    (filters.league === "ALL" || filters.league === "NBA" || filters.league === "NCAAB")
-  ) {
-    const espnBoard = await getEspnBoardPageData(filters);
-    if (espnBoard) {
-      return espnBoard;
-    }
-  }
-
-  return null;
+  return getBackendBoardPageData(filters);
 }
 
 export async function getLiveGameDetail(id: string): Promise<GameDetailView | null> {

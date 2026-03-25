@@ -191,10 +191,12 @@ def get_api_key() -> str:
 
 
 def get_board_provider_mode() -> str:
-    configured = os.getenv("ODDS_BOARD_PROVIDER", "auto").strip().lower()
-    if configured in {"auto", "odds_api", "oddsharvester"}:
-        return configured
-    return "auto"
+    configured = os.getenv("ODDS_BOARD_PROVIDER", "odds_api").strip().lower()
+    if configured == "oddsharvester":
+        return "odds_api"
+    if configured in {"auto", "odds_api"}:
+        return "odds_api"
+    return "odds_api"
 
 
 def get_oddsharvester_command() -> str:
@@ -1126,45 +1128,18 @@ def fetch_sport_odds_from_oddsharvester(sport: dict[str, str]) -> dict[str, Any]
 
 
 def resolve_board_provider(api_key: str) -> tuple[str | None, str | None]:
-    provider_mode = get_board_provider_mode()
-    harvester_available = is_oddsharvester_available()
-
-    if provider_mode == "oddsharvester":
-        if harvester_available:
-            return "oddsharvester", None
-        return None, (
-            "ODDS_BOARD_PROVIDER is set to oddsharvester, but the command is not "
-            "installed or not on PATH."
-        )
-
-    if provider_mode == "odds_api":
-        if api_key:
-            return "odds_api", None
-        return None, "ODDS_BOARD_PROVIDER is set to odds_api, but ODDS_API_KEY is missing."
-
-    if harvester_available:
-        return "oddsharvester", None
     if api_key:
         return "odds_api", None
 
-    return None, "Neither OddsHarvester nor ODDS_API_KEY is available for the board feed."
+    return (
+        None,
+        "Current odds board requires ODDS_API_KEY. OddsHarvester is reserved for historical ingestion and is not used in the live board request path.",
+    )
 
 
 def fetch_sport_odds(
     sport: dict[str, str], api_key: str, provider: str
 ) -> dict[str, Any]:
-    if provider == "oddsharvester":
-        try:
-            return fetch_sport_odds_from_oddsharvester(sport)
-        except Exception as error:
-            if get_board_provider_mode() == "auto" and api_key:
-                fallback = fetch_sport_odds_from_api(sport, api_key)
-                fallback["note"] = (
-                    f"OddsHarvester fallback engaged for {sport['short_title']}: {error}"
-                )
-                return fallback
-            raise
-
     return fetch_sport_odds_from_api(sport, api_key)
 
 
@@ -2230,6 +2205,41 @@ def build_game_detail(
     }
 
 
+def build_historical_provider_status() -> dict[str, Any]:
+    supported_sports = []
+    for sport in SPORTS:
+        supported_sports.append(
+            {
+                "key": sport["key"],
+                "title": sport["title"],
+                "short_title": sport["short_title"],
+                "harvest_supported": bool(
+                    sport.get("odds_harvester_sport")
+                    and sport.get("odds_harvester_leagues")
+                ),
+                "leagues": get_oddsharvester_leagues(sport),
+                "markets": get_oddsharvester_markets(sport),
+            }
+        )
+
+    return {
+        "provider": "oddsharvester",
+        "mode": "historical_ingestion_only",
+        "available": is_oddsharvester_available(),
+        "command": Path(get_oddsharvester_executable() or "oddsharvester").name,
+        "note": (
+            "OddsHarvester is reserved for harvested historical/opening/closing odds "
+            "snapshots. It is not used for live scoreboards or the live board request path."
+        ),
+        "capabilities": {
+            "opening": True,
+            "closing": True,
+            "snapshots": True,
+        },
+        "sports": supported_sports,
+    }
+
+
 @app.get("/")
 def root() -> dict[str, Any]:
     return {
@@ -2237,6 +2247,7 @@ def root() -> dict[str, Any]:
         "odds_board_endpoint": "/api/odds/board",
         "props_board_endpoint": "/api/props/board",
         "game_detail_endpoint_template": "/api/games/{sport_key}/{event_id}",
+        "historical_provider_status_endpoint": "/api/historical/odds/provider-status",
         "demo_endpoint": "/api/signals/demo",
     }
 
@@ -2244,6 +2255,11 @@ def root() -> dict[str, Any]:
 @app.get("/api/signals/demo")
 def demo() -> dict[str, Any]:
     return {"selection": "Bulls +4.5", "edge_pct": 4.12, "ev": 0.078}
+
+
+@app.get("/api/historical/odds/provider-status")
+def historical_provider_status() -> dict[str, Any]:
+    return build_historical_provider_status()
 
 
 @app.get("/api/odds/board")
@@ -2268,7 +2284,7 @@ def odds_board() -> dict[str, Any]:
             "split_stats_supported": False,
             "split_stats_note": split_stats_note,
             "message": provider_error
-            or "Configure OddsHarvester or ODDS_API_KEY to load live odds.",
+            or "Configure ODDS_API_KEY to load live current odds.",
             "sports": [
                 {
                     "key": sport["key"],

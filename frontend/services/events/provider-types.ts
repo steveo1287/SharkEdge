@@ -33,6 +33,8 @@ export type ProviderEvent = {
 
 export interface EventProvider {
   key: string;
+  label: string;
+  kind: "LIVE" | "FALLBACK" | "SCAFFOLD";
   supportsLeague(leagueKey: SupportedLeagueKey): boolean;
   fetchScoreboard(leagueKey: SupportedLeagueKey): Promise<ProviderEvent[]>;
 }

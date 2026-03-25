@@ -16,6 +16,7 @@ import type {
 } from "@/lib/types/domain";
 import { mockDatabase } from "@/prisma/seed-data";
 import { getLeagueSnapshots, getTeamStatComparison } from "@/services/stats/stats-service";
+import { buildBoardSportSections, getBoardVisibleLeagues } from "@/services/events/live-score-service";
 import {
   getLiveBoardPageData,
   getLiveGameDetail,
@@ -215,7 +216,7 @@ export function parseBoardFilters(searchParams: Record<string, string | string[]
   }) satisfies BoardFilters;
 }
 
-function getMockBoardPageData(filters: BoardFilters): BoardPageData {
+async function getMockBoardPageData(filters: BoardFilters): Promise<BoardPageData> {
   const availableDates = Array.from(
     new Set(mockDatabase.games.map((game) => game.startTime.slice(0, 10)))
   );
@@ -224,19 +225,31 @@ function getMockBoardPageData(filters: BoardFilters): BoardPageData {
     .filter((game) => (filters.date === "all" ? true : game.startTime.startsWith(filters.date)))
     .filter((game) => (filters.status === "pregame" ? game.status === "PREGAME" : true))
     .map((game) => buildGameCard(game, filters.sportsbook));
+  const gamesByLeague = filteredGames.reduce<Partial<Record<LeagueKey, GameCardView[]>>>(
+    (groups, game) => {
+      groups[game.leagueKey] = [...(groups[game.leagueKey] ?? []), game];
+      return groups;
+    },
+    {}
+  );
+  const sportSections = await buildBoardSportSections({
+    selectedLeague: filters.league,
+    gamesByLeague
+  });
 
   return {
     filters,
     availableDates,
-    leagues: mockDatabase.leagues,
+    leagues: getBoardVisibleLeagues(filters.league),
     sportsbooks: [
       { id: "best", key: "best", name: "Best available", region: "US" } satisfies SportsbookRecord,
       ...mockDatabase.sportsbooks
     ],
     games: filteredGames,
+    sportSections,
     snapshots: getLeagueSnapshots(filters.league),
     summary: {
-      totalGames: filteredGames.length,
+      totalGames: sportSections.reduce((total, section) => total + section.games.length, 0),
       totalProps: mockDatabase.propAngles.length,
       totalSportsbooks: mockDatabase.sportsbooks.length
     },

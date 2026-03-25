@@ -139,6 +139,10 @@ function normalizeEvent(
   }
 
   const statusType = ((event.status ?? {}) as Record<string, unknown>).type as Record<string, unknown>;
+  const competitionStatus =
+    competition && typeof competition === "object"
+      ? (((competition as Record<string, unknown>).status ?? {}) as Record<string, unknown>)
+      : {};
   const status = mapStatus(
     typeof statusType?.state === "string" ? statusType.state : undefined
   );
@@ -181,7 +185,19 @@ function normalizeEvent(
     stateJson: {
       detail,
       shortDetail:
-        typeof statusType?.shortDetail === "string" ? statusType.shortDetail : detail
+        typeof statusType?.shortDetail === "string" ? statusType.shortDetail : detail,
+      displayClock:
+        typeof competitionStatus.displayClock === "string"
+          ? competitionStatus.displayClock
+          : null,
+      period:
+        typeof competitionStatus.period === "number"
+          ? competitionStatus.period
+          : typeof competitionStatus.period === "string"
+            ? competitionStatus.period
+            : null,
+      typeDescription:
+        typeof statusType?.description === "string" ? statusType.description : null
     },
     resultJson: status === "FINAL" ? { completed: true } : null,
     metadataJson: {
@@ -197,6 +213,8 @@ function normalizeEvent(
 
 export const espnEventProvider: EventProvider = {
   key: "espn",
+  label: "ESPN scoreboard",
+  kind: "LIVE",
   supportsLeague(leagueKey) {
     return Boolean(ESPN_LEAGUE_PATHS[leagueKey]);
   },

@@ -19,13 +19,21 @@ import {
   LEAGUE_SPORT_MAP
 } from "@/lib/utils/ledger";
 
+import { boxingEventProvider } from "./boxing-provider";
 import { espnEventProvider } from "./espn-provider";
+import { ncaaFallbackEventProvider } from "./ncaa-fallback-provider";
 import type { EventProvider, ProviderEvent } from "./provider-types";
+import { ufcEventProvider } from "./ufc-provider";
 
 const LIVE_SYNC_THRESHOLD_MS = 2 * 60 * 1000;
 const UPCOMING_EVENT_WINDOW_DAYS = 7;
 
-const providers: EventProvider[] = [espnEventProvider];
+const providers: EventProvider[] = [
+  espnEventProvider,
+  ncaaFallbackEventProvider,
+  ufcEventProvider,
+  boxingEventProvider
+];
 
 type EventWithParticipants = Awaited<ReturnType<typeof getUpcomingEvents>>[number];
 
@@ -239,7 +247,16 @@ export async function syncLeagueEventCatalog(leagueKey: SupportedLeagueKey) {
 }
 
 export async function syncSupportedEventCatalog() {
-  const leagues = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"] as SupportedLeagueKey[];
+  const leagues = [
+    "NBA",
+    "NCAAB",
+    "MLB",
+    "NHL",
+    "NFL",
+    "NCAAF",
+    "UFC",
+    "BOXING"
+  ] as SupportedLeagueKey[];
   return Promise.all(leagues.map((leagueKey) => syncLeagueEventCatalog(leagueKey)));
 }
 

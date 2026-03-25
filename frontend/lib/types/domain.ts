@@ -1,4 +1,6 @@
-export type LeagueKey = "NBA" | "NCAAB" | "MLB" | "NHL" | "NFL" | "NCAAF";
+import type { SupportedLeagueKey } from "@/lib/types/ledger";
+
+export type LeagueKey = SupportedLeagueKey;
 
 export type SportCode =
   | "BASKETBALL"
@@ -282,6 +284,8 @@ export type BetFilters = {
   sportsbook: string;
 };
 
+export type BoardSupportStatus = "LIVE" | "PARTIAL" | "COMING SOON";
+
 export type BoardMarketView = {
   label: string;
   lineLabel: string;
@@ -309,12 +313,41 @@ export type GameCardView = {
   };
 };
 
+export type ScoreboardPreviewView = {
+  id: string;
+  label: string;
+  status: GameStatus;
+  stateDetail: string | null;
+  scoreboard: string | null;
+  startTime: string;
+  providerKey: string;
+  stale: boolean;
+};
+
+export type BoardSportSectionView = {
+  leagueKey: LeagueKey;
+  leagueLabel: string;
+  sport: SportCode;
+  status: BoardSupportStatus;
+  liveScoreProvider: string | null;
+  currentOddsProvider: string | null;
+  historicalOddsProvider: string | null;
+  note: string;
+  detail: string;
+  scoreboardDetail: string;
+  adapterState: "BOARD" | "SCORES_ONLY" | "ADAPTER_PENDING" | "COMING_SOON" | "NO_EVENTS";
+  stale: boolean;
+  games: GameCardView[];
+  scoreboard: ScoreboardPreviewView[];
+};
+
 export type BoardPageData = {
   filters: BoardFilters;
   availableDates: string[];
   leagues: LeagueRecord[];
   sportsbooks: SportsbookRecord[];
   games: GameCardView[];
+  sportSections: BoardSportSectionView[];
   snapshots: LeagueSnapshotView[];
   summary: {
     totalGames: number;
