@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { BoardSupportStatus, PropCardView, PropMarketType } from "@/lib/types/domain";
 import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
-import { buildPropBetIntent } from "@/lib/utils/bet-intelligence";
+import { buildPropBetIntent, buildWagerMathView } from "@/lib/utils/bet-intelligence";
 
 type PropListProps = {
   props: PropCardView[];
@@ -70,6 +70,14 @@ export function PropList({ props, support }: PropListProps) {
 
       {props.map((prop) => (
         <Card key={prop.id} className="p-5">
+          {(() => {
+            const math = buildWagerMathView({
+              offeredOddsAmerican: prop.bestAvailableOddsAmerican ?? prop.oddsAmerican,
+              consensusOddsAmerican: prop.averageOddsAmerican
+            });
+
+            return (
+              <>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
@@ -115,6 +123,38 @@ export function PropList({ props, support }: PropListProps) {
               </div>
             </div>
           </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                Implied Prob
+              </div>
+              <div className="mt-2 text-lg font-medium text-white">
+                {typeof math.impliedProbabilityPct === "number"
+                  ? `${math.impliedProbabilityPct.toFixed(1)}%`
+                  : "Pending"}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                No-vig Prob
+              </div>
+              <div className="mt-2 text-lg font-medium text-white">
+                {typeof math.noVigProbabilityPct === "number"
+                  ? `${math.noVigProbabilityPct.toFixed(1)}%`
+                  : "Unavailable"}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                Kelly Proxy
+              </div>
+              <div className="mt-2 text-lg font-medium text-white">
+                {typeof math.kellyFractionPct === "number"
+                  ? `${math.kellyFractionPct.toFixed(1)}%`
+                  : "Unavailable"}
+              </div>
+            </div>
+          </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {typeof prop.expectedValuePct === "number" ? (
               <Badge tone={prop.expectedValuePct > 0 ? "success" : "muted"}>
@@ -148,6 +188,9 @@ export function PropList({ props, support }: PropListProps) {
           <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
             <div className="text-sm text-slate-300">
               {prop.supportNote ?? support.note}
+              {typeof math.fairProbabilityProxyPct === "number"
+                ? ` Kelly uses the market-implied fair probability proxy from the average posted price.`
+                : ` Kelly stays unavailable until SharkEdge has a fair-probability input for this market.`}
             </div>
             <div className="flex gap-3">
               <Link
@@ -167,6 +210,9 @@ export function PropList({ props, support }: PropListProps) {
               </BetActionButton>
             </div>
           </div>
+              </>
+            );
+          })()}
         </Card>
       ))}
     </div>

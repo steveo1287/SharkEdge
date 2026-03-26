@@ -2,7 +2,7 @@ import { BetActionButton } from "@/components/bets/bet-action-button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import type { MatchupDetailView } from "@/lib/types/domain";
-import { buildSignalBetIntent } from "@/lib/utils/bet-intelligence";
+import { buildSignalBetIntent, buildWagerMathView } from "@/lib/utils/bet-intelligence";
 
 type OverviewPanelProps = {
   detail: MatchupDetailView;
@@ -88,6 +88,13 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
                   key={signal.id}
                   className="rounded-2xl border border-line bg-slate-950/65 p-4"
                 >
+                  {(() => {
+                    const math = buildWagerMathView({
+                      offeredOddsAmerican: signal.oddsAmerican
+                    });
+
+                    return (
+                      <>
                   <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
                     {signal.marketLabel}
                   </div>
@@ -104,6 +111,15 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
                         {signal.expectedValuePct.toFixed(2)}%
                       </Badge>
                     ) : null}
+                    <Badge tone="muted">
+                      Imp {typeof math.impliedProbabilityPct === "number" ? `${math.impliedProbabilityPct.toFixed(1)}%` : "--"}
+                    </Badge>
+                    <Badge tone="muted">
+                      No-vig {typeof math.noVigProbabilityPct === "number" ? `${math.noVigProbabilityPct.toFixed(1)}%` : "N/A"}
+                    </Badge>
+                    <Badge tone="premium">
+                      Kelly {typeof math.kellyFractionPct === "number" ? `${math.kellyFractionPct.toFixed(1)}%` : "N/A"}
+                    </Badge>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-3">
                     <BetActionButton
@@ -118,6 +134,9 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
                     Log now
                   </BetActionButton>
                 </div>
+                      </>
+                    );
+                  })()}
               </div>
             ))}
             </div>

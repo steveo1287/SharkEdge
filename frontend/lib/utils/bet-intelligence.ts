@@ -187,6 +187,64 @@ export function calculateMarketExpectedValuePct(
   return Number(((fairProbability * bestDecimal - 1) * 100).toFixed(2));
 }
 
+export function calculateKellyFractionPct(
+  oddsAmerican: number | null | undefined,
+  winProbability: number | null | undefined
+) {
+  if (
+    typeof oddsAmerican !== "number" ||
+    typeof winProbability !== "number" ||
+    oddsAmerican === 0 ||
+    winProbability <= 0 ||
+    winProbability >= 1
+  ) {
+    return null;
+  }
+
+  const decimalOdds = americanToDecimal(oddsAmerican);
+  const b = decimalOdds - 1;
+  if (b <= 0) {
+    return null;
+  }
+
+  const q = 1 - winProbability;
+  const fraction = (b * winProbability - q) / b;
+
+  if (!Number.isFinite(fraction) || fraction <= 0) {
+    return 0;
+  }
+
+  return Number((fraction * 100).toFixed(2));
+}
+
+export function buildWagerMathView(args: {
+  offeredOddsAmerican: number | null | undefined;
+  consensusOddsAmerican?: number | null | undefined;
+}) {
+  const impliedProbabilityPct =
+    typeof args.offeredOddsAmerican === "number"
+      ? Number((americanToImpliedProbability(args.offeredOddsAmerican) * 100).toFixed(2))
+      : null;
+  const fairProbabilityProxyPct =
+    typeof args.consensusOddsAmerican === "number"
+      ? Number((americanToImpliedProbability(args.consensusOddsAmerican) * 100).toFixed(2))
+      : null;
+  const kellyFractionPct =
+    typeof fairProbabilityProxyPct === "number"
+      ? calculateKellyFractionPct(
+          args.offeredOddsAmerican,
+          fairProbabilityProxyPct / 100
+        )
+      : null;
+
+  return {
+    impliedProbabilityPct,
+    fairProbabilityProxyPct,
+    noVigProbabilityPct: null as number | null,
+    kellyFractionPct
+  };
+}
+
 function parseLineFromLabel(value: string) {
   const match = value.match(/(-?\d+(?:\.\d+)?)/);
   return match ? Number(match[1]) : null;
@@ -245,6 +303,7 @@ export function buildBoardBetIntent(
       sourcePage: "board",
       sourceLabel: "Odds Board",
       sourcePath,
+      sourceItemId: `${game.id}:${marketType}`,
       eventLabel,
       matchupHref: game.detailHref ?? `/game/${game.id}`,
       externalEventId: game.id,
@@ -260,6 +319,7 @@ export function buildBoardBetIntent(
     legs: [
       {
         externalEventId: game.id,
+        sourceItemId: `${game.id}:${marketType}`,
         sportsbookName: market.bestBook,
         marketType,
         marketLabel:
@@ -272,6 +332,7 @@ export function buildBoardBetIntent(
           sourcePage: "board",
           sourceLabel: "Odds Board",
           sourcePath,
+          sourceItemId: `${game.id}:${marketType}`,
           eventLabel,
           matchupHref: game.detailHref ?? `/game/${game.id}`,
           externalEventId: game.id,
@@ -317,6 +378,7 @@ export function buildPropBetIntent(
             ? "Top Plays"
             : "Props Explorer",
       sourcePath,
+      sourceItemId: prop.id,
       eventLabel,
       matchupHref: prop.gameHref ?? `/game/${prop.gameId}`,
       externalEventId: prop.gameId,
@@ -335,6 +397,7 @@ export function buildPropBetIntent(
     legs: [
       {
         externalEventId: prop.gameId,
+        sourceItemId: prop.id,
         sportsbookKey: prop.sportsbook.key,
         sportsbookName: prop.bestAvailableSportsbookName ?? prop.sportsbook.name,
         marketType: prop.marketType,
@@ -352,6 +415,7 @@ export function buildPropBetIntent(
                 ? "Top Plays"
                 : "Props Explorer",
           sourcePath,
+          sourceItemId: prop.id,
           eventLabel,
           matchupHref: prop.gameHref ?? `/game/${prop.gameId}`,
           externalEventId: prop.gameId,
@@ -394,6 +458,7 @@ export function buildSignalBetIntent(
       sourcePage: "matchup",
       sourceLabel: "Matchup Detail",
       sourcePath,
+      sourceItemId: signal.id,
       eventLabel: signal.eventLabel,
       matchupHref: signal.matchupHref ?? null,
       externalEventId: signal.externalEventId ?? null,
@@ -412,6 +477,7 @@ export function buildSignalBetIntent(
     legs: [
       {
         externalEventId: signal.externalEventId ?? null,
+        sourceItemId: signal.id,
         sportsbookKey: signal.sportsbookKey ?? null,
         sportsbookName: signal.sportsbookName ?? null,
         marketType: signal.marketType as LedgerMarketType,
@@ -424,6 +490,7 @@ export function buildSignalBetIntent(
           sourcePage: "matchup",
           sourceLabel: "Matchup Detail",
           sourcePath,
+          sourceItemId: signal.id,
           eventLabel: signal.eventLabel,
           matchupHref: signal.matchupHref ?? null,
           externalEventId: signal.externalEventId ?? null,

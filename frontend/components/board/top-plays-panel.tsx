@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import type { PropCardView } from "@/lib/types/domain";
 import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
-import { buildPropBetIntent } from "@/lib/utils/bet-intelligence";
+import { buildPropBetIntent, buildWagerMathView } from "@/lib/utils/bet-intelligence";
 
 type TopPlaysPanelProps = {
   plays: PropCardView[];
@@ -18,6 +18,14 @@ export function TopPlaysPanel({ plays }: TopPlaysPanelProps) {
     <div className="grid gap-4 xl:grid-cols-3">
       {plays.map((play) => (
         <Card key={play.id} className="p-5">
+          {(() => {
+            const math = buildWagerMathView({
+              offeredOddsAmerican: play.bestAvailableOddsAmerican ?? play.oddsAmerican,
+              consensusOddsAmerican: play.averageOddsAmerican
+            });
+
+            return (
+              <>
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs uppercase tracking-[0.18em] text-sky-300">Top Play</div>
@@ -59,6 +67,15 @@ export function TopPlaysPanel({ plays }: TopPlaysPanelProps) {
                   ? play.valueFlag.replace(/_/g, " ")
                   : "Book compare only"}
               </Badge>
+              <Badge tone="muted">
+                Imp {typeof math.impliedProbabilityPct === "number" ? `${math.impliedProbabilityPct.toFixed(1)}%` : "--"}
+              </Badge>
+              <Badge tone="muted">
+                No-vig {typeof math.noVigProbabilityPct === "number" ? `${math.noVigProbabilityPct.toFixed(1)}%` : "N/A"}
+              </Badge>
+              <Badge tone="premium">
+                Kelly {typeof math.kellyFractionPct === "number" ? `${math.kellyFractionPct.toFixed(1)}%` : "N/A"}
+              </Badge>
             </div>
           </div>
 
@@ -70,6 +87,9 @@ export function TopPlaysPanel({ plays }: TopPlaysPanelProps) {
               Log now
             </BetActionButton>
           </div>
+              </>
+            );
+          })()}
         </Card>
       ))}
     </div>
