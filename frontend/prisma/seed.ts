@@ -36,6 +36,10 @@ function getSportIdForLeague(key: string) {
   }
 }
 
+function dedupeById<T extends { id: string }>(items: T[]) {
+  return Array.from(new Map(items.map((item) => [item.id, item])).values());
+}
+
 async function main() {
   const db = buildMockDatabase();
   const core = buildCoreSeedData();
@@ -75,13 +79,13 @@ async function main() {
   });
 
   await prisma.league.createMany({
-    data: [
+    data: dedupeById([
       ...db.leagues.map((league) => ({
         ...league,
         sportId: getSportIdForLeague(league.key)
       })),
       ...core.leagues
-    ] as Prisma.LeagueCreateManyInput[]
+    ]) as Prisma.LeagueCreateManyInput[]
   });
 
   await prisma.sportsbook.createMany({
