@@ -327,7 +327,7 @@ def request_json_with_base(
 
     request = Request(
         url,
-        headers={"User-Agent": "Shark Odds/1.0"},
+        headers={"User-Agent": "SharkEdge/1.0"},
     )
 
     try:
@@ -1863,7 +1863,7 @@ def build_player_leader_block(
             "source": "ESPN",
             "message": (
                 "Player per-game leader cards are live for NBA matchups. College and "
-                "other leagues still need a team-scoped player stats feed so Shark Odds "
+                "other leagues still need a team-scoped player stats feed so SharkEdge "
                 "doesn't download an entire league table on every click."
             ),
             "teams": teams,
@@ -2199,7 +2199,7 @@ def build_game_detail(
         },
         "notes": [
             f"Recent form is sourced from {away_context['recent_source']} and {home_context['recent_source']} when available.",
-            "Team betting stats are sourced from ESPN team statistics endpoints when Shark Odds can map the matchup cleanly.",
+            "Team betting stats are sourced from ESPN team statistics endpoints when SharkEdge can map the matchup cleanly.",
             "Public money percentages are not included in the current provider feed.",
         ],
     }
@@ -2303,7 +2303,7 @@ def build_historical_harvest_response(
 @app.get("/")
 def root() -> dict[str, Any]:
     return {
-        "message": "Shark Odds API is live",
+        "message": "SharkEdge API is live",
         "odds_board_endpoint": "/api/odds/board",
         "props_board_endpoint": "/api/props/board",
         "game_detail_endpoint_template": "/api/games/{sport_key}/{event_id}",
@@ -2335,7 +2335,7 @@ def odds_board() -> dict[str, Any]:
     regions = get_regions()
     bookmakers = get_bookmakers()
     split_stats_note = (
-        "Consensus stats in Shark Odds are derived from sportsbook lines and best "
+        "Consensus stats in SharkEdge are derived from sportsbook lines and best "
         "prices. Public ticket and money percentages require an additional data feed."
     )
 
@@ -2494,7 +2494,7 @@ def props_board(
         "prop_count": sum(item["prop_count"] for item in responses),
         "partial": any(item.get("partial") for item in responses),
         "resolution_note": (
-            "Player-to-team mapping is resolved from ESPN rosters when Shark Odds can map both teams cleanly."
+            "Player-to-team mapping is resolved from ESPN rosters when SharkEdge can map both teams cleanly."
         ),
         "quota_note": (
             "The props explorer is intentionally limited to a small set of upcoming games per league to protect API credits. Open a specific game for deeper prop coverage."

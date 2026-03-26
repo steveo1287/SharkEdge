@@ -1368,7 +1368,7 @@ export async function getLiveGameDetail(id: string): Promise<GameDetailView | nu
       venue: "Live market feed",
       scoreJson: null,
       liveStateJson: {
-        source: "shark-odds-backend"
+        source: "sharkedge-backend"
       }
     },
     league,

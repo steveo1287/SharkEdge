@@ -6,11 +6,35 @@ import { brandKit } from "@/lib/brand/brand-kit";
 
 import "./globals.css";
 
+function getSiteUrl() {
+  const configured =
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() || process.env.SITE_URL?.trim();
+  if (configured) {
+    try {
+      return new URL(configured);
+    } catch {
+      return undefined;
+    }
+  }
+
+  const vercelUrl = process.env.VERCEL_URL?.trim();
+  if (vercelUrl) {
+    try {
+      return new URL(`https://${vercelUrl}`);
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
+}
+
 export const metadata: Metadata = {
   title: {
     default: brandKit.name,
     template: `%s | ${brandKit.name}`
   },
+  metadataBase: getSiteUrl(),
   applicationName: brandKit.name,
   description: brandKit.description,
   keywords: [...brandKit.keywords],

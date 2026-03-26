@@ -1,6 +1,6 @@
 # SharkEdge
 
-SharkEdge is the premium sportsbook analytics layer inside the Shark Odds repo. The current milestone upgrades the product from a polished prototype into a real bet ledger with durable persistence, live bet tracking hooks, and a normalized multi-sport core that can expand into sportsbook sync later.
+SharkEdge is the premium sportsbook analytics platform in this repo. The current milestone upgrades the product from a polished prototype into a real bet ledger with durable persistence, live bet tracking hooks, and a normalized multi-sport core that can expand into sportsbook sync later.
 
 ## Stack
 
@@ -69,7 +69,7 @@ npm test
 - `DATABASE_URL`
   PostgreSQL connection string for Prisma. Required for bets, performance, and the normalized event ledger.
 - `SHARKEDGE_BACKEND_URL`
-  Existing Shark Odds backend URL for the live board and game pages.
+  Existing SharkEdge backend URL for the live board and game pages.
 - `ODDS_API_KEY`
   Optional when using the internal ESPN + Odds API route.
 
