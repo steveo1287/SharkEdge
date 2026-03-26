@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
+import { StatCard } from "@/components/ui/stat-card";
 import { PropsTable } from "@/components/props/props-table";
 import { BOARD_SPORTS } from "@/lib/config/board-sports";
 import { formatMarketType } from "@/lib/formatters/odds";
@@ -30,15 +31,41 @@ export default async function PropsPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
   const filters = parsePropsFilters(resolved);
   const data = await getPropsExplorerData(filters);
+  const liveCoverageCount = data.coverage.filter((entry: any) => entry.status === "LIVE").length;
+  const partialCoverageCount = data.coverage.filter((entry: any) => entry.status === "PARTIAL").length;
+  const realBookCount = data.sportsbooks.length;
 
   return (
     <div className="grid gap-6">
       <SectionTitle
         title="Props Explorer"
-        description="Every target sport is visible in the filter model now. Real prop rows only render where a real market adapter exists, and unsupported sports stay visible with explicit provider states."
+        description="Every target sport is visible in the filter model. Real prop rows only render where a real market adapter exists, and unsupported sports stay visible with explicit provider states."
       />
 
       <Card className="p-4 text-sm leading-7 text-slate-400">{data.sourceNote}</Card>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Live Props"
+          value={`${data.props.length}`}
+          note="Rows currently matching this real filter set"
+        />
+        <StatCard
+          label="Coverage Live"
+          value={`${liveCoverageCount}`}
+          note="Sports with a real prop adapter"
+        />
+        <StatCard
+          label="Coverage Partial"
+          value={`${partialCoverageCount}`}
+          note="Visible in the filter model without fake rows"
+        />
+        <StatCard
+          label="Books"
+          value={`${realBookCount}`}
+          note={data.source === "live" ? "Books represented in the returned rows" : "Live book count returns once a prop adapter responds"}
+        />
+      </div>
 
       <Card className="p-4">
         <form className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
@@ -167,8 +194,8 @@ export default async function PropsPage({ searchParams }: PageProps) {
         <PropsTable props={data.props} />
       ) : (
         <EmptyState
-          title="No live props match this filter set"
-          description="That may mean the selected sport is PARTIAL or COMING SOON, or the live props backend does not currently have markets for your filter combination."
+          title="No real props match this filter set"
+          description="That can mean the selected sport is PARTIAL or COMING SOON, or the current live props adapter does not have markets for this player, team, book, or market combination."
         />
       )}
     </div>

@@ -117,12 +117,16 @@ export function SportSection({ section, focusMarket }: SportSectionProps) {
         </div>
       ) : section.adapterState === "NO_EVENTS" ? (
         <EmptyState
-          title={`No ${section.leagueKey} events in the live feed`}
-          description={section.scoreboardDetail}
+          title={`No scheduled ${section.leagueLabel} events in this window`}
+          description={`${section.scoreboardDetail} SharkEdge is keeping coverage visible instead of implying the adapter failed.`}
         />
       ) : (
         <EmptyState
-          title={section.status === "COMING_SOON" ? `${section.leagueKey} adapter pending` : `${section.leagueKey} is visible, but not fully live-wired`}
+          title={
+            section.status === "COMING_SOON"
+              ? `${section.leagueLabel} coverage is pending`
+              : `${section.leagueLabel} is visible with limited board depth`
+          }
           description={section.detail}
         />
       )}

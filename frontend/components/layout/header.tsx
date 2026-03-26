@@ -24,8 +24,8 @@ const titles: Record<string, { title: string; subtitle: string }> = {
     subtitle: "Review what is working, where the leaks are, and how the portfolio is trending."
   },
   "/trends": {
-    title: "Trends Builder",
-    subtitle: "Trend storage is in place now; the full query runner is the next layer on top."
+    title: "Trends Center",
+    subtitle: "Query stored odds history and settled bets without mock preview cards or fake trend confidence."
   }
 };
 

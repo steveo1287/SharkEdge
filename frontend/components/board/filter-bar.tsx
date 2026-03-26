@@ -80,7 +80,7 @@ export function BoardFilterBar({
             className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
           >
             <option value="pregame">Pregame</option>
-            <option value="live">Live preview</option>
+            <option value="live">Live state</option>
           </select>
           <button
             type="submit"
@@ -91,7 +91,7 @@ export function BoardFilterBar({
         </div>
       </form>
       <div className="mt-3 text-sm text-slate-400">
-        Every target sport stays visible on the board now. LIVE sports render real score/state adapters, PARTIAL sports stay visible with honest adapter notes, and COMING SOON sports never fake empty live coverage.
+        Every target sport stays visible on the board. LIVE sports render real score/state adapters, PARTIAL sports stay visible with limited-coverage notes, and COMING SOON sports never fake empty board depth.
       </div>
     </Card>
   );

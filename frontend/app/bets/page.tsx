@@ -20,7 +20,7 @@ export default async function BetsPage({ searchParams }: PageProps) {
     <div className="grid gap-6">
       <SectionTitle
         title="Bet Ledger"
-        description="Real persistence, straight and parlay support, live sweat context, and the analytics backbone SharkEdge needs before sportsbook sync lands."
+        description="Track real tickets, preserve settlement context, and keep the sweat workflow honest while the runtime ledger finishes wiring into Postgres."
       />
 
       <Card className="p-4">

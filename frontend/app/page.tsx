@@ -24,7 +24,7 @@ export default async function HomePage({ searchParams }: PageProps) {
   const filters = parseBoardFilters(resolved);
   const [data, topPlays] = await Promise.all([
     getBoardPageData(filters),
-    getTopPlayCards(3)
+    getTopPlayCards(8)
   ]);
   const liveCount = data.sportSections.filter((section) => section.status === "LIVE").length;
   const partialCount = data.sportSections.filter((section) => section.status === "PARTIAL").length;
@@ -32,6 +32,8 @@ export default async function HomePage({ searchParams }: PageProps) {
   const livePropSportCount = data.sportSections.filter(
     (section) => section.propsStatus === "LIVE"
   ).length;
+  const staleCount = data.sportSections.filter((section) => section.stale).length;
+  const coverageLabel = data.source === "live" ? "Live board" : "Coverage map";
 
   return (
     <div className="grid gap-6">
@@ -39,28 +41,40 @@ export default async function HomePage({ searchParams }: PageProps) {
         title="Pregame market board"
         description={
           data.source === "live"
-            ? "Every target sport is visible on the board now. Team sports with real score/state adapters render live support honestly, while combat sports stay in view with explicit readiness states."
-            : "The support model is still visible even when the current odds feed is unavailable, so unsupported sports never disappear behind fake empty board states."
+            ? "Every target sport stays visible, but only sports with real board support render live rows. Partial and pending leagues stay in view with explicit provider states."
+            : "The support map stays visible even when the current odds feed is unavailable, so SharkEdge never hides unsupported sports behind fake empty board states."
         }
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="Games" value={`${data.summary.totalGames}`} note="Current board rows" />
         <StatCard
-          label="Prop Sports"
-          value={`${livePropSportCount}`}
-          note="Sports with real prop markets"
+          label={data.source === "live" ? "Board Rows" : "Tracked Events"}
+          value={`${data.summary.totalGames}`}
+          note={
+            data.source === "live"
+              ? "Current rows rendered from the active board feed"
+              : "Score/state visibility only while current odds are limited"
+          }
         />
-        <StatCard label="Books" value={`${data.summary.totalSportsbooks}`} note="Major U.S. books" />
         <StatCard
-          label="LIVE"
+          label="Board Source"
+          value={coverageLabel}
+          note={data.source === "live" ? "Current odds and score state connected" : "Support map and fallback score state only"}
+        />
+        <StatCard
+          label="LIVE Sports"
           value={`${liveCount}`}
-          note="Real score/state adapters wired"
+          note="Real score/state adapters and matchup coverage"
         />
         <StatCard
-          label="Coverage"
+          label="Partial / Soon"
           value={`${partialCount} / ${comingSoonCount}`}
-          note="Partial / Coming soon"
+          note="Visible in-product without fake live board depth"
+        />
+        <StatCard
+          label="Props Live"
+          value={`${livePropSportCount}`}
+          note={staleCount ? `${staleCount} section${staleCount === 1 ? "" : "s"} flagged stale` : "Fresh provider state in the current window"}
         />
       </div>
 
@@ -73,18 +87,21 @@ export default async function HomePage({ searchParams }: PageProps) {
 
       <Card className="grid gap-3 p-5 xl:grid-cols-[1.2fr_0.8fr]">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-sky-300">Phase 1.5 Live State</div>
+          <div className="text-xs uppercase tracking-[0.2em] text-sky-300">
+            {data.source === "live" ? "Board Live" : "Coverage View"}
+          </div>
           <div className="mt-3 font-display text-2xl font-semibold text-white">
-            The homepage now shows the full SharkEdge sport map without pretending every league is equally live.
+            Multi-sport market scanning with honest board depth by league.
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-400">
-            Score/state support, current odds coverage, and historical ingestion are now split into separate provider lanes. That lets us show all eight target sports immediately while staying explicit about what is LIVE, what is PARTIAL, and what is still COMING SOON.
+            Basketball remains the deepest live prop coverage right now, while the broader board, matchup context, and historical foundation keep every target sport visible without pretending they all have the same adapter depth.
           </p>
         </div>
         <div className="grid gap-2 rounded-2xl border border-line bg-slate-950/60 p-4 text-sm text-slate-300">
           <div>Live now: NBA, NCAAB, MLB, NHL, NFL, NCAAF</div>
           <div>Partial: UFC</div>
           <div>Coming soon: Boxing</div>
+          <div>{data.source === "live" ? "Current board feed connected" : "Current board feed limited"}</div>
           <div>{data.sourceNote}</div>
         </div>
       </Card>
@@ -94,7 +111,7 @@ export default async function HomePage({ searchParams }: PageProps) {
       <section className="grid gap-4">
         <SectionTitle
           title="Top Plays"
-          description="Only real live signals show up here. Right now these are market-EV prop spots pulled from live multi-book pricing, not fake model certainty."
+          description="Only real live prop signals show up here. If the current feed does not surface a real edge, SharkEdge leaves this section blank instead of manufacturing a play."
         />
         {topPlays.length ? (
           <TopPlaysPanel plays={topPlays} />
@@ -114,7 +131,7 @@ export default async function HomePage({ searchParams }: PageProps) {
       ) : null}
 
       {data.liveMessage ? (
-        <EmptyState title="Live board coming next" description={data.liveMessage} />
+        <EmptyState title="Limited live window" description={data.liveMessage} />
       ) : null}
 
       {data.sportSections.length ? (

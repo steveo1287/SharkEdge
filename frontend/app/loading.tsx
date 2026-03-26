@@ -6,7 +6,7 @@ export default function Loading() {
     <div className="grid gap-6">
       <SectionTitle
         title="Loading"
-        description="Pulling the SharkEdge workspace into view."
+        description="Refreshing live board, props, and ledger context."
       />
       <LoadingSkeleton />
     </div>

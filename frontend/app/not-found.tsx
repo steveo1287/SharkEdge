@@ -6,7 +6,7 @@ export default function NotFound() {
   return (
     <EmptyState
       title="That market is not on the board"
-      description="The requested game or page could not be found in the current SharkEdge mock workspace."
+      description="The requested game, market, or page is not available in the current SharkEdge coverage set."
       action={
         <Link
           href="/"

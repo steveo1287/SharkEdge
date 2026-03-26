@@ -13,13 +13,13 @@ export const brandKit = {
     "sportsbook comparison"
   ],
   headerBadges: {
-    premium: "Phase 1.5.1",
-    brand: "Deploy check"
+    premium: "Live Coverage",
+    brand: "Real Data"
   },
   sidebarNote: {
-    title: "Multi-Sport Core",
+    title: "Coverage Status",
     body:
-      "Persisted bets, live sweat context, and a normalized event model now power NBA, NCAAB, MLB, NHL, NFL, NCAAF, UFC, and boxing without pretending every event is team-vs-team."
+      "Board depth, props, matchup stats, trends, and ledger analytics stay explicit by sport. SharkEdge shows real provider coverage and real setup blockers instead of backfilling fake product states."
   },
   palette: {
     ink: "#04070d",
