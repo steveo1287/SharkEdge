@@ -78,6 +78,47 @@ const SEASON_STAT_BLUEPRINTS: Partial<
   ]
 };
 
+const LIVE_TEAM_STAT_BLUEPRINTS: Partial<
+  Record<LeagueKey, Array<{ label: string; terms: string[] }>>
+> = {
+  NBA: [
+    { label: "FG%", terms: ["fieldgoalpct", "field goal %", "fg%"] },
+    { label: "3P%", terms: ["threepointfieldgoalpct", "three point %", "3p%"] },
+    { label: "REB", terms: ["totalrebounds", "rebounds", "reb"] },
+    { label: "AST", terms: ["assists", "ast"] }
+  ],
+  NCAAB: [
+    { label: "FG%", terms: ["fieldgoalpct", "field goal %", "fg%"] },
+    { label: "3P%", terms: ["threepointfieldgoalpct", "three point %", "3p%"] },
+    { label: "REB", terms: ["totalrebounds", "rebounds", "reb"] },
+    { label: "AST", terms: ["assists", "ast"] }
+  ],
+  MLB: [
+    { label: "R", terms: ["runs", "r"] },
+    { label: "H", terms: ["hits", "h"] },
+    { label: "E", terms: ["errors", "e"] },
+    { label: "AVG", terms: ["avg", "batting average"] }
+  ],
+  NHL: [
+    { label: "Shots", terms: ["shotstotal", "shots"] },
+    { label: "Hits", terms: ["hits", "ht"] },
+    { label: "Blocks", terms: ["blockedshots", "bs"] },
+    { label: "PP%", terms: ["powerplaypct", "power play percentage"] }
+  ],
+  NFL: [
+    { label: "Yards", terms: ["totalyards", "total yards"] },
+    { label: "Pass", terms: ["netpassingyards", "passing"] },
+    { label: "Rush", terms: ["rushingyards", "rushing"] },
+    { label: "3D", terms: ["thirddowneff", "3rd down efficiency"] }
+  ],
+  NCAAF: [
+    { label: "Yards", terms: ["totalyards", "total yards"] },
+    { label: "Pass", terms: ["netpassingyards", "passing"] },
+    { label: "Rush", terms: ["rushingyards", "rushing"] },
+    { label: "3D", terms: ["thirddowneff", "3rd down efficiency"] }
+  ]
+};
+
 async function fetchEspnJson<T>(path: string) {
   const response = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}`, {
     headers: {
@@ -110,6 +151,12 @@ function readNumber(value: unknown) {
   }
 
   return null;
+}
+
+function normalizeStatKey(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
 }
 
 function mapStatus(state: string | null | undefined) {
@@ -301,7 +348,66 @@ function extractRecentResults(teamId: string, payload: JsonRecord) {
     .slice(0, 5) as MatchupParticipantPanel["recentResults"];
 }
 
-function extractBoxscoreLeaders(teamId: string, payload: JsonRecord): MatchupMetricView[] {
+function extractLiveTeamStats(
+  leagueKey: LeagueKey,
+  competition: JsonRecord | null,
+  teamId: string,
+  payload: JsonRecord
+) {
+  const blueprints = LIVE_TEAM_STAT_BLUEPRINTS[leagueKey] ?? [];
+  const competitors = Array.isArray(competition?.competitors)
+    ? competition.competitors
+    : [];
+  const competitor = competitors.find(
+    (entry: JsonRecord) => String(entry.team?.id ?? entry.id) === teamId
+  );
+  const competitorStats = Array.isArray(competitor?.statistics)
+    ? competitor.statistics
+    : [];
+  const boxscoreTeams = Array.isArray(payload.boxscore?.teams) ? payload.boxscore.teams : [];
+  const teamBox = boxscoreTeams.find(
+    (entry: JsonRecord) => String(entry.team?.id ?? "") === teamId
+  );
+  const boxscoreStats = Array.isArray(teamBox?.statistics) ? teamBox.statistics : [];
+
+  return blueprints
+    .map((blueprint) => {
+      const match = [...competitorStats, ...boxscoreStats].find((stat: JsonRecord) => {
+        const fields = [
+          normalizeStatKey(stat.name),
+          normalizeStatKey(stat.label),
+          normalizeStatKey(stat.abbreviation),
+          normalizeStatKey(stat.displayName)
+        ];
+
+        return blueprint.terms.some((term) => {
+          const normalizedTerm = normalizeStatKey(term);
+          return fields.some((field) => field.includes(normalizedTerm));
+        });
+      });
+      const value = readString(match?.displayValue ?? match?.value);
+      if (!value) {
+        return null;
+      }
+
+      return {
+        label: blueprint.label,
+        value
+      } satisfies MatchupMetricView;
+    })
+    .filter(Boolean) as MatchupMetricView[];
+}
+
+function findStatIndex(keys: unknown[], terms: string[]) {
+  const normalizedTerms = terms.map(normalizeStatKey);
+
+  return keys.findIndex((key) => {
+    const normalizedKey = normalizeStatKey(key);
+    return normalizedTerms.some((term) => normalizedKey.includes(term));
+  });
+}
+
+function extractBasketballPlayerSpotlights(teamId: string, payload: JsonRecord) {
   const boxscorePlayers = Array.isArray(payload.boxscore?.players)
     ? payload.boxscore.players
     : [];
@@ -356,6 +462,237 @@ function extractBoxscoreLeaders(teamId: string, payload: JsonRecord): MatchupMet
     }));
 }
 
+function buildAthleteLine(args: {
+  athleteEntry: JsonRecord;
+  keys: unknown[];
+  items: Array<{ label: string; terms: string[] }>;
+}) {
+  const stats = Array.isArray(args.athleteEntry.stats) ? args.athleteEntry.stats : [];
+  const parts = args.items
+    .map((item) => {
+      const index = findStatIndex(args.keys, item.terms);
+      const value = index >= 0 ? readString(stats[index]) : null;
+      return value ? `${value} ${item.label}` : null;
+    })
+    .filter(Boolean);
+
+  if (!parts.length) {
+    return null;
+  }
+
+  return {
+    label: readString(args.athleteEntry.athlete?.displayName) ?? "Player",
+    value: parts.join(" | ")
+  } satisfies MatchupMetricView;
+}
+
+function extractMlbPlayerSpotlights(teamId: string, payload: JsonRecord) {
+  const teamBox = (Array.isArray(payload.boxscore?.players) ? payload.boxscore.players : []).find(
+    (entry: JsonRecord) => String(entry.team?.id ?? "") === teamId
+  );
+  const blocks = Array.isArray(teamBox?.statistics) ? teamBox.statistics : [];
+  const batting = blocks.find((block: JsonRecord) => normalizeStatKey(block.type) === "batting");
+  const pitching = blocks.find((block: JsonRecord) => normalizeStatKey(block.type) === "pitching");
+
+  const hitter = Array.isArray(batting?.athletes)
+    ? batting.athletes
+        .map((entry: JsonRecord) => ({
+          entry,
+          runsBattedIn:
+            (findStatIndex(batting.keys ?? [], ["rbis", "rbi"]) >= 0
+              ? readNumber(entry.stats?.[findStatIndex(batting.keys ?? [], ["rbis", "rbi"])])
+              : null) ?? 0,
+          hits:
+            (findStatIndex(batting.keys ?? [], ["hits"]) >= 0
+              ? readNumber(entry.stats?.[findStatIndex(batting.keys ?? [], ["hits"])])
+              : null) ?? 0
+        }))
+        .sort(
+          (
+            left: { entry: JsonRecord; runsBattedIn: number; hits: number },
+            right: { entry: JsonRecord; runsBattedIn: number; hits: number }
+          ) => right.runsBattedIn - left.runsBattedIn || right.hits - left.hits
+        )[0]
+    : null;
+  const pitcher = Array.isArray(pitching?.athletes)
+    ? pitching.athletes
+        .map((entry: JsonRecord) => ({
+          entry,
+          strikeouts:
+            (findStatIndex(pitching.keys ?? [], ["strikeouts", "k"]) >= 0
+              ? readNumber(entry.stats?.[findStatIndex(pitching.keys ?? [], ["strikeouts", "k"])])
+              : null) ?? 0
+        }))
+        .sort(
+          (
+            left: { entry: JsonRecord; strikeouts: number },
+            right: { entry: JsonRecord; strikeouts: number }
+          ) => right.strikeouts - left.strikeouts
+        )[0]
+    : null;
+
+  return [
+    hitter
+      ? buildAthleteLine({
+          athleteEntry: hitter.entry,
+          keys: batting?.keys ?? [],
+          items: [
+            { label: "H", terms: ["hits"] },
+            { label: "RBI", terms: ["rbis", "rbi"] },
+            { label: "R", terms: ["runs"] },
+            { label: "HR", terms: ["homeruns", "hr"] }
+          ]
+        })
+      : null,
+    pitcher
+      ? buildAthleteLine({
+          athleteEntry: pitcher.entry,
+          keys: pitching?.keys ?? [],
+          items: [
+            { label: "IP", terms: ["fullinningspartinnings", "inningspitched", "ip"] },
+            { label: "K", terms: ["strikeouts", "k"] },
+            { label: "ER", terms: ["earnedruns", "er"] },
+            { label: "BB", terms: ["walks", "bb"] }
+          ]
+        })
+      : null
+  ].filter(Boolean) as MatchupMetricView[];
+}
+
+function extractHockeyPlayerSpotlights(teamId: string, payload: JsonRecord) {
+  const teamBox = (Array.isArray(payload.boxscore?.players) ? payload.boxscore.players : []).find(
+    (entry: JsonRecord) => String(entry.team?.id ?? "") === teamId
+  );
+  const blocks = Array.isArray(teamBox?.statistics) ? teamBox.statistics : [];
+  const skaters =
+    blocks.find((block: JsonRecord) => normalizeStatKey(block.name) === "skaters") ??
+    blocks.find((block: JsonRecord) => normalizeStatKey(block.name) === "forwards");
+  const goalies = blocks.find((block: JsonRecord) => normalizeStatKey(block.name) === "goalies");
+
+  const topSkater = Array.isArray(skaters?.athletes)
+    ? skaters.athletes
+        .map((entry: JsonRecord) => ({
+          entry,
+          goals:
+            (findStatIndex(skaters.keys ?? [], ["goals", "g"]) >= 0
+              ? readNumber(entry.stats?.[findStatIndex(skaters.keys ?? [], ["goals", "g"])])
+              : null) ?? 0,
+          assists:
+            (findStatIndex(skaters.keys ?? [], ["assists", "a"]) >= 0
+              ? readNumber(entry.stats?.[findStatIndex(skaters.keys ?? [], ["assists", "a"])])
+              : null) ?? 0,
+          shots:
+            (findStatIndex(skaters.keys ?? [], ["shotstotal", "s"]) >= 0
+              ? readNumber(entry.stats?.[findStatIndex(skaters.keys ?? [], ["shotstotal", "s"])])
+              : null) ?? 0
+        }))
+        .sort(
+          (
+            left: { entry: JsonRecord; goals: number; assists: number; shots: number },
+            right: { entry: JsonRecord; goals: number; assists: number; shots: number }
+          ) =>
+            right.goals + right.assists - (left.goals + left.assists) || right.shots - left.shots
+        )[0]
+    : null;
+  const topGoalie = Array.isArray(goalies?.athletes) ? goalies.athletes[0] : null;
+
+  return [
+    topSkater
+      ? buildAthleteLine({
+          athleteEntry: topSkater.entry,
+          keys: skaters?.keys ?? [],
+          items: [
+            { label: "G", terms: ["goals", "g"] },
+            { label: "A", terms: ["assists", "a"] },
+            { label: "S", terms: ["shotstotal", "s"] }
+          ]
+        })
+      : null,
+    topGoalie
+      ? buildAthleteLine({
+          athleteEntry: topGoalie,
+          keys: goalies?.keys ?? [],
+          items: [
+            { label: "SV", terms: ["saves", "sv"] },
+            { label: "SV%", terms: ["savepct", "sv%"] },
+            { label: "GA", terms: ["goalsagainst", "ga"] }
+          ]
+        })
+      : null
+  ].filter(Boolean) as MatchupMetricView[];
+}
+
+function extractFootballPlayerSpotlights(teamId: string, payload: JsonRecord) {
+  const teamBox = (Array.isArray(payload.boxscore?.players) ? payload.boxscore.players : []).find(
+    (entry: JsonRecord) => String(entry.team?.id ?? "") === teamId
+  );
+  const blocks = Array.isArray(teamBox?.statistics) ? teamBox.statistics : [];
+  const passing = blocks.find((block: JsonRecord) => normalizeStatKey(block.name) === "passing");
+  const rushing = blocks.find((block: JsonRecord) => normalizeStatKey(block.name) === "rushing");
+  const receiving = blocks.find((block: JsonRecord) => normalizeStatKey(block.name) === "receiving");
+
+  const topPasser = Array.isArray(passing?.athletes) ? passing.athletes[0] : null;
+  const topRusher = Array.isArray(rushing?.athletes) ? rushing.athletes[0] : null;
+  const topReceiver = Array.isArray(receiving?.athletes) ? receiving.athletes[0] : null;
+
+  return [
+    topPasser
+      ? buildAthleteLine({
+          athleteEntry: topPasser,
+          keys: passing?.keys ?? [],
+          items: [
+            { label: "YDS", terms: ["passingyards", "yds"] },
+            { label: "TD", terms: ["passingtouchdowns", "td"] },
+            { label: "INT", terms: ["interceptions", "int"] }
+          ]
+        })
+      : null,
+    topRusher
+      ? buildAthleteLine({
+          athleteEntry: topRusher,
+          keys: rushing?.keys ?? [],
+          items: [
+            { label: "YDS", terms: ["rushingyards", "yds"] },
+            { label: "CAR", terms: ["rushingattempts", "car"] },
+            { label: "TD", terms: ["rushingtouchdowns", "td"] }
+          ]
+        })
+      : null,
+    topReceiver
+      ? buildAthleteLine({
+          athleteEntry: topReceiver,
+          keys: receiving?.keys ?? [],
+          items: [
+            { label: "REC", terms: ["receptions", "rec"] },
+            { label: "YDS", terms: ["receivingyards", "yds"] },
+            { label: "TD", terms: ["receivingtouchdowns", "td"] }
+          ]
+        })
+      : null
+  ].filter(Boolean) as MatchupMetricView[];
+}
+
+function extractLiveBoxscoreDetails(
+  leagueKey: LeagueKey,
+  competition: JsonRecord | null,
+  teamId: string,
+  payload: JsonRecord
+) {
+  const teamStrip = extractLiveTeamStats(leagueKey, competition, teamId, payload);
+  const playerSpotlights =
+    leagueKey === "NBA" || leagueKey === "NCAAB"
+      ? extractBasketballPlayerSpotlights(teamId, payload)
+      : leagueKey === "MLB"
+        ? extractMlbPlayerSpotlights(teamId, payload)
+        : leagueKey === "NHL"
+          ? extractHockeyPlayerSpotlights(teamId, payload)
+          : leagueKey === "NFL" || leagueKey === "NCAAF"
+            ? extractFootballPlayerSpotlights(teamId, payload)
+            : [];
+
+  return [...teamStrip, ...playerSpotlights].slice(0, 5);
+}
+
 function extractCompetitorLeaders(competition: JsonRecord | null, teamId: string) {
   const competitors = Array.isArray(competition?.competitors)
     ? competition.competitors
@@ -400,6 +737,7 @@ function extractOddsSummary(payload: JsonRecord) {
 }
 
 function mapParticipantPanel(args: {
+  leagueKey: LeagueKey;
   competition: JsonRecord | null;
   competitor: JsonRecord;
   teamStats: MatchupMetricView[];
@@ -530,12 +868,13 @@ export const espnMatchupStatsProvider: MatchupStatsProvider = {
             : [];
 
         return mapParticipantPanel({
+          leagueKey,
           competition,
           competitor,
           teamStats,
           recentResults,
           standingsMap,
-          boxscore: extractBoxscoreLeaders(teamId, summary)
+          boxscore: extractLiveBoxscoreDetails(leagueKey, competition, teamId, summary)
         });
       }
     );
@@ -633,7 +972,7 @@ export const espnMatchupStatsProvider: MatchupStatsProvider = {
       notes: [
         "Standings context is parsed from the ESPN summary payload when available.",
         "Recent form is derived from the latest completed games returned by the ESPN team schedule endpoint.",
-        "Box score leaders are pulled from the ESPN event summary box score."
+        "Live stat strips and player spotlights are pulled from the ESPN event summary box score."
       ]
     } satisfies MatchupDetailPayload;
   }
