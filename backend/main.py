@@ -2413,6 +2413,7 @@ def build_player_leader_block(
 def build_provider_contract(
     sport_key: str,
     summary_available: bool,
+    current_odds_available: bool,
     props_count: int,
 ) -> dict[str, Any]:
     mainstream_live = sport_key in {
@@ -2433,7 +2434,7 @@ def build_provider_contract(
         },
         "current_odds": {
             "provider": "The Odds API odds",
-            "status": "LIVE",
+            "status": "LIVE" if current_odds_available else "PARTIAL",
         },
         "team_stats": {
             "provider": "ESPN team statistics",
@@ -2709,10 +2710,15 @@ def build_game_detail(
     game: dict[str, Any],
     score_games: list[dict[str, Any]],
     props: list[dict[str, Any]],
+    *,
+    current_odds_available: bool = True,
+    props_error: str | None = None,
 ) -> dict[str, Any]:
-    away_team = game["away_team"]
-    home_team = game["home_team"]
-    bookmakers = game["bookmakers"]
+    away_team = str(game.get("away_team") or "Away")
+    home_team = str(game.get("home_team") or "Home")
+    bookmakers = game.get("bookmakers", [])
+    if not isinstance(bookmakers, list):
+        bookmakers = []
 
     away_fallback = build_recent_results(score_games, away_team)
     home_fallback = build_recent_results(score_games, home_team)
@@ -2780,7 +2786,10 @@ def build_game_detail(
     return {
         "game": game,
         "provider_contract": build_provider_contract(
-            sport_key, summary_payload is not None, len(props)
+            sport_key,
+            summary_payload is not None,
+            current_odds_available,
+            len(props),
         ),
         "line_analytics": {
             "spread_range": {
@@ -2821,12 +2830,122 @@ def build_game_detail(
             ],
         },
         "notes": [
-            f"Recent form is sourced from {away_context['recent_source']} and {home_context['recent_source']} when available.",
-            "Team betting stats are sourced from ESPN team statistics endpoints when SharkEdge can map the matchup cleanly.",
-            "Live team stat strips and player spotlights are sourced from ESPN event summary payloads when available.",
-            "Public money percentages are not included in the current provider feed.",
+            note
+            for note in [
+                f"Recent form is sourced from {away_context['recent_source']} and {home_context['recent_source']} when available.",
+                "Team betting stats are sourced from ESPN team statistics endpoints when SharkEdge can map the matchup cleanly.",
+                "Live team stat strips and player spotlights are sourced from ESPN event summary payloads when available.",
+                (
+                    props_error
+                    or (
+                        "Current odds and props are temporarily unavailable, so this matchup is running in ESPN-backed detail mode."
+                        if not current_odds_available
+                        else None
+                    )
+                ),
+                "Public money percentages are not included in the current provider feed.",
+            ]
+            if note
         ],
     }
+
+
+def extract_summary_competition(summary_payload: dict[str, Any]) -> dict[str, Any] | None:
+    competitions = summary_payload.get("header", {}).get("competitions", [])
+    if isinstance(competitions, list) and competitions:
+        first = competitions[0]
+        return first if isinstance(first, dict) else None
+
+    competitions = summary_payload.get("competitions")
+    if isinstance(competitions, list) and competitions:
+        first = competitions[0]
+        return first if isinstance(first, dict) else None
+
+    return None
+
+
+def build_synthetic_game_from_summary(
+    sport_key: str, event_id: str, summary_payload: dict[str, Any]
+) -> dict[str, Any] | None:
+    competition = extract_summary_competition(summary_payload)
+    if not competition:
+        return None
+
+    competitors = competition.get("competitors", [])
+    if not isinstance(competitors, list) or len(competitors) < 2:
+        return None
+
+    home = next(
+        (
+            item
+            for item in competitors
+            if isinstance(item, dict) and str(item.get("homeAway", "")).lower() == "home"
+        ),
+        None,
+    )
+    away = next(
+        (
+            item
+            for item in competitors
+            if isinstance(item, dict) and str(item.get("homeAway", "")).lower() == "away"
+        ),
+        None,
+    )
+    if not isinstance(home, dict) or not isinstance(away, dict):
+        return None
+
+    home_team = (
+        home.get("team", {}).get("displayName")
+        or home.get("team", {}).get("shortDisplayName")
+        or home.get("team", {}).get("name")
+    )
+    away_team = (
+        away.get("team", {}).get("displayName")
+        or away.get("team", {}).get("shortDisplayName")
+        or away.get("team", {}).get("name")
+    )
+    if not home_team or not away_team:
+        return None
+
+    return {
+        "id": event_id,
+        "sport_key": sport_key,
+        "commence_time": competition.get("date")
+        or summary_payload.get("header", {}).get("competitions", [{}])[0].get("date"),
+        "home_team": home_team,
+        "away_team": away_team,
+        "bookmakers": [],
+        "bookmakers_available": 0,
+        "market_stats": {
+            "moneyline": [],
+            "spread": [],
+            "total": [],
+        },
+    }
+
+
+def build_espn_only_game_detail(
+    sport_key: str, event_id: str, props_error: str | None = None
+) -> dict[str, Any] | None:
+    try:
+        summary_payload = fetch_espn_event_summary(sport_key, event_id)
+    except RuntimeError:
+        return None
+
+    synthetic_game = build_synthetic_game_from_summary(sport_key, event_id, summary_payload)
+    if not synthetic_game:
+        return None
+
+    detail = build_game_detail(
+        sport_key,
+        synthetic_game,
+        [],
+        [],
+        current_odds_available=False,
+        props_error=props_error,
+    )
+    detail["game"]["detail_mode"] = "espn_summary_only"
+    return detail
 
 
 def build_historical_provider_status() -> dict[str, Any]:
@@ -3133,31 +3252,107 @@ def props_board(
 @app.get("/api/games/{sport_key}/{event_id}")
 def game_detail(sport_key: str, event_id: str) -> dict[str, Any]:
     api_key = get_api_key()
+    sport = find_sport(sport_key)
+
     if not api_key:
+        fallback_detail = build_espn_only_game_detail(
+            sport_key,
+            event_id,
+            "Set ODDS_API_KEY on the backend service to restore current odds and props. ESPN-backed matchup detail is still available.",
+        )
+        if fallback_detail:
+            return {
+                "configured": False,
+                "generated_at": format_now(),
+                "sport": {
+                    "key": sport["key"],
+                    "title": sport["title"],
+                    "short_title": sport["short_title"],
+                },
+                **fallback_detail,
+            }
+
         return {
             "configured": False,
             "generated_at": format_now(),
             "message": "Set ODDS_API_KEY on the backend service to load game details.",
         }
 
-    sport = find_sport(sport_key)
-
+    odds_error: str | None = None
     try:
         sport_odds = fetch_sport_odds(sport, api_key)
         score_games = fetch_sport_scores(sport_key, api_key)
     except RuntimeError as error:
+        odds_error = str(error)
+        fallback_detail = build_espn_only_game_detail(sport_key, event_id, odds_error)
+        if fallback_detail:
+            return {
+                "configured": True,
+                "generated_at": format_now(),
+                "sport": {
+                    "key": sport["key"],
+                    "title": sport["title"],
+                    "short_title": sport["short_title"],
+                },
+                **fallback_detail,
+            }
         raise HTTPException(status_code=502, detail=str(error)) from error
 
     game = next((item for item in sport_odds["games"] if item["id"] == event_id), None)
     if not game:
+        fallback_detail = build_espn_only_game_detail(
+            sport_key,
+            event_id,
+            odds_error
+            or "Current odds event lookup missed this matchup, so SharkEdge fell back to ESPN-backed matchup detail.",
+        )
+        if fallback_detail:
+            return {
+                "configured": True,
+                "generated_at": format_now(),
+                "sport": {
+                    "key": sport["key"],
+                    "title": sport["title"],
+                    "short_title": sport["short_title"],
+                },
+                **fallback_detail,
+            }
         raise HTTPException(status_code=404, detail="Game not found.")
 
+    props_error: str | None = None
     try:
         game_props = fetch_game_props(sport_key, event_id, api_key)
     except RuntimeError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
+        props_error = str(error)
+        game_props = []
 
-    detail = build_game_detail(sport_key, game, score_games, game_props)
+    try:
+        detail = build_game_detail(
+            sport_key,
+            game,
+            score_games,
+            game_props,
+            current_odds_available=True,
+            props_error=props_error,
+        )
+    except Exception as error:
+        fallback_detail = build_espn_only_game_detail(
+            sport_key,
+            event_id,
+            f"Current odds detail degraded after a backend parsing failure: {error}",
+        )
+        if fallback_detail:
+            return {
+                "configured": True,
+                "generated_at": format_now(),
+                "sport": {
+                    "key": sport["key"],
+                    "title": sport["title"],
+                    "short_title": sport["short_title"],
+                },
+                **fallback_detail,
+            }
+        raise HTTPException(status_code=502, detail=f"Failed to build game detail: {error}") from error
 
     return {
         "configured": True,
