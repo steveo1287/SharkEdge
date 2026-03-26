@@ -678,6 +678,57 @@ export type TrendSetupState = {
   steps: string[];
 };
 
+export type TrendMode = "simple" | "power";
+
+export type TrendParsedQueryView = {
+  input: string;
+  confidence: "high" | "medium" | "low";
+  note: string;
+  parsedFilters: TrendFilters;
+  unresolved: string[];
+};
+
+export type TrendExplanationView = {
+  headline: string;
+  whyItMatters: string;
+  caution: string;
+  queryLogic: string;
+};
+
+export type TrendMatchView = {
+  id: string;
+  sport: SportCode;
+  leagueKey: LeagueKey;
+  eventLabel: string;
+  startTime: string;
+  status: GameStatus;
+  stateDetail: string | null;
+  matchingLogic: string;
+  oddsContext: string | null;
+  matchupHref: string;
+  boardHref: string | null;
+  propsHref: string | null;
+  supportNote: string | null;
+};
+
+export type SavedTrendSystemView = {
+  id: string;
+  name: string;
+  sport: SportCode;
+  filters: TrendFilters;
+  aiQuery: string | null;
+  mode: TrendMode;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastRunAt: string | null;
+  currentMatchCount: number;
+  sampleSize: number | null;
+  roi: string | null;
+  hitRate: string | null;
+  href: string;
+};
+
 export type TrendMetricCard = {
   label: string;
   value: string;
@@ -708,18 +759,28 @@ export type TrendCardView = {
   sampleSize: number;
   dateRange: string;
   note: string;
+  explanation?: string | null;
+  whyItMatters?: string | null;
+  caution?: string | null;
   href?: string | null;
   tone: "success" | "brand" | "premium" | "muted";
 };
 
 export type TrendDashboardView = {
   setup: TrendSetupState | null;
+  mode: TrendMode;
+  aiQuery: string;
+  aiHelper: TrendParsedQueryView | null;
+  explanation: TrendExplanationView | null;
   filters: TrendFilters;
   cards: TrendCardView[];
   metrics: TrendMetricCard[];
   insights: TrendInsightCard[];
   movementRows: TrendTableRow[];
   segmentRows: TrendTableRow[];
+  todayMatches: TrendMatchView[];
+  todayMatchesNote: string | null;
+  savedSystems: SavedTrendSystemView[];
   savedTrendName: string;
   sourceNote: string;
   querySummary: string;

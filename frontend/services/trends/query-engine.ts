@@ -3,13 +3,19 @@ import type {
   LeagueKey,
   MatchupTrendCardView,
   PropCardView,
+  SavedTrendSystemView,
   SportCode,
   TrendCardView,
   TrendDashboardView,
-  TrendFilters
+  TrendFilters,
+  TrendMode
 } from "@/lib/types/domain";
 import { buildMatchupHref } from "@/lib/utils/matchups";
 import { trendFiltersSchema } from "@/lib/validation/filters";
+
+import { buildTrendExplanation, parseTrendAiQuery } from "./ai-query";
+import { getTodayTrendMatches } from "./matching-games";
+import { buildSavedTrendHref, listSavedTrendRows } from "./saved-systems";
 
 const DEFAULT_TREND_FILTERS: TrendFilters = {
   sport: "ALL",
@@ -480,6 +486,7 @@ function createCard(args: {
   tone?: TrendCardView["tone"];
   window: TrendFilters["window"];
 }) {
+  const smallSample = args.sampleSize > 0 && args.sampleSize < 10;
   return {
     id: args.id,
     title: args.title,
@@ -495,6 +502,14 @@ function createCard(args: {
     sampleSize: args.sampleSize,
     dateRange: formatDateWindow(args.window),
     note: args.note,
+    explanation: `${args.title} is calculated from ${args.sampleSize} real stored row${args.sampleSize === 1 ? "" : "s"} across ${formatDateWindow(args.window).toLowerCase()}.`,
+    whyItMatters:
+      args.roi !== null || args.hitRate !== null
+        ? `This card matters because it keeps the actual sample, hit rate, and ROI visible in one place instead of letting a trend headline float without context.`
+        : `This card matters as market context, but SharkEdge is not inventing ROI or hit rate when the stored sample cannot support it.`,
+    caution: smallSample
+      ? "Use with caution: this sample is still small and can swing hard."
+      : "Trend context is useful, but it is never certainty.",
     href: args.href ?? null,
     tone:
       args.tone ??
@@ -577,8 +592,7 @@ async function fetchSourceRows(filters: TrendFilters) {
       },
       orderBy: { startTime: "desc" },
       take: 300
-    }),
-    prisma.savedTrend.findFirst({ orderBy: { updatedAt: "desc" } })
+    })
   ]);
 }
 
@@ -588,7 +602,7 @@ export async function getTrendQueryResult(
   const filters = readTrendFilters(rawFilters);
 
   try {
-    const [marketRows, betRows, eventRows, savedTrend] = await fetchSourceRows(filters);
+    const [marketRows, betRows, eventRows] = await fetchSourceRows(filters);
     const siblingMap = marketRows.reduce<Map<string, any[]>>((map, market: any) => {
       const key = `${market.eventId}:${market.sportsbookId ?? "book"}:${market.marketType}`;
       map.set(key, [...(map.get(key) ?? []), market]);
@@ -954,7 +968,7 @@ export async function getTrendQueryResult(
         "Trend cards are powered by harvested historical odds snapshots, normalized event results, and persisted settled bets. Small samples stay labeled instead of being inflated into fake certainty.",
       sampleNote,
       querySummary: buildQuerySummary(filters),
-      savedTrendName: savedTrend?.name ?? buildQuerySummary(filters),
+      savedTrendName: buildQuerySummary(filters),
       setup: null
     };
   } catch (error) {
@@ -975,27 +989,206 @@ export async function getTrendQueryResult(
   }
 }
 
+function savedTrendMatchesParticipants(filters: TrendFilters, participantNames: string[]) {
+  const names = participantNames.map((name) => normalizeText(name));
+  const activeSubject = normalizeText(getActiveSubject(filters));
+
+  if (activeSubject && !names.some((name) => name.includes(activeSubject))) {
+    return false;
+  }
+
+  if (filters.opponent && !names.some((name) => name.includes(normalizeText(filters.opponent)))) {
+    return false;
+  }
+
+  return true;
+}
+
+async function getSavedSystemsForDashboard(): Promise<SavedTrendSystemView[]> {
+  const rows = await listSavedTrendRows();
+
+  return Promise.all(
+    rows.map(async (row) => {
+      const result = await getTrendQueryResult(row.filters);
+      const matches = row.archivedAt ? { matches: [] } : await getTodayTrendMatches(row.filters);
+      const leadCard =
+        result.cards.find((card) => card.roi || card.hitRate) ?? result.cards[0] ?? null;
+
+      return {
+        id: row.id,
+        name: row.name,
+        sport: row.sport,
+        filters: row.filters,
+        aiQuery: row.aiQuery,
+        mode: row.mode,
+        archivedAt: row.archivedAt,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        lastRunAt: row.lastRunAt,
+        currentMatchCount: matches.matches.length,
+        sampleSize: leadCard?.sampleSize ?? null,
+        roi: leadCard?.roi ?? null,
+        hitRate: leadCard?.hitRate ?? null,
+        href: buildSavedTrendHref(row.id, row.filters, row.mode, row.aiQuery)
+      } satisfies SavedTrendSystemView;
+    })
+  );
+}
+
+async function getSavedSystemCountForMatchup(args: {
+  leagueKey: LeagueKey;
+  participantNames: string[];
+}) {
+  const rows = await listSavedTrendRows();
+  return rows.filter(
+    (row) =>
+      !row.archivedAt &&
+      (row.filters.league === "ALL" || row.filters.league === args.leagueKey) &&
+      savedTrendMatchesParticipants(row.filters, args.participantNames)
+  ).length;
+}
+
+async function getCombatContextCards(args: {
+  leagueKey: LeagueKey;
+  subject: string;
+}): Promise<MatchupTrendCardView[]> {
+  const events = await prisma.event.findMany({
+    where: {
+      league: {
+        key: args.leagueKey
+      },
+      status: "FINAL",
+      participants: {
+        some: {
+          competitor: {
+            name: {
+              contains: args.subject,
+              mode: "insensitive"
+            }
+          }
+        }
+      }
+    },
+    include: {
+      eventResult: true
+    },
+    orderBy: {
+      startTime: "desc"
+    },
+    take: 12
+  });
+
+  if (!events.length) {
+    return [];
+  }
+
+  const finishes = events.filter((event) => {
+    const method = normalizeText(event.eventResult?.method ?? "");
+    return method.length > 0 && !method.includes("decision");
+  }).length;
+  const decisions = events.filter((event) =>
+    normalizeText(event.eventResult?.method ?? "").includes("decision")
+  ).length;
+  const rounds = events
+    .map((event) => Number(event.eventResult?.period))
+    .filter((value) => Number.isFinite(value)) as number[];
+
+  return [
+    {
+      id: `${args.leagueKey}-finish-rate`,
+      title: "Finish rate",
+      value: `${((finishes / events.length) * 100).toFixed(1)}%`,
+      note: `${finishes} of the last ${events.length} stored fights ended inside the distance.`,
+      tone: finishes / events.length >= 0.5 ? "brand" : "muted"
+    },
+    {
+      id: `${args.leagueKey}-decision-mix`,
+      title: "Decision vs finish",
+      value: `${decisions}-${finishes}`,
+      note: "Decision count first, finish count second, from stored official fight results.",
+      tone: "premium"
+    },
+    {
+      id: `${args.leagueKey}-round-pattern`,
+      title: "Round pattern",
+      value: rounds.length ? `${average(rounds).toFixed(1)} avg rounds` : "Unavailable",
+      note: rounds.length
+        ? "Average official finish round from the stored fight sample."
+        : "Round history is too thin to say anything honest.",
+      tone: rounds.length ? "success" : "muted"
+    }
+  ];
+}
+
 export async function getTrendDashboard(
-  rawFilters?: Partial<TrendFilters> | null
+  rawFilters?: Partial<TrendFilters> | null,
+  options?: {
+    mode?: TrendMode;
+    aiQuery?: string | null;
+    savedTrendId?: string | null;
+  }
 ): Promise<TrendDashboardView> {
-  const result = await getTrendQueryResult(rawFilters);
+  const aiHelper = options?.aiQuery
+    ? parseTrendAiQuery(options.aiQuery, readTrendFilters(rawFilters))
+    : null;
+  const filters = readTrendFilters({
+    ...(aiHelper?.parsedFilters ?? {}),
+    ...(rawFilters ?? {})
+  });
+  const result = await getTrendQueryResult(filters);
+  const matchResult = result.setup
+    ? { matches: [], note: null }
+    : await getTodayTrendMatches(result.filters);
+  const savedSystems = result.setup ? [] : await getSavedSystemsForDashboard();
+  const selectedSavedSystem =
+    options?.savedTrendId
+      ? savedSystems.find((system) => system.id === options.savedTrendId) ?? null
+      : null;
+  const leadCard =
+    result.cards.find((card) => card.sampleSize >= result.filters.sample && (card.roi || card.hitRate)) ??
+    result.cards[0] ??
+    null;
+
   return {
     setup: result.setup,
+    mode: options?.mode ?? "simple",
+    aiQuery: options?.aiQuery?.trim() ?? "",
+    aiHelper,
+    explanation: leadCard
+      ? buildTrendExplanation({
+          headline: `${leadCard.title}: ${leadCard.value}`,
+          sampleSize: leadCard.sampleSize,
+          roi: leadCard.roi,
+          hitRate: leadCard.hitRate,
+          querySummary: result.querySummary,
+          sampleNote: result.sampleNote
+        })
+      : null,
     filters: result.filters,
     cards: result.cards,
     metrics: result.metrics,
     insights: result.insights,
     movementRows: result.movementRows,
     segmentRows: result.segmentRows,
-    savedTrendName: result.savedTrendName,
+    todayMatches: matchResult.matches,
+    todayMatchesNote: matchResult.note,
+    savedSystems,
+    savedTrendName: selectedSavedSystem?.name ?? result.savedTrendName,
     sourceNote: result.sourceNote,
     querySummary: result.querySummary,
     sampleNote: result.sampleNote
   };
 }
 
-export async function getTrendApiResponse(rawFilters?: Partial<TrendFilters> | null) {
-  return getTrendQueryResult(rawFilters);
+export async function getTrendApiResponse(
+  rawFilters?: Partial<TrendFilters> | null,
+  options?: {
+    mode?: TrendMode;
+    aiQuery?: string | null;
+    savedTrendId?: string | null;
+  }
+) {
+  return getTrendDashboard(rawFilters, options);
 }
 
 export async function getMatchupTrendCards(args: {
@@ -1025,8 +1218,11 @@ export async function getMatchupTrendCards(args: {
     .map((id) => result.cards.find((card) => card.id === id))
     .filter((card): card is TrendCardView => Boolean(card));
   const cards = selectedCards.length ? selectedCards : result.cards.slice(0, 4);
-
-  return cards.map((card) => ({
+  const savedSystemCount = await getSavedSystemCountForMatchup({
+    leagueKey: args.leagueKey,
+    participantNames: args.participantNames
+  });
+  const matchupCards = cards.map((card) => ({
     id: `${args.leagueKey}-${card.id}`,
     title: card.title,
     value: card.value,
@@ -1036,6 +1232,28 @@ export async function getMatchupTrendCards(args: {
       `/trends?league=${args.leagueKey}&subject=${encodeURIComponent(subject)}`,
     tone: card.tone
   }));
+  const combatCards =
+    args.eventType === "COMBAT_HEAD_TO_HEAD"
+      ? await getCombatContextCards({
+          leagueKey: args.leagueKey,
+          subject
+        })
+      : [];
+  const savedSystemCard =
+    savedSystemCount > 0
+      ? [
+          {
+            id: `${args.leagueKey}-saved-systems`,
+            title: "Saved systems",
+            value: `${savedSystemCount}`,
+            note: `${savedSystemCount} saved trend system${savedSystemCount === 1 ? "" : "s"} match this event right now.`,
+            href: `/trends?league=${args.leagueKey}&subject=${encodeURIComponent(subject)}`,
+            tone: "premium" as const
+          }
+        ]
+      : [];
+
+  return [...matchupCards, ...combatCards, ...savedSystemCard].slice(0, 5);
 }
 
 export async function getPropTrendSummaries(
