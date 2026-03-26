@@ -173,6 +173,44 @@ PLAYER_LEADER_BLUEPRINTS = [
     {"key": "avgBlocks", "label": "BPG"},
     {"key": "avgRebounds", "label": "RPG"},
 ]
+LIVE_TEAM_STAT_BLUEPRINTS = {
+    "basketball_ncaab": [
+        {"label": "FG%", "terms": ["fieldgoalpct", "field goal %", "fg%"]},
+        {"label": "3P%", "terms": ["threepointfieldgoalpct", "three point %", "3p%"]},
+        {"label": "REB", "terms": ["totalrebounds", "rebounds", "reb"]},
+        {"label": "AST", "terms": ["assists", "ast"]},
+    ],
+    "basketball_nba": [
+        {"label": "FG%", "terms": ["fieldgoalpct", "field goal %", "fg%"]},
+        {"label": "3P%", "terms": ["threepointfieldgoalpct", "three point %", "3p%"]},
+        {"label": "REB", "terms": ["totalrebounds", "rebounds", "reb"]},
+        {"label": "AST", "terms": ["assists", "ast"]},
+    ],
+    "baseball_mlb": [
+        {"label": "R", "terms": ["runs", "r"]},
+        {"label": "H", "terms": ["hits", "h"]},
+        {"label": "E", "terms": ["errors", "e"]},
+        {"label": "AVG", "terms": ["avg", "batting average"]},
+    ],
+    "icehockey_nhl": [
+        {"label": "Shots", "terms": ["shotstotal", "shots"]},
+        {"label": "Hits", "terms": ["hits", "ht"]},
+        {"label": "Blocks", "terms": ["blockedshots", "bs"]},
+        {"label": "PP%", "terms": ["powerplaypct", "power play percentage"]},
+    ],
+    "americanfootball_nfl": [
+        {"label": "Yards", "terms": ["totalyards", "total yards"]},
+        {"label": "Pass", "terms": ["netpassingyards", "passing"]},
+        {"label": "Rush", "terms": ["rushingyards", "rushing"]},
+        {"label": "3D", "terms": ["thirddowneff", "3rd down efficiency"]},
+    ],
+    "americanfootball_ncaaf": [
+        {"label": "Yards", "terms": ["totalyards", "total yards"]},
+        {"label": "Pass", "terms": ["netpassingyards", "passing"]},
+        {"label": "Rush", "terms": ["rushingyards", "rushing"]},
+        {"label": "3D", "terms": ["thirddowneff", "3rd down efficiency"]},
+    ],
+}
 PLAYER_PROP_MARKETS = [
     ("player_points", "Points"),
     ("player_rebounds", "Rebounds"),
@@ -1281,6 +1319,24 @@ def find_espn_team(sport_key: str, team_name: str) -> dict[str, Any] | None:
     return None
 
 
+def fetch_espn_event_summary(sport_key: str, event_id: str) -> dict[str, Any]:
+    config = get_espn_sport_config(sport_key)
+    if not config:
+        raise RuntimeError("ESPN summary is not configured for this sport.")
+
+    payload = request_json_cached(
+        ESPN_SITE_BASE_URL,
+        f"{config['site']}/summary",
+        {"event": event_id},
+        f"{sport_key} ESPN event summary",
+    )
+
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{sport_key} ESPN event summary returned an unexpected response.")
+
+    return payload
+
+
 def fetch_espn_team_statistics(sport_key: str, team_id: str) -> dict[str, Any]:
     config = get_espn_sport_config(sport_key)
     if not config:
@@ -1525,6 +1581,461 @@ def select_team_stats(sport_key: str, payload: dict[str, Any]) -> list[dict[str,
         )
 
     return selected
+
+
+def normalize_stat_token(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+def find_live_team_boxscore(
+    summary_payload: dict[str, Any], team_id: str
+) -> dict[str, Any] | None:
+    teams = summary_payload.get("boxscore", {}).get("teams", [])
+    if not isinstance(teams, list):
+        return None
+
+    for team_box in teams:
+        if str(team_box.get("team", {}).get("id")) == str(team_id):
+            return team_box
+
+    return None
+
+
+def build_live_team_stat_strip(
+    sport_key: str,
+    competition: dict[str, Any] | None,
+    summary_payload: dict[str, Any],
+    team_id: str | None,
+) -> list[dict[str, Any]]:
+    if not team_id:
+        return []
+
+    competitor = None
+    competitors = competition.get("competitors", []) if competition else []
+    for item in competitors:
+        if str(item.get("team", {}).get("id")) == str(team_id):
+            competitor = item
+            break
+
+    competitor_stats = (
+        competitor.get("statistics", [])
+        if isinstance(competitor, dict)
+        else []
+    )
+    team_box = find_live_team_boxscore(summary_payload, team_id) or {}
+    box_stats = team_box.get("statistics", []) if isinstance(team_box, dict) else []
+
+    stat_strip = []
+    for blueprint in LIVE_TEAM_STAT_BLUEPRINTS.get(sport_key, []):
+        match = None
+        for stat in [*competitor_stats, *box_stats]:
+            fields = [
+                normalize_stat_token(stat.get("name")),
+                normalize_stat_token(stat.get("label")),
+                normalize_stat_token(stat.get("abbreviation")),
+                normalize_stat_token(stat.get("displayName")),
+            ]
+            if any(
+                any(term in field for field in fields)
+                for term in [normalize_stat_token(term) for term in blueprint["terms"]]
+            ):
+                match = stat
+                break
+
+        if not match:
+            continue
+
+        display_value = match.get("displayValue")
+        if display_value is None and match.get("value") is not None:
+            display_value = str(match.get("value"))
+        if display_value is None:
+            continue
+
+        stat_strip.append(
+            {
+                "label": blueprint["label"],
+                "display_value": str(display_value),
+                "source": "ESPN summary boxscore",
+            }
+        )
+
+    return stat_strip
+
+
+def find_summary_player_team_block(
+    summary_payload: dict[str, Any], team_id: str
+) -> dict[str, Any] | None:
+    players = summary_payload.get("boxscore", {}).get("players", [])
+    if not isinstance(players, list):
+        return None
+
+    for team_block in players:
+        if str(team_block.get("team", {}).get("id")) == str(team_id):
+            return team_block
+
+    return None
+
+
+def find_stat_index(keys: list[Any], terms: list[str]) -> int:
+    normalized_terms = [normalize_stat_token(term) for term in terms]
+    for index, key in enumerate(keys):
+        normalized_key = normalize_stat_token(key)
+        if any(term in normalized_key for term in normalized_terms):
+            return index
+
+    return -1
+
+
+def read_stat_number(stats: list[Any], index: int) -> float:
+    if index < 0 or index >= len(stats):
+        return 0
+
+    return parse_numeric(stats[index]) or 0
+
+
+def build_spotlight_entry(
+    athlete_entry: dict[str, Any],
+    keys: list[Any],
+    items: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    stats = athlete_entry.get("stats", [])
+    if not isinstance(stats, list):
+        return None
+
+    parts = []
+    for item in items:
+        index = find_stat_index(keys, item["terms"])
+        if index < 0 or index >= len(stats):
+            continue
+
+        value = stats[index]
+        if value in (None, ""):
+            continue
+
+        parts.append(f"{value} {item['label']}")
+
+    if not parts:
+        return None
+
+    athlete = athlete_entry.get("athlete", {})
+    return {
+        "athlete_id": athlete.get("id"),
+        "athlete_name": athlete.get("displayName") or athlete.get("shortName") or "Player",
+        "position": athlete.get("position", {}).get("abbreviation"),
+        "headshot": athlete.get("headshot", {}).get("href"),
+        "display_value": " | ".join(parts),
+        "source": "ESPN summary boxscore",
+    }
+
+
+def build_nba_summary_spotlights(summary_payload: dict[str, Any], team_id: str) -> list[dict[str, Any]]:
+    team_block = find_summary_player_team_block(summary_payload, team_id)
+    if not team_block:
+        return []
+
+    stat_block = None
+    for block in team_block.get("statistics", []):
+        if isinstance(block, dict) and block.get("athletes"):
+            stat_block = block
+            break
+
+    if not stat_block:
+        return []
+
+    keys = stat_block.get("keys", [])
+    athletes = stat_block.get("athletes", [])
+    if not isinstance(keys, list) or not isinstance(athletes, list):
+        return []
+
+    points_index = find_stat_index(keys, ["points"])
+    rebounds_index = find_stat_index(keys, ["rebounds"])
+    assists_index = find_stat_index(keys, ["assists"])
+
+    ranked = []
+    for athlete_entry in athletes:
+        stats = athlete_entry.get("stats", [])
+        if not isinstance(stats, list):
+            continue
+
+        points = parse_numeric(stats[points_index]) if points_index >= 0 and points_index < len(stats) else 0
+        rebounds = parse_numeric(stats[rebounds_index]) if rebounds_index >= 0 and rebounds_index < len(stats) else 0
+        assists = parse_numeric(stats[assists_index]) if assists_index >= 0 and assists_index < len(stats) else 0
+        ranked.append(
+            {
+                "entry": athlete_entry,
+                "score": points or 0,
+                "line": [
+                    f"{int(points or 0)} PTS",
+                    f"{int(rebounds or 0)} REB",
+                    f"{int(assists or 0)} AST",
+                ],
+            }
+        )
+
+    ranked.sort(key=lambda item: item["score"], reverse=True)
+    results = []
+    for item in ranked[:3]:
+        athlete = item["entry"].get("athlete", {})
+        results.append(
+            {
+                "athlete_id": athlete.get("id"),
+                "athlete_name": athlete.get("displayName") or athlete.get("shortName") or "Player",
+                "position": athlete.get("position", {}).get("abbreviation"),
+                "headshot": athlete.get("headshot", {}).get("href"),
+                "display_value": " | ".join(item["line"]),
+                "source": "ESPN summary boxscore",
+            }
+        )
+
+    return results
+
+
+def build_mlb_summary_spotlights(summary_payload: dict[str, Any], team_id: str) -> list[dict[str, Any]]:
+    team_block = find_summary_player_team_block(summary_payload, team_id)
+    if not team_block:
+        return []
+
+    blocks = team_block.get("statistics", [])
+    if not isinstance(blocks, list):
+        return []
+
+    batting = next(
+        (block for block in blocks if normalize_stat_token(block.get("type")) == "batting"),
+        None,
+    )
+    pitching = next(
+        (block for block in blocks if normalize_stat_token(block.get("type")) == "pitching"),
+        None,
+    )
+
+    results = []
+
+    if isinstance(batting, dict):
+        athletes = batting.get("athletes", [])
+        keys = batting.get("keys", [])
+        if isinstance(athletes, list) and isinstance(keys, list) and athletes:
+            hitter_ranked = []
+            hits_index = find_stat_index(keys, ["hits"])
+            rbi_index = find_stat_index(keys, ["rbis", "rbi"])
+            hr_index = find_stat_index(keys, ["homeruns", "hr"])
+            for athlete_entry in athletes:
+                stats = athlete_entry.get("stats", [])
+                if not isinstance(stats, list):
+                    continue
+                hitter_ranked.append(
+                    {
+                        "entry": athlete_entry,
+                        "rbi": read_stat_number(stats, rbi_index),
+                        "hits": read_stat_number(stats, hits_index),
+                        "hr": read_stat_number(stats, hr_index),
+                    }
+                )
+            hitter_ranked.sort(
+                key=lambda item: (item["rbi"], item["hr"], item["hits"]),
+                reverse=True,
+            )
+            if hitter_ranked:
+                spotlight = build_spotlight_entry(
+                    hitter_ranked[0]["entry"],
+                    keys,
+                    [
+                        {"label": "H", "terms": ["hits"]},
+                        {"label": "RBI", "terms": ["rbis", "rbi"]},
+                        {"label": "R", "terms": ["runs"]},
+                        {"label": "HR", "terms": ["homeruns", "hr"]},
+                    ],
+                )
+                if spotlight:
+                    spotlight["category"] = "Top hitter"
+                    results.append(spotlight)
+
+    if isinstance(pitching, dict):
+        athletes = pitching.get("athletes", [])
+        keys = pitching.get("keys", [])
+        if isinstance(athletes, list) and isinstance(keys, list) and athletes:
+            pitcher_ranked = []
+            strikeouts_index = find_stat_index(keys, ["strikeouts", "k"])
+            for athlete_entry in athletes:
+                stats = athlete_entry.get("stats", [])
+                if not isinstance(stats, list):
+                    continue
+                pitcher_ranked.append(
+                    {
+                        "entry": athlete_entry,
+                        "strikeouts": read_stat_number(stats, strikeouts_index),
+                    }
+                )
+            pitcher_ranked.sort(key=lambda item: item["strikeouts"], reverse=True)
+            if pitcher_ranked:
+                spotlight = build_spotlight_entry(
+                    pitcher_ranked[0]["entry"],
+                    keys,
+                    [
+                        {"label": "IP", "terms": ["fullinningspartinnings", "inningspitched", "ip"]},
+                        {"label": "K", "terms": ["strikeouts", "k"]},
+                        {"label": "ER", "terms": ["earnedruns", "er"]},
+                        {"label": "BB", "terms": ["walks", "bb"]},
+                    ],
+                )
+                if spotlight:
+                    spotlight["category"] = "Top pitcher"
+                    results.append(spotlight)
+
+    return results
+
+
+def build_hockey_summary_spotlights(summary_payload: dict[str, Any], team_id: str) -> list[dict[str, Any]]:
+    team_block = find_summary_player_team_block(summary_payload, team_id)
+    if not team_block:
+        return []
+
+    blocks = team_block.get("statistics", [])
+    if not isinstance(blocks, list):
+        return []
+
+    skaters = next(
+        (
+            block
+            for block in blocks
+            if normalize_stat_token(block.get("name")) in {"skaters", "forwards"}
+        ),
+        None,
+    )
+    goalies = next(
+        (block for block in blocks if normalize_stat_token(block.get("name")) == "goalies"),
+        None,
+    )
+
+    results = []
+    if isinstance(skaters, dict):
+        athletes = skaters.get("athletes", [])
+        keys = skaters.get("keys", [])
+        if isinstance(athletes, list) and isinstance(keys, list) and athletes:
+            ranked = []
+            goals_index = find_stat_index(keys, ["goals", "g"])
+            assists_index = find_stat_index(keys, ["assists", "a"])
+            shots_index = find_stat_index(keys, ["shotstotal", "s"])
+            for athlete_entry in athletes:
+                stats = athlete_entry.get("stats", [])
+                if not isinstance(stats, list):
+                    continue
+                ranked.append(
+                    {
+                        "entry": athlete_entry,
+                        "points": read_stat_number(stats, goals_index)
+                        + read_stat_number(stats, assists_index),
+                        "shots": read_stat_number(stats, shots_index),
+                    }
+                )
+            ranked.sort(key=lambda item: (item["points"], item["shots"]), reverse=True)
+            if ranked:
+                spotlight = build_spotlight_entry(
+                    ranked[0]["entry"],
+                    keys,
+                    [
+                        {"label": "G", "terms": ["goals", "g"]},
+                        {"label": "A", "terms": ["assists", "a"]},
+                        {"label": "S", "terms": ["shotstotal", "s"]},
+                    ],
+                )
+                if spotlight:
+                    spotlight["category"] = "Top skater"
+                    results.append(spotlight)
+
+    if isinstance(goalies, dict):
+        athletes = goalies.get("athletes", [])
+        keys = goalies.get("keys", [])
+        if isinstance(athletes, list) and isinstance(keys, list) and athletes:
+            spotlight = build_spotlight_entry(
+                athletes[0],
+                keys,
+                [
+                    {"label": "SV", "terms": ["saves", "sv"]},
+                    {"label": "SV%", "terms": ["savepct", "sv%"]},
+                    {"label": "GA", "terms": ["goalsagainst", "ga"]},
+                ],
+            )
+            if spotlight:
+                spotlight["category"] = "Goalie"
+                results.append(spotlight)
+
+    return results
+
+
+def build_football_summary_spotlights(summary_payload: dict[str, Any], team_id: str) -> list[dict[str, Any]]:
+    team_block = find_summary_player_team_block(summary_payload, team_id)
+    if not team_block:
+        return []
+
+    blocks = team_block.get("statistics", [])
+    if not isinstance(blocks, list):
+        return []
+
+    results = []
+    for block_name, label, items in [
+        (
+            "passing",
+            "Passer",
+            [
+                {"label": "YDS", "terms": ["passingyards", "yds"]},
+                {"label": "TD", "terms": ["passingtouchdowns", "td"]},
+                {"label": "INT", "terms": ["interceptions", "int"]},
+            ],
+        ),
+        (
+            "rushing",
+            "Rusher",
+            [
+                {"label": "YDS", "terms": ["rushingyards", "yds"]},
+                {"label": "CAR", "terms": ["rushingattempts", "car"]},
+                {"label": "TD", "terms": ["rushingtouchdowns", "td"]},
+            ],
+        ),
+        (
+            "receiving",
+            "Receiver",
+            [
+                {"label": "REC", "terms": ["receptions", "rec"]},
+                {"label": "YDS", "terms": ["receivingyards", "yds"]},
+                {"label": "TD", "terms": ["receivingtouchdowns", "td"]},
+            ],
+        ),
+    ]:
+        block = next(
+            (item for item in blocks if normalize_stat_token(item.get("name")) == block_name),
+            None,
+        )
+        if not isinstance(block, dict):
+            continue
+        athletes = block.get("athletes", [])
+        keys = block.get("keys", [])
+        if not isinstance(athletes, list) or not athletes or not isinstance(keys, list):
+            continue
+
+        spotlight = build_spotlight_entry(athletes[0], keys, items)
+        if spotlight:
+            spotlight["category"] = label
+            results.append(spotlight)
+
+    return results
+
+
+def build_summary_player_spotlights(
+    sport_key: str, summary_payload: dict[str, Any], team_id: str | None
+) -> list[dict[str, Any]]:
+    if not team_id:
+        return []
+
+    if sport_key == "basketball_nba":
+        return build_nba_summary_spotlights(summary_payload, team_id)
+    if sport_key == "baseball_mlb":
+        return build_mlb_summary_spotlights(summary_payload, team_id)
+    if sport_key == "icehockey_nhl":
+        return build_hockey_summary_spotlights(summary_payload, team_id)
+    if sport_key in {"americanfootball_nfl", "americanfootball_ncaaf"}:
+        return build_football_summary_spotlights(summary_payload, team_id)
+
+    return []
 
 
 def parse_competitor_score(competitor: dict[str, Any]) -> int | None:
@@ -1899,6 +2410,58 @@ def build_player_leader_block(
     }
 
 
+def build_provider_contract(
+    sport_key: str,
+    summary_available: bool,
+    props_count: int,
+) -> dict[str, Any]:
+    mainstream_live = sport_key in {
+        "basketball_nba",
+        "basketball_ncaab",
+        "baseball_mlb",
+        "icehockey_nhl",
+        "americanfootball_nfl",
+        "americanfootball_ncaaf",
+    }
+
+    return {
+        "version": "2026-03-26",
+        "sport_key": sport_key,
+        "scores_state": {
+            "provider": "The Odds API scores",
+            "status": "LIVE" if mainstream_live else "PARTIAL",
+        },
+        "current_odds": {
+            "provider": "The Odds API odds",
+            "status": "LIVE",
+        },
+        "team_stats": {
+            "provider": "ESPN team statistics",
+            "status": "LIVE" if mainstream_live else "PARTIAL",
+        },
+        "live_boxscore": {
+            "provider": "ESPN summary boxscore",
+            "status": "LIVE" if summary_available else "PARTIAL",
+        },
+        "season_player_leaders": {
+            "provider": "ESPN league athlete stats",
+            "status": "LIVE" if sport_key == "basketball_nba" else "PARTIAL",
+        },
+        "player_spotlights": {
+            "provider": "ESPN summary player blocks",
+            "status": "LIVE" if summary_available else "PARTIAL",
+        },
+        "props": {
+            "provider": "The Odds API player props",
+            "status": "LIVE" if props_count else ("PARTIAL" if sport_key in BASKETBALL_PROP_SPORT_KEYS else "PARTIAL"),
+        },
+        "historical_odds": {
+            "provider": "OddsHarvester",
+            "status": "HISTORICAL_ONLY",
+        },
+    }
+
+
 def build_live_prop_id(
     sport_key: str,
     event_id: str,
@@ -2158,9 +2721,67 @@ def build_game_detail(
     player_leaders = build_player_leader_block(
         sport_key, away_team, away_context, home_team, home_context
     )
+    summary_payload = None
+    competition = None
+    summary_error = None
+
+    try:
+        summary_payload = fetch_espn_event_summary(sport_key, str(game.get("id")))
+        competitions = summary_payload.get("header", {}).get("competitions", [])
+        if isinstance(competitions, list) and competitions:
+            competition = competitions[0]
+        elif isinstance(summary_payload.get("competitions"), list) and summary_payload.get("competitions"):
+            competition = summary_payload["competitions"][0]
+    except RuntimeError as error:
+        summary_error = str(error)
+
+    live_team_stats = {
+        away_team: build_live_team_stat_strip(
+            sport_key,
+            competition,
+            summary_payload or {},
+            away_context.get("team_id"),
+        ),
+        home_team: build_live_team_stat_strip(
+            sport_key,
+            competition,
+            summary_payload or {},
+            home_context.get("team_id"),
+        ),
+    }
+    away_spotlights = build_summary_player_spotlights(
+        sport_key, summary_payload or {}, away_context.get("team_id")
+    )
+    home_spotlights = build_summary_player_spotlights(
+        sport_key, summary_payload or {}, home_context.get("team_id")
+    )
+    player_spotlights = {
+        "available": bool(
+            live_team_stats[away_team]
+            or live_team_stats[home_team]
+            or away_spotlights
+            or home_spotlights
+        ),
+        "source": "ESPN summary boxscore",
+        "message": (
+            "Live player spotlights are derived from the ESPN event summary for this matchup."
+            if summary_payload
+            else (
+                summary_error
+                or "Live player spotlights were not available from ESPN for this matchup."
+            )
+        ),
+        "teams": {
+            away_team: away_spotlights,
+            home_team: home_spotlights,
+        },
+    }
 
     return {
         "game": game,
+        "provider_contract": build_provider_contract(
+            sport_key, summary_payload is not None, len(props)
+        ),
         "line_analytics": {
             "spread_range": {
                 away_team: build_point_range(collect_points(bookmakers, "spread", away_team)),
@@ -2185,7 +2806,9 @@ def build_game_detail(
             away_team: away_context["stats"],
             home_team: home_context["stats"],
         },
+        "team_live_stats": live_team_stats,
         "player_leaders": player_leaders,
+        "player_spotlights": player_spotlights,
         "props": props,
         "verified_user_stats": {
             "available": False,
@@ -2200,6 +2823,7 @@ def build_game_detail(
         "notes": [
             f"Recent form is sourced from {away_context['recent_source']} and {home_context['recent_source']} when available.",
             "Team betting stats are sourced from ESPN team statistics endpoints when SharkEdge can map the matchup cleanly.",
+            "Live team stat strips and player spotlights are sourced from ESPN event summary payloads when available.",
             "Public money percentages are not included in the current provider feed.",
         ],
     }
