@@ -333,6 +333,11 @@ function extractRecentResults(teamId: string, payload: JsonRecord) {
       }
 
       const margin = teamScore - opponentScore;
+      const eventDate =
+        readString(event.date) ??
+        readString(competition?.date) ??
+        null;
+      const sortTimestamp = eventDate ? Date.parse(eventDate) : Number.NaN;
 
       return {
         id:
@@ -341,10 +346,23 @@ function extractRecentResults(teamId: string, payload: JsonRecord) {
           `${teamId}-${readString(event.date) ?? "recent"}`,
         label: `${readString(team.homeAway)?.toLowerCase() === "home" ? "vs" : "at"} ${readString(opponent.team?.displayName ?? opponent.team?.shortDisplayName ?? opponent.team?.name) ?? "Opponent"}`,
         result: `${margin >= 0 ? "W" : "L"} ${teamScore}-${opponentScore}`,
-        note: readString(event.date)?.slice(0, 10) ?? "Recent final"
+        note: eventDate?.slice(0, 10) ?? "Recent final",
+        sortTimestamp
       };
     })
     .filter(Boolean)
+    .sort((left, right) => {
+      const leftTime =
+        typeof left?.sortTimestamp === "number" && Number.isFinite(left.sortTimestamp)
+          ? left.sortTimestamp
+          : -Infinity;
+      const rightTime =
+        typeof right?.sortTimestamp === "number" && Number.isFinite(right.sortTimestamp)
+          ? right.sortTimestamp
+          : -Infinity;
+
+      return rightTime - leftTime;
+    })
     .slice(0, 5) as MatchupParticipantPanel["recentResults"];
 }
 
