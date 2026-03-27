@@ -253,6 +253,10 @@ function formatThreeDecimal(value: unknown) {
   return raw.startsWith(".") ? raw : raw;
 }
 
+function formatDisplayName(parts: Array<string | null>) {
+  return parts.filter((part): part is string => Boolean(part && part.trim())).join(" ").trim() || "Player";
+}
+
 function buildMlbLeaderValue(entry: JsonRecord | null, suffix: string) {
   const name = readString(entry?.person?.fullName);
   const value = readString(entry?.value);
@@ -379,10 +383,10 @@ async function fetchNhlEnrichment(args: {
   const totalShots = skaters.reduce((total: number, skater: JsonRecord) => total + (readNumber(skater.shots) ?? 0), 0);
 
   const stats: MatchupMetricView[] = [
-    aggregateGames && totalGoals
+    aggregateGames !== null
       ? { label: "Goals/G", value: (totalGoals / aggregateGames).toFixed(1), note: "NHL API club skater totals" }
       : null,
-    aggregateGames && totalShots
+    aggregateGames !== null
       ? { label: "Shots/G", value: (totalShots / aggregateGames).toFixed(1) }
       : null,
     topGoalie && readNumber(topGoalie.savePctg) !== null
@@ -397,13 +401,13 @@ async function fetchNhlEnrichment(args: {
     topSkater
       ? {
           label: "Season skater",
-          value: `${readString(topSkater.firstName?.default)} ${readString(topSkater.lastName?.default)} ${(readNumber(topSkater.points) ?? 0)} PTS | ${(readNumber(topSkater.goals) ?? 0)} G`
+          value: `${formatDisplayName([readString(topSkater.firstName?.default), readString(topSkater.lastName?.default)])} ${(readNumber(topSkater.points) ?? 0)} PTS | ${(readNumber(topSkater.goals) ?? 0)} G`
         }
       : null,
     topGoalie
       ? {
           label: "Season goalie",
-          value: `${readString(topGoalie.firstName?.default)} ${readString(topGoalie.lastName?.default)} ${(readNumber(topGoalie.savePctg) ?? 0).toFixed(3)} SV%`
+          value: `${formatDisplayName([readString(topGoalie.firstName?.default), readString(topGoalie.lastName?.default)])} ${(readNumber(topGoalie.savePctg) ?? 0).toFixed(3)} SV%`
         }
       : null
   ].filter(Boolean) as MatchupMetricView[];
