@@ -1192,7 +1192,14 @@ async function getStoredLineMovement(eventExternalId: string) {
   try {
     const event = await prisma.event.findFirst({
       where: {
-        externalEventId: eventExternalId
+        OR: [
+          {
+            externalEventId: eventExternalId
+          },
+          {
+            externalEventId: `oddsharvester_historical:${eventExternalId}`
+          }
+        ]
       },
       include: {
         markets: {

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { americanToImplied, stripVig } from "@/lib/odds";
 import type { LeagueKey, SportCode, TrendFilters } from "@/lib/types/domain";
 import { buildMatchupHref } from "@/lib/utils/matchups";
 
@@ -306,32 +307,52 @@ function resolveOuOutcome(row: HistoricalMarketRow): "WIN" | "LOSS" | "PUSH" | n
 }
 
 function resolveMoneylineOutcome(row: HistoricalMarketRow): "WIN" | "LOSS" | null {
-  if (!row.result?.winnerCompetitorId || !row.selectionCompetitorId) return null;
-  return row.result.winnerCompetitorId === row.selectionCompetitorId ? "WIN" : "LOSS";
+  if (!row.result?.winnerCompetitorId) return null;
+  if (row.selectionCompetitorId) {
+    return row.result.winnerCompetitorId === row.selectionCompetitorId ? "WIN" : "LOSS";
+  }
+
+  const participantScores = resolveParticipantScores(row.result.participantResultsJson);
+  const homeCompetitorId = Object.values(participantScores).find((entry) => entry.role === "HOME")?.competitorId ?? null;
+  const awayCompetitorId = Object.values(participantScores).find((entry) => entry.role === "AWAY")?.competitorId ?? null;
+
+  if (row.side === "HOME" && homeCompetitorId) {
+    return row.result.winnerCompetitorId === homeCompetitorId ? "WIN" : "LOSS";
+  }
+
+  if (row.side === "AWAY" && awayCompetitorId) {
+    return row.result.winnerCompetitorId === awayCompetitorId ? "WIN" : "LOSS";
+  }
+
+  return null;
 }
 
 function getMarketRole(row: HistoricalMarketRow): "FAVORITE" | "UNDERDOG" | "OTHER" {
   if (!row.siblingProbabilities.length) return "OTHER";
 
-  const probabilities = row.siblingProbabilities.map((entry) =>
+  const rawProbabilities = row.siblingProbabilities.map((entry) =>
     typeof entry.impliedProbability === "number"
       ? entry.impliedProbability
-      : entry.oddsAmerican > 0
-        ? 100 / (entry.oddsAmerican + 100)
-        : Math.abs(entry.oddsAmerican) / (Math.abs(entry.oddsAmerican) + 100)
+      : americanToImplied(entry.oddsAmerican) ?? 0
   );
+  const stripped = stripVig(rawProbabilities);
   const selfProbability =
     typeof row.impliedProbability === "number"
       ? row.impliedProbability
-      : row.oddsAmerican > 0
-        ? 100 / (row.oddsAmerican + 100)
-        : Math.abs(row.oddsAmerican) / (Math.abs(row.oddsAmerican) + 100);
-  const max = Math.max(...probabilities);
-  const min = Math.min(...probabilities);
+      : americanToImplied(row.oddsAmerican) ?? 0;
+  const selfIndex = rawProbabilities.findIndex((probability) => probability === selfProbability);
+  const normalizedProbabilities =
+    stripped.length === rawProbabilities.length
+      ? stripped
+      : rawProbabilities;
+  const normalizedSelf =
+    selfIndex >= 0 ? normalizedProbabilities[selfIndex] ?? selfProbability : selfProbability;
+  const max = Math.max(...normalizedProbabilities);
+  const min = Math.min(...normalizedProbabilities);
 
   if (max === min) return "OTHER";
-  if (selfProbability === max) return "FAVORITE";
-  if (selfProbability === min) return "UNDERDOG";
+  if (normalizedSelf === max) return "FAVORITE";
+  if (normalizedSelf === min) return "UNDERDOG";
   return "OTHER";
 }
 
