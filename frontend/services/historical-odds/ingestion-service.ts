@@ -4,6 +4,7 @@ import { getServerDatabaseResolution, hasUsableServerDatabaseUrl, prisma } from 
 import type { LeagueKey, SportCode } from "@/lib/types/domain";
 import { americanToDecimal, americanToImpliedProbability } from "@/lib/utils/odds";
 import { deriveCoverResult, deriveOuResult } from "@/services/events/result-normalization";
+import { invalidateTrendCache } from "@/services/trends/cache";
 
 import type {
   HistoricalOddsBookmaker,
@@ -16,6 +17,7 @@ import type {
 const SHARKEDGE_BACKEND_URL =
   process.env.SHARKEDGE_BACKEND_URL?.trim() || "https://shark-odds-1.onrender.com";
 const HISTORICAL_SOURCE_KEY = "oddsharvester_historical" as const;
+const HISTORICAL_BACKEND_TIMEOUT_MS = 90_000;
 
 const HISTORICAL_LEAGUE_CONFIG = {
   NBA: {
@@ -452,7 +454,7 @@ function assertHistoricalStorageAvailable() {
 async function fetchBackendJson<T>(path: string) {
   const response = await fetch(`${SHARKEDGE_BACKEND_URL}${path}`, {
     cache: "no-store",
-    signal: AbortSignal.timeout(30000)
+    signal: AbortSignal.timeout(HISTORICAL_BACKEND_TIMEOUT_MS)
   });
 
   if (!response.ok) {
@@ -1072,5 +1074,6 @@ export async function ingestHistoricalOddsSnapshots(
   }
 
   summary.leagues = Array.from(new Set(summary.leagues));
+  await invalidateTrendCache();
   return summary;
 }

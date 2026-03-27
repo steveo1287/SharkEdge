@@ -91,7 +91,14 @@ function normalizeParticipant(
   };
 }
 
-async function fetchEspnScoreboard(leagueKey: SupportedLeagueKey) {
+export async function fetchEspnScoreboard(
+  leagueKey: SupportedLeagueKey,
+  options?: {
+    date?: Date;
+    limit?: number;
+    cacheMode?: RequestCache;
+  }
+) {
   const path = ESPN_LEAGUE_PATHS[leagueKey];
   if (!path) {
     return {
@@ -101,14 +108,25 @@ async function fetchEspnScoreboard(leagueKey: SupportedLeagueKey) {
     };
   }
 
-  const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard?limit=100`;
+  const url = new URL(`https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard`);
+  url.searchParams.set("limit", String(options?.limit ?? 100));
+
+  if (options?.date) {
+    const isoDate = options.date.toISOString().slice(0, 10).replace(/-/g, "");
+    url.searchParams.set("dates", isoDate);
+  }
+
   const response = await fetch(url, {
     headers: {
       "User-Agent": "Mozilla/5.0 SharkEdge/1.5"
     },
-    next: {
-      revalidate: 120
-    }
+    cache: options?.cacheMode ?? "force-cache",
+    next:
+      options?.cacheMode === "no-store"
+        ? undefined
+        : {
+            revalidate: 120
+          }
   });
 
   if (!response.ok) {
@@ -120,7 +138,7 @@ async function fetchEspnScoreboard(leagueKey: SupportedLeagueKey) {
   };
 }
 
-function normalizeEvent(
+export function normalizeEspnEvent(
   leagueKey: SupportedLeagueKey,
   event: Record<string, unknown>
 ): ProviderEvent | null {
@@ -221,7 +239,7 @@ export const espnEventProvider: EventProvider = {
   async fetchScoreboard(leagueKey) {
     const payload = await fetchEspnScoreboard(leagueKey);
     return (payload.events ?? [])
-      .map((event) => normalizeEvent(leagueKey, event))
+      .map((event) => normalizeEspnEvent(leagueKey, event))
       .filter((event): event is ProviderEvent => Boolean(event?.externalEventId));
   }
 };

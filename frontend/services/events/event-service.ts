@@ -41,7 +41,7 @@ function readNumericScore(value: string | null) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-async function upsertNormalizedEventResult(args: {
+export async function upsertNormalizedEventResult(args: {
   eventId: string;
   providerEvent: ProviderEvent;
   participantRows: Array<{
@@ -245,7 +245,7 @@ function mapParticipants(
   }));
 }
 
-async function upsertProviderEvent(providerEvent: ProviderEvent) {
+export async function upsertProviderEvent(providerEvent: ProviderEvent) {
   const league = await prisma.league.findUnique({
     where: {
       key: providerEvent.leagueKey

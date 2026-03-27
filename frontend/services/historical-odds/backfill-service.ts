@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { americanToImplied } from "@/lib/odds";
 import { deriveCoverResult, deriveOuResult } from "@/services/events/result-normalization";
+import { invalidateTrendCache } from "@/services/trends/cache";
 
 const HISTORICAL_SOURCE_KEY = "oddsharvester_historical" as const;
 
@@ -283,12 +284,15 @@ export async function backfillHistoricalIntelligence(args?: {
     }
   }
 
+  const cacheInvalidated = await invalidateTrendCache();
+
   return {
     sourceKey: HISTORICAL_SOURCE_KEY,
     marketCount: markets.length,
     marketAnchorsRefreshed,
     competitorMappingsUpdated,
     eventResultsRefreshed,
-    leagueKey: args?.leagueKey ?? "ALL"
+    leagueKey: args?.leagueKey ?? "ALL",
+    cacheInvalidated
   };
 }
