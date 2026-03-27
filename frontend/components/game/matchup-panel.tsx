@@ -115,6 +115,41 @@ export function MatchupPanel({ detail }: MatchupPanelProps) {
             <div className="grid gap-4">
               <MetricStrip title="Season Stats" values={participant.stats} />
               <MetricStrip title="Leaders" values={participant.leaders} />
+              <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
+                <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                  Full Player Boxscore
+                </div>
+                <div className="mt-3">
+                  {participant.boxscoreRows.length ? (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-left text-sm">
+                        <thead>
+                          <tr className="border-b border-line/80 text-xs uppercase tracking-[0.18em] text-slate-500">
+                            <th className="pb-3 pr-4 font-medium">Player</th>
+                            <th className="pb-3 pr-4 font-medium">Pos</th>
+                            <th className="pb-3 font-medium">Line</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {participant.boxscoreRows.map((row) => (
+                            <tr key={row.id} className="border-b border-line/40 last:border-b-0">
+                              <td className="py-3 pr-4 text-white">{row.playerName}</td>
+                              <td className="py-3 pr-4 text-slate-400">{row.position ?? "—"}</td>
+                              <td className="py-3 text-slate-300">
+                                {row.metrics.map((metric) => `${metric.value} ${metric.label}`).join(" | ")}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-400">
+                      Full player rows were not returned for this participant.
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="grid gap-4">

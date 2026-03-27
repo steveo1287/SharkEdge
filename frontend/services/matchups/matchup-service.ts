@@ -89,6 +89,7 @@ function buildParticipantsFromLegacy(detail: LegacyGameDetailView): MatchupParti
       stats: buildMetricViews(detail.matchup.away.stats),
       leaders: [],
       boxscore: [],
+      boxscoreRows: [],
       recentResults: [],
       notes: ["Using the current odds board detail as the matchup fallback."]
     },
@@ -104,6 +105,7 @@ function buildParticipantsFromLegacy(detail: LegacyGameDetailView): MatchupParti
       stats: buildMetricViews(detail.matchup.home.stats),
       leaders: [],
       boxscore: [],
+      boxscoreRows: [],
       recentResults: [],
       notes: ["Using the current odds board detail as the matchup fallback."]
     }
@@ -363,6 +365,7 @@ function buildCombatPlaceholderParticipants(leagueKey: LeagueKey, externalEventI
       stats: [],
       leaders: [],
       boxscore: [],
+      boxscoreRows: [],
       recentResults: [],
       notes: ["This competitor slot is reserved until a dedicated live combat provider is connected."]
     },
@@ -378,6 +381,7 @@ function buildCombatPlaceholderParticipants(leagueKey: LeagueKey, externalEventI
       stats: [],
       leaders: [],
       boxscore: [],
+      boxscoreRows: [],
       recentResults: [],
       notes: ["This competitor slot is reserved until a dedicated live combat provider is connected."]
     }
@@ -471,6 +475,7 @@ function enrichParticipantsFromLegacy(
       stats: mergeMetricViews(participant.stats, legacyStats),
       leaders: mergeMetricViews(spotlightMetrics, participant.leaders, 6),
       boxscore: mergeMetricViews(participant.boxscore, legacyStats, 6),
+      boxscoreRows: participant.boxscoreRows,
       notes: Array.from(new Set([...participant.notes, ...legacyDetail.insights])).slice(0, 6)
     } satisfies MatchupParticipantView;
   });

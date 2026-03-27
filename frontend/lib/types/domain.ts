@@ -518,6 +518,13 @@ export type MatchupRecentResultView = {
   note: string;
 };
 
+export type MatchupBoxscoreRowView = {
+  id: string;
+  playerName: string;
+  position: string | null;
+  metrics: MatchupMetricView[];
+};
+
 export type MatchupParticipantView = {
   id: string;
   name: string;
@@ -530,6 +537,7 @@ export type MatchupParticipantView = {
   stats: MatchupMetricView[];
   leaders: MatchupMetricView[];
   boxscore: MatchupMetricView[];
+  boxscoreRows: MatchupBoxscoreRowView[];
   recentResults: MatchupRecentResultView[];
   notes: string[];
 };

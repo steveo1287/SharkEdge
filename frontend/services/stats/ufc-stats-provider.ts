@@ -129,6 +129,7 @@ export const ufcMatchupStatsProvider: MatchupStatsProvider = {
           >,
           leaders: [],
           boxscore: [],
+          boxscoreRows: [],
           recentResults: [],
           notes: [
             "Dedicated UFC event coverage is active, but the live odds/round state layer is still partial."
@@ -154,6 +155,7 @@ export const ufcMatchupStatsProvider: MatchupStatsProvider = {
           >,
           leaders: [],
           boxscore: [],
+          boxscoreRows: [],
           recentResults: [],
           notes: [
             "Dedicated UFC event coverage is active, but the live odds/round state layer is still partial."
