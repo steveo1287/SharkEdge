@@ -38,25 +38,28 @@ const SEASON_STAT_BLUEPRINTS: Partial<
 > = {
   NBA: [
     { label: "PPG", terms: ["avgPoints", "points per game"] },
+    { label: "FG%", terms: ["field goal percentage", "fg percentage", "fieldgoalpct"] },
+    { label: "3P%", terms: ["three point field goal percentage", "3 point percentage", "threepointfieldgoalpct"] },
+    { label: "FT%", terms: ["free throw percentage", "freethrowpct"] },
     { label: "APG", terms: ["avgAssists", "assists per game"] },
     { label: "RPG", terms: ["avgRebounds", "rebounds per game"] },
-    { label: "SPG", terms: ["avgSteals", "steals per game"] },
-    { label: "BPG", terms: ["avgBlocks", "blocks per game"] },
     { label: "TO/G", terms: ["avgTurnovers", "turnovers per game"] }
   ],
   NCAAB: [
     { label: "PPG", terms: ["avgPoints", "points per game"] },
+    { label: "FG%", terms: ["field goal percentage", "fg percentage", "fieldgoalpct"] },
+    { label: "3P%", terms: ["three point field goal percentage", "3 point percentage", "threepointfieldgoalpct"] },
+    { label: "FT%", terms: ["free throw percentage", "freethrowpct"] },
     { label: "APG", terms: ["avgAssists", "assists per game"] },
     { label: "RPG", terms: ["avgRebounds", "rebounds per game"] },
-    { label: "SPG", terms: ["avgSteals", "steals per game"] },
-    { label: "BPG", terms: ["avgBlocks", "blocks per game"] },
     { label: "TO/G", terms: ["avgTurnovers", "turnovers per game"] }
   ],
   MLB: [
     { label: "Runs/G", terms: ["runs per game", "avgRuns"] },
+    { label: "OBP", terms: ["on base percentage", "obp"] },
+    { label: "SLG", terms: ["slugging percentage", "slg"] },
     { label: "AVG", terms: ["batting average", "avg"] },
     { label: "HR", terms: ["home runs"] },
-    { label: "SB", terms: ["stolen bases"] },
     { label: "ERA", terms: ["earned run average", "era"] },
     { label: "WHIP", terms: ["whip"] }
   ],
@@ -65,7 +68,7 @@ const SEASON_STAT_BLUEPRINTS: Partial<
     { label: "Shots/G", terms: ["shots per game"] },
     { label: "PP%", terms: ["power play percentage", "power play %"] },
     { label: "PK%", terms: ["penalty kill percentage", "penalty kill %"] },
-    { label: "GA/G", terms: ["goals against average"] },
+    { label: "Faceoff%", terms: ["faceoff win percentage", "faceoff percentage"] },
     { label: "Save %", terms: ["save percentage", "save %"] }
   ],
   NFL: [
@@ -74,6 +77,7 @@ const SEASON_STAT_BLUEPRINTS: Partial<
     { label: "Pass Yds", terms: ["passing yards per game"] },
     { label: "Rush Yds", terms: ["rushing yards per game"] },
     { label: "3D %", terms: ["third down conversion percentage"] },
+    { label: "RZ TD%", terms: ["red zone touchdown percentage", "redzoneefficiency"] },
     { label: "TO Diff", terms: ["turnover differential"] }
   ],
   NCAAF: [
@@ -82,6 +86,7 @@ const SEASON_STAT_BLUEPRINTS: Partial<
     { label: "Pass Yds", terms: ["passing yards per game"] },
     { label: "Rush Yds", terms: ["rushing yards per game"] },
     { label: "3D %", terms: ["third down conversion percentage"] },
+    { label: "RZ TD%", terms: ["red zone touchdown percentage", "redzoneefficiency"] },
     { label: "TO Diff", terms: ["turnover differential"] }
   ]
 };
@@ -90,12 +95,14 @@ const LIVE_TEAM_STAT_BLUEPRINTS: Partial<
   Record<LeagueKey, Array<{ label: string; terms: string[] }>>
 > = {
   NBA: [
+    { label: "PTS", terms: ["points", "pts"] },
     { label: "FG%", terms: ["fieldgoalpct", "field goal %", "fg%"] },
     { label: "3P%", terms: ["threepointfieldgoalpct", "three point %", "3p%"] },
     { label: "REB", terms: ["totalrebounds", "rebounds", "reb"] },
     { label: "AST", terms: ["assists", "ast"] }
   ],
   NCAAB: [
+    { label: "PTS", terms: ["points", "pts"] },
     { label: "FG%", terms: ["fieldgoalpct", "field goal %", "fg%"] },
     { label: "3P%", terms: ["threepointfieldgoalpct", "three point %", "3p%"] },
     { label: "REB", terms: ["totalrebounds", "rebounds", "reb"] },
@@ -105,26 +112,38 @@ const LIVE_TEAM_STAT_BLUEPRINTS: Partial<
     { label: "R", terms: ["runs", "r"] },
     { label: "H", terms: ["hits", "h"] },
     { label: "E", terms: ["errors", "e"] },
-    { label: "AVG", terms: ["avg", "batting average"] }
+    { label: "LOB", terms: ["leftonbase", "lob"] }
   ],
   NHL: [
     { label: "Shots", terms: ["shotstotal", "shots"] },
     { label: "Hits", terms: ["hits", "ht"] },
     { label: "Blocks", terms: ["blockedshots", "bs"] },
-    { label: "PP%", terms: ["powerplaypct", "power play percentage"] }
+    { label: "PP%", terms: ["powerplaypct", "power play percentage"] },
+    { label: "FO%", terms: ["faceoffpct", "faceoff percentage"] }
   ],
   NFL: [
     { label: "Yards", terms: ["totalyards", "total yards"] },
     { label: "Pass", terms: ["netpassingyards", "passing"] },
     { label: "Rush", terms: ["rushingyards", "rushing"] },
-    { label: "3D", terms: ["thirddowneff", "3rd down efficiency"] }
+    { label: "3D", terms: ["thirddowneff", "3rd down efficiency"] },
+    { label: "TO", terms: ["turnovers", "turnover"] }
   ],
   NCAAF: [
     { label: "Yards", terms: ["totalyards", "total yards"] },
     { label: "Pass", terms: ["netpassingyards", "passing"] },
     { label: "Rush", terms: ["rushingyards", "rushing"] },
-    { label: "3D", terms: ["thirddowneff", "3rd down efficiency"] }
+    { label: "3D", terms: ["thirddowneff", "3rd down efficiency"] },
+    { label: "TO", terms: ["turnovers", "turnover"] }
   ]
+};
+
+const SPORT_BOXSCORE_LIMITS: Partial<Record<LeagueKey, number>> = {
+  NBA: 6,
+  NCAAB: 6,
+  MLB: 6,
+  NHL: 6,
+  NFL: 7,
+  NCAAF: 7
 };
 
 async function fetchEspnJson<T>(path: string) {
@@ -198,6 +217,10 @@ function uniqueMetrics(metrics: MatchupMetricView[]) {
 
 function mergeMetrics(primary: MatchupMetricView[], secondary: MatchupMetricView[]) {
   return uniqueMetrics([...primary, ...secondary]);
+}
+
+function takeMetrics(metrics: MatchupMetricView[], limit: number) {
+  return uniqueMetrics(metrics).slice(0, limit);
 }
 
 function deriveSeasonYear(startTime: string | null | undefined) {
@@ -558,7 +581,8 @@ function extractSeasonStats(
         value: match.value
       } satisfies MatchupMetricView;
     })
-    .filter(Boolean) as MatchupMetricView[];
+    .filter(Boolean)
+    .slice(0, 6) as MatchupMetricView[];
 }
 
 function extractRecentResults(teamId: string, payload: JsonRecord) {
@@ -695,9 +719,12 @@ function extractBasketballPlayerSpotlights(teamId: string, payload: JsonRecord) 
   const keys = Array.isArray(statBlock?.keys) ? statBlock.keys : [];
   const athletes = Array.isArray(statBlock?.athletes) ? statBlock.athletes : [];
 
-  const pointsIndex = keys.findIndex((key: string) => key === "points");
-  const reboundsIndex = keys.findIndex((key: string) => key === "rebounds");
-  const assistsIndex = keys.findIndex((key: string) => key === "assists");
+  const pointsIndex = findStatIndex(keys, ["points", "pts"]);
+  const reboundsIndex = findStatIndex(keys, ["rebounds", "reb"]);
+  const assistsIndex = findStatIndex(keys, ["assists", "ast"]);
+  const minutesIndex = findStatIndex(keys, ["minutes", "min"]);
+  const fgIndex = findStatIndex(keys, ["fieldgoalsmadefieldgoalsattempted", "fg"]);
+  const threePointIndex = findStatIndex(keys, ["threepointfieldgoalsmadethreepointfieldgoalsattempted", "3pt"]);
 
   return athletes
     .map((athleteEntry: JsonRecord) => {
@@ -707,11 +734,23 @@ function extractBasketballPlayerSpotlights(teamId: string, payload: JsonRecord) 
         reboundsIndex >= 0 ? readNumber(stats[reboundsIndex]) ?? 0 : 0;
       const assists =
         assistsIndex >= 0 ? readNumber(stats[assistsIndex]) ?? 0 : 0;
+      const minutes = minutesIndex >= 0 ? readString(stats[minutesIndex]) : null;
+      const fg = fgIndex >= 0 ? readString(stats[fgIndex]) : null;
+      const threePoint = threePointIndex >= 0 ? readString(stats[threePointIndex]) : null;
+
+      const parts = [
+        `${points} PTS`,
+        `${rebounds} REB`,
+        `${assists} AST`,
+        fg ? `FG ${fg}` : null,
+        threePoint ? `3PT ${threePoint}` : null,
+        minutes ? `${minutes} MIN` : null
+      ].filter(Boolean);
 
       return {
         name: readString(athleteEntry.athlete?.displayName) ?? "Player",
-        line: `${points} PTS | ${rebounds} REB | ${assists} AST`,
-        score: points
+        line: parts.join(" | "),
+        score: points + rebounds * 0.7 + assists * 0.7
       } as {
         name: string;
         line: string;
@@ -817,7 +856,8 @@ function extractMlbPlayerSpotlights(teamId: string, payload: JsonRecord) {
             { label: "H", terms: ["hits"] },
             { label: "RBI", terms: ["rbis", "rbi"] },
             { label: "R", terms: ["runs"] },
-            { label: "HR", terms: ["homeruns", "hr"] }
+            { label: "HR", terms: ["homeruns", "hr"] },
+            { label: "AVG", terms: ["avg", "battingaverage"] }
           ]
         })
       : null,
@@ -829,7 +869,8 @@ function extractMlbPlayerSpotlights(teamId: string, payload: JsonRecord) {
             { label: "IP", terms: ["fullinningspartinnings", "inningspitched", "ip"] },
             { label: "K", terms: ["strikeouts", "k"] },
             { label: "ER", terms: ["earnedruns", "er"] },
-            { label: "BB", terms: ["walks", "bb"] }
+            { label: "BB", terms: ["walks", "bb"] },
+            { label: "H", terms: ["hits", "h"] }
           ]
         })
       : null
@@ -892,7 +933,8 @@ function extractHockeyPlayerSpotlights(teamId: string, payload: JsonRecord) {
           items: [
             { label: "SV", terms: ["saves", "sv"] },
             { label: "SV%", terms: ["savepct", "sv%"] },
-            { label: "GA", terms: ["goalsagainst", "ga"] }
+            { label: "GA", terms: ["goalsagainst", "ga"] },
+            { label: "SA", terms: ["shotsagainst", "sa"] }
           ]
         })
       : null
@@ -911,6 +953,10 @@ function extractFootballPlayerSpotlights(teamId: string, payload: JsonRecord) {
   const topPasser = Array.isArray(passing?.athletes) ? passing.athletes[0] : null;
   const topRusher = Array.isArray(rushing?.athletes) ? rushing.athletes[0] : null;
   const topReceiver = Array.isArray(receiving?.athletes) ? receiving.athletes[0] : null;
+  const defensive =
+    blocks.find((block: JsonRecord) => normalizeStatKey(block.name) === "defensive") ??
+    blocks.find((block: JsonRecord) => normalizeStatKey(block.name) === "defense");
+  const topDefender = Array.isArray(defensive?.athletes) ? defensive.athletes[0] : null;
 
   return [
     topPasser
@@ -918,6 +964,8 @@ function extractFootballPlayerSpotlights(teamId: string, payload: JsonRecord) {
           athleteEntry: topPasser,
           keys: passing?.keys ?? [],
           items: [
+            { label: "CMP", terms: ["completions", "cmp"] },
+            { label: "ATT", terms: ["attempts", "att"] },
             { label: "YDS", terms: ["passingyards", "yds"] },
             { label: "TD", terms: ["passingtouchdowns", "td"] },
             { label: "INT", terms: ["interceptions", "int"] }
@@ -929,8 +977,8 @@ function extractFootballPlayerSpotlights(teamId: string, payload: JsonRecord) {
           athleteEntry: topRusher,
           keys: rushing?.keys ?? [],
           items: [
-            { label: "YDS", terms: ["rushingyards", "yds"] },
             { label: "CAR", terms: ["rushingattempts", "car"] },
+            { label: "YDS", terms: ["rushingyards", "yds"] },
             { label: "TD", terms: ["rushingtouchdowns", "td"] }
           ]
         })
@@ -943,6 +991,17 @@ function extractFootballPlayerSpotlights(teamId: string, payload: JsonRecord) {
             { label: "REC", terms: ["receptions", "rec"] },
             { label: "YDS", terms: ["receivingyards", "yds"] },
             { label: "TD", terms: ["receivingtouchdowns", "td"] }
+          ]
+        })
+      : null,
+    topDefender
+      ? buildAthleteLine({
+          athleteEntry: topDefender,
+          keys: defensive?.keys ?? [],
+          items: [
+            { label: "TCK", terms: ["totaltackles", "tackles"] },
+            { label: "SACK", terms: ["sacks", "sack"] },
+            { label: "TFL", terms: ["tacklesforloss", "tfl"] }
           ]
         })
       : null
@@ -967,7 +1026,10 @@ function extractLiveBoxscoreDetails(
             ? extractFootballPlayerSpotlights(teamId, payload)
             : [];
 
-  return [...teamStrip, ...playerSpotlights].slice(0, 5);
+  return takeMetrics(
+    [...teamStrip, ...playerSpotlights],
+    SPORT_BOXSCORE_LIMITS[leagueKey] ?? 6
+  );
 }
 
 function extractCompetitorLeaders(competition: JsonRecord | null, teamId: string) {
