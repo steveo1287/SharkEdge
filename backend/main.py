@@ -20,11 +20,14 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 
 load_dotenv(Path(__file__).with_name(".env"))
 
 app = FastAPI()
+SCRAPER_CACHE_PATH = Path(__file__).with_name("data").joinpath("scraper_live_odds.json")
+SCRAPER_CACHE_MAX_AGE_SECONDS = int(os.getenv("SCRAPER_CACHE_MAX_AGE_SECONDS", "180"))
+SCRAPER_INGEST_API_KEY = os.getenv("SHARKEDGE_API_KEY", "").strip()
 
 SPORTS = [
     {
@@ -76,6 +79,17 @@ SPORTS = [
         "odds_harvester_markets": "moneyline,asian_handicap,over/under",
     },
 ]
+SCRAPER_SPORT_KEY_MAP = {
+    ("basketball", "nba"): "basketball_nba",
+    ("basketball", "ncaab"): "basketball_ncaab",
+    ("basketball", "ncaa men s basketball"): "basketball_ncaab",
+    ("basketball", "mens college basketball"): "basketball_ncaab",
+    ("baseball", "mlb"): "baseball_mlb",
+    ("hockey", "nhl"): "icehockey_nhl",
+    ("american-football", "nfl"): "americanfootball_nfl",
+    ("american-football", "ncaaf"): "americanfootball_ncaaf",
+    ("american-football", "college football"): "americanfootball_ncaaf",
+}
 
 BOOKMAKER_PRIORITY = [
     "draftkings",
@@ -353,6 +367,157 @@ def get_props_event_limit() -> int:
 
 def format_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def normalize_scraper_token(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).strip()
+
+
+def ensure_scraper_cache_dir() -> None:
+    SCRAPER_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+
+def load_scraper_cache() -> dict[str, Any]:
+    try:
+        if SCRAPER_CACHE_PATH.exists():
+            return json.loads(SCRAPER_CACHE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {"updated_at": None, "sports": {}}
+
+
+def save_scraper_cache(cache: dict[str, Any]) -> None:
+    ensure_scraper_cache_dir()
+    temp_path = SCRAPER_CACHE_PATH.with_suffix(".tmp")
+    temp_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path.replace(SCRAPER_CACHE_PATH)
+
+
+def resolve_scraper_sport_key(sport: str | None, league: str | None) -> str | None:
+    sport_token = normalize_scraper_token(sport)
+    league_token = normalize_scraper_token(league)
+    return SCRAPER_SPORT_KEY_MAP.get((sport_token, league_token))
+
+
+def build_scraper_bookmaker(
+    event: dict[str, Any], away_team: str, home_team: str
+) -> dict[str, Any]:
+    title = (
+        event.get("book")
+        or event.get("sourceMeta", {}).get("moneylineHomeBook")
+        or "Flashscore Best"
+    )
+    key = slugify_key(str(title), "flashscore")
+    home_spread = event.get("homeSpread")
+    away_spread = -home_spread if isinstance(home_spread, (int, float)) else None
+    total = event.get("total")
+
+    return {
+        "key": key,
+        "title": title,
+        "last_update": event.get("lines", [{}])[0].get("fetchedAt") or event.get("scrapedAt"),
+        "markets": {
+            "moneyline": [
+                {
+                    "name": away_team,
+                    "price": event.get("awayMoneyline"),
+                    "point": None,
+                },
+                {
+                    "name": home_team,
+                    "price": event.get("homeMoneyline"),
+                    "point": None,
+                },
+            ],
+            "spread": [
+                {
+                    "name": away_team,
+                    "price": event.get("awaySpreadOdds"),
+                    "point": away_spread,
+                },
+                {
+                    "name": home_team,
+                    "price": event.get("homeSpreadOdds"),
+                    "point": home_spread,
+                },
+            ],
+            "total": [
+                {
+                    "name": "Over",
+                    "price": event.get("overOdds"),
+                    "point": total,
+                },
+                {
+                    "name": "Under",
+                    "price": event.get("underOdds"),
+                    "point": total,
+                },
+            ],
+        },
+    }
+
+
+def normalize_scraper_game(event: dict[str, Any]) -> dict[str, Any] | None:
+    away_team = event.get("awayTeam")
+    home_team = event.get("homeTeam")
+    if not away_team or not home_team:
+        return None
+
+    bookmaker = build_scraper_bookmaker(event, away_team, home_team)
+    return {
+        "id": event.get("eventKey"),
+        "commence_time": event.get("commenceTime"),
+        "home_team": home_team,
+        "away_team": away_team,
+        "bookmakers_available": 1,
+        "bookmakers": [bookmaker],
+        "market_stats": {
+            "moneyline": summarize_market([bookmaker], "moneyline", [away_team, home_team]),
+            "spread": summarize_market([bookmaker], "spread", [away_team, home_team]),
+            "total": summarize_market([bookmaker], "total", ["Over", "Under"]),
+        },
+    }
+
+
+def get_scraper_cache_sports() -> list[dict[str, Any]]:
+    cache = load_scraper_cache()
+    updated_at = cache.get("updated_at")
+    if not isinstance(updated_at, str):
+        return []
+
+    try:
+        updated_at_dt = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+    except ValueError:
+        return []
+
+    if (datetime.now(timezone.utc) - updated_at_dt).total_seconds() > SCRAPER_CACHE_MAX_AGE_SECONDS:
+        return []
+
+    sports_cache = cache.get("sports")
+    if not isinstance(sports_cache, dict):
+        return []
+
+    cached_sports: list[dict[str, Any]] = []
+    for sport in SPORTS:
+        events = sports_cache.get(sport["key"], [])
+        games = [
+            normalized
+            for normalized in (
+                normalize_scraper_game(event) for event in events if isinstance(event, dict)
+            )
+            if normalized
+        ]
+        cached_sports.append(
+            {
+                "key": sport["key"],
+                "title": sport["title"],
+                "short_title": sport["short_title"],
+                "game_count": len(games),
+                "games": sorted(games, key=lambda game: game.get("commence_time") or ""),
+            }
+        )
+
+    return cached_sports
 
 
 def request_json_with_base(
@@ -1169,6 +1334,9 @@ def resolve_board_provider(api_key: str) -> tuple[str | None, str | None]:
     if api_key:
         return "odds_api", None
 
+    if any(sport.get("game_count") for sport in get_scraper_cache_sports()):
+        return "scraper_cache", None
+
     return (
         None,
         "Current odds board requires ODDS_API_KEY. OddsHarvester is reserved for historical ingestion and is not used in the live board request path.",
@@ -1178,6 +1346,17 @@ def resolve_board_provider(api_key: str) -> tuple[str | None, str | None]:
 def fetch_sport_odds(
     sport: dict[str, str], api_key: str, provider: str
 ) -> dict[str, Any]:
+    if provider == "scraper_cache":
+        for cached_sport in get_scraper_cache_sports():
+            if cached_sport.get("key") == sport["key"]:
+                return cached_sport
+        return {
+            "key": sport["key"],
+            "title": sport["title"],
+            "short_title": sport["short_title"],
+            "game_count": 0,
+            "games": [],
+        }
     return fetch_sport_odds_from_api(sport, api_key)
 
 
@@ -3069,6 +3248,109 @@ def historical_provider_status() -> dict[str, Any]:
 @app.get("/api/historical/odds/harvest")
 def historical_odds_harvest(sport_key: str | None = None) -> dict[str, Any]:
     return build_historical_harvest_response(sport_key)
+
+
+@app.get("/api/ingest/odds/status")
+def ingest_odds_status() -> dict[str, Any]:
+    cache = load_scraper_cache()
+    sports = get_scraper_cache_sports()
+    return {
+        "configured": bool(SCRAPER_INGEST_API_KEY),
+        "provider": "scraper_cache",
+        "updated_at": cache.get("updated_at"),
+        "cache_max_age_seconds": SCRAPER_CACHE_MAX_AGE_SECONDS,
+        "sport_count": len(sports),
+        "game_count": sum(sport.get("game_count", 0) for sport in sports),
+        "sports": [
+            {
+                "key": sport["key"],
+                "title": sport["title"],
+                "short_title": sport["short_title"],
+                "game_count": sport.get("game_count", 0),
+            }
+            for sport in sports
+        ],
+    }
+
+
+@app.post("/api/ingest/odds")
+def ingest_odds(
+    payload: dict[str, Any],
+    x_api_key: str | None = Header(default=None),
+) -> dict[str, Any]:
+    if not SCRAPER_INGEST_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="SHARKEDGE_API_KEY is not configured on the backend service.",
+        )
+
+    if x_api_key != SCRAPER_INGEST_API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid scraper API key.")
+
+    event_key = payload.get("eventKey")
+    home_team = payload.get("homeTeam")
+    away_team = payload.get("awayTeam")
+    if not event_key or not home_team or not away_team:
+        raise HTTPException(
+            status_code=400,
+            detail="eventKey, homeTeam, and awayTeam are required.",
+        )
+
+    source_meta = payload.get("sourceMeta", {})
+    sport_key = payload.get("sportKey")
+    if sport_key not in SPORT_ORDER:
+        sport_key = resolve_scraper_sport_key(
+            payload.get("sport"),
+            source_meta.get("league"),
+        )
+    if sport_key not in SPORT_ORDER:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not resolve a supported SharkEdge sport key for this event.",
+        )
+
+    normalized_payload = {
+        "eventKey": event_key,
+        "sport": payload.get("sport"),
+        "league": source_meta.get("league"),
+        "homeTeam": home_team,
+        "awayTeam": away_team,
+        "commenceTime": payload.get("commenceTime"),
+        "scrapedAt": payload.get("scrapedAt") or format_now(),
+        "book": (payload.get("lines") or [{}])[0].get("book") or payload.get("source") or "scraper",
+        "lines": payload.get("lines") or [],
+        "sourceMeta": source_meta if isinstance(source_meta, dict) else {},
+    }
+
+    cache = load_scraper_cache()
+    sports_cache = cache.setdefault("sports", {})
+    existing_events = sports_cache.setdefault(sport_key, [])
+
+    replaced = False
+    filtered_events: list[dict[str, Any]] = []
+    for existing in existing_events:
+        if not isinstance(existing, dict):
+            continue
+        if existing.get("eventKey") == event_key:
+            replaced = True
+            continue
+        filtered_events.append(existing)
+
+    filtered_events.append(normalized_payload)
+    filtered_events.sort(key=lambda item: item.get("commenceTime") or "")
+    sports_cache[sport_key] = filtered_events
+    cache["updated_at"] = format_now()
+    save_scraper_cache(cache)
+
+    return {
+        "ok": True,
+        "provider": "scraper_cache",
+        "sport_key": sport_key,
+        "event_key": event_key,
+        "replaced": replaced,
+        "sport_event_count": len(filtered_events),
+        "updated_at": cache["updated_at"],
+    }
 
 
 @app.get("/api/odds/board")
