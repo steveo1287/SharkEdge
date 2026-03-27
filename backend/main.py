@@ -3280,7 +3280,12 @@ def game_detail(sport_key: str, event_id: str) -> dict[str, Any]:
 
     odds_error: str | None = None
     try:
-        sport_odds = fetch_sport_odds(sport, api_key)
+        provider, _ = resolve_board_provider(api_key)
+        if not provider:
+            raise RuntimeError(
+                "Current odds board requires ODDS_API_KEY. OddsHarvester is reserved for historical ingestion and is not used in the live board request path."
+            )
+        sport_odds = fetch_sport_odds(sport, api_key, provider)
         score_games = fetch_sport_scores(sport_key, api_key)
     except RuntimeError as error:
         odds_error = str(error)
