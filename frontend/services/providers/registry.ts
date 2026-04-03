@@ -1,16 +1,19 @@
 import type { BoardSupportStatus, LeagueKey, MarketType } from "@/lib/types/domain";
 import { backendCurrentOddsProvider } from "@/services/current-odds/backend-provider";
+import { therundownCurrentOddsProvider } from "@/services/current-odds/therundown-provider";
 import { boxingEventProvider } from "@/services/events/boxing-provider";
 import { espnEventProvider } from "@/services/events/espn-provider";
 import { ncaaFallbackEventProvider } from "@/services/events/ncaa-fallback-provider";
 import { ufcEventProvider } from "@/services/events/ufc-provider";
 import { oddsharvesterHistoricalProvider } from "@/services/historical-odds/oddsharvester-provider";
+import { therundownHistoricalProvider } from "@/services/historical-odds/therundown-provider";
 import { boxingMatchupStatsProvider } from "@/services/stats/boxing-stats-provider";
 import { espnMatchupStatsProvider } from "@/services/stats/espn-stats-provider";
 import type { MatchupStatsProvider } from "@/services/stats/provider-types";
 import { ufcMatchupStatsProvider } from "@/services/stats/ufc-stats-provider";
 
 import type { CurrentOddsProvider } from "@/services/current-odds/provider-types";
+import { getBookFeedLabelsForLeague } from "@/services/current-odds/book-feed-registry";
 import type { EventProvider } from "@/services/events/provider-types";
 import type { HistoricalOddsIngestionProvider } from "@/services/historical-odds/provider-types";
 
@@ -53,6 +56,7 @@ export type LeagueProviderRegistryEntry = {
   scoreProviders: EventProvider[];
   matchupProviders: MatchupStatsProvider[];
   currentOddsProviders: CurrentOddsProvider[];
+  bookFeedProviders: string[];
   historicalProviders: HistoricalOddsIngestionProvider[];
   propsStatus: BoardSupportStatus;
   propsProviders: string[];
@@ -67,8 +71,9 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     status: "LIVE",
     scoreProviders: [espnEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
-    currentOddsProviders: [backendCurrentOddsProvider],
-    historicalProviders: [oddsharvesterHistoricalProvider],
+    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
+    bookFeedProviders: getBookFeedLabelsForLeague("NBA"),
+    historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "LIVE",
     propsProviders: ["Current odds backend"],
     supportedPropMarkets: [
@@ -137,8 +142,9 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     status: "LIVE",
     scoreProviders: [espnEventProvider, ncaaFallbackEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
-    currentOddsProviders: [backendCurrentOddsProvider],
-    historicalProviders: [oddsharvesterHistoricalProvider],
+    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
+    bookFeedProviders: getBookFeedLabelsForLeague("NCAAB"),
+    historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "LIVE",
     propsProviders: ["Current odds backend"],
     supportedPropMarkets: [
@@ -213,8 +219,9 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     status: "LIVE",
     scoreProviders: [espnEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
-    currentOddsProviders: [backendCurrentOddsProvider],
-    historicalProviders: [oddsharvesterHistoricalProvider],
+    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
+    bookFeedProviders: getBookFeedLabelsForLeague("MLB"),
+    historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "PARTIAL",
     propsProviders: [],
     supportedPropMarkets: [],
@@ -272,8 +279,9 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     status: "LIVE",
     scoreProviders: [espnEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
-    currentOddsProviders: [backendCurrentOddsProvider],
-    historicalProviders: [oddsharvesterHistoricalProvider],
+    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
+    bookFeedProviders: getBookFeedLabelsForLeague("NHL"),
+    historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "PARTIAL",
     propsProviders: [],
     supportedPropMarkets: [],
@@ -331,8 +339,9 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     status: "LIVE",
     scoreProviders: [espnEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
-    currentOddsProviders: [backendCurrentOddsProvider],
-    historicalProviders: [oddsharvesterHistoricalProvider],
+    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
+    bookFeedProviders: getBookFeedLabelsForLeague("NFL"),
+    historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "PARTIAL",
     propsProviders: [],
     supportedPropMarkets: [],
@@ -402,8 +411,9 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     status: "LIVE",
     scoreProviders: [espnEventProvider, ncaaFallbackEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
-    currentOddsProviders: [backendCurrentOddsProvider],
-    historicalProviders: [oddsharvesterHistoricalProvider],
+    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
+    bookFeedProviders: getBookFeedLabelsForLeague("NCAAF"),
+    historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "PARTIAL",
     propsProviders: [],
     supportedPropMarkets: [],
@@ -474,6 +484,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     scoreProviders: [ufcEventProvider],
     matchupProviders: [ufcMatchupStatsProvider],
     currentOddsProviders: [],
+    bookFeedProviders: [],
     historicalProviders: [],
     propsStatus: "PARTIAL",
     propsProviders: [],
@@ -520,6 +531,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     scoreProviders: [boxingEventProvider],
     matchupProviders: [boxingMatchupStatsProvider],
     currentOddsProviders: [],
+    bookFeedProviders: [],
     historicalProviders: [],
     propsStatus: "COMING_SOON",
     propsProviders: [],

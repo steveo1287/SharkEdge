@@ -14,6 +14,7 @@ export type BetSignalContext = {
   sourcePage: BetActionSourcePage;
   sourceLabel: string;
   sourcePath: string;
+  sourceItemId?: string | null;
   eventLabel: string;
   matchupHref?: string | null;
   externalEventId?: string | null;
@@ -33,6 +34,7 @@ export type BetSignalContext = {
 export type BetIntentLeg = {
   eventId?: string | null;
   externalEventId?: string | null;
+  sourceItemId?: string | null;
   sportsbookKey?: string | null;
   sportsbookName?: string | null;
   marketType: LedgerMarketType;

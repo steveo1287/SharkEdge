@@ -5,8 +5,10 @@ import type {
   TeamGameStatRecord,
   TeamRecord
 } from "@/lib/types/domain";
+import { createAbortSignal, withTimeoutFallback } from "@/lib/utils/async";
 import { buildMatchupHref } from "@/lib/utils/matchups";
 import { mockDatabase } from "@/prisma/seed-data";
+import { buildLeagueStorySummary } from "@/services/content/story-writer-service";
 
 const ESPN_LEAGUE_PATHS: Partial<Record<LeagueKey, string>> = {
   NBA: "basketball/nba",
@@ -20,6 +22,8 @@ const ESPN_LEAGUE_PATHS: Partial<Record<LeagueKey, string>> = {
 const teamMap = new Map(mockDatabase.teams.map((team) => [team.id, team]));
 const leagueMap = new Map(mockDatabase.leagues.map((league) => [league.id, league]));
 const leagueByKey = new Map(mockDatabase.leagues.map((league) => [league.key, league]));
+const ESPN_FETCH_TIMEOUT_MS = 2_500;
+const LEAGUE_SNAPSHOT_TIMEOUT_MS = 3_200;
 
 const OFFSEASON_ITEMS: Partial<Record<LeagueKey, Array<{ title: string; body: string }>>> = {
   NFL: [
@@ -166,53 +170,222 @@ function resolveTeamRecord(leagueKey: LeagueKey, payload: JsonRecord) {
 }
 
 async function fetchEspnJson<T>(path: string): Promise<T> {
-  const response = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}`, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 SharkEdge/1.5"
-    },
-    next: {
-      revalidate: 300
+  const { signal, cleanup } = createAbortSignal(ESPN_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}`, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 SharkEdge/1.5"
+      },
+      signal,
+      next: {
+        revalidate: 300
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`ESPN snapshot request failed for ${path}: ${response.status}`);
     }
-  });
 
-  if (!response.ok) {
-    throw new Error(`ESPN snapshot request failed for ${path}: ${response.status}`);
+    return (await response.json()) as T;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`ESPN snapshot request timed out for ${path}`);
+    }
+
+    throw error;
+  } finally {
+    cleanup();
   }
-
-  return (await response.json()) as T;
 }
 
-function buildNewsItems(payload: JsonRecord) {
-  const articles = Array.isArray(payload.articles) ? payload.articles : [];
+type StoryEventContext = {
+  eventId: string;
+  eventHref: string;
+  eventLabel: string;
+  searchText: string;
+  boxscore: {
+    awayTeam: string;
+    homeTeam: string;
+    awayScore: number | null;
+    homeScore: number | null;
+  };
+};
 
-  return articles
-    .map((article: JsonRecord, index: number) => {
+function normalizeStorySearchText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ");
+}
+
+function buildStoryEventContexts(leagueKey: LeagueKey, payload: JsonRecord) {
+  const events = Array.isArray(payload.events) ? payload.events : [];
+  const contexts: StoryEventContext[] = [];
+
+  for (const event of events) {
+    const competition = Array.isArray(event.competitions) ? event.competitions[0] : null;
+    const competitors = Array.isArray(competition?.competitors) ? competition.competitors : [];
+    const home = competitors.find(
+      (competitor: JsonRecord) => String(competitor.homeAway ?? "").toLowerCase() === "home"
+    );
+    const away = competitors.find(
+      (competitor: JsonRecord) => String(competitor.homeAway ?? "").toLowerCase() === "away"
+    );
+    const eventId = readString(event.id);
+
+    if (!home || !away || !eventId) {
+      continue;
+    }
+
+    const awayTeam = resolveTeamRecord(leagueKey, away.team ?? away);
+    const homeTeam = resolveTeamRecord(leagueKey, home.team ?? home);
+
+    contexts.push({
+      eventId,
+      eventHref: buildMatchupHref(leagueKey, eventId),
+      eventLabel: `${awayTeam.name} @ ${homeTeam.name}`,
+      searchText: normalizeStorySearchText(
+        [
+          awayTeam.name,
+          awayTeam.abbreviation,
+          homeTeam.name,
+          homeTeam.abbreviation,
+          `${awayTeam.name} ${homeTeam.name}`
+        ]
+          .filter(Boolean)
+          .join(" ")
+      ),
+      boxscore: {
+        awayTeam: awayTeam.name,
+        homeTeam: homeTeam.name,
+        awayScore: readNumber(away.score?.value ?? away.score),
+        homeScore: readNumber(home.score?.value ?? home.score)
+      }
+    });
+  }
+
+  return contexts;
+}
+
+function findRelatedEventContext(article: JsonRecord, eventContexts: StoryEventContext[]) {
+  const searchText = normalizeStorySearchText(
+    [
+      readString(article.headline),
+      readString(article.title),
+      readString(article.description),
+      readString(article.story)
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+
+  if (!searchText) {
+    return null;
+  }
+
+  const scored = eventContexts
+    .map((eventContext) => {
+      const aliases = eventContext.searchText.split(/\s+/).filter((token) => token.length >= 3);
+      const score = aliases.reduce((total, alias) => {
+        return searchText.includes(alias) ? total + 1 : total;
+      }, 0);
+
+      return {
+        eventContext,
+        score
+      };
+    })
+    .filter((candidate) => candidate.score >= 2)
+    .sort((left, right) => right.score - left.score);
+
+  return scored[0]?.eventContext ?? null;
+}
+
+async function buildNewsItems(
+  leagueKey: LeagueKey,
+  payload: JsonRecord,
+  scoreboardPayload?: JsonRecord | null
+) {
+  const articles = Array.isArray(payload.articles) ? payload.articles : [];
+  const eventContexts = scoreboardPayload ? buildStoryEventContexts(leagueKey, scoreboardPayload) : [];
+
+  const mapped = await Promise.all(
+    articles.map(async (article: JsonRecord, index: number) => {
       const title = readString(article.headline) ?? readString(article.title);
       if (!title) {
         return null;
       }
+
+      const images = Array.isArray(article.images) ? article.images : [];
+      const leadImage =
+        [...images]
+          .filter((image: JsonRecord) => readString(image.url) || readString(image.href))
+          .sort((left: JsonRecord, right: JsonRecord) => {
+            const leftRatio = readString(left.ratio);
+            const rightRatio = readString(right.ratio);
+            const leftWidth = readNumber(left.width) ?? 0;
+            const rightWidth = readNumber(right.width) ?? 0;
+
+            if (leftRatio === "16x9" && rightRatio !== "16x9") return -1;
+            if (rightRatio === "16x9" && leftRatio !== "16x9") return 1;
+
+            return rightWidth - leftWidth;
+          })[0] ??
+        article.image ??
+        article.images?.[0] ??
+        null;
+
+      const category =
+        readString(article.categories?.[0]?.description) ??
+        readString(article.type) ??
+        null;
+      const sourceSummary =
+        readString(article.description) ??
+        readString(article.story) ??
+        readString(article.type) ??
+        null;
+      const relatedEvent = findRelatedEventContext(article, eventContexts);
 
       return {
         id:
           readString(article.id) ??
           readString(article.links?.web?.href) ??
           `article-${index}`,
+        leagueKey,
         title,
         href: readString(article.links?.web?.href) ?? readString(article.link) ?? null,
         publishedAt: readString(article.published) ?? readString(article.lastModified) ?? null,
-        summary:
-          readString(article.description) ??
-          readString(article.story) ??
-          readString(article.type) ??
+        summary: await buildLeagueStorySummary({
+          league: leagueKey,
+          title,
+          summary: sourceSummary,
+          category,
+          publishedAt: readString(article.published) ?? readString(article.lastModified) ?? null,
+          sourceUrl: readString(article.links?.web?.href) ?? readString(article.link) ?? null,
+          eventId: relatedEvent?.eventId ?? null,
+          eventHref: relatedEvent?.eventHref ?? null,
+          eventLabel: relatedEvent?.eventLabel ?? null,
+          supportingFacts: [
+            category,
+            readString(article.byline),
+            readString(article.published),
+            readString(article.links?.mobile?.href),
+            relatedEvent?.eventLabel ?? null
+          ].filter((value): value is string => Boolean(value)),
+          boxscore: relatedEvent?.boxscore ?? null
+        }),
+        category,
+        imageUrl:
+          readString(leadImage?.url) ??
+          readString(leadImage?.href) ??
           null,
-        category:
-          readString(article.categories?.[0]?.description) ??
-          readString(article.type) ??
-          null
+        eventId: relatedEvent?.eventId ?? null,
+        eventHref: relatedEvent?.eventHref ?? null,
+        eventLabel: relatedEvent?.eventLabel ?? null,
+        boxscore: relatedEvent?.boxscore ?? null
       };
     })
-    .filter((article): article is NonNullable<typeof article> => article !== null)
-    .slice(0, 4);
+  );
+
+  return mapped.filter((article): article is NonNullable<typeof article> => article !== null).slice(0, 4);
 }
 
 function getStandingEntries(payload: JsonRecord) {
@@ -428,7 +601,13 @@ async function fetchLeagueSnapshot(leagueKey: LeagueKey): Promise<LeagueSnapshot
       ? buildFeaturedGames(leagueKey, scoreboardResult.value)
       : [];
   const newsItems =
-    newsResult.status === "fulfilled" ? buildNewsItems(newsResult.value) : [];
+    newsResult.status === "fulfilled"
+      ? await buildNewsItems(
+          leagueKey,
+          newsResult.value,
+          scoreboardResult.status === "fulfilled" ? scoreboardResult.value : null
+        )
+      : [];
   const seasonState = getSeasonState(leagueKey, featuredGames);
 
   if (
@@ -465,7 +644,14 @@ export async function getLeagueSnapshots(selectedLeague: "ALL" | LeagueKey) {
       ? (["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"] as LeagueKey[])
       : [selectedLeague];
 
-  const snapshots = await Promise.all(leagueKeys.map((leagueKey) => fetchLeagueSnapshot(leagueKey)));
+  const snapshots = await Promise.all(
+    leagueKeys.map((leagueKey) =>
+      withTimeoutFallback(fetchLeagueSnapshot(leagueKey), {
+        timeoutMs: LEAGUE_SNAPSHOT_TIMEOUT_MS,
+        fallback: null
+      })
+    )
+  );
 
   return snapshots.filter(Boolean) as LeagueSnapshotView[];
 }

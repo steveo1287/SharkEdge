@@ -1,6 +1,7 @@
 import { BOARD_SPORT_ORDER, BOARD_SPORTS, getBoardSportConfig } from "@/lib/config/board-sports";
 import { formatEventLabelFromParticipants, formatScoreboardFromParticipants } from "@/lib/utils/ledger";
 import { buildMatchupHref } from "@/lib/utils/matchups";
+import { withTimeoutFallback } from "@/lib/utils/async";
 import type {
   BoardSportSectionView,
   GameCardView,
@@ -22,6 +23,7 @@ type ScoreboardResolution = {
 };
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const SCOREBOARD_PROVIDER_TIMEOUT_MS = 2_500;
 
 function normalizeName(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -162,9 +164,17 @@ async function resolveLeagueScoreboard(leagueKey: SupportedLeagueKey): Promise<S
 
   for (const provider of providers) {
     try {
-      const events = (await provider.fetchScoreboard(leagueKey)).filter(isEventInCurrentBoardWindow);
+      const events = await withTimeoutFallback(provider.fetchScoreboard(leagueKey), {
+        timeoutMs: SCOREBOARD_PROVIDER_TIMEOUT_MS,
+        fallback: null
+      });
+      if (!events) {
+        lastError = `${provider.label} timed out.`;
+        continue;
+      }
+
       return {
-        events,
+        events: events.filter(isEventInCurrentBoardWindow),
         providerLabel: provider.label,
         providerKey: provider.key,
         note:

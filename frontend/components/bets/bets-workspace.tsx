@@ -28,6 +28,8 @@ type BetsWorkspaceProps = {
     openBets: number;
     trackedClvBets: number;
     averageClv: number | null;
+    positiveClvRate: number | null;
+    negativeClvRate: number | null;
     averageEv: number | null;
   };
   bets: LedgerBetView[];
@@ -51,6 +53,9 @@ function toFormValues(bet: LedgerBetView): LedgerBetFormInput {
     placedAt: bet.placedAt.slice(0, 16),
     settledAt: bet.settledAt?.slice(0, 16) ?? null,
     source: bet.source,
+    externalSourceKey: bet.externalSourceKey,
+    externalSourceId: bet.externalSourceId,
+    externalSourceFingerprint: bet.externalSourceFingerprint,
     betType: bet.betType,
     sport: bet.sport,
     league: bet.league,
@@ -99,6 +104,8 @@ export function BetsWorkspace({
   const [isPending, startTransition] = useTransition();
   const [editingBet, setEditingBet] = useState<LedgerBetFormInput | null>(prefill);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const setupState = setup;
+  const setupBlocked = Boolean(setupState);
 
   const initialFormValues = useMemo(() => editingBet ?? prefill, [editingBet, prefill]);
 
@@ -213,65 +220,99 @@ export function BetsWorkspace({
 
   return (
     <div className="grid gap-6">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <StatCard label="Record" value={summary.record} note="Settled bets only" />
-        <StatCard label="Net Units" value={`${summary.netUnits > 0 ? "+" : ""}${summary.netUnits.toFixed(2)}u`} />
-        <StatCard label="ROI" value={`${summary.roi > 0 ? "+" : ""}${summary.roi.toFixed(1)}%`} />
-        <StatCard label="Win Rate" value={`${summary.winRate.toFixed(1)}%`} />
-        <StatCard label="Open Bets" value={`${summary.openBets}`} />
-        <StatCard
-          label="Tracked CLV / EV"
-          value={`${summary.trackedClvBets} / ${summary.averageEv === null ? "--" : `${summary.averageEv > 0 ? "+" : ""}${summary.averageEv.toFixed(2)}%`}`}
-          note={
-            summary.averageClv === null
-              ? "CLV unavailable"
-              : `Avg CLV ${summary.averageClv > 0 ? "+" : ""}${summary.averageClv.toFixed(2)}%`
-          }
-        />
-      </div>
-
-      {liveNotes.length ? (
-        <div className="rounded-2xl border border-line bg-slate-950/55 px-4 py-3 text-sm text-slate-300">
-          {liveNotes.join(" ")}
+      {!setupBlocked ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <StatCard label="Record" value={summary.record} note="Settled bets only" />
+          <StatCard label="Net Units" value={`${summary.netUnits > 0 ? "+" : ""}${summary.netUnits.toFixed(2)}u`} />
+          <StatCard label="ROI" value={`${summary.roi > 0 ? "+" : ""}${summary.roi.toFixed(1)}%`} />
+          <StatCard label="Win Rate" value={`${summary.winRate.toFixed(1)}%`} />
+          <StatCard label="Open Bets" value={`${summary.openBets}`} />
+          <StatCard
+            label="Beat the Close"
+            value={
+              summary.positiveClvRate === null
+                ? "--"
+                : `${summary.positiveClvRate.toFixed(0)}%`
+            }
+            note={
+              summary.averageClv === null
+                ? "CLV unavailable"
+                : `${summary.trackedClvBets} tracked bets | Avg CLV ${summary.averageClv > 0 ? "+" : ""}${summary.averageClv.toFixed(2)}%`
+            }
+          />
         </div>
       ) : null}
 
-      <SectionTitle
-        title="Sweat Board"
-        description="Open tickets sync against live event state where the provider can support it. Unsupported or ambiguous markets stay neutral."
-      />
+      {!setupBlocked && summary.trackedClvBets > 0 ? (
+        <div className="rounded-[1.4rem] border border-line bg-slate-950/55 px-4 py-4 text-sm text-slate-300">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">CLV pulse</div>
+              <div className="mt-2 text-base font-medium text-white">
+                {summary.averageClv !== null && summary.averageClv >= 0
+                  ? "You are beating the close often enough to trust the entry timing."
+                  : "The close is still catching too many of your entries. Shop earlier or shop harder."}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Negative CLV</div>
+              <div className="mt-2 text-lg font-semibold text-white">
+                {summary.negativeClvRate === null ? "--" : `${summary.negativeClvRate.toFixed(0)}%`}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
-      {sweatBoard.length ? (
-        <SweatBoard
-          items={sweatBoard}
-          onQuickSettle={(betId, result) => {
-            const target = bets.find((bet) => bet.id === betId);
-            if (!target) {
-              return Promise.resolve();
-            }
+      {liveNotes.length ? (
+        <div className="rounded-[1.4rem] border border-line bg-slate-950/55 px-4 py-3 text-sm text-slate-300">
+          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Ledger notes</div>
+          <div className="mt-2 grid gap-2">
+            {liveNotes.map((note, index) => (
+              <div key={`${note}-${index}`}>{note}</div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
-            return handleQuickSettle(target, result);
-          }}
-        />
+      {setupBlocked ? (
+        <SetupStateCard title={setupState!.title} detail={setupState!.detail} steps={setupState!.steps} />
       ) : (
-        <EmptyState
-          title="No active bets to sweat"
-          description="Once you log open tickets, their live state, event status, and leg outcomes will show up here."
-        />
-      )}
+        <>
+          <SectionTitle
+            title="Sweat board"
+            description="Open tickets and live grading context."
+          />
 
-      {setup ? (
-        <SetupStateCard title={setup.title} detail={setup.detail} steps={setup.steps} />
-      ) : (
-        <BetForm
-          sportsbooks={sportsbooks}
-          events={events}
-          marketOptions={marketOptions}
-          initialValues={initialFormValues}
-          isSaving={isPending}
-          onSubmit={handleSubmit}
-          onCancelEdit={() => setEditingBet(null)}
-        />
+          {sweatBoard.length ? (
+            <SweatBoard
+              items={sweatBoard}
+              onQuickSettle={(betId, result) => {
+                const target = bets.find((bet) => bet.id === betId);
+                if (!target) {
+                  return Promise.resolve();
+                }
+
+                return handleQuickSettle(target, result);
+              }}
+            />
+          ) : (
+            <EmptyState
+              title="No active bets to sweat"
+              description="Open tickets land here once they are logged."
+            />
+          )}
+
+          <BetForm
+            sportsbooks={sportsbooks}
+            events={events}
+            marketOptions={marketOptions}
+            initialValues={initialFormValues}
+            isSaving={isPending}
+            onSubmit={handleSubmit}
+            onCancelEdit={() => setEditingBet(null)}
+          />
+        </>
       )}
 
       {feedback ? (
@@ -280,51 +321,55 @@ export function BetsWorkspace({
         </div>
       ) : null}
 
-      <SectionTitle
-        title="Open Ledger"
-        description="Active tickets stay editable until you settle or grade them."
-      />
+      {!setupBlocked ? (
+        <>
+          <SectionTitle
+            title="Open ledger"
+            description="Active tickets."
+          />
 
-      {openBets.length ? (
-        <BetTable
-          bets={openBets}
-          onEdit={(bet) => setEditingBet(toFormValues(bet))}
-          onQuickSettle={handleQuickSettle}
-          onArchive={handleArchive}
-          onDelete={handleDelete}
-        />
-      ) : (
-        <EmptyState
-          title="No open bets"
-          description="Use the ledger form above to add a straight bet or parlay. NBA, NCAAB, MLB, NHL, NFL, NCAAF, UFC, and boxing are all supported in the core model now."
-        />
-      )}
+          {openBets.length ? (
+            <BetTable
+              bets={openBets}
+              onEdit={(bet) => setEditingBet(toFormValues(bet))}
+              onQuickSettle={handleQuickSettle}
+              onArchive={handleArchive}
+              onDelete={handleDelete}
+            />
+          ) : (
+            <EmptyState
+              title="No open bets"
+              description="Add a straight bet or parlay above to start tracking the open ledger."
+            />
+          )}
 
-      <SectionTitle
-        title="Settled Ledger"
-        description="Closed tickets drive the performance numbers. CLV only shows where you captured both open and closing context honestly."
-      />
+          <SectionTitle
+            title="Settled ledger"
+            description="Closed tickets driving record, ROI, and CLV."
+          />
 
-      {settledBets.length ? (
-        <BetTable
-          bets={settledBets}
-          onEdit={(bet) => setEditingBet(toFormValues(bet))}
-          onQuickSettle={handleQuickSettle}
-          onArchive={handleArchive}
-          onDelete={handleDelete}
-        />
-      ) : (
-        <EmptyState
-          title="No settled bets yet"
-          description="Once tickets close, they'll move here and flow directly into ROI, record, and segment analytics."
-        />
-      )}
+          {settledBets.length ? (
+            <BetTable
+              bets={settledBets}
+              onEdit={(bet) => setEditingBet(toFormValues(bet))}
+              onQuickSettle={handleQuickSettle}
+              onArchive={handleArchive}
+              onDelete={handleDelete}
+            />
+          ) : (
+            <EmptyState
+              title="No settled bets yet"
+              description="Settled tickets show up here and roll into ROI, record, and CLV."
+            />
+          )}
 
-      {!setup && !bets.length ? (
-        <EmptyState
-          title="Ledger is live but empty"
-          description="The database is ready. Seed the starter card or add your first real bet to turn on the tracker and performance views."
-        />
+          {!bets.length ? (
+            <EmptyState
+              title="Ledger is live but empty"
+              description="Add the first real ticket to turn on the tracker and performance views."
+            />
+          ) : null}
+        </>
       ) : null}
     </div>
   );

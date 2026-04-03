@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 
+import {
+  determineTrendCategory,
+  packageTrendResult
+} from "@/lib/trends/publisher";
 import { calculateMarketExpectedValuePct } from "@/lib/utils/bet-intelligence";
 import {
   calculateLineClv,
@@ -205,6 +209,62 @@ run("bet results and roi are derived from graded legs and honest profits", () =>
 
   assert.equal(calculateLedgerNetUnits(bets), 0.2);
   assert.equal(calculateLedgerRoi(bets), 6.7);
+});
+
+run("deterministic trend publisher categorizes real trends without paid AI", () => {
+  const category = determineTrendCategory({
+    id: "favorite-roi",
+    title: "Favorite ROI",
+    hitRate: 62.4,
+    roi: 12.1,
+    profitUnits: 14.2,
+    sampleSize: 48,
+    wins: 30,
+    losses: 18,
+    pushes: 0,
+    streak: "W5",
+    confidence: "moderate",
+    warning: null,
+    dateRange: "Last 365 days",
+    contextLabel: "Favorite ROI | NBA",
+    todayMatches: [],
+    extra: {}
+  });
+
+  assert.equal(category, "Most Profitable");
+});
+
+run("published trend cards use deterministic titles and descriptions", () => {
+  const card = packageTrendResult(
+    {
+      id: "ats",
+      title: "ATS trend",
+      hitRate: 58.3,
+      roi: 7.4,
+      profitUnits: 4.8,
+      sampleSize: 24,
+      wins: 14,
+      losses: 10,
+      pushes: 0,
+      streak: "W3",
+      confidence: "weak",
+      warning: null,
+      dateRange: "Last 90 days",
+      contextLabel: "ATS trend | NBA | subject: Boston Celtics",
+      todayMatches: [],
+      extra: {}
+    },
+    {
+      league: "NBA",
+      team: "Boston Celtics",
+      window: "90d",
+      sample: 10
+    }
+  );
+
+  assert.equal(card.title, "Boston Celtics Spread");
+  assert.equal(card.category, "Systems");
+  assert.match(card.description, /Boston Celtics is 14-10 across last 90 days/i);
 });
 
 console.log("All ledger tests passed.");

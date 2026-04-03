@@ -322,12 +322,154 @@ export type BetFilters = {
 
 export type BoardSupportStatus = "LIVE" | "PARTIAL" | "COMING_SOON";
 
+export type ProviderHealthState = "HEALTHY" | "DEGRADED" | "FALLBACK" | "OFFLINE";
+
+export type ProviderHealthView = {
+  state: ProviderHealthState;
+  label: string;
+  summary: string;
+  freshnessLabel: string;
+  freshnessMinutes: number | null;
+  asOf: string | null;
+  warnings: string[];
+};
+
+export type MarketTruthClassification =
+  | "sharp"
+  | "trustworthy"
+  | "stale"
+  | "thin"
+  | "noisy"
+  | "soft"
+  | "unverified";
+
+export type ConfidenceBand = "high" | "medium" | "low" | "pass";
+
+export type ReasonCategory =
+  | "market_edge"
+  | "model_edge"
+  | "momentum_edge"
+  | "regression_edge"
+  | "situational_edge"
+  | "injury_edge"
+  | "arbitrage_edge"
+  | "trend_support"
+  | "pass";
+
+export type ReasonAttributionView = {
+  category: ReasonCategory;
+  label: string;
+  detail: string;
+  tone: "success" | "brand" | "premium" | "muted" | "danger";
+};
+
+export type MarketTruthView = {
+  classification: MarketTruthClassification;
+  classificationLabel: string;
+  qualityScore: number;
+  confidenceBand: ConfidenceBand;
+  bookCount: number;
+  stale: boolean;
+  staleAgeMinutes: number | null;
+  disagreementPct: number | null;
+  movementStrength: number | null;
+  clvSupportPct: number | null;
+  fairOddsAmerican: number | null;
+  fairProbabilityPct: number | null;
+  consensusOddsAmerican: number | null;
+  sharpConsensusOddsAmerican: number | null;
+  sharpGapAmerican: number | null;
+  impliedEdgePct: number | null;
+  note: string;
+  flags: string[];
+};
+
+export type FairPriceMethod =
+  | "consensus_no_vig"
+  | "sharp_no_vig"
+  | "model_only"
+  | "blended_fair_price";
+
+export type FairPriceView = {
+  fairProb: number | null;
+  fairOddsAmerican: number | null;
+  fairOddsDecimal: number | null;
+  pricingMethod: FairPriceMethod;
+  pricingConfidenceScore: number;
+  sourceCount: number;
+  coverageNote: string;
+  completenessScore: number;
+};
+
+export type LineMovementSummaryView = {
+  openPrice: number | null;
+  currentPrice: number | null;
+  openLine: number | null;
+  currentLine: number | null;
+  priceDelta: number | null;
+  lineDelta: number | null;
+  summary: string;
+};
+
+export type MarketIntelligenceView = {
+  sourceCount: number;
+  bestPriceFlag: boolean;
+  bestAvailableSportsbookKey: string | null;
+  bestAvailableOddsAmerican: number | null;
+  consensusImpliedProbability: number | null;
+  consensusLine: number | null;
+  snapshotAgeSeconds: number | null;
+  staleFlag: boolean;
+  staleCount: number;
+  marketDisagreementScore: number;
+  openToCurrentDelta: number | null;
+  lineMovement: LineMovementSummaryView;
+  notes: string[];
+};
+
+export type EvResultView = {
+  edgePct: number;
+  evPerUnit: number | null;
+  minimumBeProb: number | null;
+  fairLineGap: number | null;
+  rankScore: number;
+  kellyFraction: number | null;
+};
+
+export type NbaModelFactorView = {
+  label: string;
+  awayValue: string;
+  homeValue: string;
+  note?: string;
+};
+
+export type NbaModelHookView = {
+  available: boolean;
+  source: string;
+  adjustedEfficiencyMargin: number | null;
+  awayNetRating: number | null;
+  homeNetRating: number | null;
+  tempo: number | null;
+  injuryImpactPoints: number | null;
+  factors: NbaModelFactorView[];
+  note: string;
+};
+
 export type BoardMarketView = {
   label: string;
   lineLabel: string;
   bestBook: string;
   bestOdds: number;
   movement: number;
+  canonicalMarketKey?: string | null;
+  marketTruth?: MarketTruthView | null;
+  fairPrice?: FairPriceView | null;
+  evProfile?: EvResultView | null;
+  marketIntelligence?: MarketIntelligenceView | null;
+  reasons?: ReasonAttributionView[];
+  confidenceBand?: ConfidenceBand;
+  confidenceScore?: number;
+  hidden?: boolean;
 };
 
 export type GameCardView = {
@@ -398,6 +540,7 @@ export type BoardPageData = {
   liveMessage: string | null;
   source: "live" | "mock";
   sourceNote: string;
+  providerHealth: ProviderHealthView;
 };
 
 export type LeagueSnapshotView = {
@@ -433,16 +576,68 @@ export type LeagueSnapshotView = {
   note?: string | null;
   newsItems?: Array<{
     id: string;
+    leagueKey: LeagueKey;
     title: string;
     href: string | null;
     publishedAt: string | null;
     summary: string | null;
     category: string | null;
+    imageUrl?: string | null;
+    eventId?: string | null;
+    eventHref?: string | null;
+    eventLabel?: string | null;
+    boxscore?: {
+      awayTeam?: string | null;
+      homeTeam?: string | null;
+      awayScore?: number | null;
+      homeScore?: number | null;
+    } | null;
   }>;
   offseasonItems?: Array<{
     title: string;
     body: string;
   }>;
+};
+
+export type LeagueMetaCard = {
+  id: string;
+  title: string;
+  subtitle: string;
+  badgeUrl?: string | null;
+  fanartUrl?: string | null;
+  stadium?: string | null;
+  location?: string | null;
+  website?: string | null;
+  source: "sportsdb";
+};
+
+export type TrendAdvisorCard = {
+  id: string;
+  title: string;
+  angle: string;
+  confidenceLabel: "Measured" | "Strong" | "Aggressive";
+  confidenceScore: number;
+  summary: string;
+  reasons: string[];
+  href: string;
+  source: "sharkedge";
+};
+
+export type ArbitrageOpportunityView = {
+  id: string;
+  leagueKey: LeagueKey;
+  eventLabel: string;
+  startTime: string;
+  marketLabel: "Moneyline";
+  profitPct: number;
+  impliedTotalPct: number;
+  homeBook: string;
+  awayBook: string;
+  homeOddsAmerican: number;
+  awayOddsAmerican: number;
+  detailHref: string;
+  source: "internal_catalog" | "external_provider";
+  note: string;
 };
 
 export type GameOddsRow = {
@@ -479,12 +674,31 @@ export type PropCardView = {
   supportStatus?: BoardSupportStatus;
   supportNote?: string | null;
   gameHref?: string;
+  canonicalMarketKey?: string | null;
+  analyticsSummary?: {
+    tags: string[];
+    reason: string;
+    sampleSize: number | null;
+    clvProxyPct?: number | null;
+    hitRatePct?: number | null;
+    bookCount: number;
+    avgStat?: number | null;
+    lineMovement?: number | null;
+  } | null;
   trendSummary?: {
     label: string;
     value: string;
     note: string;
     href?: string | null;
   } | null;
+  marketTruth?: MarketTruthView | null;
+  fairPrice?: FairPriceView | null;
+  evProfile?: EvResultView | null;
+  marketIntelligence?: MarketIntelligenceView | null;
+  reasons?: ReasonAttributionView[];
+  confidenceBand?: ConfidenceBand;
+  confidenceScore?: number;
+  hidden?: boolean;
   source?: "live" | "mock";
   edgeScore: {
     score: number;
@@ -510,6 +724,15 @@ export type BetSignalView = {
   marketDeltaAmerican?: number | null;
   expectedValuePct?: number | null;
   valueFlag?: "BEST_PRICE" | "MARKET_PLUS" | "STEAM" | "NONE";
+  canonicalMarketKey?: string | null;
+  marketTruth?: MarketTruthView | null;
+  fairPrice?: FairPriceView | null;
+  evProfile?: EvResultView | null;
+  marketIntelligence?: MarketIntelligenceView | null;
+  reasons?: ReasonAttributionView[];
+  confidenceBand?: ConfidenceBand;
+  confidenceScore?: number;
+  hidden?: boolean;
   confidenceTier: "A" | "B" | "C";
   edgeScore: {
     score: number;
@@ -587,7 +810,9 @@ export type MatchupDetailView = {
   statsProvider: string | null;
   currentOddsProvider: string | null;
   historicalOddsProvider: string | null;
+  hasVerifiedOdds: boolean;
   lastUpdatedAt: string | null;
+  providerHealth: ProviderHealthView;
   participants: MatchupParticipantView[];
   oddsSummary: MatchupOddsSummaryView | null;
   books: GameOddsRow[];
@@ -598,6 +823,7 @@ export type MatchupDetailView = {
     note: string;
     supportedMarkets: PropMarketType[];
   };
+  nbaModel: NbaModelHookView | null;
   marketRanges: Array<{
     label: string;
     value: string;
@@ -659,6 +885,7 @@ export type GameDetailView = {
   }>;
   propsNotice?: string;
   source?: "live" | "mock";
+  providerHealth: ProviderHealthView;
 };
 
 export type BetSummary = {

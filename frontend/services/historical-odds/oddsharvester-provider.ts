@@ -24,6 +24,6 @@ export const oddsharvesterHistoricalProvider: HistoricalOddsIngestionProvider = 
     return SUPPORTED_HISTORICAL_LEAGUES.includes(leagueKey);
   },
   describe() {
-    return "OddsHarvester is reserved for harvested historical odds snapshots and future CLV/trend analysis. It is not part of the live scoreboard request path.";
+    return "OddsHarvester is reserved for worker-only historical odds snapshots, opening/current/closing line movement, and CLV analysis. It is paced, cacheable, and kept out of the live request path.";
   }
 };

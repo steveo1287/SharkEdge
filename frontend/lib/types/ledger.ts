@@ -2,6 +2,7 @@ import type {
   BetSignalContext,
   LeakSignal
 } from "@/lib/types/bet-intelligence";
+import type { OpportunityProfile } from "@/lib/types/opportunity";
 
 export const SPORT_CODES = [
   "BASKETBALL",
@@ -126,6 +127,9 @@ export type LedgerBetFormInput = {
   placedAt: string;
   settledAt?: string | null;
   source: LedgerBetSource;
+  externalSourceKey?: string | null;
+  externalSourceId?: string | null;
+  externalSourceFingerprint?: string | null;
   betType: LedgerBetType;
   sport: SupportedSportCode;
   league: SupportedLeagueKey;
@@ -167,6 +171,9 @@ export type LedgerBetView = {
   placedAt: string;
   settledAt: string | null;
   source: LedgerBetSource;
+  externalSourceKey: string | null;
+  externalSourceId: string | null;
+  externalSourceFingerprint: string | null;
   betType: LedgerBetType;
   sport: SupportedSportCode;
   league: SupportedLeagueKey;
@@ -246,7 +253,15 @@ export type LedgerSummary = {
   settledBets: number;
   trackedClvBets: number;
   averageClv: number | null;
+  positiveClvRate: number | null;
+  negativeClvRate: number | null;
   averageEv: number | null;
+};
+
+export type ClvInsightView = {
+  label: string;
+  value: string;
+  note: string;
 };
 
 export type LedgerSetupState = {
@@ -274,6 +289,7 @@ export type PerformanceTrendPoint = {
 export type PerformanceDashboardView = {
   setup: LedgerSetupState | null;
   summary: LedgerSummary;
+  clvInsights: ClvInsightView[];
   bySport: PerformanceBreakdownRow[];
   byLeague: PerformanceBreakdownRow[];
   byMarket: PerformanceBreakdownRow[];
@@ -291,6 +307,18 @@ export type PerformanceDashboardView = {
   bestSegments: string[];
   worstSegments: string[];
   leakSignals: LeakSignal[];
+  opportunityReviews: Array<{
+    label:
+      | "GOOD_BET_LOST"
+      | "BAD_BET_WON"
+      | "BEAT_CLOSE"
+      | "MISSED_TIMING"
+      | "STALE_EDGE_MISTAKE"
+      | "FAKE_MOVE_CHASE";
+    value: number;
+    note: string;
+  }>;
+  opportunityProfile: OpportunityProfile | null;
 };
 
 export type LedgerPageData = {

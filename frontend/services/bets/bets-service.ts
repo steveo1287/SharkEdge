@@ -26,6 +26,7 @@ import {
 import {
   decodeBetIntent
 } from "@/lib/utils/bet-intelligence";
+import { withTimeoutFallback } from "@/lib/utils/async";
 import {
   calculateAverageClv,
   calculateLedgerAverageOdds,
@@ -50,8 +51,9 @@ import {
   SPORT_LABELS
 } from "@/lib/utils/ledger";
 import { ledgerBetFormSchema, ledgerFiltersSchema } from "@/lib/validation/ledger";
-import { getPropById } from "@/services/odds/odds-service";
+import { getPropById } from "@/services/odds/props-service";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
+import { buildOpportunityProfile } from "@/services/opportunities/opportunity-personalization";
 import {
   buildSweatBoardItem,
   getLedgerEventOptions,
@@ -60,6 +62,7 @@ import {
 } from "@/services/events/event-service";
 
 const DEFAULT_USER_ID = "user_demo";
+const PERFORMANCE_DASHBOARD_TIMEOUT_MS = 2_000;
 
 const betInclude = {
   sportsbook: true,
@@ -192,6 +195,9 @@ function mapBetView(bet: BetWithRelations): LedgerBetView {
     placedAt: bet.placedAt.toISOString(),
     settledAt: bet.settledAt?.toISOString() ?? null,
     source: bet.source,
+    externalSourceKey: bet.externalSourceKey,
+    externalSourceId: bet.externalSourceId,
+    externalSourceFingerprint: bet.externalSourceFingerprint,
     betType: bet.betType,
     sport: bet.sport as SupportedSportCode,
     league: bet.league as SupportedLeagueKey,
@@ -341,6 +347,8 @@ function buildEmptySummary() {
     settledBets: 0,
     trackedClvBets: 0,
     averageClv: null,
+    positiveClvRate: null,
+    negativeClvRate: null,
     averageEv: null
   };
 }
@@ -465,6 +473,7 @@ function buildEmptyPerformanceDashboard(setup: LedgerSetupState): PerformanceDas
   return {
     setup,
     summary: buildEmptySummary(),
+    clvInsights: [],
     bySport: [],
     byLeague: [],
     byMarket: [],
@@ -477,7 +486,9 @@ function buildEmptyPerformanceDashboard(setup: LedgerSetupState): PerformanceDas
     recentForm: [],
     bestSegments: [],
     worstSegments: [],
-    leakSignals: []
+    leakSignals: [],
+    opportunityReviews: [],
+    opportunityProfile: null
   };
 }
 
@@ -544,6 +555,9 @@ function buildSummary(bets: LedgerBetView[]) {
   const settled = bets.filter((bet) => bet.result !== "OPEN");
   const results = settled.map((bet) => bet.result);
   const trackedEv = bets.filter((bet) => typeof bet.context?.expectedValuePct === "number");
+  const trackedClv = bets.filter((bet) => typeof bet.clvPercentage === "number");
+  const positiveClvCount = trackedClv.filter((bet) => (bet.clvPercentage ?? 0) > 0).length;
+  const negativeClvCount = trackedClv.filter((bet) => (bet.clvPercentage ?? 0) < 0).length;
 
   return {
     record: formatRecordString(results),
@@ -555,8 +569,14 @@ function buildSummary(bets: LedgerBetView[]) {
     totalBets: bets.length,
     openBets: bets.filter((bet) => bet.result === "OPEN").length,
     settledBets: settled.length,
-    trackedClvBets: bets.filter((bet) => typeof bet.clvPercentage === "number").length,
+    trackedClvBets: trackedClv.length,
     averageClv: calculateAverageClv(bets),
+    positiveClvRate: trackedClv.length
+      ? Number(((positiveClvCount / trackedClv.length) * 100).toFixed(1))
+      : null,
+    negativeClvRate: trackedClv.length
+      ? Number(((negativeClvCount / trackedClv.length) * 100).toFixed(1))
+      : null,
     averageEv: trackedEv.length
       ? Number(
           (
@@ -568,6 +588,73 @@ function buildSummary(bets: LedgerBetView[]) {
         )
       : null
   };
+}
+
+function buildClvInsights(args: {
+  summary: ReturnType<typeof buildSummary>;
+  settled: LedgerBetView[];
+  byMarket: PerformanceDashboardView["byMarket"];
+  bySportsbook: PerformanceDashboardView["bySportsbook"];
+  byTiming: PerformanceDashboardView["byTiming"];
+}) {
+  const tracked = args.settled.filter((bet) => typeof bet.clvPercentage === "number");
+  const bestMarket = [...args.byMarket]
+    .filter((row) => row.bets >= 5 && typeof row.clv === "number")
+    .sort((left, right) => (right.clv ?? -999) - (left.clv ?? -999))[0];
+  const weakestBook = [...args.bySportsbook]
+    .filter((row) => row.bets >= 5 && typeof row.clv === "number")
+    .sort((left, right) => (left.clv ?? 999) - (right.clv ?? 999))[0];
+  const bestTiming = [...args.byTiming]
+    .filter((row) => row.bets >= 5 && typeof row.clv === "number")
+    .sort((left, right) => (right.clv ?? -999) - (left.clv ?? -999))[0];
+  const beatCloseCount = tracked.filter((bet) => (bet.clvPercentage ?? 0) > 0).length;
+
+  return [
+    {
+      label: "Beat Close",
+      value: tracked.length ? `${beatCloseCount}/${tracked.length}` : "--",
+      note: tracked.length
+        ? `${args.summary.positiveClvRate?.toFixed(1) ?? "0.0"}% of tracked bets beat the close`
+        : "Need tracked opening and closing prices"
+    },
+    {
+      label: "Average CLV",
+      value:
+        args.summary.averageClv === null
+          ? "--"
+          : `${args.summary.averageClv > 0 ? "+" : ""}${args.summary.averageClv.toFixed(2)}%`,
+      note:
+        args.summary.averageClv === null
+          ? "CLV unavailable"
+          : args.summary.averageClv >= 0
+            ? "Closing price still moved your way"
+            : "The close is beating your entries"
+    },
+    {
+      label: "Best Market",
+      value: bestMarket?.label ?? "--",
+      note:
+        typeof bestMarket?.clv === "number"
+          ? `${bestMarket.clv > 0 ? "+" : ""}${bestMarket.clv.toFixed(2)}% avg CLV across ${bestMarket.bets} bets`
+          : "No market segment has enough tracked CLV yet"
+    },
+    {
+      label: "Weakest Book",
+      value: weakestBook?.label ?? "--",
+      note:
+        typeof weakestBook?.clv === "number"
+          ? `${weakestBook.clv > 0 ? "+" : ""}${weakestBook.clv.toFixed(2)}% avg CLV across ${weakestBook.bets} bets`
+          : "Need more tracked book history"
+    },
+    {
+      label: "Best Timing",
+      value: bestTiming?.label ?? "--",
+      note:
+        typeof bestTiming?.clv === "number"
+          ? `${bestTiming.clv > 0 ? "+" : ""}${bestTiming.clv.toFixed(2)}% avg CLV`
+          : "Timing splits have not separated yet"
+    }
+  ];
 }
 
 function toDayOfWeekLabel(dateString: string) {
@@ -647,6 +734,8 @@ function buildLeakSignals(args: {
   if (trackedClv.length >= 10) {
     const averageClv =
       trackedClv.reduce((total, bet) => total + (bet.clvPercentage ?? 0), 0) / trackedClv.length;
+    const positiveClvRate =
+      trackedClv.filter((bet) => (bet.clvPercentage ?? 0) > 0).length / trackedClv.length;
 
     if (averageClv < 0) {
       signals.push({
@@ -655,6 +744,16 @@ function buildLeakSignals(args: {
         detail: `Tracked closing-line value is ${averageClv.toFixed(2)}% across ${trackedClv.length} bets. Price entry timing needs work.`,
         sampleSize: trackedClv.length,
         severity: "danger"
+      });
+    }
+
+    if (positiveClvRate < 0.45) {
+      signals.push({
+        id: "clv-beat-rate",
+        title: "You are losing the close too often",
+        detail: `Only ${(positiveClvRate * 100).toFixed(0)}% of tracked bets beat the closing number across ${trackedClv.length} entries.`,
+        sampleSize: trackedClv.length,
+        severity: "premium"
       });
     }
   }
@@ -679,6 +778,60 @@ function toMonthLabel(dateString: string) {
     year: "numeric",
     timeZone: "UTC"
   });
+}
+
+function buildOpportunityReviews(settled: LedgerBetView[]): PerformanceDashboardView["opportunityReviews"] {
+  return [
+    {
+      label: "GOOD_BET_LOST",
+      value: settled.filter(
+        (bet) =>
+          bet.result === "LOSS" &&
+          ((bet.context?.expectedValuePct ?? 0) > 0 || (bet.clvPercentage ?? 0) > 0)
+      ).length,
+      note: "Lost results where the number still beat close or cleared positive EV."
+    },
+    {
+      label: "BAD_BET_WON",
+      value: settled.filter(
+        (bet) =>
+          bet.result === "WIN" &&
+          ((bet.context?.expectedValuePct ?? 0) < 0 || (bet.clvPercentage ?? 0) < 0)
+      ).length,
+      note: "Wins that still graded as weak process on price or timing."
+    },
+    {
+      label: "BEAT_CLOSE",
+      value: settled.filter((bet) => (bet.clvPercentage ?? 0) > 0).length,
+      note: "Tracked bets that still beat the close."
+    },
+    {
+      label: "MISSED_TIMING",
+      value: settled.filter(
+        (bet) =>
+          (bet.context?.confidenceTier === "A" || bet.context?.confidenceTier === "B") &&
+          (bet.clvPercentage ?? 0) <= -2
+      ).length,
+      note: "Strong ideas that still landed too late."
+    },
+    {
+      label: "STALE_EDGE_MISTAKE",
+      value: settled.filter((bet) =>
+        (bet.context?.supportNote ?? "").toLowerCase().includes("stale")
+      ).length,
+      note: "Tracked bets where stale context was already visible at entry."
+    },
+    {
+      label: "FAKE_MOVE_CHASE",
+      value: settled.filter(
+        (bet) =>
+          bet.context?.valueFlag === "STEAM" &&
+          (bet.clvPercentage ?? 0) < 0 &&
+          bet.result === "LOSS"
+      ).length,
+      note: "Steam-chasing bets that still lost process and result."
+    }
+  ];
 }
 
 function buildPerformanceDashboardData(bets: LedgerBetView[]): PerformanceDashboardView {
@@ -715,14 +868,25 @@ function buildPerformanceDashboardData(bets: LedgerBetView[]): PerformanceDashbo
   const byTiming = buildBreakdownRows(settled, (bet) => getBetTimingLabel(bet));
   const byWeek = buildBreakdownRows(settled, (bet) => toWeekLabel(bet.placedAt));
   const byMonth = buildBreakdownRows(settled, (bet) => toMonthLabel(bet.placedAt));
+  const summary = buildSummary(bets);
 
   const rankedSegments = [...byMarket, ...bySportsbook, ...bySport].sort(
     (left, right) => right.units - left.units
   );
-
-  return {
+  const bestSegments = rankedSegments.slice(0, 3).map(
+    (row) => `${row.label}: ${row.units > 0 ? "+" : ""}${row.units.toFixed(2)}u, ${row.winRate.toFixed(1)}% win rate`
+  );
+  const worstSegments = rankedSegments
+    .slice()
+    .reverse()
+    .slice(0, 3)
+    .map(
+      (row) => `${row.label}: ${row.units > 0 ? "+" : ""}${row.units.toFixed(2)}u, ${row.roi.toFixed(1)}% ROI`
+    );
+  const opportunityProfile = buildOpportunityProfile({
     setup: null,
-    summary: buildSummary(bets),
+    summary,
+    clvInsights: [],
     bySport,
     byLeague,
     byMarket,
@@ -733,22 +897,43 @@ function buildPerformanceDashboardData(bets: LedgerBetView[]): PerformanceDashbo
     byMonth,
     trend,
     recentForm: recentSlices,
-    bestSegments: rankedSegments.slice(0, 3).map(
-      (row) => `${row.label}: ${row.units > 0 ? "+" : ""}${row.units.toFixed(2)}u, ${row.winRate.toFixed(1)}% win rate`
-    ),
-    worstSegments: rankedSegments
-      .slice()
-      .reverse()
-      .slice(0, 3)
-      .map(
-        (row) => `${row.label}: ${row.units > 0 ? "+" : ""}${row.units.toFixed(2)}u, ${row.roi.toFixed(1)}% ROI`
-      ),
+    bestSegments,
+    worstSegments,
+    leakSignals: [],
+    opportunityReviews: [],
+    opportunityProfile: null
+  });
+
+  return {
+    setup: null,
+    summary,
+    clvInsights: buildClvInsights({
+      summary,
+      settled,
+      byMarket,
+      bySportsbook,
+      byTiming
+    }),
+    bySport,
+    byLeague,
+    byMarket,
+    bySportsbook,
+    byDayOfWeek,
+    byTiming,
+    byWeek,
+    byMonth,
+    trend,
+    recentForm: recentSlices,
+    bestSegments,
+    worstSegments,
     leakSignals: buildLeakSignals({
       byMarket,
       bySportsbook,
       byTiming,
       settled
-    })
+    }),
+    opportunityReviews: buildOpportunityReviews(settled),
+    opportunityProfile
   };
 }
 
@@ -1201,6 +1386,9 @@ async function buildCreatePayload(input: LedgerBetFormInput) {
           : new Date()
         : null,
     source: input.source,
+    externalSourceKey: input.externalSourceKey ?? null,
+    externalSourceId: input.externalSourceId ?? null,
+    externalSourceFingerprint: input.externalSourceFingerprint ?? null,
     betType: input.betType,
     sport: resolvedSport,
     league: resolvedLeague,
@@ -1273,6 +1461,9 @@ export async function createBet(input: LedgerBetFormInput) {
       placedAt: payload.placedAt,
       settledAt: payload.settledAt,
       source: payload.source,
+      externalSourceKey: payload.externalSourceKey,
+      externalSourceId: payload.externalSourceId,
+      externalSourceFingerprint: payload.externalSourceFingerprint,
       betType: payload.betType,
       sport: payload.sport,
       league: payload.league,
@@ -1339,6 +1530,9 @@ export async function updateBet(id: string, input: LedgerBetFormInput) {
         placedAt: payload.placedAt,
         settledAt: payload.settledAt,
         source: payload.source,
+        externalSourceKey: payload.externalSourceKey,
+        externalSourceId: payload.externalSourceId,
+        externalSourceFingerprint: payload.externalSourceFingerprint,
         betType: payload.betType,
         sport: payload.sport,
         league: payload.league,
@@ -1469,15 +1663,31 @@ export async function deleteBet(id: string) {
 
 export async function getPerformanceDashboard(): Promise<PerformanceDashboardView> {
   try {
-    const bets = await prisma.bet.findMany({
-      where: {
-        archivedAt: null
-      },
-      include: betInclude,
-      orderBy: {
-        placedAt: "asc"
+    const bets = await withTimeoutFallback(
+      prisma.bet.findMany({
+        where: {
+          archivedAt: null
+        },
+        include: betInclude,
+        orderBy: {
+          placedAt: "asc"
+        }
+      }),
+      {
+        timeoutMs: PERFORMANCE_DASHBOARD_TIMEOUT_MS,
+        fallback: null
       }
-    });
+    );
+
+    if (!bets) {
+      return buildEmptyPerformanceDashboard(
+        buildLedgerSetupState(
+          new Error(
+            "Ledger performance query timed out before the dashboard could render."
+          )
+        )
+      );
+    }
 
     return buildPerformanceDashboardData(bets.map(mapBetView));
   } catch (error) {

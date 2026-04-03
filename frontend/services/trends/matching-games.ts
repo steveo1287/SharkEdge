@@ -19,6 +19,8 @@ const SUPPORTED_TREND_LEAGUES: LeagueKey[] = [
   "BOXING"
 ];
 
+const TREND_MATCH_LOOKAHEAD_HOURS = 72;
+
 function normalizeText(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
 }
@@ -153,15 +155,15 @@ export async function getTodayTrendMatches(filters: TrendFilters): Promise<{
       matches: [],
       note:
         filters.side === "FAVORITE" || filters.side === "UNDERDOG"
-          ? "Today matching games cannot honestly validate favorite or underdog filters yet because live market-side classification is not normalized into the event matcher."
-          : "Player-only trend matches need linked team or prop context before SharkEdge can map them to today's schedule honestly."
+          ? "Live or upcoming matching games cannot honestly validate favorite or underdog filters yet because market-side classification is not normalized into the event matcher."
+          : "Player-only trend matches need linked team or prop context before SharkEdge can map them to the next slate honestly."
     };
   }
 
   await ensureFreshEvents(targetLeagues);
 
   const now = new Date();
-  const max = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const max = new Date(now.getTime() + TREND_MATCH_LOOKAHEAD_HOURS * 60 * 60 * 1000);
 
   const events = await prisma.event.findMany({
     where: {

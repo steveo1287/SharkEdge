@@ -17,7 +17,7 @@ const DEFAULT_FILTERS: TrendFilters = {
   fighter: "",
   opponent: "",
   window: "90d",
-  sample: 5
+  sample: 10
 };
 
 type EngineFilter = Partial<TrendFilters>;
@@ -38,10 +38,12 @@ export type TrendEngineResult = {
   title: string;
   hitRate: number | null;
   roi: number | null;
+  profitUnits: number | null;
   sampleSize: number;
   wins: number;
   losses: number;
   pushes: number;
+  streak: string | null;
   confidence: TrendConfidence;
   warning: string | null;
   dateRange: string;
@@ -124,6 +126,22 @@ function normalizeText(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
 }
 
+function isTrendPayloadStale(scope: string, payload: unknown) {
+  if (
+    !["ats", "ou", "favorite-roi", "underdog-roi", "clv", "line-movement", "recent-form"].includes(
+      scope
+    )
+  ) {
+    return false;
+  }
+
+  if (!payload || typeof payload !== "object") {
+    return true;
+  }
+
+  return !Object.prototype.hasOwnProperty.call(payload, "streak");
+}
+
 function getWindowStart(window: TrendFilters["window"]) {
   if (window === "all") return null;
   const days = window === "30d" ? 30 : window === "90d" ? 90 : 365;
@@ -168,28 +186,57 @@ function getProfitFromAmericanOdds(odds: number) {
   return odds > 0 ? odds / 100 : 100 / Math.abs(odds);
 }
 
+function computeStreak(outcomes: Array<"WIN" | "LOSS" | "PUSH">) {
+  const leader = outcomes.find((outcome) => outcome === "WIN" || outcome === "LOSS" || outcome === "PUSH");
+  if (!leader) {
+    return null;
+  }
+
+  let length = 0;
+  for (const outcome of outcomes) {
+    if (outcome !== leader) {
+      break;
+    }
+    length += 1;
+  }
+
+  const prefix = leader === "WIN" ? "W" : leader === "LOSS" ? "L" : "P";
+  return `${prefix}${length}`;
+}
+
 function computeStats(outcomes: Array<"WIN" | "LOSS" | "PUSH">, odds: number[] = []) {
   const wins = outcomes.filter((entry) => entry === "WIN").length;
   const losses = outcomes.filter((entry) => entry === "LOSS").length;
   const pushes = outcomes.filter((entry) => entry === "PUSH").length;
   const sampleSize = outcomes.length;
   const hitRate = sampleSize ? Number(((wins / sampleSize) * 100).toFixed(1)) : null;
-  const roi =
+  const profitUnits =
     sampleSize && odds.length === sampleSize
       ? Number(
-          (
-            outcomes.reduce((total, outcome, index) => {
+          outcomes
+            .reduce((total, outcome, index) => {
               if (outcome === "WIN") return total + getProfitFromAmericanOdds(odds[index] ?? -110);
               if (outcome === "LOSS") return total - 1;
               return total;
-            }, 0) /
-            sampleSize *
-            100
-          ).toFixed(1)
+            }, 0)
+            .toFixed(2)
         )
       : null;
+  const roi =
+    typeof profitUnits === "number" && sampleSize
+      ? Number(((profitUnits / sampleSize) * 100).toFixed(1))
+      : null;
 
-  return { sampleSize, wins, losses, pushes, hitRate, roi };
+  return {
+    sampleSize,
+    wins,
+    losses,
+    pushes,
+    streak: computeStreak(outcomes),
+    hitRate,
+    profitUnits,
+    roi
+  };
 }
 
 async function withTrendCache<T>(scope: string, filters: TrendFilters, build: () => Promise<T>): Promise<CachedValue<T>> {
@@ -198,7 +245,7 @@ async function withTrendCache<T>(scope: string, filters: TrendFilters, build: ()
 
   try {
     const cached = await prisma.trendCache.findUnique({ where: { cacheKey } });
-    if (cached && cached.expiresAt > now) {
+    if (cached && cached.expiresAt > now && !isTrendPayloadStale(scope, cached.payloadJson)) {
       return { cached: true, value: cached.payloadJson as T };
     }
   } catch {}
@@ -508,8 +555,7 @@ async function fetchRecentFormRows(filters: TrendFilters): Promise<RecentFormRow
 
 async function getTodayMatchingGames(filters: TrendFilters): Promise<TodayTrendMatch[]> {
   const now = new Date();
-  const end = new Date(now);
-  end.setHours(23, 59, 59, 999);
+  const end = new Date(now.getTime() + 72 * 60 * 60 * 1000);
 
   const events = await prisma.event.findMany({
     where: {
@@ -578,10 +624,12 @@ function emptyTrend(id: string, title: string, filters: TrendFilters, warning: s
       title,
       hitRate: null,
       roi: null,
+      profitUnits: null,
       sampleSize: 0,
       wins: 0,
       losses: 0,
       pushes: 0,
+      streak: null,
       confidence: "insufficient",
       warning,
       dateRange: formatDateRange(filters),
@@ -701,10 +749,12 @@ export async function getCLVTrend(rawFilters?: EngineFilter | null): Promise<Cac
       return {
         hitRate: averageClv,
         roi: null,
+        profitUnits: null,
         sampleSize: rows.length,
         wins: rows.filter((row) => (row.clvPercentage ?? 0) > 0).length,
         losses: rows.filter((row) => (row.clvPercentage ?? 0) < 0).length,
         pushes: rows.filter((row) => (row.clvPercentage ?? 0) === 0).length,
+        streak: null,
         extra: { averageClv }
       };
     });
@@ -732,10 +782,12 @@ export async function getLineMovement(rawFilters?: EngineFilter | null): Promise
       return {
         hitRate: null,
         roi: null,
+        profitUnits: null,
         sampleSize: rows.length,
         wins: 0,
         losses: 0,
         pushes: 0,
+        streak: null,
         extra: { averageMovement }
       };
     });
@@ -819,7 +871,7 @@ export async function getMatchupTrendCards(args: {
           league: args.leagueKey,
           team: subject,
           subject,
-          sample: 5,
+          sample: 10,
           window: "365d"
         });
 
@@ -911,7 +963,7 @@ export async function getMatchupTrendCards(args: {
 
     if (result.warning) {
       return matchesToday
-        ? `${result.warning} This matchup is one of today’s live matches for ${subject}.`
+        ? `${result.warning} This matchup is one of today's live matches for ${subject}.`
         : result.warning;
     }
 
@@ -924,6 +976,25 @@ export async function getMatchupTrendCards(args: {
     }
 
     return record;
+  }
+
+  function formatMatchupTrendTitle(subject: string, result: TrendEngineResult) {
+    switch (result.id) {
+      case "recent-form":
+        return `${subject} recent form`;
+      case "favorite-roi":
+        return `${subject} as favorite`;
+      case "underdog-roi":
+        return `${subject} as underdog`;
+      case "ats":
+        return `${subject} against the spread`;
+      case "ou":
+        return `${subject} totals profile`;
+      case "line-movement":
+        return `${subject} line movement`;
+      default:
+        return `${subject} ${result.title}`;
+    }
   }
 
   const rankedCards = candidateEntries
@@ -947,7 +1018,7 @@ export async function getMatchupTrendCards(args: {
 
       return {
         id: `${args.leagueKey}-${normalizeText(entry.subject)}-${result.id}`,
-        title: `${entry.subject} ${result.title}`,
+        title: formatMatchupTrendTitle(entry.subject, result),
         value: formatTrendValue(result),
         note: formatTrendNote(entry.subject, result),
         href: `/trends?league=${args.leagueKey}&team=${encodeURIComponent(entry.subject)}`,

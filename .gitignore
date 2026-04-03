@@ -5,3 +5,5 @@
 **/.next
 **/.npm-cache
 **/.npm-cache-build
+
+.vercel

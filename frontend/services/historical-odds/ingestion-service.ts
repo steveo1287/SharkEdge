@@ -18,6 +18,9 @@ const SHARKEDGE_BACKEND_URL =
   process.env.SHARKEDGE_BACKEND_URL?.trim() || "https://shark-odds-1.onrender.com";
 const HISTORICAL_SOURCE_KEY = "oddsharvester_historical" as const;
 const HISTORICAL_BACKEND_TIMEOUT_MS = 90_000;
+const PRE_EVENT_LONG_BUCKET_MINUTES = 30;
+const PRE_EVENT_MEDIUM_BUCKET_MINUTES = 10;
+const PRE_EVENT_TIGHT_BUCKET_MINUTES = 3;
 
 const HISTORICAL_LEAGUE_CONFIG = {
   NBA: {
@@ -426,6 +429,34 @@ function deriveAbbreviation(name: string) {
   return name.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase();
 }
 
+function bucketDate(date: Date, bucketMinutes: number) {
+  const bucketMs = bucketMinutes * 60 * 1000;
+  return new Date(Math.floor(date.getTime() / bucketMs) * bucketMs);
+}
+
+function getSnapshotBucketMinutes(game: HistoricalOddsGame, capturedAt: Date) {
+  if (!game.commence_time) {
+    return PRE_EVENT_MEDIUM_BUCKET_MINUTES;
+  }
+
+  const startTime = new Date(game.commence_time);
+  const diffMinutes = (startTime.getTime() - capturedAt.getTime()) / (60 * 1000);
+
+  if (diffMinutes <= 90) {
+    return PRE_EVENT_TIGHT_BUCKET_MINUTES;
+  }
+
+  if (diffMinutes <= 6 * 60) {
+    return PRE_EVENT_MEDIUM_BUCKET_MINUTES;
+  }
+
+  return PRE_EVENT_LONG_BUCKET_MINUTES;
+}
+
+function getSnapshotBucketCapturedAt(game: HistoricalOddsGame, capturedAt: Date) {
+  return bucketDate(capturedAt, getSnapshotBucketMinutes(game, capturedAt));
+}
+
 function getSupportedHistoricalLeagues() {
   return Object.keys(HISTORICAL_LEAGUE_CONFIG) as SupportedHistoricalLeagueKey[];
 }
@@ -798,6 +829,7 @@ async function upsertHistoricalMarket(
     homeCompetitorId: args.homeCompetitorId
   });
 
+  const bucketCapturedAt = getSnapshotBucketCapturedAt(args.game, args.capturedAt);
   const existing = await tx.eventMarket.findFirst({
     where: {
       eventId: args.eventId,
@@ -851,15 +883,45 @@ async function upsertHistoricalMarket(
         }
       });
 
-  await tx.eventMarketSnapshot.create({
-    data: {
+  const existingSnapshot = await tx.eventMarketSnapshot.findFirst({
+    where: {
       eventMarketId: eventMarket.id,
-      capturedAt: args.capturedAt,
-      line: args.outcome.point ?? null,
-      oddsAmerican: args.outcome.price,
-      impliedProbability: americanToImpliedProbability(args.outcome.price)
+      capturedAt: bucketCapturedAt
+    },
+    select: {
+      id: true,
+      line: true,
+      oddsAmerican: true
     }
   });
+
+  if (existingSnapshot) {
+    if (
+      existingSnapshot.line !== (args.outcome.point ?? null) ||
+      existingSnapshot.oddsAmerican !== args.outcome.price
+    ) {
+      await tx.eventMarketSnapshot.update({
+        where: {
+          id: existingSnapshot.id
+        },
+        data: {
+          line: args.outcome.point ?? null,
+          oddsAmerican: args.outcome.price,
+          impliedProbability: americanToImpliedProbability(args.outcome.price)
+        }
+      });
+    }
+  } else {
+    await tx.eventMarketSnapshot.create({
+      data: {
+        eventMarketId: eventMarket.id,
+        capturedAt: bucketCapturedAt,
+        line: args.outcome.point ?? null,
+        oddsAmerican: args.outcome.price,
+        impliedProbability: americanToImpliedProbability(args.outcome.price)
+      }
+    });
+  }
 
   await refreshHistoricalMarketAnchors(tx, eventMarket.id);
 

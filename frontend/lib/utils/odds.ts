@@ -1,28 +1,32 @@
-export function americanToImpliedProbability(odds: number) {
-  if (odds === 0) {
-    return 0;
-  }
+import {
+  americanToDecimalOdds,
+  americanToImpliedProbability,
+  calculateBreakEvenProbability
+} from "@/lib/math";
 
-  if (odds > 0) {
-    return 100 / (odds + 100);
-  }
-
-  return Math.abs(odds) / (Math.abs(odds) + 100);
+export function americanToImpliedProbabilityLegacy(odds: number) {
+  return americanToImpliedProbability(odds) ?? 0;
 }
 
-export function americanToDecimal(odds: number) {
-  if (odds > 0) {
-    return 1 + odds / 100;
-  }
+export { americanToImpliedProbabilityLegacy as americanToImpliedProbability };
 
-  return 1 + 100 / Math.abs(odds);
+export function americanToDecimal(odds: number) {
+  return americanToDecimalOdds(odds) ?? 1;
 }
 
 export function calculateToWin(stake: number, odds: number) {
-  const decimal = americanToDecimal(odds);
-  return Number((stake * (decimal - 1)).toFixed(2));
+  if (!Number.isFinite(stake) || !Number.isFinite(odds) || stake <= 0 || odds === 0) {
+    return 0;
+  }
+
+  return odds > 0 ? Number(((stake * odds) / 100).toFixed(2)) : Number(((stake * 100) / Math.abs(odds)).toFixed(2));
 }
 
 export function calculatePotentialPayout(stake: number, odds: number) {
   return Number((stake + calculateToWin(stake, odds)).toFixed(2));
+}
+
+export function impliedProbabilityToBreakEvenPct(odds: number) {
+  const probability = calculateBreakEvenProbability(odds);
+  return typeof probability === "number" ? Number((probability * 100).toFixed(2)) : 0;
 }

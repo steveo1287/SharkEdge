@@ -6,12 +6,13 @@ const LIVE_BACKEND_URL =
   process.env.SHARKEDGE_BACKEND_URL?.trim() || "https://shark-odds-1.onrender.com";
 
 const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
+const BACKEND_PROVIDER_TIMEOUT_MS = 2_500;
 
 async function fetchBackendJson<T>(path: string) {
   try {
     const response = await fetch(`${LIVE_BACKEND_URL}${path}`, {
       cache: "no-store",
-      signal: AbortSignal.timeout(15000)
+      signal: AbortSignal.timeout(BACKEND_PROVIDER_TIMEOUT_MS)
     });
 
     if (!response.ok) {

@@ -1,4 +1,5 @@
 import type { SupportedLeagueKey } from "@/lib/types/ledger";
+import { importFreeHistoricalWarehouse } from "@/services/historical-warehouse/free-sources-service";
 import { backfillHistoricalEventCatalog } from "@/services/historical-odds/catalog-backfill-service";
 import { backfillHistoricalIntelligence } from "@/services/historical-odds/backfill-service";
 import { ingestHistoricalOddsSnapshots } from "@/services/historical-odds/ingestion-service";
@@ -16,6 +17,11 @@ async function main() {
     .filter(Boolean) as SupportedLeagueKey[] | undefined;
   const daysRaw = readArg("--days");
   const days = daysRaw ? Number(daysRaw) : undefined;
+
+  const freeWarehouseResult = await importFreeHistoricalWarehouse({
+    leagues,
+    days: Number.isFinite(days) ? days : undefined
+  });
 
   const catalogResult = await backfillHistoricalEventCatalog({
     leagues,
@@ -58,6 +64,7 @@ async function main() {
   console.info(
     JSON.stringify(
       {
+        freeWarehouseResult,
         catalogResult,
         oddsResults,
         intelligenceResults

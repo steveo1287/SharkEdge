@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { SectionTitle } from "@/components/ui/section-title";
 import { formatLongDate } from "@/lib/formatters/date";
 import type { LeagueSnapshotView } from "@/lib/types/domain";
+import { buildInternalStoryHref } from "@/lib/utils/stories";
 
 type LeagueSnapshotProps = {
   snapshot: LeagueSnapshotView;
@@ -113,20 +114,48 @@ function LeagueNewsRail({ snapshot }: LeagueSnapshotProps) {
       {snapshot.newsItems.map((item) => (
         <Link
           key={item.id}
-          href={item.href ?? "#"}
-          className="rounded-2xl border border-line bg-slate-950/65 px-4 py-4 transition hover:border-sky-400/30 hover:bg-slate-900/80"
+          href={buildInternalStoryHref({
+            leagueKey: snapshot.league.key,
+            id: item.id,
+            title: item.title,
+            summary: item.summary,
+            category: item.category,
+            imageUrl: item.imageUrl,
+            publishedAt: item.publishedAt,
+            sourceUrl: item.href,
+            eventId: item.eventId,
+            eventHref: item.eventHref,
+            eventLabel: item.eventLabel,
+            awayTeam: item.boxscore?.awayTeam,
+            homeTeam: item.boxscore?.homeTeam,
+            awayScore: item.boxscore?.awayScore ?? null,
+            homeScore: item.boxscore?.homeScore ?? null
+          })}
+          className="overflow-hidden rounded-2xl border border-line bg-slate-950/65 transition hover:border-sky-400/30 hover:bg-slate-900/80"
         >
-          <div className="flex items-start justify-between gap-3">
-            <div className="text-xs uppercase tracking-[0.18em] text-sky-300">
-              {item.category ?? `${snapshot.league.key} update`}
+          {item.imageUrl ? (
+            <div className="aspect-[16/8] w-full overflow-hidden border-b border-line/70 bg-slate-900/80">
+              <img
+                src={item.imageUrl}
+                alt={item.title}
+                className="h-full w-full object-cover"
+                loading="lazy"
+              />
             </div>
-            <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-              {item.publishedAt ? formatLongDate(item.publishedAt) : "Current"}
+          ) : null}
+          <div className="px-4 py-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="text-xs uppercase tracking-[0.18em] text-sky-300">
+                {item.category ?? `${snapshot.league.key} update`}
+              </div>
+              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                {item.publishedAt ? formatLongDate(item.publishedAt) : "Current"}
+              </div>
             </div>
-          </div>
-          <div className="mt-3 text-sm font-medium leading-6 text-white">{item.title}</div>
-          <div className="mt-2 text-sm leading-6 text-slate-400">
-            {item.summary ?? "Open for the full update."}
+            <div className="mt-3 text-sm font-medium leading-6 text-white">{item.title}</div>
+            <div className="mt-2 text-sm leading-6 text-slate-400">
+              {item.summary ?? "Open for the full update."}
+            </div>
           </div>
         </Link>
       ))}
@@ -141,12 +170,12 @@ export function LeagueSnapshot({ snapshot }: LeagueSnapshotProps) {
   const previousCount = snapshot.previousGames.length;
 
   return (
-    <Card className="p-5">
+    <Card className="surface-panel p-5">
       <SectionTitle
-        title={`${snapshot.league.key} Pulse`}
+        title={`${snapshot.league.key} snapshot`}
         description={
           snapshot.note ??
-          "Standings, current matchups, and league-aware context pulled from the live stats provider when available."
+          "Standings, current matchups, and league context pulled from the live stats provider when available."
         }
       />
 
@@ -157,17 +186,17 @@ export function LeagueSnapshot({ snapshot }: LeagueSnapshotProps) {
       ) : null}
 
       <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <div className="rounded-2xl border border-line bg-slate-950/65 px-4 py-3">
+          <div className="rounded-[1.4rem] border border-white/8 bg-slate-950/65 px-4 py-3">
           <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Featured</div>
           <div className="mt-2 text-xl font-semibold text-white">{featuredCount}</div>
           <div className="mt-1 text-xs text-slate-400">Real matchup cards in the current pulse window.</div>
         </div>
-        <div className="rounded-2xl border border-line bg-slate-950/65 px-4 py-3">
+          <div className="rounded-[1.4rem] border border-white/8 bg-slate-950/65 px-4 py-3">
           <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Live Now</div>
           <div className="mt-2 text-xl font-semibold text-white">{liveCount}</div>
           <div className="mt-1 text-xs text-slate-400">Only current provider-returned live states.</div>
         </div>
-        <div className="rounded-2xl border border-line bg-slate-950/65 px-4 py-3">
+          <div className="rounded-[1.4rem] border border-white/8 bg-slate-950/65 px-4 py-3">
           <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Completed</div>
           <div className="mt-2 text-xl font-semibold text-white">{previousCount}</div>
           <div className="mt-1 text-xs text-slate-400">
@@ -176,7 +205,7 @@ export function LeagueSnapshot({ snapshot }: LeagueSnapshotProps) {
         </div>
       </div>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="mt-5 grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
         <div className="grid gap-4">
           {snapshot.seasonState !== "OFFSEASON" ? (
             <FeaturedGamesGrid snapshot={snapshot} />
@@ -187,7 +216,7 @@ export function LeagueSnapshot({ snapshot }: LeagueSnapshotProps) {
               {snapshot.standings.slice(0, 4).map((row) => (
                 <div
                   key={row.team.id}
-                  className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 rounded-2xl border border-line bg-slate-950/65 px-4 py-3"
+                  className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 rounded-[1.2rem] border border-white/8 bg-slate-950/65 px-4 py-3"
                 >
                   <div className="font-display text-xl text-slate-300">{row.rank}</div>
                   <div>
@@ -205,25 +234,8 @@ export function LeagueSnapshot({ snapshot }: LeagueSnapshotProps) {
           ) : null}
 
           {snapshot.seasonState !== "OFFSEASON" && snapshot.previousGames.length ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              {snapshot.previousGames.slice(0, 4).map((game) => (
-                <div
-                  key={game.id}
-                  className="rounded-2xl border border-line bg-slate-950/65 px-4 py-3"
-                >
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                    {formatLongDate(game.playedAt)}
-                  </div>
-                  <div className="mt-3 flex items-center justify-between gap-4 text-sm">
-                    <div className="text-slate-300">
-                      {game.awayTeam.abbreviation} <span className="text-white">{game.awayScore}</span>
-                    </div>
-                    <div className="text-slate-300">
-                      {game.homeTeam.abbreviation} <span className="text-white">{game.homeScore}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className="rounded-[1.2rem] border border-white/8 bg-slate-950/65 px-4 py-4 text-sm leading-7 text-slate-400">
+              {snapshot.previousGames.length} recent results are tracked, but this desk stays focused on standings, games, and current league context.
             </div>
           ) : null}
         </div>

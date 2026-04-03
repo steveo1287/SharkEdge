@@ -33,6 +33,22 @@ function getResultTone(result: LedgerBetView["result"]) {
   return "muted" as const;
 }
 
+function getClvLabel(clv: number | null) {
+  if (typeof clv !== "number") {
+    return "CLV unavailable";
+  }
+
+  if (clv > 0) {
+    return "Beat the close";
+  }
+
+  if (clv < 0) {
+    return "Behind the close";
+  }
+
+  return "Flat to close";
+}
+
 export function BetTable({
   bets,
   onEdit,
@@ -52,7 +68,7 @@ export function BetTable({
                   timeStyle: "short"
                 })}
               </div>
-              <div className="mt-2 font-display text-2xl font-semibold text-white">
+              <div className="mt-2 line-clamp-2 font-display text-2xl font-semibold text-white">
                 {bet.eventLabel ?? bet.selection}
               </div>
               <div className="mt-2 text-sm text-slate-400">
@@ -123,6 +139,9 @@ export function BetTable({
               </div>
               <div className="mt-1 text-xs text-slate-500">
                 {bet.closingLine === null ? "Line unavailable" : `Line ${formatLine(bet.closingLine)}`}
+              </div>
+              <div className="mt-2 text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
+                {getClvLabel(bet.clvPercentage)}
               </div>
             </div>
           </div>

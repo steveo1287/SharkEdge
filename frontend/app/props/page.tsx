@@ -1,13 +1,19 @@
-import type { PropMarketType } from "@/lib/types/domain";
+import Link from "next/link";
+
+import {
+  PropsDeskSections,
+  getCoverageTone,
+  getProviderHealthTone,
+  sortPropsByPriority
+} from "@/app/_components/props-desk-sections";
+import { BetSlipBoundary } from "@/components/bets/bet-slip-boundary";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
-import { StatCard } from "@/components/ui/stat-card";
 import { PropsTable } from "@/components/props/props-table";
 import { BOARD_SPORTS } from "@/lib/config/board-sports";
-import { formatMarketType } from "@/lib/formatters/odds";
-import { parsePropsFilters, getPropsExplorerData } from "@/services/odds/odds-service";
+import type { PropMarketType } from "@/lib/types/domain";
 
 export const dynamic = "force-dynamic";
 
@@ -15,82 +21,149 @@ type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-function getTone(status: string) {
-  if (status === "LIVE") {
-    return "success" as const;
-  }
-
-  if (status === "PARTIAL") {
-    return "premium" as const;
-  }
-
-  return "muted" as const;
-}
-
 export default async function PropsPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
-  const filters = parsePropsFilters(resolved);
-  const data = await getPropsExplorerData(filters);
+  const propsService = await import("@/services/odds/props-service");
+  const filters = propsService.parsePropsFilters(resolved);
+  const data = await propsService.getPropsExplorerData(filters);
+  const selectedLeague =
+    filters.league === "ALL"
+      ? null
+      : data.leagues.find((league) => league.key === filters.league) ?? null;
+  const leagueTeams = selectedLeague
+    ? data.teams.filter((team) => team.leagueId === selectedLeague.id)
+    : data.teams;
+  const leaguePlayers = selectedLeague
+    ? data.players.filter((player) => player.leagueId === selectedLeague.id)
+    : data.players;
   const liveCoverageCount = data.coverage.filter((entry: any) => entry.status === "LIVE").length;
   const partialCoverageCount = data.coverage.filter((entry: any) => entry.status === "PARTIAL").length;
-  const comingSoonCoverageCount = data.coverage.filter(
-    (entry: any) => entry.status === "COMING_SOON"
-  ).length;
+  const comingSoonCoverageCount = data.coverage.filter((entry: any) => entry.status === "COMING_SOON").length;
   const realBookCount = data.sportsbooks.length;
+  const selectedLeagueLabel = selectedLeague?.name ?? "All sports";
+  const rankedProps = sortPropsByPriority(data.props);
+  const featuredProps = rankedProps.slice(0, 3);
+  const watchlistProps = rankedProps.slice(3, 9);
 
   return (
-    <div className="grid gap-6">
-      <SectionTitle
-        title="Props Explorer"
-        description="Every target sport is visible in the filter model. Real prop rows only render where a real market adapter exists, and unsupported sports stay visible with explicit provider states."
-      />
-
-      <Card className="p-4 text-sm leading-7 text-slate-400">{data.sourceNote}</Card>
-
-      <Card className="grid gap-3 p-5 xl:grid-cols-[1.2fr_0.8fr]">
-        <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-sky-300">Coverage Map</div>
-          <div className="mt-3 font-display text-2xl font-semibold text-white">
-            Real props where the adapter is live, honest visibility everywhere else.
+    <BetSlipBoundary>
+      <div className="grid gap-6">
+      <Card className="overflow-hidden border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.16),_transparent_34%),linear-gradient(145deg,_rgba(4,10,19,0.98),_rgba(8,19,32,0.96))] p-6 xl:p-8">
+        <div className="grid gap-6 xl:grid-cols-[1.12fr_0.88fr]">
+          <div>
+            <div className="text-xs uppercase tracking-[0.24em] text-sky-300">Prop lab</div>
+            <div className="mt-4 font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">
+              Price first. Confidence second. Everything else after that.
+            </div>
+            <p className="mt-4 max-w-3xl text-base leading-8 text-slate-300">
+              The prop desk should feel like a hunt, not a spreadsheet accident. Best-supported entries rise first. Lower-conviction rows stay visible, but they do not get to masquerade as top plays.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <a
+                href="#open-now"
+                className="rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-sky-200"
+              >
+                Open now
+              </a>
+              <a
+                href="#watchlist"
+                className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-200"
+              >
+                Watchlist desk
+              </a>
+              <a
+                href="#prop-board"
+                className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-200"
+              >
+                Full board
+              </a>
+            </div>
           </div>
-          <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-400">
-            NBA and NCAAB remain the deepest live prop surfaces right now. The rest of the sport
-            shell stays visible with explicit support states, matchup links, and market notes
-            instead of fake empty rows.
-          </p>
-        </div>
-        <div className="grid gap-2 rounded-2xl border border-line bg-slate-950/60 p-4 text-sm text-slate-300">
-          <div>Live prop sports: {liveCoverageCount}</div>
-          <div>Partial prop sports: {partialCoverageCount}</div>
-          <div>Coming soon: {comingSoonCoverageCount}</div>
-          <div>Books in current result set: {realBookCount}</div>
+
+          <div className="grid gap-3 rounded-[1.7rem] border border-white/10 bg-slate-950/65 p-4 text-sm text-slate-300 md:grid-cols-2">
+            <div className="md:col-span-2 flex items-center justify-between gap-3">
+              <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
+                {selectedLeagueLabel} snapshot
+              </div>
+              <Badge tone={getProviderHealthTone(data.providerHealth.state)}>
+                {data.providerHealth.label}
+              </Badge>
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Ranked rows</div>
+              <div className="mt-2 text-2xl font-semibold text-white">{rankedProps.length}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Books</div>
+              <div className="mt-2 text-2xl font-semibold text-white">{realBookCount}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Live sports</div>
+              <div className="mt-2 text-2xl font-semibold text-white">{liveCoverageCount}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Partial / soon</div>
+              <div className="mt-2 text-2xl font-semibold text-white">
+                {partialCoverageCount} / {comingSoonCoverageCount}
+              </div>
+            </div>
+            <div className="md:col-span-2 rounded-[1.1rem] border border-emerald-400/15 bg-emerald-400/8 px-4 py-3 text-sm leading-6 text-emerald-200">
+              The prop page now ranks by actual prop usefulness, not just table order.
+            </div>
+            <div className="md:col-span-2 rounded-[1.1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
+              {data.providerHealth.summary}
+            </div>
+            <div className="md:col-span-2 flex flex-wrap gap-2 text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
+              <span>{data.providerHealth.freshnessLabel}</span>
+              {typeof data.providerHealth.freshnessMinutes === "number" ? (
+                <span>{data.providerHealth.freshnessMinutes}m old</span>
+              ) : null}
+              {data.providerHealth.warnings.length ? (
+                <span>
+                  {data.providerHealth.warnings.length} warning
+                  {data.providerHealth.warnings.length === 1 ? "" : "s"}
+                </span>
+              ) : null}
+            </div>
+            <div className="md:col-span-2 text-xs leading-6 text-slate-500">{data.sourceNote}</div>
+          </div>
         </div>
       </Card>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Live Props"
-          value={`${data.props.length}`}
-          note="Rows currently matching this real filter set"
-        />
-        <StatCard
-          label="Coverage Live"
-          value={`${liveCoverageCount}`}
-          note="Sports with a real prop adapter"
-        />
-        <StatCard
-          label="Coverage Partial"
-          value={`${partialCoverageCount}`}
-          note="Visible in the filter model without fake rows"
-        />
-        <StatCard
-          label="Books"
-          value={`${realBookCount}`}
-          note={data.source === "live" ? "Books represented in the returned rows" : "Live book count returns once a prop adapter responds"}
-        />
+        <Card className="surface-panel p-5">
+          <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Scope</div>
+          <div className="mt-3 font-display text-3xl font-semibold text-white">{selectedLeagueLabel}</div>
+          <div className="mt-2 text-sm leading-6 text-slate-400">
+            Stay broad until you have a reason to narrow the prop hunt.
+          </div>
+        </Card>
+        <Card className="surface-panel p-5">
+          <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Open now</div>
+          <div className="mt-3 font-display text-3xl font-semibold text-white">{featuredProps.length}</div>
+          <div className="mt-2 text-sm leading-6 text-slate-400">
+            These are the props that currently deserve first attention.
+          </div>
+        </Card>
+        <Card className="surface-panel p-5">
+          <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Watchlist</div>
+          <div className="mt-3 font-display text-3xl font-semibold text-white">{watchlistProps.length}</div>
+          <div className="mt-2 text-sm leading-6 text-slate-400">
+            Still worth tracking, but not the first rows you should click.
+          </div>
+        </Card>
+        <Card className="surface-panel p-5">
+          <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Books tracked</div>
+          <div className="mt-3 font-display text-3xl font-semibold text-white">{realBookCount}</div>
+          <div className="mt-2 text-sm leading-6 text-slate-400">
+            Best-price comparison stays visible even when market depth thins out.
+          </div>
+        </Card>
       </div>
 
-      <Card className="p-4">
+      <PropsDeskSections featuredProps={featuredProps} watchlistProps={watchlistProps} />
+
+      <Card className="surface-panel p-4">
         <form className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
           <select
             name="league"
@@ -125,7 +198,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
             className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
           >
             <option value="all">All teams / camps</option>
-            {data.teams.map((team) => (
+            {leagueTeams.map((team) => (
               <option key={team.id} value={team.id}>
                 {team.abbreviation}
               </option>
@@ -137,7 +210,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
             className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
           >
             <option value="all">All players / fighters</option>
-            {data.players.map((player) => (
+            {leaguePlayers.map((player) => (
               <option key={player.id} value={player.id}>
                 {player.name}
               </option>
@@ -188,39 +261,40 @@ export default async function PropsPage({ searchParams }: PageProps) {
         </form>
       </Card>
 
+      <section id="prop-board" className="grid gap-4">
+        <SectionTitle
+          eyebrow="Full board"
+          title="Everything still on the desk"
+          description="Full comparison still lives here after the priority desks do the sorting work."
+        />
+
+        {rankedProps.length ? (
+          <PropsTable props={rankedProps} />
+        ) : (
+          <EmptyState
+            title="No real props match this filter set"
+            description="That usually means this exact league, player, team, book, or market combination is not available in the live feed or stored rows right now."
+          />
+        )}
+      </section>
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {data.coverage.map((entry: any) => (
-          <Card key={entry.leagueKey} className="p-5">
+          <Card key={entry.leagueKey} className="surface-panel p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Props</div>
-                <div className="mt-2 font-display text-2xl font-semibold text-white">
-                  {BOARD_SPORTS.find((sport) => sport.leagueKey === entry.leagueKey)?.leagueLabel ??
-                    entry.leagueKey}
+                <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">
+                  {entry.leagueKey}
                 </div>
+                <div className="mt-2 text-xl font-semibold text-white">{entry.supportLabel}</div>
               </div>
-              <Badge tone={getTone(entry.status)}>{entry.status}</Badge>
+              <Badge tone={getCoverageTone(entry.status)}>{entry.status}</Badge>
             </div>
-            <div className="mt-3 text-sm leading-7 text-slate-400">{entry.note}</div>
-            <div className="mt-3 text-xs leading-6 text-slate-500">
-              {entry.supportedMarkets.length
-                ? entry.supportedMarkets
-                    .map((market: PropMarketType) => formatMarketType(market))
-                    .join(", ")
-                : "No real prop markets wired yet."}
-            </div>
+            <div className="mt-4 text-sm leading-6 text-slate-400">{entry.note}</div>
           </Card>
         ))}
       </div>
-
-      {data.props.length ? (
-        <PropsTable props={data.props} />
-      ) : (
-        <EmptyState
-          title="No real props match this filter set"
-          description="That can mean the selected sport is PARTIAL or COMING SOON, or the current live props adapter does not have markets for this player, team, book, or market combination."
-        />
-      )}
-    </div>
+      </div>
+    </BetSlipBoundary>
   );
 }

@@ -5,14 +5,15 @@
 :root {
   color-scheme: dark;
   --brand-ink: #04070d;
-  --brand-abyss: #08101b;
-  --brand-panel: #111c2f;
-  --brand-line: #1c2b44;
-  --brand-blue: #3796ff;
-  --brand-blue-deep: #18335f;
-  --brand-gold: #c6a55b;
-  --brand-text: #eef4ff;
-  --brand-muted: #8ca0c1;
+  --brand-abyss: #07111c;
+  --brand-panel: #0d1828;
+  --brand-panel-strong: #0a1320;
+  --brand-line: #1a2a40;
+  --brand-blue: #44a4ff;
+  --brand-blue-deep: #18355f;
+  --brand-gold: #d1ac63;
+  --brand-text: #f2f7ff;
+  --brand-muted: #90a3c0;
   --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --font-display: "Space Grotesk", "Aptos", "Segoe UI", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", "SFMono-Regular", "Consolas", monospace;
@@ -21,20 +22,23 @@
 html {
   min-height: 100%;
   background:
-    radial-gradient(circle at top right, rgba(54, 150, 255, 0.2), transparent 28%),
-    radial-gradient(circle at bottom left, rgba(198, 165, 91, 0.08), transparent 22%),
-    linear-gradient(180deg, var(--brand-ink) 0%, var(--brand-abyss) 44%, #0b1521 100%);
+    radial-gradient(circle at 15% 0%, rgba(68, 164, 255, 0.14), transparent 24%),
+    radial-gradient(circle at 100% 10%, rgba(209, 172, 99, 0.08), transparent 22%),
+    linear-gradient(180deg, #03070d 0%, #07111b 42%, #09131e 100%);
 }
 
 body {
   min-height: 100vh;
   margin: 0;
-  background:
-    radial-gradient(circle at top, rgba(54, 150, 255, 0.14), transparent 30%),
-    radial-gradient(circle at bottom, rgba(198, 165, 91, 0.05), transparent 24%),
-    linear-gradient(180deg, var(--brand-ink) 0%, var(--brand-abyss) 44%, #0b1521 100%);
   color: var(--brand-text);
   font-family: var(--font-body), system-ui, sans-serif;
+  background:
+    linear-gradient(rgba(56, 86, 140, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 86, 140, 0.08) 1px, transparent 1px),
+    radial-gradient(circle at top, rgba(68, 164, 255, 0.08), transparent 28%),
+    linear-gradient(180deg, #03070d 0%, #07111b 42%, #09131e 100%);
+  background-size: 44px 44px, 44px 44px, auto, auto;
+  background-position: center top, center top, center top, center top;
 }
 
 * {
@@ -54,18 +58,98 @@ textarea {
 }
 
 ::selection {
-  background: rgba(55, 150, 255, 0.28);
+  background: rgba(68, 164, 255, 0.28);
   color: #f8fbff;
 }
 
 .app-shell-grid {
-  background-image:
-    radial-gradient(circle at top, rgba(198, 165, 91, 0.08), transparent 26%),
-    radial-gradient(circle at 85% 0%, rgba(55, 150, 255, 0.1), transparent 24%);
+  background:
+    radial-gradient(circle at top, rgba(68, 164, 255, 0.04), transparent 26%),
+    radial-gradient(circle at bottom right, rgba(209, 172, 99, 0.04), transparent 20%);
+}
+
+.workspace-frame {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(7, 17, 28, 0.92);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(24px);
+}
+
+@media (min-width: 1280px) {
+  .workspace-frame {
+    border-radius: 2rem;
+  }
+}
+
+.workspace-frame::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.025), transparent 14%),
+    radial-gradient(circle at top right, rgba(68,164,255,0.09), transparent 22%);
+}
+
+.workspace-main {
+  @apply relative min-w-0 flex-1;
 }
 
 .panel {
-  @apply rounded-2xl border border-line/90 bg-panel/90 shadow-panel backdrop-blur;
+  @apply rounded-[1.45rem];
+  border: 1px solid rgba(28, 43, 68, 0.8);
+  background: rgba(17, 28, 47, 0.9);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(12px);
+}
+
+.page-shell {
+  @apply mx-auto grid w-full max-w-[1560px] gap-8 px-4 pb-20 pt-6 md:px-6 xl:px-8;
+}
+
+.surface-panel {
+  @apply rounded-[1.45rem];
+  border: 1px solid rgba(28, 43, 68, 0.8);
+  background: rgba(11, 21, 36, 0.88);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(12px);
+}
+
+.surface-panel-strong {
+  @apply rounded-[1.7rem];
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 19, 31, 0.92);
+  box-shadow: 0 20px 70px rgba(2, 6, 23, 0.36);
+  backdrop-filter: blur(12px);
+}
+
+.surface-panel-muted {
+  @apply rounded-[1.3rem];
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 19, 31, 0.7);
+}
+
+.metric-tile {
+  @apply rounded-[1.25rem] px-4 py-4;
+  border: 1px solid rgba(28, 43, 68, 0.7);
+  background: rgba(2, 6, 23, 0.65);
+}
+
+.section-kicker {
+  @apply text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-sky-300;
+}
+
+.terminal-rule {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(68, 164, 255, 0.4), transparent);
+}
+
+.data-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.85rem;
 }
 
 .table-scroll {

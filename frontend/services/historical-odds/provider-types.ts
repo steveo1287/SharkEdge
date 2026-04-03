@@ -68,7 +68,7 @@ export type HistoricalOddsIngestionResult = {
 export interface HistoricalOddsIngestionProvider {
   key: string;
   label: string;
-  sourceType: "HARVESTED_HISTORICAL";
+  sourceType: "HARVESTED_HISTORICAL" | "VENDOR_API";
   supportsLeague(leagueKey: LeagueKey): boolean;
   capabilities: HistoricalOddsCapability;
   describe(): string;

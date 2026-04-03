@@ -1,388 +1,416 @@
 import Link from "next/link";
-
-import { BoardFilterBar } from "@/components/board/filter-bar";
-import { LeagueSnapshot } from "@/components/board/league-snapshot";
-import { SportSection } from "@/components/board/sport-section";
-import { SportSupportGrid } from "@/components/board/sport-support-grid";
-import { TopPlaysPanel } from "@/components/board/top-plays-panel";
-import { Card } from "@/components/ui/card";
-import { EmptyState } from "@/components/ui/empty-state";
-import { SectionTitle } from "@/components/ui/section-title";
-import { getATSTrend, getFavoriteROI, getOUTrend } from "@/lib/trends/engine";
-import { formatGameDateTime } from "@/lib/formatters/date";
 import {
-  getBoardPageData,
-  getTopPlayCards,
-  parseBoardFilters
-} from "@/services/odds/odds-service";
-
-function formatTrendMetric(value: number | null, suffix = "%") {
-  return typeof value === "number" ? `${value.toFixed(1)}${suffix}` : "Unavailable";
-}
-
-function formatTrendHeadline(card: Awaited<ReturnType<typeof getATSTrend>>["value"]) {
-  if (typeof card.roi === "number") {
-    return `ROI ${card.roi.toFixed(1)}%`;
-  }
-
-  if (typeof card.hitRate === "number") {
-    return `${card.hitRate.toFixed(1)}% hit`;
-  }
-
-  return card.sampleSize ? `${card.sampleSize} rows` : "No sample yet";
-}
-
-function FeaturedBoardRail({
-  games
-}: {
-  games: Awaited<ReturnType<typeof getBoardPageData>>["games"];
-}) {
-  const featuredGames = games.slice(0, 4);
-
-  if (!featuredGames.length) {
-    return (
-      <Card className="p-5 text-sm leading-6 text-slate-400">
-        No full board rows are active in this exact window. SharkEdge keeps the league map and
-        matchup drill-ins visible instead of padding the homepage with fake board depth.
-      </Card>
-    );
-  }
-
-  return (
-    <div className="grid gap-3 md:grid-cols-2">
-      {featuredGames.map((game) => (
-        <Link
-          key={game.id}
-          href={game.detailHref ?? `/game/${game.id}`}
-          className="rounded-2xl border border-line bg-slate-950/70 p-4 transition hover:border-sky-400/30 hover:bg-slate-900/80"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                {game.leagueKey} | {formatGameDateTime(game.startTime)}
-              </div>
-              <div className="mt-2 font-display text-xl text-white">
-                {game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}
-              </div>
-            </div>
-            <div className="text-xs uppercase tracking-[0.18em] text-sky-300">{game.status}</div>
-          </div>
-
-          <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-            <div className="rounded-2xl border border-line/70 bg-slate-900/75 px-3 py-3">
-              <div className="uppercase tracking-[0.18em] text-slate-500">Spread</div>
-              <div className="mt-2 text-sm font-medium text-white">{game.spread.lineLabel}</div>
-              <div className="mt-1 text-slate-400">{game.spread.bestBook}</div>
-            </div>
-            <div className="rounded-2xl border border-line/70 bg-slate-900/75 px-3 py-3">
-              <div className="uppercase tracking-[0.18em] text-slate-500">ML</div>
-              <div className="mt-2 text-sm font-medium text-white">{game.moneyline.lineLabel}</div>
-              <div className="mt-1 text-slate-400">{game.moneyline.bestBook}</div>
-            </div>
-            <div className="rounded-2xl border border-line/70 bg-slate-900/75 px-3 py-3">
-              <div className="uppercase tracking-[0.18em] text-slate-500">Total</div>
-              <div className="mt-2 text-sm font-medium text-white">{game.total.lineLabel}</div>
-              <div className="mt-1 text-slate-400">{game.total.bestBook}</div>
-            </div>
-          </div>
-
-          <div className="mt-4 flex items-center justify-between text-sm">
-            <div className="text-slate-400">{game.bestBookCount} books compared</div>
-            <div className="text-sky-300">Open matchup</div>
-          </div>
-        </Link>
-      ))}
-    </div>
-  );
-}
-
-function TopSignalRail({
-  topPlays,
-  edgePulseCards,
-  edgePulseMatches,
-  games
-}: {
-  topPlays: Awaited<ReturnType<typeof getTopPlayCards>>;
-  edgePulseCards: Array<Awaited<ReturnType<typeof getATSTrend>>["value"]>;
-  edgePulseMatches: Array<Awaited<ReturnType<typeof getATSTrend>>["value"]["todayMatches"][number]>;
-  games: Awaited<ReturnType<typeof getBoardPageData>>["games"];
-}) {
-  return (
-    <div className="grid gap-4">
-      <Card className="p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-xs uppercase tracking-[0.18em] text-sky-300">Top Signals</div>
-            <div className="mt-2 font-display text-2xl font-semibold text-white">
-              {topPlays.length ? `${topPlays.length} actionable props` : "No forced play"}
-            </div>
-            <div className="mt-2 text-sm leading-6 text-slate-400">
-              Only real signals or board-watch context belong here. If the market is flat, SharkEdge
-              says so.
-            </div>
-          </div>
-          <Link href="/props" className="text-sm text-sky-300">
-            Full props
-          </Link>
-        </div>
-
-        <div className="mt-4">
-          {topPlays.length ? (
-            <TopPlaysPanel plays={topPlays.slice(0, 3)} />
-          ) : games.length ? (
-            <div className="grid gap-3">
-              {games.slice(0, 3).map((game) => (
-                <Link
-                  key={game.id}
-                  href={game.detailHref ?? `/game/${game.id}`}
-                  className="rounded-2xl border border-line bg-slate-950/70 px-4 py-4 transition hover:border-sky-400/30 hover:bg-slate-900/80"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                        Board watch
-                      </div>
-                      <div className="mt-2 font-medium text-white">
-                        {game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}
-                      </div>
-                    </div>
-                    <div className="text-sm text-sky-300">{game.edgeScore.label}</div>
-                  </div>
-                  <div className="mt-3 text-sm text-slate-400">
-                    Spread {game.spread.lineLabel} | Total {game.total.lineLabel}
-                  </div>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-line bg-slate-950/70 px-4 py-4 text-sm leading-6 text-slate-400">
-              No qualifying signal or board-watch event is active right now.
-            </div>
-          )}
-        </div>
-      </Card>
-
-      <Card className="p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-xs uppercase tracking-[0.18em] text-sky-300">Trend + Movement</div>
-            <div className="mt-2 font-display text-2xl font-semibold text-white">
-              Real stored context
-            </div>
-          </div>
-          <Link href="/trends" className="text-sm text-sky-300">
-            Open trends
-          </Link>
-        </div>
-
-        <div className="mt-4 grid gap-3">
-          {edgePulseCards.map((card) => (
-            <div
-              key={card.id}
-              className="rounded-2xl border border-line bg-slate-950/70 px-4 py-4"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                  {card.title}
-                </div>
-                <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                  {card.confidence}
-                </div>
-              </div>
-              <div className="mt-2 text-lg font-semibold text-white">{formatTrendHeadline(card)}</div>
-              <div className="mt-2 text-sm text-slate-400">
-                Hit {formatTrendMetric(card.hitRate)} | ROI {formatTrendMetric(card.roi)} | Sample{" "}
-                {card.sampleSize}
-              </div>
-              <div className="mt-2 text-sm leading-6 text-slate-400">
-                {card.warning ?? card.contextLabel}
-              </div>
-            </div>
-          ))}
-
-          <div className="rounded-2xl border border-line bg-slate-950/70 px-4 py-4">
-            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-              Today matches this read
-            </div>
-            <div className="mt-2 text-lg font-semibold text-white">
-              {edgePulseMatches.length
-                ? `${edgePulseMatches.length} matchup${edgePulseMatches.length === 1 ? "" : "s"}`
-                : "No matching games right now"}
-            </div>
-            <div className="mt-3 grid gap-2">
-              {edgePulseMatches.length ? (
-                edgePulseMatches.slice(0, 3).map((match) => (
-                  <Link
-                    key={`${match.id}-${match.href}`}
-                    href={match.href}
-                    className="rounded-2xl border border-line/70 bg-slate-900/80 px-3 py-3 text-sm transition hover:border-sky-400/30"
-                  >
-                    <div className="font-medium text-white">{match.matchup}</div>
-                    <div className="mt-1 text-slate-400">
-                      {match.league} | {match.tag}
-                    </div>
-                  </Link>
-                ))
-              ) : (
-                <div className="text-sm leading-6 text-slate-400">
-                  Current event filters do not surface a qualifying matchup in this window.
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </Card>
-    </div>
-  );
-}
+  getProviderHealthTone,
+  MovementCard,
+  ResearchRail
+} from "@/app/_components/home-primitives";
+import { GameCard } from "@/components/board/game-card";
+import { OpportunitySpotlightCard } from "@/components/intelligence/opportunity-spotlight-card";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { SectionTitle } from "@/components/ui/section-title";
+import type { GameCardView, LeagueKey } from "@/lib/types/domain";
+import { withTimeoutFallback } from "@/lib/utils/async";
+import { buildHomeOpportunitySnapshot } from "@/services/opportunities/opportunity-service";
 
 export const dynamic = "force-dynamic";
 
-type PageProps = {
+type HomeLeagueScope = LeagueKey | "ALL";
+
+type HomePageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default async function HomePage({ searchParams }: PageProps) {
-  const resolved = (await searchParams) ?? {};
-  const filters = parseBoardFilters(resolved);
-  const [data, topPlays, atsTrend, ouTrend, favoriteTrend] = await Promise.all([
-    getBoardPageData(filters),
-    getTopPlayCards(8),
-    getATSTrend({ window: "90d", sample: 10 }),
-    getOUTrend({ window: "90d", sample: 10 }),
-    getFavoriteROI({ window: "90d", sample: 10 })
-  ]);
+const LEAGUE_ITEMS = [
+  { key: "ALL", label: "All Sports" },
+  { key: "NBA", label: "NBA" },
+  { key: "NCAAB", label: "NCAAB" },
+  { key: "MLB", label: "MLB" },
+  { key: "NHL", label: "NHL" },
+  { key: "NFL", label: "NFL" },
+  { key: "NCAAF", label: "NCAAF" },
+  { key: "UFC", label: "UFC" },
+  { key: "BOXING", label: "Boxing" }
+] as const;
 
-  const liveCount = data.sportSections.filter((section) => section.status === "LIVE").length;
-  const partialCount = data.sportSections.filter((section) => section.status === "PARTIAL").length;
-  const comingSoonCount = data.sportSections.filter((section) => section.status === "COMING_SOON").length;
-  const edgePulseCards = [atsTrend.value, ouTrend.value, favoriteTrend.value];
-  const edgePulseMatches = Array.from(
+const DESK_DATES = [
+  { key: "today", label: "Today" },
+  { key: "tomorrow", label: "Tomorrow" },
+  { key: "upcoming", label: "Upcoming" }
+] as const;
+
+function readValue(
+  searchParams: Record<string, string | string[] | undefined>,
+  key: string
+) {
+  const value = searchParams[key];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function getSelectedLeague(value: string | undefined): HomeLeagueScope {
+  const candidate = value?.toUpperCase();
+  return (
+    LEAGUE_ITEMS.find((league) => league.key === candidate)?.key ?? "ALL"
+  ) as HomeLeagueScope;
+}
+
+function getSelectedDate(value: string | undefined) {
+  return DESK_DATES.find((item) => item.key === value)?.key ?? "today";
+}
+
+function resolveBoardDate(value: (typeof DESK_DATES)[number]["key"]) {
+  if (value === "today") {
+    return "today";
+  }
+
+  if (value === "upcoming") {
+    return "all";
+  }
+
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const year = tomorrow.getFullYear();
+  const month = `${tomorrow.getMonth() + 1}`.padStart(2, "0");
+  const day = `${tomorrow.getDate()}`.padStart(2, "0");
+  return `${year}${month}${day}`;
+}
+
+function isVerifiedGame(game: GameCardView) {
+  return (
+    game.bestBookCount > 0 &&
+    (game.spread.bestOdds !== 0 ||
+      game.moneyline.bestOdds !== 0 ||
+      game.total.bestOdds !== 0)
+  );
+}
+
+function chooseFocusedLeague(
+  selectedLeague: HomeLeagueScope,
+  boardGames: GameCardView[]
+): LeagueKey {
+  if (selectedLeague !== "ALL") {
+    return selectedLeague;
+  }
+
+  const boardLeague = boardGames.find((game) => isVerifiedGame(game))?.leagueKey;
+  if (boardLeague) {
+    return boardLeague;
+  }
+
+  return boardGames[0]?.leagueKey ?? "NBA";
+}
+
+function formatDateLabel(value: (typeof DESK_DATES)[number]["key"]) {
+  return value === "today" ? "Today" : value === "tomorrow" ? "Tomorrow" : "Upcoming";
+}
+
+export default async function HomePage({ searchParams }: HomePageProps) {
+  const resolvedSearch = (await searchParams) ?? {};
+  const selectedLeague = getSelectedLeague(readValue(resolvedSearch, "league"));
+  const selectedDate = getSelectedDate(readValue(resolvedSearch, "date"));
+  const oddsService = await import("@/services/odds/board-service");
+  const boardFilters = oddsService.parseBoardFilters({
+    league: selectedLeague,
+    date: resolveBoardDate(selectedDate),
+    sportsbook: "best",
+    market: "all",
+    status: "pregame"
+  });
+
+  const boardData = await oddsService.getBoardPageData(boardFilters);
+  const topProps = await withTimeoutFallback(
+    import("@/services/odds/props-service").then((module) => module.getTopPlayCards(4)),
+    {
+      timeoutMs: 1_800,
+      fallback: []
+    }
+  );
+  const opportunitySnapshot = buildHomeOpportunitySnapshot({
+    games: boardData.games,
+    props: topProps,
+    providerHealth: boardData.providerHealth
+  });
+  const focusedLeague = chooseFocusedLeague(selectedLeague, boardData.games);
+  const rankedGames = Array.from(
     new Map(
-      edgePulseCards
-        .flatMap((card) => card.todayMatches)
-        .map((match) => [`${match.id}:${match.href}`, match] as const)
+      opportunitySnapshot.boardTop
+        .map((opportunity) => boardData.games.find((game) => opportunity.id.startsWith(`${game.id}:`)))
+        .filter((game): game is GameCardView => Boolean(game))
+        .map((game) => [game.id, game] as const)
     ).values()
-  ).slice(0, 4);
+  );
+  const verifiedGames = (rankedGames.length ? rankedGames : boardData.games.filter(isVerifiedGame)).slice(0, 6);
+  const movementGames = boardData.games
+    .filter(isVerifiedGame)
+    .filter(
+      (game) =>
+        Math.abs(game.spread.movement) >= 0.5 ||
+        Math.abs(game.total.movement) >= 0.5 ||
+        Math.abs(game.moneyline.movement) >= 10
+    )
+    .sort((left, right) => {
+      const leftMove = Math.max(
+        Math.abs(left.spread.movement),
+        Math.abs(left.total.movement),
+        Math.abs(left.moneyline.movement)
+      );
+      const rightMove = Math.max(
+        Math.abs(right.spread.movement),
+        Math.abs(right.total.movement),
+        Math.abs(right.moneyline.movement)
+      );
+      return rightMove - leftMove;
+    })
+    .slice(0, 4);
 
   return (
-    <div className="grid gap-6">
-      <SectionTitle
-        title="Daily board"
-        description="Compact live board coverage, real signals, league-aware news, and honest offseason states. SharkEdge should feel worth opening every day, not like a support checklist."
-      />
-
-      <BoardFilterBar
-        leagues={data.leagues}
-        sportsbooks={data.sportsbooks}
-        dates={data.availableDates}
-        defaults={filters}
-      />
-
-      <Card className="grid gap-4 p-5 xl:grid-cols-[1.1fr_0.9fr]">
-        <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-sky-300">
-            {data.source === "live" ? "Live intelligence board" : "Coverage-first board view"}
+    <div className="grid gap-8">
+      <section className="surface-panel-strong overflow-hidden px-6 py-6 xl:px-8 xl:py-8">
+        <div className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr] xl:items-end">
+          <div className="grid gap-5">
+            <div className="section-kicker">SharkEdge command center</div>
+            <div className="max-w-5xl font-display text-5xl font-semibold tracking-tight text-white md:text-6xl xl:text-[4.6rem] xl:leading-[0.98]">
+              Board first. Matchup second. Props when the number earns it.
+            </div>
+            <div className="max-w-3xl text-base leading-8 text-slate-300 md:text-lg">
+              Live prices, market posture, and prop context in one decision loop. The job is to show what matters, why it matters, and what to open next.
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/board"
+                className="rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400"
+              >
+                Open board
+              </Link>
+              <Link
+                href="/games"
+                className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25"
+              >
+                Open games
+              </Link>
+              <Link
+                href="/props"
+                className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25"
+              >
+                Hunt props
+              </Link>
+            </div>
           </div>
-          <div className="mt-3 font-display text-3xl font-semibold text-white">
-            Scan the slate, catch the signal, skip the clutter.
+
+          <div className="grid gap-3 rounded-[1.6rem] border border-white/8 bg-[#09131f]/85 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-[0.66rem] uppercase tracking-[0.28em] text-slate-500">Current desk</div>
+              <Badge tone={getProviderHealthTone(boardData.providerHealth.state)}>
+                {boardData.providerHealth.label}
+              </Badge>
+            </div>
+            <div className="text-3xl font-semibold text-white">
+              {selectedLeague === "ALL" ? "All Sports" : selectedLeague}
+            </div>
+            <div className="text-sm leading-6 text-slate-300">
+              {boardData.providerHealth.summary}
+            </div>
+            <div className="flex flex-wrap gap-2 text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
+              <span>Focus league: {focusedLeague}</span>
+              <span>Slate: {formatDateLabel(selectedDate)}</span>
+              <span>{boardData.providerHealth.freshnessLabel}</span>
+              {typeof boardData.providerHealth.freshnessMinutes === "number" ? (
+                <span>{boardData.providerHealth.freshnessMinutes}m old</span>
+              ) : null}
+            </div>
+            <div className="terminal-rule mt-2" />
+            <div className="data-grid">
+              <div>
+                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Verified games</div>
+                <div className="mt-2 text-2xl font-semibold text-white">{verifiedGames.length}</div>
+              </div>
+              <div>
+                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Move alerts</div>
+                <div className="mt-2 text-2xl font-semibold text-white">{movementGames.length}</div>
+              </div>
+              <div>
+                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Tracked games</div>
+                <div className="mt-2 text-2xl font-semibold text-white">{boardData.games.length}</div>
+              </div>
+              <div>
+                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Desk warnings</div>
+                <div className="mt-2 text-2xl font-semibold text-white">
+                  {boardData.providerHealth.warnings.length}
+                </div>
+              </div>
+            </div>
+            <div className="text-sm leading-6 text-slate-400">
+              {boardData.sourceNote}
+            </div>
           </div>
-          <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-400">
-            Live board rows stay tied to real odds support. Offseason leagues pivot into useful
-            context instead of stale scores, and weaker sports stay visible without pretending they
-            have full board depth.
-          </p>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-2xl border border-line bg-slate-950/60 px-4 py-4">
-            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Board rows</div>
-            <div className="mt-2 text-2xl font-semibold text-white">{data.summary.totalGames}</div>
-            <div className="mt-1 text-xs text-slate-400">Rendered current rows and score-led cards.</div>
-          </div>
-          <div className="rounded-2xl border border-line bg-slate-950/60 px-4 py-4">
-            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Live sports</div>
-            <div className="mt-2 text-2xl font-semibold text-white">{liveCount}</div>
-            <div className="mt-1 text-xs text-slate-400">Real active board support right now.</div>
-          </div>
-          <div className="rounded-2xl border border-line bg-slate-950/60 px-4 py-4">
-            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Partial / soon</div>
-            <div className="mt-2 text-2xl font-semibold text-white">
-              {partialCount} / {comingSoonCount}
-            </div>
-            <div className="mt-1 text-xs text-slate-400">Visible without fake board depth.</div>
-          </div>
-          <div className="rounded-2xl border border-line bg-slate-950/60 px-4 py-4">
-            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Board state</div>
-            <div className="mt-2 text-lg font-semibold text-white">
-              {data.source === "live" ? "Current feed connected" : "Fallback coverage mode"}
-            </div>
-            <div className="mt-1 text-xs text-slate-400">{data.sourceNote}</div>
-          </div>
-        </div>
-      </Card>
-
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <section className="grid gap-4">
-          <SectionTitle
-            title="Featured matchups"
-            description="Odds-first cards built for scanning the current slate fast."
-          />
-          <FeaturedBoardRail games={data.games} />
-        </section>
-
-        <section className="grid gap-4">
-          <SectionTitle
-            title="Signal rail"
-            description="One rail for top signals and stored trend context instead of spreading the same information across three modules."
-          />
-          <TopSignalRail
-            topPlays={topPlays}
-            edgePulseCards={edgePulseCards}
-            edgePulseMatches={edgePulseMatches}
-            games={data.games}
-          />
-        </section>
-      </div>
-
-      {data.snapshots.length ? (
-        <section className="grid gap-4">
-          <SectionTitle
-            title="League pulse"
-            description="Current matchups when the league is active, offseason context when it is not, and free headline rails where they exist."
-          />
-          <div className="grid gap-4 xl:grid-cols-2">
-            {data.snapshots.map((snapshot) => (
-              <LeagueSnapshot key={snapshot.league.id} snapshot={snapshot} />
+        <div className="mt-8 grid gap-3 xl:grid-cols-[1fr_auto] xl:items-center">
+          <div className="flex flex-wrap gap-2">
+            {LEAGUE_ITEMS.map((league) => (
+              <Link
+                key={league.key}
+                href={league.key === "ALL" ? "/?league=ALL&date=today" : `/?league=${league.key}&date=today`}
+                className={
+                  selectedLeague === league.key
+                    ? "rounded-full border border-sky-400/35 bg-sky-500/12 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white"
+                    : "rounded-full border border-white/8 bg-white/[0.02] px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400 transition hover:border-white/12 hover:text-white"
+                }
+              >
+                {league.label}
+              </Link>
             ))}
           </div>
-        </section>
-      ) : null}
-
-      {data.liveMessage ? (
-        <EmptyState title="Limited live window" description={data.liveMessage} />
-      ) : null}
+          <div className="flex flex-wrap gap-2">
+            {DESK_DATES.map((date) => (
+              <Link
+                key={date.key}
+                href={`/?league=${selectedLeague}&date=${date.key}`}
+                className={
+                  selectedDate === date.key
+                    ? "rounded-full border border-sky-400/35 bg-sky-500/12 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white"
+                    : "rounded-full border border-white/8 bg-white/[0.02] px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400 transition hover:border-white/12 hover:text-white"
+                }
+              >
+                {date.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
 
       <section className="grid gap-4">
         <SectionTitle
-          title="Coverage map"
-          description="Keep support-state visibility lower on the page. Useful, honest, and out of the way."
+          eyebrow="Line movement"
+          title="Numbers worth reacting to"
+          description="The move is real. Open these first."
         />
-        <SportSupportGrid sections={data.sportSections} />
+        <div className="grid gap-4 xl:grid-cols-2">
+          {movementGames.length ? (
+            movementGames.map((game) => <MovementCard key={game.id} game={game} />)
+          ) : (
+            <Card className="surface-panel p-6 text-sm leading-7 text-slate-400">
+              No verified movement rows cleared the desk right now.
+            </Card>
+          )}
+        </div>
       </section>
 
-      {data.sportSections.length ? (
-        <div className="grid gap-6">
-          {data.sportSections.map((section) => (
-            <SportSection key={section.leagueKey} section={section} focusMarket={filters.market} />
-          ))}
-        </div>
-      ) : (
-        <EmptyState
-          title="No sports match this filter"
-          description="Widen the league or date filter to bring the full support map back into view."
-        />
-      )}
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <section className="grid gap-4">
+          <SectionTitle
+            eyebrow="Prop desk"
+            title="Best prop entries"
+            description="Only props with real posture belong here."
+          />
+          <div className="grid gap-4">
+            {opportunitySnapshot.propsTop.length ? (
+              opportunitySnapshot.propsTop.slice(0, 2).map((opportunity) => (
+                <OpportunitySpotlightCard
+                  key={opportunity.id}
+                  opportunity={opportunity}
+                  href={`/game/${opportunity.eventId}`}
+                  ctaLabel="Open prop context"
+                />
+              ))
+            ) : (
+              <Card className="surface-panel p-6 text-sm leading-7 text-slate-400">
+                The prop desk is quiet right now. Open the full Props workflow instead of forcing homepage filler.
+              </Card>
+            )}
+          </div>
+        </section>
+
+        <section className="grid gap-4">
+          <SectionTitle
+            eyebrow="Action desk"
+            title="Best windows and trap lines"
+            description="What is playable now, and what should not lead you."
+          />
+          <div className="grid gap-4">
+            {opportunitySnapshot.timingWindows.slice(0, 2).map((opportunity) => (
+              <OpportunitySpotlightCard
+                key={opportunity.id}
+                opportunity={opportunity}
+                href={opportunity.kind === "prop" ? `/game/${opportunity.eventId}` : `/game/${opportunity.eventId}`}
+                ctaLabel="Open timing"
+              />
+            ))}
+            {opportunitySnapshot.traps.length ? (
+              <Card className="surface-panel p-5">
+                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-rose-300">Do not chase</div>
+                <div className="mt-3 grid gap-3">
+                  {opportunitySnapshot.traps.map((opportunity) => (
+                    <div
+                      key={`${opportunity.id}-trap`}
+                      className="rounded-[1rem] border border-rose-400/20 bg-rose-500/8 px-4 py-3"
+                    >
+                      <div className="text-sm font-medium text-white">{opportunity.selectionLabel}</div>
+                      <div className="mt-1 text-sm text-rose-100">{opportunity.whatCouldKillIt[0] ?? opportunity.reasonSummary}</div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            ) : null}
+          </div>
+        </section>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <section className="grid gap-4">
+          <SectionTitle
+            eyebrow="Board"
+            title="Verified matchups to open now"
+            description={
+              verifiedGames.length
+                ? "Game detail should be one click away from the command center."
+                : "If verified market rows are thin, move straight into the Games desk and let the matchup page do the work."
+            }
+          />
+          <div className="grid gap-4 xl:grid-cols-2">
+            {verifiedGames.length
+              ? verifiedGames.map((game) => <GameCard key={game.id} game={game} focusMarket="best" />)
+              : (
+                <Card className="surface-panel p-6">
+                  <div className="grid gap-3">
+                    <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+                      Verified rows are thin
+                    </div>
+                    <div className="text-2xl font-semibold text-white">
+                      The board is staying honest instead of inventing a slate.
+                    </div>
+                    <div className="text-sm leading-7 text-slate-400">
+                      Open the Games desk for broader matchup context or move into Props if you already know the league you want to hunt.
+                    </div>
+                    <div className="flex flex-wrap gap-3 pt-1">
+                      <Link
+                        href="/games"
+                        className="rounded-full bg-sky-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400"
+                      >
+                        Open games
+                      </Link>
+                      <Link
+                        href={`/props?league=${focusedLeague}`}
+                        className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25"
+                      >
+                        Hunt props
+                      </Link>
+                    </div>
+                  </div>
+                </Card>
+              )}
+          </div>
+        </section>
+
+        <section className="grid gap-4">
+          <SectionTitle
+            eyebrow="Next move"
+            title="Go deeper without losing the thread"
+            description="The front page should hand you into the next desk, not trap you in widgets."
+          />
+          <ResearchRail focusedLeague={focusedLeague} />
+        </section>
+      </div>
     </div>
   );
 }

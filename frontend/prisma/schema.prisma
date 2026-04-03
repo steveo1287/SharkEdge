@@ -317,6 +317,7 @@ model Competitor {
   selectedBetLegs  BetLeg[]          @relation("BetLegSelectionCompetitor")
   wonEventResults  EventResult[]     @relation("EventResultWinner")
   lostEventResults EventResult[]     @relation("EventResultLoser")
+  participantContexts EventParticipantContext[]
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
@@ -348,6 +349,7 @@ model Event {
   sport          Sport             @relation(fields: [sportId], references: [id], onDelete: Restrict)
   league         League            @relation(fields: [leagueId], references: [id], onDelete: Cascade)
   participants   EventParticipant[]
+  participantContexts EventParticipantContext[]
   eventResult    EventResult?
   markets        EventMarket[]
   currentMarketStates CurrentMarketState[]
@@ -355,6 +357,7 @@ model Event {
   playerProjections PlayerProjection[]
   edgeSignals    EdgeSignal[]
   lineMovements  LineMovement[]
+  savedTrendMatches SavedTrendMatch[]
   bets           Bet[]
   betLegs        BetLeg[]
   watchlistItems WatchlistItem[]
@@ -412,6 +415,38 @@ model EventParticipant {
   @@unique([eventId, competitorId])
   @@index([eventId, role, sortOrder])
   @@map("event_participants")
+}
+
+model EventParticipantContext {
+  id                   String          @id @default(cuid())
+  eventId              String
+  competitorId         String
+  role                 ParticipantRole @default(UNKNOWN)
+  previousEventId      String?
+  previousOpponentId   String?
+  daysRest             Float?
+  opponentRestDays     Float?
+  restAdvantageDays    Float?
+  gamesLast7           Int             @default(0)
+  gamesLast14          Int             @default(0)
+  isBackToBack         Boolean         @default(false)
+  siteStreak           Int             @default(0)
+  isRematch            Boolean         @default(false)
+  revengeSpot          Boolean         @default(false)
+  recentWinRate        Float?
+  recentMargin         Float?
+  scheduleDensityScore Float?
+  travelProxyScore     Float?
+  metadataJson         Json?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  event                Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  competitor           Competitor      @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, competitorId])
+  @@index([competitorId, updatedAt])
+  @@index([eventId, role])
+  @@map("event_participant_context")
 }
 
 model Sportsbook {
@@ -601,6 +636,7 @@ model User {
   alertNotifications   AlertNotification[]
   importBatches        ImportBatch[]
   savedTrends          SavedTrend[]
+  savedTrendDefinitions SavedTrendDefinition[] @relation("SavedTrendDefinitionCreator")
   trendRuns            TrendRun[]
   alertSubscriptions   AlertSubscription[]
   createdAt            DateTime     @default(now())
@@ -862,6 +898,7 @@ model SavedTrend {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
   user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  definition SavedTrendDefinition?
   trendRuns TrendRun[]
 
   @@index([userId, sport])
@@ -882,6 +919,84 @@ model TrendRun {
   @@index([userId, createdAt])
   @@index([savedTrendId, createdAt])
   @@map("trend_runs")
+}
+
+model SavedTrendDefinition {
+  id                 String               @id @default(cuid())
+  savedTrendId       String?              @unique
+  creatorId          String?
+  name               String
+  description        String?
+  sport              SportCode
+  league             String?
+  betType            String
+  filterConditionsJson Json
+  isSystemGenerated  Boolean              @default(false)
+  isUserCreated      Boolean              @default(true)
+  isPublic           Boolean              @default(false)
+  isPremium          Boolean              @default(false)
+  currentStatsJson   Json?
+  lastComputedAt     DateTime?
+  savedTrend         SavedTrend?          @relation(fields: [savedTrendId], references: [id], onDelete: SetNull)
+  creator            User?                @relation("SavedTrendDefinitionCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+  matches            SavedTrendMatch[]
+  snapshots          SavedTrendSnapshot[]
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@index([sport, isSystemGenerated, updatedAt])
+  @@index([league, betType, updatedAt])
+  @@index([creatorId, updatedAt])
+  @@map("saved_trend_definitions")
+}
+
+model SavedTrendMatch {
+  id                  String               @id @default(cuid())
+  trendDefinitionId   String
+  eventId             String
+  matchedAt           DateTime             @default(now())
+  betResult           String
+  unitsWon            Float                @default(0)
+  cumulativeProfit    Float                @default(0)
+  metadataJson        Json?
+  trendDefinition     SavedTrendDefinition @relation(fields: [trendDefinitionId], references: [id], onDelete: Cascade)
+  event               Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@unique([trendDefinitionId, eventId])
+  @@index([eventId, matchedAt])
+  @@index([trendDefinitionId, matchedAt])
+  @@map("saved_trend_matches")
+}
+
+model SavedTrendSnapshot {
+  id                  String               @id @default(cuid())
+  trendDefinitionId   String
+  totalGames          Int                  @default(0)
+  wins                Int                  @default(0)
+  losses              Int                  @default(0)
+  pushes              Int                  @default(0)
+  winPercentage       Float?
+  roi                 Float?
+  totalProfit         Float?
+  currentStreak       Int?
+  streakType          String?
+  pValue              Float?
+  chiSquareStat       Float?
+  isStatisticallySignificant Boolean       @default(false)
+  confidenceScore     Float?
+  sampleSizeRating    String?
+  warningsJson        Json?
+  activeGameCount     Int                  @default(0)
+  calculatedAt        DateTime             @default(now())
+  trendDefinition     SavedTrendDefinition @relation(fields: [trendDefinitionId], references: [id], onDelete: Cascade)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@index([trendDefinitionId, calculatedAt])
+  @@index([confidenceScore, calculatedAt])
+  @@map("saved_trend_snapshots")
 }
 
 model TrendCache {

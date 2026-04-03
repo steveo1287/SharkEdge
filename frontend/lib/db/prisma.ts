@@ -1,3 +1,4 @@
+import { loadEnvConfig } from "@next/env";
 import { Prisma, PrismaClient } from "@prisma/client";
 
 const DATABASE_ENV_KEYS = ["DATABASE_URL", "POSTGRES_PRISMA_URL", "POSTGRES_URL"] as const;
@@ -11,6 +12,12 @@ type DatabaseResolution = {
 declare global {
   var prismaGlobal: PrismaClient | undefined;
   var prismaResolutionLogged: boolean | undefined;
+  var sharkedgeEnvLoaded: boolean | undefined;
+}
+
+if (!global.sharkedgeEnvLoaded) {
+  loadEnvConfig(process.cwd());
+  global.sharkedgeEnvLoaded = true;
 }
 
 function getEnvValue(key: DatabaseEnvKey) {
