@@ -2,9 +2,15 @@ import Link from "next/link";
 
 import { BetActionButton } from "@/components/bets/bet-action-button";
 import { DataTable } from "@/components/ui/data-table";
+import {
+  getOpportunityScoreBand,
+  getOpportunityTrapLine,
+  OpportunityBadgeRow
+} from "@/components/intelligence/opportunity-badges";
 import type { PropCardView } from "@/lib/types/domain";
 import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
 import { buildPropBetIntent, buildWagerMathView } from "@/lib/utils/bet-intelligence";
+import { buildPropOpportunity } from "@/services/opportunities/opportunity-service";
 
 type PropsTableProps = {
   props: PropCardView[];
@@ -27,27 +33,23 @@ export function PropsTable({ props }: PropsTableProps) {
         "Market",
         "Best Price",
         "Edge",
+        "Opportunity",
         "Trend",
         "Market",
         "Actions"
       ]}
       rows={props.map((prop) => [
         (() => {
-          const math = buildWagerMathView({
-            offeredOddsAmerican: prop.bestAvailableOddsAmerican ?? prop.oddsAmerican,
-            consensusOddsAmerican: prop.averageOddsAmerican
-          });
-
+          const opportunity = buildPropOpportunity(prop);
+          const scoreBand = getOpportunityScoreBand(opportunity.opportunityScore);
           return (
             <div key={`${prop.id}-player`}>
               <div className="font-medium text-white">{prop.player.name}</div>
               <div className="text-xs text-slate-500">
                 {prop.teamResolved ? prop.team.abbreviation : "Team mapping pending"}
               </div>
-              <div className="mt-1 text-xs text-slate-500">
-                Imp {typeof math.impliedProbabilityPct === "number" ? `${math.impliedProbabilityPct.toFixed(1)}%` : "--"}
-                {" | "}
-                Kelly {typeof math.kellyFractionPct === "number" ? `${math.kellyFractionPct.toFixed(1)}%` : "N/A"}
+              <div className="mt-1 text-xs text-sky-300">
+                {scoreBand.label} {opportunity.opportunityScore} | {opportunity.actionState.replace(/_/g, " ")}
               </div>
             </div>
           );
@@ -94,16 +96,32 @@ export function PropsTable({ props }: PropsTableProps) {
                       ? `Delta ${prop.marketDeltaAmerican > 0 ? "+" : ""}${prop.marketDeltaAmerican}`
                       : "No consensus delta"}
                 </div>
-                <div className="mt-1 text-xs text-slate-500">
-                  No-vig {typeof math.noVigProbabilityPct === "number" ? `${math.noVigProbabilityPct.toFixed(1)}%` : "N/A"}
-                  {typeof prop.evProfile?.fairLineGap === "number"
-                    ? ` | Gap ${prop.evProfile.fairLineGap > 0 ? "+" : ""}${prop.evProfile.fairLineGap}`
-                    : ""}
-                </div>
+                {typeof prop.evProfile?.fairLineGap === "number" || typeof math.noVigProbabilityPct === "number" ? (
+                  <div className="mt-1 text-xs text-slate-500">
+                    {typeof prop.evProfile?.fairLineGap === "number"
+                      ? `Gap ${prop.evProfile.fairLineGap > 0 ? "+" : ""}${prop.evProfile.fairLineGap}`
+                      : "Gap pending"}
+                    {typeof math.noVigProbabilityPct === "number"
+                      ? ` | No-vig ${math.noVigProbabilityPct.toFixed(1)}%`
+                      : ""}
+                  </div>
+                ) : null}
               </>
             );
           })()}
         </div>,
+        (() => {
+          const opportunity = buildPropOpportunity(prop);
+          const trapLine = getOpportunityTrapLine(opportunity);
+          return (
+            <div key={`${prop.id}-opportunity`} className="grid gap-2">
+              <OpportunityBadgeRow opportunity={opportunity} />
+              <div className={`text-xs ${trapLine ? "text-rose-200" : "text-slate-500"}`}>
+                {trapLine ?? opportunity.reasonSummary}
+              </div>
+            </div>
+          );
+        })(),
         <div key={`${prop.id}-trend`}>
           <div className="text-white">{prop.trendSummary?.value ?? "Trend floor pending"}</div>
           <div className="text-xs text-slate-500">
@@ -111,11 +129,6 @@ export function PropsTable({ props }: PropsTableProps) {
               prop.supportNote ??
               "Trend support is still building for this prop market."}
           </div>
-          {prop.analyticsSummary?.tags?.length ? (
-            <div className="mt-1 text-xs text-sky-300">
-              {prop.analyticsSummary.tags.slice(0, 3).join(" | ")}
-            </div>
-          ) : null}
           {prop.trendSummary?.href ? (
             <Link href={prop.trendSummary.href} className="text-xs text-sky-300">
               Open trend
@@ -135,9 +148,6 @@ export function PropsTable({ props }: PropsTableProps) {
               ? ` | Move ${prop.lineMovement > 0 ? "+" : ""}${prop.lineMovement.toFixed(1)}`
               : ""}
           </div>
-          {prop.analyticsSummary?.reason ? (
-            <div className="mt-1 text-xs text-slate-500">{prop.analyticsSummary.reason}</div>
-          ) : null}
         </div>,
         <div key={`${prop.id}-actions`} className="flex gap-2">
           <Link href={prop.gameHref ?? `/game/${prop.gameId}`} className="text-sky-300">

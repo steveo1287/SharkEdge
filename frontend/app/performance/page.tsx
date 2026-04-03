@@ -161,6 +161,29 @@ export default async function PerformancePage() {
           </div>
 
           <div className="grid gap-4 xl:grid-cols-4">
+            <Card className="p-5 xl:col-span-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="font-display text-2xl font-semibold text-white">Recommendation readback</div>
+                <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                  Process over box score
+                </div>
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+                {data.opportunityReviews.map((review) => (
+                  <div
+                    key={review.label}
+                    className="rounded-2xl border border-line bg-slate-950/65 px-4 py-3"
+                  >
+                    <div className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                      {review.label.replace(/_/g, " ")}
+                    </div>
+                    <div className="mt-2 text-2xl font-semibold text-white">{review.value}</div>
+                    <div className="mt-2 text-sm leading-6 text-slate-400">{review.note}</div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
             <Card className="p-5">
               <div className="font-display text-2xl font-semibold text-white">Recent Form</div>
               <div className="mt-4 grid gap-3">
@@ -195,6 +218,11 @@ export default async function PerformancePage() {
                   </div>
                 )}
               </div>
+              {data.opportunityProfile ? (
+                <div className="mt-4 text-xs leading-6 text-slate-500">
+                  Personalization is starting from tracked leagues, markets, books, and timing lanes only. It stays additive and cannot override the market truth layer.
+                </div>
+              ) : null}
             </Card>
 
             <Card className="p-5">

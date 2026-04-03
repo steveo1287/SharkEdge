@@ -10,6 +10,7 @@ import type {
 } from "@/lib/types/product";
 import { alertRuleCreateSchema } from "@/lib/validation/product";
 import { prisma } from "@/lib/db/prisma";
+import type { OpportunitySnapshotView } from "@/lib/types/opportunity";
 import {
   buildProductSetupState,
   DEFAULT_USER_ID,
@@ -25,6 +26,9 @@ import {
   getWatchlistItemById
 } from "@/services/watchlist/watchlist-service";
 import { getPerformanceDashboard } from "@/services/bets/bets-service";
+import {
+  isOpportunitySnapshot
+} from "@/services/opportunities/opportunity-snapshot";
 
 type AlertRuleRow = Prisma.AlertRuleGetPayload<{
   include: {
@@ -55,6 +59,14 @@ function toIntent(raw: Prisma.JsonValue | null): BetIntent | null {
   }
 
   return raw as unknown as BetIntent;
+}
+
+function toRecord(raw: Prisma.JsonValue | null) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+
+  return raw as Record<string, unknown>;
 }
 
 function getRulePremiumRequirement(type: AlertRuleRow["type"] | AlertRuleView["type"]) {
@@ -88,6 +100,15 @@ function mapRuleConfig(raw: Prisma.JsonValue): AlertRuleConfig {
   return raw as unknown as AlertRuleConfig;
 }
 
+function getOpportunityPostureNote(item: Awaited<ReturnType<typeof getWatchlistItemById>>) {
+  const opportunity = item?.opportunitySnapshot;
+  if (!opportunity) {
+    return null;
+  }
+
+  return `Current posture: ${opportunity.actionState.replace(/_/g, " ")} at score ${opportunity.opportunityScore}.`;
+}
+
 function mapAlertRule(row: AlertRuleRow): AlertRuleView {
   return {
     id: row.id,
@@ -107,7 +128,11 @@ function mapAlertRule(row: AlertRuleRow): AlertRuleView {
   };
 }
 
-function mapNotification(row: NotificationRow): AlertNotificationView {
+async function mapNotification(row: NotificationRow): Promise<AlertNotificationView> {
+  const context = toRecord(row.contextJson);
+  const snapshotFromContext = isOpportunitySnapshot(context?.opportunitySnapshot)
+    ? (context?.opportunitySnapshot as OpportunitySnapshotView)
+    : null;
   return {
     id: row.id,
     alertRuleId: row.alertRuleId ?? null,
@@ -122,7 +147,8 @@ function mapNotification(row: NotificationRow): AlertNotificationView {
     dismissedAt: row.dismissedAt?.toISOString() ?? null,
     eventLabel: row.watchlistItem?.eventLabel ?? null,
     selection: row.watchlistItem?.selection ?? null,
-    betIntent: toIntent(row.watchlistItem?.intentJson ?? null)
+    betIntent: toIntent(row.watchlistItem?.intentJson ?? null),
+    opportunitySnapshot: snapshotFromContext
   };
 }
 
@@ -136,6 +162,7 @@ async function emitNotification(args: {
   sourcePage: string | null;
   dedupeKey: string;
   context: Record<string, unknown>;
+  opportunitySnapshot?: OpportunitySnapshotView | null;
 }) {
   await prisma.alertNotification.create({
     data: {
@@ -148,7 +175,10 @@ async function emitNotification(args: {
       sourcePath: args.sourcePath,
       sourcePage: args.sourcePage,
       dedupeKey: args.dedupeKey,
-      contextJson: toJsonInput(args.context)
+      contextJson: toJsonInput({
+        ...args.context,
+        opportunitySnapshot: args.opportunitySnapshot ?? null
+      })
     }
   }).catch((error: unknown) => {
     if (
@@ -219,6 +249,8 @@ async function evaluateSingleRule(row: AlertRuleRow) {
   if (!item) {
     return;
   }
+  const postureNote = getOpportunityPostureNote(item);
+  const opportunitySnapshot = item.opportunitySnapshot;
 
   const current = item.current;
   const now = Date.now();
@@ -254,7 +286,7 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         alertRuleId: row.id,
         watchlistItemId: row.watchlistItemId,
         title: `${item.selection} moved ${lineDelta > 0 ? "+" : ""}${lineDelta.toFixed(1)}`,
-        body: `${item.eventLabel} moved from ${item.line ?? "--"} to ${current.line ?? "--"} against your ${config.threshold}-point trigger.`,
+        body: `${item.eventLabel} moved from ${item.line ?? "--"} to ${current.line ?? "--"} against your ${config.threshold}-point trigger.${postureNote ? ` ${postureNote}` : ""}`,
         severity: config.type === "PROP_LINE_CHANGED" ? "PREMIUM" : "ACTION",
         sourcePath: item.intent.matchupHref ?? item.sourcePath,
         sourcePage: item.sourcePage,
@@ -262,7 +294,8 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         context: {
           savedLine: item.line,
           currentLine: current.line
-        }
+        },
+        opportunitySnapshot
       });
 
       await prisma.alertRule.update({
@@ -284,14 +317,15 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         alertRuleId: row.id,
         watchlistItemId: row.watchlistItemId,
         title: `${item.selection} hit EV ${current.expectedValuePct.toFixed(2)}%`,
-        body: `${item.eventLabel} is now at ${current.expectedValuePct.toFixed(2)}% market EV, clearing your ${config.thresholdPct.toFixed(2)}% threshold.`,
+        body: `${item.eventLabel} is now at ${current.expectedValuePct.toFixed(2)}% market EV, clearing your ${config.thresholdPct.toFixed(2)}% threshold.${postureNote ? ` ${postureNote}` : ""}`,
         severity: "PREMIUM",
         sourcePath: item.intent.matchupHref ?? item.sourcePath,
         sourcePage: item.sourcePage,
         dedupeKey: `${row.id}:ev:${current.expectedValuePct.toFixed(2)}`,
         context: {
           expectedValuePct: current.expectedValuePct
-        }
+        },
+        opportunitySnapshot
       });
 
       await prisma.alertRule.update({
@@ -313,7 +347,7 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         alertRuleId: row.id,
         watchlistItemId: row.watchlistItemId,
         title: `${item.selection} has a new best book`,
-        body: `${item.eventLabel} moved from ${savedSportsbook} to ${current.sportsbookName} as the best available book.`,
+        body: `${item.eventLabel} moved from ${savedSportsbook} to ${current.sportsbookName} as the best available book.${postureNote ? ` ${postureNote}` : ""}`,
         severity: "PREMIUM",
         sourcePath: item.intent.matchupHref ?? item.sourcePath,
         sourcePage: item.sourcePage,
@@ -321,7 +355,8 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         context: {
           previousBook: savedSportsbook,
           currentBook: current.sportsbookName
-        }
+        },
+        opportunitySnapshot
       });
 
       await prisma.alertRule.update({
@@ -350,14 +385,15 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         alertRuleId: row.id,
         watchlistItemId: row.watchlistItemId,
         title: `${item.eventLabel} starts in under ${config.minutesBefore}m`,
-        body: `${item.selection} is approaching kickoff/start time. SharkEdge is surfacing it while the number is still live.`,
+        body: `${item.selection} is approaching kickoff/start time. SharkEdge is surfacing it while the number is still live.${postureNote ? ` ${postureNote}` : ""}`,
         severity: "ACTION",
         sourcePath: item.intent.matchupHref ?? item.sourcePath,
         sourcePage: item.sourcePage,
         dedupeKey: `${row.id}:start:${current.startTime}:${config.minutesBefore}`,
         context: {
           startTime: current.startTime
-        }
+        },
+        opportunitySnapshot
       });
 
       await prisma.alertRule.update({
@@ -382,14 +418,15 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         alertRuleId: row.id,
         watchlistItemId: row.watchlistItemId,
         title: `${item.selection} is back on the board`,
-        body: `${item.eventLabel} is available again at ${current.sportsbookName ?? "the current book mesh"}.`,
+        body: `${item.eventLabel} is available again at ${current.sportsbookName ?? "the current book mesh"}.${postureNote ? ` ${postureNote}` : ""}`,
         severity: "ACTION",
         sourcePath: item.intent.matchupHref ?? item.sourcePath,
         sourcePage: item.sourcePage,
         dedupeKey: `${row.id}:available:${current.sportsbookName ?? "market"}`,
         context: {
           sportsbookName: current.sportsbookName
-        }
+        },
+        opportunitySnapshot
       });
 
       await prisma.alertRule.update({
@@ -423,7 +460,7 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         alertRuleId: row.id,
         watchlistItemId: row.watchlistItemId,
         title: `${item.selection} crossed ${config.targetLine}`,
-        body: `${item.eventLabel} moved to ${current.line}, crossing your target number of ${config.targetLine}.`,
+        body: `${item.eventLabel} moved to ${current.line}, crossing your target number of ${config.targetLine}.${postureNote ? ` ${postureNote}` : ""}`,
         severity: "ACTION",
         sourcePath: item.intent.matchupHref ?? item.sourcePath,
         sourcePage: item.sourcePage,
@@ -431,7 +468,8 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         context: {
           targetLine: config.targetLine,
           currentLine: current.line
-        }
+        },
+        opportunitySnapshot
       });
 
       await prisma.alertRule.update({
@@ -566,7 +604,7 @@ export async function getAlertsPageData(): Promise<AlertsPageData> {
 
     return {
       setup: null,
-      notifications: notifications.map(mapNotification),
+      notifications: await Promise.all(notifications.map(mapNotification)),
       rules: rules.map(mapAlertRule),
       unreadCount: notifications.filter((item) => item.readAt === null).length,
       activeRuleCount: rules.filter((item) => item.status === "ACTIVE").length,

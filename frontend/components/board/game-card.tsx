@@ -3,25 +3,15 @@ import type { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import {
+  getOpportunityScoreBand,
+  getOpportunityTrapLine,
+  OpportunityBadgeRow
+} from "@/components/intelligence/opportunity-badges";
 import { formatGameDateTime } from "@/lib/formatters/date";
 import { formatAmericanOdds } from "@/lib/formatters/odds";
 import type { GameCardView } from "@/lib/types/domain";
-
-function getEdgeTone(label: GameCardView["edgeScore"]["label"]) {
-  if (label === "Elite") {
-    return "success";
-  }
-
-  if (label === "Strong") {
-    return "brand";
-  }
-
-  if (label === "Watchlist") {
-    return "premium";
-  }
-
-  return "muted";
-}
+import { buildGameMarketOpportunity } from "@/services/opportunities/opportunity-service";
 
 function getStatusTone(status: GameCardView["status"]) {
   if (status === "LIVE") {
@@ -82,8 +72,12 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
           .sort((left, right) => right.score - left.score)[0]?.marketKey ?? "spread"
       : (focusMarket as (typeof marketKeys)[number]);
   const focusView = game[focus];
+  const focusOpportunity = buildGameMarketOpportunity(game, focus);
+  const scoreBand = getOpportunityScoreBand(focusOpportunity.opportunityScore);
+  const trapLine = getOpportunityTrapLine(focusOpportunity);
   const movement = focusView.movement;
   const focusReason =
+    focusOpportunity.reasonSummary ??
     focusView.reasons?.[0]?.detail ??
     focusView.marketTruth?.note ??
     "Open the matchup to see whether this market still deserves first attention.";
@@ -101,32 +95,24 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
             </div>
             <div className="text-sm text-slate-400">{game.venue}</div>
             <div className="text-sm leading-6 text-slate-300">
-              Open on <span className="font-medium text-white">{formatFocusLabel(focus)}</span>: {focusReason}
+              Lead with <span className="font-medium text-white">{formatFocusLabel(focus)}</span>: {focusReason}
             </div>
           </div>
         </div>
 
         <div className="flex flex-col items-end gap-2">
           <Badge tone={getStatusTone(game.status)}>{game.status}</Badge>
-          <Badge tone={getEdgeTone(game.edgeScore.label)}>
-            {game.edgeScore.label} {game.edgeScore.score}
+          <Badge tone={scoreBand.tone}>
+            {scoreBand.label} {focusOpportunity.opportunityScore}
           </Badge>
           <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
             {movement === 0
               ? "No move"
               : `${movement > 0 ? "+" : ""}${movement.toFixed(1)} ${focus === "moneyline" ? "c" : "pts"}`}
           </div>
-          {focusView.evProfile ? (
-            <div className="text-xs uppercase tracking-[0.18em] text-emerald-300">
-              EV {focusView.evProfile.edgePct > 0 ? "+" : ""}
-              {focusView.evProfile.edgePct.toFixed(1)}%
-            </div>
-          ) : null}
-          {focusView.confidenceBand ? (
-            <div className="text-xs uppercase tracking-[0.18em] text-slate-400">
-              {focusView.confidenceBand} confidence
-            </div>
-          ) : null}
+          <div className="text-xs uppercase tracking-[0.18em] text-slate-400">
+            {focusOpportunity.timingState.replace(/_/g, " ")}
+          </div>
         </div>
       </div>
 
@@ -167,7 +153,7 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
 
       {reasonTags.length ? (
         <div className="mt-4 flex flex-wrap gap-2">
-          {reasonTags.map((reason) => (
+          {reasonTags.slice(0, 1).map((reason) => (
             <Badge key={`${game.id}-${focus}-${reason.label}`} tone={reason.tone}>
               {reason.label}
             </Badge>
@@ -175,13 +161,25 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
         </div>
       ) : null}
 
+      <div className="mt-4">
+        <OpportunityBadgeRow opportunity={focusOpportunity} />
+      </div>
+
+      {trapLine ? (
+        <div className="mt-4 rounded-[1.1rem] border border-rose-400/20 bg-rose-500/8 px-4 py-3 text-sm leading-6 text-rose-100">
+          <span className="text-rose-200/75">Trap line:</span> {trapLine}
+        </div>
+      ) : null}
+
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm text-slate-400">
-          {focusView.fairPrice
-            ? `${focusView.fairPrice.pricingMethod.replace(/_/g, " ")} | confidence ${focusView.fairPrice.pricingConfidenceScore}`
-            : game.selectedBook
-              ? `Locked to ${game.selectedBook.name}`
-              : `${game.bestBookCount} books compared`}
+          {focusOpportunity.sportsbookName
+            ? `${focusOpportunity.sportsbookName} | ${focusOpportunity.actionState.replace(/_/g, " ").toLowerCase()}`
+            : focusView.fairPrice
+              ? `${focusView.fairPrice.pricingMethod.replace(/_/g, " ")} | confidence ${focusView.fairPrice.pricingConfidenceScore}`
+              : game.selectedBook
+                ? `Locked to ${game.selectedBook.name}`
+                : `${game.bestBookCount} books compared`}
         </div>
         <div className="flex flex-wrap gap-3">
           {actions}

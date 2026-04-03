@@ -2,6 +2,7 @@ import type {
   BetSignalContext,
   LeakSignal
 } from "@/lib/types/bet-intelligence";
+import type { OpportunityProfile } from "@/lib/types/opportunity";
 
 export const SPORT_CODES = [
   "BASKETBALL",
@@ -306,6 +307,18 @@ export type PerformanceDashboardView = {
   bestSegments: string[];
   worstSegments: string[];
   leakSignals: LeakSignal[];
+  opportunityReviews: Array<{
+    label:
+      | "GOOD_BET_LOST"
+      | "BAD_BET_WON"
+      | "BEAT_CLOSE"
+      | "MISSED_TIMING"
+      | "STALE_EDGE_MISTAKE"
+      | "FAKE_MOVE_CHASE";
+    value: number;
+    note: string;
+  }>;
+  opportunityProfile: OpportunityProfile | null;
 };
 
 export type LedgerPageData = {

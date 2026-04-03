@@ -1,4 +1,5 @@
 import type { BetIntent, PremiumGateKey } from "@/lib/types/bet-intelligence";
+import type { OpportunitySnapshotView } from "@/lib/types/opportunity";
 import type {
   BoardSupportStatus,
   GameStatus,
@@ -116,6 +117,7 @@ export type WatchlistItemView = {
     note: string;
   };
   alertCount: number;
+  opportunitySnapshot: OpportunitySnapshotView | null;
 };
 
 export type WatchlistFilters = {
@@ -199,6 +201,7 @@ export type AlertNotificationView = {
   eventLabel: string | null;
   selection: string | null;
   betIntent: BetIntent | null;
+  opportunitySnapshot: OpportunitySnapshotView | null;
 };
 
 export type AlertsPageData = {

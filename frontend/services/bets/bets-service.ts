@@ -53,6 +53,7 @@ import {
 import { ledgerBetFormSchema, ledgerFiltersSchema } from "@/lib/validation/ledger";
 import { getPropById } from "@/services/odds/props-service";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
+import { buildOpportunityProfile } from "@/services/opportunities/opportunity-personalization";
 import {
   buildSweatBoardItem,
   getLedgerEventOptions,
@@ -485,7 +486,9 @@ function buildEmptyPerformanceDashboard(setup: LedgerSetupState): PerformanceDas
     recentForm: [],
     bestSegments: [],
     worstSegments: [],
-    leakSignals: []
+    leakSignals: [],
+    opportunityReviews: [],
+    opportunityProfile: null
   };
 }
 
@@ -777,6 +780,60 @@ function toMonthLabel(dateString: string) {
   });
 }
 
+function buildOpportunityReviews(settled: LedgerBetView[]): PerformanceDashboardView["opportunityReviews"] {
+  return [
+    {
+      label: "GOOD_BET_LOST",
+      value: settled.filter(
+        (bet) =>
+          bet.result === "LOSS" &&
+          ((bet.context?.expectedValuePct ?? 0) > 0 || (bet.clvPercentage ?? 0) > 0)
+      ).length,
+      note: "Lost results where the number still beat close or cleared positive EV."
+    },
+    {
+      label: "BAD_BET_WON",
+      value: settled.filter(
+        (bet) =>
+          bet.result === "WIN" &&
+          ((bet.context?.expectedValuePct ?? 0) < 0 || (bet.clvPercentage ?? 0) < 0)
+      ).length,
+      note: "Wins that still graded as weak process on price or timing."
+    },
+    {
+      label: "BEAT_CLOSE",
+      value: settled.filter((bet) => (bet.clvPercentage ?? 0) > 0).length,
+      note: "Tracked bets that still beat the close."
+    },
+    {
+      label: "MISSED_TIMING",
+      value: settled.filter(
+        (bet) =>
+          (bet.context?.confidenceTier === "A" || bet.context?.confidenceTier === "B") &&
+          (bet.clvPercentage ?? 0) <= -2
+      ).length,
+      note: "Strong ideas that still landed too late."
+    },
+    {
+      label: "STALE_EDGE_MISTAKE",
+      value: settled.filter((bet) =>
+        (bet.context?.supportNote ?? "").toLowerCase().includes("stale")
+      ).length,
+      note: "Tracked bets where stale context was already visible at entry."
+    },
+    {
+      label: "FAKE_MOVE_CHASE",
+      value: settled.filter(
+        (bet) =>
+          bet.context?.valueFlag === "STEAM" &&
+          (bet.clvPercentage ?? 0) < 0 &&
+          bet.result === "LOSS"
+      ).length,
+      note: "Steam-chasing bets that still lost process and result."
+    }
+  ];
+}
+
 function buildPerformanceDashboardData(bets: LedgerBetView[]): PerformanceDashboardView {
   const settled = bets.filter((bet) => bet.result !== "OPEN");
   const trend = settled
@@ -816,6 +873,36 @@ function buildPerformanceDashboardData(bets: LedgerBetView[]): PerformanceDashbo
   const rankedSegments = [...byMarket, ...bySportsbook, ...bySport].sort(
     (left, right) => right.units - left.units
   );
+  const bestSegments = rankedSegments.slice(0, 3).map(
+    (row) => `${row.label}: ${row.units > 0 ? "+" : ""}${row.units.toFixed(2)}u, ${row.winRate.toFixed(1)}% win rate`
+  );
+  const worstSegments = rankedSegments
+    .slice()
+    .reverse()
+    .slice(0, 3)
+    .map(
+      (row) => `${row.label}: ${row.units > 0 ? "+" : ""}${row.units.toFixed(2)}u, ${row.roi.toFixed(1)}% ROI`
+    );
+  const opportunityProfile = buildOpportunityProfile({
+    setup: null,
+    summary,
+    clvInsights: [],
+    bySport,
+    byLeague,
+    byMarket,
+    bySportsbook,
+    byDayOfWeek,
+    byTiming,
+    byWeek,
+    byMonth,
+    trend,
+    recentForm: recentSlices,
+    bestSegments,
+    worstSegments,
+    leakSignals: [],
+    opportunityReviews: [],
+    opportunityProfile: null
+  });
 
   return {
     setup: null,
@@ -837,22 +924,16 @@ function buildPerformanceDashboardData(bets: LedgerBetView[]): PerformanceDashbo
     byMonth,
     trend,
     recentForm: recentSlices,
-    bestSegments: rankedSegments.slice(0, 3).map(
-      (row) => `${row.label}: ${row.units > 0 ? "+" : ""}${row.units.toFixed(2)}u, ${row.winRate.toFixed(1)}% win rate`
-    ),
-    worstSegments: rankedSegments
-      .slice()
-      .reverse()
-      .slice(0, 3)
-      .map(
-        (row) => `${row.label}: ${row.units > 0 ? "+" : ""}${row.units.toFixed(2)}u, ${row.roi.toFixed(1)}% ROI`
-      ),
+    bestSegments,
+    worstSegments,
     leakSignals: buildLeakSignals({
       byMarket,
       bySportsbook,
       byTiming,
       settled
-    })
+    }),
+    opportunityReviews: buildOpportunityReviews(settled),
+    opportunityProfile
   };
 }
 

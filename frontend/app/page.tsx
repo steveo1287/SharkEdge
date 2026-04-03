@@ -5,10 +5,13 @@ import {
   ResearchRail
 } from "@/app/_components/home-primitives";
 import { GameCard } from "@/components/board/game-card";
+import { OpportunitySpotlightCard } from "@/components/intelligence/opportunity-spotlight-card";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SectionTitle } from "@/components/ui/section-title";
 import type { GameCardView, LeagueKey } from "@/lib/types/domain";
+import { withTimeoutFallback } from "@/lib/utils/async";
+import { buildHomeOpportunitySnapshot } from "@/services/opportunities/opportunity-service";
 
 export const dynamic = "force-dynamic";
 
@@ -115,8 +118,28 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   });
 
   const boardData = await oddsService.getBoardPageData(boardFilters);
+  const topProps = await withTimeoutFallback(
+    import("@/services/odds/props-service").then((module) => module.getTopPlayCards(4)),
+    {
+      timeoutMs: 1_800,
+      fallback: []
+    }
+  );
+  const opportunitySnapshot = buildHomeOpportunitySnapshot({
+    games: boardData.games,
+    props: topProps,
+    providerHealth: boardData.providerHealth
+  });
   const focusedLeague = chooseFocusedLeague(selectedLeague, boardData.games);
-  const verifiedGames = boardData.games.filter(isVerifiedGame).slice(0, 6);
+  const rankedGames = Array.from(
+    new Map(
+      opportunitySnapshot.boardTop
+        .map((opportunity) => boardData.games.find((game) => opportunity.id.startsWith(`${game.id}:`)))
+        .filter((game): game is GameCardView => Boolean(game))
+        .map((game) => [game.id, game] as const)
+    ).values()
+  );
+  const verifiedGames = (rankedGames.length ? rankedGames : boardData.games.filter(isVerifiedGame)).slice(0, 6);
   const movementGames = boardData.games
     .filter(isVerifiedGame)
     .filter(
@@ -150,8 +173,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               Board first. Matchup second. Props when the number earns it.
             </div>
             <div className="max-w-3xl text-base leading-8 text-slate-300 md:text-lg">
-              Live prices, market movement, matchup context, and player markets in one research loop.
-              The job is not to look busy. The job is to show what matters, why it matters, and what to open next.
+              Live prices, market posture, and prop context in one decision loop. The job is to show what matters, why it matters, and what to open next.
             </div>
             <div className="flex flex-wrap gap-3">
               <Link
@@ -261,7 +283,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         <SectionTitle
           eyebrow="Line movement"
           title="Numbers worth reacting to"
-          description="The market moved. These are the games most worth opening."
+          description="The move is real. Open these first."
         />
         <div className="grid gap-4 xl:grid-cols-2">
           {movementGames.length ? (
@@ -273,6 +295,66 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           )}
         </div>
       </section>
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <section className="grid gap-4">
+          <SectionTitle
+            eyebrow="Prop desk"
+            title="Best prop entries"
+            description="Only props with real posture belong here."
+          />
+          <div className="grid gap-4">
+            {opportunitySnapshot.propsTop.length ? (
+              opportunitySnapshot.propsTop.slice(0, 2).map((opportunity) => (
+                <OpportunitySpotlightCard
+                  key={opportunity.id}
+                  opportunity={opportunity}
+                  href={`/game/${opportunity.eventId}`}
+                  ctaLabel="Open prop context"
+                />
+              ))
+            ) : (
+              <Card className="surface-panel p-6 text-sm leading-7 text-slate-400">
+                The prop desk is quiet right now. Open the full Props workflow instead of forcing homepage filler.
+              </Card>
+            )}
+          </div>
+        </section>
+
+        <section className="grid gap-4">
+          <SectionTitle
+            eyebrow="Action desk"
+            title="Best windows and trap lines"
+            description="What is playable now, and what should not lead you."
+          />
+          <div className="grid gap-4">
+            {opportunitySnapshot.timingWindows.slice(0, 2).map((opportunity) => (
+              <OpportunitySpotlightCard
+                key={opportunity.id}
+                opportunity={opportunity}
+                href={opportunity.kind === "prop" ? `/game/${opportunity.eventId}` : `/game/${opportunity.eventId}`}
+                ctaLabel="Open timing"
+              />
+            ))}
+            {opportunitySnapshot.traps.length ? (
+              <Card className="surface-panel p-5">
+                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-rose-300">Do not chase</div>
+                <div className="mt-3 grid gap-3">
+                  {opportunitySnapshot.traps.map((opportunity) => (
+                    <div
+                      key={`${opportunity.id}-trap`}
+                      className="rounded-[1rem] border border-rose-400/20 bg-rose-500/8 px-4 py-3"
+                    >
+                      <div className="text-sm font-medium text-white">{opportunity.selectionLabel}</div>
+                      <div className="mt-1 text-sm text-rose-100">{opportunity.whatCouldKillIt[0] ?? opportunity.reasonSummary}</div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            ) : null}
+          </div>
+        </section>
+      </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <section className="grid gap-4">
@@ -322,9 +404,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
         <section className="grid gap-4">
           <SectionTitle
-            eyebrow="Research stack"
-            title="Move deeper without losing the thread"
-            description="The front page should hand you into the right workflow instead of trapping you in widgets."
+            eyebrow="Next move"
+            title="Go deeper without losing the thread"
+            description="The front page should hand you into the next desk, not trap you in widgets."
           />
           <ResearchRail focusedLeague={focusedLeague} />
         </section>

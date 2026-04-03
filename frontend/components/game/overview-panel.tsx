@@ -1,4 +1,8 @@
 import { BetActionButton } from "@/components/bets/bet-action-button";
+import {
+  getOpportunityTrapLine,
+  OpportunityBadgeRow
+} from "@/components/intelligence/opportunity-badges";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import type { MatchupDetailView } from "@/lib/types/domain";
@@ -6,6 +10,7 @@ import {
   buildSignalBetIntent,
   getEdgeToneFromBand
 } from "@/lib/utils/bet-intelligence";
+import { buildBetSignalOpportunity } from "@/services/opportunities/opportunity-service";
 
 type OverviewPanelProps = {
   detail: MatchupDetailView;
@@ -25,18 +30,15 @@ function getSupportTone(status: MatchupDetailView["supportStatus"]) {
 
 function MiniMetric({
   label,
-  value,
-  note
+  value
 }: {
   label: string;
   value: string;
-  note: string;
 }) {
   return (
     <div className="rounded-[1.2rem] border border-white/8 bg-slate-950/60 px-4 py-3">
       <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
       <div className="mt-2 text-base font-semibold text-white">{value}</div>
-      <div className="mt-1 text-xs leading-5 text-slate-500">{note}</div>
     </div>
   );
 }
@@ -64,7 +66,8 @@ function SignalCard({
     typeof signal.evProfile?.kellyFraction === "number"
       ? `${(signal.evProfile.kellyFraction * 100).toFixed(1)}%`
       : "Suppressed";
-  const signalReasons = signal.reasons?.slice(0, 2) ?? [];
+  const opportunity = buildBetSignalOpportunity(signal, detail.league.key, detail.providerHealth);
+  const trapLine = getOpportunityTrapLine(opportunity);
 
   return (
     <div
@@ -84,51 +87,38 @@ function SignalCard({
             {signal.sportsbookName ?? "Book pending"} | {signal.oddsAmerican > 0 ? "+" : ""}
             {signal.oddsAmerican}
           </div>
-          {signal.fairPrice ? (
-            <div className="mt-2 text-xs uppercase tracking-[0.18em] text-sky-300">
-              {signal.fairPrice.pricingMethod.replace(/_/g, " ")} | confidence {signal.fairPrice.pricingConfidenceScore}
-            </div>
-          ) : null}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Badge tone={getEdgeToneFromBand(signal.edgeScore.label)}>{signal.edgeScore.label}</Badge>
-          <Badge tone={getSupportTone(signal.supportStatus)}>{signal.supportStatus}</Badge>
-        </div>
+        <Badge tone={getEdgeToneFromBand(signal.edgeScore.label)}>{signal.edgeScore.label}</Badge>
+      </div>
+
+      <div className="mt-4">
+        <OpportunityBadgeRow opportunity={opportunity} />
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <MiniMetric
           label="EV"
           value={typeof displayEvPct === "number" ? `${displayEvPct > 0 ? "+" : ""}${displayEvPct.toFixed(2)}%` : "N/A"}
-          note="Expected edge at the current best available price."
         />
         <MiniMetric
           label="Fair line"
           value={fairLineDisplay}
-          note="Consensus-derived fair price for this signal."
         />
         <MiniMetric
           label="Stake guide"
           value={stakePct}
-          note="Quarter-Kelly only when pricing confidence is strong enough."
         />
       </div>
 
-      {signalReasons.length ? (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {signalReasons.map((reason) => (
-            <Badge key={`${signal.id}-${reason.label}`} tone={reason.tone}>
-              {reason.label}
-            </Badge>
-          ))}
+      <div className="mt-4 rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
+        {opportunity.reasonSummary}
+      </div>
+
+      {trapLine ? (
+        <div className="mt-4 rounded-[1.15rem] border border-rose-400/20 bg-rose-500/8 px-4 py-3 text-sm leading-6 text-rose-100">
+          <span className="text-rose-200/75">Trap line:</span> {trapLine}
         </div>
       ) : null}
-
-      <div className="mt-4 rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
-        {signal.reasons?.[0]?.detail ??
-          signal.supportNote ??
-          "Open the odds board and matchup context before forcing a signal here."}
-      </div>
 
       <div className="mt-4 flex flex-wrap gap-3">
         <BetActionButton
@@ -199,31 +189,35 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
                 Secondary signals
               </div>
               <div className="mt-3 grid gap-2">
-                {additionalSignals.map((signal) => (
-                  <div
-                    key={signal.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-[1.1rem] border border-white/8 bg-slate-900/60 px-4 py-3"
-                  >
-                    <div>
-                      <div className="text-sm font-medium text-white">{signal.selection}</div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        {signal.marketLabel} | {signal.sportsbookName ?? "Book pending"} | {signal.oddsAmerican > 0 ? "+" : ""}
-                        {signal.oddsAmerican}
+                {additionalSignals.map((signal) => {
+                  const opportunity = buildBetSignalOpportunity(signal, detail.league.key, detail.providerHealth);
+                  const trapLine = getOpportunityTrapLine(opportunity);
+                  return (
+                    <div
+                      key={signal.id}
+                      className="rounded-[1.1rem] border border-white/8 bg-slate-900/60 px-4 py-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-medium text-white">{signal.selection}</div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {signal.marketLabel} | {signal.sportsbookName ?? "Book pending"} | {signal.oddsAmerican > 0 ? "+" : ""}
+                            {signal.oddsAmerican}
+                          </div>
+                        </div>
+                        <div className="text-xs text-sky-300">
+                          {opportunity.actionState.replace(/_/g, " ")} | {opportunity.opportunityScore}
+                        </div>
+                      </div>
+                      <div className="mt-3">
+                        <OpportunityBadgeRow opportunity={opportunity} />
+                      </div>
+                      <div className={`mt-3 text-sm leading-6 ${trapLine ? "text-rose-100" : "text-slate-300"}`}>
+                        {trapLine ?? opportunity.reasonSummary}
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge tone={getEdgeToneFromBand(signal.edgeScore.label)}>
-                        {signal.edgeScore.label}
-                      </Badge>
-                      {typeof signal.expectedValuePct === "number" ? (
-                        <Badge tone={signal.expectedValuePct > 0 ? "success" : "muted"}>
-                          EV {signal.expectedValuePct > 0 ? "+" : ""}
-                          {signal.expectedValuePct.toFixed(2)}%
-                        </Badge>
-                      ) : null}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ) : null}

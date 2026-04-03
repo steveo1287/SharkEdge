@@ -5,6 +5,10 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 
 import { BetActionButton } from "@/components/bets/bet-action-button";
+import {
+  getOpportunityTrapLine,
+  OpportunityBadgeRow
+} from "@/components/intelligence/opportunity-badges";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -52,6 +56,14 @@ function formatRuleConfig(rule: AlertRuleView) {
   }
 
   return "Availability watch";
+}
+
+function formatSnapshotFreshness(freshnessMinutes: number | null, staleFlag: boolean) {
+  if (typeof freshnessMinutes === "number") {
+    return staleFlag ? `Stale ${freshnessMinutes}m` : `Fresh ${freshnessMinutes}m`;
+  }
+
+  return staleFlag ? "Snapshot stale" : "Freshness pending";
 }
 
 export function AlertCenter({
@@ -134,12 +146,15 @@ export function AlertCenter({
       ) : null}
 
       <Card className="p-5 text-sm leading-7 text-slate-400">
-        SharkEdge evaluates alert rules server-side and writes them into the in-app alert center. Delivery is intentionally limited to in-app this phase, so there is no fake push or email promise.
+        SharkEdge only sends decision alerts here right now. No fake push or email promise, just server-side checks when the saved market actually changes posture.
       </Card>
 
       <section className="grid gap-4">
         {notifications.length ? (
-          notifications.map((notification) => (
+          notifications.map((notification) => {
+            const trapLine = notification.opportunitySnapshot ? getOpportunityTrapLine(notification.opportunitySnapshot) : null;
+
+            return (
             <Card key={notification.id} className="p-5">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
@@ -206,8 +221,28 @@ export function AlertCenter({
                   ) : null}
                 </div>
               </div>
+
+              {notification.opportunitySnapshot ? (
+                <div className="mt-4 grid gap-3 md:grid-cols-[auto_1fr_1fr] md:items-start">
+                  <OpportunityBadgeRow opportunity={notification.opportunitySnapshot} />
+                  <div className="rounded-2xl border border-line bg-slate-950/65 px-4 py-3 text-sm leading-6 text-slate-300">
+                    <span className="text-slate-500">Why now:</span> {notification.opportunitySnapshot.triggerSummary ?? notification.opportunitySnapshot.reasonSummary}
+                    <div className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">
+                      {formatSnapshotFreshness(
+                        notification.opportunitySnapshot.providerFreshnessMinutes,
+                        notification.opportunitySnapshot.staleFlag
+                      )}
+                    </div>
+                  </div>
+                  <div className={`rounded-2xl border px-4 py-3 text-sm leading-6 ${trapLine ? "border-rose-400/20 bg-rose-500/8 text-rose-100" : "border-line bg-slate-950/65 text-slate-300"}`}>
+                    <span className={trapLine ? "text-rose-200/75" : "text-slate-500"}>Trap line:</span>{" "}
+                    {trapLine ?? notification.opportunitySnapshot.killSummary ?? "Quality or timing faded."}
+                  </div>
+                </div>
+              ) : null}
             </Card>
-          ))
+          );
+          })
         ) : (
           <EmptyState
             title="No alert history yet"
@@ -237,7 +272,7 @@ export function AlertCenter({
               </div>
               <div className="mt-4 text-sm text-slate-300">{formatRuleConfig(rule)}</div>
               <div className="mt-2 text-sm text-slate-500">
-                Last evaluated {rule.lastEvaluatedAt ? new Date(rule.lastEvaluatedAt).toLocaleString("en-US") : "pending"} | Last triggered {rule.lastTriggeredAt ? new Date(rule.lastTriggeredAt).toLocaleString("en-US") : "never"}
+                Checked {rule.lastEvaluatedAt ? new Date(rule.lastEvaluatedAt).toLocaleString("en-US") : "pending"} | Triggered {rule.lastTriggeredAt ? new Date(rule.lastTriggeredAt).toLocaleString("en-US") : "never"}
               </div>
               <div className="mt-4 flex flex-wrap gap-3">
                 {rule.status !== "MUTED" ? (

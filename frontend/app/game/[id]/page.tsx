@@ -6,13 +6,23 @@ import { MatchupPanel } from "@/components/game/matchup-panel";
 import { OddsTable } from "@/components/game/odds-table";
 import { OverviewPanel } from "@/components/game/overview-panel";
 import { PropList } from "@/components/game/prop-list";
+import {
+  formatOpportunityAction,
+  getOpportunityTrapLine,
+  getOpportunityTone,
+  OpportunityBadgeRow
+} from "@/components/intelligence/opportunity-badges";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { formatGameDateTime } from "@/lib/formatters/date";
-import { buildLeagueStoryPackage } from "@/services/content/story-writer-service";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
+import {
+  buildBetSignalOpportunity,
+  buildPropOpportunity,
+  rankOpportunities
+} from "@/services/opportunities/opportunity-service";
 
 export const dynamic = "force-dynamic";
 
@@ -66,15 +76,6 @@ function getProviderHealthTone(state: string) {
   return "muted" as const;
 }
 
-function readParticipantScore(value: string | null) {
-  if (!value) {
-    return null;
-  }
-
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 function QuickJump({ href, label, emphasis = false }: { href: string; label: string; emphasis?: boolean }) {
   return (
     <a
@@ -125,43 +126,29 @@ export default async function GamePage({ params }: PageProps) {
   }
 
   const showVerifiedOdds = detail.hasVerifiedOdds;
-  const awayParticipant =
-    detail.participants.find((participant) => participant.role === "AWAY") ??
-    detail.participants.find((participant) => participant.role === "COMPETITOR_A") ??
-    null;
-  const homeParticipant =
-    detail.participants.find((participant) => participant.role === "HOME") ??
-    detail.participants.find((participant) => participant.role === "COMPETITOR_B") ??
-    null;
-  const storyPackage = await buildLeagueStoryPackage({
-    league: detail.league.key,
-    title:
-      detail.status === "FINAL"
-        ? `${detail.eventLabel} recap`
-        : `${detail.eventLabel} matchup context`,
-    summary: detail.notes[0] ?? detail.stateDetail ?? detail.supportNote,
-    category: detail.status === "FINAL" ? "Matchup recap" : "Matchup context",
-    eventId: detail.externalEventId,
-    eventHref: `/game/${id}`,
-    eventLabel: detail.eventLabel,
-    supportingFacts: [
-      detail.supportNote,
-      ...detail.notes.slice(0, 2),
-      ...detail.trendCards.slice(0, 2).map((card) => `${card.title}: ${card.value}`)
-    ].filter(Boolean),
-    boxscore:
-      awayParticipant && homeParticipant
-        ? {
-            awayTeam: awayParticipant.name,
-            homeTeam: homeParticipant.name,
-            awayScore: readParticipantScore(awayParticipant.score),
-            homeScore: readParticipantScore(homeParticipant.score)
-          }
-        : null
-  });
-
   const headlineSignal = detail.betSignals[0] ?? null;
   const secondarySignals = detail.betSignals.slice(1, 3);
+  const headlineOpportunity = headlineSignal
+    ? buildBetSignalOpportunity(headlineSignal, detail.league.key, detail.providerHealth)
+    : null;
+  const secondarySignalOpportunities = secondarySignals.map((signal) => ({
+    signal,
+    opportunity: buildBetSignalOpportunity(signal, detail.league.key, detail.providerHealth)
+  }));
+  const topPropOpportunities = detail.props
+    .map((prop) => ({
+      prop,
+      opportunity: buildPropOpportunity(prop, detail.providerHealth)
+    }))
+    .sort((left, right) => right.opportunity.opportunityScore - left.opportunity.opportunityScore)
+    .slice(0, 3);
+  const trapStack = rankOpportunities(
+    [
+      headlineOpportunity,
+      ...secondarySignalOpportunities.map((entry) => entry.opportunity),
+      ...topPropOpportunities.map((entry) => entry.opportunity)
+    ].filter((entry): entry is NonNullable<typeof entry> => Boolean(entry && entry.trapFlags.length))
+  ).slice(0, 3);
   const trendPreview = detail.trendCards.slice(0, 2);
   const providerLabels = [
     detail.currentOddsProvider,
@@ -169,15 +156,21 @@ export default async function GamePage({ params }: PageProps) {
     detail.liveScoreProvider,
     detail.statsProvider
   ].filter(Boolean) as string[];
-  const heroSummary = [detail.venue, detail.stateDetail, detail.scoreboard].filter(Boolean).join(" | ");
+  const heroMeta = [detail.venue, detail.stateDetail, detail.scoreboard].filter(Boolean).join(" | ");
   const signalSummary = headlineSignal
     ? `${headlineSignal.selection} at ${headlineSignal.oddsAmerican > 0 ? "+" : ""}${headlineSignal.oddsAmerican}`
     : "No qualified signal yet";
   const decisionReasons =
-    headlineSignal?.reasons?.slice(0, 3).map((reason) => reason.detail) ??
-    storyPackage.takeaways.slice(0, 3);
+    headlineOpportunity?.whyItShows.slice(0, 2) ??
+    headlineSignal?.reasons?.slice(0, 2).map((reason) => reason.detail) ??
+    detail.notes.slice(0, 2);
+  const headlineTrapLine = headlineOpportunity ? getOpportunityTrapLine(headlineOpportunity) : null;
+  const postureLabel = headlineOpportunity ? formatOpportunityAction(headlineOpportunity.actionState) : "WATCH";
+  const postureTone = headlineOpportunity ? getOpportunityTone(headlineOpportunity.actionState) : "muted";
   const modelFactors = detail.nbaModel?.available ? detail.nbaModel.factors.slice(0, 3) : [];
   const matchupNotes = detail.notes.slice(0, 3);
+  const topResearchNote =
+    trendPreview[0]?.note ?? modelFactors[0]?.note ?? matchupNotes[0] ?? detail.supportNote;
 
   return (
     <BetSlipBoundary>
@@ -200,13 +193,14 @@ export default async function GamePage({ params }: PageProps) {
             <div className="mt-4 font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">
               {detail.eventLabel}
             </div>
-            <p className="mt-4 max-w-3xl text-base leading-8 text-slate-300">
-              {heroSummary || "One matchup page that brings the market, the read, and the execution together."}
-            </p>
-            <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-400">
-              {headlineSignal?.reasons?.[0]?.detail ??
+            {heroMeta ? (
+              <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-400">{heroMeta}</p>
+            ) : null}
+            <p className="mt-3 max-w-3xl text-base leading-8 text-slate-300">
+              {headlineOpportunity?.reasonSummary ??
                 headlineSignal?.supportNote ??
-                detail.supportNote}
+                detail.supportNote ??
+                "No force-fit conviction. The matchup stays live only if the number earns it."}
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
@@ -226,27 +220,27 @@ export default async function GamePage({ params }: PageProps) {
               <MetricTile
                 label="Best angle"
                 value={signalSummary}
-                note="Strongest current entry point on the page."
+                note="Lead read only."
+              />
+              <MetricTile
+                label="Posture"
+                value={postureLabel}
+                note="Bet now, wait, watch, or pass."
               />
               <MetricTile
                 label="Fair line"
                 value={formatFairLine(headlineSignal?.fairPrice?.fairOddsAmerican)}
-                note="Consensus-derived pricing anchor for the lead signal."
+                note="Pricing anchor."
               />
               <MetricTile
-                label="Price health"
-                value={showVerifiedOdds ? `${detail.books.length} books` : "Thin"}
-                note={showVerifiedOdds ? "Current verified books mapped into this matchup." : "Board stays visible, but honest, until verified prices return."}
-              />
-              <MetricTile
-                label="Props in play"
-                value={String(detail.props.length)}
-                note="Matchup-linked props currently attached to this game."
+                label="Trap risk"
+                value={headlineTrapLine ? "Raised" : trapStack.length ? `${trapStack.length} flags` : "Clear"}
+                note="Kill switch before conviction."
               />
             </div>
           </div>
 
-          <div className="grid gap-4 rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-5">
+            <div className="grid gap-4 rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="section-kicker">Decision desk</div>
@@ -254,16 +248,24 @@ export default async function GamePage({ params }: PageProps) {
                   What matters right now.
                 </div>
               </div>
-              {headlineSignal ? <Badge tone="success">{headlineSignal.confidenceTier} tier</Badge> : null}
+              <div className="flex flex-wrap gap-2">
+                <Badge tone={postureTone}>{postureLabel}</Badge>
+                {headlineSignal ? <Badge tone="success">{headlineSignal.confidenceTier} tier</Badge> : null}
+              </div>
             </div>
 
-            <div className="rounded-[1.25rem] border border-sky-400/15 bg-sky-500/10 px-4 py-4">
-              <div className="text-[0.66rem] uppercase tracking-[0.22em] text-sky-300">Lead read</div>
-              <div className="mt-3 text-lg font-semibold leading-tight text-white">
-                {headlineSignal ? headlineSignal.selection : "No bet qualified yet"}
-              </div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                <div>
+              <div className="rounded-[1.25rem] border border-sky-400/15 bg-sky-500/10 px-4 py-4">
+                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-sky-300">Lead read</div>
+                <div className="mt-3 text-lg font-semibold leading-tight text-white">
+                  {headlineSignal ? headlineSignal.selection : "No bet qualified yet"}
+                </div>
+                {headlineOpportunity ? (
+                  <div className="mt-3">
+                    <OpportunityBadgeRow opportunity={headlineOpportunity} />
+                  </div>
+                ) : null}
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div>
                   <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">EV</div>
                   <div className="mt-1 text-base font-semibold text-emerald-300">
                     {typeof headlineSignal?.expectedValuePct === "number"
@@ -277,32 +279,37 @@ export default async function GamePage({ params }: PageProps) {
                     {formatFairLine(headlineSignal?.fairPrice?.fairOddsAmerican)}
                   </div>
                 </div>
-                <div>
-                  <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">Stake guide</div>
-                  <div className="mt-1 text-base font-semibold text-white">
-                    {typeof headlineSignal?.evProfile?.kellyFraction === "number"
-                      ? `${(headlineSignal.evProfile.kellyFraction * 100).toFixed(1)}%`
-                      : "Suppressed"}
-                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="grid gap-2">
-              {decisionReasons.length ? (
-                decisionReasons.map((reason, index) => (
-                  <div
-                    key={`${reason}-${index}`}
-                    className="rounded-[1.15rem] border border-white/8 bg-slate-900/70 px-4 py-3 text-sm leading-6 text-slate-300"
-                  >
-                    {reason}
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-[1.15rem] border border-white/8 bg-slate-900/70 px-4 py-3 text-sm leading-6 text-slate-400">
-                  The game stays visible, but SharkEdge will not invent a reason to fire when the edge is not there.
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-[1.15rem] border border-white/8 bg-slate-900/70 px-4 py-3">
+                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Why now</div>
+                <div className="mt-2 text-sm leading-6 text-slate-300">
+                  {decisionReasons[0] ??
+                    "The page stays visible, but SharkEdge will not invent a reason to fire when the edge is not there."}
                 </div>
-              )}
+              </div>
+              <div
+                className={`rounded-[1.15rem] border px-4 py-3 ${
+                  headlineTrapLine
+                    ? "border-rose-400/20 bg-rose-500/8"
+                    : "border-white/8 bg-slate-900/70"
+                }`}
+              >
+                <div
+                  className={`text-[0.66rem] uppercase tracking-[0.2em] ${
+                    headlineTrapLine ? "text-rose-200/80" : "text-slate-500"
+                  }`}
+                >
+                  Kill switch
+                </div>
+                <div className={`mt-2 text-sm leading-6 ${headlineTrapLine ? "text-rose-100" : "text-slate-300"}`}>
+                  {headlineTrapLine ??
+                    headlineOpportunity?.whatCouldKillIt[0] ??
+                    "If price quality slips or disagreement widens, this drops back to watch only."}
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-3">
@@ -320,7 +327,7 @@ export default async function GamePage({ params }: PageProps) {
             <SectionTitle
               eyebrow="Market thesis"
               title="Best angle first, runners-up second"
-              description="Lead with the strongest qualified signal, then make every secondary angle earn the space it takes."
+              description="Lead read first. Everything else has to justify the screen space."
             />
             <OverviewPanel detail={detail} />
           </section>
@@ -369,7 +376,7 @@ export default async function GamePage({ params }: PageProps) {
             <SectionTitle
               eyebrow="Prop zone"
               title="Props tied directly to this game"
-              description="Best matchup-linked prop entries first, then the rest of the board below."
+              description="Same posture system. Best prop first, filler buried."
             />
             <PropList props={detail.props} support={detail.propsSupport} />
           </section>
@@ -380,7 +387,7 @@ export default async function GamePage({ params }: PageProps) {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="section-kicker">Why now</div>
-                <div className="mt-2 text-2xl font-semibold text-white">What changes the read</div>
+                <div className="mt-2 text-2xl font-semibold text-white">What can still move this matchup</div>
               </div>
               {trendPreview.length ? (
                 <Link
@@ -393,20 +400,37 @@ export default async function GamePage({ params }: PageProps) {
             </div>
 
             <div className="mt-4 grid gap-3">
-              <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-4 text-sm leading-6 text-slate-300">
-                {storyPackage.bettingImpact}
-              </div>
-
-              {trendPreview.map((card) => (
-                <div
-                  key={card.id}
-                  className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-4"
-                >
-                  <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">{card.title}</div>
-                  <div className="mt-2 text-xl font-semibold text-white">{card.value}</div>
-                  <div className="mt-2 text-sm leading-6 text-slate-300">{card.note}</div>
+              {topPropOpportunities.length ? (
+                <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-4">
+                  <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Prop posture</div>
+                  <div className="mt-3 grid gap-2">
+                    {topPropOpportunities.slice(0, 2).map(({ prop, opportunity }) => (
+                      <div
+                        key={prop.id}
+                        className="rounded-[1rem] border border-white/8 bg-slate-900/70 px-3 py-3"
+                      >
+                        <div className="text-sm font-medium text-white">{prop.player.name}</div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {prop.marketType.replace(/_/g, " ")} | {opportunity.actionState.replace(/_/g, " ")} | {opportunity.opportunityScore}
+                        </div>
+                        <div className="mt-2 text-sm leading-6 text-slate-300">
+                          {opportunity.reasonSummary}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
+              ) : null}
+
+              {trendPreview[0] ? (
+                <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-4">
+                  <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">
+                    {trendPreview[0].title}
+                  </div>
+                  <div className="mt-2 text-xl font-semibold text-white">{trendPreview[0].value}</div>
+                  <div className="mt-2 text-sm leading-6 text-slate-300">{trendPreview[0].note}</div>
+                </div>
+              ) : null}
 
               {modelFactors.length ? (
                 <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-4">
@@ -427,9 +451,9 @@ export default async function GamePage({ params }: PageProps) {
                 </div>
               ) : null}
 
-              {!trendPreview.length && !modelFactors.length && matchupNotes.length ? (
+              {topResearchNote && !trendPreview.length && !modelFactors.length ? (
                 <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-4 text-sm leading-6 text-slate-300">
-                  {matchupNotes[0]}
+                  {topResearchNote}
                 </div>
               ) : null}
             </div>
@@ -455,14 +479,23 @@ export default async function GamePage({ params }: PageProps) {
             </div>
 
             <div className="mt-4 grid gap-3 text-sm leading-6 text-slate-300">
+              {trapStack.length ? (
+                <div className="rounded-[1.15rem] border border-rose-400/20 bg-rose-500/8 px-4 py-3">
+                  <div className="text-[0.66rem] uppercase tracking-[0.2em] text-rose-200/80">Trap warnings</div>
+                  <div className="mt-2 grid gap-2">
+                    {trapStack.map((opportunity) => (
+                      <div key={`${opportunity.id}-trap`} className="text-sm leading-6 text-rose-100">
+                        {opportunity.selectionLabel}: {getOpportunityTrapLine(opportunity) ?? opportunity.reasonSummary}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
                 {detail.supportNote}
               </div>
               <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
                 {detail.providerHealth.summary}
-              </div>
-              <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
-                Props support: {detail.propsSupport.note}
               </div>
               <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
                 {detail.providerHealth.asOf
@@ -472,18 +505,6 @@ export default async function GamePage({ params }: PageProps) {
               {detail.providerHealth.warnings.length ? (
                 <div className="rounded-[1.15rem] border border-amber-300/20 bg-amber-400/10 px-4 py-3 text-amber-100">
                   {detail.providerHealth.warnings[0]}
-                </div>
-              ) : null}
-              {secondarySignals.length ? (
-                <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
-                  <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Secondary looks</div>
-                  <div className="mt-2 grid gap-2">
-                    {secondarySignals.map((signal) => (
-                      <div key={signal.id} className="text-sm text-slate-300">
-                        {signal.selection} | {signal.oddsAmerican > 0 ? "+" : ""}{signal.oddsAmerican}
-                      </div>
-                    ))}
-                  </div>
                 </div>
               ) : null}
             </div>

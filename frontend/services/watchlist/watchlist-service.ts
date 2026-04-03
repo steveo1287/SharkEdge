@@ -12,6 +12,11 @@ import { watchlistFiltersSchema } from "@/lib/validation/product";
 import { prisma } from "@/lib/db/prisma";
 import { getPropById } from "@/services/odds/props-service";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
+import { buildOpportunitySnapshot } from "@/services/opportunities/opportunity-snapshot";
+import {
+  buildBetSignalOpportunity,
+  buildPropOpportunity
+} from "@/services/opportunities/opportunity-service";
 import {
   buildProductSetupState,
   DEFAULT_USER_ID,
@@ -32,6 +37,11 @@ type WatchlistRow = Prisma.WatchlistItemGetPayload<{
     };
   };
 }>;
+
+type WatchlistResolutionContext = {
+  detailByRouteId: Map<string, Promise<Awaited<ReturnType<typeof getMatchupDetail>>>>;
+  propBySourceId: Map<string, Promise<Awaited<ReturnType<typeof getPropById>>>>;
+};
 
 function toJsonInput(value: unknown) {
   return value as Prisma.InputJsonValue;
@@ -107,7 +117,54 @@ function toWatchStatus(eventStatus: GameStatus | null) {
   return "unavailable";
 }
 
-async function resolveCurrentState(row: WatchlistRow, intent: BetIntent | null) {
+function createWatchlistResolutionContext(): WatchlistResolutionContext {
+  return {
+    detailByRouteId: new Map(),
+    propBySourceId: new Map()
+  };
+}
+
+function getCachedMatchupDetail(
+  context: WatchlistResolutionContext,
+  routeId: string | null
+) {
+  if (!routeId) {
+    return Promise.resolve(null);
+  }
+
+  const existing = context.detailByRouteId.get(routeId);
+  if (existing) {
+    return existing;
+  }
+
+  const request = getMatchupDetail(routeId).catch(() => null);
+  context.detailByRouteId.set(routeId, request);
+  return request;
+}
+
+function getCachedProp(
+  context: WatchlistResolutionContext,
+  sourceItemId: string | null
+) {
+  if (!sourceItemId) {
+    return Promise.resolve(null);
+  }
+
+  const existing = context.propBySourceId.get(sourceItemId);
+  if (existing) {
+    return existing;
+  }
+
+  const request = getPropById(sourceItemId).catch(() => null);
+  context.propBySourceId.set(sourceItemId, request);
+  return request;
+}
+
+async function resolveCurrentState(
+  row: WatchlistRow,
+  intent: BetIntent | null,
+  context: WatchlistResolutionContext
+) {
   const base = {
     available: false,
     stale: true,
@@ -120,18 +177,20 @@ async function resolveCurrentState(row: WatchlistRow, intent: BetIntent | null) 
     line: null as number | null,
     expectedValuePct: null as number | null,
     bestBookChanged: false,
+    opportunitySnapshot: null,
     note:
       row.supportNote ??
       "Current market lookup is unavailable right now, so SharkEdge is preserving the saved ticket context only."
   };
 
   const routeId = parseMatchupRoute(intent?.matchupHref ?? null) ?? row.eventExternalId ?? null;
-  const detail = routeId ? await getMatchupDetail(routeId).catch(() => null) : null;
+  const detail = await getCachedMatchupDetail(context, routeId);
   const sourceItemId = intent?.context?.sourceItemId ?? intent?.legs[0]?.sourceItemId ?? null;
 
   if (sourceItemId && isPropMarket(row.marketType as MarketType)) {
-    const prop = await getPropById(sourceItemId).catch(() => null);
+    const prop = await getCachedProp(context, sourceItemId);
     if (prop) {
+      const opportunity = buildPropOpportunity(prop, detail?.providerHealth ?? null);
       return {
         available: true,
         stale: detail ? isStale(detail.lastUpdatedAt) : prop.source !== "live",
@@ -146,6 +205,7 @@ async function resolveCurrentState(row: WatchlistRow, intent: BetIntent | null) 
         bestBookChanged:
           Boolean(row.sportsbookName) &&
           (prop.bestAvailableSportsbookName ?? prop.sportsbook.name) !== row.sportsbookName,
+        opportunitySnapshot: buildOpportunitySnapshot(opportunity),
         note: prop.supportNote ?? row.supportNote ?? "Live prop snapshot resolved from the current odds mesh."
       };
     }
@@ -162,6 +222,11 @@ async function resolveCurrentState(row: WatchlistRow, intent: BetIntent | null) 
       null;
 
     if (signal) {
+      const opportunity = buildBetSignalOpportunity(
+        signal,
+        row.league as WatchlistItemView["league"],
+        detail.providerHealth
+      );
       return {
         available: true,
         stale: isStale(detail.lastUpdatedAt),
@@ -176,6 +241,7 @@ async function resolveCurrentState(row: WatchlistRow, intent: BetIntent | null) 
         bestBookChanged:
           Boolean(row.sportsbookName) &&
           (signal.sportsbookName ?? null) !== row.sportsbookName,
+        opportunitySnapshot: buildOpportunitySnapshot(opportunity),
         note: signal.supportNote ?? detail.supportNote
       };
     }
@@ -294,13 +360,17 @@ export async function createWatchlistItem(intent: BetIntent) {
   return created.id;
 }
 
-async function mapWatchlistItem(row: WatchlistRow): Promise<WatchlistItemView | null> {
+async function mapWatchlistItem(
+  row: WatchlistRow,
+  context: WatchlistResolutionContext
+): Promise<WatchlistItemView | null> {
   const intent = toIntent(row.intentJson);
   if (!intent) {
     return null;
   }
 
-  const current = await resolveCurrentState(row, intent);
+  const currentState = await resolveCurrentState(row, intent, context);
+  const { opportunitySnapshot, ...current } = currentState;
 
   return {
     id: row.id,
@@ -326,7 +396,8 @@ async function mapWatchlistItem(row: WatchlistRow): Promise<WatchlistItemView | 
     status: row.status as WatchlistItemView["status"],
     intent,
     current,
-    alertCount: row.alertRules.length
+    alertCount: row.alertRules.length,
+    opportunitySnapshot
   };
 }
 
@@ -361,21 +432,34 @@ export async function getWatchlistPageData(
       })
     ]);
 
-    const mapped = (await Promise.all(rows.map(mapWatchlistItem))).filter(Boolean) as WatchlistItemView[];
+    const resolutionContext = createWatchlistResolutionContext();
+    const mapped = (
+      await Promise.all(rows.map((row) => mapWatchlistItem(row, resolutionContext)))
+    ).filter(Boolean) as WatchlistItemView[];
     const filtered =
       filters.liveStatus === "all"
         ? mapped
         : mapped.filter((item) => toWatchStatus(item.current.eventStatus) === filters.liveStatus);
+    const ranked = [...filtered].sort((left, right) => {
+      const scoreDelta =
+        (right.opportunitySnapshot?.opportunityScore ?? -1) -
+        (left.opportunitySnapshot?.opportunityScore ?? -1);
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+
+      return right.savedAt.localeCompare(left.savedAt);
+    });
 
     return {
       setup: null,
       filters,
-      items: filtered,
+      items: ranked,
       summary: {
-        total: filtered.length,
-        live: filtered.filter((item) => toWatchStatus(item.current.eventStatus) === "live").length,
-        upcoming: filtered.filter((item) => toWatchStatus(item.current.eventStatus) === "upcoming").length,
-        unavailable: filtered.filter((item) => !item.current.available).length
+        total: ranked.length,
+        live: ranked.filter((item) => toWatchStatus(item.current.eventStatus) === "live").length,
+        upcoming: ranked.filter((item) => toWatchStatus(item.current.eventStatus) === "upcoming").length,
+        unavailable: ranked.filter((item) => !item.current.available).length
       },
       plan
     };
@@ -485,7 +569,8 @@ export async function getWatchlistItemById(id: string) {
     return null;
   }
 
-  return mapWatchlistItem(row);
+  const resolutionContext = createWatchlistResolutionContext();
+  return mapWatchlistItem(row, resolutionContext);
 }
 
 export function getCurrentLineDelta(item: WatchlistItemView) {

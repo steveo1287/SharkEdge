@@ -5,6 +5,10 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 
 import { BetActionButton } from "@/components/bets/bet-action-button";
+import {
+  getOpportunityTrapLine,
+  OpportunityBadgeRow
+} from "@/components/intelligence/opportunity-badges";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -53,6 +57,16 @@ function CurrentStateBadge({ item }: { item: WatchlistItemView }) {
   return <Badge tone="brand">Watching</Badge>;
 }
 
+function formatSnapshotFreshness(item: WatchlistItemView) {
+  const freshness = item.opportunitySnapshot?.providerFreshnessMinutes;
+
+  if (typeof freshness === "number") {
+    return item.opportunitySnapshot?.staleFlag ? `Stale ${freshness}m` : `Fresh ${freshness}m`;
+  }
+
+  return item.current.stale ? "Snapshot stale" : "Freshness pending";
+}
+
 function WatchlistItemCard({
   item,
   onArchive,
@@ -71,6 +85,7 @@ function WatchlistItemCard({
   feedback: string | null;
 }) {
   const [alertType, setAlertType] = useState<AlertType>("LINE_MOVEMENT_THRESHOLD");
+  const trapLine = item.opportunitySnapshot ? getOpportunityTrapLine(item.opportunitySnapshot) : null;
 
   return (
     <Card className="p-5">
@@ -96,7 +111,7 @@ function WatchlistItemCard({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-4">
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
         <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
           <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Saved</div>
           <div className="mt-2 text-lg font-medium text-white">
@@ -122,37 +137,50 @@ function WatchlistItemCard({
           </div>
         </div>
         <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
-          <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Start / State</div>
+          <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Live posture</div>
           <div className="mt-2 text-lg font-medium text-white">
-            {item.current.eventStatus ?? "Pending"}
-          </div>
-          <div className="mt-1 text-sm text-slate-400">
-            {item.current.startTime
-              ? new Date(item.current.startTime).toLocaleString("en-US", {
-                  dateStyle: "short",
-                  timeStyle: "short"
-                })
-              : item.current.stateDetail ?? "Start time pending"}
-          </div>
-        </div>
-        <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
-          <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Market EV</div>
-          <div className="mt-2 text-lg font-medium text-white">
-            {typeof item.current.expectedValuePct === "number"
-              ? `${item.current.expectedValuePct > 0 ? "+" : ""}${item.current.expectedValuePct.toFixed(2)}%`
-              : "Unavailable"}
+            {item.opportunitySnapshot
+              ? item.opportunitySnapshot.actionState.replace(/_/g, " ")
+              : item.current.eventStatus ?? "Pending"}
           </div>
           <div className="mt-1 text-sm text-slate-400">
             {item.current.bestBookChanged
-              ? "Best book has changed"
-              : item.current.stale
-                ? "Snapshot is stale"
-                : "Watching live market state"}
+              ? "Best book changed"
+              : formatSnapshotFreshness(item)}
           </div>
         </div>
       </div>
 
-      <div className="mt-4 text-sm leading-7 text-slate-400">{item.current.note}</div>
+      {!item.opportunitySnapshot ? (
+        <div className="mt-4 text-sm leading-7 text-slate-400">{item.current.note}</div>
+      ) : null}
+
+      {item.opportunitySnapshot ? (
+        <>
+          <div className="mt-4">
+            <OpportunityBadgeRow opportunity={item.opportunitySnapshot} />
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
+              <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Bet trigger</div>
+              <div className="mt-2 text-sm leading-6 text-slate-300">
+                {item.opportunitySnapshot.triggerSummary ?? item.opportunitySnapshot.reasonSummary}
+              </div>
+              <div className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">
+                {formatSnapshotFreshness(item)}
+              </div>
+            </div>
+            <div className={`rounded-2xl border p-4 ${trapLine ? "border-rose-400/20 bg-rose-500/8" : "border-line bg-slate-950/65"}`}>
+              <div className={`text-xs uppercase tracking-[0.16em] ${trapLine ? "text-rose-200/80" : "text-slate-500"}`}>
+                Trap line
+              </div>
+              <div className={`mt-2 text-sm leading-6 ${trapLine ? "text-rose-100" : "text-slate-300"}`}>
+                {trapLine ?? item.opportunitySnapshot.killSummary ?? "If the market quality or timing fades, this drops out of the queue."}
+              </div>
+            </div>
+          </div>
+        </>
+      ) : null}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap gap-3">
@@ -204,7 +232,7 @@ function WatchlistItemCard({
         <div>
           <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Create alert</div>
           <div className="mt-2 text-sm text-slate-400">
-            In-app only this phase. SharkEdge evaluates these server-side against the saved play context and avoids duplicate spam.
+            In-app only for now. SharkEdge checks these server-side against the saved play and avoids duplicate noise.
           </div>
         </div>
         <select

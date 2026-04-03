@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import type { GameCardView, LeagueKey } from "@/lib/types/domain";
+import { buildGameMarketOpportunity } from "@/services/opportunities/opportunity-service";
 
 export const dynamic = "force-dynamic";
 
@@ -88,7 +89,21 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
   });
 
   const boardData = await oddsService.getBoardPageData(filters);
-  const verifiedGames = boardData.games.filter(isVerifiedGame);
+  const verifiedGames = boardData.games
+    .filter(isVerifiedGame)
+    .sort((left, right) => {
+      const leftScore = Math.max(
+        buildGameMarketOpportunity(left, "spread", boardData.providerHealth).opportunityScore,
+        buildGameMarketOpportunity(left, "moneyline", boardData.providerHealth).opportunityScore,
+        buildGameMarketOpportunity(left, "total", boardData.providerHealth).opportunityScore
+      );
+      const rightScore = Math.max(
+        buildGameMarketOpportunity(right, "spread", boardData.providerHealth).opportunityScore,
+        buildGameMarketOpportunity(right, "moneyline", boardData.providerHealth).opportunityScore,
+        buildGameMarketOpportunity(right, "total", boardData.providerHealth).opportunityScore
+      );
+      return rightScore - leftScore;
+    });
 
   return (
     <div className="grid gap-8">
@@ -97,10 +112,10 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
           <div className="grid gap-4">
             <div className="section-kicker">Market board</div>
             <div className="max-w-4xl font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">
-              Every verified number, every usable move, no fake board filler.
+              Verified numbers first. Weak rows do not get dressed up.
             </div>
             <div className="max-w-3xl text-base leading-8 text-slate-300">
-              This is the center of gravity: best book, price pressure, and direct routes into matchup detail.
+              Best book, price pressure, and direct routes into matchup detail. One board, one decision system.
             </div>
             <div className="flex flex-wrap gap-2">
               {LEAGUE_ITEMS.map((league) => (
@@ -179,7 +194,7 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
           title={verifiedGames.length ? "Open these matchups first" : "Scoreboard context only"}
           description={
             verifiedGames.length
-              ? "Verified rows stay up top. Everything else can wait."
+              ? "Verified rows stay up top. Everything else waits."
               : "When prices are thin, SharkEdge tells the truth and shows score context instead of cosplay depth."
           }
         />
@@ -216,9 +231,9 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
 
       <section className="grid gap-4">
         <SectionTitle
-          eyebrow="Support map"
+          eyebrow="Coverage map"
           title="Where the workflow is strongest"
-          description="Coverage stays explicit so you know where to trust the board and where to treat it as research context only."
+          description="Coverage stays explicit so you know where to trust the board and where to treat it as context only."
         />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {boardData.sportSections.map((section) => (
