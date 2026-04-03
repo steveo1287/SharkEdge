@@ -29,7 +29,7 @@ const DEFAULT_TREND_FILTERS: TrendFilters = {
   fighter: "",
   opponent: "",
   window: "90d",
-  sample: 5
+  sample: 10
 };
 
 const SPORT_LABELS: Record<TrendFilters["sport"], string> = {
@@ -1206,7 +1206,7 @@ export async function getMatchupTrendCards(args: {
     subject,
     team: args.eventType === "TEAM_HEAD_TO_HEAD" ? subject : "",
     fighter: args.eventType === "COMBAT_HEAD_TO_HEAD" ? subject : "",
-    sample: 3,
+    sample: 10,
     window: "365d"
   });
 
@@ -1272,7 +1272,7 @@ export async function getPropTrendSummaries(
         market: prop.marketType,
         team: prop.team.name,
         subject: prop.player.name,
-        sample: 3,
+        sample: 10,
         window: "365d"
       });
       cache.set(
@@ -1282,16 +1282,29 @@ export async function getPropTrendSummaries(
     }
 
     const card = cache.get(cacheKey);
-    if (!card || !card.sampleSize) continue;
+    if (card && card.sampleSize) {
+      summaries[prop.id] = {
+        label: card.title,
+        value: card.value,
+        note: card.note,
+        href:
+          card.href ??
+          `/trends?league=${prop.leagueKey}&team=${encodeURIComponent(prop.team.name)}&subject=${encodeURIComponent(prop.player.name)}&market=${prop.marketType}`
+      };
+      continue;
+    }
 
-    summaries[prop.id] = {
-      label: card.title,
-      value: card.value,
-      note: card.note,
-      href:
-        card.href ??
-        `/trends?league=${prop.leagueKey}&team=${encodeURIComponent(prop.team.name)}&subject=${encodeURIComponent(prop.player.name)}&market=${prop.marketType}`
-    };
+    if (prop.analyticsSummary?.sampleSize && prop.analyticsSummary.sampleSize >= 10) {
+      summaries[prop.id] = {
+        label: "Prop history",
+        value:
+          typeof prop.analyticsSummary.hitRatePct === "number"
+            ? `${prop.analyticsSummary.hitRatePct.toFixed(1)}%`
+            : `${prop.analyticsSummary.sampleSize} games`,
+        note: prop.analyticsSummary.reason,
+        href: `/trends?league=${prop.leagueKey}&team=${encodeURIComponent(prop.team.name)}&subject=${encodeURIComponent(prop.player.name)}&market=${prop.marketType}`
+      };
+    }
   }
 
   return summaries;

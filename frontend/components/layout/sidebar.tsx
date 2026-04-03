@@ -1,17 +1,14 @@
 import Link from "next/link";
 
-import { brandKit } from "@/lib/brand/brand-kit";
 import { cn } from "@/lib/utils/cn";
 
 import { BrandMark } from "./brand-mark";
-
-const navItems = [
-  { href: "/", label: "Board" },
-  { href: "/props", label: "Props" },
-  { href: "/bets", label: "Bets" },
-  { href: "/performance", label: "Performance" },
-  { href: "/trends", label: "Trends" }
-] as const;
+import {
+  MAIN_NAV_ITEMS,
+  RESEARCH_NAV_ITEMS,
+  SECONDARY_NAV_ITEMS,
+  isActivePath
+} from "./navigation";
 
 type SidebarProps = {
   pathname: string;
@@ -19,49 +16,110 @@ type SidebarProps = {
   onNavigate?: () => void;
 };
 
+function NavLink({
+  href,
+  label,
+  active,
+  onNavigate,
+  compact = false
+}: {
+  href: string;
+  label: string;
+  active: boolean;
+  onNavigate?: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={onNavigate}
+      className={cn(
+        "group rounded-[1.15rem] border border-transparent px-4 py-3 transition",
+        compact ? "text-[0.82rem]" : "",
+        active
+          ? "bg-white/[0.05] text-white shadow-[inset_0_0_0_1px_rgba(56,189,248,0.18)]"
+          : "text-slate-400 hover:bg-white/[0.03] hover:text-white"
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <span className={cn("font-medium", active ? "text-white" : "text-slate-300")}>{label}</span>
+      </div>
+    </Link>
+  );
+}
+
 export function Sidebar({ pathname, mobile = false, onNavigate }: SidebarProps) {
   return (
     <div
       className={cn(
-        "flex h-full flex-col gap-8 border-r border-line/80 bg-slate-950/95 p-5",
-        mobile ? "rounded-r-3xl border-r-0 border-l-0 shadow-panel" : ""
+        "flex h-full flex-col gap-8 bg-[#060f19]/96 p-5 backdrop-blur-xl",
+        mobile ? "rounded-r-[2rem] shadow-[0_30px_80px_rgba(0,0,0,0.45)]" : ""
       )}
     >
       <BrandMark />
 
-      <div className="grid gap-2">
-        {navItems.map((item) => {
-          const active = pathname === item.href;
-
-          return (
-            <Link
+      <div className="border-t border-white/8 pt-5">
+        <div className="text-[0.64rem] uppercase tracking-[0.3em] text-slate-500">Core research</div>
+        <div className="mt-3 grid gap-1.5">
+          {MAIN_NAV_ITEMS.map((item) => (
+            <NavLink
               key={item.href}
               href={item.href}
-              onClick={onNavigate}
-              className={cn(
-                "rounded-2xl border px-4 py-3 text-sm font-medium transition",
-                active
-                  ? "border-sky-400/50 bg-sky-500/10 text-white"
-                  : "border-transparent bg-transparent text-slate-300 hover:border-line hover:bg-slate-900/80 hover:text-white"
-              )}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-
-        <div className="rounded-2xl border border-line/80 bg-slate-900/60 px-4 py-3 text-sm text-slate-500">
-          <div className="mb-1 font-medium text-slate-300">Coverage First</div>
-          <div>Every target sport stays visible here, but SharkEdge only renders live board rows, props, trends, and ledger analytics where a real provider or stored dataset exists.</div>
+              label={item.label}
+              active={isActivePath(pathname, item.href)}
+              onNavigate={onNavigate}
+            />
+          ))}
         </div>
       </div>
 
-      <div className="mt-auto rounded-3xl border border-line/80 bg-gradient-to-b from-slate-900 to-slate-950 p-4">
-        <div className="text-xs uppercase tracking-[0.22em] text-amber-300">
-          {brandKit.sidebarNote.title}
+      <div className="border-t border-white/8 pt-5">
+        <div className="text-[0.64rem] uppercase tracking-[0.3em] text-slate-500">Workflow</div>
+        <div className="mt-3 grid gap-1.5">
+          {SECONDARY_NAV_ITEMS.map((item) => (
+            <NavLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              active={isActivePath(pathname, item.href)}
+              onNavigate={onNavigate}
+              compact
+            />
+          ))}
         </div>
-        <div className="mt-2 text-sm leading-6 text-slate-300">
-          {brandKit.sidebarNote.body}
+      </div>
+
+      <div className="border-t border-white/8 pt-5">
+        <div className="text-[0.64rem] uppercase tracking-[0.3em] text-slate-500">Deep research</div>
+        <div className="mt-3 grid gap-1.5">
+          {RESEARCH_NAV_ITEMS.map((item) => (
+            <NavLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              active={isActivePath(pathname, item.href)}
+              onNavigate={onNavigate}
+              compact
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-auto rounded-[1.5rem] border border-white/8 bg-white/[0.03] p-4">
+        <div className="text-[0.64rem] uppercase tracking-[0.3em] text-slate-500">Desk rules</div>
+        <div className="mt-4 grid gap-3 text-sm leading-6 text-slate-300">
+          <div className="flex items-center justify-between gap-3">
+            <span>Verified prices</span>
+            <span className="text-white">Required</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span>Explainability</span>
+            <span className="text-white">Always on</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span>Fallback junk</span>
+            <span className="text-white">Off</span>
+          </div>
         </div>
       </div>
     </div>

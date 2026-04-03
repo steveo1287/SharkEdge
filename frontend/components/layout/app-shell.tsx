@@ -3,9 +3,6 @@
 import { useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
-import { BetSlipDrawer } from "@/components/bets/bet-slip-drawer";
-import { BetSlipProvider } from "@/components/bets/bet-slip-provider";
-
 import { Header } from "./header";
 import { Sidebar } from "./sidebar";
 
@@ -18,10 +15,10 @@ export function AppShell({ children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <BetSlipProvider>
-      <div className="app-shell-grid min-h-screen bg-grid bg-[length:44px_44px]">
-        <div className="mx-auto flex min-h-screen w-full max-w-[1600px]">
-          <aside className="hidden w-[290px] shrink-0 xl:block">
+    <div className="app-shell-grid min-h-screen">
+      <div className="mx-auto w-full max-w-[1820px] px-0 py-0 md:px-3 md:py-3 xl:px-4 xl:py-4">
+        <div className="workspace-frame grid min-h-screen w-full xl:min-h-[calc(100vh-2rem)] xl:grid-cols-[288px_minmax(0,1fr)]">
+          <aside className="hidden min-h-full border-r border-white/6 xl:block">
             <Sidebar pathname={pathname} />
           </aside>
 
@@ -43,7 +40,7 @@ export function AppShell({ children }: AppShellProps) {
             </div>
           ) : null}
 
-          <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+          <div className="workspace-main flex min-h-screen flex-1 flex-col xl:min-h-[calc(100vh-2rem)]">
             <Header
               pathname={pathname}
               toggleMobileNav={
@@ -51,17 +48,16 @@ export function AppShell({ children }: AppShellProps) {
                   type="button"
                   aria-label="Open navigation"
                   onClick={() => setMobileOpen(true)}
-                  className="inline-flex h-11 min-w-[72px] items-center justify-center rounded-2xl border border-line bg-slate-900 px-3 text-white xl:hidden"
+                  className="inline-flex h-11 min-w-[72px] items-center justify-center rounded-full border border-white/10 bg-white/[0.03] px-3 text-white xl:hidden"
                 >
                   <span className="text-xs font-semibold uppercase tracking-[0.2em]">Menu</span>
                 </button>
               }
             />
-            <main className="flex-1 px-4 py-6 xl:px-8 xl:py-8">{children}</main>
+            <main className="page-shell flex-1">{children}</main>
           </div>
         </div>
-        <BetSlipDrawer />
       </div>
-    </BetSlipProvider>
+    </div>
   );
 }

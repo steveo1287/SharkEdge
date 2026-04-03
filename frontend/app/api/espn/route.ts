@@ -81,6 +81,7 @@ type NormalizedGame = {
     bookmakers: string[];
     spread: string | null;
     spreadPoint: number | null;
+    spreadPrice: number | null;
     overUnder: number | null;
     overPrice: number | null;
     underPrice: number | null;
@@ -369,6 +370,7 @@ function normalizeGame(
       bookmakers: oddsApiData.bookmakers,
       spread: oddsApiData.spread?.label ?? null,
       spreadPoint: oddsApiData.spread?.point ?? null,
+      spreadPrice: oddsApiData.spread?.price ?? null,
       overUnder: oddsApiData.total?.point ?? null,
       overPrice: oddsApiData.total?.overPrice ?? null,
       underPrice: oddsApiData.total?.underPrice ?? null,
@@ -381,6 +383,7 @@ function normalizeGame(
       bookmakers: ["ESPN Consensus"],
       spread: espnOdds.details ? String(espnOdds.details) : null,
       spreadPoint: null,
+      spreadPrice: null,
       overUnder: typeof espnOdds.overUnder === "number" ? espnOdds.overUnder : null,
       overPrice: null,
       underPrice: null,

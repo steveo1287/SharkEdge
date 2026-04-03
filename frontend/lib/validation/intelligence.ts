@@ -21,7 +21,7 @@ export const ingestPayloadSchema = z.object({
   homeTeam: z.string().min(1),
   awayTeam: z.string().min(1),
   commenceTime: z.string().datetime(),
-  source: z.enum(["theoddsapi", "scraper"]),
+  source: z.enum(["theoddsapi", "scraper", "therundown"]),
   lines: z.array(oddsLineSchema).min(1),
   sourceMeta: z.record(z.string(), z.unknown()).optional()
 });
@@ -71,4 +71,9 @@ export const recomputeRequestSchema = z.object({
   sportKey: z.string().optional(),
   leagueKey: z.string().optional(),
   liveOnly: z.boolean().optional().default(false)
+});
+
+export const trendRefreshRequestSchema = z.object({
+  leagues: z.array(z.string()).optional(),
+  days: z.number().int().positive().max(365).optional()
 });

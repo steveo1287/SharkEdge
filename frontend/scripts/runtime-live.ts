@@ -3,6 +3,7 @@ import { edgeRecomputeJob } from "@/services/jobs/edge-recompute-job";
 import { lineMovementJob } from "@/services/jobs/line-movement-job";
 import { alertDispatchJob } from "@/services/jobs/alert-dispatch-job";
 import { refreshActiveEventCaches, refreshBoardCache, refreshEdgesCache } from "@/services/feed/cache-refresh";
+import { syncPropWarehouse } from "@/services/props/warehouse-service";
 import { prisma } from "@/lib/db/prisma";
 import { getBooleanArg, getNumberArg, getStringArg, logStep, parseArgs } from "./_runtime-utils";
 import { spawn } from "node:child_process";
@@ -36,6 +37,17 @@ async function runScrape(dryRun: boolean) {
 async function runCycle(leagueKey?: string, dryRun = false) {
   logStep("runtime:cycle:start", { leagueKey: leagueKey ?? null, dryRun });
   await runScrape(dryRun);
+  if (!leagueKey || leagueKey === "NBA" || leagueKey === "NCAAB") {
+    await syncPropWarehouse({
+      league:
+        !leagueKey || (leagueKey !== "NBA" && leagueKey !== "NCAAB")
+          ? "ALL"
+          : (leagueKey as "NBA" | "NCAAB"),
+      maxEvents: 2,
+      lookaheadHours: 18,
+      dryRun
+    });
+  }
 
   const events = await prisma.event.findMany({
     where: {

@@ -1456,6 +1456,22 @@ function extractOddsSummary(payload: JsonRecord) {
   const pick = Array.isArray(payload.pickcenter) ? payload.pickcenter[0] : null;
   const odds = Array.isArray(payload.odds) ? payload.odds[0] : null;
 
+  const spreadCandidate = readString(pick?.details ?? odds?.details);
+  const normalizedSpread =
+    spreadCandidate && (() => {
+      const match = spreadCandidate.match(/([+-]?\d+(?:\.\d+)?)/);
+      if (!match) {
+        return null;
+      }
+
+      const line = Number(match[1]);
+      if (!Number.isFinite(line) || Math.abs(line) > 25) {
+        return null;
+      }
+
+      return spreadCandidate;
+    })();
+
   const awayMoneyline =
     readString(pick?.awayTeamOdds?.moneyLine ?? odds?.awayTeamOdds?.moneyLine) ??
     null;
@@ -1464,7 +1480,7 @@ function extractOddsSummary(payload: JsonRecord) {
     null;
 
   return {
-    bestSpread: readString(pick?.details ?? odds?.details),
+    bestSpread: normalizedSpread,
     bestMoneyline:
       awayMoneyline || homeMoneyline
         ? `Away ${awayMoneyline ?? "--"} | Home ${homeMoneyline ?? "--"}`

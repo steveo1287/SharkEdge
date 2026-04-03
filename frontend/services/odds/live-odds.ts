@@ -1,8 +1,6 @@
 import { calculateEdgeScore } from "@/lib/utils/edge-score";
-import { calculateMarketExpectedValuePct } from "@/lib/utils/bet-intelligence";
 import { americanToImpliedProbability } from "@/lib/utils/odds";
 import { formatAmericanOdds, formatLine } from "@/lib/formatters/odds";
-import { prisma } from "@/lib/db/prisma";
 import { buildMatchupHref } from "@/lib/utils/matchups";
 import type {
   BoardFilters,
@@ -21,8 +19,11 @@ import type {
 } from "@/lib/types/domain";
 import { mockDatabase } from "@/prisma/seed-data";
 import { backendCurrentOddsProvider } from "@/services/current-odds/backend-provider";
+import { therundownCurrentOddsProvider } from "@/services/current-odds/therundown-provider";
+import { buildProviderHealth } from "@/services/providers/provider-health";
 import { getProviderRegistryEntry } from "@/services/providers/registry";
-import { getPropTrendSummaries } from "@/services/trends/trends-service";
+import { analyzeMarket } from "@/services/market/market-analysis-service";
+import type { MarketPriceSample } from "@/services/market/market-truth-service";
 import type {
   CurrentOddsBoardResponse,
   CurrentOddsGame,
@@ -33,9 +34,14 @@ import {
   getBoardSupportSummary,
   getBoardVisibleLeagues
 } from "@/services/events/live-score-service";
-import { getLeagueSnapshots } from "@/services/stats/stats-service";
+const INTERNAL_API_TIMEOUT_MS = 2_500;
+const LIVE_BACKEND_TIMEOUT_MS = 2_500;
 const LIVE_PROPS_EVENT_LIMIT = 3;
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const LIVE_BOARD_SOFT_STALE_MINUTES = 15;
+const LIVE_BOARD_HARD_STALE_MINUTES = 45;
+const LIVE_DETAIL_HARD_STALE_MINUTES = 30;
+const LIVE_PROPS_HARD_STALE_MINUTES = 20;
 
 const LIVE_SPORT_TO_LEAGUE: Record<string, LeagueKey | null> = {
   basketball_nba: "NBA",
@@ -147,6 +153,11 @@ type LiveRange = {
   span: number;
 };
 
+type CurrentOddsSourceCandidate = {
+  providerKey: string;
+  response: CurrentOddsBoardResponse;
+};
+
 type LiveGameDetailResponse = {
   configured: boolean;
   generated_at: string;
@@ -255,6 +266,7 @@ type EspnBoardOdds = {
   bookmakers: string[];
   spread: string | null;
   spreadPoint: number | null;
+  spreadPrice: number | null;
   overUnder: number | null;
   overPrice: number | null;
   underPrice: number | null;
@@ -381,6 +393,8 @@ function getLiveSourceNote(response: LiveBoardResponse) {
   const providerLabel =
     response.provider === "odds_api"
         ? "The Odds API"
+        : response.provider === "therundown"
+          ? "The Rundown"
         : "the live backend";
 
   if (response.errors.length) {
@@ -411,11 +425,11 @@ function hasUsableOdds(value: number | null | undefined) {
 }
 
 function formatOddsOrDash(value: number | null | undefined) {
-  return hasUsableOdds(value) ? formatAmericanOdds(value as number) : "–";
+  return hasUsableOdds(value) ? formatAmericanOdds(value as number) : "â€“";
 }
 
 function formatBestBookOrDash(value: string | null | undefined) {
-  return value && value.trim() ? value : "–";
+  return value && value.trim() ? value : "â€“";
 }
 
 function isGameInCurrentBoardWindow(leagueKey: LeagueKey, startTime: string) {
@@ -533,7 +547,18 @@ function buildLivePropGroupKey(prop: LiveProp) {
   ].join("|");
 }
 
-function buildLivePropCard(props: LiveProp[]): PropCardView | null {
+function buildLivePropFamilyKey(prop: LiveProp) {
+  return [
+    prop.sport_key,
+    prop.event_id,
+    normalizeName(prop.player_name),
+    prop.market_key,
+    String(prop.line),
+    normalizeName(prop.team_name ?? "")
+  ].join("|");
+}
+
+function buildLivePropCard(props: LiveProp[], allGroups: Map<string, LiveProp[]>): PropCardView | null {
   const prop = props[0];
   if (!prop) {
     return null;
@@ -560,6 +585,21 @@ function buildLivePropCard(props: LiveProp[]): PropCardView | null {
   const player = buildLivePlayerRecord(leagueKey, prop, team);
   const uniqueBooks = Array.from(
     new Map(props.map((entry) => [`${entry.bookmaker_key}:${entry.side}:${entry.line}`, entry] as const)).values()
+  );
+  const oppositeGroups = Array.from(allGroups.values()).filter((group) => {
+    const candidate = group[0];
+    return (
+      Boolean(candidate) &&
+      buildLivePropFamilyKey(candidate) === buildLivePropFamilyKey(prop) &&
+      candidate.side !== prop.side
+    );
+  });
+  const oppositeUniqueBooks = Array.from(
+    new Map(
+      oppositeGroups
+        .flatMap((group) => group)
+        .map((entry) => [`${entry.bookmaker_key}:${entry.side}:${entry.line}`, entry] as const)
+    ).values()
   );
   const sortedByPrice = [...uniqueBooks].sort((left, right) => right.price - left.price);
   const best = sortedByPrice[0];
@@ -588,6 +628,43 @@ function buildLivePropCard(props: LiveProp[]): PropCardView | null {
       : uniqueBooks.length > 1
         ? "BEST_PRICE"
         : "NONE";
+  const sideSamples = uniqueBooks.map((entry) => ({
+    bookKey: entry.bookmaker_key,
+    bookName: entry.bookmaker_title,
+    price: entry.price,
+    line: entry.line,
+    updatedAt: entry.last_update ?? null
+  })) satisfies MarketPriceSample[];
+  const oppositeSamples = oppositeUniqueBooks.map((entry) => ({
+    bookKey: entry.bookmaker_key,
+    bookName: entry.bookmaker_title,
+    price: entry.price,
+    line: entry.line,
+    updatedAt: entry.last_update ?? null
+  })) satisfies MarketPriceSample[];
+  const analysis = analyzeMarket({
+    marketLabel: prop.market_key.replace(/_/g, " "),
+    sport: getLeagueRecord(leagueKey).sport,
+    league: leagueKey,
+    eventId: prop.event_id,
+    providerEventId: prop.event_id,
+    marketType: prop.market_key,
+    marketScope: "player",
+    side: prop.side,
+    oppositeSide: oppositeUniqueBooks[0]?.side ?? null,
+    line: prop.line,
+    participantTeamId: team.id,
+    participantPlayerId: player.id,
+    offeredSportsbookKey: best.bookmaker_key,
+    offeredOddsAmerican: best.price,
+    sideSamples,
+    oppositeSamples,
+    supportNote: registryEntry.propsNote,
+    supportStatus: registryEntry.propsStatus,
+    sourceName: "Live props feed",
+    sourceType: "api",
+    isLive: false
+  });
 
   const edgeScore = calculateEdgeScore({
     impliedProbability: bestProbability,
@@ -617,12 +694,30 @@ function buildLivePropCard(props: LiveProp[]): PropCardView | null {
     bestAvailableSportsbookName: best.bookmaker_title,
     averageOddsAmerican: averageOdds,
     marketDeltaAmerican: typeof averageOdds === "number" ? priceDelta : null,
-    expectedValuePct: calculateMarketExpectedValuePct(best.price, averageOdds),
+    expectedValuePct: analysis.expectedValuePct,
     lineMovement: null,
     valueFlag,
     supportStatus: registryEntry.propsStatus,
     supportNote: registryEntry.propsNote,
     gameHref: buildMatchupHref(leagueKey, prop.event_id),
+    canonicalMarketKey: analysis.canonicalMarketKey,
+    analyticsSummary: {
+      tags: [
+        `method:${analysis.fairPrice?.pricingMethod ?? "unavailable"}`,
+        `confidence:${analysis.fairPrice?.pricingConfidenceScore ?? 0}`
+      ],
+      reason: analysis.fairPrice?.coverageNote ?? registryEntry.propsNote,
+      sampleSize: null,
+      bookCount: analysis.marketIntelligence?.sourceCount ?? uniqueBooks.length
+    },
+    marketTruth: analysis.marketTruth,
+    fairPrice: analysis.fairPrice,
+    evProfile: analysis.ev,
+    marketIntelligence: analysis.marketIntelligence,
+    reasons: analysis.reasons,
+    confidenceBand: analysis.confidenceBand,
+    confidenceScore: analysis.confidenceScore,
+    hidden: analysis.hidden,
     source: "live",
     edgeScore
   };
@@ -636,7 +731,7 @@ function buildLivePropCards(props: LiveProp[]) {
   }, new Map());
 
   return Array.from(groups.values())
-    .map((group) => buildLivePropCard(group))
+    .map((group) => buildLivePropCard(group, groups))
     .filter(Boolean) as PropCardView[];
 }
 
@@ -782,6 +877,57 @@ function findBookOutcome(
   );
 }
 
+function buildLiveMarketSamples(
+  game: LiveGame,
+  marketType: "spread" | "moneyline" | "total",
+  outcomeName: string
+) : MarketPriceSample[] {
+  return game.bookmakers
+    .map((bookmaker) => {
+      const outcome =
+        marketType === "total"
+          ? findBookOutcome(bookmaker, "total", outcomeName)
+          : findBookOutcome(bookmaker, marketType, outcomeName);
+
+      if (!outcome) {
+        return null;
+      }
+
+      return {
+        bookKey: bookmaker.key,
+        bookName: bookmaker.title,
+        price: numericValue(outcome.price),
+        line: numericValue(outcome.point),
+        updatedAt: bookmaker.last_update ?? null
+      };
+    })
+    .filter(
+      (
+        sample
+      ): sample is {
+        bookKey: string;
+        bookName: string;
+        price: number | null;
+        line: number | null;
+        updatedAt: string | null;
+      } => Boolean(sample)
+    );
+}
+
+function getOppositeOutcomeName(
+  marketType: "spread" | "moneyline" | "total",
+  outcomeName: string,
+  game: LiveGame
+) {
+  if (marketType === "total") {
+    return normalizeName(outcomeName) === "over" ? "under" : "over";
+  }
+
+  return normalizeName(outcomeName) === normalizeName(game.home_team)
+    ? game.away_team
+    : game.home_team;
+}
+
 function getBookSpecificOffer(
   leagueKey: LeagueKey,
   game: LiveGame,
@@ -799,12 +945,44 @@ function getBookSpecificOffer(
       return null;
     }
 
+    const sideSamples = buildLiveMarketSamples(game, "total", "over");
+    const oppositeSamples = buildLiveMarketSamples(game, "total", "under");
+    const analysis = analyzeMarket({
+      marketLabel: "Total",
+      sport: getLeagueRecord(leagueKey).sport,
+      league: leagueKey,
+      eventId: game.id,
+      providerEventId: game.id,
+      marketType: "total",
+      marketScope: "game",
+      side: "OVER",
+      oppositeSide: "UNDER",
+      line: numericValue(over.point),
+      offeredSportsbookKey: bookmaker.key,
+      offeredOddsAmerican: numericValue(over.price),
+      sideSamples,
+      oppositeSamples,
+      supportNote: "Live board comparison",
+      sourceName: "Live board feed",
+      sourceType: "api",
+      isLive: false
+    });
+
     return {
       label: `O/U ${formatLine(over.point, false)}`,
       lineLabel: `O/U ${formatLine(over.point, false)}`,
       bestBook: bookmaker.title,
       bestOdds: numericValue(over.price) ?? 0,
-      movement: 0
+      movement: 0,
+      canonicalMarketKey: analysis.canonicalMarketKey,
+      marketTruth: analysis.marketTruth,
+      fairPrice: analysis.fairPrice,
+      evProfile: analysis.ev,
+      marketIntelligence: analysis.marketIntelligence,
+      reasons: analysis.reasons,
+      confidenceBand: analysis.confidenceBand,
+      confidenceScore: analysis.confidenceScore,
+      hidden: analysis.hidden
     } satisfies BoardMarketView;
   }
 
@@ -820,13 +998,48 @@ function getBookSpecificOffer(
     }
 
     const team = getLiveTeamRecord(leagueKey, primary.name);
+    const sideSamples = buildLiveMarketSamples(game, "moneyline", primary.name);
+    const oppositeSamples = buildLiveMarketSamples(
+      game,
+      "moneyline",
+      getOppositeOutcomeName("moneyline", primary.name, game)
+    );
+    const analysis = analyzeMarket({
+      marketLabel: "Moneyline",
+      sport: getLeagueRecord(leagueKey).sport,
+      league: leagueKey,
+      eventId: game.id,
+      providerEventId: game.id,
+      marketType: "moneyline",
+      marketScope: "game",
+      side: primary.name,
+      oppositeSide: getOppositeOutcomeName("moneyline", primary.name, game),
+      participantTeamId: team.id,
+      offeredSportsbookKey: bookmaker.key,
+      offeredOddsAmerican: numericValue(primary.price),
+      sideSamples,
+      oppositeSamples,
+      supportNote: "Live board comparison",
+      sourceName: "Live board feed",
+      sourceType: "api",
+      isLive: false
+    });
 
     return {
       label: `${team.abbreviation} ${formatAmericanOdds(primary.price ?? 0)}`,
       lineLabel: `${team.abbreviation} ${formatAmericanOdds(primary.price ?? 0)}`,
       bestBook: bookmaker.title,
       bestOdds: primary.price ?? 0,
-      movement: 0
+      movement: 0,
+      canonicalMarketKey: analysis.canonicalMarketKey,
+      marketTruth: analysis.marketTruth,
+      fairPrice: analysis.fairPrice,
+      evProfile: analysis.ev,
+      marketIntelligence: analysis.marketIntelligence,
+      reasons: analysis.reasons,
+      confidenceBand: analysis.confidenceBand,
+      confidenceScore: analysis.confidenceScore,
+      hidden: analysis.hidden
     } satisfies BoardMarketView;
   }
 
@@ -841,13 +1054,49 @@ function getBookSpecificOffer(
   }
 
   const team = getLiveTeamRecord(leagueKey, primary.name);
+  const sideSamples = buildLiveMarketSamples(game, "spread", primary.name);
+  const oppositeSamples = buildLiveMarketSamples(
+    game,
+    "spread",
+    getOppositeOutcomeName("spread", primary.name, game)
+  );
+  const analysis = analyzeMarket({
+    marketLabel: "Spread",
+    sport: getLeagueRecord(leagueKey).sport,
+    league: leagueKey,
+    eventId: game.id,
+    providerEventId: game.id,
+    marketType: "spread",
+    marketScope: "game",
+    side: primary.name,
+    oppositeSide: getOppositeOutcomeName("spread", primary.name, game),
+    line: numericValue(primary.point),
+    participantTeamId: team.id,
+    offeredSportsbookKey: bookmaker.key,
+    offeredOddsAmerican: numericValue(primary.price),
+    sideSamples,
+    oppositeSamples,
+    supportNote: "Live board comparison",
+    sourceName: "Live board feed",
+    sourceType: "api",
+    isLive: false
+  });
 
   return {
     label: `${team.abbreviation} ${formatLine(primary.point)}`,
     lineLabel: `${team.abbreviation} ${formatLine(primary.point)}`,
     bestBook: bookmaker.title,
     bestOdds: numericValue(primary.price) ?? 0,
-    movement: 0
+    movement: 0,
+    canonicalMarketKey: analysis.canonicalMarketKey,
+    marketTruth: analysis.marketTruth,
+    fairPrice: analysis.fairPrice,
+    evProfile: analysis.ev,
+    marketIntelligence: analysis.marketIntelligence,
+    reasons: analysis.reasons,
+    confidenceBand: analysis.confidenceBand,
+    confidenceScore: analysis.confidenceScore,
+    hidden: analysis.hidden
   } satisfies BoardMarketView;
 }
 
@@ -868,12 +1117,43 @@ function buildBestMarketView(
   }
 
   if (marketType === "total") {
+    const sideSamples = buildLiveMarketSamples(game, "total", "over");
+    const oppositeSamples = buildLiveMarketSamples(game, "total", "under");
+    const analysis = analyzeMarket({
+      marketLabel: "Total",
+      sport: getLeagueRecord(leagueKey).sport,
+      league: leagueKey,
+      eventId: game.id,
+      providerEventId: game.id,
+      marketType: "total",
+      marketScope: "game",
+      side: "OVER",
+      oppositeSide: "UNDER",
+      line: getConsensusPoint(offer),
+      offeredOddsAmerican: getBestPrice(offer),
+      sideSamples,
+      oppositeSamples,
+      supportNote: "Live best-price board",
+      sourceName: "Live board feed",
+      sourceType: "api",
+      isLive: false
+    });
+
     return {
       label: `O/U ${formatLine(offer.consensus_point, false)}`,
       lineLabel: `O/U ${formatLine(offer.consensus_point, false)}`,
       bestBook: formatBookLabel(offer.best_bookmakers),
       bestOdds: getBestPrice(offer),
-      movement: 0
+      movement: 0,
+      canonicalMarketKey: analysis.canonicalMarketKey,
+      marketTruth: analysis.marketTruth,
+      fairPrice: analysis.fairPrice,
+      evProfile: analysis.ev,
+      marketIntelligence: analysis.marketIntelligence,
+      reasons: analysis.reasons,
+      confidenceBand: analysis.confidenceBand,
+      confidenceScore: analysis.confidenceScore,
+      hidden: analysis.hidden
     } satisfies BoardMarketView;
   }
 
@@ -882,13 +1162,45 @@ function buildBestMarketView(
     marketType === "moneyline"
       ? formatAmericanOdds(getBestPrice(offer))
       : formatLine(offer.consensus_point);
+  const oppositeOutcomeName = getOppositeOutcomeName(marketType, offer.name, game);
+  const sideSamples = buildLiveMarketSamples(game, marketType, offer.name);
+  const oppositeSamples = buildLiveMarketSamples(game, marketType, oppositeOutcomeName);
+  const analysis = analyzeMarket({
+    marketLabel: marketType === "moneyline" ? "Moneyline" : "Spread",
+    sport: getLeagueRecord(leagueKey).sport,
+    league: leagueKey,
+    eventId: game.id,
+    providerEventId: game.id,
+    marketType,
+    marketScope: "game",
+    side: offer.name,
+    oppositeSide: oppositeOutcomeName,
+    line: getConsensusPoint(offer),
+    participantTeamId: marketType === "moneyline" || marketType === "spread" ? team.id : null,
+    offeredOddsAmerican: getBestPrice(offer),
+    sideSamples,
+    oppositeSamples,
+    supportNote: "Live best-price board",
+    sourceName: "Live board feed",
+    sourceType: "api",
+    isLive: false
+  });
 
   return {
     label: `${team.abbreviation} ${lineValue}`,
     lineLabel: `${team.abbreviation} ${lineValue}`,
     bestBook: formatBookLabel(offer.best_bookmakers),
     bestOdds: getBestPrice(offer),
-    movement: 0
+    movement: 0,
+    canonicalMarketKey: analysis.canonicalMarketKey,
+    marketTruth: analysis.marketTruth,
+    fairPrice: analysis.fairPrice,
+    evProfile: analysis.ev,
+    marketIntelligence: analysis.marketIntelligence,
+    reasons: analysis.reasons,
+    confidenceBand: analysis.confidenceBand,
+    confidenceScore: analysis.confidenceScore,
+    hidden: analysis.hidden
   } satisfies BoardMarketView;
 }
 
@@ -933,9 +1245,9 @@ function buildLiveBookRow(
   if (!bookmaker) {
     return {
       sportsbook,
-      spread: "–",
-      moneyline: "–",
-      total: "–"
+      spread: "â€“",
+      moneyline: "â€“",
+      total: "â€“"
     } satisfies GameOddsRow;
   }
 
@@ -953,15 +1265,15 @@ function buildLiveBookRow(
     spread:
       awaySpread || homeSpread
         ? `${awayTeam.abbreviation} ${formatLine(awaySpread?.point ?? null)} (${formatOddsOrDash(awaySpread?.price)}) | ${homeTeam.abbreviation} ${formatLine(homeSpread?.point ?? null)} (${formatOddsOrDash(homeSpread?.price)})`
-        : "–",
+        : "â€“",
     moneyline:
       awayMoneyline || homeMoneyline
         ? `${awayTeam.abbreviation} ${formatOddsOrDash(awayMoneyline?.price)} | ${homeTeam.abbreviation} ${formatOddsOrDash(homeMoneyline?.price)}`
-        : "–",
+        : "â€“",
     total:
       over || under
         ? `O ${formatLine(over?.point ?? null, false)} (${formatOddsOrDash(over?.price)}) | U ${formatLine(under?.point ?? null, false)} (${formatOddsOrDash(under?.price)})`
-        : "–"
+        : "â€“"
   } satisfies GameOddsRow;
 }
 
@@ -1095,7 +1407,7 @@ async function fetchInternalJson<T>(path: string) {
   try {
     const response = await fetch(`${getInternalApiBaseUrl()}${path}`, {
       cache: "no-store",
-      signal: AbortSignal.timeout(15000)
+      signal: AbortSignal.timeout(INTERNAL_API_TIMEOUT_MS)
     });
 
     if (!response.ok) {
@@ -1114,7 +1426,7 @@ async function fetchBackendJson<T>(path: string) {
       process.env.SHARKEDGE_BACKEND_URL?.trim() || "https://shark-odds-1.onrender.com";
     const response = await fetch(`${backendUrl}${path}`, {
       cache: "no-store",
-      signal: AbortSignal.timeout(15000)
+      signal: AbortSignal.timeout(LIVE_BACKEND_TIMEOUT_MS)
     });
 
     if (!response.ok) {
@@ -1127,8 +1439,92 @@ async function fetchBackendJson<T>(path: string) {
   }
 }
 
+function getResponseAgeMinutes(timestamp?: string | null) {
+  if (!timestamp) {
+    return null;
+  }
+
+  const parsed = Date.parse(timestamp);
+  if (Number.isNaN(parsed)) {
+    return null;
+  }
+
+  return Math.max(0, Math.round((Date.now() - parsed) / (60 * 1000)));
+}
+
+function isHardStale(timestamp: string | null | undefined, thresholdMinutes: number) {
+  const ageMinutes = getResponseAgeMinutes(timestamp);
+  return ageMinutes !== null && ageMinutes > thresholdMinutes;
+}
+
+function countBoardGames(response: CurrentOddsBoardResponse) {
+  return response.sports.reduce((total, sport) => total + sport.games.length, 0);
+}
+
+function scoreBoardCandidate(candidate: CurrentOddsSourceCandidate) {
+  const ageMinutes = getResponseAgeMinutes(candidate.response.generated_at);
+
+  if (isHardStale(candidate.response.generated_at, LIVE_BOARD_HARD_STALE_MINUTES)) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  let score = 0;
+
+  if (ageMinutes === null) {
+    score -= 8;
+  } else if (ageMinutes <= 5) {
+    score += 16;
+  } else if (ageMinutes <= LIVE_BOARD_SOFT_STALE_MINUTES) {
+    score += 10;
+  } else {
+    score += 2;
+  }
+
+  score -= candidate.response.errors.length * 8;
+  score += candidate.response.sports.length * 2;
+  score += Math.min(12, countBoardGames(candidate.response));
+
+  if (candidate.providerKey === "current-odds-backend") {
+    score += 2;
+  }
+
+  return score;
+}
+
+function selectPreferredBoardResponse(candidates: Array<CurrentOddsSourceCandidate | null>) {
+  const viableCandidates = candidates
+    .filter((candidate): candidate is CurrentOddsSourceCandidate => Boolean(candidate?.response?.configured))
+    .filter((candidate) => !isHardStale(candidate.response.generated_at, LIVE_BOARD_HARD_STALE_MINUTES));
+
+  if (!viableCandidates.length) {
+    return null;
+  }
+
+  return [...viableCandidates]
+    .sort((left, right) => scoreBoardCandidate(right) - scoreBoardCandidate(left))[0]
+    .response;
+}
+
 async function fetchLiveBoardResponse() {
-  const response = await backendCurrentOddsProvider.fetchBoard();
+  const [backendResponse, theRundownResponse] = await Promise.all([
+    backendCurrentOddsProvider.fetchBoard(),
+    therundownCurrentOddsProvider.fetchBoard()
+  ]);
+
+  const response = selectPreferredBoardResponse([
+    backendResponse
+      ? {
+          providerKey: backendCurrentOddsProvider.key,
+          response: backendResponse
+        }
+      : null,
+    theRundownResponse
+      ? {
+          providerKey: therundownCurrentOddsProvider.key,
+          response: theRundownResponse
+        }
+      : null
+  ]);
 
   if (!response?.configured) {
     return null;
@@ -1170,6 +1566,10 @@ async function fetchLivePropsBoardResponse(
     return null;
   }
 
+  if (isHardStale(response.generated_at, LIVE_PROPS_HARD_STALE_MINUTES)) {
+    return null;
+  }
+
   return response;
 }
 
@@ -1185,11 +1585,16 @@ async function fetchLiveGameDetailResponse(
     return null;
   }
 
+  if (isHardStale(detail.generated_at, LIVE_DETAIL_HARD_STALE_MINUTES)) {
+    return null;
+  }
+
   return detail;
 }
 
 async function getStoredLineMovement(eventExternalId: string) {
   try {
+    const { prisma } = await import("@/lib/db/prisma");
     const event = await prisma.event.findFirst({
       where: {
         OR: [
@@ -1332,7 +1737,7 @@ function buildEspnSpreadView(
     label,
     lineLabel: label,
     bestBook: game.odds?.source === "the-odds-api" ? "Best market" : "ESPN consensus",
-    bestOdds: game.odds?.homeMoneyline ?? game.odds?.awayMoneyline ?? -110,
+    bestOdds: game.odds?.spreadPrice ?? -110,
     movement: 0
   } satisfies BoardMarketView;
 }
@@ -1492,7 +1897,6 @@ async function getEspnBoardPageData(
     gamesByLeague
   });
 
-  const snapshots = await getLeagueSnapshots(filters.league);
   const livePropSports = sportSections.filter((section) => section.propsStatus === "LIVE").length;
 
   return {
@@ -1502,7 +1906,7 @@ async function getEspnBoardPageData(
     sportsbooks: liveSportsbooks,
     games,
     sportSections,
-    snapshots,
+    snapshots: [],
     summary: {
       totalGames: countRenderedRows(sportSections),
       totalProps: livePropSports,
@@ -1513,6 +1917,17 @@ async function getEspnBoardPageData(
         ? "Live tracking is still limited, but the homepage board now reads from the internal ESPN scoreboard route so status and schedule context stay current."
         : null,
     source: "live",
+    providerHealth: buildProviderHealth({
+      supportStatus: responses.length ? "PARTIAL" : "COMING_SOON",
+      source: "live",
+      healthySummary: "The ESPN-derived board feed is connected for this runtime.",
+      degradedSummary:
+        "The ESPN-derived board feed is connected, but this view should be treated as partial while live pricing remains thin.",
+      fallbackSummary:
+        "This board is leaning on fallback scoreboard context while live pricing coverage catches up.",
+      offlineSummary:
+        "The ESPN-derived board feed is offline in this runtime."
+    }),
     sourceNote: getEspnBoardSourceNote(responses)
   };
 }
@@ -1609,7 +2024,6 @@ async function getBackendBoardPageData(
   ).sort();
   const supportSummary = getBoardSupportSummary();
 
-  const snapshots = await getLeagueSnapshots(filters.league);
   const livePropSports = sportSections.filter((section) => section.propsStatus === "LIVE").length;
 
   return {
@@ -1619,7 +2033,7 @@ async function getBackendBoardPageData(
     sportsbooks: liveSportsbooks,
     games: filteredGames,
     sportSections,
-    snapshots,
+    snapshots: [],
     summary: {
       totalGames: countRenderedRows(sportSections),
       totalProps: livePropSports,
@@ -1632,7 +2046,21 @@ async function getBackendBoardPageData(
     source: "live",
     sourceNote: response
       ? `${getLiveSourceNote(response)} ${supportSummary.live} sports are live, ${supportSummary.partial} are partial, and ${supportSummary.comingSoon} are still coming soon.`
-      : `Current odds are temporarily unavailable, but the support model is still rendering honestly: ${supportSummary.live} sports live, ${supportSummary.partial} partial, ${supportSummary.comingSoon} coming soon.`
+      : `Current odds are temporarily unavailable, but the support model is still rendering honestly: ${supportSummary.live} sports live, ${supportSummary.partial} partial, ${supportSummary.comingSoon} coming soon.`,
+    providerHealth: buildProviderHealth({
+      supportStatus: response?.errors.length ? "PARTIAL" : "LIVE",
+      source: "live",
+      generatedAt: response?.generated_at ?? null,
+      warnings: response?.errors ?? [],
+      healthySummary:
+        "The live board feed is connected and powering verified pregame comparisons.",
+      degradedSummary:
+        "The live board feed is connected, but warnings or timestamp drift mean this board should be treated as partially degraded.",
+      fallbackSummary:
+        "The board is leaning on support-aware fallback behavior while live pricing coverage is only partially connected.",
+      offlineSummary:
+        "The board feed is offline in this runtime, so only fallback scoreboard context is available."
+    })
   };
 }
 
@@ -1674,6 +2102,7 @@ export async function getLiveGameDetail(id: string): Promise<GameDetailView | nu
   const awayContext = detail.team_form[detail.game.away_team];
   const homeContext = detail.team_form[detail.game.home_team];
   const liveProps = buildLivePropCards(detail.props ?? []);
+  const { getPropTrendSummaries } = await import("@/services/trends/trends-service");
   const propTrendSummaries = await getPropTrendSummaries(liveProps);
   const lineMovement = await getStoredLineMovement(detail.game.id);
   const spotlightLines = buildSpotlightInsightLines(
@@ -1800,7 +2229,20 @@ export async function getLiveGameDetail(id: string): Promise<GameDetailView | nu
       detail.props?.length
         ? undefined
         : "No live player props are posted for this matchup yet. SharkEdge will fill this section as books publish markets.",
-    source: "live"
+    source: "live",
+    providerHealth: buildProviderHealth({
+      supportStatus: liveProps.length || sportsbooks.length ? "LIVE" : "PARTIAL",
+      source: "live",
+      generatedAt: detail.generated_at,
+      healthySummary:
+        "This matchup is reading from the live game-detail adapter with verified book and context support.",
+      degradedSummary:
+        "This matchup is live, but either books or props are thin enough that the page should be treated as partially degraded.",
+      fallbackSummary:
+        "This matchup is leaning on fallback coverage while the live detail adapter catches up.",
+      offlineSummary:
+        "The live game-detail adapter is offline in this runtime."
+    })
   };
 }
 
@@ -1824,6 +2266,7 @@ export async function getLivePropsExplorerData(filters: PropFilters) {
     response.sports.flatMap((sport) => sport.props ?? [])
   );
   const mappedProps = buildLivePropCards(allProps);
+  const { getPropTrendSummaries } = await import("@/services/trends/trends-service");
   const propTrendSummaries = await getPropTrendSummaries(mappedProps);
 
   const filteredProps = mappedProps
@@ -1932,7 +2375,21 @@ export async function getLivePropsExplorerData(filters: PropFilters) {
       ? `Live props are partially connected, but the backend reported provider warnings: ${responseErrors.join(" | ")} ${quotaNotes}`.trim()
       : responses.length
         ? `${quotaNotes || "Live props are connected league-by-league to protect API quota."} Sports without a real props adapter stay visible as PARTIAL or COMING SOON instead of showing fake empty boards.`
-        : "No live props adapter responded for the selected league set. SharkEdge is keeping unsupported sports visible and honest instead of backfilling fake prop rows."
+        : "No live props adapter responded for the selected league set. SharkEdge is keeping unsupported sports visible and honest instead of backfilling fake prop rows.",
+    providerHealth: buildProviderHealth({
+      supportStatus: responseErrors.length || responses.some((response) => response.partial) ? "PARTIAL" : "LIVE",
+      source: responses.length ? "live" : "catalog",
+      generatedAt: responses[0]?.generated_at ?? null,
+      warnings: responseErrors,
+      healthySummary:
+        "Live props are connected for the supported leagues in this runtime.",
+      degradedSummary:
+        "Live props are connected, but warnings, partial scans, or quota pressure are reducing coverage depth.",
+      fallbackSummary:
+        "The props desk is leaning on stored or catalog coverage while the live prop feed is thin.",
+      offlineSummary:
+        "No live prop adapter responded for this request."
+    })
   };
 }
 
@@ -1952,6 +2409,7 @@ export async function getLivePropById(propId: string): Promise<PropCardView | nu
       response.sports.flatMap((sport) => sport.props ?? [])
     )
   );
+  const { getPropTrendSummaries } = await import("@/services/trends/trends-service");
   const propTrendSummaries = await getPropTrendSummaries(props);
 
   return (

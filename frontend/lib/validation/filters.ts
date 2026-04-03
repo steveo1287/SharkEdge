@@ -81,7 +81,7 @@ export const trendFiltersSchema = z.object({
   fighter: z.string().trim().max(80).default(""),
   opponent: z.string().trim().max(80).default(""),
   window: z.enum(["all", "30d", "90d", "365d"]).default("90d"),
-  sample: z.coerce.number().int().min(1).max(100).default(5)
+  sample: z.coerce.number().int().min(5).max(100).default(5)
 });
 
 export const betFiltersSchema = z.object({

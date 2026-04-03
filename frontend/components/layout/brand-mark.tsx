@@ -1,24 +1,33 @@
-import { brandKit } from "@/lib/brand/brand-kit";
+import Link from "next/link";
 
-export function BrandMark() {
+type BrandMarkProps = {
+  compact?: boolean;
+};
+
+export function BrandMark({ compact = false }: BrandMarkProps) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-[1.35rem] border border-amber-300/45 bg-slate-950 shadow-panel">
-        <div className="absolute inset-[2px] rounded-[1.15rem] border border-white/5 bg-gradient-to-br from-sky-500/30 via-slate-950 to-slate-950" />
-        <div className="absolute left-2 top-2 h-3 w-3 rounded-full bg-amber-300/70 blur-[8px]" />
-        <div className="absolute bottom-2 right-2 h-2 w-2 rounded-full bg-sky-400/80" />
-        <span className="relative font-display text-lg font-bold tracking-[0.08em] text-white">
-          {brandKit.shortName}
-        </span>
+    <Link href="/" className="group flex items-center gap-3">
+      <div
+        className={
+          compact
+            ? "overflow-hidden rounded-[1.15rem] border border-white/10 bg-[#09111d] transition group-hover:border-sky-400/30"
+            : "overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#09111d] shadow-[0_18px_40px_rgba(0,0,0,0.35)] transition group-hover:border-sky-400/30"
+        }
+      >
+        <img
+          src="/brand/sharkedge-logo.jpg"
+          alt="SharkEdge"
+          className={compact ? "h-12 w-12 object-cover" : "h-14 w-14 object-cover"}
+        />
       </div>
       <div className="min-w-0">
-        <div className="font-display text-xl font-semibold tracking-tight text-white">
+        <div className="font-display text-[1.48rem] font-semibold tracking-tight text-white">
           Shark<span className="text-sky-400">Edge</span>
         </div>
-        <div className="text-xs uppercase tracking-[0.22em] text-slate-400">
-          {brandKit.tagline}
+        <div className="text-[0.64rem] uppercase tracking-[0.32em] text-slate-500">
+          Sports Intelligence OS
         </div>
       </div>
-    </div>
+    </Link>
   );
 }

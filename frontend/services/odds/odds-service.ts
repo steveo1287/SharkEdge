@@ -1,4 +1,5 @@
 import { calculateEdgeScore } from "@/lib/utils/edge-score";
+import { withTimeoutFallback } from "@/lib/utils/async";
 import { calculateMarketExpectedValuePct } from "@/lib/utils/bet-intelligence";
 import { formatAmericanOdds, formatLine } from "@/lib/formatters/odds";
 import { buildMatchupHref } from "@/lib/utils/matchups";
@@ -12,14 +13,26 @@ import type {
   GameRecord,
   GameOddsRow,
   LeagueKey,
+  PlayerRecord,
   PropCardView,
   PropFilters,
-  SportsbookRecord
+  SportsbookRecord,
+  TeamRecord
 } from "@/lib/types/domain";
 import { mockDatabase } from "@/prisma/seed-data";
 import { getLeagueSnapshots, getTeamStatComparison } from "@/services/stats/stats-service";
 import { buildBoardSportSections, getBoardVisibleLeagues } from "@/services/events/live-score-service";
+import { buildProviderHealth } from "@/services/providers/provider-health";
 import { getProviderRegistryEntry } from "@/services/providers/registry";
+import { buildMarketTruth, type MarketPriceSample } from "@/services/market/market-truth-service";
+import { buildReasonAttribution } from "@/services/market/reason-attribution-service";
+import { analyzeMarket } from "@/services/market/market-analysis-service";
+import {
+  getStoredPropById,
+  getStoredPropsExplorerData,
+  getStoredPropsForEvent
+} from "@/services/props/warehouse-service";
+import { getPropTrendSummaries } from "@/services/trends/trends-service";
 import {
   getLiveBoardPageData,
   getLiveGameDetail,
@@ -29,10 +42,211 @@ import {
 
 // TODO: Replace mockDatabase reads with bookmaker ingestion + Prisma-backed queries.
 
+const LIVE_BOARD_TIMEOUT_MS = 3_500;
+const LIVE_PROPS_TIMEOUT_MS = 3_500;
+const STORED_PROPS_TIMEOUT_MS = 2_500;
+const LIVE_GAME_DETAIL_TIMEOUT_MS = 3_500;
+const STORED_GAME_PROPS_TIMEOUT_MS = 2_500;
+
 const leagueMap = new Map(mockDatabase.leagues.map((league) => [league.id, league]));
 const teamMap = new Map(mockDatabase.teams.map((team) => [team.id, team]));
 const playerMap = new Map(mockDatabase.players.map((player) => [player.id, player]));
 const bookMap = new Map(mockDatabase.sportsbooks.map((book) => [book.id, book]));
+
+function buildEmptyStoredPropsResult(sourceNote: string) {
+  return {
+    props: [] as PropCardView[],
+    sportsbooks: [] as SportsbookRecord[],
+    teams: [] as TeamRecord[],
+    players: [] as PlayerRecord[],
+    sourceNote
+  };
+}
+
+function buildUnavailableMarketView(): BoardMarketView {
+  const marketTruth = buildMarketTruth({
+    marketLabel: "Market",
+    offeredOddsAmerican: null,
+    sideSamples: [],
+    oppositeSamples: []
+  });
+  const attribution = buildReasonAttribution({
+    marketLabel: "Market",
+    marketTruth,
+    supportNote: "No verified market samples are available."
+  });
+
+  return {
+    label: "No market",
+    lineLabel: "No market",
+    bestBook: "Unavailable",
+    bestOdds: 0,
+    movement: 0,
+    marketTruth,
+    reasons: attribution.reasons,
+    confidenceBand: attribution.confidenceBand,
+    confidenceScore: attribution.confidenceScore,
+    hidden: attribution.suppress
+  } satisfies BoardMarketView;
+}
+
+function buildMockMarketSamples(
+  gameId: string,
+  marketType: "spread" | "moneyline" | "total",
+  side: string
+) {
+  return getMarketsForGame(gameId, marketType)
+    .filter((market) => market.side === side && typeof market.oddsAmerican === "number")
+    .map((market) => ({
+      bookKey: getBook(market.sportsbookId).key,
+      bookName: getBook(market.sportsbookId).name,
+      price: market.oddsAmerican,
+      line: market.line ?? null,
+      updatedAt: market.updatedAt ?? null
+    })) satisfies MarketPriceSample[];
+}
+
+function getOppositeMarketSide(
+  game: GameRecord,
+  marketType: "spread" | "moneyline" | "total",
+  primarySide: string
+) {
+  if (marketType === "total") {
+    return primarySide === "OVER" ? "UNDER" : "OVER";
+  }
+
+  return primarySide === game.homeTeamId ? game.awayTeamId : game.homeTeamId;
+}
+
+function buildMockMarketView(
+  game: GameRecord,
+  marketType: "spread" | "moneyline" | "total",
+  sportsbookKey: string
+) {
+  const primarySide = getPrimarySide(game, marketType);
+  const oppositeSide = getOppositeMarketSide(game, marketType, primarySide);
+  const candidates = getMarketsForGame(game.id, marketType).filter((market) =>
+    marketType === "total" ? market.side === "OVER" : market.side === primarySide
+  );
+  const oppositeCandidates = getMarketsForGame(game.id, marketType).filter((market) =>
+    market.side === oppositeSide
+  );
+
+  const filtered =
+    sportsbookKey === "best"
+      ? candidates
+      : candidates.filter((market) => getBook(market.sportsbookId).key === sportsbookKey);
+
+  const row = chooseBestRow(filtered.length ? filtered : candidates, marketType);
+  if (!row) {
+    return buildUnavailableMarketView();
+  }
+
+  const firstSnapshot = getSnapshots(row.id)[0];
+  const movement =
+    marketType === "moneyline"
+      ? row.oddsAmerican - (firstSnapshot?.oddsAmerican ?? row.oddsAmerican)
+      : (row.line ?? 0) - (firstSnapshot?.line ?? row.line ?? 0);
+  const sideSamples = buildMockMarketSamples(game.id, marketType, primarySide);
+  const oppositeSamples = buildMockMarketSamples(game.id, marketType, oppositeSide);
+  const marketLabel =
+    marketType === "spread" ? "Spread" : marketType === "moneyline" ? "Moneyline" : "Total";
+  const analysis = analyzeMarket({
+    marketLabel,
+    sport: leagueMap.get(game.leagueId)!.sport,
+    league: leagueMap.get(game.leagueId)!.key,
+    eventId: game.id,
+    providerEventId: game.externalEventId,
+    marketType,
+    marketScope: "game",
+    side: primarySide,
+    oppositeSide,
+    line: row.line ?? null,
+    participantTeamId: marketType === "total" ? null : primarySide,
+    offeredSportsbookKey: getBook(row.sportsbookId).key,
+    offeredOddsAmerican: row.oddsAmerican,
+    sideSamples,
+    oppositeSamples,
+    lineMovement: movement,
+    supportNote: "Current odds backend",
+    sourceName: "Seeded market snapshots",
+    sourceType: "mock",
+    isLive: false
+  });
+
+  return {
+    label: buildMarketLabel(game, marketType, row),
+    lineLabel: buildMarketLabel(game, marketType, row),
+    bestBook: getBook(row.sportsbookId).name,
+    bestOdds: row.oddsAmerican,
+    movement,
+    canonicalMarketKey: analysis.canonicalMarketKey,
+    marketTruth: analysis.marketTruth,
+    fairPrice: analysis.fairPrice,
+    evProfile: analysis.ev,
+    marketIntelligence: analysis.marketIntelligence,
+    reasons: analysis.reasons,
+    confidenceBand: analysis.confidenceBand,
+    confidenceScore: analysis.confidenceScore,
+    hidden: analysis.hidden
+  } satisfies BoardMarketView;
+}
+
+function getPropMergeKey(prop: PropCardView) {
+  return [
+    prop.leagueKey,
+    prop.gameId,
+    prop.player.name.toLowerCase(),
+    prop.marketType,
+    prop.side.toLowerCase(),
+    String(prop.line)
+  ].join(":");
+}
+
+function mergePropCatalogs(primary: PropCardView[], secondary: PropCardView[]) {
+  const secondaryByKey = new Map(secondary.map((prop) => [getPropMergeKey(prop), prop] as const));
+
+  const mergedPrimary = primary.map((prop) => {
+    const stored = secondaryByKey.get(getPropMergeKey(prop));
+    if (!stored) {
+      return prop;
+    }
+
+    const supportNote = [prop.supportNote, stored.analyticsSummary?.reason]
+      .filter(Boolean)
+      .join(" ");
+
+    return {
+      ...stored,
+      ...prop,
+      supportNote: supportNote || prop.supportNote || stored.supportNote,
+      analyticsSummary: stored.analyticsSummary ?? prop.analyticsSummary ?? null,
+      trendSummary: prop.trendSummary ?? stored.trendSummary ?? null
+    } satisfies PropCardView;
+  });
+
+  const merged = new Map(mergedPrimary.map((prop) => [getPropMergeKey(prop), prop] as const));
+  for (const prop of secondary) {
+    const key = getPropMergeKey(prop);
+    if (!merged.has(key)) {
+      merged.set(key, prop);
+    }
+  }
+
+  return Array.from(merged.values());
+}
+
+async function attachPropTrendSummaries(props: PropCardView[]) {
+  if (!props.length) {
+    return props;
+  }
+
+  const summaries = await getPropTrendSummaries(props);
+  return props.map((prop) => ({
+    ...prop,
+    trendSummary: prop.trendSummary ?? summaries[prop.id] ?? null
+  }));
+}
 
 function getGame(gameId: string) {
   return mockDatabase.games.find((game) => game.id === gameId) ?? null;
@@ -257,12 +471,23 @@ async function getMockBoardPageData(filters: BoardFilters): Promise<BoardPageDat
         : null,
     source: "mock",
     sourceNote:
-      "Current odds are unavailable right now, so the homepage is rendering support-aware scoreboard sections only. No seeded game rows are being passed off as live coverage."
+      "Current odds are unavailable right now, so the homepage is rendering support-aware scoreboard sections only. No seeded game rows are being passed off as live coverage.",
+    providerHealth: buildProviderHealth({
+      source: "mock",
+      healthySummary: "Live board pricing is connected.",
+      fallbackSummary:
+        "The board is leaning on scoreboard context because the live current-odds adapter is not responding.",
+      offlineSummary:
+        "The live current-odds adapter is offline in this runtime, so only support-aware scoreboard context is being shown."
+    })
   };
 }
 
 export async function getBoardPageData(filters: BoardFilters): Promise<BoardPageData> {
-  const liveData = await getLiveBoardPageData(filters);
+  const liveData = await withTimeoutFallback(getLiveBoardPageData(filters), {
+    timeoutMs: LIVE_BOARD_TIMEOUT_MS,
+    fallback: null
+  });
   if (liveData) {
     return liveData;
   }
@@ -328,6 +553,26 @@ function buildPropCard(angleId: string): PropCardView | null {
   const snapshots = getSnapshots(market.id);
   const lineMovement = (market.line ?? 0) - (snapshots[0]?.line ?? market.line ?? 0);
   const propMarketType = angle.marketType as PropCardView["marketType"];
+  const sideMarketRows = getMarketsForGame(game.id, angle.marketType, angle.playerId).filter(
+    (row) => row.side === angle.preferredSide && row.line === market.line
+  );
+  const oppositeMarketRows = getMarketsForGame(game.id, angle.marketType, angle.playerId).filter(
+    (row) => row.side !== angle.preferredSide && row.line === market.line
+  );
+  const sideSamples = sideMarketRows.map((row) => ({
+    bookKey: getBook(row.sportsbookId).key,
+    bookName: getBook(row.sportsbookId).name,
+    price: row.oddsAmerican,
+    line: row.line ?? null,
+    updatedAt: row.updatedAt ?? null
+  })) satisfies MarketPriceSample[];
+  const oppositeSamples = oppositeMarketRows.map((row) => ({
+    bookKey: getBook(row.sportsbookId).key,
+    bookName: getBook(row.sportsbookId).name,
+    price: row.oddsAmerican,
+    line: row.line ?? null,
+    updatedAt: row.updatedAt ?? null
+  })) satisfies MarketPriceSample[];
   const priceDelta =
     market.oddsAmerican - Math.round(
       getMarketsForGame(game.id, angle.marketType, angle.playerId).reduce(
@@ -335,6 +580,29 @@ function buildPropCard(angleId: string): PropCardView | null {
         0
       ) / Math.max(1, getMarketsForGame(game.id, angle.marketType, angle.playerId).length)
     );
+  const analysis = analyzeMarket({
+    marketLabel: angle.marketType.replace(/_/g, " "),
+    sport: leagueMap.get(game.leagueId)!.sport,
+    league: leagueMap.get(game.leagueId)!.key,
+    eventId: game.id,
+    providerEventId: game.externalEventId,
+    marketType: propMarketType,
+    marketScope: "player",
+    side: angle.preferredSide,
+    oppositeSide: oppositeMarketRows[0]?.side ?? null,
+    line: market.line ?? 0,
+    participantTeamId: team.id,
+    participantPlayerId: player.id,
+    offeredSportsbookKey: preferredBook.key,
+    offeredOddsAmerican: market.oddsAmerican,
+    sideSamples,
+    oppositeSamples,
+    lineMovement,
+    supportNote: "Showing seeded prop history because the live props backend is unavailable in this runtime.",
+    sourceName: "Seeded prop snapshots",
+    sourceType: "mock",
+    isLive: false
+  });
 
   return {
     id: angle.id,
@@ -370,22 +638,85 @@ function buildPropCard(angleId: string): PropCardView | null {
       ) / Math.max(1, getMarketsForGame(game.id, angle.marketType, angle.playerId).length)
     ),
     marketDeltaAmerican: priceDelta,
-    expectedValuePct: calculateMarketExpectedValuePct(
-      market.oddsAmerican,
-      Math.round(
-        getMarketsForGame(game.id, angle.marketType, angle.playerId).reduce(
-          (total, row) => total + row.oddsAmerican,
-          0
-        ) / Math.max(1, getMarketsForGame(game.id, angle.marketType, angle.playerId).length)
-      )
-    ),
+    expectedValuePct: analysis.expectedValuePct,
     lineMovement,
-    valueFlag: priceDelta >= 10 ? "MARKET_PLUS" : "BEST_PRICE",
+    valueFlag:
+      priceDelta >= 10 ? "MARKET_PLUS" : analysis.bestPriceFlag ? "BEST_PRICE" : "NONE",
     supportStatus: "LIVE",
     supportNote: "Showing seeded prop history because the live props backend is unavailable in this runtime.",
     gameHref: buildMatchupHref(leagueMap.get(game.leagueId)!.key, game.id),
+    canonicalMarketKey: analysis.canonicalMarketKey,
+    analyticsSummary: {
+      tags: [
+        `method:${analysis.fairPrice?.pricingMethod ?? "unavailable"}`,
+        `confidence:${analysis.fairPrice?.pricingConfidenceScore ?? 0}`
+      ],
+      reason: analysis.fairPrice?.coverageNote ?? "Fair price is waiting on usable two-way market depth.",
+      sampleSize: null,
+      bookCount: analysis.marketIntelligence?.sourceCount ?? sideSamples.length,
+      lineMovement: lineMovement ?? null
+    },
+    marketTruth: analysis.marketTruth,
+    fairPrice: analysis.fairPrice,
+    evProfile: analysis.ev,
+    marketIntelligence: analysis.marketIntelligence,
+    reasons: analysis.reasons,
+    confidenceBand: analysis.confidenceBand,
+    confidenceScore: analysis.confidenceScore,
+    hidden: analysis.hidden,
     source: "mock"
   } satisfies PropCardView;
+}
+
+function sortPropCards(props: PropCardView[], filters: PropFilters) {
+  return [...props].sort((left, right) => {
+    if (filters.sortBy === "league" && left.leagueKey !== right.leagueKey) {
+      return left.leagueKey.localeCompare(right.leagueKey);
+    }
+
+    if (filters.sortBy === "start_time" && left.gameId !== right.gameId) {
+      return left.gameId.localeCompare(right.gameId);
+    }
+
+    if (filters.sortBy === "line_movement") {
+      return Math.abs(right.lineMovement ?? -1) - Math.abs(left.lineMovement ?? -1);
+    }
+
+    if (filters.sortBy === "market_ev") {
+      return (right.expectedValuePct ?? -999) - (left.expectedValuePct ?? -999);
+    }
+
+    if (filters.sortBy === "edge_score") {
+      return right.edgeScore.score - left.edgeScore.score;
+    }
+
+    if (filters.sortBy === "best_price") {
+      return (
+        (right.bestAvailableOddsAmerican ?? right.oddsAmerican) -
+        (left.bestAvailableOddsAmerican ?? left.oddsAmerican)
+      );
+    }
+
+    if (left.player.name !== right.player.name) {
+      return left.player.name.localeCompare(right.player.name);
+    }
+
+    return right.edgeScore.score - left.edgeScore.score;
+  });
+}
+
+function filterPropCards(props: PropCardView[], filters: PropFilters) {
+  return props
+    .filter((prop) => (filters.league === "ALL" ? true : prop.leagueKey === filters.league))
+    .filter((prop) =>
+      filters.marketType === "ALL" ? true : prop.marketType === filters.marketType
+    )
+    .filter((prop) => (filters.team === "all" ? true : prop.team.id === filters.team))
+    .filter((prop) => (filters.player === "all" ? true : prop.player.id === filters.player))
+    .filter((prop) =>
+      filters.sportsbook === "all" ? true : prop.sportsbook.key === filters.sportsbook
+    )
+    .filter((prop) => (filters.valueFlag === "all" ? true : prop.valueFlag === filters.valueFlag));
 }
 
 export function parsePropsFilters(searchParams: Record<string, string | string[] | undefined>) {
@@ -407,6 +738,15 @@ export function parsePropsFilters(searchParams: Record<string, string | string[]
 }
 
 function getMockPropsExplorerData(filters: PropFilters) {
+  const props = sortPropCards(
+    filterPropCards(
+      mockDatabase.propAngles
+        .map((entry) => buildPropCard(entry.id))
+        .filter(Boolean) as PropCardView[],
+      filters
+    ),
+    filters
+  );
   const coverage = [
     "NBA",
     "NCAAB",
@@ -430,7 +770,7 @@ function getMockPropsExplorerData(filters: PropFilters) {
 
   return {
     filters,
-    props: [],
+    props,
     coverage,
     leagues: mockDatabase.leagues,
     sportsbooks: mockDatabase.sportsbooks,
@@ -438,13 +778,112 @@ function getMockPropsExplorerData(filters: PropFilters) {
     players: mockDatabase.players,
     source: "catalog" as const,
     sourceNote:
-      "Live props are not available from the current backend right now. SharkEdge keeps every sport visible with honest provider states instead of backfilling fake prop rows."
+      props.length
+        ? "Live props are thin right now, so SharkEdge is falling back to stored prop rows and market history instead of leaving the board empty."
+        : "Live props are not available from the current backend right now, and no stored prop rows match this exact filter set yet.",
+    providerHealth: buildProviderHealth({
+      source: "catalog",
+      healthySummary: "Live props are connected.",
+      fallbackSummary:
+        "The props desk is currently leaning on stored catalog rows because live prop coverage is thin or unavailable.",
+      offlineSummary:
+        "No live prop adapter is available for this request and no stored coverage is ready yet."
+    })
   };
 }
 
 export async function getPropsExplorerData(filters: PropFilters) {
-  const liveData = await getLivePropsExplorerData(filters);
-  return liveData ?? getMockPropsExplorerData(filters);
+  const [liveData, storedData] = await Promise.all([
+    withTimeoutFallback(getLivePropsExplorerData(filters), {
+      timeoutMs: LIVE_PROPS_TIMEOUT_MS,
+      fallback: null
+    }),
+    withTimeoutFallback(
+      getStoredPropsExplorerData(filters),
+      {
+        timeoutMs: STORED_PROPS_TIMEOUT_MS,
+        fallback: buildEmptyStoredPropsResult(
+          "Stored prop history timed out for this request, so SharkEdge is keeping the props desk lean instead of hanging the route."
+        )
+      }
+    )
+  ]);
+
+  if (!liveData) {
+    if (storedData.props.length) {
+      return {
+        ...getMockPropsExplorerData(filters),
+        props: await attachPropTrendSummaries(storedData.props),
+        sportsbooks: storedData.sportsbooks.length ? storedData.sportsbooks : mockDatabase.sportsbooks,
+        teams: storedData.teams.length ? storedData.teams : mockDatabase.teams,
+        players: storedData.players.length ? storedData.players : mockDatabase.players,
+        source: "catalog" as const,
+        sourceNote: storedData.sourceNote,
+        providerHealth: buildProviderHealth({
+          source: "catalog",
+          healthySummary: "Live props are connected.",
+          fallbackSummary:
+            "Stored worker snapshots are carrying the props desk while the live prop feed is unavailable.",
+          offlineSummary:
+            "The live prop feed is offline in this runtime."
+        })
+      };
+    }
+
+    return getMockPropsExplorerData(filters);
+  }
+
+  const mergedProps = await attachPropTrendSummaries(
+    mergePropCatalogs(liveData.props, storedData.props)
+  );
+
+  if (mergedProps.length) {
+    return {
+      ...liveData,
+      props: mergedProps,
+      sportsbooks: Array.from(
+        new Map(
+          [...liveData.sportsbooks, ...storedData.sportsbooks].map((book) => [book.key, book] as const)
+        ).values()
+      ).sort((left, right) => left.name.localeCompare(right.name)),
+      teams: Array.from(
+        new Map(
+          [...liveData.teams, ...storedData.teams].map((team) => [team.id, team] as const)
+        ).values()
+      ).sort((left, right) => left.name.localeCompare(right.name)),
+      players: Array.from(
+        new Map(
+          [...liveData.players, ...storedData.players].map((player) => [player.id, player] as const)
+        ).values()
+      ).sort((left, right) => left.name.localeCompare(right.name)),
+      sourceNote: storedData.props.length
+        ? `${liveData.sourceNote} Stored prop history is filling coverage gaps and line-move context while the worker keeps snapshots fresh.`
+        : liveData.sourceNote,
+      providerHealth: liveData.providerHealth
+    };
+  }
+
+  const fallback = getMockPropsExplorerData(filters);
+  return {
+    ...fallback,
+    coverage: liveData.coverage,
+    props: await attachPropTrendSummaries(storedData.props),
+    sportsbooks: storedData.sportsbooks.length ? storedData.sportsbooks : fallback.sportsbooks,
+    teams: storedData.teams.length ? storedData.teams : fallback.teams,
+    players: storedData.players.length ? storedData.players : fallback.players,
+    source: "catalog" as const,
+    sourceNote: storedData.props.length
+      ? `${liveData.sourceNote} Stored prop rows are filling the gap while the live feed is thin.`
+      : `${liveData.sourceNote} Stored prop rows are not populated for this filter set yet.`,
+    providerHealth: buildProviderHealth({
+      source: "catalog",
+      healthySummary: "Live props are connected.",
+      fallbackSummary:
+        "The props desk is using stored worker rows because the live feed is too thin for this filter set.",
+      offlineSummary:
+        "The props desk is missing both live and stored support for this filter set."
+    })
+  };
 }
 
 export async function getTopPlayCards(limit = 3) {
@@ -461,7 +900,6 @@ export async function getTopPlayCards(limit = 3) {
   const evPlays = data.props
     .filter(
       (prop) =>
-        prop.source === "live" &&
         typeof prop.expectedValuePct === "number" &&
         prop.expectedValuePct > 0
     )
@@ -482,7 +920,6 @@ export async function getTopPlayCards(limit = 3) {
   return data.props
     .filter(
       (prop) =>
-        prop.source === "live" &&
         typeof prop.lineMovement === "number" &&
         Math.abs(prop.lineMovement) >= 1.5 &&
         (prop.sportsbookCount ?? 0) >= 2
@@ -502,6 +939,12 @@ export async function getPropById(propId: string): Promise<PropCardView | null> 
   const liveProp = await getLivePropById(propId);
   if (liveProp) {
     return liveProp;
+  }
+
+  const storedProp = await getStoredPropById(propId);
+  if (storedProp) {
+    const [withTrend] = await attachPropTrendSummaries([storedProp]);
+    return withTrend ?? storedProp;
   }
 
   return buildPropCard(propId);
@@ -607,15 +1050,64 @@ function getMockGameDetail(id: string): GameDetailView | null {
     lineMovement,
     marketRanges: [],
     propsNotice: undefined,
-    source: "mock"
+    source: "mock",
+    providerHealth: buildProviderHealth({
+      source: "mock",
+      healthySummary: "Live matchup detail is connected.",
+      fallbackSummary:
+        "This matchup is leaning on stored catalog context because the live detail adapter is not available.",
+      offlineSummary:
+        "The live matchup detail adapter is offline in this runtime."
+    })
   } satisfies GameDetailView;
 }
 
 export async function getGameDetail(id: string) {
-  const liveDetail = await getLiveGameDetail(id);
+  const [liveDetail, storedProps] = await Promise.all([
+    withTimeoutFallback(getLiveGameDetail(id), {
+      timeoutMs: LIVE_GAME_DETAIL_TIMEOUT_MS,
+      fallback: null
+    }),
+    withTimeoutFallback(getStoredPropsForEvent(id), {
+      timeoutMs: STORED_GAME_PROPS_TIMEOUT_MS,
+      fallback: []
+    })
+  ]);
   if (liveDetail) {
-    return liveDetail;
+    const mergedProps = await attachPropTrendSummaries(
+      mergePropCatalogs(liveDetail.props, storedProps)
+    );
+    return {
+      ...liveDetail,
+      props: mergedProps,
+      propsNotice:
+        storedProps.length && !liveDetail.props.length
+          ? "Live props are light for this matchup right now, so SharkEdge is leaning on stored worker snapshots and market history."
+          : liveDetail.propsNotice
+    };
   }
 
-  return getMockGameDetail(id);
+  const mock = getMockGameDetail(id);
+  if (!mock) {
+    return null;
+  }
+
+  if (!storedProps.length) {
+    return mock;
+  }
+
+  return {
+    ...mock,
+    props: await attachPropTrendSummaries(storedProps),
+    propsNotice:
+      "This matchup is reading from stored worker-synced prop history because the live detail adapter is thin in this runtime.",
+    providerHealth: buildProviderHealth({
+      source: "catalog",
+      healthySummary: "Live matchup detail is connected.",
+      fallbackSummary:
+        "Stored matchup context and prop history are carrying this page while the live detail adapter is thin.",
+      offlineSummary:
+        "The live matchup detail adapter is offline in this runtime."
+    })
+  };
 }

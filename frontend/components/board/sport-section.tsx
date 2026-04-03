@@ -42,48 +42,67 @@ type SportSectionProps = {
   focusMarket: string;
 };
 
+function hasVerifiedGameOdds(game: BoardSportSectionView["games"][number]) {
+  return (
+    game.bestBookCount > 0 &&
+    (game.spread.bestOdds !== 0 || game.moneyline.bestOdds !== 0 || game.total.bestOdds !== 0)
+  );
+}
+
 export function SportSection({ section, focusMarket }: SportSectionProps) {
+  const verifiedGames = section.games.filter(hasVerifiedGameOdds);
+  const showBoardGames = section.adapterState === "BOARD" && verifiedGames.length > 0;
+  const showScoresOnly =
+    section.adapterState === "SCORES_ONLY" ||
+    (section.adapterState === "BOARD" && verifiedGames.length === 0 && section.scoreboard.length > 0);
+
   return (
     <section className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <SectionTitle title={`${section.leagueLabel} Board`} description={section.detail} />
+        <SectionTitle title={`${section.leagueLabel} board`} description={section.detail} />
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={getStatusTone(section.status)}>{formatStatusLabel(section.status)}</Badge>
           {section.stale ? <Badge tone="danger">Stale</Badge> : null}
         </div>
       </div>
 
-      <Card className="grid gap-2 p-4 text-sm text-slate-400 xl:grid-cols-[1.4fr_1fr]">
-        <div>{section.scoreboardDetail}</div>
-        <div className="grid gap-1 text-xs text-slate-500 xl:text-right">
-          <div>Scores: {section.liveScoreProvider ?? "Not wired"}</div>
-          <div>Current odds: {section.currentOddsProvider ?? "Pending"}</div>
-          <div>Historical: {section.historicalOddsProvider ?? "Pending"}</div>
-          <div>
-            Props:{" "}
-            <span className="text-slate-300">
-              {formatStatusLabel(section.propsStatus)}
-              {section.propsProviders.length ? ` via ${section.propsProviders.join(", ")}` : ""}
-            </span>
+      <Card className="grid gap-4 p-4 text-sm text-slate-400 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="leading-6">{section.scoreboardDetail}</div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-2">
+          <div className="rounded-[1.2rem] border border-line/70 bg-slate-950/65 px-3 py-3">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Scores</div>
+            <div className="mt-2 text-sm text-white">{section.liveScoreProvider ?? "League feed"}</div>
+          </div>
+          <div className="rounded-[1.2rem] border border-line/70 bg-slate-950/65 px-3 py-3">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Odds</div>
+            <div className="mt-2 text-sm text-white">
+              {verifiedGames.length ? section.currentOddsProvider ?? "Verified market rows" : "Not verified"}
+            </div>
+          </div>
+          <div className="rounded-[1.2rem] border border-line/70 bg-slate-950/65 px-3 py-3">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">History</div>
+            <div className="mt-2 text-sm text-white">{section.historicalOddsProvider ?? "Pending"}</div>
+          </div>
+          <div className="rounded-[1.2rem] border border-line/70 bg-slate-950/65 px-3 py-3">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Props</div>
+            <div className="mt-2 flex items-center gap-2">
+              <Badge tone={getPropsTone(section.propsStatus)}>{formatStatusLabel(section.propsStatus)}</Badge>
+            </div>
           </div>
         </div>
-        <div className="xl:col-span-2">
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <Badge tone={getPropsTone(section.propsStatus)}>
-              Props {formatStatusLabel(section.propsStatus)}
-            </Badge>
-          </div>
-          <div className="mt-2 text-xs leading-6 text-slate-500">{section.propsNote}</div>
+        <div className="xl:col-span-2 text-xs leading-6 text-slate-500">
+          {section.propsNote}
+          {section.propsProviders.length ? ` Providers: ${section.propsProviders.join(", ")}.` : ""}
         </div>
       </Card>
 
-      {section.adapterState === "BOARD" ? (
+      {showBoardGames ? (
         <div className="grid gap-4 2xl:grid-cols-2">
-          {section.games.map((game) => (
+          {verifiedGames.map((game) => (
             <GameCard key={game.id} game={game} focusMarket={focusMarket} />
           ))}
         </div>
-      ) : section.adapterState === "SCORES_ONLY" ? (
+      ) : showScoresOnly ? (
         <div className="grid gap-4 2xl:grid-cols-2">
           {section.scoreboard.map((event) => (
             <Card key={event.id} className="grid gap-4 p-5">

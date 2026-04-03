@@ -77,3 +77,7 @@ export function useBetSlip() {
 
   return context;
 }
+
+export function useOptionalBetSlip() {
+  return useContext(BetSlipContext);
+}

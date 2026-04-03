@@ -1,6 +1,18 @@
 import { prisma } from "@/lib/db/prisma";
+import type { LeagueKey } from "@/lib/types/domain";
+import { refreshCurrentBookFeeds } from "@/services/current-odds/book-feed-refresh-service";
 import { lineMovementJob } from "@/services/jobs/line-movement-job";
 import { getBooleanArg, getStringArg, logStep, parseArgs } from "./_runtime-utils";
+
+const ALLOWED_LEAGUES = new Set<LeagueKey>(["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]);
+
+function toLeagueKey(value: string | null | undefined): LeagueKey | null {
+  if (!value) {
+    return null;
+  }
+
+  return ALLOWED_LEAGUES.has(value as LeagueKey) ? (value as LeagueKey) : null;
+}
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -32,8 +44,46 @@ async function main() {
     leagueKey: leagueKey ?? null,
     liveOnly
   });
+
+  const batchLeagues = Array.from(
+    new Set(
+      (leagueKey
+        ? [toLeagueKey(leagueKey)]
+        : (
+            await prisma.event.findMany({
+              where: {
+                id: { in: events.map((event) => event.id) }
+              },
+              select: {
+                league: {
+                  select: { key: true }
+                }
+              }
+            })
+          ).map((event) => toLeagueKey(event.league.key))
+      ).filter((value): value is LeagueKey => Boolean(value))
+    )
+  );
+
+  if (batchLeagues.length) {
+    const bookFeedRefresh = await refreshCurrentBookFeeds({
+      leagues: batchLeagues
+    });
+
+    logStep("worker:line-movements:book-feeds", {
+      leagues: batchLeagues,
+      summaries: bookFeedRefresh.summaries.map((summary) => ({
+        providerKey: summary.providerKey,
+        status: summary.status,
+        reason: summary.reason ?? null
+      }))
+    });
+  }
+
   for (const event of events) {
-    await lineMovementJob(event.id);
+    await lineMovementJob(event.id, {
+      skipBookFeedRefresh: true
+    });
   }
 }
 

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { useBetSlip } from "@/components/bets/bet-slip-provider";
+import { useOptionalBetSlip } from "@/components/bets/bet-slip-provider";
 import type { BetIntent } from "@/lib/types/bet-intelligence";
 import { encodeBetIntent } from "@/lib/utils/bet-intelligence";
 import { cn } from "@/lib/utils/cn";
@@ -24,7 +24,7 @@ export function BetActionButton({
   className,
   children
 }: BetActionButtonProps) {
-  const { addIntent } = useBetSlip();
+  const betSlip = useOptionalBetSlip();
 
   if (mode === "log") {
     return (
@@ -41,10 +41,25 @@ export function BetActionButton({
     );
   }
 
+  if (!betSlip) {
+    return (
+      <Link
+        href={`/bets?prefill=${encodeBetIntent(intent)}`}
+        className={cn(
+          baseClasses,
+          "border-line bg-slate-900/80 text-slate-200",
+          className
+        )}
+      >
+        {children}
+      </Link>
+    );
+  }
+
   return (
     <button
       type="button"
-      onClick={() => addIntent(intent)}
+      onClick={() => betSlip.addIntent(intent)}
       className={cn(baseClasses, "border-line bg-slate-900/80 text-slate-200", className)}
     >
       {children}

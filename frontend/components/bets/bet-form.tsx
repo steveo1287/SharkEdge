@@ -50,6 +50,9 @@ type FormState = {
   placedAt: string;
   settledAt: string;
   source: string;
+  externalSourceKey?: string | null;
+  externalSourceId?: string | null;
+  externalSourceFingerprint?: string | null;
   betType: string;
   sport: string;
   league: string;
@@ -86,6 +89,9 @@ function toFormState(values: LedgerBetFormInput | null, defaultBookId: string): 
     placedAt: values?.placedAt ?? new Date().toISOString().slice(0, 16),
     settledAt: values?.settledAt ?? "",
     source: values?.source ?? "MANUAL",
+    externalSourceKey: values?.externalSourceKey ?? null,
+    externalSourceId: values?.externalSourceId ?? null,
+    externalSourceFingerprint: values?.externalSourceFingerprint ?? null,
     betType: values?.betType ?? "STRAIGHT",
     sport: values?.sport ?? "BASKETBALL",
     league: values?.league ?? "NBA",
@@ -221,6 +227,9 @@ export function BetForm({
       placedAt: values.placedAt,
       settledAt: values.settledAt || null,
       source: values.source,
+      externalSourceKey: values.externalSourceKey ?? null,
+      externalSourceId: values.externalSourceId ?? null,
+      externalSourceFingerprint: values.externalSourceFingerprint ?? null,
       betType: values.betType,
       sport: values.sport,
       league: values.league,

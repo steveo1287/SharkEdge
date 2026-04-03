@@ -1,4 +1,10 @@
-import type { BoardSupportStatus, GameStatus, LeagueKey, MarketType } from "@/lib/types/domain";
+import type {
+  BoardSupportStatus,
+  GameStatus,
+  LeagueKey,
+  MarketType,
+  NbaModelHookView
+} from "@/lib/types/domain";
 
 export type MatchupMetricView = {
   label: string;
@@ -95,6 +101,7 @@ export type MatchupDetailPayload = {
   }>;
   trendCards: MatchupTrendCard[];
   propsSupport: MatchupPropsSupport;
+  nbaModel?: NbaModelHookView | null;
   notes: string[];
 };
 

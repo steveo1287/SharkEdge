@@ -18,7 +18,8 @@ import { getMatchupTrendCards as getEngineMatchupTrendCards } from "@/lib/trends
 import { getConfidenceTierFromEdge } from "@/lib/utils/bet-intelligence";
 import { parseMatchupRouteId } from "@/lib/utils/matchups";
 import { mockDatabase } from "@/prisma/seed-data";
-import { getGameDetail as getLegacyGameDetail } from "@/services/odds/odds-service";
+import { getGameDetail as getLegacyGameDetail } from "@/services/odds/detail-service";
+import { buildProviderHealth } from "@/services/providers/provider-health";
 import { getMatchupProviders, getScoreProviders, getProviderRegistryEntry } from "@/services/providers/registry";
 import type { ProviderEvent } from "@/services/events/provider-types";
 import type { MatchupDetailPayload } from "@/services/stats/provider-types";
@@ -141,7 +142,25 @@ function buildLegacyBetSignals(detail: LegacyGameDetailView): BetSignalView[] {
       externalEventId: detail.game.externalEventId,
       matchupHref: `/game/${detail.game.id}`,
       supportStatus: "LIVE",
-      supportNote: "Current odds backend",
+      supportNote:
+        detail.bestMarkets.spread.fairPrice?.coverageNote ?? "Current odds backend",
+      expectedValuePct:
+        detail.bestMarkets.spread.evProfile?.evPerUnit !== null &&
+        typeof detail.bestMarkets.spread.evProfile?.evPerUnit === "number"
+          ? Number((detail.bestMarkets.spread.evProfile.evPerUnit * 100).toFixed(2))
+          : null,
+      valueFlag: detail.bestMarkets.spread.marketIntelligence?.bestPriceFlag
+        ? "BEST_PRICE"
+        : "NONE",
+      canonicalMarketKey: detail.bestMarkets.spread.canonicalMarketKey ?? null,
+      marketTruth: detail.bestMarkets.spread.marketTruth ?? null,
+      fairPrice: detail.bestMarkets.spread.fairPrice ?? null,
+      evProfile: detail.bestMarkets.spread.evProfile ?? null,
+      marketIntelligence: detail.bestMarkets.spread.marketIntelligence ?? null,
+      reasons: detail.bestMarkets.spread.reasons ?? [],
+      confidenceBand: detail.bestMarkets.spread.confidenceBand,
+      confidenceScore: detail.bestMarkets.spread.confidenceScore,
+      hidden: detail.bestMarkets.spread.hidden ?? false,
       confidenceTier: getConfidenceTierFromEdge(detail.edgeScore.score),
       edgeScore: detail.edgeScore
     },
@@ -158,7 +177,25 @@ function buildLegacyBetSignals(detail: LegacyGameDetailView): BetSignalView[] {
       externalEventId: detail.game.externalEventId,
       matchupHref: `/game/${detail.game.id}`,
       supportStatus: "LIVE",
-      supportNote: "Current odds backend",
+      supportNote:
+        detail.bestMarkets.moneyline.fairPrice?.coverageNote ?? "Current odds backend",
+      expectedValuePct:
+        detail.bestMarkets.moneyline.evProfile?.evPerUnit !== null &&
+        typeof detail.bestMarkets.moneyline.evProfile?.evPerUnit === "number"
+          ? Number((detail.bestMarkets.moneyline.evProfile.evPerUnit * 100).toFixed(2))
+          : null,
+      valueFlag: detail.bestMarkets.moneyline.marketIntelligence?.bestPriceFlag
+        ? "BEST_PRICE"
+        : "NONE",
+      canonicalMarketKey: detail.bestMarkets.moneyline.canonicalMarketKey ?? null,
+      marketTruth: detail.bestMarkets.moneyline.marketTruth ?? null,
+      fairPrice: detail.bestMarkets.moneyline.fairPrice ?? null,
+      evProfile: detail.bestMarkets.moneyline.evProfile ?? null,
+      marketIntelligence: detail.bestMarkets.moneyline.marketIntelligence ?? null,
+      reasons: detail.bestMarkets.moneyline.reasons ?? [],
+      confidenceBand: detail.bestMarkets.moneyline.confidenceBand,
+      confidenceScore: detail.bestMarkets.moneyline.confidenceScore,
+      hidden: detail.bestMarkets.moneyline.hidden ?? false,
       confidenceTier: getConfidenceTierFromEdge(detail.edgeScore.score),
       edgeScore: detail.edgeScore
     },
@@ -175,7 +212,25 @@ function buildLegacyBetSignals(detail: LegacyGameDetailView): BetSignalView[] {
       externalEventId: detail.game.externalEventId,
       matchupHref: `/game/${detail.game.id}`,
       supportStatus: "LIVE",
-      supportNote: "Current odds backend",
+      supportNote:
+        detail.bestMarkets.total.fairPrice?.coverageNote ?? "Current odds backend",
+      expectedValuePct:
+        detail.bestMarkets.total.evProfile?.evPerUnit !== null &&
+        typeof detail.bestMarkets.total.evProfile?.evPerUnit === "number"
+          ? Number((detail.bestMarkets.total.evProfile.evPerUnit * 100).toFixed(2))
+          : null,
+      valueFlag: detail.bestMarkets.total.marketIntelligence?.bestPriceFlag
+        ? "BEST_PRICE"
+        : "NONE",
+      canonicalMarketKey: detail.bestMarkets.total.canonicalMarketKey ?? null,
+      marketTruth: detail.bestMarkets.total.marketTruth ?? null,
+      fairPrice: detail.bestMarkets.total.fairPrice ?? null,
+      evProfile: detail.bestMarkets.total.evProfile ?? null,
+      marketIntelligence: detail.bestMarkets.total.marketIntelligence ?? null,
+      reasons: detail.bestMarkets.total.reasons ?? [],
+      confidenceBand: detail.bestMarkets.total.confidenceBand,
+      confidenceScore: detail.bestMarkets.total.confidenceScore,
+      hidden: detail.bestMarkets.total.hidden ?? false,
       confidenceTier: getConfidenceTierFromEdge(detail.edgeScore.score),
       edgeScore: detail.edgeScore
     }
@@ -255,6 +310,21 @@ function mapEdgeTone(label: EdgeBand) {
   }
 
   return "muted" as const;
+}
+
+function getSignalPriorityScore(signal: BetSignalView) {
+  const rankScore = signal.evProfile?.rankScore ?? 0;
+  const confidenceScore = signal.confidenceScore ?? signal.fairPrice?.pricingConfidenceScore ?? 0;
+  const qualityScore = signal.marketTruth?.qualityScore ?? 0;
+  const bestPriceBonus = signal.marketIntelligence?.bestPriceFlag ? 10 : 0;
+  const valueFlagBonus =
+    signal.valueFlag === "BEST_PRICE" ? 8 : signal.valueFlag === "MARKET_PLUS" ? 5 : signal.valueFlag === "STEAM" ? 3 : 0;
+  const evScore =
+    typeof signal.expectedValuePct === "number"
+      ? Math.min(20, Math.max(-5, signal.expectedValuePct))
+      : 0;
+
+  return rankScore + confidenceScore * 0.4 + qualityScore * 0.2 + bestPriceBonus + valueFlagBonus + evScore;
 }
 
 async function fetchMatchupPayloadByEventId(
@@ -517,6 +587,18 @@ function mergeMatchupDetail(args: {
         : [])
     ].filter(Boolean))
   );
+  const verifiedBooks = legacyDetail?.books ?? [];
+  const hasVerifiedOdds = verifiedBooks.length > 0;
+  const verifiedOddsSummary =
+    hasVerifiedOdds
+      ? payload?.oddsSummary ?? (legacyDetail ? buildOddsSummaryFromLegacy(legacyDetail) : null)
+      : null;
+  const verifiedBetSignals =
+    hasVerifiedOdds && legacyDetail
+      ? buildLegacyBetSignals(legacyDetail).sort(
+          (left, right) => getSignalPriorityScore(right) - getSignalPriorityScore(left)
+        )
+      : [];
 
   return {
     routeId,
@@ -554,16 +636,45 @@ function mergeMatchupDetail(args: {
     liveScoreProvider: payload?.liveScoreProvider ?? config.liveScoreProvider,
     statsProvider: payload?.statsProvider ?? null,
     currentOddsProvider:
-      payload?.currentOddsProvider ??
-      (legacyDetail ? buildOddsSummaryFromLegacy(legacyDetail).sourceLabel : config.currentOddsProvider),
+      hasVerifiedOdds
+        ? payload?.currentOddsProvider ??
+          (legacyDetail ? buildOddsSummaryFromLegacy(legacyDetail).sourceLabel : config.currentOddsProvider)
+        : null,
     historicalOddsProvider: payload?.historicalOddsProvider ?? config.historicalOddsProvider,
-    lastUpdatedAt: payload?.lastUpdatedAt ?? null,
+    hasVerifiedOdds,
+    lastUpdatedAt: payload?.lastUpdatedAt ?? legacyDetail?.providerHealth.asOf ?? null,
+    providerHealth:
+      payload || legacyDetail
+        ? buildProviderHealth({
+            supportStatus: payload?.supportStatus ?? registry.status,
+            source: legacyDetail?.source ?? (payload ? "live" : "catalog"),
+            generatedAt: legacyDetail?.providerHealth.asOf ?? null,
+            lastUpdatedAt: payload?.lastUpdatedAt ?? legacyDetail?.lastUpdatedAt ?? null,
+            warnings: payload?.supportStatus === "PARTIAL" ? [payload.supportNote ?? config.detail] : [],
+            healthySummary:
+              "This matchup page has live provider coverage for the current decision workflow.",
+            degradedSummary:
+              "This matchup page is connected, but the provider mesh is only partial or aging right now.",
+            fallbackSummary:
+              "This matchup page is leaning on fallback context while live provider coverage is thin.",
+            offlineSummary:
+              "This matchup page is running without a live provider feed in this runtime."
+          })
+        : buildProviderHealth({
+            source: "catalog",
+            healthySummary: "This matchup page has live provider coverage.",
+            fallbackSummary:
+              "This matchup page is leaning on catalog context while live providers are not ready.",
+            offlineSummary:
+              "This matchup page does not have a live provider feed in this runtime."
+          }),
     participants,
-    oddsSummary: payload?.oddsSummary ?? (legacyDetail ? buildOddsSummaryFromLegacy(legacyDetail) : null),
-    books: legacyDetail?.books ?? [],
+    oddsSummary: verifiedOddsSummary,
+    books: verifiedBooks,
     props: legacyDetail?.props ?? [],
-    betSignals: legacyDetail ? buildLegacyBetSignals(legacyDetail) : [],
+    betSignals: verifiedBetSignals,
     propsSupport: derivePropsSupport(leagueKey, payload, legacyDetail),
+    nbaModel: payload?.nbaModel ?? null,
     marketRanges: legacyDetail?.marketRanges ?? payload?.marketRanges ?? [],
     lineMovement: legacyDetail?.lineMovement ?? [],
     trendCards: [],

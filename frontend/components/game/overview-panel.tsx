@@ -2,7 +2,10 @@ import { BetActionButton } from "@/components/bets/bet-action-button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import type { MatchupDetailView } from "@/lib/types/domain";
-import { buildSignalBetIntent, buildWagerMathView } from "@/lib/utils/bet-intelligence";
+import {
+  buildSignalBetIntent,
+  getEdgeToneFromBand
+} from "@/lib/utils/bet-intelligence";
 
 type OverviewPanelProps = {
   detail: MatchupDetailView;
@@ -20,175 +23,296 @@ function getSupportTone(status: MatchupDetailView["supportStatus"]) {
   return "muted" as const;
 }
 
-export function OverviewPanel({ detail }: OverviewPanelProps) {
+function MiniMetric({
+  label,
+  value,
+  note
+}: {
+  label: string;
+  value: string;
+  note: string;
+}) {
   return (
-    <Card className="p-5">
-      <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+    <div className="rounded-[1.2rem] border border-white/8 bg-slate-950/60 px-4 py-3">
+      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div className="mt-2 text-base font-semibold text-white">{value}</div>
+      <div className="mt-1 text-xs leading-5 text-slate-500">{note}</div>
+    </div>
+  );
+}
+
+function SignalCard({
+  detail,
+  signal,
+  featured = false
+}: {
+  detail: MatchupDetailView;
+  signal: MatchupDetailView["betSignals"][number];
+  featured?: boolean;
+}) {
+  const displayEvPct =
+    typeof signal.expectedValuePct === "number"
+      ? signal.expectedValuePct
+      : typeof signal.evProfile?.evPerUnit === "number"
+        ? Number((signal.evProfile.evPerUnit * 100).toFixed(2))
+        : null;
+  const fairLineDisplay =
+    typeof signal.fairPrice?.fairOddsAmerican === "number"
+      ? `${signal.fairPrice.fairOddsAmerican > 0 ? "+" : ""}${signal.fairPrice.fairOddsAmerican}`
+      : "N/A";
+  const stakePct =
+    typeof signal.evProfile?.kellyFraction === "number"
+      ? `${(signal.evProfile.kellyFraction * 100).toFixed(1)}%`
+      : "Suppressed";
+  const signalReasons = signal.reasons?.slice(0, 2) ?? [];
+
+  return (
+    <div
+      className={
+        featured
+          ? "rounded-[1.45rem] border border-sky-400/20 bg-sky-500/10 p-5"
+          : "rounded-[1.35rem] border border-white/8 bg-slate-950/60 p-4"
+      }
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Badge tone={getSupportTone(detail.supportStatus)}>{detail.supportStatus}</Badge>
-            {detail.currentOddsProvider ? (
-              <Badge tone="brand">{detail.currentOddsProvider}</Badge>
-            ) : null}
-            {detail.propsSupport.supportedMarkets.length ? (
-              <Badge tone="premium">
-                {detail.propsSupport.supportedMarkets.length} prop market
-                {detail.propsSupport.supportedMarkets.length === 1 ? "" : "s"}
-              </Badge>
-            ) : null}
+          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+            {signal.marketLabel}
           </div>
-
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
-              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                Best Spread
-              </div>
-              <div className="mt-3 font-display text-xl text-white">
-                {detail.oddsSummary?.bestSpread ?? "Pending"}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
-              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                Best Moneyline
-              </div>
-              <div className="mt-3 font-display text-xl text-white">
-                {detail.oddsSummary?.bestMoneyline ?? "Pending"}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
-              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                Best Total
-              </div>
-              <div className="mt-3 font-display text-xl text-white">
-                {detail.oddsSummary?.bestTotal ?? "Pending"}
-              </div>
-            </div>
+          <div className="mt-2 text-lg font-semibold leading-tight text-white">{signal.selection}</div>
+          <div className="mt-2 text-sm text-slate-400">
+            {signal.sportsbookName ?? "Book pending"} | {signal.oddsAmerican > 0 ? "+" : ""}
+            {signal.oddsAmerican}
           </div>
+          {signal.fairPrice ? (
+            <div className="mt-2 text-xs uppercase tracking-[0.18em] text-sky-300">
+              {signal.fairPrice.pricingMethod.replace(/_/g, " ")} | confidence {signal.fairPrice.pricingConfidenceScore}
+            </div>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge tone={getEdgeToneFromBand(signal.edgeScore.label)}>{signal.edgeScore.label}</Badge>
+          <Badge tone={getSupportTone(signal.supportStatus)}>{signal.supportStatus}</Badge>
+        </div>
+      </div>
 
-          {detail.marketRanges.length ? (
-            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {detail.marketRanges.map((range) => (
-                <div
-                  key={`${range.label}-${range.value}`}
-                  className="rounded-2xl border border-line bg-slate-950/65 p-4"
-                >
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                    {range.label}
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <MiniMetric
+          label="EV"
+          value={typeof displayEvPct === "number" ? `${displayEvPct > 0 ? "+" : ""}${displayEvPct.toFixed(2)}%` : "N/A"}
+          note="Expected edge at the current best available price."
+        />
+        <MiniMetric
+          label="Fair line"
+          value={fairLineDisplay}
+          note="Consensus-derived fair price for this signal."
+        />
+        <MiniMetric
+          label="Stake guide"
+          value={stakePct}
+          note="Quarter-Kelly only when pricing confidence is strong enough."
+        />
+      </div>
+
+      {signalReasons.length ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {signalReasons.map((reason) => (
+            <Badge key={`${signal.id}-${reason.label}`} tone={reason.tone}>
+              {reason.label}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="mt-4 rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
+        {signal.reasons?.[0]?.detail ??
+          signal.supportNote ??
+          "Open the odds board and matchup context before forcing a signal here."}
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-3">
+        <BetActionButton
+          intent={buildSignalBetIntent(signal, detail.league.key, `/game/${detail.routeId}`)}
+        >
+          Add to slip
+        </BetActionButton>
+        <BetActionButton
+          intent={buildSignalBetIntent(signal, detail.league.key, `/game/${detail.routeId}`)}
+          mode="log"
+        >
+          Log now
+        </BetActionButton>
+      </div>
+    </div>
+  );
+}
+
+export function OverviewPanel({ detail }: OverviewPanelProps) {
+  const featuredSignals = detail.betSignals.slice(0, 2);
+  const additionalSignals = detail.betSignals.slice(2, 6);
+  const marketContext = [
+    detail.hasVerifiedOdds
+      ? `${detail.books.length} books currently mapped into this matchup view.`
+      : "No verified odds table is exposed yet for this matchup.",
+    detail.currentOddsProvider ? `Current pricing source: ${detail.currentOddsProvider}.` : null,
+    detail.historicalOddsProvider ? `Historical movement source: ${detail.historicalOddsProvider}.` : null,
+    detail.propsSupport.note
+  ].filter(Boolean) as string[];
+
+  return (
+    <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+      <Card className="surface-panel p-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={getSupportTone(detail.supportStatus)}>{detail.supportStatus}</Badge>
+          {detail.hasVerifiedOdds && detail.currentOddsProvider ? (
+            <Badge tone="brand">{detail.currentOddsProvider}</Badge>
+          ) : null}
+          {detail.propsSupport.supportedMarkets.length ? (
+            <Badge tone="premium">
+              {detail.propsSupport.supportedMarkets.length} prop market
+              {detail.propsSupport.supportedMarkets.length === 1 ? "" : "s"}
+            </Badge>
+          ) : null}
+        </div>
+
+        <div className="mt-5 grid gap-4">
+          {featuredSignals.length ? (
+            <div className="grid gap-4 xl:grid-cols-2">
+              {featuredSignals.map((signal, index) => (
+                <SignalCard
+                  key={signal.id}
+                  detail={detail}
+                  signal={signal}
+                  featured={index === 0}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-[1.35rem] border border-white/8 bg-slate-950/60 px-4 py-4 text-sm leading-7 text-slate-400">
+              No live betting signals are qualified for this matchup yet. SharkEdge keeps the slot quiet instead of forcing fake conviction.
+            </div>
+          )}
+
+          {additionalSignals.length ? (
+            <div className="rounded-[1.35rem] border border-white/8 bg-slate-950/60 p-4">
+              <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+                Secondary signals
+              </div>
+              <div className="mt-3 grid gap-2">
+                {additionalSignals.map((signal) => (
+                  <div
+                    key={signal.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-[1.1rem] border border-white/8 bg-slate-900/60 px-4 py-3"
+                  >
+                    <div>
+                      <div className="text-sm font-medium text-white">{signal.selection}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {signal.marketLabel} | {signal.sportsbookName ?? "Book pending"} | {signal.oddsAmerican > 0 ? "+" : ""}
+                        {signal.oddsAmerican}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge tone={getEdgeToneFromBand(signal.edgeScore.label)}>
+                        {signal.edgeScore.label}
+                      </Badge>
+                      {typeof signal.expectedValuePct === "number" ? (
+                        <Badge tone={signal.expectedValuePct > 0 ? "success" : "muted"}>
+                          EV {signal.expectedValuePct > 0 ? "+" : ""}
+                          {signal.expectedValuePct.toFixed(2)}%
+                        </Badge>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="mt-3 text-sm font-medium text-white">{range.value}</div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </Card>
+
+      <div className="grid gap-4">
+        <Card className="surface-panel p-5">
+          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Market context</div>
+          <div className="mt-4 grid gap-3 text-sm leading-6 text-slate-300">
+            {marketContext.map((item) => (
+              <div
+                key={item}
+                className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3"
+              >
+                {item}
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {detail.nbaModel?.available ? (
+          <Card className="surface-panel p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+                Model pulse
+              </div>
+              <Badge tone="brand">{detail.nbaModel.source}</Badge>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <MiniMetric
+                label="Adj margin"
+                value={
+                  typeof detail.nbaModel.adjustedEfficiencyMargin === "number"
+                    ? `${detail.nbaModel.adjustedEfficiencyMargin > 0 ? "+" : ""}${detail.nbaModel.adjustedEfficiencyMargin.toFixed(1)}`
+                    : "N/A"
+                }
+                note="Adjusted efficiency margin from the current model hook."
+              />
+              <MiniMetric
+                label="Tempo"
+                value={
+                  typeof detail.nbaModel.tempo === "number"
+                    ? detail.nbaModel.tempo.toFixed(1)
+                    : "N/A"
+                }
+                note="Estimated game pace."
+              />
+            </div>
+            <div className="mt-4 grid gap-2">
+              {detail.nbaModel.factors.slice(0, 4).map((factor) => (
+                <div
+                  key={factor.label}
+                  className="rounded-[1.1rem] border border-white/8 bg-slate-950/60 px-4 py-3"
+                >
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{factor.label}</div>
+                  <div className="mt-2 text-sm font-medium text-white">
+                    {factor.awayValue} vs {factor.homeValue}
+                  </div>
+                  {factor.note ? (
+                    <div className="mt-1 text-xs leading-5 text-slate-500">{factor.note}</div>
+                  ) : null}
                 </div>
               ))}
             </div>
-          ) : null}
+            <div className="mt-4 text-sm leading-6 text-slate-400">{detail.nbaModel.note}</div>
+          </Card>
+        ) : null}
 
-          {detail.betSignals.length ? (
-            <div className="mt-5 grid gap-3 md:grid-cols-3">
-              {detail.betSignals.map((signal) => (
-                <div
-                  key={signal.id}
-                  className="rounded-2xl border border-line bg-slate-950/65 p-4"
-                >
-                  {(() => {
-                    const math = buildWagerMathView({
-                      offeredOddsAmerican: signal.oddsAmerican
-                    });
-
-                    return (
-                      <>
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                    {signal.marketLabel}
-                  </div>
-                  <div className="mt-3 text-lg font-semibold text-white">{signal.selection}</div>
-                  <div className="mt-2 text-sm text-slate-400">
-                    {signal.sportsbookName ?? "Book pending"} | {signal.oddsAmerican > 0 ? "+" : ""}
-                    {signal.oddsAmerican}
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Badge tone="muted">{signal.edgeScore.label} {signal.edgeScore.score}</Badge>
-                    {typeof signal.expectedValuePct === "number" ? (
-                      <Badge tone={signal.expectedValuePct > 0 ? "success" : "muted"}>
-                        EV {signal.expectedValuePct > 0 ? "+" : ""}
-                        {signal.expectedValuePct.toFixed(2)}%
-                      </Badge>
-                    ) : null}
-                    <Badge tone="muted">
-                      Imp {typeof math.impliedProbabilityPct === "number" ? `${math.impliedProbabilityPct.toFixed(1)}%` : "--"}
-                    </Badge>
-                    <Badge tone="muted">
-                      No-vig {typeof math.noVigProbabilityPct === "number" ? `${math.noVigProbabilityPct.toFixed(1)}%` : "N/A"}
-                    </Badge>
-                    <Badge tone="premium">
-                      Kelly {typeof math.kellyFractionPct === "number" ? `${math.kellyFractionPct.toFixed(1)}%` : "N/A"}
-                    </Badge>
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    <BetActionButton
-                      intent={buildSignalBetIntent(signal, detail.league.key, `/game/${detail.routeId}`)}
-                    >
-                      Add to slip
-                    </BetActionButton>
-                  <BetActionButton
-                    intent={buildSignalBetIntent(signal, detail.league.key, `/game/${detail.routeId}`)}
-                    mode="log"
-                  >
-                    Log now
-                  </BetActionButton>
-                </div>
-                      </>
-                    );
-                  })()}
-              </div>
-            ))}
-            </div>
-          ) : null}
-
-          <div className="mt-5 grid gap-3">
+        <Card className="surface-panel p-5">
+          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Matchup notes</div>
+          <div className="mt-4 grid gap-3">
             {detail.notes.length ? (
               detail.notes.map((note) => (
                 <div
                   key={note}
-                  className="rounded-2xl border border-line bg-slate-950/65 px-4 py-3 text-sm text-slate-300"
+                  className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300"
                 >
                   {note}
                 </div>
               ))
             ) : (
-              <div className="rounded-2xl border border-line bg-slate-950/65 px-4 py-3 text-sm text-slate-400">
-                Matchup notes will appear here when the provider returns explicit context.
+              <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
+                Matchup notes will appear here when provider context is explicit enough to matter.
               </div>
             )}
           </div>
-        </div>
-
-        <div className="grid gap-3">
-          <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
-            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-              Coverage
-            </div>
-            <div className="mt-3 font-display text-2xl text-white">{detail.supportStatus}</div>
-            <div className="mt-2 text-sm leading-6 text-slate-400">{detail.supportNote}</div>
-          </div>
-          <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
-            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-              Provider Mesh
-            </div>
-            <div className="mt-3 grid gap-2 text-sm text-slate-300">
-              <div>Scores: {detail.liveScoreProvider ?? "Pending"}</div>
-              <div>Stats: {detail.statsProvider ?? "Pending"}</div>
-              <div>Current odds: {detail.currentOddsProvider ?? "Pending"}</div>
-              <div>Historical: {detail.historicalOddsProvider ?? "Pending"}</div>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
-            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-              Props Support
-            </div>
-            <div className="mt-3 text-sm leading-6 text-slate-300">
-              {detail.propsSupport.note}
-            </div>
-          </div>
-        </div>
+        </Card>
       </div>
-    </Card>
+    </div>
   );
 }

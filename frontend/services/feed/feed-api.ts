@@ -1,6 +1,7 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
 import { prisma } from "@/lib/db/prisma";
 import { getBoardFeed } from "@/services/market-data/market-data-service";
+import { getPropsExplorerData } from "@/services/odds/props-service";
 
 export async function getBoardApi(
   leagueKey?: string,
@@ -123,33 +124,80 @@ export async function getEventApi(
 }
 
 export async function getPropsApi() {
-  const projections = await prisma.playerProjection.findMany({
-    include: {
-      event: { include: { league: true } },
-      player: true,
-      modelRun: true
-    },
-    orderBy: [{ meanValue: "desc" }],
-    take: 200
-  });
+  try {
+    const projections = await prisma.playerProjection.findMany({
+      include: {
+        event: { include: { league: true } },
+        player: true,
+        modelRun: true
+      },
+      orderBy: [{ meanValue: "desc" }],
+      take: 200
+    });
 
-  return {
-    generatedAt: new Date().toISOString(),
-    count: projections.length,
-    data: projections.map((projection) => ({
-      id: projection.id,
-      eventId: projection.eventId,
-      eventLabel: projection.event.name,
-      league: projection.event.league.key,
-      playerId: projection.playerId,
-      playerName: projection.player.name,
-      statKey: projection.statKey,
-      meanValue: projection.meanValue,
-      medianValue: projection.medianValue,
-      stdDev: projection.stdDev,
-      metadata: projection.metadataJson
-    }))
-  };
+    return {
+      generatedAt: new Date().toISOString(),
+      count: projections.length,
+      source: "player_projections",
+      data: projections.map((projection) => ({
+        id: projection.id,
+        eventId: projection.eventId,
+        eventLabel: projection.event.name,
+        league: projection.event.league.key,
+        playerId: projection.playerId,
+        playerName: projection.player.name,
+        statKey: projection.statKey,
+        meanValue: projection.meanValue,
+        medianValue: projection.medianValue,
+        stdDev: projection.stdDev,
+        metadata: projection.metadataJson
+      }))
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const missingProjectionTable =
+      message.includes("player_projections") || message.includes("playerProjection");
+
+    if (!missingProjectionTable) {
+      throw error;
+    }
+
+    const fallback = await getPropsExplorerData({
+      league: "ALL",
+      marketType: "ALL",
+      team: "all",
+      player: "all",
+      sportsbook: "all",
+      valueFlag: "all",
+      sortBy: "best_price"
+    });
+
+    return {
+      generatedAt: new Date().toISOString(),
+      count: fallback.props.length,
+      source: "props_explorer_fallback",
+      note: "Player projections are not migrated in this runtime yet. Falling back to live/stored props explorer rows.",
+      data: fallback.props.map((prop) => ({
+        id: prop.id,
+        eventId: prop.gameId,
+        eventLabel: prop.gameLabel ?? `${prop.team.abbreviation} vs ${prop.opponent.abbreviation}`,
+        league: prop.leagueKey,
+        playerId: prop.player.id,
+        playerName: prop.player.name,
+        statKey: prop.marketType,
+        meanValue: prop.line,
+        medianValue: null,
+        stdDev: null,
+        metadata: {
+          source: prop.source ?? fallback.source,
+          supportStatus: prop.supportStatus ?? null,
+          sportsbook: prop.bestAvailableSportsbookName ?? prop.sportsbook.name,
+          oddsAmerican: prop.bestAvailableOddsAmerican ?? prop.oddsAmerican,
+          expectedValuePct: prop.expectedValuePct ?? null
+        }
+      }))
+    };
+  }
 }
 
 export async function getLineMovementsApi() {
