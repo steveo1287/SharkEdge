@@ -52,8 +52,10 @@ export default async function PropsPage({ searchParams }: PageProps) {
         <div className="grid gap-6 xl:grid-cols-[1.12fr_0.88fr]">
           <div>
             <div className="section-kicker">Prop lab</div>
-            <div className="mt-4 max-w-[13ch] font-display text-[1.95rem] font-semibold leading-[0.96] tracking-[-0.045em] text-white sm:max-w-none sm:text-[2.3rem] xl:text-[3.1rem]">
-              Price first. Confidence second. Everything else after that.
+            <div className="mt-4 font-display text-[1.68rem] font-semibold leading-[0.98] tracking-[-0.045em] text-white sm:text-[2.3rem] xl:text-[3.1rem]">
+              <span className="block sm:inline">Price first.</span>{" "}
+              <span className="block sm:inline">Confidence second.</span>{" "}
+              <span className="block sm:inline">Everything else after that.</span>
             </div>
             <p className="mt-4 max-w-3xl text-base leading-8 text-slate-300">
               The prop desk should feel like a hunt, not a spreadsheet accident. Best-supported entries rise first. Lower-conviction rows stay visible, but they do not get to masquerade as top plays.
