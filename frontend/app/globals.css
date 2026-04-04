@@ -4,13 +4,13 @@
 
 :root {
   color-scheme: dark;
-  --brand-ink: #04070d;
-  --brand-abyss: #07111c;
-  --brand-panel: #0d1828;
-  --brand-panel-strong: #0a1320;
-  --brand-line: #1a2a40;
+  --brand-ink: #03060b;
+  --brand-abyss: #06111b;
+  --brand-panel: #0a1624;
+  --brand-panel-strong: #08111b;
+  --brand-line: #19283c;
   --brand-blue: #44a4ff;
-  --brand-blue-deep: #18355f;
+  --brand-blue-deep: #102846;
   --brand-gold: #d1ac63;
   --brand-text: #f2f7ff;
   --brand-muted: #90a3c0;
@@ -22,9 +22,9 @@
 html {
   min-height: 100%;
   background:
-    radial-gradient(circle at 15% 0%, rgba(68, 164, 255, 0.14), transparent 24%),
-    radial-gradient(circle at 100% 10%, rgba(209, 172, 99, 0.08), transparent 22%),
-    linear-gradient(180deg, #03070d 0%, #07111b 42%, #09131e 100%);
+    radial-gradient(circle at 12% 0%, rgba(68, 164, 255, 0.16), transparent 24%),
+    radial-gradient(circle at 100% 8%, rgba(209, 172, 99, 0.12), transparent 22%),
+    linear-gradient(180deg, #02060b 0%, #07111b 42%, #0a1420 100%);
 }
 
 body {
@@ -33,11 +33,12 @@ body {
   color: var(--brand-text);
   font-family: var(--font-body), system-ui, sans-serif;
   background:
-    linear-gradient(rgba(56, 86, 140, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(56, 86, 140, 0.08) 1px, transparent 1px),
-    radial-gradient(circle at top, rgba(68, 164, 255, 0.08), transparent 28%),
-    linear-gradient(180deg, #03070d 0%, #07111b 42%, #09131e 100%);
-  background-size: 44px 44px, 44px 44px, auto, auto;
+    linear-gradient(rgba(56, 86, 140, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 86, 140, 0.07) 1px, transparent 1px),
+    radial-gradient(circle at top, rgba(68, 164, 255, 0.08), transparent 26%),
+    radial-gradient(circle at bottom right, rgba(209, 172, 99, 0.06), transparent 22%),
+    linear-gradient(180deg, #02060b 0%, #07111b 42%, #0a1420 100%);
+  background-size: 42px 42px, 42px 42px, auto, auto, auto;
   background-position: center top, center top, center top, center top;
 }
 
@@ -64,17 +65,21 @@ textarea {
 
 .app-shell-grid {
   background:
-    radial-gradient(circle at top, rgba(68, 164, 255, 0.04), transparent 26%),
-    radial-gradient(circle at bottom right, rgba(209, 172, 99, 0.04), transparent 20%);
+    radial-gradient(circle at top, rgba(68, 164, 255, 0.05), transparent 24%),
+    radial-gradient(circle at bottom right, rgba(209, 172, 99, 0.05), transparent 18%);
 }
 
 .workspace-frame {
   position: relative;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(7, 17, 28, 0.92);
-  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(24px);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.03), transparent 14%),
+    rgba(6, 15, 25, 0.94);
+  box-shadow:
+    0 28px 90px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(26px);
 }
 
 @media (min-width: 1280px) {
@@ -89,8 +94,9 @@ textarea {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(180deg, rgba(255,255,255,0.025), transparent 14%),
-    radial-gradient(circle at top right, rgba(68,164,255,0.09), transparent 22%);
+    linear-gradient(180deg, rgba(255,255,255,0.02), transparent 16%),
+    radial-gradient(circle at top right, rgba(68,164,255,0.08), transparent 22%),
+    radial-gradient(circle at bottom left, rgba(209,172,99,0.05), transparent 18%);
 }
 
 .workspace-main {
@@ -99,29 +105,42 @@ textarea {
 
 .panel {
   @apply rounded-[1.45rem];
-  border: 1px solid rgba(28, 43, 68, 0.8);
-  background: rgba(17, 28, 47, 0.9);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(12px);
+  border: 1px solid rgba(28, 43, 68, 0.92);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.025), transparent 20%),
+    rgba(10, 22, 36, 0.9);
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255,255,255,0.025);
+  backdrop-filter: blur(16px);
 }
 
 .page-shell {
-  @apply mx-auto grid w-full max-w-[1560px] gap-8 px-4 pb-20 pt-6 md:px-6 xl:px-8;
+  @apply mx-auto grid w-full max-w-[1620px] gap-8 px-4 pb-20 pt-5 md:px-6 xl:px-8;
 }
 
 .surface-panel {
   @apply rounded-[1.45rem];
-  border: 1px solid rgba(28, 43, 68, 0.8);
-  background: rgba(11, 21, 36, 0.88);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(12px);
+  border: 1px solid rgba(28, 43, 68, 0.88);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.02), transparent 18%),
+    rgba(8, 18, 31, 0.9);
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255,255,255,0.02);
+  backdrop-filter: blur(14px);
 }
 
 .surface-panel-strong {
   @apply rounded-[1.7rem];
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(9, 19, 31, 0.92);
-  box-shadow: 0 20px 70px rgba(2, 6, 23, 0.36);
+  background:
+    linear-gradient(135deg, rgba(68,164,255,0.08), transparent 30%),
+    linear-gradient(180deg, rgba(255,255,255,0.03), transparent 16%),
+    rgba(7, 16, 28, 0.93);
+  box-shadow:
+    0 20px 70px rgba(2, 6, 23, 0.42),
+    inset 0 1px 0 rgba(255,255,255,0.03);
   backdrop-filter: blur(12px);
 }
 
@@ -134,7 +153,9 @@ textarea {
 .metric-tile {
   @apply rounded-[1.25rem] px-4 py-4;
   border: 1px solid rgba(28, 43, 68, 0.7);
-  background: rgba(2, 6, 23, 0.65);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.02), transparent 22%),
+    rgba(2, 6, 23, 0.72);
 }
 
 .section-kicker {
@@ -164,4 +185,12 @@ textarea {
 .table-scroll::-webkit-scrollbar-thumb {
   background: #1f3355;
   border-radius: 999px;
+}
+
+@media (max-width: 1279px) {
+  .workspace-frame {
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
 }

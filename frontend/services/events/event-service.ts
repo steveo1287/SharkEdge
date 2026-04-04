@@ -18,6 +18,7 @@ import {
   isSettledResult,
   LEAGUE_SPORT_MAP
 } from "@/lib/utils/ledger";
+import { scopeEventExternalId } from "@/lib/utils/entity-routing";
 import { getScoreProviders } from "@/services/providers/registry";
 import { deriveCoverResult, deriveOuResult } from "@/services/events/result-normalization";
 
@@ -261,10 +262,18 @@ export async function upsertProviderEvent(providerEvent: ProviderEvent) {
   }
 
   const sportId = league.sportId;
+  const scopedExternalEventId = scopeEventExternalId(
+    providerEvent.leagueKey,
+    providerEvent.externalEventId
+  );
+  const metadataJson = {
+    ...(providerEvent.metadataJson ?? {}),
+    rawExternalEventId: providerEvent.externalEventId
+  };
 
   const event = await prisma.event.upsert({
     where: {
-      externalEventId: providerEvent.externalEventId
+      externalEventId: scopedExternalEventId
     },
     update: {
       providerKey: providerEvent.providerKey,
@@ -277,14 +286,14 @@ export async function upsertProviderEvent(providerEvent: ProviderEvent) {
       scoreJson: providerEvent.scoreJson ? toJsonInput(providerEvent.scoreJson) : undefined,
       stateJson: providerEvent.stateJson ? toJsonInput(providerEvent.stateJson) : undefined,
       resultJson: providerEvent.resultJson ? toJsonInput(providerEvent.resultJson) : undefined,
-      metadataJson: providerEvent.metadataJson ? toJsonInput(providerEvent.metadataJson) : undefined,
+      metadataJson: toJsonInput(metadataJson),
       syncState: "FRESH",
       lastSyncedAt: new Date()
     },
     create: {
       sportId,
       leagueId: league.id,
-      externalEventId: providerEvent.externalEventId,
+      externalEventId: scopedExternalEventId,
       providerKey: providerEvent.providerKey,
       name: providerEvent.name,
       startTime: new Date(providerEvent.startTime),
@@ -295,7 +304,7 @@ export async function upsertProviderEvent(providerEvent: ProviderEvent) {
       scoreJson: providerEvent.scoreJson ? toJsonInput(providerEvent.scoreJson) : undefined,
       stateJson: providerEvent.stateJson ? toJsonInput(providerEvent.stateJson) : undefined,
       resultJson: providerEvent.resultJson ? toJsonInput(providerEvent.resultJson) : undefined,
-      metadataJson: providerEvent.metadataJson ? toJsonInput(providerEvent.metadataJson) : undefined,
+      metadataJson: toJsonInput(metadataJson),
       syncState: "FRESH",
       lastSyncedAt: new Date()
     }

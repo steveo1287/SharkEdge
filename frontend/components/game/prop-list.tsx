@@ -5,11 +5,13 @@ import {
   getOpportunityTrapLine,
   OpportunityBadgeRow
 } from "@/components/intelligence/opportunity-badges";
+import { IdentityTile } from "@/components/media/identity-tile";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { BoardSupportStatus, PropCardView, PropMarketType } from "@/lib/types/domain";
 import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
+import { getPlayerHeadshotUrl, resolveMatchupHref } from "@/lib/utils/entity-routing";
 import {
   buildPropBetIntent,
   getEdgeToneFromBand
@@ -46,7 +48,12 @@ function formatValueFlag(flag: PropCardView["valueFlag"]) {
 }
 
 function FeaturedPropCard({ prop }: { prop: PropCardView }) {
-  const matchupHref = prop.gameHref ?? `/game/${prop.gameId}`;
+  const matchupHref =
+    resolveMatchupHref({
+      leagueKey: prop.leagueKey,
+      externalEventId: prop.gameId,
+      fallbackHref: prop.gameHref ?? null
+    }) ?? "/props";
   const opportunity = buildPropOpportunity(prop);
   const trapLine = getOpportunityTrapLine(opportunity);
   const fairLineDisplay =
@@ -61,7 +68,15 @@ function FeaturedPropCard({ prop }: { prop: PropCardView }) {
   return (
     <Card className="surface-panel p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="flex items-start gap-4">
+          <IdentityTile
+            label={prop.player.name}
+            shortLabel={prop.player.name.slice(0, 2).toUpperCase()}
+            imageUrl={getPlayerHeadshotUrl(prop.leagueKey, prop.player)}
+            size="lg"
+            subtle
+          />
+          <div>
           <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
             {prop.leagueKey} | {prop.gameLabel ?? `${prop.team.abbreviation} vs ${prop.opponent.abbreviation}`}
           </div>
@@ -69,6 +84,7 @@ function FeaturedPropCard({ prop }: { prop: PropCardView }) {
           <div className="mt-2 text-sm text-slate-400">
             {formatMarketType(prop.marketType)} {prop.side} {prop.line}
           </div>
+        </div>
         </div>
         <div className="flex flex-wrap gap-2">
           {formatValueFlag(prop.valueFlag) ? <Badge tone="brand">{formatValueFlag(prop.valueFlag)}</Badge> : null}
@@ -204,7 +220,12 @@ export function PropList({ props, support }: PropListProps) {
           <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">More matchup props</div>
           <div className="mt-4 grid gap-3">
             {restProps.map(({ prop, opportunity }) => {
-              const matchupHref = prop.gameHref ?? `/game/${prop.gameId}`;
+              const matchupHref =
+                resolveMatchupHref({
+                  leagueKey: prop.leagueKey,
+                  externalEventId: prop.gameId,
+                  fallbackHref: prop.gameHref ?? null
+                }) ?? "/props";
               const trapLine = getOpportunityTrapLine(opportunity);
 
               return (

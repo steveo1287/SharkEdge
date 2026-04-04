@@ -57,7 +57,7 @@ export function Header({ pathname, toggleMobileNav }: HeaderProps) {
   const deskStatus = getDeskStatus(pathname);
 
   return (
-    <header className="sticky top-0 z-20 border-b border-white/8 bg-[#07111c]/88 px-4 py-4 backdrop-blur-xl xl:px-8">
+    <header className="sticky top-0 z-20 border-b border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent_20%),rgba(7,17,28,0.9)] px-4 py-4 backdrop-blur-xl xl:px-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
           {toggleMobileNav}
@@ -65,7 +65,7 @@ export function Header({ pathname, toggleMobileNav }: HeaderProps) {
             <div className="text-[0.64rem] font-semibold uppercase tracking-[0.32em] text-sky-300">
               {active.eyebrow}
             </div>
-            <div className="mt-2 font-display text-[1.7rem] font-semibold tracking-tight text-white md:text-[2rem]">
+            <div className="mt-2 font-display text-[1.9rem] font-semibold tracking-tight text-white md:text-[2.15rem]">
               {active.title}
             </div>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400 md:text-[0.95rem]">

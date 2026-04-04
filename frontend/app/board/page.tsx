@@ -1,11 +1,24 @@
 import Link from "next/link";
 
 import { GameCard } from "@/components/board/game-card";
+import {
+  PrioritizationBadge,
+  getPrioritizationExplanation
+} from "@/components/intelligence/prioritization";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import type { GameCardView, LeagueKey } from "@/lib/types/domain";
+import { resolveMatchupHref } from "@/lib/utils/entity-routing";
+import {
+  getBoardFocusMarket,
+  getBoardGameIdentityKey,
+  getBoardGameIntelligenceMap
+} from "@/services/decision/board-memory-summary";
+import { buildAttentionQueue } from "@/services/decision/attention-queue";
+import { buildDecisionFromOpportunitySnapshot } from "@/services/decision/decision-engine";
+import { buildOpportunitySnapshot } from "@/services/opportunities/opportunity-snapshot";
 import { buildGameMarketOpportunity } from "@/services/opportunities/opportunity-service";
 
 export const dynamic = "force-dynamic";
@@ -104,6 +117,28 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
       );
       return rightScore - leftScore;
     });
+  const boardIntelligence = await getBoardGameIntelligenceMap(verifiedGames);
+  const prioritizedBoardItems = buildAttentionQueue(
+    verifiedGames.map((game) => {
+      const intelligence = boardIntelligence.get(getBoardGameIdentityKey(game)) ?? null;
+      const focusMarket = intelligence?.focusMarket ?? getBoardFocusMarket(game);
+      const focusOpportunity = buildGameMarketOpportunity(game, focusMarket, boardData.providerHealth);
+      const focusSnapshot = buildOpportunitySnapshot(focusOpportunity);
+      const decision = focusSnapshot ? buildDecisionFromOpportunitySnapshot(focusSnapshot) : null;
+
+      return {
+        game,
+        focusMarket,
+        decision,
+        summary: intelligence?.summary ?? null
+      };
+    }),
+    {
+      getSecondarySortValue: (item) => Date.parse(item.game.startTime ?? "") || 0
+    }
+  )
+    .filter((entry) => entry.prioritization.surfaced)
+    .slice(0, 3);
 
   return (
     <div className="grid gap-8">
@@ -188,6 +223,56 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
         </div>
       </section>
 
+      {prioritizedBoardItems.length ? (
+        <section className="grid gap-4">
+          <SectionTitle
+            eyebrow="Attention now"
+            title="What deserves the first look"
+            description="One compact queue driven by the same typed decision and change system behind the rest of SharkEdge."
+          />
+          <div className="grid gap-4 xl:grid-cols-3">
+            {prioritizedBoardItems.map(({ game, focusMarket, prioritization }) => {
+              const explanation = getPrioritizationExplanation(prioritization);
+
+              return (
+                <Card key={`${game.id}:${focusMarket}`} className="surface-panel p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">
+                        {game.leagueKey} | {focusMarket}
+                      </div>
+                      <div className="mt-2 text-xl font-semibold text-white">
+                        {game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}
+                      </div>
+                    </div>
+                    <PrioritizationBadge prioritization={prioritization} />
+                  </div>
+                  {explanation ? (
+                    <div className="mt-3 text-sm leading-6 text-slate-300">{explanation}</div>
+                  ) : null}
+                  <div className="mt-4 flex items-center justify-between gap-3 text-xs uppercase tracking-[0.18em] text-slate-500">
+                    <span>{prioritization.attentionTier}</span>
+                    <span>{prioritization.attentionDirection}</span>
+                  </div>
+                  <Link
+                    href={
+                      resolveMatchupHref({
+                        leagueKey: game.leagueKey,
+                        externalEventId: game.externalEventId,
+                        fallbackHref: game.detailHref ?? null
+                      }) ?? "/board"
+                    }
+                    className="mt-4 inline-flex rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-sky-200"
+                  >
+                    Open matchup
+                  </Link>
+                </Card>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
       <section className="grid gap-4">
         <SectionTitle
           eyebrow="Verified board"
@@ -200,7 +285,14 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
         />
         <div className="grid gap-4 xl:grid-cols-2">
           {verifiedGames.length
-            ? verifiedGames.map((game) => <GameCard key={game.id} game={game} focusMarket="best" />)
+            ? verifiedGames.map((game) => (
+                <GameCard
+                  key={game.id}
+                  game={game}
+                  focusMarket="best"
+                  intelligence={boardIntelligence.get(getBoardGameIdentityKey(game)) ?? null}
+                />
+              ))
             : (
                 <div className="xl:col-span-2">
                   <EmptyState

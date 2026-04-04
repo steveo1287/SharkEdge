@@ -16,8 +16,8 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <div className="app-shell-grid min-h-screen">
-      <div className="mx-auto w-full max-w-[1820px] px-0 py-0 md:px-3 md:py-3 xl:px-4 xl:py-4">
-        <div className="workspace-frame grid min-h-screen w-full xl:min-h-[calc(100vh-2rem)] xl:grid-cols-[288px_minmax(0,1fr)]">
+      <div className="mx-auto w-full max-w-[1880px] px-0 py-0 md:px-3 md:py-3 xl:px-4 xl:py-4">
+        <div className="workspace-frame grid min-h-screen w-full xl:min-h-[calc(100vh-2rem)] xl:grid-cols-[300px_minmax(0,1fr)]">
           <aside className="hidden min-h-full border-r border-white/6 xl:block">
             <Sidebar pathname={pathname} />
           </aside>
@@ -30,7 +30,7 @@ export function AppShell({ children }: AppShellProps) {
                 onClick={() => setMobileOpen(false)}
                 type="button"
               />
-              <div className="relative h-full w-[290px]">
+              <div className="relative h-full w-[312px]">
                 <Sidebar
                   mobile
                   pathname={pathname}

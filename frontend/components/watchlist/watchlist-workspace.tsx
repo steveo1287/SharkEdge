@@ -6,9 +6,14 @@ import Link from "next/link";
 
 import { BetActionButton } from "@/components/bets/bet-action-button";
 import {
+  ChangeBadge,
+  getChangeExplanation
+} from "@/components/intelligence/change-intelligence";
+import {
   getOpportunityTrapLine,
   OpportunityBadgeRow
 } from "@/components/intelligence/opportunity-badges";
+import { PrioritizationBadge } from "@/components/intelligence/prioritization";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -108,6 +113,8 @@ function WatchlistItemCard({
             {item.supportStatus ?? "PARTIAL"}
           </Badge>
           <Badge tone="premium">{item.alertCount} alert{item.alertCount === 1 ? "" : "s"}</Badge>
+          <PrioritizationBadge prioritization={item.prioritization} />
+          <ChangeBadge change={item.changeIntelligence} />
         </div>
       </div>
 
@@ -157,6 +164,11 @@ function WatchlistItemCard({
 
       {item.opportunitySnapshot ? (
         <>
+          {getChangeExplanation(item.changeIntelligence) ? (
+            <div className="mt-4 rounded-2xl border border-line bg-slate-950/55 px-4 py-3 text-sm text-slate-300">
+              <span className="text-slate-500">What changed:</span> {getChangeExplanation(item.changeIntelligence)}
+            </div>
+          ) : null}
           <div className="mt-4">
             <OpportunityBadgeRow opportunity={item.opportunitySnapshot} />
           </div>

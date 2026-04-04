@@ -3,6 +3,8 @@ import { MarketType, Prisma, SportCode } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { americanToImplied } from "@/lib/odds/index";
 import { invalidateHotCache, readHotCache, writeHotCache } from "@/lib/cache/live-cache";
+import type { LeagueKey } from "@/lib/types/domain";
+import { scopeEventExternalId } from "@/lib/utils/entity-routing";
 import type { z } from "zod";
 import {
   eventProjectionIngestSchema,
@@ -135,19 +137,28 @@ async function ensureSportsbook(bookName: string) {
 
 export async function upsertOddsIngestPayload(payload: IngestPayload) {
   const { sportId, league } = await ensureSportLeague(payload);
+  const scopedExternalEventId = scopeEventExternalId(league.key as LeagueKey, payload.eventKey);
+  const metadataJson = payload.sourceMeta
+    ? ({
+        ...(payload.sourceMeta as Record<string, unknown>),
+        rawExternalEventId: payload.eventKey
+      } as Prisma.InputJsonValue)
+    : ({
+        rawExternalEventId: payload.eventKey
+      } as Prisma.InputJsonValue);
 
   const event = await prisma.event.upsert({
-    where: { externalEventId: payload.eventKey },
+    where: { externalEventId: scopedExternalEventId },
     update: {
       name: buildEventName(payload),
       startTime: new Date(payload.commenceTime),
       leagueId: league.id,
       sportId,
       providerKey: payload.source,
-      metadataJson: payload.sourceMeta ? (payload.sourceMeta as Prisma.InputJsonValue) : Prisma.JsonNull
+      metadataJson
     },
     create: {
-      externalEventId: payload.eventKey,
+      externalEventId: scopedExternalEventId,
       providerKey: payload.source,
       sportId,
       leagueId: league.id,
@@ -157,7 +168,7 @@ export async function upsertOddsIngestPayload(payload: IngestPayload) {
       status: "SCHEDULED",
       resultState: "PENDING",
       eventType: league.sport === "MMA" || league.sport === "BOXING" ? "COMBAT_HEAD_TO_HEAD" : "TEAM_HEAD_TO_HEAD",
-      metadataJson: payload.sourceMeta ? (payload.sourceMeta as Prisma.InputJsonValue) : Prisma.JsonNull
+      metadataJson
     }
   });
 

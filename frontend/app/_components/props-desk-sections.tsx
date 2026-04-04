@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import type { PropCardView } from "@/lib/types/domain";
 import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
+import { resolveMatchupHref } from "@/lib/utils/entity-routing";
 import { buildPropOpportunity } from "@/services/opportunities/opportunity-service";
 
 export function getCoverageTone(status: string) {
@@ -50,7 +51,12 @@ export function sortPropsByPriority(props: PropCardView[]) {
 }
 
 function FeaturedPropCard({ prop }: { prop: PropCardView }) {
-  const matchupHref = prop.gameHref ?? `/game/${prop.gameId}`;
+  const matchupHref =
+    resolveMatchupHref({
+      leagueKey: prop.leagueKey,
+      externalEventId: prop.gameId,
+      fallbackHref: prop.gameHref ?? null
+    }) ?? "/props";
   const opportunity = buildPropOpportunity(prop);
   const scoreBand = getOpportunityScoreBand(opportunity.opportunityScore);
   const trapLine = getOpportunityTrapLine(opportunity);
@@ -191,7 +197,13 @@ function WatchlistPropCard({ prop }: { prop: PropCardView }) {
             : "EV unavailable"}
         </div>
         <Link
-          href={prop.gameHref ?? `/game/${prop.gameId}`}
+          href={
+            resolveMatchupHref({
+              leagueKey: prop.leagueKey,
+              externalEventId: prop.gameId,
+              fallbackHref: prop.gameHref ?? null
+            }) ?? "/props"
+          }
           className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200"
         >
           Open matchup

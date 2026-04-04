@@ -2,10 +2,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { BetSlipBoundary } from "@/components/bets/bet-slip-boundary";
+import { LineMovementChart } from "@/components/charts/line-movement-chart";
 import { MatchupPanel } from "@/components/game/matchup-panel";
 import { OddsTable } from "@/components/game/odds-table";
 import { OverviewPanel } from "@/components/game/overview-panel";
 import { PropList } from "@/components/game/prop-list";
+import {
+  ChangeBadge,
+  getChangeExplanation,
+  getChangeReasonLabels
+} from "@/components/intelligence/change-intelligence";
 import {
   formatOpportunityAction,
   getOpportunityTrapLine,
@@ -16,8 +22,13 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
+import { IdentityTile } from "@/components/media/identity-tile";
 import { formatGameDateTime } from "@/lib/formatters/date";
+import { getDecisionMemoryForEvent, getDecisionMemoryKey } from "@/services/decision/decision-memory";
+import { buildChangeIntelligence } from "@/services/decision/change-intelligence";
+import { buildDecisionFromOpportunitySnapshot } from "@/services/decision/decision-engine";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
+import { buildOpportunitySnapshot } from "@/services/opportunities/opportunity-snapshot";
 import {
   buildBetSignalOpportunity,
   buildPropOpportunity,
@@ -117,6 +128,13 @@ function formatFairLine(value: number | null | undefined) {
   return `${value > 0 ? "+" : ""}${value}`;
 }
 
+function getParticipantForRole(
+  detail: Awaited<ReturnType<typeof getMatchupDetail>>,
+  role: "AWAY" | "HOME"
+) {
+  return detail?.participants.find((participant) => participant.role === role) ?? null;
+}
+
 export default async function GamePage({ params }: PageProps) {
   const { id } = await params;
   const detail = await getMatchupDetail(id);
@@ -126,20 +144,59 @@ export default async function GamePage({ params }: PageProps) {
   }
 
   const showVerifiedOdds = detail.hasVerifiedOdds;
+  const awayParticipant = getParticipantForRole(detail, "AWAY");
+  const homeParticipant = getParticipantForRole(detail, "HOME");
   const headlineSignal = detail.betSignals[0] ?? null;
   const secondarySignals = detail.betSignals.slice(1, 3);
   const headlineOpportunity = headlineSignal
     ? buildBetSignalOpportunity(headlineSignal, detail.league.key, detail.providerHealth)
+    : null;
+  const decisionMemory = await getDecisionMemoryForEvent({
+    league: detail.league.key,
+    eventExternalId: detail.externalEventId
+  });
+  const headlineSnapshot = buildOpportunitySnapshot(headlineOpportunity);
+  const headlineDecision = headlineSnapshot
+    ? buildDecisionFromOpportunitySnapshot(headlineSnapshot)
+    : null;
+  const headlineChange = headlineSignal && headlineDecision
+    ? buildChangeIntelligence(
+        decisionMemory.get(
+          getDecisionMemoryKey({
+            marketType: headlineSignal.marketType,
+            selection: headlineSignal.selection
+          })
+        )?.decisionState ?? null,
+        headlineDecision
+      )
     : null;
   const secondarySignalOpportunities = secondarySignals.map((signal) => ({
     signal,
     opportunity: buildBetSignalOpportunity(signal, detail.league.key, detail.providerHealth)
   }));
   const topPropOpportunities = detail.props
-    .map((prop) => ({
-      prop,
-      opportunity: buildPropOpportunity(prop, detail.providerHealth)
-    }))
+    .map((prop) => {
+      const opportunity = buildPropOpportunity(prop, detail.providerHealth);
+      const snapshot = buildOpportunitySnapshot(opportunity);
+      const decision = snapshot ? buildDecisionFromOpportunitySnapshot(snapshot) : null;
+      const change = decision
+        ? buildChangeIntelligence(
+            decisionMemory.get(
+              getDecisionMemoryKey({
+                marketType: prop.marketType,
+                selection: opportunity.selectionLabel
+              })
+            )?.decisionState ?? null,
+            decision
+          )
+        : null;
+
+      return {
+        prop,
+        opportunity,
+        change
+      };
+    })
     .sort((left, right) => right.opportunity.opportunityScore - left.opportunity.opportunityScore)
     .slice(0, 3);
   const trapStack = rankOpportunities(
@@ -167,6 +224,7 @@ export default async function GamePage({ params }: PageProps) {
   const headlineTrapLine = headlineOpportunity ? getOpportunityTrapLine(headlineOpportunity) : null;
   const postureLabel = headlineOpportunity ? formatOpportunityAction(headlineOpportunity.actionState) : "WATCH";
   const postureTone = headlineOpportunity ? getOpportunityTone(headlineOpportunity.actionState) : "muted";
+  const headlineChangeReasonLabels = getChangeReasonLabels(headlineChange).slice(0, 2);
   const modelFactors = detail.nbaModel?.available ? detail.nbaModel.factors.slice(0, 3) : [];
   const matchupNotes = detail.notes.slice(0, 3);
   const topResearchNote =
@@ -189,6 +247,27 @@ export default async function GamePage({ params }: PageProps) {
 
             <div className="mt-4 text-xs uppercase tracking-[0.24em] text-slate-400">
               {formatGameDateTime(detail.startTime)}
+            </div>
+            <div className="mt-5 flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-3">
+                <IdentityTile
+                  label={awayParticipant?.name ?? "Away"}
+                  shortLabel={awayParticipant?.abbreviation ?? "AWY"}
+                  size="lg"
+                />
+                <div className="text-[0.74rem] font-semibold uppercase tracking-[0.32em] text-slate-500">
+                  at
+                </div>
+                <IdentityTile
+                  label={homeParticipant?.name ?? "Home"}
+                  shortLabel={homeParticipant?.abbreviation ?? "HME"}
+                  size="lg"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {awayParticipant ? <Badge tone="muted">{awayParticipant.name}</Badge> : null}
+                {homeParticipant ? <Badge tone="muted">{homeParticipant.name}</Badge> : null}
+              </div>
             </div>
             <div className="mt-4 font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">
               {detail.eventLabel}
@@ -240,7 +319,7 @@ export default async function GamePage({ params }: PageProps) {
             </div>
           </div>
 
-            <div className="grid gap-4 rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-5">
+            <div className="grid gap-4 rounded-[1.75rem] border border-white/10 bg-slate-950/72 p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="section-kicker">Decision desk</div>
@@ -251,6 +330,7 @@ export default async function GamePage({ params }: PageProps) {
               <div className="flex flex-wrap gap-2">
                 <Badge tone={postureTone}>{postureLabel}</Badge>
                 {headlineSignal ? <Badge tone="success">{headlineSignal.confidenceTier} tier</Badge> : null}
+                <ChangeBadge change={headlineChange} />
               </div>
             </div>
 
@@ -283,6 +363,20 @@ export default async function GamePage({ params }: PageProps) {
               </div>
 
             <div className="grid gap-3 md:grid-cols-2">
+              {getChangeExplanation(headlineChange) ? (
+                <div className="rounded-[1.15rem] border border-white/8 bg-slate-900/70 px-4 py-3 md:col-span-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">What changed</div>
+                    <ChangeBadge change={headlineChange} />
+                    {headlineChangeReasonLabels.map((label) => (
+                      <Badge key={label} tone="muted">{label}</Badge>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-slate-300">
+                    {getChangeExplanation(headlineChange)}
+                  </div>
+                </div>
+              ) : null}
               <div className="rounded-[1.15rem] border border-white/8 bg-slate-900/70 px-4 py-3">
                 <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Why now</div>
                 <div className="mt-2 text-sm leading-6 text-slate-300">
@@ -311,6 +405,13 @@ export default async function GamePage({ params }: PageProps) {
                 </div>
               </div>
             </div>
+
+            <LineMovementChart
+              points={detail.lineMovement}
+              metric="spreadLine"
+              label="Spread pulse"
+              compact
+            />
 
             <div className="flex flex-wrap gap-3">
               <QuickJump href="#odds" label="Compare books" emphasis />
@@ -402,19 +503,22 @@ export default async function GamePage({ params }: PageProps) {
             <div className="mt-4 grid gap-3">
               {topPropOpportunities.length ? (
                 <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-4">
-                  <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Prop posture</div>
+                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Prop posture</div>
                   <div className="mt-3 grid gap-2">
-                    {topPropOpportunities.slice(0, 2).map(({ prop, opportunity }) => (
+                    {topPropOpportunities.slice(0, 2).map(({ prop, opportunity, change }) => (
                       <div
                         key={prop.id}
                         className="rounded-[1rem] border border-white/8 bg-slate-900/70 px-3 py-3"
                       >
-                        <div className="text-sm font-medium text-white">{prop.player.name}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="text-sm font-medium text-white">{prop.player.name}</div>
+                          <ChangeBadge change={change} />
+                        </div>
                         <div className="mt-1 text-xs text-slate-500">
                           {prop.marketType.replace(/_/g, " ")} | {opportunity.actionState.replace(/_/g, " ")} | {opportunity.opportunityScore}
                         </div>
                         <div className="mt-2 text-sm leading-6 text-slate-300">
-                          {opportunity.reasonSummary}
+                          {getChangeExplanation(change) ?? opportunity.reasonSummary}
                         </div>
                       </div>
                     ))}

@@ -52,7 +52,7 @@ export function Sidebar({ pathname, mobile = false, onNavigate }: SidebarProps) 
   return (
     <div
       className={cn(
-        "flex h-full flex-col gap-8 bg-[#060f19]/96 p-5 backdrop-blur-xl",
+        "flex h-full flex-col gap-8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent_18%),#06111b] p-5 backdrop-blur-xl",
         mobile ? "rounded-r-[2rem] shadow-[0_30px_80px_rgba(0,0,0,0.45)]" : ""
       )}
     >

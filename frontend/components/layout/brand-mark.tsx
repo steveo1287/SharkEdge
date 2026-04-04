@@ -25,7 +25,7 @@ export function BrandMark({ compact = false }: BrandMarkProps) {
           Shark<span className="text-sky-400">Edge</span>
         </div>
         <div className="text-[0.64rem] uppercase tracking-[0.32em] text-slate-500">
-          Sports Intelligence OS
+          Sports Market Intelligence
         </div>
       </div>
     </Link>

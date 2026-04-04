@@ -1,3 +1,4 @@
+import { IdentityTile } from "@/components/media/identity-tile";
 import { Card } from "@/components/ui/card";
 import type { MatchupDetailView } from "@/lib/types/domain";
 
@@ -105,7 +106,13 @@ export function MatchupPanel({ detail }: MatchupPanelProps) {
       {detail.participants.map((participant) => (
         <Card key={participant.id} className="p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
+            <div className="flex items-start gap-4">
+              <IdentityTile
+                label={participant.name}
+                shortLabel={participant.abbreviation ?? participant.name.slice(0, 3).toUpperCase()}
+                size="lg"
+              />
+              <div>
               <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
                 {participant.role}
               </div>
@@ -121,6 +128,7 @@ export function MatchupPanel({ detail }: MatchupPanelProps) {
                   .filter(Boolean)
                   .join(" | ") || "No standings or record context returned yet."}
               </div>
+            </div>
             </div>
             <div className="rounded-2xl border border-line bg-slate-950/65 px-4 py-3 text-sm text-slate-300">
               <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Result</div>

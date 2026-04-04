@@ -30,15 +30,18 @@ function getSupportTone(status: MatchupDetailView["supportStatus"]) {
 
 function MiniMetric({
   label,
-  value
+  value,
+  note
 }: {
   label: string;
   value: string;
+  note?: string;
 }) {
   return (
     <div className="rounded-[1.2rem] border border-white/8 bg-slate-950/60 px-4 py-3">
       <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
       <div className="mt-2 text-base font-semibold text-white">{value}</div>
+      {note ? <div className="mt-2 text-xs leading-5 text-slate-500">{note}</div> : null}
     </div>
   );
 }

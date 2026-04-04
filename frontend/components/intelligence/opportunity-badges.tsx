@@ -80,9 +80,9 @@ export function formatOpportunityTrap(flag: OpportunityPostureLike["trapFlags"][
       return "Low feed health";
     case "MODEL_MARKET_CONFLICT":
       return "Model conflict";
-    default:
-      return flag.replace(/_/g, " ").toLowerCase();
   }
+
+  return "risk";
 }
 
 export function getOpportunityTrapLine(opportunity: OpportunityPostureLike) {

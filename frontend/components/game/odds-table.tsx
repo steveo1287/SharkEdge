@@ -1,3 +1,4 @@
+import { LineMovementChart } from "@/components/charts/line-movement-chart";
 import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import { formatLongDate } from "@/lib/formatters/date";
@@ -93,6 +94,10 @@ export function OddsTable({ detail }: OddsTableProps) {
       <div className="grid gap-4">
         <Card className="surface-panel p-5">
           <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Market tape</div>
+          <div className="mt-4 grid gap-3">
+            <LineMovementChart points={detail.lineMovement} metric="spreadLine" label="Spread history" compact />
+            <LineMovementChart points={detail.lineMovement} metric="totalLine" label="Total history" compact />
+          </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <TapeCard
               label="Opening spread"

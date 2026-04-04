@@ -10,6 +10,7 @@ import {
 import type { PropCardView } from "@/lib/types/domain";
 import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
 import { buildPropBetIntent, buildWagerMathView } from "@/lib/utils/bet-intelligence";
+import { resolveMatchupHref } from "@/lib/utils/entity-routing";
 import { buildPropOpportunity } from "@/services/opportunities/opportunity-service";
 
 type PropsTableProps = {
@@ -150,7 +151,16 @@ export function PropsTable({ props }: PropsTableProps) {
           </div>
         </div>,
         <div key={`${prop.id}-actions`} className="flex gap-2">
-          <Link href={prop.gameHref ?? `/game/${prop.gameId}`} className="text-sky-300">
+          <Link
+            href={
+              resolveMatchupHref({
+                leagueKey: prop.leagueKey,
+                externalEventId: prop.gameId,
+                fallbackHref: prop.gameHref ?? null
+              }) ?? "/props"
+            }
+            className="text-sky-300"
+          >
             Game
           </Link>
           <BetActionButton intent={buildPropBetIntent(prop, "props", "/props")} className="px-3 py-1.5 text-xs">

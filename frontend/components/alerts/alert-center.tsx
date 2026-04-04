@@ -6,9 +6,14 @@ import Link from "next/link";
 
 import { BetActionButton } from "@/components/bets/bet-action-button";
 import {
+  ChangeBadge,
+  getChangeExplanation
+} from "@/components/intelligence/change-intelligence";
+import {
   getOpportunityTrapLine,
   OpportunityBadgeRow
 } from "@/components/intelligence/opportunity-badges";
+import { PrioritizationBadge } from "@/components/intelligence/prioritization";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -172,6 +177,8 @@ export function AlertCenter({
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge tone={getSeverityTone(notification.severity)}>{notification.severity}</Badge>
                   {notification.readAt ? <Badge tone="muted">Read</Badge> : <Badge tone="brand">Unread</Badge>}
+                  <PrioritizationBadge prioritization={notification.prioritization} />
+                  <ChangeBadge change={notification.changeIntelligence} />
                 </div>
               </div>
 
@@ -226,7 +233,10 @@ export function AlertCenter({
                 <div className="mt-4 grid gap-3 md:grid-cols-[auto_1fr_1fr] md:items-start">
                   <OpportunityBadgeRow opportunity={notification.opportunitySnapshot} />
                   <div className="rounded-2xl border border-line bg-slate-950/65 px-4 py-3 text-sm leading-6 text-slate-300">
-                    <span className="text-slate-500">Why now:</span> {notification.opportunitySnapshot.triggerSummary ?? notification.opportunitySnapshot.reasonSummary}
+                    <span className="text-slate-500">What changed:</span>{" "}
+                    {getChangeExplanation(notification.changeIntelligence) ??
+                      notification.opportunitySnapshot.triggerSummary ??
+                      notification.opportunitySnapshot.reasonSummary}
                     <div className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">
                       {formatSnapshotFreshness(
                         notification.opportunitySnapshot.providerFreshnessMinutes,

@@ -16,6 +16,7 @@ import type {
 import { getBoardSportConfig } from "@/lib/config/board-sports";
 import { getMatchupTrendCards as getEngineMatchupTrendCards } from "@/lib/trends/engine";
 import { getConfidenceTierFromEdge } from "@/lib/utils/bet-intelligence";
+import { buildMatchupHref } from "@/lib/utils/matchups";
 import { parseMatchupRouteId } from "@/lib/utils/matchups";
 import { mockDatabase } from "@/prisma/seed-data";
 import { getGameDetail as getLegacyGameDetail } from "@/services/odds/detail-service";
@@ -128,6 +129,7 @@ function parseSignalLine(value: string) {
 }
 
 function buildLegacyBetSignals(detail: LegacyGameDetailView): BetSignalView[] {
+  const matchupHref = buildMatchupHref(detail.league.key, detail.game.externalEventId);
   return [
     {
       id: `${detail.game.id}-spread`,
@@ -140,7 +142,7 @@ function buildLegacyBetSignals(detail: LegacyGameDetailView): BetSignalView[] {
       sportsbookName: detail.bestMarkets.spread.bestBook,
       eventLabel: `${detail.awayTeam.name} @ ${detail.homeTeam.name}`,
       externalEventId: detail.game.externalEventId,
-      matchupHref: `/game/${detail.game.id}`,
+      matchupHref,
       supportStatus: "LIVE",
       supportNote:
         detail.bestMarkets.spread.fairPrice?.coverageNote ?? "Current odds backend",
@@ -175,7 +177,7 @@ function buildLegacyBetSignals(detail: LegacyGameDetailView): BetSignalView[] {
       sportsbookName: detail.bestMarkets.moneyline.bestBook,
       eventLabel: `${detail.awayTeam.name} @ ${detail.homeTeam.name}`,
       externalEventId: detail.game.externalEventId,
-      matchupHref: `/game/${detail.game.id}`,
+      matchupHref,
       supportStatus: "LIVE",
       supportNote:
         detail.bestMarkets.moneyline.fairPrice?.coverageNote ?? "Current odds backend",
@@ -210,7 +212,7 @@ function buildLegacyBetSignals(detail: LegacyGameDetailView): BetSignalView[] {
       sportsbookName: detail.bestMarkets.total.bestBook,
       eventLabel: `${detail.awayTeam.name} @ ${detail.homeTeam.name}`,
       externalEventId: detail.game.externalEventId,
-      matchupHref: `/game/${detail.game.id}`,
+      matchupHref,
       supportStatus: "LIVE",
       supportNote:
         detail.bestMarkets.total.fairPrice?.coverageNote ?? "Current odds backend",
@@ -649,7 +651,7 @@ function mergeMatchupDetail(args: {
             supportStatus: payload?.supportStatus ?? registry.status,
             source: legacyDetail?.source ?? (payload ? "live" : "catalog"),
             generatedAt: legacyDetail?.providerHealth.asOf ?? null,
-            lastUpdatedAt: payload?.lastUpdatedAt ?? legacyDetail?.lastUpdatedAt ?? null,
+            lastUpdatedAt: payload?.lastUpdatedAt ?? legacyDetail?.providerHealth.asOf ?? null,
             warnings: payload?.supportStatus === "PARTIAL" ? [payload.supportNote ?? config.detail] : [],
             healthySummary:
               "This matchup page has live provider coverage for the current decision workflow.",

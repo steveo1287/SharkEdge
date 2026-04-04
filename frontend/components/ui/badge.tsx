@@ -8,12 +8,12 @@ type BadgeProps = {
 };
 
 const toneClasses: Record<NonNullable<BadgeProps["tone"]>, string> = {
-  neutral: "border-line bg-slate-900 text-slate-200",
-  brand: "border-sky-400/30 bg-sky-500/10 text-sky-300",
-  premium: "border-amber-300/30 bg-amber-400/10 text-amber-200",
-  success: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
-  danger: "border-rose-400/30 bg-rose-500/10 text-rose-300",
-  muted: "border-line/70 bg-slate-900/70 text-slate-400"
+  neutral: "border-line bg-slate-950/80 text-slate-200",
+  brand: "border-sky-400/28 bg-sky-500/12 text-sky-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
+  premium: "border-amber-300/28 bg-amber-400/12 text-amber-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
+  success: "border-emerald-400/28 bg-emerald-500/12 text-emerald-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
+  danger: "border-rose-400/28 bg-rose-500/12 text-rose-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
+  muted: "border-line/80 bg-slate-950/72 text-slate-400"
 };
 
 export function Badge({ children, tone = "neutral" }: BadgeProps) {
