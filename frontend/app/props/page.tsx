@@ -52,7 +52,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
         <div className="grid gap-6 xl:grid-cols-[1.12fr_0.88fr]">
           <div>
             <div className="section-kicker">Prop lab</div>
-            <div className="mt-4 font-display text-[2.3rem] font-semibold leading-[0.94] tracking-[-0.045em] text-white xl:text-[3.1rem]">
+            <div className="mt-4 max-w-[13ch] font-display text-[1.95rem] font-semibold leading-[0.96] tracking-[-0.045em] text-white sm:max-w-none sm:text-[2.3rem] xl:text-[3.1rem]">
               Price first. Confidence second. Everything else after that.
             </div>
             <p className="mt-4 max-w-3xl text-base leading-8 text-slate-300">

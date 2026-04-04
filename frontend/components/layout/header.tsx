@@ -126,7 +126,7 @@ export function Header({ pathname, toggleMobileNav }: HeaderProps) {
         })}
       </nav>
 
-      <div className="mt-4 -mx-1 flex gap-2 overflow-x-auto pb-1 md:hidden">
+      <div className="mt-4 -mx-1 flex gap-2 overflow-x-auto px-1 pr-5 pb-1 md:hidden [scrollbar-width:none]">
         {mobileQuickNav.map((item) => {
           const activeItem = isActivePath(pathname, item.href);
           return (
