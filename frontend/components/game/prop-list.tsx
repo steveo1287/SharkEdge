@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { BetActionButton } from "@/components/bets/bet-action-button";
+import { MarketSparkline } from "@/components/charts/market-sparkline";
 import {
   getOpportunityTrapLine,
   OpportunityBadgeRow
@@ -77,7 +78,7 @@ function FeaturedPropCard({ prop }: { prop: PropCardView }) {
             subtle
           />
           <div>
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+          <div className="concept-meta">
             {prop.leagueKey} | {prop.gameLabel ?? `${prop.team.abbreviation} vs ${prop.opponent.abbreviation}`}
           </div>
           <div className="mt-2 text-2xl font-semibold text-white">{prop.player.name}</div>
@@ -129,8 +130,16 @@ function FeaturedPropCard({ prop }: { prop: PropCardView }) {
         </div>
       </div>
 
-      <div className="mt-4 rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
-        {opportunity.reasonSummary}
+      <div className="mt-4 flex items-center justify-between gap-3 rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
+        <div className="min-w-0 text-sm leading-6 text-slate-300">
+          {opportunity.reasonSummary}
+        </div>
+        <div className="hidden shrink-0 md:block">
+          <MarketSparkline
+            values={[prop.lineMovement ?? 0, prop.expectedValuePct ?? 0, opportunity.opportunityScore / 25]}
+            compact
+          />
+        </div>
       </div>
 
       {trapLine ? (
@@ -217,7 +226,7 @@ export function PropList({ props, support }: PropListProps) {
 
       {restProps.length ? (
         <Card className="surface-panel p-5">
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">More matchup props</div>
+          <div className="concept-meta">More matchup props</div>
           <div className="mt-4 grid gap-3">
             {restProps.map(({ prop, opportunity }) => {
               const matchupHref =
@@ -231,26 +240,22 @@ export function PropList({ props, support }: PropListProps) {
               return (
                 <div
                   key={prop.id}
-                  className="flex flex-wrap items-center justify-between gap-4 rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-4"
+                  className="concept-board-row xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.72fr)]"
                 >
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-white">{prop.player.name}</div>
-                    <div className="mt-1 text-xs text-slate-500">
+                    <div className="mt-1 font-mono text-[0.66rem] uppercase tracking-[0.16em] text-slate-500">
                       {formatMarketType(prop.marketType)} {prop.side} {prop.line} | {formatAmericanOdds(prop.bestAvailableOddsAmerican ?? prop.oddsAmerican)}
                     </div>
-                    <div className="mt-1 text-xs text-slate-500">
+                    <div className="mt-2 text-sm leading-6 text-slate-400">
                       {prop.bestAvailableSportsbookName ?? prop.sportsbook.name} | {trapLine ?? opportunity.reasonSummary}
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge tone={opportunity.actionState === "BET_NOW" ? "success" : opportunity.actionState === "WAIT" ? "brand" : opportunity.actionState === "WATCH" ? "premium" : "muted"}>
-                      {opportunity.actionState.replace(/_/g, " ")}
-                    </Badge>
-                    <Badge tone={trapLine ? "danger" : "muted"}>{opportunity.opportunityScore}</Badge>
-                    <Link
-                      href={matchupHref}
-                      className="rounded-full border border-line px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-300"
-                    >
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <span className="concept-chip concept-chip-accent">{opportunity.actionState.replace(/_/g, " ")}</span>
+                    <span className={`concept-chip ${trapLine ? "concept-chip-danger" : "concept-chip-muted"}`}>{opportunity.opportunityScore}</span>
+                    <MarketSparkline values={[prop.lineMovement ?? 0, prop.expectedValuePct ?? 0]} compact />
+                    <Link href={matchupHref} className="concept-chip concept-chip-muted">
                       Matchup
                     </Link>
                   </div>

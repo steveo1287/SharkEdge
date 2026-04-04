@@ -53,9 +53,21 @@ export function Sidebar({ pathname, mobile = false, onNavigate }: SidebarProps) 
     <div
       className={cn(
         "flex h-full flex-col gap-8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent_18%),#06111b] p-5 backdrop-blur-xl",
-        mobile ? "rounded-r-[2rem] shadow-[0_30px_80px_rgba(0,0,0,0.45)]" : ""
+        mobile ? "rounded-[2rem] border border-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.45)]" : ""
       )}
     >
+      {mobile ? (
+        <div className="flex items-center justify-between gap-3 rounded-[1.3rem] border border-white/8 bg-white/[0.03] px-4 py-3">
+          <div>
+            <div className="text-[0.64rem] uppercase tracking-[0.3em] text-slate-500">Navigation</div>
+            <div className="mt-1 text-sm font-medium text-white">Move the desk without losing context.</div>
+          </div>
+          <div className="rounded-full border border-sky-400/20 bg-sky-500/10 px-3 py-1 text-[0.64rem] font-semibold uppercase tracking-[0.22em] text-sky-300">
+            Mobile
+          </div>
+        </div>
+      ) : null}
+
       <BrandMark />
 
       <div className="border-t border-white/8 pt-5">

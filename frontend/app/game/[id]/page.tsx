@@ -18,6 +18,10 @@ import {
   getOpportunityTone,
   OpportunityBadgeRow
 } from "@/components/intelligence/opportunity-badges";
+import {
+  PrioritizationBadge,
+  getPrioritizationExplanation
+} from "@/components/intelligence/prioritization";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -34,6 +38,7 @@ import {
   buildPropOpportunity,
   rankOpportunities
 } from "@/services/opportunities/opportunity-service";
+import { buildPrioritizationView } from "@/services/decision/prioritization-engine";
 
 export const dynamic = "force-dynamic";
 
@@ -93,8 +98,8 @@ function QuickJump({ href, label, emphasis = false }: { href: string; label: str
       href={href}
       className={
         emphasis
-          ? "rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-sky-200"
-          : "rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-200"
+          ? "concept-chip concept-chip-accent"
+          : "concept-chip concept-chip-muted"
       }
     >
       {label}
@@ -170,6 +175,10 @@ export default async function GamePage({ params }: PageProps) {
         headlineDecision
       )
     : null;
+  const headlinePriority = buildPrioritizationView({
+    decision: headlineDecision,
+    change: headlineChange
+  });
   const secondarySignalOpportunities = secondarySignals.map((signal) => ({
     signal,
     opportunity: buildBetSignalOpportunity(signal, detail.league.key, detail.providerHealth)
@@ -233,30 +242,28 @@ export default async function GamePage({ params }: PageProps) {
   return (
     <BetSlipBoundary>
       <div className="grid gap-6">
-      <Card className="surface-panel-strong overflow-hidden p-6 xl:p-8">
-        <div className="grid gap-8 xl:grid-cols-[1.06fr_0.94fr]">
-          <div>
+        <section className="concept-panel concept-panel-accent grid gap-8 p-6 xl:grid-cols-[1.08fr_0.92fr] xl:items-end xl:p-8">
+          <div className="grid gap-5">
             <div className="flex flex-wrap gap-2">
               <Badge tone="brand">{detail.league.key}</Badge>
               {detail.status ? <Badge tone={getStatusTone(detail.status)}>{detail.status}</Badge> : null}
-              {detail.supportStatus ? (
-                <Badge tone={getSupportTone(detail.supportStatus)}>{detail.supportStatus}</Badge>
-              ) : null}
+              {detail.supportStatus ? <Badge tone={getSupportTone(detail.supportStatus)}>{detail.supportStatus}</Badge> : null}
               {!showVerifiedOdds ? <Badge tone="muted">Odds still thin</Badge> : null}
             </div>
 
-            <div className="mt-4 text-xs uppercase tracking-[0.24em] text-slate-400">
+            <div className="text-sm uppercase tracking-[0.24em] text-slate-500">
               {formatGameDateTime(detail.startTime)}
             </div>
-            <div className="mt-5 flex flex-wrap items-center gap-4">
+
+            <div className="flex flex-wrap items-center gap-5">
               <div className="flex items-center gap-3">
                 <IdentityTile
                   label={awayParticipant?.name ?? "Away"}
                   shortLabel={awayParticipant?.abbreviation ?? "AWY"}
                   size="lg"
                 />
-                <div className="text-[0.74rem] font-semibold uppercase tracking-[0.32em] text-slate-500">
-                  at
+                <div className="text-[0.74rem] font-semibold uppercase tracking-[0.34em] text-slate-500">
+                  vs
                 </div>
                 <IdentityTile
                   label={homeParticipant?.name ?? "Home"}
@@ -264,47 +271,73 @@ export default async function GamePage({ params }: PageProps) {
                   size="lg"
                 />
               </div>
-              <div className="flex flex-wrap gap-2">
-                {awayParticipant ? <Badge tone="muted">{awayParticipant.name}</Badge> : null}
-                {homeParticipant ? <Badge tone="muted">{homeParticipant.name}</Badge> : null}
+              <div className="grid gap-1">
+                <div className="font-display text-4xl font-semibold leading-[0.92] tracking-[-0.045em] text-white xl:text-5xl">
+                  {detail.eventLabel}
+                </div>
+                {heroMeta ? <div className="text-sm leading-7 text-slate-400">{heroMeta}</div> : null}
               </div>
             </div>
-            <div className="mt-4 font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">
-              {detail.eventLabel}
-            </div>
-            {heroMeta ? (
-              <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-400">{heroMeta}</p>
-            ) : null}
-            <p className="mt-3 max-w-3xl text-base leading-8 text-slate-300">
+
+            <p className="max-w-3xl text-base leading-8 text-slate-300">
               {headlineOpportunity?.reasonSummary ??
                 headlineSignal?.supportNote ??
                 detail.supportNote ??
                 "No force-fit conviction. The matchup stays live only if the number earns it."}
             </p>
 
-            <div className="mt-6 flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-3">
               <QuickJump href="#thesis" label="Market thesis" emphasis />
               <QuickJump href="#odds" label="Execution zone" />
               <QuickJump href="#props" label="Prop zone" />
               <QuickJump href="#research" label="Deep research" />
-              <Link
-                href={`/board?league=${detail.league.key}`}
-                className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-200"
-              >
+              <Link href={`/board?league=${detail.league.key}`} className="concept-chip concept-chip-muted">
                 Back to board
               </Link>
             </div>
+          </div>
 
-            <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 rounded-[1.55rem] border border-white/10 bg-[#07111c]/86 p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="section-kicker">Market pulse</div>
+                <div className="mt-3 text-2xl font-semibold leading-tight text-white">
+                  Current line, movement, and posture in one read
+                </div>
+              </div>
+              <PrioritizationBadge prioritization={headlinePriority} />
+            </div>
+
+            <LineMovementChart points={detail.lineMovement} metric="spreadLine" label="Primary line movement" />
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <MetricTile label="Best angle" value={signalSummary} note="Lead read only." />
+              <MetricTile label="Posture" value={postureLabel} note="Bet now, wait, watch, or pass." />
               <MetricTile
-                label="Best angle"
-                value={signalSummary}
-                note="Lead read only."
+                label="Trap risk"
+                value={headlineTrapLine ? "Raised" : trapStack.length ? `${trapStack.length} flags` : "Clear"}
+                note={headlineTrapLine ?? "Kill switch before conviction."}
               />
+            </div>
+          </div>
+        </section>
+
+        <div className="grid gap-4 xl:grid-cols-3">
+          <Card className="surface-panel p-5">
+            <SectionTitle eyebrow="Decision desk" title="Best angle" />
+            <div className="mt-3 text-2xl font-semibold text-white">
+              {headlineSignal?.selection ?? "No qualified setup"}
+            </div>
+            {headlineOpportunity ? (
+              <div className="mt-4">
+                <OpportunityBadgeRow opportunity={headlineOpportunity} />
+              </div>
+            ) : null}
+            <div className="mt-4 grid gap-3">
               <MetricTile
                 label="Posture"
                 value={postureLabel}
-                note="Bet now, wait, watch, or pass."
+                note={getPrioritizationExplanation(headlinePriority) ?? "Current execution posture."}
               />
               <MetricTile
                 label="Fair line"
@@ -313,114 +346,63 @@ export default async function GamePage({ params }: PageProps) {
               />
               <MetricTile
                 label="Trap risk"
-                value={headlineTrapLine ? "Raised" : trapStack.length ? `${trapStack.length} flags` : "Clear"}
-                note="Kill switch before conviction."
+                value={headlineTrapLine ? "Raised" : "Clear"}
+                note={headlineTrapLine ?? "No active kill switch on the lead read."}
               />
             </div>
-          </div>
+          </Card>
 
-            <div className="grid gap-4 rounded-[1.75rem] border border-white/10 bg-slate-950/72 p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="section-kicker">Decision desk</div>
-                <div className="mt-3 text-2xl font-semibold leading-tight text-white">
-                  What matters right now.
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge tone={postureTone}>{postureLabel}</Badge>
-                {headlineSignal ? <Badge tone="success">{headlineSignal.confidenceTier} tier</Badge> : null}
-                <ChangeBadge change={headlineChange} />
-              </div>
+          <Card className="surface-panel p-5">
+            <SectionTitle eyebrow="What changed" title="Semantic movement" />
+            <div className="mt-4 flex flex-wrap gap-2">
+              <ChangeBadge change={headlineChange} />
+              {headlineChangeReasonLabels.map((label) => (
+                <Badge key={label} tone="muted">{label}</Badge>
+              ))}
             </div>
-
-              <div className="rounded-[1.25rem] border border-sky-400/15 bg-sky-500/10 px-4 py-4">
-                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-sky-300">Lead read</div>
-                <div className="mt-3 text-lg font-semibold leading-tight text-white">
-                  {headlineSignal ? headlineSignal.selection : "No bet qualified yet"}
-                </div>
-                {headlineOpportunity ? (
-                  <div className="mt-3">
-                    <OpportunityBadgeRow opportunity={headlineOpportunity} />
-                  </div>
-                ) : null}
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <div>
-                  <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">EV</div>
-                  <div className="mt-1 text-base font-semibold text-emerald-300">
-                    {typeof headlineSignal?.expectedValuePct === "number"
-                      ? `${headlineSignal.expectedValuePct > 0 ? "+" : ""}${headlineSignal.expectedValuePct.toFixed(2)}%`
-                      : "N/A"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">Fair line</div>
-                  <div className="mt-1 text-base font-semibold text-white">
-                    {formatFairLine(headlineSignal?.fairPrice?.fairOddsAmerican)}
-                  </div>
-                </div>
-                </div>
-              </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              {getChangeExplanation(headlineChange) ? (
-                <div className="rounded-[1.15rem] border border-white/8 bg-slate-900/70 px-4 py-3 md:col-span-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">What changed</div>
-                    <ChangeBadge change={headlineChange} />
-                    {headlineChangeReasonLabels.map((label) => (
-                      <Badge key={label} tone="muted">{label}</Badge>
-                    ))}
-                  </div>
-                  <div className="mt-2 text-sm leading-6 text-slate-300">
-                    {getChangeExplanation(headlineChange)}
-                  </div>
-                </div>
-              ) : null}
-              <div className="rounded-[1.15rem] border border-white/8 bg-slate-900/70 px-4 py-3">
-                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Why now</div>
-                <div className="mt-2 text-sm leading-6 text-slate-300">
-                  {decisionReasons[0] ??
-                    "The page stays visible, but SharkEdge will not invent a reason to fire when the edge is not there."}
-                </div>
-              </div>
-              <div
-                className={`rounded-[1.15rem] border px-4 py-3 ${
-                  headlineTrapLine
-                    ? "border-rose-400/20 bg-rose-500/8"
-                    : "border-white/8 bg-slate-900/70"
-                }`}
-              >
-                <div
-                  className={`text-[0.66rem] uppercase tracking-[0.2em] ${
-                    headlineTrapLine ? "text-rose-200/80" : "text-slate-500"
-                  }`}
-                >
-                  Kill switch
-                </div>
-                <div className={`mt-2 text-sm leading-6 ${headlineTrapLine ? "text-rose-100" : "text-slate-300"}`}>
-                  {headlineTrapLine ??
-                    headlineOpportunity?.whatCouldKillIt[0] ??
-                    "If price quality slips or disagreement widens, this drops back to watch only."}
-                </div>
-              </div>
+            <div className="mt-4 text-sm leading-7 text-slate-300">
+              {getChangeExplanation(headlineChange) ?? "No meaningful semantic change on the lead angle right now."}
             </div>
-
-            <LineMovementChart
-              points={detail.lineMovement}
-              metric="spreadLine"
-              label="Spread pulse"
-              compact
-            />
-
-            <div className="flex flex-wrap gap-3">
-              <QuickJump href="#odds" label="Compare books" emphasis />
-              <QuickJump href="#props" label="Check props" />
-              <QuickJump href="#research" label="Open research" />
+            <div className="mt-4 grid gap-3">
+              <MetricTile
+                label="Direction"
+                value={headlineChange?.changeDirection ?? "unchanged"}
+                note="Upgraded, downgraded, mixed, or unchanged."
+              />
+              <MetricTile
+                label="Severity"
+                value={headlineChange?.changeSeverity ?? "none"}
+                note="How much the semantic state actually moved."
+              />
             </div>
-          </div>
+          </Card>
+
+          <Card className="surface-panel p-5">
+            <SectionTitle eyebrow="Market activity" title="Timing and support" />
+            <div className="mt-4 grid gap-3">
+              <MetricTile
+                label="Attention"
+                value={headlinePriority.shortAttentionLabel}
+                note={headlinePriority.shortAttentionExplanation ?? "Priority is stable."}
+              />
+              <MetricTile
+                label="Freshness"
+                value={detail.providerHealth.freshnessLabel}
+                note={detail.providerHealth.summary}
+              />
+              <MetricTile
+                label="Provider state"
+                value={detail.providerHealth.label}
+                note={providerLabels.length ? providerLabels.join(" | ") : "Provider labels pending"}
+              />
+              <MetricTile
+                label="Timing"
+                value={headlineDecision?.timingState.replace(/_/g, " ") ?? "monitor only"}
+                note={decisionReasons[0] ?? "Waiting for the market to justify stronger conviction."}
+              />
+            </div>
+          </Card>
         </div>
-      </Card>
 
       <div className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
         <div className="grid gap-6">

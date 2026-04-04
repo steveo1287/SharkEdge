@@ -7,6 +7,7 @@ import { useOptionalBetSlip } from "@/components/bets/bet-slip-provider";
 import { ShellSummary } from "@/components/layout/shell-summary";
 import {
   MAIN_NAV_ITEMS,
+  SECONDARY_NAV_ITEMS,
   getRouteMeta,
   isActivePath
 } from "@/components/layout/navigation";
@@ -55,9 +56,10 @@ export function Header({ pathname, toggleMobileNav }: HeaderProps) {
   const active = getRouteMeta(pathname);
   const betSlip = useOptionalBetSlip();
   const deskStatus = getDeskStatus(pathname);
+  const mobileQuickNav = [...MAIN_NAV_ITEMS, SECONDARY_NAV_ITEMS.find((item) => item.href === "/alerts")!];
 
   return (
-    <header className="sticky top-0 z-20 border-b border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent_20%),rgba(7,17,28,0.9)] px-4 py-4 backdrop-blur-xl xl:px-8">
+    <header className="sticky top-0 z-20 border-b border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),transparent_18%),rgba(6,16,27,0.94)] px-4 py-4 backdrop-blur-xl xl:px-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
           {toggleMobileNav}
@@ -65,7 +67,7 @@ export function Header({ pathname, toggleMobileNav }: HeaderProps) {
             <div className="text-[0.64rem] font-semibold uppercase tracking-[0.32em] text-sky-300">
               {active.eyebrow}
             </div>
-            <div className="mt-2 font-display text-[1.9rem] font-semibold tracking-tight text-white md:text-[2.15rem]">
+            <div className="mt-2 font-display text-[1.7rem] font-semibold tracking-[-0.04em] text-white md:text-[2.15rem]">
               {active.title}
             </div>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400 md:text-[0.95rem]">
@@ -123,6 +125,25 @@ export function Header({ pathname, toggleMobileNav }: HeaderProps) {
           );
         })}
       </nav>
+
+      <div className="mt-4 -mx-1 flex gap-2 overflow-x-auto pb-1 md:hidden">
+        {mobileQuickNav.map((item) => {
+          const activeItem = isActivePath(pathname, item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={
+                activeItem
+                  ? "shrink-0 rounded-full border border-sky-400/35 bg-sky-500/12 px-3 py-2 text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-white"
+                  : "shrink-0 rounded-full border border-white/8 bg-white/[0.03] px-3 py-2 text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-slate-400"
+              }
+            >
+              {item.shortLabel ?? item.label}
+            </Link>
+          );
+        })}
+      </div>
     </header>
   );
 }

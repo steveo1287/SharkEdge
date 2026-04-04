@@ -1,4 +1,5 @@
 import { BetActionButton } from "@/components/bets/bet-action-button";
+import { MarketSparkline } from "@/components/charts/market-sparkline";
 import {
   getOpportunityTrapLine,
   OpportunityBadgeRow
@@ -38,12 +39,24 @@ function MiniMetric({
   note?: string;
 }) {
   return (
-    <div className="rounded-[1.2rem] border border-white/8 bg-slate-950/60 px-4 py-3">
-      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
+    <div className="concept-metric">
+      <div className="concept-meta">{label}</div>
       <div className="mt-2 text-base font-semibold text-white">{value}</div>
       {note ? <div className="mt-2 text-xs leading-5 text-slate-500">{note}</div> : null}
     </div>
   );
+}
+
+function buildSignalSparkline(signal: MatchupDetailView["betSignals"][number]) {
+  const movement = signal.marketIntelligence?.lineMovement;
+  const values = [
+    movement?.openLine,
+    movement?.currentLine,
+    movement?.openPrice,
+    movement?.currentPrice
+  ];
+
+  return values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 }
 
 function SignalCard({
@@ -76,13 +89,13 @@ function SignalCard({
     <div
       className={
         featured
-          ? "rounded-[1.45rem] border border-sky-400/20 bg-sky-500/10 p-5"
-          : "rounded-[1.35rem] border border-white/8 bg-slate-950/60 p-4"
+          ? "concept-panel concept-panel-accent p-5"
+          : "concept-panel concept-panel-default p-4"
       }
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+          <div className="concept-meta">
             {signal.marketLabel}
           </div>
           <div className="mt-2 text-lg font-semibold leading-tight text-white">{signal.selection}</div>
@@ -113,8 +126,11 @@ function SignalCard({
         />
       </div>
 
-      <div className="mt-4 rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
-        {opportunity.reasonSummary}
+      <div className="mt-4 flex items-center justify-between gap-3 rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
+        <div className="min-w-0 text-sm leading-6 text-slate-300">{opportunity.reasonSummary}</div>
+        <div className="hidden shrink-0 md:block">
+          <MarketSparkline values={buildSignalSparkline(signal)} compact />
+        </div>
       </div>
 
       {trapLine ? (
@@ -187,8 +203,8 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
           )}
 
           {additionalSignals.length ? (
-            <div className="rounded-[1.35rem] border border-white/8 bg-slate-950/60 p-4">
-              <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+            <div className="concept-panel concept-panel-muted p-4">
+              <div className="concept-meta">
                 Secondary signals
               </div>
               <div className="mt-3 grid gap-2">
@@ -198,7 +214,7 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
                   return (
                     <div
                       key={signal.id}
-                      className="rounded-[1.1rem] border border-white/8 bg-slate-900/60 px-4 py-3"
+                      className="concept-list-row"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
@@ -212,7 +228,7 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
                           {opportunity.actionState.replace(/_/g, " ")} | {opportunity.opportunityScore}
                         </div>
                       </div>
-                      <div className="mt-3">
+                      <div className="mt-3 hidden md:block">
                         <OpportunityBadgeRow opportunity={opportunity} />
                       </div>
                       <div className={`mt-3 text-sm leading-6 ${trapLine ? "text-rose-100" : "text-slate-300"}`}>
@@ -229,12 +245,12 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
 
       <div className="grid gap-4">
         <Card className="surface-panel p-5">
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Market context</div>
+          <div className="concept-meta">Market context</div>
           <div className="mt-4 grid gap-3 text-sm leading-6 text-slate-300">
             {marketContext.map((item) => (
               <div
                 key={item}
-                className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3"
+                className="concept-list-row"
               >
                 {item}
               </div>
@@ -245,7 +261,7 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
         {detail.nbaModel?.available ? (
           <Card className="surface-panel p-5">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+              <div className="concept-meta">
                 Model pulse
               </div>
               <Badge tone="brand">{detail.nbaModel.source}</Badge>
@@ -274,9 +290,9 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
               {detail.nbaModel.factors.slice(0, 4).map((factor) => (
                 <div
                   key={factor.label}
-                  className="rounded-[1.1rem] border border-white/8 bg-slate-950/60 px-4 py-3"
+                  className="concept-list-row"
                 >
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{factor.label}</div>
+                  <div className="concept-meta">{factor.label}</div>
                   <div className="mt-2 text-sm font-medium text-white">
                     {factor.awayValue} vs {factor.homeValue}
                   </div>
@@ -291,13 +307,13 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
         ) : null}
 
         <Card className="surface-panel p-5">
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Matchup notes</div>
+          <div className="concept-meta">Matchup notes</div>
           <div className="mt-4 grid gap-3">
             {detail.notes.length ? (
               detail.notes.map((note) => (
                 <div
                   key={note}
-                  className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300"
+                  className="concept-list-row text-sm leading-6 text-slate-300"
                 >
                   {note}
                 </div>

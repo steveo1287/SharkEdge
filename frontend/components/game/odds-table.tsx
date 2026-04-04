@@ -56,8 +56,8 @@ function TapeCard({
   note: string;
 }) {
   return (
-    <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
-      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
+    <div className="concept-metric">
+      <div className="concept-meta">{label}</div>
       <div className="mt-2 text-base font-semibold text-white">{value}</div>
       <div className="mt-1 text-xs leading-5 text-slate-500">{note}</div>
     </div>
@@ -84,7 +84,10 @@ export function OddsTable({ detail }: OddsTableProps) {
       <DataTable
         columns={["Sportsbook", "Spread", "Moneyline", "Total"]}
         rows={detail.books.map((row) => [
-          row.sportsbook.name,
+          <div key={`${row.sportsbook.id}-book`}>
+            <div className="text-sm font-semibold text-white">{row.sportsbook.name}</div>
+            <div className="mt-1 font-mono text-[0.66rem] uppercase tracking-[0.16em] text-slate-500">book row</div>
+          </div>,
           formatCell(row.spread, spreadHint),
           formatCell(row.moneyline, moneylineHint),
           formatCell(row.total, totalHint)
@@ -93,7 +96,7 @@ export function OddsTable({ detail }: OddsTableProps) {
 
       <div className="grid gap-4">
         <Card className="surface-panel p-5">
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Market tape</div>
+          <div className="concept-meta">Market tape</div>
           <div className="mt-4 grid gap-3">
             <LineMovementChart points={detail.lineMovement} metric="spreadLine" label="Spread history" compact />
             <LineMovementChart points={detail.lineMovement} metric="totalLine" label="Total history" compact />
@@ -123,7 +126,7 @@ export function OddsTable({ detail }: OddsTableProps) {
         </Card>
 
         <Card className="surface-panel p-5">
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Snapshot timeline</div>
+          <div className="concept-meta">Snapshot timeline</div>
           <div className="mt-4 grid gap-3">
             {detail.lineMovement.length ? (
               detail.lineMovement.map((point, index) => (
@@ -131,11 +134,11 @@ export function OddsTable({ detail }: OddsTableProps) {
                   key={point.capturedAt}
                   className={
                     index === detail.lineMovement.length - 1
-                      ? "rounded-[1.15rem] border border-sky-400/20 bg-sky-500/10 px-4 py-3"
-                      : "rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3"
+                      ? "concept-list-row border-sky-400/20 bg-sky-500/10"
+                      : "concept-list-row"
                   }
                 >
-                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                  <div className="concept-meta">
                     {formatLongDate(point.capturedAt)}
                   </div>
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-300">
@@ -148,9 +151,9 @@ export function OddsTable({ detail }: OddsTableProps) {
               detail.marketRanges.map((range) => (
                 <div
                   key={range.label}
-                  className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3"
+                  className="concept-list-row"
                 >
-                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{range.label}</div>
+                  <div className="concept-meta">{range.label}</div>
                   <div className="mt-2 text-sm text-slate-300">{range.value}</div>
                 </div>
               ))

@@ -1,12 +1,21 @@
 import Link from "next/link";
 
 import { GameCard } from "@/components/board/game-card";
+import { MarketSparkline } from "@/components/charts/market-sparkline";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { withTimeoutFallback } from "@/lib/utils/async";
 import type { GameCardView, LeagueSnapshotView } from "@/lib/types/domain";
+import {
+  getBoardFocusMarket,
+  getBoardGameIdentityKey,
+  getBoardGameIntelligenceMap
+} from "@/services/decision/board-memory-summary";
+import { buildAttentionQueue } from "@/services/decision/attention-queue";
+import { buildDecisionFromOpportunitySnapshot } from "@/services/decision/decision-engine";
+import { buildOpportunitySnapshot } from "@/services/opportunities/opportunity-snapshot";
+import { buildGameMarketOpportunity } from "@/services/opportunities/opportunity-service";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +80,20 @@ function getProviderHealthTone(state: string) {
   return "muted" as const;
 }
 
+function buildSparklineValues(game: GameCardView, focusMarket: "spread" | "moneyline" | "total") {
+  const market = game[focusMarket];
+  const lineMovement = market.marketIntelligence?.lineMovement;
+  const values = [
+    lineMovement?.openLine,
+    lineMovement?.currentLine,
+    lineMovement?.openPrice,
+    lineMovement?.currentPrice,
+    market.movement
+  ];
+
+  return values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+}
+
 export default async function GamesPage() {
   const [oddsService, statsService] = await Promise.all([
     import("@/services/odds/board-service"),
@@ -96,54 +119,70 @@ export default async function GamesPage() {
   const verifiedGames = boardData.games
     .filter(isVerifiedGame)
     .sort((left, right) => getGamePriorityScore(right) - getGamePriorityScore(left));
+  const boardIntelligence = await getBoardGameIntelligenceMap(verifiedGames);
+  const prioritizedGames = buildAttentionQueue(
+    verifiedGames.map((game) => {
+      const intelligence = boardIntelligence.get(getBoardGameIdentityKey(game)) ?? null;
+      const focusMarket = intelligence?.focusMarket ?? getBoardFocusMarket(game);
+      const opportunity = buildGameMarketOpportunity(game, focusMarket, boardData.providerHealth);
+      const snapshot = buildOpportunitySnapshot(opportunity);
+      const decision = snapshot ? buildDecisionFromOpportunitySnapshot(snapshot) : null;
+
+      return {
+        game,
+        focusMarket,
+        decision,
+        summary: intelligence?.summary ?? null
+      };
+    }),
+    {
+      getSecondarySortValue: (item) => Date.parse(item.game.startTime ?? "") || 0
+    }
+  );
   const openNowGames = verifiedGames.slice(0, 8);
   const scoreboardContext = slate
     .filter((game) => !verifiedGames.some((entry) => entry.id === game.id))
     .slice(0, 8);
 
   return (
-    <div className="grid gap-8">
-      <section className="surface-panel-strong px-6 py-6 xl:px-8 xl:py-8">
+    <div className="grid gap-6">
+      <section className="concept-panel concept-panel-accent grid gap-5 px-5 py-5 md:px-7 md:py-6 xl:grid-cols-[1.15fr_0.85fr] xl:items-end">
         <div className="grid gap-5 xl:grid-cols-[1.12fr_0.88fr] xl:items-end">
           <div className="grid gap-4">
             <div className="section-kicker">Games desk</div>
-            <div className="max-w-4xl font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">
+            <div className="max-w-4xl font-display text-[2.3rem] font-semibold leading-[0.94] tracking-[-0.045em] text-white md:text-[3.1rem]">
               Start with the matchups that have both market truth and a reason to care.
             </div>
-            <div className="max-w-3xl text-base leading-8 text-slate-300">
+            <div className="max-w-3xl text-sm leading-7 text-slate-300 md:text-[0.98rem]">
               This is the entry desk for the slate. Verified games rise to the top. Thin games stay visible as scoreboard context, not fake conviction.
             </div>
             <div className="flex flex-wrap gap-3">
-              <Link
-                href="/board"
-                className="rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400"
-              >
+              <Link href="/board" className="concept-chip concept-chip-accent">
                 Open board
               </Link>
-              <Link
-                href="/props"
-                className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25"
-              >
+              <Link href="/props" className="concept-chip concept-chip-muted">
                 Hunt props
               </Link>
             </div>
           </div>
 
-          <div className="grid gap-3 rounded-[1.55rem] border border-white/8 bg-[#09131f]/85 p-5 text-sm text-slate-300">
+          <div className="grid gap-3 rounded-[1.45rem] border border-white/10 bg-[#07111c]/86 p-5 text-sm text-slate-300">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Desk state</div>
+              <div className="concept-meta">Desk state</div>
               <Badge tone={getProviderHealthTone(boardData.providerHealth.state)}>
                 {boardData.providerHealth.label}
               </Badge>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">Open now</div>
-                <div className="mt-2 text-3xl font-semibold text-white">{openNowGames.length}</div>
+              <div className="concept-metric">
+                <div className="concept-meta">Open now</div>
+                <div className="concept-metric-value">{`${openNowGames.length}`}</div>
+                <div className="concept-metric-note">Verified matchup entries with real market support.</div>
               </div>
-              <div>
-                <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">Scoreboard only</div>
-                <div className="mt-2 text-3xl font-semibold text-white">{scoreboardContext.length}</div>
+              <div className="concept-metric">
+                <div className="concept-meta">Scoreboard only</div>
+                <div className="concept-metric-value">{`${scoreboardContext.length}`}</div>
+                <div className="concept-metric-note">Still relevant, but not front-row betting entries.</div>
               </div>
             </div>
             <div className="rounded-[1.1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
@@ -163,6 +202,42 @@ export default async function GamesPage() {
         </div>
       </section>
 
+      {prioritizedGames.length ? (
+        <section className="concept-panel grid gap-4 p-5 md:p-6">
+          <SectionTitle
+            eyebrow="Attention now"
+            title="First matchup entries on the slate"
+            description="Same priority system as the board, filtered down to the games desk so the page opens with the strongest routes into detail."
+          />
+          <div className="grid gap-3 xl:grid-cols-4">
+            {prioritizedGames.slice(0, 4).map(({ game, focusMarket, prioritization, summary }) => (
+              <Link
+                key={`${game.id}:${focusMarket}`}
+                href={game.detailHref ?? "/games"}
+                className="concept-terminal-tile"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="concept-meta">{game.leagueKey} | {focusMarket}</div>
+                    <div className="mt-2 text-base font-semibold text-white">
+                      {game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}
+                    </div>
+                  </div>
+                  <Badge tone="brand">{prioritization.shortAttentionLabel}</Badge>
+                </div>
+                <div className="mt-3 text-sm leading-6 text-slate-400">
+                  {summary?.shortExplanation ?? `${game[focusMarket].lineLabel} | ${game[focusMarket].bestBook}`}
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <span className="concept-meta">{game[focusMarket].label}</span>
+                  <MarketSparkline values={buildSparklineValues(game, focusMarket)} compact />
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section className="grid gap-4">
         <SectionTitle
           eyebrow="Open now"
@@ -173,9 +248,17 @@ export default async function GamesPage() {
               : "When the board is thin, SharkEdge stays honest instead of pretending every matchup is ready."
           }
         />
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-2">
           {openNowGames.length ? (
-            openNowGames.map((game) => <GameCard key={game.id} game={game} focusMarket="best" />)
+            prioritizedGames.slice(0, 8).map(({ game, focusMarket, prioritization }) => (
+              <GameCard
+                key={game.id}
+                game={game}
+                focusMarket={focusMarket}
+                intelligence={boardIntelligence.get(getBoardGameIdentityKey(game)) ?? null}
+                prioritization={prioritization}
+              />
+            ))
           ) : (
             <div className="xl:col-span-2">
               <EmptyState
@@ -210,15 +293,15 @@ export default async function GamesPage() {
           title="Everything still worth watching"
           description="These games still matter. They just do not yet deserve top billing as betting-entry pages."
         />
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-2 xl:grid-cols-2">
           {scoreboardContext.length ? (
             scoreboardContext.map((game) => (
               <Link key={`${game.leagueKey}-${game.id}`} href={game.href}>
-                <Card className="surface-panel h-full p-5 transition hover:border-sky-400/25 hover:bg-white/[0.03]">
+                <div className="concept-list-row h-full transition hover:border-sky-400/25 hover:bg-white/[0.03]">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">{game.leagueKey}</div>
-                      <div className="mt-2 text-2xl font-semibold text-white">
+                      <div className="concept-meta">{game.leagueKey}</div>
+                      <div className="mt-2 text-xl font-semibold text-white">
                         {game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}
                       </div>
                     </div>
@@ -230,7 +313,7 @@ export default async function GamesPage() {
                   <div className="mt-5 rounded-[1.1rem] border border-white/8 bg-slate-950/55 px-4 py-3 text-sm leading-6 text-slate-300">
                     Open this matchup for score, team context, and any emerging prop support. Market verification has not earned front-row placement yet.
                   </div>
-                </Card>
+                </div>
               </Link>
             ))
           ) : (

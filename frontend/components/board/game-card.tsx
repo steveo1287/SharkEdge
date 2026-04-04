@@ -1,71 +1,67 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { IdentityTile } from "@/components/media/identity-tile";
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
+import { MarketSparkline } from "@/components/charts/market-sparkline";
 import {
   ChangeSummaryBadge,
   getChangeSummaryExplanation
 } from "@/components/intelligence/change-intelligence";
 import {
-  getOpportunityScoreBand,
   getOpportunityTrapLine,
   OpportunityBadgeRow
 } from "@/components/intelligence/opportunity-badges";
+import {
+  getPrioritizationExplanation,
+  PrioritizationBadge
+} from "@/components/intelligence/prioritization";
+import { IdentityTile } from "@/components/media/identity-tile";
 import { formatGameDateTime } from "@/lib/formatters/date";
 import { formatAmericanOdds } from "@/lib/formatters/odds";
 import type { GameCardView } from "@/lib/types/domain";
+import type { PrioritizationView } from "@/lib/types/prioritization";
 import { getTeamLogoUrl, resolveMatchupHref } from "@/lib/utils/entity-routing";
 import type { BoardGameIntelligenceView } from "@/services/decision/board-memory-summary";
 import { getBoardFocusMarket } from "@/services/decision/board-memory-summary";
 import { buildGameMarketOpportunity } from "@/services/opportunities/opportunity-service";
 
-function getStatusTone(status: GameCardView["status"]) {
-  if (status === "LIVE") {
-    return "success" as const;
-  }
-
-  if (status === "FINAL") {
-    return "neutral" as const;
-  }
-
-  if (status === "POSTPONED") {
-    return "danger" as const;
-  }
-
-  return "muted" as const;
-}
-
-function formatOddsValue(value: number) {
-  return value ? formatAmericanOdds(value) : "-";
-}
-
-function formatMarketLine(value: string) {
-  return value.startsWith("No ") ? "-" : value;
-}
-
 function formatFocusLabel(value: "spread" | "moneyline" | "total") {
-  if (value === "moneyline") {
-    return "moneyline";
-  }
+  return value === "moneyline" ? "moneyline" : value;
+}
 
-  return value;
+function buildSparklineValues(game: GameCardView, focus: "spread" | "moneyline" | "total") {
+  const market = game[focus];
+  const lineMovement = market.marketIntelligence?.lineMovement;
+  const values = [
+    lineMovement?.openLine,
+    lineMovement?.currentLine,
+    lineMovement?.openPrice,
+    lineMovement?.currentPrice,
+    market.movement
+  ];
+
+  return values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 }
 
 type GameCardProps = {
   game: GameCardView;
   focusMarket: string;
   intelligence?: BoardGameIntelligenceView | null;
+  prioritization?: PrioritizationView | null;
   actions?: ReactNode;
 };
 
-export function GameCard({ game, focusMarket, intelligence, actions }: GameCardProps) {
+export function GameCard({
+  game,
+  focusMarket,
+  intelligence,
+  prioritization,
+  actions
+}: GameCardProps) {
   const matchupHref = resolveMatchupHref({
     leagueKey: game.leagueKey,
     externalEventId: game.externalEventId,
     fallbackHref: game.detailHref ?? null
-  });
+  }) ?? "/board";
   const marketKeys = ["spread", "moneyline", "total"] as const;
   const focus =
     focusMarket === "best" || !marketKeys.includes(focusMarket as (typeof marketKeys)[number])
@@ -73,168 +69,97 @@ export function GameCard({ game, focusMarket, intelligence, actions }: GameCardP
       : (focusMarket as (typeof marketKeys)[number]);
   const focusView = game[focus];
   const focusOpportunity = buildGameMarketOpportunity(game, focus);
-  const scoreBand = getOpportunityScoreBand(focusOpportunity.opportunityScore);
   const trapLine = getOpportunityTrapLine(focusOpportunity);
   const boardSummary = intelligence?.focusMarket === focus ? intelligence.summary : null;
   const boardChangeExplanation =
     intelligence?.focusMarket === focus && intelligence.renderable
       ? getChangeSummaryExplanation(boardSummary)
       : null;
-  const movement = focusView.movement;
-  const focusReason =
+  const explanation =
+    boardChangeExplanation ??
+    getPrioritizationExplanation(prioritization) ??
     focusOpportunity.reasonSummary ??
-    focusView.reasons?.[0]?.detail ??
     focusView.marketTruth?.note ??
-    "Open the matchup to see whether this market still deserves first attention.";
-  const reasonTags = focusView.reasons?.slice(0, 2) ?? [];
+    "No forced narrative.";
+  const awayLogo = getTeamLogoUrl(game.leagueKey, game.awayTeam);
+  const homeLogo = getTeamLogoUrl(game.leagueKey, game.homeTeam);
+
   return (
-    <Card className="surface-panel overflow-hidden p-0">
-      <div className="border-b border-white/8 bg-[linear-gradient(140deg,rgba(68,164,255,0.16),transparent_35%),linear-gradient(180deg,rgba(255,255,255,0.03),transparent)] px-5 py-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-start gap-4">
-          <div className="flex items-center gap-2">
-            <IdentityTile
-              label={game.awayTeam.name}
-              shortLabel={game.awayTeam.abbreviation}
-              imageUrl={getTeamLogoUrl(game.leagueKey, game.awayTeam)}
-              subtle
-            />
-            <div className="text-[0.72rem] font-semibold uppercase tracking-[0.3em] text-slate-500">at</div>
-            <IdentityTile
-              label={game.homeTeam.name}
-              shortLabel={game.homeTeam.abbreviation}
-              imageUrl={getTeamLogoUrl(game.leagueKey, game.homeTeam)}
-              subtle
-            />
-          </div>
-          <div>
-            <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-              {game.leagueKey} | {formatGameDateTime(game.startTime)}
+    <Link href={matchupHref} className="concept-board-row">
+      <div className="flex min-w-0 items-start gap-3 md:gap-4">
+        <div className="flex shrink-0 items-center gap-2">
+          <IdentityTile
+            label={game.awayTeam.name}
+            shortLabel={game.awayTeam.abbreviation}
+            imageUrl={awayLogo}
+            size="sm"
+            subtle
+          />
+          <IdentityTile
+            label={game.homeTeam.name}
+            shortLabel={game.homeTeam.abbreviation}
+            imageUrl={homeLogo}
+            size="sm"
+            subtle
+          />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="truncate text-[0.98rem] font-semibold text-white">
+              {game.awayTeam.name} at {game.homeTeam.name}
             </div>
-            <div className="mt-3 grid gap-2">
-              <div className="font-display text-[1.7rem] font-semibold leading-tight text-white">
-                {game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}
-              </div>
-              <div className="text-sm text-slate-400">{game.venue}</div>
-              <div className="max-w-2xl text-sm leading-6 text-slate-300">
-                Lead with <span className="font-medium text-white">{formatFocusLabel(focus)}</span>: {focusReason}
-              </div>
+            <ChangeSummaryBadge summary={boardSummary} />
+            <PrioritizationBadge prioritization={prioritization} />
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            <span>{game.leagueKey}</span>
+            <span>{formatGameDateTime(game.startTime)}</span>
+            <span>{formatFocusLabel(focus)}</span>
+            <span>{game.bestBookCount} books</span>
+          </div>
+          <div className="mt-3 text-sm leading-6 text-slate-400">{explanation}</div>
+          <div className="mt-3 hidden md:block">
+            <OpportunityBadgeRow opportunity={focusOpportunity} />
+          </div>
+          {trapLine ? (
+            <div className="mt-3 text-sm leading-6 text-rose-100">
+              <span className="text-rose-200/75">Trap:</span> {trapLine}
             </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex flex-wrap justify-end gap-2">
-            <Badge tone={getStatusTone(game.status)}>{game.status}</Badge>
-            <Badge tone={scoreBand.tone}>
-              {scoreBand.label} {focusOpportunity.opportunityScore}
-            </Badge>
-            <ChangeSummaryBadge summary={intelligence?.renderable ? boardSummary : null} />
-          </div>
-          <div className="rounded-full border border-white/10 bg-slate-950/70 px-3 py-2 text-[0.68rem] uppercase tracking-[0.22em] text-slate-300">
-            {focusOpportunity.timingState.replace(/_/g, " ")}
-          </div>
-          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-            {movement === 0
-              ? "No move"
-              : `${movement > 0 ? "+" : ""}${movement.toFixed(1)} ${focus === "moneyline" ? "c" : "pts"}`}
-          </div>
-        </div>
-      </div>
-      </div>
-
-      <div className="px-5 py-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">
-          Focus market | {formatFocusLabel(focus)}
-        </div>
-        <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
-          {game.bestBookCount} verified book{game.bestBookCount === 1 ? "" : "s"}
+          ) : null}
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <div className="rounded-[1.2rem] border border-line bg-slate-950/70 p-4">
-          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Spread</div>
-          <div className="mt-3 font-display text-xl font-semibold text-white">
-            {formatMarketLine(game.spread.label)}
-          </div>
-          <div className="mt-2 text-sm text-slate-400">
-            {game.spread.bestBook !== "Unavailable" ? formatMarketLine(game.spread.bestBook) : "-"} |{" "}
-            {formatOddsValue(game.spread.bestOdds)}
+      <div className="grid items-center gap-3 md:grid-cols-[170px_1fr_112px] xl:min-w-[490px] xl:grid-cols-[185px_1fr_128px]">
+        <div className="grid gap-1">
+          <div className="concept-meta">Focus market</div>
+          <div className="text-sm font-semibold text-white">{focusView.lineLabel}</div>
+          <div className="text-sm text-slate-300">
+            {formatAmericanOdds(focusView.bestOdds)} at {focusView.bestBook}
           </div>
         </div>
-        <div className="rounded-[1.2rem] border border-line bg-slate-950/70 p-4">
-          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Moneyline</div>
-          <div className="mt-3 font-display text-xl font-semibold text-white">
-            {formatMarketLine(game.moneyline.label)}
-          </div>
-          <div className="mt-2 text-sm text-slate-400">
-            {game.moneyline.bestBook !== "Unavailable"
-              ? formatMarketLine(game.moneyline.bestBook)
-              : "-"}{" "}
-            | {formatOddsValue(game.moneyline.bestOdds)}
-          </div>
+
+        <div className="flex flex-wrap gap-2">
+          <span className="concept-chip concept-chip-accent">
+            {focusOpportunity.actionState.replace(/_/g, " ")}
+          </span>
+          <span className="concept-chip concept-chip-muted">
+            {focusOpportunity.confidenceTier} confidence
+          </span>
+          <span className={`concept-chip ${trapLine ? "concept-chip-danger" : "concept-chip-muted"}`}>
+            {trapLine ? "trap raised" : focusOpportunity.timingState.replace(/_/g, " ").toLowerCase()}
+          </span>
+          {actions ? <span className="hidden xl:inline-flex">{actions}</span> : null}
         </div>
-        <div className="rounded-[1.2rem] border border-line bg-slate-950/70 p-4">
-          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Total</div>
-          <div className="mt-3 font-display text-xl font-semibold text-white">
-            {formatMarketLine(game.total.label)}
-          </div>
-          <div className="mt-2 text-sm text-slate-400">
-            {game.total.bestBook !== "Unavailable" ? formatMarketLine(game.total.bestBook) : "-"} |{" "}
-            {formatOddsValue(game.total.bestOdds)}
-          </div>
+
+        <div className="flex items-center justify-end gap-3">
+          <MarketSparkline
+            values={buildSparklineValues(game, focus)}
+            compact
+            accent={boardSummary?.lastChangeDirection === "downgraded" ? "rose" : "cyan"}
+          />
         </div>
       </div>
-
-      {reasonTags.length ? (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {reasonTags.slice(0, 1).map((reason) => (
-            <Badge key={`${game.id}-${focus}-${reason.label}`} tone={reason.tone}>
-              {reason.label}
-            </Badge>
-          ))}
-        </div>
-      ) : null}
-
-      <div className="mt-4">
-        <OpportunityBadgeRow opportunity={focusOpportunity} />
-      </div>
-
-      {trapLine ? (
-        <div className="mt-4 rounded-[1.1rem] border border-rose-400/20 bg-rose-500/8 px-4 py-3 text-sm leading-6 text-rose-100">
-          <span className="text-rose-200/75">Trap line:</span> {trapLine}
-        </div>
-      ) : null}
-
-      {boardChangeExplanation ? (
-        <div className="mt-4 rounded-[1.1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
-          <span className="text-slate-500">What changed:</span> {boardChangeExplanation}
-        </div>
-      ) : null}
-
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm text-slate-400">
-          {focusOpportunity.sportsbookName
-            ? `${focusOpportunity.sportsbookName} | ${focusOpportunity.actionState.replace(/_/g, " ").toLowerCase()}`
-            : focusView.fairPrice
-              ? `${focusView.fairPrice.pricingMethod.replace(/_/g, " ")} | confidence ${focusView.fairPrice.pricingConfidenceScore}`
-              : game.selectedBook
-                ? `Locked to ${game.selectedBook.name}`
-                : `${game.bestBookCount} books compared`}
-        </div>
-        <div className="flex flex-wrap gap-3">
-          {actions}
-          <Link
-            href={matchupHref ?? "/board"}
-            className="rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300"
-          >
-            Open matchup
-          </Link>
-        </div>
-      </div>
-      </div>
-    </Card>
+    </Link>
   );
 }

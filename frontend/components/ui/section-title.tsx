@@ -12,11 +12,11 @@ export function SectionTitle({ title, description, action, eyebrow }: SectionTit
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0 flex-1">
         {eyebrow ? <div className="section-kicker">{eyebrow}</div> : null}
-        <h2 className="text-balance font-display text-[1.9rem] font-semibold tracking-tight text-white xl:text-[2.15rem]">
+        <h2 className="text-balance font-display text-[1.45rem] font-semibold leading-tight tracking-[-0.035em] text-white md:text-[1.7rem] xl:text-[1.95rem]">
           {title}
         </h2>
         {description ? (
-          <p className="mt-2 max-w-3xl text-pretty break-words text-sm leading-7 text-slate-400">
+          <p className="mt-2 max-w-3xl text-pretty break-words text-sm leading-7 text-slate-400 md:text-[0.96rem]">
             {description}
           </p>
         ) : null}

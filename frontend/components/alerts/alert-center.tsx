@@ -128,7 +128,7 @@ export function AlertCenter({
 
   return (
     <div className="grid gap-6">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Unread" value={`${unreadCount}`} />
         <StatCard label="Active Rules" value={`${activeRuleCount}`} />
         <StatCard label="Delivery" value={inAppOnly ? "In-app only" : "Mixed"} note="No fake push/email states" />
@@ -160,16 +160,16 @@ export function AlertCenter({
             const trapLine = notification.opportunitySnapshot ? getOpportunityTrapLine(notification.opportunitySnapshot) : null;
 
             return (
-            <Card key={notification.id} className="p-5">
+            <Card key={notification.id} className="surface-panel p-4 md:p-5">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                  <div className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
                     {new Date(notification.createdAt).toLocaleString("en-US", {
                       dateStyle: "short",
                       timeStyle: "short"
                     })}
                   </div>
-                  <div className="mt-2 font-display text-2xl font-semibold text-white">
+                  <div className="mt-2 font-display text-[1.7rem] font-semibold tracking-[-0.04em] text-white">
                     {notification.title}
                   </div>
                   <div className="mt-2 text-sm leading-7 text-slate-400">{notification.body}</div>
@@ -186,11 +186,11 @@ export function AlertCenter({
                 <div className="text-sm text-slate-400">
                   {[notification.eventLabel, notification.selection].filter(Boolean).join(" | ")}
                 </div>
-                <div className="flex flex-wrap gap-3">
+                <div className="flex w-full flex-wrap gap-3 md:w-auto">
                   {notification.sourcePath ? (
                     <Link
                       href={notification.sourcePath}
-                      className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300"
+                      className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300 max-sm:w-full max-sm:text-center"
                     >
                       Open source
                     </Link>
@@ -203,7 +203,7 @@ export function AlertCenter({
                       type="button"
                       disabled={isPending}
                       onClick={() => patchNotification(notification.id, { read: true })}
-                      className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300"
+                      className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300 max-sm:w-full"
                     >
                       Mark read
                     </button>
@@ -212,7 +212,7 @@ export function AlertCenter({
                     type="button"
                     disabled={isPending}
                     onClick={() => patchNotification(notification.id, { dismiss: true })}
-                    className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300"
+                    className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300 max-sm:w-full"
                   >
                     Dismiss
                   </button>
@@ -221,7 +221,7 @@ export function AlertCenter({
                       type="button"
                       disabled={isPending}
                       onClick={() => patchRule(notification.alertRuleId!, { mute: true })}
-                      className="rounded-2xl border border-amber-300/30 bg-amber-400/10 px-4 py-2 text-sm text-amber-200"
+                      className="rounded-2xl border border-amber-300/30 bg-amber-400/10 px-4 py-2 text-sm text-amber-200 max-sm:w-full"
                     >
                       Mute similar
                     </button>
@@ -264,11 +264,11 @@ export function AlertCenter({
       <section className="grid gap-4 xl:grid-cols-2">
         {rules.length ? (
           rules.map((rule) => (
-            <Card key={rule.id} className="p-5">
+            <Card key={rule.id} className="surface-panel p-4 md:p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{rule.league}</div>
-                  <div className="mt-2 font-display text-2xl font-semibold text-white">{rule.name}</div>
+                  <div className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">{rule.league}</div>
+                  <div className="mt-2 font-display text-[1.7rem] font-semibold tracking-[-0.04em] text-white">{rule.name}</div>
                   <div className="mt-2 text-sm text-slate-400">
                     {[rule.marketLabel, rule.selection].filter(Boolean).join(" | ")}
                   </div>
@@ -290,7 +290,7 @@ export function AlertCenter({
                     type="button"
                     disabled={isPending}
                     onClick={() => patchRule(rule.id, { mute: true })}
-                    className="rounded-2xl border border-amber-300/30 bg-amber-400/10 px-4 py-2 text-sm text-amber-200"
+                    className="rounded-2xl border border-amber-300/30 bg-amber-400/10 px-4 py-2 text-sm text-amber-200 max-sm:w-full"
                   >
                     Mute
                   </button>
@@ -299,7 +299,7 @@ export function AlertCenter({
                     type="button"
                     disabled={isPending}
                     onClick={() => patchRule(rule.id, { status: "ACTIVE" })}
-                    className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300"
+                    className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300 max-sm:w-full"
                   >
                     Reactivate
                   </button>
@@ -308,7 +308,7 @@ export function AlertCenter({
                   type="button"
                   disabled={isPending}
                   onClick={() => patchRule(rule.id, { status: "INACTIVE" })}
-                  className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300"
+                  className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300 max-sm:w-full"
                 >
                   Disable
                 </button>

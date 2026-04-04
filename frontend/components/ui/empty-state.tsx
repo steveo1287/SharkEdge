@@ -11,13 +11,13 @@ type EmptyStateProps = {
 
 export function EmptyState({ eyebrow, title, description, action }: EmptyStateProps) {
   return (
-    <Card className="surface-panel p-8 text-center">
+    <Card className="surface-panel p-6 text-center md:p-8">
       <div className="mx-auto max-w-xl">
         {eyebrow ? (
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">{eyebrow}</div>
+          <div className="font-mono text-[0.66rem] font-semibold uppercase tracking-[0.22em] text-slate-500">{eyebrow}</div>
         ) : null}
-        <div className="mt-2 font-display text-2xl font-semibold text-white">{title}</div>
-        <p className="mt-3 text-sm leading-7 text-slate-400">{description}</p>
+        <div className="mt-2 font-display text-[1.8rem] font-semibold tracking-[-0.04em] text-white md:text-[2rem]">{title}</div>
+        <p className="mt-3 text-sm leading-7 text-slate-400 md:text-[0.96rem]">{description}</p>
         {action ? <div className="mt-5">{action}</div> : null}
       </div>
     </Card>

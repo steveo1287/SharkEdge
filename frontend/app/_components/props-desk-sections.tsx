@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { MarketSparkline } from "@/components/charts/market-sparkline";
 import {
   getOpportunityScoreBand,
   getOpportunityTrapLine,
@@ -46,6 +47,16 @@ function getPropPriorityScore(prop: PropCardView) {
   return buildPropOpportunity(prop).opportunityScore;
 }
 
+function buildPropSparkline(prop: PropCardView) {
+  return [
+    prop.lineMovement,
+    prop.bestAvailableOddsAmerican,
+    prop.averageOddsAmerican,
+    prop.marketDeltaAmerican,
+    prop.evProfile?.fairLineGap
+  ].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+}
+
 export function sortPropsByPriority(props: PropCardView[]) {
   return [...props].sort((left, right) => getPropPriorityScore(right) - getPropPriorityScore(left));
 }
@@ -67,10 +78,10 @@ function FeaturedPropCard({ prop }: { prop: PropCardView }) {
   const reason = opportunity.reasonSummary ?? prop.reasons?.[0]?.detail ?? prop.analyticsSummary?.reason ?? prop.supportNote;
 
   return (
-    <Card className="surface-panel p-5">
+    <Card className="concept-panel concept-panel-accent p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+          <div className="concept-meta">
             {prop.leagueKey} | {prop.bestAvailableSportsbookName ?? prop.sportsbook.name}
           </div>
           <div className="mt-3 text-2xl font-semibold text-white">{prop.player.name}</div>
@@ -89,30 +100,30 @@ function FeaturedPropCard({ prop }: { prop: PropCardView }) {
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Best price</div>
+        <div className="concept-metric">
+          <div className="concept-meta">Best price</div>
           <div className="mt-2 text-base font-semibold text-white">
             {formatAmericanOdds(prop.bestAvailableOddsAmerican ?? prop.oddsAmerican)}
           </div>
-          <div className="mt-1 text-xs text-slate-500">
+          <div className="concept-metric-note mt-1">
             {prop.bestAvailableSportsbookName ?? prop.sportsbook.name}
           </div>
         </div>
-        <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">EV</div>
+        <div className="concept-metric">
+          <div className="concept-meta">EV</div>
           <div className="mt-2 text-base font-semibold text-emerald-300">
             {typeof prop.expectedValuePct === "number"
               ? `${prop.expectedValuePct > 0 ? "+" : ""}${prop.expectedValuePct.toFixed(2)}%`
               : "N/A"}
           </div>
-          <div className="mt-1 text-xs text-slate-500">
+          <div className="concept-metric-note mt-1">
             Books {prop.sportsbookCount ?? 1} | {opportunity.actionState.replace(/_/g, " ").toLowerCase()}
           </div>
         </div>
-        <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Fair line</div>
+        <div className="concept-metric">
+          <div className="concept-meta">Fair line</div>
           <div className="mt-2 text-base font-semibold text-white">{fairLine}</div>
-          <div className="mt-1 text-xs text-slate-500">
+          <div className="concept-metric-note mt-1">
             Gap{" "}
             {typeof prop.evProfile?.fairLineGap === "number"
               ? `${prop.evProfile.fairLineGap > 0 ? "+" : ""}${prop.evProfile.fairLineGap}`
@@ -121,9 +132,14 @@ function FeaturedPropCard({ prop }: { prop: PropCardView }) {
         </div>
       </div>
 
-      <div className="mt-4 rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
-        {reason ??
-          "This prop stays visible because the current price, market shape, or matchup context still makes it worth opening."}
+      <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+        <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
+          {reason ??
+            "This prop stays visible because the current price, market shape, or matchup context still makes it worth opening."}
+        </div>
+        <div className="hidden md:block">
+          <MarketSparkline values={buildPropSparkline(prop)} />
+        </div>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -139,13 +155,13 @@ function FeaturedPropCard({ prop }: { prop: PropCardView }) {
       <div className="mt-4 flex flex-wrap gap-3">
         <Link
           href={matchupHref}
-          className="rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300"
+          className="concept-chip concept-chip-accent"
         >
           Open matchup
         </Link>
         <Link
           href="#prop-board"
-          className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-medium text-slate-200"
+          className="concept-chip concept-chip-muted"
         >
           Compare board
         </Link>
@@ -158,10 +174,10 @@ function WatchlistPropCard({ prop }: { prop: PropCardView }) {
   const opportunity = buildPropOpportunity(prop);
   const trapLine = getOpportunityTrapLine(opportunity);
   return (
-    <Card className="surface-panel p-5">
+    <Card className="concept-panel concept-panel-default p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+          <div className="concept-meta">
             {prop.leagueKey} | {prop.bestAvailableSportsbookName ?? prop.sportsbook.name}
           </div>
           <div className="mt-2 text-xl font-semibold text-white">{prop.player.name}</div>
@@ -173,12 +189,17 @@ function WatchlistPropCard({ prop }: { prop: PropCardView }) {
           {prop.edgeScore.label}
         </Badge>
       </div>
-      <div className="mt-4 text-sm leading-6 text-slate-300">
-        {opportunity.reasonSummary ??
-          prop.reasons?.[0]?.detail ??
-          prop.analyticsSummary?.reason ??
-          prop.supportNote ??
-          "Keep this one on the desk until the price or context clarifies."}
+      <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+        <div className="text-sm leading-6 text-slate-300">
+          {opportunity.reasonSummary ??
+            prop.reasons?.[0]?.detail ??
+            prop.analyticsSummary?.reason ??
+            prop.supportNote ??
+            "Keep this one on the desk until the price or context clarifies."}
+        </div>
+        <div className="hidden md:block">
+          <MarketSparkline values={buildPropSparkline(prop)} />
+        </div>
       </div>
       <div className="mt-4">
         <OpportunityBadgeRow opportunity={opportunity} />
@@ -189,7 +210,7 @@ function WatchlistPropCard({ prop }: { prop: PropCardView }) {
         </div>
       ) : null}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
-        <div className="text-slate-400">
+        <div className="concept-meta">
           {formatAmericanOdds(prop.bestAvailableOddsAmerican ?? prop.oddsAmerican)}
           {" | "}
           {typeof prop.expectedValuePct === "number"
@@ -204,7 +225,7 @@ function WatchlistPropCard({ prop }: { prop: PropCardView }) {
               fallbackHref: prop.gameHref ?? null
             }) ?? "/props"
           }
-          className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200"
+          className="concept-chip concept-chip-muted"
         >
           Open matchup
         </Link>

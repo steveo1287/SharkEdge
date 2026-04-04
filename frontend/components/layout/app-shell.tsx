@@ -26,11 +26,11 @@ export function AppShell({ children }: AppShellProps) {
             <div className="fixed inset-0 z-40 xl:hidden">
               <button
                 aria-label="Close mobile navigation"
-                className="absolute inset-0 bg-slate-950/70"
+                className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.12),transparent_30%),rgba(2,8,15,0.82)] backdrop-blur-sm"
                 onClick={() => setMobileOpen(false)}
                 type="button"
               />
-              <div className="relative h-full w-[312px]">
+              <div className="relative h-full w-[332px] max-w-[88vw] px-3 py-4">
                 <Sidebar
                   mobile
                   pathname={pathname}
@@ -48,7 +48,7 @@ export function AppShell({ children }: AppShellProps) {
                   type="button"
                   aria-label="Open navigation"
                   onClick={() => setMobileOpen(true)}
-                  className="inline-flex h-11 min-w-[72px] items-center justify-center rounded-full border border-white/10 bg-white/[0.03] px-3 text-white xl:hidden"
+                  className="inline-flex h-11 min-w-[78px] items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-3 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] xl:hidden"
                 >
                   <span className="text-xs font-semibold uppercase tracking-[0.2em]">Menu</span>
                 </button>

@@ -9,21 +9,25 @@ export const MAIN_NAV_ITEMS: NavItem[] = [
   {
     href: "/",
     label: "Home",
+    shortLabel: "Home",
     description: "Today's command center for the market, the matchup, and the next best move."
   },
   {
     href: "/board",
     label: "Board",
+    shortLabel: "Board",
     description: "The live board with verified books, pricing truth, and movement worth reacting to."
   },
   {
     href: "/games",
     label: "Games",
+    shortLabel: "Games",
     description: "Open the slate, orient by matchup, and route straight into game detail."
   },
   {
     href: "/props",
     label: "Props",
+    shortLabel: "Props",
     description: "Hunt player markets, fair value, and usage-driven context."
   }
 ];
@@ -32,26 +36,31 @@ export const RESEARCH_NAV_ITEMS: NavItem[] = [
   {
     href: "/players",
     label: "Players",
+    shortLabel: "Players",
     description: "Deep player research, rolling form, and prop-pressure context."
   },
   {
     href: "/teams",
     label: "Teams",
+    shortLabel: "Teams",
     description: "Team-level form, matchup context, and league-entry research."
   },
   {
     href: "/trends",
     label: "Trends",
+    shortLabel: "Trends",
     description: "Historical systems, validation warnings, and active matches."
   },
   {
     href: "/content",
     label: "Content",
+    shortLabel: "Content",
     description: "Original coverage, recaps, and betting-native explainers."
   },
   {
     href: "/watchlist",
     label: "Watchlist",
+    shortLabel: "Watchlist",
     description: "Saved books, props, teams, trends, and alerts."
   }
 ];
@@ -60,16 +69,19 @@ export const SECONDARY_NAV_ITEMS: NavItem[] = [
   {
     href: "/bets",
     label: "Bets",
+    shortLabel: "Bets",
     description: "Track your card, open exposure, and best-bet workflow."
   },
   {
     href: "/performance",
     label: "Performance",
+    shortLabel: "Performance",
     description: "Review CLV, units, hit rate, and what is actually working."
   },
   {
     href: "/alerts",
     label: "Alerts",
+    shortLabel: "Alerts",
     description: "Price, movement, and trend notifications."
   }
 ];

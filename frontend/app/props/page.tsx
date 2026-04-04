@@ -48,11 +48,11 @@ export default async function PropsPage({ searchParams }: PageProps) {
   return (
     <BetSlipBoundary>
       <div className="grid gap-6">
-      <Card className="overflow-hidden border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.16),_transparent_34%),linear-gradient(145deg,_rgba(4,10,19,0.98),_rgba(8,19,32,0.96))] p-6 xl:p-8">
+      <Card className="concept-panel concept-panel-accent overflow-hidden p-6 xl:p-8">
         <div className="grid gap-6 xl:grid-cols-[1.12fr_0.88fr]">
           <div>
-            <div className="text-xs uppercase tracking-[0.24em] text-sky-300">Prop lab</div>
-            <div className="mt-4 font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">
+            <div className="section-kicker">Prop lab</div>
+            <div className="mt-4 font-display text-[2.3rem] font-semibold leading-[0.94] tracking-[-0.045em] text-white xl:text-[3.1rem]">
               Price first. Confidence second. Everything else after that.
             </div>
             <p className="mt-4 max-w-3xl text-base leading-8 text-slate-300">
@@ -80,30 +80,30 @@ export default async function PropsPage({ searchParams }: PageProps) {
             </div>
           </div>
 
-          <div className="grid gap-3 rounded-[1.7rem] border border-white/10 bg-slate-950/65 p-4 text-sm text-slate-300 md:grid-cols-2">
+          <div className="grid gap-3 rounded-[1.7rem] border border-white/10 bg-[#07111c]/86 p-4 text-sm text-slate-300 md:grid-cols-2">
             <div className="md:col-span-2 flex items-center justify-between gap-3">
-              <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
+              <div className="concept-meta">
                 {selectedLeagueLabel} snapshot
               </div>
               <Badge tone={getProviderHealthTone(data.providerHealth.state)}>
                 {data.providerHealth.label}
               </Badge>
             </div>
-            <div>
-              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Ranked rows</div>
-              <div className="mt-2 text-2xl font-semibold text-white">{rankedProps.length}</div>
+            <div className="concept-metric">
+              <div className="concept-meta">Ranked rows</div>
+              <div className="concept-metric-value mt-2">{rankedProps.length}</div>
             </div>
-            <div>
-              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Books</div>
-              <div className="mt-2 text-2xl font-semibold text-white">{realBookCount}</div>
+            <div className="concept-metric">
+              <div className="concept-meta">Books</div>
+              <div className="concept-metric-value mt-2">{realBookCount}</div>
             </div>
-            <div>
-              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Live sports</div>
-              <div className="mt-2 text-2xl font-semibold text-white">{liveCoverageCount}</div>
+            <div className="concept-metric">
+              <div className="concept-meta">Live sports</div>
+              <div className="concept-metric-value mt-2">{liveCoverageCount}</div>
             </div>
-            <div>
-              <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Partial / soon</div>
-              <div className="mt-2 text-2xl font-semibold text-white">
+            <div className="concept-metric">
+              <div className="concept-meta">Partial / soon</div>
+              <div className="concept-metric-value mt-2">
                 {partialCoverageCount} / {comingSoonCoverageCount}
               </div>
             </div>
@@ -130,30 +130,30 @@ export default async function PropsPage({ searchParams }: PageProps) {
         </div>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card className="surface-panel p-5">
-          <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Scope</div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="concept-panel concept-panel-default p-5">
+          <div className="concept-meta">Scope</div>
           <div className="mt-3 font-display text-3xl font-semibold text-white">{selectedLeagueLabel}</div>
           <div className="mt-2 text-sm leading-6 text-slate-400">
             Stay broad until you have a reason to narrow the prop hunt.
           </div>
         </Card>
-        <Card className="surface-panel p-5">
-          <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Open now</div>
+        <Card className="concept-panel concept-panel-default p-5">
+          <div className="concept-meta">Open now</div>
           <div className="mt-3 font-display text-3xl font-semibold text-white">{featuredProps.length}</div>
           <div className="mt-2 text-sm leading-6 text-slate-400">
             These are the props that currently deserve first attention.
           </div>
         </Card>
-        <Card className="surface-panel p-5">
-          <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Watchlist</div>
+        <Card className="concept-panel concept-panel-default p-5">
+          <div className="concept-meta">Watchlist</div>
           <div className="mt-3 font-display text-3xl font-semibold text-white">{watchlistProps.length}</div>
           <div className="mt-2 text-sm leading-6 text-slate-400">
             Still worth tracking, but not the first rows you should click.
           </div>
         </Card>
-        <Card className="surface-panel p-5">
-          <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Books tracked</div>
+        <Card className="concept-panel concept-panel-default p-5">
+          <div className="concept-meta">Books tracked</div>
           <div className="mt-3 font-display text-3xl font-semibold text-white">{realBookCount}</div>
           <div className="mt-2 text-sm leading-6 text-slate-400">
             Best-price comparison stays visible even when market depth thins out.
@@ -163,12 +163,12 @@ export default async function PropsPage({ searchParams }: PageProps) {
 
       <PropsDeskSections featuredProps={featuredProps} watchlistProps={watchlistProps} />
 
-      <Card className="surface-panel p-4">
+      <Card className="concept-panel concept-panel-muted p-4">
         <form className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
           <select
             name="league"
             defaultValue={filters.league}
-            className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
+            className="rounded-[1rem] border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white"
           >
             <option value="ALL">All sports</option>
             {BOARD_SPORTS.map((sport) => (
@@ -180,7 +180,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
           <select
             name="marketType"
             defaultValue={filters.marketType}
-            className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
+            className="rounded-[1rem] border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white"
           >
             <option value="ALL">All supported markets</option>
             <option value="player_points">Player Points</option>
@@ -195,7 +195,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
           <select
             name="team"
             defaultValue={filters.team}
-            className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
+            className="rounded-[1rem] border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white"
           >
             <option value="all">All teams / camps</option>
             {leagueTeams.map((team) => (
@@ -207,7 +207,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
           <select
             name="player"
             defaultValue={filters.player}
-            className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
+            className="rounded-[1rem] border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white"
           >
             <option value="all">All players / fighters</option>
             {leaguePlayers.map((player) => (
@@ -219,7 +219,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
           <select
             name="sportsbook"
             defaultValue={filters.sportsbook}
-            className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
+            className="rounded-[1rem] border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white"
           >
             <option value="all">All books</option>
             {data.sportsbooks.map((book) => (
@@ -231,7 +231,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
           <select
             name="valueFlag"
             defaultValue={filters.valueFlag}
-            className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
+            className="rounded-[1rem] border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white"
           >
             <option value="all">All value states</option>
             <option value="BEST_PRICE">Best Price</option>
@@ -242,7 +242,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
             <select
               name="sortBy"
               defaultValue={filters.sortBy}
-              className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
+              className="rounded-[1rem] border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white"
             >
               <option value="best_price">Best Price</option>
               <option value="market_ev">Market EV</option>
@@ -253,7 +253,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
             </select>
             <button
               type="submit"
-              className="rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 py-3 text-sm font-medium text-sky-300"
+              className="rounded-[1rem] border border-sky-400/30 bg-sky-500/10 px-4 py-3 text-sm font-medium text-sky-300"
             >
               Apply
             </button>
@@ -278,12 +278,12 @@ export default async function PropsPage({ searchParams }: PageProps) {
         )}
       </section>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {data.coverage.map((entry: any) => (
-          <Card key={entry.leagueKey} className="surface-panel p-5">
+          <Card key={entry.leagueKey} className="concept-panel concept-panel-default p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">
+                <div className="concept-meta">
                   {entry.leagueKey}
                 </div>
                 <div className="mt-2 text-xl font-semibold text-white">{entry.supportLabel}</div>
