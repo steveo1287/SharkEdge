@@ -10,7 +10,7 @@ type GameMovementPanelProps = {
 
 function formatMovementNumber(value: number | null) {
   if (typeof value !== "number") {
-    return "—";
+    return "N/A";
   }
 
   return `${value > 0 ? "+" : ""}${value.toFixed(1)}`;
@@ -129,3 +129,4 @@ export function GameMovementPanel({ movement }: GameMovementPanelProps) {
     </div>
   );
 }
+

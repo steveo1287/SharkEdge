@@ -66,7 +66,7 @@ export function GameTrendsPanel({ trends, leagueKey }: GameTrendsPanelProps) {
                   href={card.href}
                   className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-200"
                 >
-                  Open trend →
+                  Open trend {"->"}
                 </Link>
               </div>
             ) : null}
@@ -85,3 +85,4 @@ export function GameTrendsPanel({ trends, leagueKey }: GameTrendsPanelProps) {
     </div>
   );
 }
+
