@@ -1,9 +1,12 @@
 import Link from "next/link";
 
+import { LeagueBadge } from "@/components/identity/league-badge";
+import { TeamBadge } from "@/components/identity/team-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SectionTitle } from "@/components/ui/section-title";
 import { formatGameDateTime } from "@/lib/formatters/date";
+import { formatAmericanOdds } from "@/lib/formatters/odds";
 import type { GameCardView } from "@/lib/types/domain";
 
 type Props = {
@@ -56,7 +59,10 @@ function getLeadMarket(game: GameCardView) {
   );
 }
 
-function formatMovementUnit(marketKey: "spread" | "moneyline" | "total", movement: number) {
+function formatMovementUnit(
+  marketKey: "spread" | "moneyline" | "total",
+  movement: number
+) {
   if (!movement) {
     return "No move";
   }
@@ -78,13 +84,17 @@ function formatMarketTitle(value: "spread" | "moneyline" | "total") {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+function formatOddsValue(value: number) {
+  return value ? formatAmericanOdds(value) : "-";
+}
+
 export function MarketMoversPanel({ games }: Props) {
   return (
     <section className="grid gap-4">
       <SectionTitle
         eyebrow="Market movers"
         title="Where the slate actually moved"
-        description="Fast scan cards for movement worth opening, not just random volatility."
+        description="Fast scan cards for movement worth opening, not empty volatility."
       />
 
       <div className="grid gap-4 xl:grid-cols-3">
@@ -95,43 +105,48 @@ export function MarketMoversPanel({ games }: Props) {
           return (
             <Card key={game.id} className="surface-panel p-5">
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                    {game.leagueKey} | {formatGameDateTime(game.startTime)}
-                  </div>
-
-                  <div className="mt-3 grid gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-xs font-semibold text-white">
-                        {game.awayTeam.abbreviation}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">
-                          Away
-                        </div>
-                        <div className="truncate text-base font-semibold text-white">
-                          {game.awayTeam.name}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-700 text-xs font-semibold text-white">
-                        {game.homeTeam.abbreviation}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">
-                          Home
-                        </div>
-                        <div className="truncate text-base font-semibold text-white">
-                          {game.homeTeam.name}
-                        </div>
-                      </div>
-                    </div>
+                <div className="flex items-center gap-2">
+                  <LeagueBadge league={game.leagueKey} />
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                    {formatGameDateTime(game.startTime)}
                   </div>
                 </div>
 
                 <Badge tone={getStatusTone(game.status)}>{game.status}</Badge>
+              </div>
+
+              <div className="mt-4 grid gap-3">
+                <div className="flex items-center gap-3">
+                  <TeamBadge
+                    name={game.awayTeam.name}
+                    abbreviation={game.awayTeam.abbreviation}
+                    size="sm"
+                  />
+                  <div className="min-w-0">
+                    <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">
+                      Away
+                    </div>
+                    <div className="truncate text-base font-semibold text-white">
+                      {game.awayTeam.name}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <TeamBadge
+                    name={game.homeTeam.name}
+                    abbreviation={game.homeTeam.abbreviation}
+                    size="sm"
+                  />
+                  <div className="min-w-0">
+                    <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">
+                      Home
+                    </div>
+                    <div className="truncate text-base font-semibold text-white">
+                      {game.homeTeam.name}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="mt-5 rounded-[1.15rem] border border-white/8 bg-slate-950/60 p-4">
@@ -148,8 +163,15 @@ export function MarketMoversPanel({ games }: Props) {
                   {formatMovementUnit(leadMarket, leadView.movement)}
                 </div>
 
-                <div className="mt-2 text-sm text-slate-400">
+                <div className="mt-2 text-sm text-slate-300">
                   {formatMarketLabel(leadView.label)}
+                </div>
+
+                <div className="mt-2 text-sm text-slate-400">
+                  {leadView.bestBook !== "Unavailable"
+                    ? formatMarketLabel(leadView.bestBook)
+                    : "-"}{" "}
+                  | {formatOddsValue(leadView.bestOdds)}
                 </div>
 
                 <div className="mt-3 text-sm leading-6 text-slate-300">
