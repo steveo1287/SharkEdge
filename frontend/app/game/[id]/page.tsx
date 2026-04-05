@@ -15,6 +15,8 @@ import {
   getOpportunityTone,
   OpportunityBadgeRow
 } from "@/components/intelligence/opportunity-badges";
+import { LeagueBadge } from "@/components/identity/league-badge";
+import { TeamBadge } from "@/components/identity/team-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -103,12 +105,58 @@ function MetricTile({
   note: string;
 }) {
   return (
-    <div className="metric-tile">
+    <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/55 p-4">
       <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">
         {label}
       </div>
       <div className="mt-3 font-display text-3xl font-semibold text-white">{value}</div>
       <div className="mt-2 text-sm leading-6 text-slate-400">{note}</div>
+    </div>
+  );
+}
+
+function ParticipantCard({
+  role,
+  name,
+  abbreviation,
+  score,
+  subtitle
+}: {
+  role: string;
+  name: string;
+  abbreviation: string | null;
+  score: string | null;
+  subtitle: string | null;
+}) {
+  return (
+    <div className="rounded-[1.2rem] border border-white/8 bg-slate-950/55 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <TeamBadge
+            name={name}
+            abbreviation={abbreviation ?? name.slice(0, 3).toUpperCase()}
+            size="lg"
+          />
+          <div className="min-w-0">
+            <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
+              {role}
+            </div>
+            <div className="truncate text-xl font-semibold text-white">{name}</div>
+            {subtitle ? (
+              <div className="mt-1 truncate text-sm text-slate-400">{subtitle}</div>
+            ) : null}
+          </div>
+        </div>
+
+        {score ? (
+          <div className="text-right">
+            <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
+              Score
+            </div>
+            <div className="mt-1 font-display text-2xl font-semibold text-white">{score}</div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -200,10 +248,12 @@ export default async function GamePage({ params, searchParams }: PageProps) {
   const headlineOpportunity = headlineSignal
     ? buildBetSignalOpportunity(headlineSignal, detail.league.key, detail.providerHealth)
     : null;
+
   const secondarySignalOpportunities = secondarySignals.map((signal) => ({
     signal,
     opportunity: buildBetSignalOpportunity(signal, detail.league.key, detail.providerHealth)
   }));
+
   const topPropOpportunities = detail.props
     .map((prop) => ({
       prop,
@@ -211,6 +261,7 @@ export default async function GamePage({ params, searchParams }: PageProps) {
     }))
     .sort((left, right) => right.opportunity.opportunityScore - left.opportunity.opportunityScore)
     .slice(0, 3);
+
   const trapStack = rankOpportunities(
     [
       headlineOpportunity,
@@ -251,14 +302,16 @@ export default async function GamePage({ params, searchParams }: PageProps) {
     ? getOpportunityTone(headlineOpportunity.actionState)
     : "muted";
 
+  const participants = detail.participants.slice(0, 2);
+
   return (
     <BetSlipBoundary>
       <div className="grid gap-6">
         <Card className="surface-panel-strong overflow-hidden p-6 xl:p-8">
-          <div className="grid gap-8 xl:grid-cols-[1.06fr_0.94fr]">
+          <div className="grid gap-8 xl:grid-cols-[1.08fr_0.92fr]">
             <div>
-              <div className="flex flex-wrap gap-2">
-                <Badge tone="brand">{detail.league.key}</Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <LeagueBadge league={detail.league.key} />
                 {detail.status ? <Badge tone={getStatusTone(detail.status)}>{detail.status}</Badge> : null}
                 {detail.supportStatus ? (
                   <Badge tone={getSupportTone(detail.supportStatus)}>{detail.supportStatus}</Badge>
@@ -269,6 +322,7 @@ export default async function GamePage({ params, searchParams }: PageProps) {
               <div className="mt-4 text-xs uppercase tracking-[0.24em] text-slate-400">
                 {formatGameDateTime(detail.startTime)}
               </div>
+
               <div className="mt-4 font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">
                 {hub.hero.title}
               </div>
@@ -280,6 +334,19 @@ export default async function GamePage({ params, searchParams }: PageProps) {
               <p className="mt-3 max-w-3xl text-base leading-8 text-slate-300">
                 {hub.hero.subtitle}
               </p>
+
+              <div className="mt-6 grid gap-3 md:grid-cols-2">
+                {participants.map((participant) => (
+                  <ParticipantCard
+                    key={participant.id}
+                    role={participant.role}
+                    name={participant.name}
+                    abbreviation={participant.abbreviation}
+                    score={participant.score}
+                    subtitle={participant.subtitle}
+                  />
+                ))}
+              </div>
 
               <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <MetricTile
@@ -363,6 +430,7 @@ export default async function GamePage({ params, searchParams }: PageProps) {
                       "The page stays visible, but SharkEdge will not invent a reason to fire when the edge is not there."}
                   </div>
                 </div>
+
                 <div
                   className={`rounded-[1.15rem] border px-4 py-3 ${
                     headlineTrapLine
@@ -407,6 +475,7 @@ export default async function GamePage({ params, searchParams }: PageProps) {
                 The hero stays stable. The operating surface below swaps by task instead of forcing one long scroll page.
               </div>
             </div>
+
             <div className="flex flex-wrap gap-2">
               <Badge tone={getProviderHealthTone(detail.providerHealth.state)}>
                 {detail.providerHealth.label}
@@ -464,7 +533,7 @@ export default async function GamePage({ params, searchParams }: PageProps) {
 
           <Card className="surface-panel p-5">
             <div className="section-kicker">Navigation posture</div>
-            <div className="mt-2 text-2xl font-semibold text-white">Game hub is now structure-first</div>
+            <div className="mt-2 text-2xl font-semibold text-white">How to use this hub</div>
             <div className="mt-4 grid gap-3 text-sm leading-6 text-slate-300">
               <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
                 For You = decision layer.
@@ -475,6 +544,21 @@ export default async function GamePage({ params, searchParams }: PageProps) {
               <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
                 Splits / Trends / Kalshi / Feed = intelligence expansion layers.
               </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <Link
+                href={`/leagues/${detail.league.key}`}
+                className="rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300"
+              >
+                Open league desk
+              </Link>
+              <Link
+                href="/board"
+                className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-medium text-white"
+              >
+                Back to board
+              </Link>
             </div>
           </Card>
         </div>
