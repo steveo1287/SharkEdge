@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { LeagueBadge } from "@/components/identity/league-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SectionTitle } from "@/components/ui/section-title";
@@ -46,12 +47,15 @@ export function LeagueDeskGrid({ sections }: Props) {
         {sections.map((section) => (
           <Card key={section.leagueKey} className="surface-panel p-5">
             <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                  {section.sport}
-                </div>
-                <div className="mt-2 text-2xl font-semibold text-white">
-                  {section.leagueLabel}
+              <div className="flex items-center gap-3">
+                <LeagueBadge league={section.leagueKey} />
+                <div>
+                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                    {section.sport}
+                  </div>
+                  <div className="mt-1 text-2xl font-semibold text-white">
+                    {section.leagueLabel}
+                  </div>
                 </div>
               </div>
 
