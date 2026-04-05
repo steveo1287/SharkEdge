@@ -52,7 +52,7 @@ SPORTS = [
         "short_title": "MLB",
         "odds_harvester_sport": "baseball",
         "odds_harvester_leagues": "mlb",
-        "odds_harvester_markets": "moneyline,over/under",
+        "odds_harvester_markets": "home_away",
     },
     {
         "key": "icehockey_nhl",
