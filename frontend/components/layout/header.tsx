@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { useOptionalBetSlip } from "@/components/bets/bet-slip-provider";
 import { ShellSummary } from "@/components/layout/shell-summary";
 import {
+  LEAGUE_NAV_ITEMS,
   MAIN_NAV_ITEMS,
   getRouteMeta,
   isActivePath
@@ -17,6 +18,14 @@ type HeaderProps = {
 };
 
 function getDeskStatus(pathname: string) {
+  if (pathname.startsWith("/leagues/")) {
+    return {
+      label: "League hub",
+      className:
+        "rounded-full border border-sky-400/15 bg-sky-400/8 px-3 py-2 text-[0.66rem] font-semibold uppercase tracking-[0.22em] text-sky-200"
+    };
+  }
+
   if (
     pathname === "/" ||
     isActivePath(pathname, "/board") ||
@@ -123,6 +132,30 @@ export function Header({ pathname, toggleMobileNav }: HeaderProps) {
           );
         })}
       </nav>
+
+      <div className="mt-3 hidden items-center gap-2 xl:flex">
+        <div className="pr-2 text-[0.62rem] font-semibold uppercase tracking-[0.26em] text-slate-500">
+          League desks
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {LEAGUE_NAV_ITEMS.map((item) => {
+            const activeItem = isActivePath(pathname, item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={
+                  activeItem
+                    ? "rounded-full border border-sky-400/30 bg-sky-500/12 px-3 py-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-white"
+                    : "rounded-full border border-white/8 bg-white/[0.02] px-3 py-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-slate-400 transition hover:border-white/12 hover:text-white"
+                }
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      </div>
     </header>
   );
 }
