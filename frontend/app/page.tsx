@@ -1,4 +1,5 @@
 import Link from "next/link";
+
 import {
   getProviderHealthTone,
   MovementCard,
@@ -10,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SectionTitle } from "@/components/ui/section-title";
 import type { GameCardView, LeagueKey } from "@/lib/types/domain";
+import type { OpportunityView } from "@/lib/types/opportunity";
 import { withTimeoutFallback } from "@/lib/utils/async";
 import { buildHomeOpportunitySnapshot } from "@/services/opportunities/opportunity-service";
 
@@ -49,6 +51,7 @@ function readValue(
 
 function getSelectedLeague(value: string | undefined): HomeLeagueScope {
   const candidate = value?.toUpperCase();
+
   return (
     LEAGUE_ITEMS.find((league) => league.key === candidate)?.key ?? "ALL"
   ) as HomeLeagueScope;
@@ -72,7 +75,16 @@ function resolveBoardDate(value: (typeof DESK_DATES)[number]["key"]) {
   const year = tomorrow.getFullYear();
   const month = `${tomorrow.getMonth() + 1}`.padStart(2, "0");
   const day = `${tomorrow.getDate()}`.padStart(2, "0");
+
   return `${year}${month}${day}`;
+}
+
+function formatDateLabel(value: (typeof DESK_DATES)[number]["key"]) {
+  return value === "today"
+    ? "Today"
+    : value === "tomorrow"
+      ? "Tomorrow"
+      : "Upcoming";
 }
 
 function isVerifiedGame(game: GameCardView) {
@@ -100,16 +112,52 @@ function chooseFocusedLeague(
   return boardGames[0]?.leagueKey ?? "NBA";
 }
 
-function formatDateLabel(value: (typeof DESK_DATES)[number]["key"]) {
-  return value === "today" ? "Today" : value === "tomorrow" ? "Tomorrow" : "Upcoming";
+function getMovementMagnitude(game: GameCardView) {
+  return Math.max(
+    Math.abs(game.spread.movement),
+    Math.abs(game.total.movement),
+    Math.abs(game.moneyline.movement)
+  );
+}
+
+function dedupeOpportunities(opportunities: OpportunityView[]) {
+  return Array.from(
+    new Map(opportunities.map((opportunity) => [opportunity.id, opportunity])).values()
+  );
+}
+
+function formatSignedPercent(value: number | null | undefined, digits = 1) {
+  if (typeof value !== "number") {
+    return "--";
+  }
+
+  return `${value > 0 ? "+" : ""}${value.toFixed(digits)}%`;
+}
+
+function formatSignedUnits(value: number | null | undefined, digits = 2) {
+  if (typeof value !== "number") {
+    return "--";
+  }
+
+  return `${value > 0 ? "+" : ""}${value.toFixed(digits)}u`;
+}
+
+function formatFreshness(minutes: number | null | undefined) {
+  if (typeof minutes !== "number") {
+    return "Freshness unknown";
+  }
+
+  return `${minutes}m old`;
 }
 
 export default async function HomePage({ searchParams }: HomePageProps) {
   const resolvedSearch = (await searchParams) ?? {};
   const selectedLeague = getSelectedLeague(readValue(resolvedSearch, "league"));
   const selectedDate = getSelectedDate(readValue(resolvedSearch, "date"));
+
   const oddsService = await import("@/services/odds/board-service");
-  const boardFilters = oddsService.parseBoardFilters({
+
+  const pregameFilters = oddsService.parseBoardFilters({
     league: selectedLeague,
     date: resolveBoardDate(selectedDate),
     sportsbook: "best",
@@ -117,30 +165,110 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     status: "pregame"
   });
 
-  const boardData = await oddsService.getBoardPageData(boardFilters);
-  const topProps = await withTimeoutFallback(
-    import("@/services/odds/props-service").then((module) => module.getTopPlayCards(4)),
-    {
-      timeoutMs: 1_800,
-      fallback: []
-    }
-  );
-  const opportunitySnapshot = buildHomeOpportunitySnapshot({
-    games: boardData.games,
-    props: topProps,
-    providerHealth: boardData.providerHealth
+  const liveFilters = oddsService.parseBoardFilters({
+    league: selectedLeague,
+    date: resolveBoardDate(selectedDate),
+    sportsbook: "best",
+    market: "all",
+    status: "live"
   });
-  const focusedLeague = chooseFocusedLeague(selectedLeague, boardData.games);
+
+  const [pregameResult, liveResult, propsResult, performanceResult] =
+    await Promise.allSettled([
+      oddsService.getBoardPageData(pregameFilters),
+      oddsService.getBoardPageData(liveFilters),
+      withTimeoutFallback(
+        import("@/services/odds/props-service").then((module) =>
+          module.getTopPlayCards(6)
+        ),
+        {
+          timeoutMs: 1_800,
+          fallback: []
+        }
+      ),
+      withTimeoutFallback(
+        import("@/services/bets/bets-service").then((module) =>
+          module.getPerformanceDashboard()
+        ),
+        {
+          timeoutMs: 1_800,
+          fallback: null
+        }
+      )
+    ]);
+
+  if (pregameResult.status !== "fulfilled") {
+    throw pregameResult.reason;
+  }
+
+  const pregameBoardData = pregameResult.value;
+  const liveBoardData =
+    liveResult.status === "fulfilled"
+      ? liveResult.value
+      : {
+          ...pregameBoardData,
+          filters: liveFilters,
+          games: [],
+          liveMessage: "Live board unavailable on this render.",
+          sourceNote:
+            "Live desk did not render cleanly, so the command center is staying honest and using pregame-only data for this pass.",
+          providerHealth: {
+            ...pregameBoardData.providerHealth,
+            state:
+              pregameBoardData.providerHealth.state === "HEALTHY"
+                ? "DEGRADED"
+                : pregameBoardData.providerHealth.state,
+            label: "Live desk unavailable",
+            summary:
+              "Live board could not render on this request. SharkEdge is falling back to pregame-only command center data instead of faking a live feed.",
+            warnings: Array.from(
+              new Set([
+                ...pregameBoardData.providerHealth.warnings,
+                "Live board unavailable on this render."
+              ])
+            )
+          }
+        };
+
+  const topProps = propsResult.status === "fulfilled" ? propsResult.value : [];
+  const performanceData =
+    performanceResult.status === "fulfilled" ? performanceResult.value : null;
+
+  const opportunitySnapshot = buildHomeOpportunitySnapshot({
+    games: pregameBoardData.games,
+    props: topProps,
+    providerHealth: pregameBoardData.providerHealth,
+    performance: performanceData
+  });
+
+  const focusedLeague = chooseFocusedLeague(selectedLeague, pregameBoardData.games);
+
+  const bestEdges = dedupeOpportunities([
+    ...opportunitySnapshot.timingWindows,
+    ...opportunitySnapshot.boardTop,
+    ...opportunitySnapshot.propsTop
+  ]).slice(0, 4);
+
+  const propDesk = opportunitySnapshot.propsTop.slice(0, 2);
+
   const rankedGames = Array.from(
     new Map(
       opportunitySnapshot.boardTop
-        .map((opportunity) => boardData.games.find((game) => opportunity.id.startsWith(`${game.id}:`)))
+        .map((opportunity) =>
+          pregameBoardData.games.find((game) =>
+            opportunity.id.startsWith(`${game.id}:`)
+          )
+        )
         .filter((game): game is GameCardView => Boolean(game))
         .map((game) => [game.id, game] as const)
     ).values()
   );
-  const verifiedGames = (rankedGames.length ? rankedGames : boardData.games.filter(isVerifiedGame)).slice(0, 6);
-  const movementGames = boardData.games
+
+  const verifiedGames = (
+    rankedGames.length ? rankedGames : pregameBoardData.games.filter(isVerifiedGame)
+  ).slice(0, 4);
+
+  const movementGames = pregameBoardData.games
     .filter(isVerifiedGame)
     .filter(
       (game) =>
@@ -148,20 +276,27 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         Math.abs(game.total.movement) >= 0.5 ||
         Math.abs(game.moneyline.movement) >= 10
     )
-    .sort((left, right) => {
-      const leftMove = Math.max(
-        Math.abs(left.spread.movement),
-        Math.abs(left.total.movement),
-        Math.abs(left.moneyline.movement)
-      );
-      const rightMove = Math.max(
-        Math.abs(right.spread.movement),
-        Math.abs(right.total.movement),
-        Math.abs(right.moneyline.movement)
-      );
-      return rightMove - leftMove;
-    })
+    .sort((left, right) => getMovementMagnitude(right) - getMovementMagnitude(left))
     .slice(0, 4);
+
+  const liveWatchGames = liveBoardData.games
+    .filter(isVerifiedGame)
+    .sort((left, right) => getMovementMagnitude(right) - getMovementMagnitude(left))
+    .slice(0, 4);
+
+  const combinedWarnings = Array.from(
+    new Set([
+      ...pregameBoardData.providerHealth.warnings,
+      ...liveBoardData.providerHealth.warnings
+    ])
+  );
+
+  const deskActionableCount = bestEdges.filter(
+    (opportunity) => opportunity.actionState === "BET_NOW"
+  ).length;
+
+  const workflowBlocked = Boolean(performanceData?.setup);
+  const workflowSummary = performanceData?.summary ?? null;
 
   return (
     <div className="grid gap-8">
@@ -169,12 +304,15 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         <div className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr] xl:items-end">
           <div className="grid gap-5">
             <div className="section-kicker">SharkEdge command center</div>
-            <div className="max-w-5xl font-display text-5xl font-semibold tracking-tight text-white md:text-6xl xl:text-[4.6rem] xl:leading-[0.98]">
-              Board first. Matchup second. Props when the number earns it.
+            <div className="max-w-5xl font-display text-5xl font-semibold tracking-tight text-white md:text-6xl xl:text-[4.5rem] xl:leading-[0.98]">
+              What matters now. What changed. What deserves a click.
             </div>
             <div className="max-w-3xl text-base leading-8 text-slate-300 md:text-lg">
-              Live prices, market posture, and prop context in one decision loop. The job is to show what matters, why it matters, and what to open next.
+              The homepage is no longer a billboard. It is the operating screen:
+              best edges, live watch spots, real movers, and your actual workflow
+              posture without fake urgency.
             </div>
+
             <div className="flex flex-wrap gap-3">
               <Link
                 href="/board"
@@ -194,53 +332,84 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               >
                 Hunt props
               </Link>
+              <Link
+                href="/performance"
+                className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25"
+              >
+                Performance
+              </Link>
             </div>
           </div>
 
           <div className="grid gap-3 rounded-[1.6rem] border border-white/8 bg-[#09131f]/85 p-5">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-[0.66rem] uppercase tracking-[0.28em] text-slate-500">Current desk</div>
-              <Badge tone={getProviderHealthTone(boardData.providerHealth.state)}>
-                {boardData.providerHealth.label}
-              </Badge>
+              <div className="text-[0.66rem] uppercase tracking-[0.28em] text-slate-500">
+                Current desk
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge tone={getProviderHealthTone(pregameBoardData.providerHealth.state)}>
+                  Pregame {pregameBoardData.providerHealth.label}
+                </Badge>
+                <Badge tone={getProviderHealthTone(liveBoardData.providerHealth.state)}>
+                  Live {liveBoardData.providerHealth.label}
+                </Badge>
+              </div>
             </div>
+
             <div className="text-3xl font-semibold text-white">
               {selectedLeague === "ALL" ? "All Sports" : selectedLeague}
             </div>
+
             <div className="text-sm leading-6 text-slate-300">
-              {boardData.providerHealth.summary}
+              {pregameBoardData.providerHealth.summary}
             </div>
+
             <div className="flex flex-wrap gap-2 text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
               <span>Focus league: {focusedLeague}</span>
               <span>Slate: {formatDateLabel(selectedDate)}</span>
-              <span>{boardData.providerHealth.freshnessLabel}</span>
-              {typeof boardData.providerHealth.freshnessMinutes === "number" ? (
-                <span>{boardData.providerHealth.freshnessMinutes}m old</span>
-              ) : null}
+              <span>Pregame {formatFreshness(pregameBoardData.providerHealth.freshnessMinutes)}</span>
+              <span>Live {formatFreshness(liveBoardData.providerHealth.freshnessMinutes)}</span>
             </div>
+
             <div className="terminal-rule mt-2" />
+
             <div className="data-grid">
               <div>
-                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Verified games</div>
-                <div className="mt-2 text-2xl font-semibold text-white">{verifiedGames.length}</div>
-              </div>
-              <div>
-                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Move alerts</div>
-                <div className="mt-2 text-2xl font-semibold text-white">{movementGames.length}</div>
-              </div>
-              <div>
-                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Tracked games</div>
-                <div className="mt-2 text-2xl font-semibold text-white">{boardData.games.length}</div>
-              </div>
-              <div>
-                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Desk warnings</div>
+                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">
+                  Bet now
+                </div>
                 <div className="mt-2 text-2xl font-semibold text-white">
-                  {boardData.providerHealth.warnings.length}
+                  {deskActionableCount}
+                </div>
+              </div>
+              <div>
+                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">
+                  Live watch
+                </div>
+                <div className="mt-2 text-2xl font-semibold text-white">
+                  {liveWatchGames.length}
+                </div>
+              </div>
+              <div>
+                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">
+                  Movers
+                </div>
+                <div className="mt-2 text-2xl font-semibold text-white">
+                  {movementGames.length}
+                </div>
+              </div>
+              <div>
+                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">
+                  Warnings
+                </div>
+                <div className="mt-2 text-2xl font-semibold text-white">
+                  {combinedWarnings.length}
                 </div>
               </div>
             </div>
+
             <div className="text-sm leading-6 text-slate-400">
-              {boardData.sourceNote}
+              {pregameBoardData.sourceNote}
             </div>
           </div>
         </div>
@@ -250,7 +419,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             {LEAGUE_ITEMS.map((league) => (
               <Link
                 key={league.key}
-                href={league.key === "ALL" ? "/?league=ALL&date=today" : `/?league=${league.key}&date=today`}
+                href={`/?league=${league.key}&date=${selectedDate}`}
                 className={
                   selectedLeague === league.key
                     ? "rounded-full border border-sky-400/35 bg-sky-500/12 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white"
@@ -261,6 +430,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               </Link>
             ))}
           </div>
+
           <div className="flex flex-wrap gap-2">
             {DESK_DATES.map((date) => (
               <Link
@@ -279,33 +449,219 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         </div>
       </section>
 
-      <section className="grid gap-4">
-        <SectionTitle
-          eyebrow="Line movement"
-          title="Numbers worth reacting to"
-          description="The move is real. Open these first."
-        />
-        <div className="grid gap-4 xl:grid-cols-2">
-          {movementGames.length ? (
-            movementGames.map((game) => <MovementCard key={game.id} game={game} />)
+      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <section className="grid gap-4">
+          <SectionTitle
+            eyebrow="Best edges now"
+            title="Open these first"
+            description="This is the short list. Best price posture, best timing posture, and the cleanest current windows."
+          />
+          <div className="grid gap-4 xl:grid-cols-2">
+            {bestEdges.length ? (
+              bestEdges.map((opportunity) => (
+                <OpportunitySpotlightCard
+                  key={opportunity.id}
+                  opportunity={opportunity}
+                  href={`/game/${opportunity.eventId}`}
+                  ctaLabel="Open context"
+                />
+              ))
+            ) : (
+              <Card className="surface-panel p-6 text-sm leading-7 text-slate-400 xl:col-span-2">
+                No opportunities cleared the homepage threshold on this pass. That is the correct output when the desk does not have enough clean price posture.
+              </Card>
+            )}
+          </div>
+        </section>
+
+        <section className="grid gap-4">
+          <SectionTitle
+            eyebrow="Your workflow"
+            title="Personal posture"
+            description="Your betting workflow should live on the homepage too, not just raw markets."
+          />
+
+          {performanceData === null ? (
+            <Card className="surface-panel p-6">
+              <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+                Performance feed
+              </div>
+              <div className="mt-3 text-2xl font-semibold text-white">
+                Workflow summary unavailable
+              </div>
+              <div className="mt-3 text-sm leading-7 text-slate-400">
+                The homepage could not pull the performance dashboard fast enough on this render. The market desk stays live instead of blocking the whole page.
+              </div>
+              <div className="mt-5 flex flex-wrap gap-3">
+                <Link
+                  href="/performance"
+                  className="rounded-full bg-sky-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400"
+                >
+                  Open performance
+                </Link>
+                <Link
+                  href="/bets"
+                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25"
+                >
+                  Open bets
+                </Link>
+              </div>
+            </Card>
+          ) : workflowBlocked ? (
+            <Card className="surface-panel p-6">
+              <div className="text-[0.66rem] uppercase tracking-[0.22em] text-rose-300">
+                Ledger blocked
+              </div>
+              <div className="mt-3 text-2xl font-semibold text-white">
+                Performance is not wired cleanly yet
+              </div>
+              <div className="mt-3 text-sm leading-7 text-slate-400">
+                {performanceData.setup?.detail ??
+                  "The ledger stack is still blocked, so the homepage is staying honest instead of inventing win rates or fake CLV."}
+              </div>
+              <div className="mt-4 grid gap-2">
+                {(performanceData.setup?.steps ?? []).slice(0, 3).map((step) => (
+                  <div
+                    key={step}
+                    className="rounded-[1rem] border border-white/8 bg-slate-950/65 px-4 py-3 text-sm text-slate-300"
+                  >
+                    {step}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-5">
+                <Link
+                  href="/performance"
+                  className="rounded-full bg-sky-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400"
+                >
+                  Open performance
+                </Link>
+              </div>
+            </Card>
           ) : (
-            <Card className="surface-panel p-6 text-sm leading-7 text-slate-400">
-              No verified movement rows cleared the desk right now.
+            <Card className="surface-panel p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+                  Tracked ledger
+                </div>
+                <Badge tone="success">{workflowSummary?.record ?? "0-0-0"}</Badge>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-[1rem] border border-line bg-slate-950/65 px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                    Open bets
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold text-white">
+                    {workflowSummary?.openBets ?? 0}
+                  </div>
+                </div>
+                <div className="rounded-[1rem] border border-line bg-slate-950/65 px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                    Net units
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold text-white">
+                    {formatSignedUnits(workflowSummary?.netUnits)}
+                  </div>
+                </div>
+                <div className="rounded-[1rem] border border-line bg-slate-950/65 px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                    ROI
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold text-white">
+                    {formatSignedPercent(workflowSummary?.roi)}
+                  </div>
+                </div>
+                <div className="rounded-[1rem] border border-line bg-slate-950/65 px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                    Avg CLV
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold text-white">
+                    {formatSignedPercent(workflowSummary?.averageClv)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3">
+                <div className="rounded-[1rem] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
+                  <span className="font-medium text-white">Best segment: </span>
+                  {performanceData.bestSegments[0] ??
+                    "Not enough settled history yet to separate a real strength."}
+                </div>
+                <div className="rounded-[1rem] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
+                  <span className="font-medium text-white">Weak spot: </span>
+                  {performanceData.worstSegments[0] ??
+                    "Weak spots stay blank until the ledger has enough truth."}
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-3">
+                <Link
+                  href="/bets"
+                  className="rounded-full bg-sky-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400"
+                >
+                  Open bets
+                </Link>
+                <Link
+                  href="/performance"
+                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25"
+                >
+                  Open performance
+                </Link>
+              </div>
             </Card>
           )}
-        </div>
-      </section>
+        </section>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <section className="grid gap-4">
+          <SectionTitle
+            eyebrow="Line movement"
+            title="Numbers worth reacting to"
+            description="These are the real movers on the pregame desk. Open the matchup instead of staring at the homepage."
+          />
+          <div className="grid gap-4 xl:grid-cols-2">
+            {movementGames.length ? (
+              movementGames.map((game) => <MovementCard key={game.id} game={game} />)
+            ) : (
+              <Card className="surface-panel p-6 text-sm leading-7 text-slate-400 xl:col-span-2">
+                No verified movement rows cleared the desk right now.
+              </Card>
+            )}
+          </div>
+        </section>
+
+        <section className="grid gap-4">
+          <SectionTitle
+            eyebrow="Live watchlist"
+            title="Games that deserve live attention"
+            description="Not every live game belongs here. Only the ones worth opening."
+          />
+          <div className="grid gap-4 xl:grid-cols-2">
+            {liveWatchGames.length ? (
+              liveWatchGames.map((game) => (
+                <GameCard key={game.id} game={game} focusMarket="best" />
+              ))
+            ) : (
+              <Card className="surface-panel p-6 text-sm leading-7 text-slate-400 xl:col-span-2">
+                The live desk has nothing verified enough to lead with on this render.
+              </Card>
+            )}
+          </div>
+        </section>
+      </div>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <section className="grid gap-4">
           <SectionTitle
             eyebrow="Prop desk"
-            title="Best prop entries"
-            description="Only props with real posture belong here."
+            title="Props with enough posture to matter"
+            description="This stays selective. Props do not earn homepage space just because they exist."
           />
           <div className="grid gap-4">
-            {opportunitySnapshot.propsTop.length ? (
-              opportunitySnapshot.propsTop.slice(0, 2).map((opportunity) => (
+            {propDesk.length ? (
+              propDesk.map((opportunity) => (
                 <OpportunitySpotlightCard
                   key={opportunity.id}
                   opportunity={opportunity}
@@ -315,7 +671,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               ))
             ) : (
               <Card className="surface-panel p-6 text-sm leading-7 text-slate-400">
-                The prop desk is quiet right now. Open the full Props workflow instead of forcing homepage filler.
+                The prop desk is quiet right now. That is better than homepage filler.
               </Card>
             )}
           </div>
@@ -323,35 +679,59 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
         <section className="grid gap-4">
           <SectionTitle
-            eyebrow="Action desk"
-            title="Best windows and trap lines"
-            description="What is playable now, and what should not lead you."
+            eyebrow="Trap desk"
+            title="What should not lead you"
+            description="Good command centers tell you what to avoid too."
           />
           <div className="grid gap-4">
-            {opportunitySnapshot.timingWindows.slice(0, 2).map((opportunity) => (
-              <OpportunitySpotlightCard
-                key={opportunity.id}
-                opportunity={opportunity}
-                href={opportunity.kind === "prop" ? `/game/${opportunity.eventId}` : `/game/${opportunity.eventId}`}
-                ctaLabel="Open timing"
-              />
-            ))}
             {opportunitySnapshot.traps.length ? (
               <Card className="surface-panel p-5">
-                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-rose-300">Do not chase</div>
+                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-rose-300">
+                  Do not chase
+                </div>
                 <div className="mt-3 grid gap-3">
                   {opportunitySnapshot.traps.map((opportunity) => (
                     <div
                       key={`${opportunity.id}-trap`}
                       className="rounded-[1rem] border border-rose-400/20 bg-rose-500/8 px-4 py-3"
                     >
-                      <div className="text-sm font-medium text-white">{opportunity.selectionLabel}</div>
-                      <div className="mt-1 text-sm text-rose-100">{opportunity.whatCouldKillIt[0] ?? opportunity.reasonSummary}</div>
+                      <div className="text-sm font-medium text-white">
+                        {opportunity.selectionLabel}
+                      </div>
+                      <div className="mt-1 text-sm text-rose-100">
+                        {opportunity.whatCouldKillIt[0] ?? opportunity.reasonSummary}
+                      </div>
                     </div>
                   ))}
                 </div>
               </Card>
-            ) : null}
+            ) : (
+              <Card className="surface-panel p-6 text-sm leading-7 text-slate-400">
+                No major trap lines are surfacing above threshold on this pass.
+              </Card>
+            )}
+
+            <Card className="surface-panel p-5">
+              <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+                Coverage / trust summary
+              </div>
+              <div className="mt-4 grid gap-3">
+                <div className="rounded-[1rem] border border-line bg-slate-950/65 px-4 py-3 text-sm text-slate-300">
+                  <span className="font-medium text-white">Pregame desk: </span>
+                  {pregameBoardData.providerHealth.summary}
+                </div>
+                <div className="rounded-[1rem] border border-line bg-slate-950/65 px-4 py-3 text-sm text-slate-300">
+                  <span className="font-medium text-white">Live desk: </span>
+                  {liveBoardData.providerHealth.summary}
+                </div>
+                <div className="rounded-[1rem] border border-line bg-slate-950/65 px-4 py-3 text-sm text-slate-300">
+                  <span className="font-medium text-white">Warnings: </span>
+                  {combinedWarnings.length
+                    ? combinedWarnings.join(" • ")
+                    : "No active desk warnings right now."}
+                </div>
+              </div>
+            </Card>
           </div>
         </section>
       </div>
@@ -368,37 +748,39 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             }
           />
           <div className="grid gap-4 xl:grid-cols-2">
-            {verifiedGames.length
-              ? verifiedGames.map((game) => <GameCard key={game.id} game={game} focusMarket="best" />)
-              : (
-                <Card className="surface-panel p-6">
-                  <div className="grid gap-3">
-                    <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-                      Verified rows are thin
-                    </div>
-                    <div className="text-2xl font-semibold text-white">
-                      The board is staying honest instead of inventing a slate.
-                    </div>
-                    <div className="text-sm leading-7 text-slate-400">
-                      Open the Games desk for broader matchup context or move into Props if you already know the league you want to hunt.
-                    </div>
-                    <div className="flex flex-wrap gap-3 pt-1">
-                      <Link
-                        href="/games"
-                        className="rounded-full bg-sky-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400"
-                      >
-                        Open games
-                      </Link>
-                      <Link
-                        href={`/props?league=${focusedLeague}`}
-                        className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25"
-                      >
-                        Hunt props
-                      </Link>
-                    </div>
+            {verifiedGames.length ? (
+              verifiedGames.map((game) => (
+                <GameCard key={game.id} game={game} focusMarket="best" />
+              ))
+            ) : (
+              <Card className="surface-panel p-6">
+                <div className="grid gap-3">
+                  <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+                    Verified rows are thin
                   </div>
-                </Card>
-              )}
+                  <div className="text-2xl font-semibold text-white">
+                    The board is staying honest instead of inventing a slate.
+                  </div>
+                  <div className="text-sm leading-7 text-slate-400">
+                    Open the Games desk for broader matchup context or move into Props if you already know the league you want to hunt.
+                  </div>
+                  <div className="flex flex-wrap gap-3 pt-1">
+                    <Link
+                      href="/games"
+                      className="rounded-full bg-sky-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400"
+                    >
+                      Open games
+                    </Link>
+                    <Link
+                      href={`/props?league=${focusedLeague}`}
+                      className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25"
+                    >
+                      Hunt props
+                    </Link>
+                  </div>
+                </div>
+              </Card>
+            )}
           </div>
         </section>
 
@@ -406,7 +788,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           <SectionTitle
             eyebrow="Next move"
             title="Go deeper without losing the thread"
-            description="The front page should hand you into the next desk, not trap you in widgets."
+            description="The homepage should hand you into the next desk, not trap you in widget hell."
           />
           <ResearchRail focusedLeague={focusedLeague} />
         </section>
