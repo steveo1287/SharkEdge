@@ -10,120 +10,24 @@ import { OpportunitySpotlightCard } from "@/components/intelligence/opportunity-
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SectionTitle } from "@/components/ui/section-title";
-import type { GameCardView, LeagueKey } from "@/lib/types/domain";
-import type { OpportunityView } from "@/lib/types/opportunity";
-import { withTimeoutFallback } from "@/lib/utils/async";
-import { buildHomeOpportunitySnapshot } from "@/services/opportunities/opportunity-service";
+import {
+  getHomeCommandData,
+  HOME_DESK_DATES,
+  HOME_LEAGUE_ITEMS
+} from "@/services/home/home-command-service";
 
 export const dynamic = "force-dynamic";
-
-type HomeLeagueScope = LeagueKey | "ALL";
 
 type HomePageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const LEAGUE_ITEMS = [
-  { key: "ALL", label: "All Sports" },
-  { key: "NBA", label: "NBA" },
-  { key: "NCAAB", label: "NCAAB" },
-  { key: "MLB", label: "MLB" },
-  { key: "NHL", label: "NHL" },
-  { key: "NFL", label: "NFL" },
-  { key: "NCAAF", label: "NCAAF" },
-  { key: "UFC", label: "UFC" },
-  { key: "BOXING", label: "Boxing" }
-] as const;
-
-const DESK_DATES = [
-  { key: "today", label: "Today" },
-  { key: "tomorrow", label: "Tomorrow" },
-  { key: "upcoming", label: "Upcoming" }
-] as const;
-
-function readValue(
-  searchParams: Record<string, string | string[] | undefined>,
-  key: string
-) {
-  const value = searchParams[key];
-  return Array.isArray(value) ? value[0] : value;
-}
-
-function getSelectedLeague(value: string | undefined): HomeLeagueScope {
-  const candidate = value?.toUpperCase();
-
-  return (
-    LEAGUE_ITEMS.find((league) => league.key === candidate)?.key ?? "ALL"
-  ) as HomeLeagueScope;
-}
-
-function getSelectedDate(value: string | undefined) {
-  return DESK_DATES.find((item) => item.key === value)?.key ?? "today";
-}
-
-function resolveBoardDate(value: (typeof DESK_DATES)[number]["key"]) {
-  if (value === "today") {
-    return "today";
-  }
-
-  if (value === "upcoming") {
-    return "all";
-  }
-
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const year = tomorrow.getFullYear();
-  const month = `${tomorrow.getMonth() + 1}`.padStart(2, "0");
-  const day = `${tomorrow.getDate()}`.padStart(2, "0");
-
-  return `${year}${month}${day}`;
-}
-
-function formatDateLabel(value: (typeof DESK_DATES)[number]["key"]) {
+function formatDateLabel(value: (typeof HOME_DESK_DATES)[number]["key"]) {
   return value === "today"
     ? "Today"
     : value === "tomorrow"
       ? "Tomorrow"
       : "Upcoming";
-}
-
-function isVerifiedGame(game: GameCardView) {
-  return (
-    game.bestBookCount > 0 &&
-    (game.spread.bestOdds !== 0 ||
-      game.moneyline.bestOdds !== 0 ||
-      game.total.bestOdds !== 0)
-  );
-}
-
-function chooseFocusedLeague(
-  selectedLeague: HomeLeagueScope,
-  boardGames: GameCardView[]
-): LeagueKey {
-  if (selectedLeague !== "ALL") {
-    return selectedLeague;
-  }
-
-  const boardLeague = boardGames.find((game) => isVerifiedGame(game))?.leagueKey;
-  if (boardLeague) {
-    return boardLeague;
-  }
-
-  return boardGames[0]?.leagueKey ?? "NBA";
-}
-
-function getMovementMagnitude(game: GameCardView) {
-  return Math.max(
-    Math.abs(game.spread.movement),
-    Math.abs(game.total.movement),
-    Math.abs(game.moneyline.movement)
-  );
-}
-
-function dedupeOpportunities(opportunities: OpportunityView[]) {
-  return Array.from(
-    new Map(opportunities.map((opportunity) => [opportunity.id, opportunity])).values()
-  );
 }
 
 function formatSignedPercent(value: number | null | undefined, digits = 1) {
@@ -151,152 +55,24 @@ function formatFreshness(minutes: number | null | undefined) {
 }
 
 export default async function HomePage({ searchParams }: HomePageProps) {
-  const resolvedSearch = (await searchParams) ?? {};
-  const selectedLeague = getSelectedLeague(readValue(resolvedSearch, "league"));
-  const selectedDate = getSelectedDate(readValue(resolvedSearch, "date"));
-
-  const oddsService = await import("@/services/odds/board-service");
-
-  const pregameFilters = oddsService.parseBoardFilters({
-    league: selectedLeague,
-    date: resolveBoardDate(selectedDate),
-    sportsbook: "best",
-    market: "all",
-    status: "pregame"
-  });
-
-  const liveFilters = oddsService.parseBoardFilters({
-    league: selectedLeague,
-    date: resolveBoardDate(selectedDate),
-    sportsbook: "best",
-    market: "all",
-    status: "live"
-  });
-
-  const [pregameResult, liveResult, propsResult, performanceResult] =
-    await Promise.allSettled([
-      oddsService.getBoardPageData(pregameFilters),
-      oddsService.getBoardPageData(liveFilters),
-      withTimeoutFallback(
-        import("@/services/odds/props-service").then((module) =>
-          module.getTopPlayCards(6)
-        ),
-        {
-          timeoutMs: 1_800,
-          fallback: []
-        }
-      ),
-      withTimeoutFallback(
-        import("@/services/bets/bets-service").then((module) =>
-          module.getPerformanceDashboard()
-        ),
-        {
-          timeoutMs: 1_800,
-          fallback: null
-        }
-      )
-    ]);
-
-  if (pregameResult.status !== "fulfilled") {
-    throw pregameResult.reason;
-  }
-
-  const pregameBoardData = pregameResult.value;
-  const liveBoardData =
-    liveResult.status === "fulfilled"
-      ? liveResult.value
-      : {
-          ...pregameBoardData,
-          filters: liveFilters,
-          games: [],
-          liveMessage: "Live board unavailable on this render.",
-          sourceNote:
-            "Live desk did not render cleanly, so the command center is staying honest and using pregame-only data for this pass.",
-          providerHealth: {
-            ...pregameBoardData.providerHealth,
-            state:
-              pregameBoardData.providerHealth.state === "HEALTHY"
-                ? "DEGRADED"
-                : pregameBoardData.providerHealth.state,
-            label: "Live desk unavailable",
-            summary:
-              "Live board could not render on this request. SharkEdge is falling back to pregame-only command center data instead of faking a live feed.",
-            warnings: Array.from(
-              new Set([
-                ...pregameBoardData.providerHealth.warnings,
-                "Live board unavailable on this render."
-              ])
-            )
-          }
-        };
-
-  const topProps = propsResult.status === "fulfilled" ? propsResult.value : [];
-  const performanceData =
-    performanceResult.status === "fulfilled" ? performanceResult.value : null;
-
-  const opportunitySnapshot = buildHomeOpportunitySnapshot({
-    games: pregameBoardData.games,
-    props: topProps,
-    providerHealth: pregameBoardData.providerHealth,
-    performance: performanceData
-  });
-
-  const focusedLeague = chooseFocusedLeague(selectedLeague, pregameBoardData.games);
-
-  const bestEdges = dedupeOpportunities([
-    ...opportunitySnapshot.timingWindows,
-    ...opportunitySnapshot.boardTop,
-    ...opportunitySnapshot.propsTop
-  ]).slice(0, 4);
-
-  const propDesk = opportunitySnapshot.propsTop.slice(0, 2);
-
-  const rankedGames = Array.from(
-    new Map(
-      opportunitySnapshot.boardTop
-        .map((opportunity) =>
-          pregameBoardData.games.find((game) =>
-            opportunity.id.startsWith(`${game.id}:`)
-          )
-        )
-        .filter((game): game is GameCardView => Boolean(game))
-        .map((game) => [game.id, game] as const)
-    ).values()
-  );
-
-  const verifiedGames = (
-    rankedGames.length ? rankedGames : pregameBoardData.games.filter(isVerifiedGame)
-  ).slice(0, 4);
-
-  const movementGames = pregameBoardData.games
-    .filter(isVerifiedGame)
-    .filter(
-      (game) =>
-        Math.abs(game.spread.movement) >= 0.5 ||
-        Math.abs(game.total.movement) >= 0.5 ||
-        Math.abs(game.moneyline.movement) >= 10
-    )
-    .sort((left, right) => getMovementMagnitude(right) - getMovementMagnitude(left))
-    .slice(0, 4);
-
-  const liveWatchGames = liveBoardData.games
-    .filter(isVerifiedGame)
-    .sort((left, right) => getMovementMagnitude(right) - getMovementMagnitude(left))
-    .slice(0, 4);
-
-  const combinedWarnings = Array.from(
-    new Set([
-      ...pregameBoardData.providerHealth.warnings,
-      ...liveBoardData.providerHealth.warnings
-    ])
-  );
-
-  const deskActionableCount = bestEdges.filter(
-    (opportunity) => opportunity.actionState === "BET_NOW"
-  ).length;
-
-  const workflowBlocked = Boolean(performanceData?.setup);
-  const workflowSummary = performanceData?.summary ?? null;
+  const {
+    selectedLeague,
+    selectedDate,
+    focusedLeague,
+    pregameBoardData,
+    liveBoardData,
+    performanceData,
+    opportunitySnapshot,
+    bestEdges,
+    propDesk,
+    verifiedGames,
+    movementGames,
+    liveWatchGames,
+    combinedWarnings,
+    deskActionableCount,
+    workflowBlocked,
+    workflowSummary
+  } = await getHomeCommandData(searchParams);
 
   return (
     <div className="grid gap-8">
@@ -416,7 +192,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
         <div className="mt-8 grid gap-3 xl:grid-cols-[1fr_auto] xl:items-center">
           <div className="flex flex-wrap gap-2">
-            {LEAGUE_ITEMS.map((league) => (
+            {HOME_LEAGUE_ITEMS.map((league) => (
               <Link
                 key={league.key}
                 href={`/?league=${league.key}&date=${selectedDate}`}
@@ -432,7 +208,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {DESK_DATES.map((date) => (
+            {HOME_DESK_DATES.map((date) => (
               <Link
                 key={date.key}
                 href={`/?league=${selectedLeague}&date=${date.key}`}
