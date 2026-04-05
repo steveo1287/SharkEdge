@@ -51,13 +51,6 @@ function MiniMetric({ label, value, note }: MiniMetricProps) {
     </div>
   );
 }
-  return (
-    <div className="rounded-[1.2rem] border border-white/8 bg-slate-950/60 px-4 py-3">
-      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
-      <div className="mt-2 text-base font-semibold text-white">{value}</div>
-    </div>
-  );
-}
 
 function SignalCard({
   detail,
