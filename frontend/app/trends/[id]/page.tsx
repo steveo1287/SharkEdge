@@ -96,6 +96,27 @@ function buildBackHref(filters: TrendFilters) {
   return query ? `/trends?${query}` : "/trends";
 }
 
+function buildTrendDetailHref(card: PublishedTrendCard, filters: TrendFilters) {
+  const params = new URLSearchParams();
+
+  if (filters.sport !== "ALL") params.set("sport", filters.sport);
+  if (filters.league !== "ALL") params.set("league", filters.league);
+  if (filters.market !== "ALL") params.set("market", filters.market);
+  if (filters.sportsbook !== "all") params.set("sportsbook", filters.sportsbook);
+  if (filters.side !== "ALL") params.set("side", filters.side);
+  if (filters.subject) params.set("subject", filters.subject);
+  if (filters.team) params.set("team", filters.team);
+  if (filters.player) params.set("player", filters.player);
+  if (filters.fighter) params.set("fighter", filters.fighter);
+  if (filters.opponent) params.set("opponent", filters.opponent);
+  if (filters.window) params.set("window", filters.window);
+  if (filters.sample) params.set("sample", String(filters.sample));
+
+  const query = params.toString();
+  const base = `/trends/${encodeURIComponent(card.sourceTrend.id)}`;
+  return query ? `${base}?${query}` : base;
+}
+
 function MetricTile({
   label,
   value,
@@ -116,9 +137,15 @@ function MetricTile({
   );
 }
 
-function RelatedTrendCard({ card }: { card: PublishedTrendCard }) {
+function RelatedTrendCard({
+  card,
+  href
+}: {
+  card: PublishedTrendCard;
+  href: string;
+}) {
   return (
-    <Link href={card.href} className="block h-full">
+    <Link href={href} className="block h-full">
       <Card className="surface-panel h-full overflow-hidden px-5 py-5 transition hover:border-sky-400/20 hover:bg-white/[0.02]">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
@@ -235,7 +262,9 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
                 <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
                   Trend type
                 </div>
-                <div className="mt-2 text-sm font-medium text-white">{card.sourceTrend.title}</div>
+                <div className="mt-2 text-sm font-medium text-white">
+                  {card.sourceTrend.title}
+                </div>
               </div>
 
               <div>
@@ -337,8 +366,7 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
               </div>
 
               <div className="rounded-[1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
-                Confidence band:{" "}
-                <span className="font-medium text-white">{card.confidence}</span>
+                Confidence band: <span className="font-medium text-white">{card.confidence}</span>
               </div>
 
               <div className="rounded-[1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
@@ -421,7 +449,11 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
         {relatedCards.length ? (
           <div className="grid gap-4 xl:grid-cols-3">
             {relatedCards.map((related) => (
-              <RelatedTrendCard key={related.id} card={related} />
+              <RelatedTrendCard
+                key={related.id}
+                card={related}
+                href={buildTrendDetailHref(related, filters)}
+              />
             ))}
           </div>
         ) : (
