@@ -75,6 +75,27 @@ function getTrendScopeTitle(filters: TrendFilters) {
   );
 }
 
+function buildTrendDetailHref(card: PublishedTrendCard, filters: TrendFilters) {
+  const params = new URLSearchParams();
+
+  if (filters.sport !== "ALL") params.set("sport", filters.sport);
+  if (filters.league !== "ALL") params.set("league", filters.league);
+  if (filters.market !== "ALL") params.set("market", filters.market);
+  if (filters.sportsbook !== "all") params.set("sportsbook", filters.sportsbook);
+  if (filters.side !== "ALL") params.set("side", filters.side);
+  if (filters.subject) params.set("subject", filters.subject);
+  if (filters.team) params.set("team", filters.team);
+  if (filters.player) params.set("player", filters.player);
+  if (filters.fighter) params.set("fighter", filters.fighter);
+  if (filters.opponent) params.set("opponent", filters.opponent);
+  if (filters.window) params.set("window", filters.window);
+  if (filters.sample) params.set("sample", String(filters.sample));
+
+  const query = params.toString();
+  const base = `/trends/${encodeURIComponent(card.sourceTrend.id)}`;
+  return query ? `${base}?${query}` : base;
+}
+
 function MetricTile({
   label,
   value,
@@ -97,13 +118,15 @@ function MetricTile({
 
 function TrendCard({
   card,
+  href,
   featured = false
 }: {
   card: PublishedTrendCard;
+  href: string;
   featured?: boolean;
 }) {
   return (
-    <Link href={card.href} className="block h-full">
+    <Link href={href} className="block h-full">
       <Card
         className={
           featured
@@ -123,7 +146,13 @@ function TrendCard({
         </div>
 
         <div className="mt-4 grid gap-3">
-          <div className={featured ? "text-3xl font-semibold leading-tight text-white" : "text-xl font-semibold leading-tight text-white"}>
+          <div
+            className={
+              featured
+                ? "text-3xl font-semibold leading-tight text-white"
+                : "text-xl font-semibold leading-tight text-white"
+            }
+          >
             {card.title}
           </div>
           <div className="text-sm leading-7 text-slate-400">{card.description}</div>
@@ -131,18 +160,26 @@ function TrendCard({
 
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           <div className="rounded-[1rem] border border-white/8 bg-slate-950/60 px-3 py-3">
-            <div className="text-[0.62rem] uppercase tracking-[0.18em] text-slate-500">Hit Rate</div>
-            <div className="mt-2 text-lg font-semibold text-white">{formatMetric(card.hitRate, "%")}</div>
+            <div className="text-[0.62rem] uppercase tracking-[0.18em] text-slate-500">
+              Hit Rate
+            </div>
+            <div className="mt-2 text-lg font-semibold text-white">
+              {formatMetric(card.hitRate, "%")}
+            </div>
           </div>
           <div className="rounded-[1rem] border border-white/8 bg-slate-950/60 px-3 py-3">
             <div className="text-[0.62rem] uppercase tracking-[0.18em] text-slate-500">ROI</div>
-            <div className="mt-2 text-lg font-semibold text-emerald-300">{formatMetric(card.roi, "%")}</div>
+            <div className="mt-2 text-lg font-semibold text-emerald-300">
+              {formatMetric(card.roi, "%")}
+            </div>
           </div>
           <div className="rounded-[1rem] border border-white/8 bg-slate-950/60 px-3 py-3">
             <div className="text-[0.62rem] uppercase tracking-[0.18em] text-slate-500">
               {card.primaryMetricLabel}
             </div>
-            <div className="mt-2 text-lg font-semibold text-white">{card.primaryMetricValue}</div>
+            <div className="mt-2 text-lg font-semibold text-white">
+              {card.primaryMetricValue}
+            </div>
           </div>
         </div>
 
@@ -189,10 +226,13 @@ export default async function TrendsPage({ searchParams }: PageProps) {
           <div className="grid gap-4">
             <div className="section-kicker">Trend discovery</div>
             <div className="font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">
-              {focused ? getTrendScopeTitle(filters) : "Real trend support for the current betting board"}
+              {focused
+                ? getTrendScopeTitle(filters)
+                : "Real trend support for the current betting board"}
             </div>
             <div className="max-w-3xl text-base leading-8 text-slate-300">
-              Trends stay published only when sample, ROI, hit rate, and current matchup relevance are strong enough to matter.
+              Trends stay published only when sample, ROI, hit rate, and current matchup relevance
+              are strong enough to matter.
             </div>
           </div>
 
@@ -313,10 +353,20 @@ export default async function TrendsPage({ searchParams }: PageProps) {
       {cards.length ? (
         <>
           <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-            {featuredCards[0] ? <TrendCard card={featuredCards[0]} featured /> : null}
+            {featuredCards[0] ? (
+              <TrendCard
+                card={featuredCards[0]}
+                href={buildTrendDetailHref(featuredCards[0], filters)}
+                featured
+              />
+            ) : null}
             <div className="grid gap-4">
               {featuredCards.slice(1, 3).map((card) => (
-                <TrendCard key={card.id} card={card} />
+                <TrendCard
+                  key={card.id}
+                  card={card}
+                  href={buildTrendDetailHref(card, filters)}
+                />
               ))}
             </div>
           </section>
@@ -331,7 +381,11 @@ export default async function TrendsPage({ searchParams }: PageProps) {
                 />
                 <div className="grid gap-4 xl:grid-cols-3">
                   {section.cards.map((card) => (
-                    <TrendCard key={card.id} card={card} />
+                    <TrendCard
+                      key={card.id}
+                      card={card}
+                      href={buildTrendDetailHref(card, filters)}
+                    />
                   ))}
                 </div>
               </section>
@@ -340,7 +394,8 @@ export default async function TrendsPage({ searchParams }: PageProps) {
         </>
       ) : (
         <Card className="rounded-[2rem] border border-white/8 bg-[#171717] p-6 text-sm leading-7 text-slate-400">
-          No real trend cards match this filter set yet. Widen the scope and SharkEdge will only surface systems that clear the real sample floor.
+          No real trend cards match this filter set yet. Widen the scope and SharkEdge will only
+          surface systems that clear the real sample floor.
         </Card>
       )}
     </div>
