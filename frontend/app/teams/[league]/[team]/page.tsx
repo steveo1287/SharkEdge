@@ -107,14 +107,19 @@ export default async function TeamPage({ params }: PageProps) {
     notFound();
   }
 
-  const standingEntry = snapshot.standings.find((entry) => matchesTeam(entry.team.name, team)) ?? null;
+  const featuredGames = snapshot.featuredGames ?? [];
+  const previousGames = snapshot.previousGames ?? [];
+  const newsFeed = snapshot.newsItems ?? [];
+  const standings = snapshot.standings ?? [];
+
+  const standingEntry = standings.find((entry) => matchesTeam(entry.team.name, team)) ?? null;
 
   const discoveredTeam =
     standingEntry?.team ??
-    snapshot.featuredGames
+    featuredGames
       .flatMap((game) => [game.homeTeam, game.awayTeam])
       .find((entry) => matchesTeam(entry.name, team)) ??
-    snapshot.previousGames
+    previousGames
       .flatMap((game) => [game.homeTeam, game.awayTeam])
       .find((entry) => matchesTeam(entry.name, team)) ??
     null;
@@ -125,15 +130,15 @@ export default async function TeamPage({ params }: PageProps) {
 
   const abbreviation = discoveredTeam.abbreviation || deriveAbbreviation(discoveredTeam.name);
 
-  const recentGames = snapshot.previousGames.filter(
+  const recentGames = previousGames.filter(
     (game) => game.homeTeam.id === discoveredTeam.id || game.awayTeam.id === discoveredTeam.id
   );
 
-  const upcomingGames = snapshot.featuredGames.filter(
+  const upcomingGames = featuredGames.filter(
     (game) => game.homeTeam.id === discoveredTeam.id || game.awayTeam.id === discoveredTeam.id
   );
 
-  const newsItems = snapshot.newsItems.filter((item) => {
+  const newsItems = newsFeed.filter((item) => {
     const haystack = normalize(
       [item.title, item.summary, item.eventLabel, item.boxscore?.awayTeam, item.boxscore?.homeTeam]
         .filter(Boolean)
@@ -454,10 +459,10 @@ export default async function TeamPage({ params }: PageProps) {
           description="Where this team currently sits in league context."
         />
 
-        {snapshot.standings.length ? (
+        {standings.length ? (
           <Card className="surface-panel p-5">
             <div className="grid gap-2">
-              {snapshot.standings.map((entry) => {
+              {standings.map((entry) => {
                 const isCurrent = entry.team.id === discoveredTeam.id;
 
                 return (
@@ -537,37 +542,6 @@ export default async function TeamPage({ params }: PageProps) {
             description="The league feed is live, but no current article matched this team cleanly."
           />
         )}
-      </section>
-
-      <section className="grid gap-4">
-        <SectionTitle
-          eyebrow="Next layer"
-          title="Where this desk goes next"
-          description="This page is now live and useful. The next pass should deepen intelligence, not reroute structure."
-        />
-
-        <div className="grid gap-4 xl:grid-cols-3">
-          <Card className="surface-panel p-5">
-            <div className="text-lg font-semibold text-white">Team trends</div>
-            <div className="mt-3 text-sm leading-7 text-slate-400">
-              Pull trend cards scoped directly to this team and current league context.
-            </div>
-          </Card>
-
-          <Card className="surface-panel p-5">
-            <div className="text-lg font-semibold text-white">Props layer</div>
-            <div className="mt-3 text-sm leading-7 text-slate-400">
-              Add team-relevant props and top player entries when that service is ready to wire in.
-            </div>
-          </Card>
-
-          <Card className="surface-panel p-5">
-            <div className="text-lg font-semibold text-white">Roster + player rail</div>
-            <div className="mt-3 text-sm leading-7 text-slate-400">
-              Add player-level drilldown once a stable roster source is connected.
-            </div>
-          </Card>
-        </div>
       </section>
     </div>
   );
