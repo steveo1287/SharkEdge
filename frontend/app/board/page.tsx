@@ -1,25 +1,10 @@
-import Link from "next/link";
-
-import { GameCard } from "@/components/board/game-card";
 import { BoardHero } from "@/components/board/board-hero";
 import { BoardSummaryStrip } from "@/components/board/board-summary-strip";
-import { VerifiedBoardGrid } from "@/components/board/verified-board-grid";
-import { MarketMoversPanel } from "@/components/board/market-movers-panel";
 import { LeagueDeskGrid } from "@/components/board/league-desk-grid";
+import { MarketMoversPanel } from "@/components/board/market-movers-panel";
 import { ScoreboardContextGrid } from "@/components/board/scoreboard-context-grid";
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
-import { EmptyState } from "@/components/ui/empty-state";
-import { SectionTitle } from "@/components/ui/section-title";
-import { formatGameDateTime } from "@/lib/formatters/date";
-import { formatAmericanOdds } from "@/lib/formatters/odds";
-import type {
-  BoardMarketView,
-  BoardSportSectionView,
-  GameCardView,
-  LeagueKey,
-  ScoreboardPreviewView
-} from "@/lib/types/domain";
+import { VerifiedBoardGrid } from "@/components/board/verified-board-grid";
+import type { BoardSportSectionView, GameCardView, LeagueKey } from "@/lib/types/domain";
 import { buildGameMarketOpportunity } from "@/services/opportunities/opportunity-service";
 
 export const dynamic = "force-dynamic";
@@ -88,34 +73,6 @@ function isVerifiedGame(game: GameCardView) {
   );
 }
 
-function getProviderHealthTone(state: string) {
-  if (state === "HEALTHY") {
-    return "success" as const;
-  }
-
-  if (state === "DEGRADED" || state === "FALLBACK") {
-    return "premium" as const;
-  }
-
-  if (state === "OFFLINE") {
-    return "danger" as const;
-  }
-
-  return "muted" as const;
-}
-
-function getSectionStatusTone(status: BoardSportSectionView["status"]) {
-  if (status === "LIVE") {
-    return "success" as const;
-  }
-
-  if (status === "PARTIAL") {
-    return "premium" as const;
-  }
-
-  return "muted" as const;
-}
-
 function getGameMarketPriority(game: GameCardView, marketKey: BoardMarketKey) {
   const market = game[marketKey];
   const rankScore = market.evProfile?.rankScore ?? 0;
@@ -136,56 +93,12 @@ function getLeadMarket(game: GameCardView): BoardMarketKey {
   )[0];
 }
 
-function getLeadMarketView(game: GameCardView): {
-  key: BoardMarketKey;
-  market: BoardMarketView;
-} {
-  const key = getLeadMarket(game);
-  return {
-    key,
-    market: game[key]
-  };
-}
-
 function getLeadScore(game: GameCardView) {
   return Math.max(
     buildGameMarketOpportunity(game, "spread").opportunityScore,
     buildGameMarketOpportunity(game, "moneyline").opportunityScore,
     buildGameMarketOpportunity(game, "total").opportunityScore
   );
-}
-
-function formatMovement(marketKey: BoardMarketKey, movement: number) {
-  if (!movement) {
-    return "No move";
-  }
-
-  const unit = marketKey === "moneyline" ? "c" : "pts";
-  return `${movement > 0 ? "+" : ""}${movement.toFixed(1)} ${unit}`;
-}
-
-function formatOdds(value: number) {
-  return value ? formatAmericanOdds(value) : "-";
-}
-
-function formatMarketLabel(value: string) {
-  return value.startsWith("No ") ? "-" : value;
-}
-
-function formatMarketName(value: BoardMarketKey) {
-  if (value === "moneyline") {
-    return "Moneyline";
-  }
-
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function getBoardHref(league: BoardLeagueScope, date: BoardDateScope) {
-  return `/board?league=${league}&date=${date}`;
-}
-
-function getLeagueHref(section: BoardSportSectionView) {
-  return `/leagues/${section.leagueKey}`;
 }
 
 function buildScoreboardItems(sections: BoardSportSectionView[]) {
@@ -197,22 +110,6 @@ function buildScoreboardItems(sections: BoardSportSectionView[]) {
       }))
     )
     .slice(0, 12);
-}
-
-function getScoreboardTone(item: ScoreboardPreviewView["status"]) {
-  if (item === "LIVE") {
-    return "success" as const;
-  }
-
-  if (item === "FINAL") {
-    return "neutral" as const;
-  }
-
-  if (item === "POSTPONED" || item === "CANCELED") {
-    return "danger" as const;
-  }
-
-  return "muted" as const;
 }
 
 export default async function BoardPage({ searchParams }: BoardPageProps) {
@@ -237,11 +134,11 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
 
   const movers = [...verifiedGames]
     .sort((left, right) => {
-      const leftLead = getLeadMarketView(left);
-      const rightLead = getLeadMarketView(right);
+      const leftLeadMarket = getLeadMarket(left);
+      const rightLeadMarket = getLeadMarket(right);
 
-      const leftMovement = Math.abs(leftLead.market.movement);
-      const rightMovement = Math.abs(rightLead.market.movement);
+      const leftMovement = Math.abs(left[leftLeadMarket].movement);
+      const rightMovement = Math.abs(right[rightLeadMarket].movement);
 
       if (rightMovement !== leftMovement) {
         return rightMovement - leftMovement;
@@ -266,27 +163,27 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
 
   return (
     <div className="grid gap-8">
-     <BoardHero
-    selectedLeague={selectedLeague}
-    selectedDate={selectedDate}
-    leagues={LEAGUE_ITEMS}
-    dates={DATE_ITEMS}
-  />
+      <BoardHero
+        selectedLeague={selectedLeague}
+        selectedDate={selectedDate}
+        leagues={LEAGUE_ITEMS}
+        dates={DATE_ITEMS}
+      />
 
-  <BoardSummaryStrip
-    verifiedCount={verifiedGames.length}
-    totalGames={boardData.summary.totalGames}
-    sportsbooks={boardData.summary.totalSportsbooks}
-    freshness={boardData.providerHealth.freshnessLabel}
-  />
+      <BoardSummaryStrip
+        verifiedCount={verifiedGames.length}
+        totalGames={boardData.summary.totalGames}
+        sportsbooks={boardData.summary.totalSportsbooks}
+        freshness={boardData.providerHealth.freshnessLabel}
+      />
 
-  <VerifiedBoardGrid games={verifiedGames} />
+      <VerifiedBoardGrid games={verifiedGames} />
 
-  <MarketMoversPanel games={movers} />
+      <MarketMoversPanel games={movers} />
 
-  <LeagueDeskGrid sections={leagueSections} />
+      <LeagueDeskGrid sections={leagueSections} />
 
-  <ScoreboardContextGrid items={scoreboardItems} />
+      <ScoreboardContextGrid items={scoreboardItems} />
     </div>
   );
 }
