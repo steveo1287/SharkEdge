@@ -1,0 +1,35 @@
+import Link from "next/link";
+
+import type { GameHubTabKey, GameHubTabView } from "@/lib/adapters/game-ui-adapter";
+
+type GameHubTabsProps = {
+  routeId: string;
+  tabs: GameHubTabView[];
+  activeTab: GameHubTabKey;
+};
+
+export function GameHubTabs({ routeId, tabs, activeTab }: GameHubTabsProps) {
+  return (
+    <div className="overflow-x-auto">
+      <div className="flex min-w-max gap-2 rounded-[1.4rem] border border-white/8 bg-slate-950/60 p-2">
+        {tabs.map((tab) => {
+          const isActive = tab.key === activeTab;
+
+          return (
+            <Link
+              key={tab.key}
+              href={`/game/${routeId}?tab=${tab.key}`}
+              className={
+                isActive
+                  ? "rounded-full border border-sky-400/25 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-sky-200"
+                  : "rounded-full border border-white/8 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-300 transition hover:border-white/15 hover:text-white"
+              }
+            >
+              {tab.label}
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
