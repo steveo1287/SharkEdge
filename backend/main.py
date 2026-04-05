@@ -492,20 +492,7 @@ def normalize_scraper_game(event: dict[str, Any]) -> dict[str, Any] | None:
 
     return normalized
 
-    bookmaker = build_scraper_bookmaker(event, away_team, home_team)
-    return {
-        "id": event.get("eventKey"),
-        "commence_time": event.get("commenceTime"),
-        "home_team": home_team,
-        "away_team": away_team,
-        "bookmakers_available": 1,
-        "bookmakers": [bookmaker],
-        "market_stats": {
-            "moneyline": summarize_market([bookmaker], "moneyline", [away_team, home_team]),
-            "spread": summarize_market([bookmaker], "spread", [away_team, home_team]),
-            "total": summarize_market([bookmaker], "total", ["Over", "Under"]),
-        },
-    }
+ 
 
 
 def get_scraper_cache_sports() -> list[dict[str, Any]]:
@@ -1226,7 +1213,6 @@ def normalize_game(game: dict[str, Any]) -> dict[str, Any]:
     )
 
     return normalized
-        "id": game.get("id"),
         "commence_time": game.get("commence_time"),
         "home_team": home_team,
         "away_team": away_team,
