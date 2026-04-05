@@ -6,6 +6,7 @@ import {
   ResearchRail
 } from "@/app/_components/home-primitives";
 import { GameCard } from "@/components/board/game-card";
+import { HomePerformanceRail } from "@/components/home/home-performance-rail";
 import { HomeWorkflowPanel } from "@/components/home/home-workflow-panel";
 import { OpportunitySpotlightCard } from "@/components/intelligence/opportunity-spotlight-card";
 import { Badge } from "@/components/ui/badge";
@@ -242,6 +243,15 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           <HomeWorkflowPanel performanceData={performanceData} />
         </section>
       </div>
+
+      <section className="grid gap-4">
+        <SectionTitle
+          eyebrow="Form and process"
+          title="How your edge is actually behaving"
+          description="Compact read on recent units, CLV posture, and the process mistakes that keep showing up."
+        />
+        <HomePerformanceRail performanceData={performanceData} />
+      </section>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <section className="grid gap-4">
