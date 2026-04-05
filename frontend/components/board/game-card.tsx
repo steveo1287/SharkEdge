@@ -6,6 +6,7 @@ import {
   getOpportunityTrapLine,
   OpportunityBadgeRow
 } from "@/components/intelligence/opportunity-badges";
+import { TeamBadge } from "@/components/identity/team-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { formatGameDateTime } from "@/lib/formatters/date";
@@ -103,11 +104,13 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
             {game.leagueKey} | {formatGameDateTime(game.startTime)}
           </div>
 
-          <div className="mt-3 grid gap-3">
+          <div className="mt-4 grid gap-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-800 text-xs font-semibold text-white">
-                {game.awayTeam.abbreviation}
-              </div>
+              <TeamBadge
+                name={game.awayTeam.name}
+                abbreviation={game.awayTeam.abbreviation}
+                size="md"
+              />
               <div className="min-w-0">
                 <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">
                   Away
@@ -119,9 +122,11 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-700 text-xs font-semibold text-white">
-                {game.homeTeam.abbreviation}
-              </div>
+              <TeamBadge
+                name={game.homeTeam.name}
+                abbreviation={game.homeTeam.abbreviation}
+                size="md"
+              />
               <div className="min-w-0">
                 <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">
                   Home
