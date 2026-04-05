@@ -649,7 +649,7 @@ function mergeMatchupDetail(args: {
             supportStatus: payload?.supportStatus ?? registry.status,
             source: legacyDetail?.source ?? (payload ? "live" : "catalog"),
             generatedAt: legacyDetail?.providerHealth.asOf ?? null,
-            lastUpdatedAt: payload?.lastUpdatedAt ?? legacyDetail?.lastUpdatedAt ?? null,
+            lastUpdatedAt: payload?.lastUpdatedAt ?? null,
             warnings: payload?.supportStatus === "PARTIAL" ? [payload.supportNote ?? config.detail] : [],
             healthySummary:
               "This matchup page has live provider coverage for the current decision workflow.",
