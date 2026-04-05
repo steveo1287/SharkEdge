@@ -286,7 +286,9 @@ export default async function GameDetailPage({ params }: PageProps) {
                 </div>
 
                 <p className="max-w-3xl text-base leading-8 text-slate-300">
-                  This page should tell you the current posture fast: what the best angle is, what could kill it, how the number moved, and whether the feed is trustworthy enough to act.
+                  This page should tell you the current posture fast: what the best angle
+                  is, what could kill it, how the number moved, and whether the feed is
+                  trustworthy enough to act.
                 </p>
               </div>
 
@@ -375,9 +377,7 @@ export default async function GameDetailPage({ params }: PageProps) {
                       : `/game/${detail.routeId}#markets`
                   }
                   ctaLabel={
-                    opportunity.kind === "prop"
-                      ? "Jump to props"
-                      : "Jump to markets"
+                    opportunity.kind === "prop" ? "Jump to props" : "Jump to markets"
                   }
                 />
               ))}
