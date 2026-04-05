@@ -1,6 +1,12 @@
 import Link from "next/link";
 
 import { GameCard } from "@/components/board/game-card";
+import { BoardHero } from "@/components/board/board-hero";
+import { BoardSummaryStrip } from "@/components/board/board-summary-strip";
+import { VerifiedBoardGrid } from "@/components/board/verified-board-grid";
+import { MarketMoversPanel } from "@/components/board/market-movers-panel";
+import { LeagueDeskGrid } from "@/components/board/league-desk-grid";
+import { ScoreboardContextGrid } from "@/components/board/scoreboard-context-grid";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
