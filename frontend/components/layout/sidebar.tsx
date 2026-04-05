@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils/cn";
 
 import { BrandMark } from "./brand-mark";
 import {
+  LEAGUE_NAV_ITEMS,
   MAIN_NAV_ITEMS,
   RESEARCH_NAV_ITEMS,
   SECONDARY_NAV_ITEMS,
@@ -59,7 +60,7 @@ export function Sidebar({ pathname, mobile = false, onNavigate }: SidebarProps) 
       <BrandMark />
 
       <div className="border-t border-white/8 pt-5">
-        <div className="text-[0.64rem] uppercase tracking-[0.3em] text-slate-500">Core research</div>
+        <div className="text-[0.64rem] uppercase tracking-[0.3em] text-slate-500">Command</div>
         <div className="mt-3 grid gap-1.5">
           {MAIN_NAV_ITEMS.map((item) => (
             <NavLink
@@ -68,6 +69,27 @@ export function Sidebar({ pathname, mobile = false, onNavigate }: SidebarProps) 
               label={item.label}
               active={isActivePath(pathname, item.href)}
               onNavigate={onNavigate}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="border-t border-white/8 pt-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-[0.64rem] uppercase tracking-[0.3em] text-slate-500">League desks</div>
+          <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-1 text-[0.6rem] uppercase tracking-[0.22em] text-slate-400">
+            {LEAGUE_NAV_ITEMS.length}
+          </span>
+        </div>
+        <div className="mt-3 grid gap-1.5 sm:grid-cols-2 xl:grid-cols-1">
+          {LEAGUE_NAV_ITEMS.map((item) => (
+            <NavLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              active={isActivePath(pathname, item.href)}
+              onNavigate={onNavigate}
+              compact
             />
           ))}
         </div>
@@ -90,7 +112,7 @@ export function Sidebar({ pathname, mobile = false, onNavigate }: SidebarProps) 
       </div>
 
       <div className="border-t border-white/8 pt-5">
-        <div className="text-[0.64rem] uppercase tracking-[0.3em] text-slate-500">Deep research</div>
+        <div className="text-[0.64rem] uppercase tracking-[0.3em] text-slate-500">Research</div>
         <div className="mt-3 grid gap-1.5">
           {RESEARCH_NAV_ITEMS.map((item) => (
             <NavLink
@@ -109,16 +131,16 @@ export function Sidebar({ pathname, mobile = false, onNavigate }: SidebarProps) 
         <div className="text-[0.64rem] uppercase tracking-[0.3em] text-slate-500">Desk rules</div>
         <div className="mt-4 grid gap-3 text-sm leading-6 text-slate-300">
           <div className="flex items-center justify-between gap-3">
+            <span>League-first routing</span>
+            <span className="text-white">On</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
             <span>Verified prices</span>
             <span className="text-white">Required</span>
           </div>
           <div className="flex items-center justify-between gap-3">
             <span>Explainability</span>
             <span className="text-white">Always on</span>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <span>Fallback junk</span>
-            <span className="text-white">Off</span>
           </div>
         </div>
       </div>
