@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { LeagueBadge } from "@/components/identity/league-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SectionTitle } from "@/components/ui/section-title";
@@ -52,11 +53,14 @@ export function ScoreboardContextGrid({ items }: Props) {
         {items.map(({ section, item }, idx) => (
           <Card key={`${item.id}-${idx}`} className="surface-panel p-5">
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                  {section.leagueLabel}
+              <div className="flex items-center gap-3">
+                <LeagueBadge league={section.leagueKey} />
+                <div>
+                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                    {section.leagueLabel}
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-white">{item.label}</div>
                 </div>
-                <div className="mt-2 text-lg font-semibold text-white">{item.label}</div>
               </div>
 
               <Badge tone={getStatusTone(item.status)}>{item.status}</Badge>
