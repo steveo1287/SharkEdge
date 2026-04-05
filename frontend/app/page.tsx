@@ -7,6 +7,7 @@ import {
 } from "@/app/_components/home-primitives";
 import { GameCard } from "@/components/board/game-card";
 import { HomeActionMatrix } from "@/components/home/home-action-matrix";
+import { HomeOpportunityReasonRail } from "@/components/home/home-opportunity-reason-rail";
 import { HomePerformanceRail } from "@/components/home/home-performance-rail";
 import { HomeWorkflowPanel } from "@/components/home/home-workflow-panel";
 import { OpportunitySpotlightCard } from "@/components/intelligence/opportunity-spotlight-card";
@@ -244,6 +245,15 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           <HomeWorkflowPanel performanceData={performanceData} />
         </section>
       </div>
+
+      <section className="grid gap-4">
+        <SectionTitle
+          eyebrow="Reason rail"
+          title="Why the top edges are actually live"
+          description="This pulls the argument into one place: why it surfaced, what confirms it, and what kills it."
+        />
+        <HomeOpportunityReasonRail opportunities={bestEdges} />
+      </section>
 
       <section className="grid gap-4">
         <SectionTitle
