@@ -5,6 +5,61 @@ export type NavItem = {
   description: string;
 };
 
+export type LeagueNavItem = NavItem & {
+  leagueKey: string;
+};
+
+export const LEAGUE_NAV_ITEMS: LeagueNavItem[] = [
+  {
+    href: "/leagues/nba",
+    label: "NBA",
+    leagueKey: "NBA",
+    description: "League hub for scoreboard, standings, featured edges, and matchup routing."
+  },
+  {
+    href: "/leagues/ncaab",
+    label: "NCAAB",
+    leagueKey: "NCAAB",
+    description: "College basketball board, trends, and one-league command center."
+  },
+  {
+    href: "/leagues/mlb",
+    label: "MLB",
+    leagueKey: "MLB",
+    description: "Baseball hub with standings, recent form, props, and game intelligence."
+  },
+  {
+    href: "/leagues/nhl",
+    label: "NHL",
+    leagueKey: "NHL",
+    description: "Hockey scoreboard, market context, and team-level research flow."
+  },
+  {
+    href: "/leagues/nfl",
+    label: "NFL",
+    leagueKey: "NFL",
+    description: "Pro football league desk with matchup routing and trend support."
+  },
+  {
+    href: "/leagues/ncaaf",
+    label: "NCAAF",
+    leagueKey: "NCAAF",
+    description: "College football league desk for slate, context, and best bets."
+  },
+  {
+    href: "/leagues/ufc",
+    label: "UFC",
+    leagueKey: "UFC",
+    description: "Fight-week market hub with active cards, props, and research routing."
+  },
+  {
+    href: "/leagues/boxing",
+    label: "Boxing",
+    leagueKey: "BOXING",
+    description: "Fight market desk for cards, stories, and betting-native context."
+  }
+];
+
 export const MAIN_NAV_ITEMS: NavItem[] = [
   {
     href: "/",
@@ -17,18 +72,33 @@ export const MAIN_NAV_ITEMS: NavItem[] = [
     description: "The live board with verified books, pricing truth, and movement worth reacting to."
   },
   {
-    href: "/games",
-    label: "Games",
-    description: "Open the slate, orient by matchup, and route straight into game detail."
-  },
-  {
     href: "/props",
     label: "Props",
     description: "Hunt player markets, fair value, and usage-driven context."
+  },
+  {
+    href: "/trends",
+    label: "Trends",
+    description: "Historical systems, validation warnings, and active matches."
+  },
+  {
+    href: "/watchlist",
+    label: "Watchlist",
+    description: "Saved books, props, teams, trends, and alerts."
+  },
+  {
+    href: "/performance",
+    label: "Performance",
+    description: "Review CLV, units, hit rate, and what is actually working."
   }
 ];
 
 export const RESEARCH_NAV_ITEMS: NavItem[] = [
+  {
+    href: "/games",
+    label: "Games",
+    description: "Open the slate, orient by matchup, and route straight into game detail."
+  },
   {
     href: "/players",
     label: "Players",
@@ -40,19 +110,9 @@ export const RESEARCH_NAV_ITEMS: NavItem[] = [
     description: "Team-level form, matchup context, and league-entry research."
   },
   {
-    href: "/trends",
-    label: "Trends",
-    description: "Historical systems, validation warnings, and active matches."
-  },
-  {
     href: "/content",
     label: "Content",
     description: "Original coverage, recaps, and betting-native explainers."
-  },
-  {
-    href: "/watchlist",
-    label: "Watchlist",
-    description: "Saved books, props, teams, trends, and alerts."
   }
 ];
 
@@ -63,23 +123,46 @@ export const SECONDARY_NAV_ITEMS: NavItem[] = [
     description: "Track your card, open exposure, and best-bet workflow."
   },
   {
-    href: "/performance",
-    label: "Performance",
-    description: "Review CLV, units, hit rate, and what is actually working."
-  },
-  {
     href: "/alerts",
     label: "Alerts",
     description: "Price, movement, and trend notifications."
   }
 ];
 
+const LEAGUE_DISPLAY_NAMES: Record<string, string> = {
+  NBA: "NBA",
+  NCAAB: "NCAA Basketball",
+  MLB: "MLB",
+  NHL: "NHL",
+  NFL: "NFL",
+  NCAAF: "College Football",
+  UFC: "UFC",
+  BOXING: "Boxing"
+};
+
+function getLeagueKeyFromPath(pathname: string) {
+  if (!pathname.startsWith("/leagues/")) {
+    return null;
+  }
+
+  const segment = pathname.split("/")[2];
+  return segment ? segment.toUpperCase() : null;
+}
+
+export function getLeagueDisplayName(leagueKey: string | null | undefined) {
+  if (!leagueKey) {
+    return "League";
+  }
+
+  return LEAGUE_DISPLAY_NAMES[leagueKey.toUpperCase()] ?? leagueKey.toUpperCase();
+}
+
 export function isActivePath(pathname: string, href: string) {
   if (href === "/") {
     return pathname === "/";
   }
 
-  if (href === "/teams" && pathname.startsWith("/leagues/")) {
+  if (href === "/teams" && (pathname.startsWith("/leagues/") || pathname.startsWith("/team/"))) {
     return true;
   }
 
@@ -91,10 +174,27 @@ export function isActivePath(pathname: string, href: string) {
     return true;
   }
 
+  if (href.startsWith("/leagues/")) {
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
+
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 export function getRouteMeta(pathname: string) {
+  const leagueKey = getLeagueKeyFromPath(pathname);
+
+  if (leagueKey) {
+    const leagueName = getLeagueDisplayName(leagueKey);
+
+    return {
+      eyebrow: `${leagueName} League Hub`,
+      title: leagueName,
+      subtitle:
+        "League-first scoreboard, best bets, standings, trends, and direct routing into every matchup that matters."
+    };
+  }
+
   const routes = [
     {
       match: (value: string) => value === "/",
@@ -127,7 +227,7 @@ export function getRouteMeta(pathname: string) {
       subtitle: "Find the names driving the strongest current prop and market pressure."
     },
     {
-      match: (value: string) => isActivePath(value, "/teams") || value.startsWith("/leagues/"),
+      match: (value: string) => isActivePath(value, "/teams"),
       eyebrow: "Teams",
       title: "Team Context",
       subtitle: "Schedule spot, recent form, and board pressure without the fluff."
