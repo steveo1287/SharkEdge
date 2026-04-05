@@ -6,6 +6,7 @@ import {
   ResearchRail
 } from "@/app/_components/home-primitives";
 import { GameCard } from "@/components/board/game-card";
+import { HomeActionMatrix } from "@/components/home/home-action-matrix";
 import { HomePerformanceRail } from "@/components/home/home-performance-rail";
 import { HomeWorkflowPanel } from "@/components/home/home-workflow-panel";
 import { OpportunitySpotlightCard } from "@/components/intelligence/opportunity-spotlight-card";
@@ -243,6 +244,15 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           <HomeWorkflowPanel performanceData={performanceData} />
         </section>
       </div>
+
+      <section className="grid gap-4">
+        <SectionTitle
+          eyebrow="Decision matrix"
+          title="Bet, wait, watch, or pass"
+          description="The command center should separate real opportunities from things that only look interesting."
+        />
+        <HomeActionMatrix snapshot={opportunitySnapshot} />
+      </section>
 
       <section className="grid gap-4">
         <SectionTitle
