@@ -186,7 +186,10 @@ function DeskCard({
   );
 }
 
-function buildForYouOpportunities(routeId: string, detail: Awaited<ReturnType<typeof getMatchupDetail>>) {
+function buildForYouOpportunities(
+  routeId: string,
+  detail: Awaited<ReturnType<typeof getMatchupDetail>>
+) {
   if (!detail) {
     return [];
   }
@@ -255,7 +258,17 @@ export default async function GameDetailPage({ params }: PageProps) {
                     {detail.providerHealth.label}
                   </Badge>
                   {headline ? (
-                    <Badge tone={headline.actionState === "BET_NOW" ? "success" : headline.actionState === "WAIT" ? "brand" : headline.actionState === "WATCH" ? "premium" : "muted"}>
+                    <Badge
+                      tone={
+                        headline.actionState === "BET_NOW"
+                          ? "success"
+                          : headline.actionState === "WAIT"
+                            ? "brand"
+                            : headline.actionState === "WATCH"
+                              ? "premium"
+                              : "muted"
+                      }
+                    >
                       {formatOpportunityAction(headline.actionState)}
                     </Badge>
                   ) : null}
