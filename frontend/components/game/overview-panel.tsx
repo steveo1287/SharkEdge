@@ -28,13 +28,29 @@ function getSupportTone(status: MatchupDetailView["supportStatus"]) {
   return "muted" as const;
 }
 
-function MiniMetric({
-  label,
-  value
-}: {
+interface MiniMetricProps {
   label: string;
   value: string;
-}) {
+  note?: string;
+}
+
+function MiniMetric({ label, value, note }: MiniMetricProps) {
+  return (
+    <div className="rounded-[1.2rem] border border-white/8 bg-slate-950/60 px-4 py-3">
+      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+        {label}
+      </div>
+      <div className="mt-1 text-sm font-semibold text-white">
+        {value}
+      </div>
+      {note && (
+        <div className="mt-1 text-[11px] text-slate-400">
+          {note}
+        </div>
+      )}
+    </div>
+  );
+}
   return (
     <div className="rounded-[1.2rem] border border-white/8 bg-slate-950/60 px-4 py-3">
       <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
