@@ -21,6 +21,11 @@ from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException
+from sharkedge_analytics import (
+    build_game_edge_block,
+    build_sharp_signals,
+    enrich_props_with_ev,
+)
 
 load_dotenv(Path(__file__).with_name(".env"))
 
@@ -462,6 +467,30 @@ def normalize_scraper_game(event: dict[str, Any]) -> dict[str, Any] | None:
     home_team = event.get("homeTeam")
     if not away_team or not home_team:
         return None
+
+    bookmaker = build_scraper_bookmaker(event, away_team, home_team)
+    normalized = {
+        "id": event.get("eventKey"),
+        "commence_time": event.get("commenceTime"),
+        "home_team": home_team,
+        "away_team": away_team,
+        "bookmakers_available": 1,
+        "bookmakers": [bookmaker],
+        "market_stats": {
+            "moneyline": summarize_market([bookmaker], "moneyline", [away_team, home_team]),
+            "spread": summarize_market([bookmaker], "spread", [away_team, home_team]),
+            "total": summarize_market([bookmaker], "total", ["Over", "Under"]),
+        },
+    }
+
+    normalized["edge_analytics"] = build_game_edge_block(normalized)
+    normalized["sharp_signals"] = build_sharp_signals(
+        [bookmaker],
+        str(away_team),
+        str(home_team),
+    )
+
+    return normalized
 
     bookmaker = build_scraper_bookmaker(event, away_team, home_team)
     return {
@@ -1163,7 +1192,40 @@ def normalize_game(game: dict[str, Any]) -> dict[str, Any]:
     away_team = game.get("away_team")
     home_team = game.get("home_team")
 
-    return {
+    normalized = {
+        "id": game.get("id"),
+        "commence_time": game.get("commence_time"),
+        "home_team": home_team,
+        "away_team": away_team,
+        "bookmakers_available": len(normalized_bookmakers),
+        "bookmakers": normalized_bookmakers,
+        "market_stats": {
+            "moneyline": summarize_market(
+                normalized_bookmakers,
+                "moneyline",
+                [away_team, home_team],
+            ),
+            "spread": summarize_market(
+                normalized_bookmakers,
+                "spread",
+                [away_team, home_team],
+            ),
+            "total": summarize_market(
+                normalized_bookmakers,
+                "total",
+                ["Over", "Under"],
+            ),
+        },
+    }
+
+    normalized["edge_analytics"] = build_game_edge_block(normalized)
+    normalized["sharp_signals"] = build_sharp_signals(
+        normalized_bookmakers,
+        str(away_team or "Away"),
+        str(home_team or "Home"),
+    )
+
+    return normalized
         "id": game.get("id"),
         "commence_time": game.get("commence_time"),
         "home_team": home_team,
@@ -2868,18 +2930,19 @@ def fetch_sport_prop_board(
             )
             props.extend(game_props)
 
+    enriched_props = enrich_props_with_ev(props)
     return {
         "key": sport["key"],
         "title": sport["title"],
         "short_title": sport["short_title"],
         "event_count": len(events),
         "game_count": len(prop_games),
-        "prop_count": len(props),
+        "prop_count": len(enriched_props),
         "event_limit": max_events,
         "events_scanned": len(selected_events),
         "partial": len(events) > len(selected_events),
         "games": sorted(prop_games, key=lambda game: game.get("commence_time") or ""),
-        "props": props,
+        "props": enriched_props,
         "errors": errors,
     }
 
@@ -3608,7 +3671,7 @@ def game_detail(sport_key: str, event_id: str) -> dict[str, Any]:
 
     props_error: str | None = None
     try:
-        game_props = fetch_game_props(sport_key, event_id, api_key)
+        game_props = enrich_props_with_ev(fetch_game_props(sport_key, event_id, api_key))
     except RuntimeError as error:
         props_error = str(error)
         game_props = []
