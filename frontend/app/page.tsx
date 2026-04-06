@@ -122,7 +122,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             {HOME_LEAGUE_ITEMS.map((league) => (
               <Link
                 key={league.key}
-                href={league.key === "ALL" ? "/?league=ALL&date=today" : `/?league=${league.key}&date=today`}
+                href={`/?league=${league.key}&date=${home.selectedDate}`}
                 className={
                   home.selectedLeague === league.key
                     ? "rounded-full border border-sky-400/35 bg-sky-500/12 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white"
@@ -311,7 +311,10 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             title="Go deeper without losing the thread"
             description="The homepage should hand you into the next desk, not trap you inside redundant panels."
           />
-          <ResearchRail focusedLeague={home.focusedLeague} />
+          <ResearchRail
+            focusedLeague={home.focusedLeague}
+            genericLeagueContext={home.selectedLeague === "ALL"}
+          />
         </section>
       </div>
     </div>
