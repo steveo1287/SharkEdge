@@ -13,7 +13,6 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { formatGameDateTime } from "@/lib/formatters/date";
-import type { OpportunityView } from "@/lib/types/opportunity";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
 import {
   buildGameHubKalshiCards,
@@ -22,11 +21,17 @@ import {
   buildGameHubSplitsCards,
   buildGameHubTabs
 } from "@/services/matchups/game-ui-adapter";
+import { buildGameHubPresentation } from "@/services/matchups/game-hub-presenter";
+
 import {
-  buildBetSignalOpportunity,
-  buildPropOpportunity,
-  rankOpportunities
-} from "@/services/opportunities/opportunity-service";
+  DeskCard,
+  getProviderHealthTone,
+  getStatusTone,
+  getSupportTone,
+  HubTab,
+  MetricTile,
+  QuickJump
+} from "./_components/game-hub-primitives";
 
 export const dynamic = "force-dynamic";
 
@@ -35,183 +40,6 @@ type PageProps = {
     id: string;
   }>;
 };
-
-function getStatusTone(status: string) {
-  if (status === "LIVE") {
-    return "success" as const;
-  }
-
-  if (status === "FINAL") {
-    return "neutral" as const;
-  }
-
-  if (status === "POSTPONED" || status === "CANCELED") {
-    return "danger" as const;
-  }
-
-  return "muted" as const;
-}
-
-function getSupportTone(status: string) {
-  if (status === "LIVE") {
-    return "success" as const;
-  }
-
-  if (status === "PARTIAL") {
-    return "premium" as const;
-  }
-
-  return "muted" as const;
-}
-
-function getProviderHealthTone(state: string) {
-  if (state === "HEALTHY") {
-    return "success" as const;
-  }
-
-  if (state === "DEGRADED") {
-    return "premium" as const;
-  }
-
-  if (state === "OFFLINE") {
-    return "danger" as const;
-  }
-
-  return "muted" as const;
-}
-
-function QuickJump({
-  href,
-  label,
-  emphasis = false
-}: {
-  href: string;
-  label: string;
-  emphasis?: boolean;
-}) {
-  return (
-    <a
-      href={href}
-      className={
-        emphasis
-          ? "rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-sky-200"
-          : "rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-200"
-      }
-    >
-      {label}
-    </a>
-  );
-}
-
-function MetricTile({
-  label,
-  value,
-  note
-}: {
-  label: string;
-  value: string;
-  note: string;
-}) {
-  return (
-    <div className="metric-tile rounded-[1.2rem] border border-white/8 bg-slate-950/60 px-4 py-4">
-      <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">
-        {label}
-      </div>
-      <div className="mt-3 font-display text-3xl font-semibold text-white">
-        {value}
-      </div>
-      <div className="mt-2 text-sm leading-6 text-slate-400">{note}</div>
-    </div>
-  );
-}
-
-function HubTab({
-  href,
-  label,
-  active,
-  count
-}: {
-  href: string;
-  label: string;
-  active: boolean;
-  count?: number | null;
-}) {
-  return (
-    <a
-      href={href}
-      className={
-        active
-          ? "inline-flex items-center gap-2 rounded-full border border-sky-400/25 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-sky-200"
-          : "inline-flex items-center gap-2 rounded-full border border-white/8 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500"
-      }
-    >
-      <span>{label}</span>
-      {typeof count === "number" && count > 0 ? (
-        <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[10px] text-white">
-          {count}
-        </span>
-      ) : null}
-    </a>
-  );
-}
-
-function DeskCard({
-  title,
-  value,
-  note,
-  tone = "default"
-}: {
-  title: string;
-  value: string;
-  note: string;
-  tone?: "default" | "success" | "premium" | "danger";
-}) {
-  const toneClass =
-    tone === "success"
-      ? "border-emerald-400/20 bg-emerald-500/8"
-      : tone === "premium"
-        ? "border-amber-300/20 bg-amber-400/8"
-        : tone === "danger"
-          ? "border-rose-400/20 bg-rose-500/8"
-          : "border-white/8 bg-slate-950/60";
-
-  return (
-    <div className={`rounded-[1.25rem] border px-4 py-4 ${toneClass}`}>
-      <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">
-        {title}
-      </div>
-      <div className="mt-2 text-xl font-semibold text-white">{value}</div>
-      <div className="mt-2 text-sm leading-6 text-slate-400">{note}</div>
-    </div>
-  );
-}
-
-function buildForYouOpportunities(
-  routeId: string,
-  detail: Awaited<ReturnType<typeof getMatchupDetail>>
-) {
-  if (!detail) {
-    return [];
-  }
-
-  const signalOpportunities = detail.betSignals.map((signal) =>
-    buildBetSignalOpportunity(signal, detail.league.key, detail.providerHealth)
-  );
-
-  const propOpportunities = detail.props.slice(0, 6).map((prop) =>
-    buildPropOpportunity(prop, detail.providerHealth)
-  );
-
-  return rankOpportunities<OpportunityView>([
-    ...signalOpportunities,
-    ...propOpportunities
-  ])
-    .map((opportunity) => ({
-      ...opportunity,
-      eventId: routeId
-    }))
-    .slice(0, 4);
-}
 
 export default async function GameDetailPage({ params }: PageProps) {
   const { id } = await params;
@@ -222,23 +50,13 @@ export default async function GameDetailPage({ params }: PageProps) {
   }
 
   const tabs = buildGameHubTabs(detail);
-  const forYou = buildForYouOpportunities(detail.routeId, detail);
-  const headline = forYou[0] ?? null;
-  const postureLabel = headline
-    ? formatOpportunityAction(headline.actionState)
-    : "No qualified edge";
+  const { forYou, headline, postureLabel, contextNotes } =
+    buildGameHubPresentation(detail);
 
   const metrics = buildGameHubMetrics(detail, postureLabel);
   const movementCards = buildGameHubMovementCards(detail);
   const splitsCards = buildGameHubSplitsCards(detail);
   const kalshiCards = buildGameHubKalshiCards(detail);
-
-  const contextNotes = [
-    detail.supportNote,
-    detail.propsSupport.note,
-    ...(detail.providerHealth.warnings ?? []),
-    ...(detail.notes ?? [])
-  ].filter(Boolean);
 
   return (
     <BetSlipBoundary>
