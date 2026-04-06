@@ -1,0 +1,30 @@
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { SectionTitle } from "@/components/ui/section-title";
+
+type GamePlaceholderPanelProps = {
+  eyebrow: string;
+  title: string;
+  description: string;
+  note: string;
+};
+
+export function GamePlaceholderPanel({
+  eyebrow,
+  title,
+  description,
+  note
+}: GamePlaceholderPanelProps) {
+  return (
+    <div className="grid gap-4">
+      <SectionTitle eyebrow={eyebrow} title={title} description={description} />
+      <Card className="surface-panel p-5">
+        <EmptyState
+          eyebrow={eyebrow}
+          title={`${title} not wired yet`}
+          description={note}
+        />
+      </Card>
+    </div>
+  );
+}

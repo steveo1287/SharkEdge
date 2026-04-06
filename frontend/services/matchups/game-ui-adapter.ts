@@ -186,7 +186,10 @@ export function buildGameHubTabs(detail: MatchupDetailView): GameHubTab[] {
   ];
 }
 
-export function buildGameHubMetrics(detail: MatchupDetailView, postureLabel: string): GameHubMetric[] {
+export function buildGameHubMetrics(
+  detail: MatchupDetailView,
+  postureLabel: string
+): GameHubMetric[] {
   const headlineSignal = detail.betSignals[0] ?? null;
 
   return [
