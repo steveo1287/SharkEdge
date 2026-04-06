@@ -32,6 +32,78 @@ function getGameHref(game: GameCardView) {
   return game.detailHref || `/game/${game.id}`;
 }
 
+function formatSignedNumber(value: number, digits = 1) {
+  return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
+}
+
+function getDominantMove(game: GameCardView) {
+  const spreadAbs = Math.abs(game.spread.movement);
+  const totalAbs = Math.abs(game.total.movement);
+  const moneylineAbs = Math.abs(game.moneyline.movement);
+
+  if (moneylineAbs >= spreadAbs * 10 && moneylineAbs >= totalAbs * 10) {
+    return {
+      market: "Moneyline",
+      magnitude: moneylineAbs,
+      value: `${formatAmericanOdds(game.moneyline.bestOdds)} | ${formatSignedNumber(
+        game.moneyline.movement,
+        0
+      )}`
+    };
+  }
+
+  if (spreadAbs >= totalAbs) {
+    return {
+      market: "Spread",
+      magnitude: spreadAbs,
+      value: `${game.spread.label} | ${formatSignedNumber(game.spread.movement)}`
+    };
+  }
+
+  return {
+    market: "Total",
+    magnitude: totalAbs,
+    value: `${game.total.label} | ${formatSignedNumber(game.total.movement)}`
+  };
+}
+
+function getMovementSeverity(game: GameCardView) {
+  const spreadAbs = Math.abs(game.spread.movement);
+  const totalAbs = Math.abs(game.total.movement);
+  const moneylineAbs = Math.abs(game.moneyline.movement);
+  const dominant = getDominantMove(game);
+
+  if (moneylineAbs >= 25 || spreadAbs >= 2 || totalAbs >= 2) {
+    return {
+      label: "Shock move",
+      tone: "danger" as const,
+      note: `${dominant.market} is moving hard enough to change the posture of the matchup.`
+    };
+  }
+
+  if (moneylineAbs >= 15 || spreadAbs >= 1 || totalAbs >= 1) {
+    return {
+      label: "Strong move",
+      tone: "premium" as const,
+      note: `${dominant.market} has real movement behind it and deserves context before entry.`
+    };
+  }
+
+  if (moneylineAbs >= 10 || spreadAbs >= 0.5 || totalAbs >= 0.5) {
+    return {
+      label: "Watch move",
+      tone: "brand" as const,
+      note: `${dominant.market} is worth monitoring, but not every move is actionable.`
+    };
+  }
+
+  return {
+    label: "Stable",
+    tone: "success" as const,
+    note: "Movement is present but not forceful enough to escalate this row on its own."
+  };
+}
+
 export function getProviderHealthTone(state: string) {
   if (state === "HEALTHY") {
     return "success" as const;
@@ -49,11 +121,8 @@ export function getProviderHealthTone(state: string) {
 }
 
 export function MovementCard({ game }: { game: GameCardView }) {
-  const biggestMove = Math.max(
-    Math.abs(game.spread.movement),
-    Math.abs(game.total.movement),
-    Math.abs(game.moneyline.movement)
-  );
+  const dominantMove = getDominantMove(game);
+  const severity = getMovementSeverity(game);
 
   return (
     <Link
@@ -62,33 +131,58 @@ export function MovementCard({ game }: { game: GameCardView }) {
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">{game.leagueKey}</div>
+          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+            {game.leagueKey}
+          </div>
           <div className="mt-2 text-lg font-semibold text-white">
             {game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}
           </div>
         </div>
-        <Badge tone={biggestMove >= 10 ? "premium" : "brand"}>{game.edgeScore.label}</Badge>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Badge tone={severity.tone}>{severity.label}</Badge>
+          <Badge tone={game.edgeScore.label === "Elite" ? "success" : game.edgeScore.label === "Strong" ? "premium" : game.edgeScore.label === "Watchlist" ? "brand" : "muted"}>
+            {game.edgeScore.label}
+          </Badge>
+        </div>
       </div>
+
+      <div className="mt-4 rounded-[1rem] border border-white/8 bg-slate-950/60 px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
+            Lead move
+          </div>
+          <div className="text-sm font-semibold text-white">
+            {dominantMove.market}
+          </div>
+        </div>
+        <div className="mt-2 text-sm font-medium text-sky-300">
+          {dominantMove.value}
+        </div>
+        <div className="mt-2 text-sm leading-6 text-slate-400">
+          {severity.note}
+        </div>
+      </div>
+
       <div className="mt-4 grid gap-2 text-sm text-slate-300">
         <div className="flex items-center justify-between gap-3">
           <span>Spread</span>
           <span>
-            {game.spread.label} | {game.spread.movement > 0 ? "+" : ""}
-            {game.spread.movement.toFixed(1)}
+            {game.spread.label} | {formatSignedNumber(game.spread.movement)}
           </span>
         </div>
         <div className="flex items-center justify-between gap-3">
           <span>Total</span>
           <span>
-            {game.total.label} | {game.total.movement > 0 ? "+" : ""}
-            {game.total.movement.toFixed(1)}
+            {game.total.label} | {formatSignedNumber(game.total.movement)}
           </span>
         </div>
         <div className="flex items-center justify-between gap-3">
           <span>Moneyline</span>
           <span>
-            {formatAmericanOdds(game.moneyline.bestOdds)} | {game.moneyline.movement > 0 ? "+" : ""}
-            {game.moneyline.movement.toFixed(0)}
+            {formatAmericanOdds(game.moneyline.bestOdds)} | {formatSignedNumber(
+              game.moneyline.movement,
+              0
+            )}
           </span>
         </div>
       </div>

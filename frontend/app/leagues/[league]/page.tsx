@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { LeagueBadge } from "@/components/identity/league-badge";
 import { LeagueSnapshot } from "@/components/board/league-snapshot";
-import { SportSection } from "@/components/board/sport-section";
-import { TopPlaysPanel } from "@/components/board/top-plays-panel";
+import { MarketMoversPanel } from "@/components/board/market-movers-panel";
+import { VerifiedBoardGrid } from "@/components/board/verified-board-grid";
+import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SectionTitle } from "@/components/ui/section-title";
 import { getPublishedTrendCards } from "@/lib/trends/publisher";
-import type { LeagueKey, PropFilters } from "@/lib/types/domain";
+import type { GameCardView, LeagueKey, PropFilters } from "@/lib/types/domain";
 import { buildInternalStoryHref } from "@/lib/utils/stories";
 import {
   getBoardPageData,
@@ -51,6 +53,70 @@ function buildLeaguePropFilters(league: LeagueKey): PropFilters {
   };
 }
 
+function isVerifiedGame(game: GameCardView) {
+  return (
+    game.bestBookCount > 0 &&
+    (game.spread.bestOdds !== 0 || game.moneyline.bestOdds !== 0 || game.total.bestOdds !== 0)
+  );
+}
+
+function getLeadMarket(game: GameCardView) {
+  const marketKeys = ["spread", "moneyline", "total"] as const;
+
+  return (
+    marketKeys
+      .map((marketKey) => {
+        const market = game[marketKey];
+        const rankScore = market.evProfile?.rankScore ?? 0;
+        const confidenceScore = market.confidenceScore ?? 0;
+        const movementBonus = Math.min(
+          12,
+          Math.abs(market.movement) * (marketKey === "moneyline" ? 0.35 : 2.5)
+        );
+        const qualityBonus = market.marketTruth?.qualityScore ?? 0;
+        const bestPriceBonus = market.marketIntelligence?.bestPriceFlag ? 8 : 0;
+
+        return {
+          marketKey,
+          score:
+            rankScore +
+            confidenceScore * 0.45 +
+            qualityBonus * 0.2 +
+            movementBonus +
+            bestPriceBonus
+        };
+      })
+      .sort((left, right) => right.score - left.score)[0]?.marketKey ?? "spread"
+  );
+}
+
+function getLeadScore(game: GameCardView) {
+  const leadMarket = getLeadMarket(game);
+  const market = game[leadMarket];
+  const rankScore = market.evProfile?.rankScore ?? 0;
+  const confidenceScore = market.confidenceScore ?? 0;
+  const movementBonus = Math.min(
+    12,
+    Math.abs(market.movement) * (leadMarket === "moneyline" ? 0.35 : 2.5)
+  );
+  const qualityBonus = market.marketTruth?.qualityScore ?? 0;
+  const bestPriceBonus = market.marketIntelligence?.bestPriceFlag ? 8 : 0;
+
+  return rankScore + confidenceScore * 0.45 + qualityBonus * 0.2 + movementBonus + bestPriceBonus;
+}
+
+function getSupportTone(value: string) {
+  if (value === "LIVE") {
+    return "success" as const;
+  }
+
+  if (value === "PARTIAL") {
+    return "premium" as const;
+  }
+
+  return "muted" as const;
+}
+
 export default async function LeagueCenterPage({ params }: PageProps) {
   const { league } = await params;
   const leagueKey = league.toUpperCase();
@@ -83,31 +149,56 @@ export default async function LeagueCenterPage({ params }: PageProps) {
     snapshot?.featuredGames?.filter((game) => game.status === "LIVE").length ?? 0;
   const standingRows = snapshot?.standings?.length ?? 0;
 
+  const verifiedGames = (section?.games ?? [])
+    .filter(isVerifiedGame)
+    .sort((left, right) => getLeadScore(right) - getLeadScore(left));
+
+  const movers = [...verifiedGames]
+    .sort((left, right) => {
+      const leftLeadMarket = getLeadMarket(left);
+      const rightLeadMarket = getLeadMarket(right);
+      const leftMovement = Math.abs(left[leftLeadMarket].movement);
+      const rightMovement = Math.abs(right[rightLeadMarket].movement);
+
+      if (rightMovement !== leftMovement) {
+        return rightMovement - leftMovement;
+      }
+
+      return getLeadScore(right) - getLeadScore(left);
+    })
+    .slice(0, 3);
+
   return (
     <div className="grid gap-7">
       <Card className="surface-panel-strong overflow-hidden px-6 py-6 xl:px-8 xl:py-8">
         <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
           <div className="grid gap-4">
-            <div className="section-kicker">{leagueKey} desk</div>
+            <div className="flex items-center gap-3">
+              <LeagueBadge league={leagueKey} size="lg" />
+              <div className="section-kicker">{leagueKey} desk</div>
+            </div>
+
             <div className="font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">
-              Scores, standings, verified board, and internal stories for one league.
+              Scores, verified board, movers, props, and stories for one league.
             </div>
+
             <div className="max-w-3xl text-base leading-8 text-slate-300">
-              This page stays league-clean. If verified odds are live, betting tools stay up.
-              If not, SharkEdge falls back to score and story context instead of faking a desk.
+              This league hub stays structure-first. Verified rows lead. Movers prioritize.
+              Standings and stories keep the desk useful even when odds are thin.
             </div>
+
             <div className="flex flex-wrap gap-3">
               <Link
-                href={`/?league=${leagueKey}`}
+                href="/board"
                 className="rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-400"
               >
-                Open home desk
+                Open board
               </Link>
               <Link
-                href={`/bets?league=${leagueKey}`}
+                href={`/props?league=${leagueKey}`}
                 className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-white transition hover:border-sky-400/25"
               >
-                League bets
+                League props
               </Link>
               <Link
                 href={`/trends?league=${leagueKey}&sample=5`}
@@ -120,20 +211,58 @@ export default async function LeagueCenterPage({ params }: PageProps) {
 
           <div className="grid gap-3 rounded-[1.6rem] border border-white/10 bg-slate-950/65 p-4 md:grid-cols-2">
             <div>
-              <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">Live games</div>
+              <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
+                Live games
+              </div>
               <div className="mt-2 text-2xl font-semibold text-white">{liveGames}</div>
             </div>
+
             <div>
-              <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">Standings rows</div>
+              <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
+                Verified rows
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-white">
+                {verifiedGames.length}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
+                Standings rows
+              </div>
               <div className="mt-2 text-2xl font-semibold text-white">{standingRows}</div>
             </div>
+
             <div>
-              <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">Stories</div>
+              <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
+                Props
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-white">{leagueProps.length}</div>
+            </div>
+
+            <div>
+              <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
+                Stories
+              </div>
               <div className="mt-2 text-2xl font-semibold text-white">{stories.length}</div>
             </div>
+
             <div>
-              <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">Props</div>
-              <div className="mt-2 text-2xl font-semibold text-white">{leagueProps.length}</div>
+              <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
+                Support
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {section ? (
+                  <>
+                    <Badge tone={getSupportTone(section.status)}>{section.status}</Badge>
+                    <Badge tone={getSupportTone(section.propsStatus)}>
+                      Props {section.propsStatus}
+                    </Badge>
+                  </>
+                ) : (
+                  <Badge tone="muted">Pending</Badge>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -150,16 +279,13 @@ export default async function LeagueCenterPage({ params }: PageProps) {
         </section>
       ) : null}
 
-      {section ? (
-        <section className="grid gap-4">
-          <SectionTitle
-            eyebrow="Board"
-            title="Verified league board"
-            description="Schedule and odds for this league only. Scores stay visible even when odds are not verified."
-          />
-          <SportSection section={section} focusMarket={boardFilters.market} />
-        </section>
-      ) : null}
+      <section className="grid gap-4">
+        <VerifiedBoardGrid games={verifiedGames} />
+      </section>
+
+      <section className="grid gap-4">
+        <MarketMoversPanel games={movers} />
+      </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <section className="grid gap-4">
@@ -169,7 +295,44 @@ export default async function LeagueCenterPage({ params }: PageProps) {
             description="Top current prop entries for this league."
           />
           {leagueProps.length ? (
-            <TopPlaysPanel plays={leagueProps.slice(0, 3)} />
+            <div className="grid gap-4">
+              {leagueProps.slice(0, 3).map((prop) => (
+                <Card key={prop.id} className="surface-panel p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">
+                        {prop.marketType.replace(/_/g, " ")}
+                      </div>
+                      <div className="mt-2 text-xl font-semibold text-white">
+                        {prop.player.name}
+                      </div>
+                      <div className="mt-2 text-sm text-slate-400">
+                        {prop.team.name} vs {prop.opponent.name}
+                      </div>
+                    </div>
+
+                    <Badge tone="success">
+                      {prop.edgeScore.label} {prop.edgeScore.score}
+                    </Badge>
+                  </div>
+
+                  <div className="mt-4 text-sm leading-6 text-slate-300">
+                    {prop.analyticsSummary?.reason ??
+                      prop.trendSummary?.note ??
+                      "Open props to inspect whether this number still deserves attention."}
+                  </div>
+
+                  <div className="mt-5">
+                    <Link
+                      href={prop.gameHref ?? `/props?league=${leagueKey}`}
+                      className="rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300"
+                    >
+                      Open prop
+                    </Link>
+                  </div>
+                </Card>
+              ))}
+            </div>
           ) : (
             <Card className="surface-panel p-6 text-sm leading-7 text-slate-400">
               No qualifying props are loaded for this league window right now.
@@ -216,6 +379,7 @@ export default async function LeagueCenterPage({ params }: PageProps) {
                       />
                     </div>
                   ) : null}
+
                   <div className="grid gap-3 p-5">
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
@@ -227,9 +391,11 @@ export default async function LeagueCenterPage({ params }: PageProps) {
                         </div>
                       ) : null}
                     </div>
+
                     <div className="line-clamp-2 text-xl font-semibold leading-tight text-white">
                       {story.title}
                     </div>
+
                     <div className="line-clamp-4 text-sm leading-6 text-slate-400">
                       {story.summary ?? "Open the internal story for the latest league update."}
                     </div>
@@ -263,9 +429,11 @@ export default async function LeagueCenterPage({ params }: PageProps) {
                   <div className="text-slate-500">{card.marketLabel}</div>
                   <div className="text-sky-300">{card.category}</div>
                 </div>
+
                 <div className="mt-3 line-clamp-2 text-lg font-semibold leading-tight text-white">
                   {card.title}
                 </div>
+
                 <div className="mt-3 text-sm text-slate-400">
                   {card.record}
                   {typeof card.hitRate === "number" ? ` | ${card.hitRate.toFixed(0)}% hit` : ""}
@@ -273,13 +441,14 @@ export default async function LeagueCenterPage({ params }: PageProps) {
                     ? ` | ${card.roi > 0 ? "+" : ""}${card.roi.toFixed(1)}% ROI`
                     : ""}
                 </div>
+
                 <div className="mt-3 line-clamp-3 text-sm leading-6 text-slate-400">
                   {card.description}
                 </div>
               </Link>
             ))
           ) : (
-            <Card className="surface-panel xl:col-span-3 p-6 text-sm leading-7 text-slate-400">
+            <Card className="surface-panel p-6 text-sm leading-7 text-slate-400 xl:col-span-3">
               No league trend clears the publish threshold in this window yet.
             </Card>
           )}
