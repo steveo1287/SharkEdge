@@ -139,8 +139,22 @@ export function MovementCard({ game }: { game: GameCardView }) {
           </div>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
-          <Badge tone={severity.tone}>{severity.label}</Badge>
-          <Badge tone={game.edgeScore.label === "Elite" ? "success" : game.edgeScore.label === "Strong" ? "premium" : game.edgeScore.label === "Watchlist" ? "brand" : "muted"}>
+          <Badge
+            tone={severity.tone}
+          >
+            {severity.label}
+          </Badge>
+          <Badge
+            tone={
+              game.edgeScore.label === "Elite"
+                ? "success"
+                : game.edgeScore.label === "Strong"
+                  ? "premium"
+                  : game.edgeScore.label === "Watchlist"
+                    ? "brand"
+                    : "muted"
+            }
+          >
             {game.edgeScore.label}
           </Badge>
         </div>
@@ -205,7 +219,9 @@ export function StoryCard({
       className="group overflow-hidden rounded-[1.45rem] border border-white/8 bg-[#0a1422]/90 transition hover:border-sky-400/25 hover:bg-white/[0.03]"
     >
       {story.imageUrl ? (
-        <div className={featured ? "aspect-[16/9] overflow-hidden" : "aspect-[16/8] overflow-hidden"}>
+        <div
+          className={featured ? "aspect-[16/9] overflow-hidden" : "aspect-[16/8] overflow-hidden"}
+        >
           <img
             src={story.imageUrl}
             alt={story.title}
@@ -251,7 +267,15 @@ export function TrendSignalCard({ trend }: { trend: TrendCardView }) {
   );
 }
 
-export function ResearchRail({ focusedLeague }: { focusedLeague: LeagueKey }) {
+export function ResearchRail({
+  focusedLeague,
+  genericLeagueContext = false
+}: {
+  focusedLeague: LeagueKey;
+  genericLeagueContext?: boolean;
+}) {
+  const contextTitle = genericLeagueContext ? "Team context" : `${focusedLeague} context`;
+  const contextHref = genericLeagueContext ? "/teams" : `/teams?league=${focusedLeague}`;
   const links = [
     {
       href: "/board",
@@ -269,8 +293,8 @@ export function ResearchRail({ focusedLeague }: { focusedLeague: LeagueKey }) {
       detail: "Player markets, workload context, and fair-price hunting."
     },
     {
-      href: "/teams",
-      title: `${focusedLeague} context`,
+      href: contextHref,
+      title: contextTitle,
       detail: "Team and player depth stay here when you need more than the core flow."
     }
   ];
