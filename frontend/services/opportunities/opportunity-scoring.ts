@@ -29,21 +29,21 @@ function round(value: number) {
 function trapPenalty(flag: OpportunityTrapFlag) {
   switch (flag) {
     case "STALE_EDGE":
-      return 22;
+      return 24;
     case "LOW_PROVIDER_HEALTH":
-      return 20;
+      return 22;
+    case "ONE_BOOK_OUTLIER":
+      return 18;
     case "THIN_MARKET":
       return 16;
-    case "ONE_BOOK_OUTLIER":
-      return 16;
+    case "FAKE_MOVE_RISK":
+      return 14;
     case "HIGH_MARKET_DISAGREEMENT":
       return 12;
     case "LOW_CONFIDENCE_FAIR_PRICE":
       return 10;
-    case "FAKE_MOVE_RISK":
-      return 10;
     case "MODEL_MARKET_CONFLICT":
-      return 8;
+      return 9;
     case "INJURY_UNCERTAINTY":
       return 8;
     default:
@@ -52,50 +52,89 @@ function trapPenalty(flag: OpportunityTrapFlag) {
 }
 
 function buildPriceEdgeScore(args: BuildOpportunityScoreArgs) {
-  const fairGapScore = clamp((args.fairLineGap ?? 0) * 0.42, 0, 12);
-  const edgeScoreBoost = clamp((args.edgeScore - 50) * 0.14, 0, 12);
+  const fairGapScore = clamp((args.fairLineGap ?? 0) * 0.42, 0, 14);
+  const edgeScoreBoost = clamp((args.edgeScore - 50) * 0.16, 0, 12);
 
-  return clamp(fairGapScore + edgeScoreBoost, 0, 24);
+  return clamp(fairGapScore + edgeScoreBoost, 0, 26);
 }
 
 function buildExpectedValueScore(args: BuildOpportunityScoreArgs) {
-  return clamp((args.expectedValuePct ?? 0) * 2.1, 0, 24);
+  const ev = args.expectedValuePct ?? 0;
+
+  if (ev <= 0) {
+    return 0;
+  }
+
+  if (ev >= 4) {
+    return 24;
+  }
+
+  if (ev >= 3) {
+    return 20;
+  }
+
+  if (ev >= 2) {
+    return 15;
+  }
+
+  if (ev >= 1) {
+    return 9;
+  }
+
+  return 4;
 }
 
 function buildMarketValidationScore(args: BuildOpportunityScoreArgs) {
-  const qualityComponent = clamp(args.qualityScore * 0.2, 0, 8);
-  const bookComponent = clamp(args.bookCount * 2.25, 0, 8);
-  const disagreementPenalty = clamp((args.disagreementScore ?? 0) * 18, 0, 8);
+  const qualityComponent = clamp(args.qualityScore * 0.18, 0, 8);
+  const bookComponent =
+    args.bookCount >= 6
+      ? 10
+      : args.bookCount >= 4
+        ? 8
+        : args.bookCount >= 3
+          ? 6
+          : args.bookCount >= 2
+            ? 3
+            : 0;
+
+  const disagreementPenalty =
+    typeof args.disagreementScore === "number"
+      ? clamp(args.disagreementScore * 22, 0, 10)
+      : 0;
 
   return clamp(qualityComponent + bookComponent - disagreementPenalty, 0, 18);
 }
 
 function buildFreshnessScore(args: BuildOpportunityScoreArgs) {
   if (args.freshnessMinutes === null) {
-    return 7;
-  }
-
-  if (args.freshnessMinutes <= 5) {
-    return 16;
-  }
-
-  if (args.freshnessMinutes <= 15) {
-    return 13;
-  }
-
-  if (args.freshnessMinutes <= 30) {
-    return 10;
-  }
-
-  if (args.freshnessMinutes <= 60) {
     return 6;
   }
 
-  return 2;
+  if (args.freshnessMinutes <= 3) {
+    return 16;
+  }
+
+  if (args.freshnessMinutes <= 8) {
+    return 14;
+  }
+
+  if (args.freshnessMinutes <= 15) {
+    return 11;
+  }
+
+  if (args.freshnessMinutes <= 30) {
+    return 7;
+  }
+
+  if (args.freshnessMinutes <= 60) {
+    return 3;
+  }
+
+  return 0;
 }
 
 function buildTimingScore(args: BuildOpportunityScoreArgs) {
-  return clamp(args.timingQuality * 0.16, 0, 14);
+  return clamp(args.timingQuality * 0.16, 0, 16);
 }
 
 function buildSupportScore(args: BuildOpportunityScoreArgs) {
@@ -103,6 +142,53 @@ function buildSupportScore(args: BuildOpportunityScoreArgs) {
   const confidenceSupport = clamp(args.confidenceScore * 0.05, 0, 4);
 
   return clamp(baseSupport + confidenceSupport, 0, 14);
+}
+
+function buildEfficiencyPenalty(args: BuildOpportunityScoreArgs) {
+  const disagreement = args.disagreementScore ?? 0;
+
+  if (
+    args.bookCount >= 5 &&
+    disagreement <= 0.04 &&
+    (args.expectedValuePct ?? 0) < 1.25 &&
+    (args.fairLineGap ?? 0) < 6
+  ) {
+    return 12;
+  }
+
+  if (
+    args.bookCount >= 4 &&
+    disagreement <= 0.06 &&
+    (args.expectedValuePct ?? 0) < 1.75
+  ) {
+    return 7;
+  }
+
+  return 0;
+}
+
+function buildDecayPenalty(args: BuildOpportunityScoreArgs) {
+  if (args.freshnessMinutes === null) {
+    return 2;
+  }
+
+  if (args.freshnessMinutes <= 8) {
+    return 0;
+  }
+
+  if (args.freshnessMinutes <= 15) {
+    return 2;
+  }
+
+  if (args.freshnessMinutes <= 30) {
+    return 5;
+  }
+
+  if (args.freshnessMinutes <= 60) {
+    return 9;
+  }
+
+  return 14;
 }
 
 export function buildOpportunityScore(
@@ -118,10 +204,14 @@ export function buildOpportunityScore(
   const timingQuality = buildTimingScore(args);
   const support = buildSupportScore(args);
   const personalization = clamp(args.personalizationDelta, -8, 8);
-  const penalties = args.trapFlags.reduce(
+
+  const trapPenalties = args.trapFlags.reduce(
     (total, flag) => total + trapPenalty(flag),
     0
   );
+  const efficiencyPenalty = buildEfficiencyPenalty(args);
+  const decayPenalty = buildDecayPenalty(args);
+  const penalties = trapPenalties + efficiencyPenalty + decayPenalty;
 
   const baseScore = 10;
   const rawScore =
