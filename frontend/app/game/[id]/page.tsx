@@ -8,6 +8,10 @@ import { OverviewPanel } from "@/components/game/overview-panel";
 import { PropList } from "@/components/game/prop-list";
 import { OpportunitySpotlightCard } from "@/components/intelligence/opportunity-spotlight-card";
 import { formatOpportunityAction } from "@/components/intelligence/opportunity-badges";
+import {
+  DiagnosticNotesPanel,
+  ProviderHealthSummaryPanel
+} from "@/components/intelligence/provider-diagnostic-shells";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -347,52 +351,35 @@ export default async function GameDetailPage({ params }: PageProps) {
 
           <div className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
             <div className="grid gap-4">
-              <Card className="surface-panel p-5">
-                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-                  Provider health
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Badge tone={getProviderHealthTone(detail.providerHealth.state)}>
-                    {detail.providerHealth.label}
-                  </Badge>
-                  {detail.currentOddsProvider ? (
-                    <Badge tone="brand">{detail.currentOddsProvider}</Badge>
-                  ) : null}
-                  {detail.historicalOddsProvider ? (
-                    <Badge tone="premium">{detail.historicalOddsProvider}</Badge>
-                  ) : null}
-                </div>
-                <div className="mt-4 text-sm leading-7 text-slate-300">
-                  {detail.providerHealth.summary}
-                </div>
-                {detail.providerHealth.asOf ? (
-                  <div className="mt-3 text-xs uppercase tracking-[0.18em] text-slate-500">
-                    As of {formatGameDateTime(detail.providerHealth.asOf)}
-                  </div>
-                ) : null}
-              </Card>
+              <ProviderHealthSummaryPanel
+                title="Provider health"
+                state={detail.providerHealth.state}
+                label={detail.providerHealth.label}
+                summary={detail.providerHealth.summary}
+                badges={[
+                  detail.currentOddsProvider ? (
+                    <Badge key="current-provider" tone="brand">
+                      {detail.currentOddsProvider}
+                    </Badge>
+                  ) : null,
+                  detail.historicalOddsProvider ? (
+                    <Badge key="historical-provider" tone="premium">
+                      {detail.historicalOddsProvider}
+                    </Badge>
+                  ) : null
+                ]}
+                asOfLabel={
+                  detail.providerHealth.asOf
+                    ? `As of ${formatGameDateTime(detail.providerHealth.asOf)}`
+                    : null
+                }
+              />
 
-              <Card className="surface-panel p-5">
-                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-                  Desk notes
-                </div>
-                <div className="mt-4 grid gap-3">
-                  {contextNotes.length ? (
-                    contextNotes.slice(0, 8).map((note) => (
-                      <div
-                        key={note}
-                        className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300"
-                      >
-                        {note}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
-                      No explicit provider or matchup notes were attached on this render.
-                    </div>
-                  )}
-                </div>
-              </Card>
+              <DiagnosticNotesPanel
+                title="Desk notes"
+                notes={contextNotes.slice(0, 8)}
+                emptyMessage="No explicit provider or matchup notes were attached on this render."
+              />
             </div>
 
             <MatchupPanel detail={detail} />
