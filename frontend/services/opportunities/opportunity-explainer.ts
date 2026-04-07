@@ -30,8 +30,6 @@ function formatTrap(flag: OpportunityTrapFlag) {
       return "the model and market are not aligned";
     case "INJURY_UNCERTAINTY":
       return "injury uncertainty still hangs over it";
-    default:
-      return flag.replace(/_/g, " ").toLowerCase();
   }
 }
 
@@ -78,7 +76,7 @@ function describeFairGap(fairLineGap: number | null) {
   }
 
   if (Math.abs(fairLineGap) >= 6) {
-    return `There is still a measurable gap to fair price`;
+    return "There is still a measurable gap to fair price";
   }
 
   return null;
@@ -93,7 +91,7 @@ function describeEv(expectedValuePct: number | null) {
     return `EV still sits at +${expectedValuePct.toFixed(2)}%`;
   }
 
-  return `Positive EV still remains`;
+  return "Positive EV still remains";
 }
 
 function describeMarketShape(args: {
@@ -102,7 +100,7 @@ function describeMarketShape(args: {
   marketDisagreementScore: number | null;
 }) {
   if (args.bestPriceFlag && args.bookCount >= 3) {
-    return `Best price is still available across a real market`;
+    return "Best price is still available across a real market";
   }
 
   if (
@@ -110,7 +108,7 @@ function describeMarketShape(args: {
     args.marketDisagreementScore <= 0.08 &&
     args.bookCount >= 2
   ) {
-    return `Books are relatively aligned around this number`;
+    return "Books are relatively aligned around this number";
   }
 
   return null;
@@ -173,6 +171,7 @@ export function buildOpportunityExplanation(args: {
   if (evLine) whyItShows.push(evLine);
   if (marketShapeLine) whyItShows.push(marketShapeLine);
   if (freshnessLine) whyItShows.push(freshnessLine);
+  if (movementLine) whyItShows.push(movementLine);
 
   for (const detail of getReasonDetail(args.reasons)) {
     if (!whyItShows.includes(detail)) {
