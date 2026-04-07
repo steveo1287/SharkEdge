@@ -7,8 +7,8 @@ import { MatchupPanel } from "@/components/game/matchup-panel";
 import { OddsTable } from "@/components/game/odds-table";
 import { OverviewPanel } from "@/components/game/overview-panel";
 import { PropList } from "@/components/game/prop-list";
+import { OpportunityActionBadge } from "@/components/intelligence/opportunity-badges";
 import { OpportunitySpotlightCard } from "@/components/intelligence/opportunity-spotlight-card";
-import { formatOpportunityAction } from "@/components/intelligence/opportunity-badges";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -59,6 +59,20 @@ export default async function GameDetailPage({ params }: PageProps) {
   const splitsCards = buildGameHubSplitsCards(detail);
   const kalshiCards = buildGameHubKalshiCards(detail);
 
+  const marketSpotlight =
+    decisionModule.focusTarget?.kind === "market"
+      ? {
+          marketType: decisionModule.focusTarget.marketType,
+          sportsbookName: decisionModule.focusTarget.sportsbookName,
+          selectionLabel: decisionModule.headline?.selectionLabel ?? "Target market"
+        }
+      : null;
+
+  const spotlightPropId =
+    decisionModule.focusTarget?.kind === "prop"
+      ? decisionModule.focusTarget.propId
+      : null;
+
   return (
     <BetSlipBoundary>
       <div className="grid gap-7">
@@ -77,19 +91,7 @@ export default async function GameDetailPage({ params }: PageProps) {
                     {detail.providerHealth.label}
                   </Badge>
                   {headline ? (
-                    <Badge
-                      tone={
-                        headline.actionState === "BET_NOW"
-                          ? "success"
-                          : headline.actionState === "WAIT"
-                            ? "brand"
-                            : headline.actionState === "WATCH"
-                              ? "premium"
-                              : "muted"
-                      }
-                    >
-                      {formatOpportunityAction(headline.actionState)}
-                    </Badge>
+                    <OpportunityActionBadge actionState={headline.actionState} />
                   ) : null}
                 </div>
 
@@ -220,7 +222,7 @@ export default async function GameDetailPage({ params }: PageProps) {
             title="Book table and tape"
             description="Verified books, price context, and stored movement snapshots for this matchup."
           />
-          <OddsTable detail={detail} />
+          <OddsTable detail={detail} spotlight={marketSpotlight} />
         </section>
 
         <section id="props" className="grid gap-4">
@@ -229,7 +231,11 @@ export default async function GameDetailPage({ params }: PageProps) {
             title="Prop context"
             description="Only the markets that belong on the matchup page stay here."
           />
-          <PropList props={detail.props} support={detail.propsSupport} />
+          <PropList
+            props={detail.props}
+            support={detail.propsSupport}
+            spotlightPropId={spotlightPropId}
+          />
         </section>
 
         <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
