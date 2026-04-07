@@ -6,8 +6,8 @@ import { MatchupPanel } from "@/components/game/matchup-panel";
 import { OddsTable } from "@/components/game/odds-table";
 import { OverviewPanel } from "@/components/game/overview-panel";
 import { PropList } from "@/components/game/prop-list";
+import { OpportunityActionBadge } from "@/components/intelligence/opportunity-badges";
 import { OpportunitySpotlightCard } from "@/components/intelligence/opportunity-spotlight-card";
-import { formatOpportunityAction } from "@/components/intelligence/opportunity-badges";
 import {
   DiagnosticNotesPanel,
   ProviderHealthSummaryPanel
@@ -80,19 +80,7 @@ export default async function GameDetailPage({ params }: PageProps) {
                     {detail.providerHealth.label}
                   </Badge>
                   {headline ? (
-                    <Badge
-                      tone={
-                        headline.actionState === "BET_NOW"
-                          ? "success"
-                          : headline.actionState === "WAIT"
-                            ? "brand"
-                            : headline.actionState === "WATCH"
-                              ? "premium"
-                              : "muted"
-                      }
-                    >
-                      {formatOpportunityAction(headline.actionState)}
-                    </Badge>
+                    <OpportunityActionBadge actionState={headline.actionState} />
                   ) : null}
                 </div>
 
