@@ -70,7 +70,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 tone={getProviderHealthTone(
                   home.liveDeskAvailable
                     ? home.liveBoardData?.providerHealth.state ?? "DEGRADED"
-                    : home.boardData.providerHealth.state
+                    : "DEGRADED"
                 )}
               >
                 {home.liveDeskAvailable
