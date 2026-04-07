@@ -12,6 +12,7 @@ import {
   DiagnosticNotesPanel,
   ProviderHealthSummaryPanel
 } from "@/components/intelligence/provider-diagnostic-shells";
+import { TrendValueBadge } from "@/components/intelligence/trend-signal-badges";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -279,19 +280,7 @@ export default async function GameDetailPage({ params }: PageProps) {
                       <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
                         Trend support
                       </div>
-                      <Badge
-                        tone={
-                          trend.tone === "success"
-                            ? "success"
-                            : trend.tone === "premium"
-                              ? "premium"
-                              : trend.tone === "brand"
-                                ? "brand"
-                                : "muted"
-                        }
-                      >
-                        {trend.value}
-                      </Badge>
+                      <TrendValueBadge tone={trend.tone} value={trend.value} />
                     </div>
                     <div className="mt-3 text-lg font-semibold leading-tight text-white">
                       {trend.title}
