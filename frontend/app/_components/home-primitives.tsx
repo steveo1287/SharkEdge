@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
+import { getProviderHealthTone } from "@/components/intelligence/provider-status-badges";
 import type { GameCardView, LeagueKey, LeagueSnapshotView, TrendCardView } from "@/lib/types/domain";
 import { formatAmericanOdds } from "@/lib/formatters/odds";
 import { buildInternalStoryHref } from "@/lib/utils/stories";
@@ -104,21 +105,7 @@ function getMovementSeverity(game: GameCardView) {
   };
 }
 
-export function getProviderHealthTone(state: string) {
-  if (state === "HEALTHY") {
-    return "success" as const;
-  }
-
-  if (state === "DEGRADED") {
-    return "premium" as const;
-  }
-
-  if (state === "OFFLINE") {
-    return "danger" as const;
-  }
-
-  return "muted" as const;
-}
+export { getProviderHealthTone };
 
 export function MovementCard({ game }: { game: GameCardView }) {
   const dominantMove = getDominantMove(game);
@@ -139,11 +126,7 @@ export function MovementCard({ game }: { game: GameCardView }) {
           </div>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
-          <Badge
-            tone={severity.tone}
-          >
-            {severity.label}
-          </Badge>
+          <Badge tone={severity.tone}>{severity.label}</Badge>
           <Badge
             tone={
               game.edgeScore.label === "Elite"
