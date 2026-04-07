@@ -88,9 +88,7 @@ function FeaturedPropCard({
         </div>
         <div className="flex flex-wrap gap-2">
           {spotlight ? <Badge tone="success">Decision target</Badge> : null}
-          {formatValueFlag(prop.valueFlag) ? (
-            <Badge tone="brand">{formatValueFlag(prop.valueFlag)}</Badge>
-          ) : null}
+          {formatValueFlag(prop.valueFlag) ? <Badge tone="brand">{formatValueFlag(prop.valueFlag)}</Badge> : null}
           <Badge tone={getEdgeToneFromBand(prop.edgeScore.label)}>{prop.edgeScore.label}</Badge>
         </div>
       </div>
@@ -122,9 +120,7 @@ function FeaturedPropCard({
           <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Fair line</div>
           <div className="mt-2 text-base font-semibold text-white">{fairLineDisplay}</div>
           <div className="mt-1 text-xs text-slate-500">
-            {prop.fairPrice?.pricingMethod
-              ? prop.fairPrice.pricingMethod.replace(/_/g, " ")
-              : "Fair price unavailable"}
+            {prop.fairPrice?.pricingMethod ? prop.fairPrice.pricingMethod.replace(/_/g, " ") : "Fair price unavailable"}
           </div>
         </div>
         <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
@@ -167,9 +163,7 @@ function FeaturedPropCard({
           >
             Matchup
           </Link>
-          <BetActionButton intent={buildPropBetIntent(prop, "matchup", matchupHref)}>
-            Add to slip
-          </BetActionButton>
+          <BetActionButton intent={buildPropBetIntent(prop, "matchup", matchupHref)}>Add to slip</BetActionButton>
           <BetActionButton intent={buildPropBetIntent(prop, "matchup", matchupHref)} mode="log">
             Log now
           </BetActionButton>
@@ -238,9 +232,7 @@ export function PropList({ props, support, spotlightPropId = null }: PropListPro
 
       {restProps.length ? (
         <Card className="surface-panel p-5">
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-            More matchup props
-          </div>
+          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">More matchup props</div>
           <div className="mt-4 grid gap-3">
             {restProps.map(({ prop, opportunity }) => {
               const matchupHref = prop.gameHref ?? `/game/${prop.gameId}`;
@@ -263,12 +255,10 @@ export function PropList({ props, support, spotlightPropId = null }: PropListPro
                       {spotlight ? <Badge tone="success">Decision target</Badge> : null}
                     </div>
                     <div className="mt-1 text-xs text-slate-500">
-                      {formatMarketType(prop.marketType)} {prop.side} {prop.line} |{" "}
-                      {formatAmericanOdds(prop.bestAvailableOddsAmerican ?? prop.oddsAmerican)}
+                      {formatMarketType(prop.marketType)} {prop.side} {prop.line} | {formatAmericanOdds(prop.bestAvailableOddsAmerican ?? prop.oddsAmerican)}
                     </div>
                     <div className="mt-1 text-xs text-slate-500">
-                      {prop.bestAvailableSportsbookName ?? prop.sportsbook.name} |{" "}
-                      {trapLine ?? opportunity.reasonSummary}
+                      {prop.bestAvailableSportsbookName ?? prop.sportsbook.name} | {trapLine ?? opportunity.reasonSummary}
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
