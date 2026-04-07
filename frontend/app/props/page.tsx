@@ -3,8 +3,7 @@ import Link from "next/link";
 import {
   PropsDeskSections,
   getCoverageTone,
-  getProviderHealthTone,
-  sortPropsByPriority
+  getProviderHealthTone
 } from "@/app/_components/props-desk-sections";
 import { BetSlipBoundary } from "@/components/bets/bet-slip-boundary";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +12,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { PropsTable } from "@/components/props/props-table";
 import { BOARD_SPORTS } from "@/lib/config/board-sports";
-import type { PropMarketType } from "@/lib/types/domain";
+import { getPropsCommandData } from "@/services/props/props-command-service";
 
 export const dynamic = "force-dynamic";
 
@@ -21,52 +20,9 @@ type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-function summarizePropDeskStatus(summary: string, sourceNote: string, warningCount: number) {
-  const combined = `${summary} ${sourceNote}`.toLowerCase();
-
-  if (combined.includes("out_of_usage_credits") || combined.includes("usage quota")) {
-    return `Upstream quota pressure is reducing live prop coverage depth${warningCount ? ` (${warningCount} warning${warningCount === 1 ? "" : "s"})` : ""}.`;
-  }
-
-  if (combined.includes("partially connected") || combined.includes("partial")) {
-    return `Live props are partially connected${warningCount ? ` with ${warningCount} active warning${warningCount === 1 ? "" : "s"}` : ""}.`;
-  }
-
-  if (warningCount > 0) {
-    return `${warningCount} provider warning${warningCount === 1 ? "" : "s"} are affecting live prop coverage depth.`;
-  }
-
-  return summary;
-}
-
 export default async function PropsPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
-  const propsService = await import("@/services/odds/props-service");
-  const filters = propsService.parsePropsFilters(resolved);
-  const data = await propsService.getPropsExplorerData(filters);
-  const selectedLeague =
-    filters.league === "ALL"
-      ? null
-      : data.leagues.find((league) => league.key === filters.league) ?? null;
-  const leagueTeams = selectedLeague
-    ? data.teams.filter((team) => team.leagueId === selectedLeague.id)
-    : data.teams;
-  const leaguePlayers = selectedLeague
-    ? data.players.filter((player) => player.leagueId === selectedLeague.id)
-    : data.players;
-  const liveCoverageCount = data.coverage.filter((entry: any) => entry.status === "LIVE").length;
-  const partialCoverageCount = data.coverage.filter((entry: any) => entry.status === "PARTIAL").length;
-  const comingSoonCoverageCount = data.coverage.filter((entry: any) => entry.status === "COMING_SOON").length;
-  const realBookCount = data.sportsbooks.length;
-  const selectedLeagueLabel = selectedLeague?.name ?? "All sports";
-  const rankedProps = sortPropsByPriority(data.props);
-  const featuredProps = rankedProps.slice(0, 3);
-  const watchlistProps = rankedProps.slice(3, 9);
-  const summarizedDeskStatus = summarizePropDeskStatus(
-    data.providerHealth.summary,
-    data.sourceNote,
-    data.providerHealth.warnings.length
-  );
+  const props = await getPropsCommandData(resolved);
 
   return (
     <BetSlipBoundary>
@@ -106,45 +62,45 @@ export default async function PropsPage({ searchParams }: PageProps) {
             <div className="grid gap-3 rounded-[1.7rem] border border-white/10 bg-slate-950/65 p-4 text-sm text-slate-300 md:grid-cols-2">
               <div className="md:col-span-2 flex items-center justify-between gap-3">
                 <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
-                  {selectedLeagueLabel} snapshot
+                  {props.selectedLeagueLabel} snapshot
                 </div>
-                <Badge tone={getProviderHealthTone(data.providerHealth.state)}>
-                  {data.providerHealth.label}
+                <Badge tone={getProviderHealthTone(props.data.providerHealth.state)}>
+                  {props.data.providerHealth.label}
                 </Badge>
               </div>
               <div>
                 <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Ranked rows</div>
-                <div className="mt-2 text-2xl font-semibold text-white">{rankedProps.length}</div>
+                <div className="mt-2 text-2xl font-semibold text-white">{props.rankedProps.length}</div>
               </div>
               <div>
                 <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Books</div>
-                <div className="mt-2 text-2xl font-semibold text-white">{realBookCount}</div>
+                <div className="mt-2 text-2xl font-semibold text-white">{props.realBookCount}</div>
               </div>
               <div>
                 <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Live sports</div>
-                <div className="mt-2 text-2xl font-semibold text-white">{liveCoverageCount}</div>
+                <div className="mt-2 text-2xl font-semibold text-white">{props.liveCoverageCount}</div>
               </div>
               <div>
                 <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Partial / soon</div>
                 <div className="mt-2 text-2xl font-semibold text-white">
-                  {partialCoverageCount} / {comingSoonCoverageCount}
+                  {props.partialCoverageCount} / {props.comingSoonCoverageCount}
                 </div>
               </div>
               <div className="md:col-span-2 rounded-[1.1rem] border border-emerald-400/15 bg-emerald-400/8 px-4 py-3 text-sm leading-6 text-emerald-200">
                 The prop page now ranks by actual prop usefulness, not just table order.
               </div>
               <div className="md:col-span-2 rounded-[1.1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300 break-words overflow-hidden">
-                {summarizedDeskStatus}
+                {props.summarizedDeskStatus}
               </div>
               <div className="md:col-span-2 flex flex-wrap gap-2 text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
-                <span>{data.providerHealth.freshnessLabel}</span>
-                {typeof data.providerHealth.freshnessMinutes === "number" ? (
-                  <span>{data.providerHealth.freshnessMinutes}m old</span>
+                <span>{props.data.providerHealth.freshnessLabel}</span>
+                {typeof props.data.providerHealth.freshnessMinutes === "number" ? (
+                  <span>{props.data.providerHealth.freshnessMinutes}m old</span>
                 ) : null}
-                {data.providerHealth.warnings.length ? (
+                {props.data.providerHealth.warnings.length ? (
                   <span>
-                    {data.providerHealth.warnings.length} warning
-                    {data.providerHealth.warnings.length === 1 ? "" : "s"}
+                    {props.data.providerHealth.warnings.length} warning
+                    {props.data.providerHealth.warnings.length === 1 ? "" : "s"}
                   </span>
                 ) : null}
               </div>
@@ -154,10 +110,10 @@ export default async function PropsPage({ searchParams }: PageProps) {
                 </summary>
                 <div className="mt-3 grid gap-3 text-xs leading-6 text-slate-400">
                   <div className="break-words overflow-hidden whitespace-pre-wrap">
-                    {data.providerHealth.summary}
+                    {props.data.providerHealth.summary}
                   </div>
                   <div className="break-all overflow-hidden whitespace-pre-wrap">
-                    {data.sourceNote}
+                    {props.data.sourceNote}
                   </div>
                 </div>
               </details>
@@ -168,41 +124,52 @@ export default async function PropsPage({ searchParams }: PageProps) {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Card className="surface-panel p-5">
             <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Scope</div>
-            <div className="mt-3 font-display text-3xl font-semibold text-white">{selectedLeagueLabel}</div>
+            <div className="mt-3 font-display text-3xl font-semibold text-white">
+              {props.selectedLeagueLabel}
+            </div>
             <div className="mt-2 text-sm leading-6 text-slate-400">
               Stay broad until you have a reason to narrow the prop hunt.
             </div>
           </Card>
           <Card className="surface-panel p-5">
             <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Open now</div>
-            <div className="mt-3 font-display text-3xl font-semibold text-white">{featuredProps.length}</div>
+            <div className="mt-3 font-display text-3xl font-semibold text-white">
+              {props.featuredProps.length}
+            </div>
             <div className="mt-2 text-sm leading-6 text-slate-400">
               These are the props that currently deserve first attention.
             </div>
           </Card>
           <Card className="surface-panel p-5">
             <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Watchlist</div>
-            <div className="mt-3 font-display text-3xl font-semibold text-white">{watchlistProps.length}</div>
+            <div className="mt-3 font-display text-3xl font-semibold text-white">
+              {props.watchlistProps.length}
+            </div>
             <div className="mt-2 text-sm leading-6 text-slate-400">
               Still worth tracking, but not the first rows you should click.
             </div>
           </Card>
           <Card className="surface-panel p-5">
             <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Books tracked</div>
-            <div className="mt-3 font-display text-3xl font-semibold text-white">{realBookCount}</div>
+            <div className="mt-3 font-display text-3xl font-semibold text-white">
+              {props.realBookCount}
+            </div>
             <div className="mt-2 text-sm leading-6 text-slate-400">
               Best-price comparison stays visible even when market depth thins out.
             </div>
           </Card>
         </div>
 
-        <PropsDeskSections featuredProps={featuredProps} watchlistProps={watchlistProps} />
+        <PropsDeskSections
+          featuredProps={props.featuredProps}
+          watchlistProps={props.watchlistProps}
+        />
 
         <Card className="surface-panel p-4">
           <form className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
             <select
               name="league"
-              defaultValue={filters.league}
+              defaultValue={props.filters.league}
               className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
             >
               <option value="ALL">All sports</option>
@@ -214,7 +181,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
             </select>
             <select
               name="marketType"
-              defaultValue={filters.marketType}
+              defaultValue={props.filters.marketType}
               className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
             >
               <option value="ALL">All supported markets</option>
@@ -229,11 +196,11 @@ export default async function PropsPage({ searchParams }: PageProps) {
             </select>
             <select
               name="team"
-              defaultValue={filters.team}
+              defaultValue={props.filters.team}
               className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
             >
               <option value="all">All teams / camps</option>
-              {leagueTeams.map((team) => (
+              {props.leagueTeams.map((team) => (
                 <option key={team.id} value={team.id}>
                   {team.abbreviation}
                 </option>
@@ -241,11 +208,11 @@ export default async function PropsPage({ searchParams }: PageProps) {
             </select>
             <select
               name="player"
-              defaultValue={filters.player}
+              defaultValue={props.filters.player}
               className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
             >
               <option value="all">All players / fighters</option>
-              {leaguePlayers.map((player) => (
+              {props.leaguePlayers.map((player) => (
                 <option key={player.id} value={player.id}>
                   {player.name}
                 </option>
@@ -253,11 +220,11 @@ export default async function PropsPage({ searchParams }: PageProps) {
             </select>
             <select
               name="sportsbook"
-              defaultValue={filters.sportsbook}
+              defaultValue={props.filters.sportsbook}
               className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
             >
               <option value="all">All books</option>
-              {data.sportsbooks.map((book) => (
+              {props.data.sportsbooks.map((book) => (
                 <option key={book.id} value={book.key}>
                   {book.name}
                 </option>
@@ -265,7 +232,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
             </select>
             <select
               name="valueFlag"
-              defaultValue={filters.valueFlag}
+              defaultValue={props.filters.valueFlag}
               className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
             >
               <option value="all">All value states</option>
@@ -276,7 +243,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
             <div className="grid grid-cols-[1fr_auto] gap-3">
               <select
                 name="sortBy"
-                defaultValue={filters.sortBy}
+                defaultValue={props.filters.sortBy}
                 className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white"
               >
                 <option value="best_price">Best Price</option>
@@ -303,8 +270,8 @@ export default async function PropsPage({ searchParams }: PageProps) {
             description="Full comparison still lives here after the priority desks do the sorting work."
           />
 
-          {rankedProps.length ? (
-            <PropsTable props={rankedProps} />
+          {props.rankedProps.length ? (
+            <PropsTable props={props.rankedProps} />
           ) : (
             <EmptyState
               title="No real props match this filter set"
@@ -314,7 +281,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
         </section>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {data.coverage.map((entry: any) => (
+          {props.data.coverage.map((entry: any) => (
             <Card key={entry.leagueKey} className="surface-panel p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
