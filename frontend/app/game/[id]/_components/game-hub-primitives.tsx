@@ -76,8 +76,8 @@ export function QuickJump({
       href={href}
       className={
         emphasis
-          ? "rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-sky-200"
-          : "rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-200"
+          ? "inline-flex min-h-10 items-center justify-center rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-200 sm:text-xs sm:tracking-[0.22em]"
+          : "inline-flex min-h-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-200 sm:text-xs sm:tracking-[0.22em]"
       }
     >
       {label}
@@ -99,7 +99,7 @@ export function MetricTile({
       <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">
         {label}
       </div>
-      <div className="mt-3 font-display text-3xl font-semibold text-white">
+      <div className="mt-3 font-display text-2xl font-semibold text-white sm:text-3xl">
         {value}
       </div>
       <div className="mt-2 text-sm leading-6 text-slate-400">{note}</div>
@@ -123,8 +123,8 @@ export function HubTab({
       href={href}
       className={
         active
-          ? "inline-flex items-center gap-2 rounded-full border border-sky-400/25 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-sky-200"
-          : "inline-flex items-center gap-2 rounded-full border border-white/8 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500"
+          ? "inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-sky-400/25 bg-sky-500/10 px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-200 sm:text-xs sm:tracking-[0.22em]"
+          : "inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-white/8 bg-white/[0.03] px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 sm:text-xs sm:tracking-[0.22em]"
       }
     >
       <span>{label}</span>
@@ -162,7 +162,7 @@ export function DeskCard({
       <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">
         {title}
       </div>
-      <div className="mt-2 text-xl font-semibold text-white">{value}</div>
+      <div className="mt-2 text-lg font-semibold text-white sm:text-xl">{value}</div>
       <div className="mt-2 text-sm leading-6 text-slate-400">{note}</div>
     </div>
   );
