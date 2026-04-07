@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { EdgeScoreBadge } from "@/components/intelligence/edge-score-badges";
 import {
   getOpportunityScoreBand,
   getOpportunityTrapLine,
@@ -145,9 +146,7 @@ function WatchlistPropCard({ prop }: { prop: PropCardView }) {
             {formatMarketType(prop.marketType)} {prop.side} {prop.line}
           </div>
         </div>
-        <Badge tone={prop.edgeScore.label === "Elite" ? "success" : prop.edgeScore.label === "Strong" ? "brand" : "premium"}>
-          {prop.edgeScore.label}
-        </Badge>
+        <EdgeScoreBadge label={prop.edgeScore.label} />
       </div>
       <div className="mt-4 text-sm leading-6 text-slate-300">
         {opportunity.reasonSummary ??
