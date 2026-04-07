@@ -2,18 +2,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { BetSlipBoundary } from "@/components/bets/bet-slip-boundary";
+import { MatchupDecisionModule } from "@/components/game/matchup-decision-module";
 import { MatchupPanel } from "@/components/game/matchup-panel";
 import { OddsTable } from "@/components/game/odds-table";
 import { OverviewPanel } from "@/components/game/overview-panel";
 import { PropList } from "@/components/game/prop-list";
-import { OpportunityActionBadge } from "@/components/intelligence/opportunity-badges";
 import { OpportunitySpotlightCard } from "@/components/intelligence/opportunity-spotlight-card";
-import {
-  DiagnosticNotesPanel,
-  ProviderHealthSummaryPanel
-} from "@/components/intelligence/provider-diagnostic-shells";
-import { ProviderSourceChipRow } from "@/components/intelligence/provider-source-chips";
-import { TrendSignalPanel } from "@/components/intelligence/trend-signal-panel";
+import { formatOpportunityAction } from "@/components/intelligence/opportunity-badges";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -56,7 +51,7 @@ export default async function GameDetailPage({ params }: PageProps) {
   }
 
   const tabs = buildGameHubTabs(detail);
-  const { forYou, headline, postureLabel, contextNotes } =
+  const { forYou, headline, postureLabel, contextNotes, decisionModule } =
     buildGameHubPresentation(detail);
 
   const metrics = buildGameHubMetrics(detail, postureLabel);
@@ -82,7 +77,19 @@ export default async function GameDetailPage({ params }: PageProps) {
                     {detail.providerHealth.label}
                   </Badge>
                   {headline ? (
-                    <OpportunityActionBadge actionState={headline.actionState} />
+                    <Badge
+                      tone={
+                        headline.actionState === "BET_NOW"
+                          ? "success"
+                          : headline.actionState === "WAIT"
+                            ? "brand"
+                            : headline.actionState === "WATCH"
+                              ? "premium"
+                              : "muted"
+                      }
+                    >
+                      {formatOpportunityAction(headline.actionState)}
+                    </Badge>
                   ) : null}
                 </div>
 
@@ -159,7 +166,8 @@ export default async function GameDetailPage({ params }: PageProps) {
                   Quick jumps
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <QuickJump href="#for-you" label="For You" emphasis />
+                  <QuickJump href="#decision" label="Decision" emphasis />
+                  <QuickJump href="#for-you" label="For You" />
                   <QuickJump href="#markets" label="Markets" />
                   <QuickJump href="#props" label="Props" />
                   <QuickJump href="#movement" label="Movement" />
@@ -169,6 +177,8 @@ export default async function GameDetailPage({ params }: PageProps) {
             </div>
           </div>
         </Card>
+
+        <MatchupDecisionModule decision={decisionModule} />
 
         <section id="for-you" className="grid gap-4">
           <SectionTitle
@@ -272,7 +282,36 @@ export default async function GameDetailPage({ params }: PageProps) {
             {detail.trendCards.length ? (
               <div className="grid gap-4">
                 {detail.trendCards.map((trend) => (
-                  <TrendSignalPanel key={trend.id} trend={trend} />
+                  <Link
+                    key={trend.id}
+                    href={trend.href ?? "/trends"}
+                    className="rounded-[1.35rem] border border-white/8 bg-[#0a1422]/90 p-4 transition hover:border-sky-400/25 hover:bg-white/[0.03]"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+                        Trend support
+                      </div>
+                      <Badge
+                        tone={
+                          trend.tone === "success"
+                            ? "success"
+                            : trend.tone === "premium"
+                              ? "premium"
+                              : trend.tone === "brand"
+                                ? "brand"
+                                : "muted"
+                        }
+                      >
+                        {trend.value}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 text-lg font-semibold leading-tight text-white">
+                      {trend.title}
+                    </div>
+                    <div className="mt-2 text-sm leading-6 text-slate-400">
+                      {trend.note}
+                    </div>
+                  </Link>
                 ))}
               </div>
             ) : (
@@ -312,30 +351,52 @@ export default async function GameDetailPage({ params }: PageProps) {
 
           <div className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
             <div className="grid gap-4">
-              <ProviderHealthSummaryPanel
-                title="Provider health"
-                state={detail.providerHealth.state}
-                label={detail.providerHealth.label}
-                summary={detail.providerHealth.summary}
-                badges={[
-                  <ProviderSourceChipRow
-                    key="provider-source-row"
-                    currentProvider={detail.currentOddsProvider}
-                    historicalProvider={detail.historicalOddsProvider}
-                  />
-                ]}
-                asOfLabel={
-                  detail.providerHealth.asOf
-                    ? `As of ${formatGameDateTime(detail.providerHealth.asOf)}`
-                    : null
-                }
-              />
+              <Card className="surface-panel p-5">
+                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+                  Provider health
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Badge tone={getProviderHealthTone(detail.providerHealth.state)}>
+                    {detail.providerHealth.label}
+                  </Badge>
+                  {detail.currentOddsProvider ? (
+                    <Badge tone="brand">{detail.currentOddsProvider}</Badge>
+                  ) : null}
+                  {detail.historicalOddsProvider ? (
+                    <Badge tone="premium">{detail.historicalOddsProvider}</Badge>
+                  ) : null}
+                </div>
+                <div className="mt-4 text-sm leading-7 text-slate-300">
+                  {detail.providerHealth.summary}
+                </div>
+                {detail.providerHealth.asOf ? (
+                  <div className="mt-3 text-xs uppercase tracking-[0.18em] text-slate-500">
+                    As of {formatGameDateTime(detail.providerHealth.asOf)}
+                  </div>
+                ) : null}
+              </Card>
 
-              <DiagnosticNotesPanel
-                title="Desk notes"
-                notes={contextNotes.slice(0, 8)}
-                emptyMessage="No explicit provider or matchup notes were attached on this render."
-              />
+              <Card className="surface-panel p-5">
+                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+                  Desk notes
+                </div>
+                <div className="mt-4 grid gap-3">
+                  {contextNotes.length ? (
+                    contextNotes.slice(0, 8).map((note) => (
+                      <div
+                        key={note}
+                        className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300"
+                      >
+                        {note}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
+                      No explicit provider or matchup notes were attached on this render.
+                    </div>
+                  )}
+                </div>
+              </Card>
             </div>
 
             <MatchupPanel detail={detail} />
