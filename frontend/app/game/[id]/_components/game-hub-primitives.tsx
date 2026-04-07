@@ -1,10 +1,4 @@
-import {
-  getProviderHealthTone,
-  getStatusTone,
-  getSupportTone
-} from "@/components/intelligence/provider-status-badges";
-
-export { getProviderHealthTone, getStatusTone, getSupportTone };
+type Tone = "default" | "success" | "premium" | "danger";
 
 export function QuickJump({
   href,
@@ -90,7 +84,7 @@ export function DeskCard({
   title: string;
   value: string;
   note: string;
-  tone?: "default" | "success" | "premium" | "danger";
+  tone?: Tone;
 }) {
   const toneClass =
     tone === "success"
