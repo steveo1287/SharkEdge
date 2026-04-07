@@ -4,7 +4,7 @@ import { sortPropsByPriority } from "@/app/_components/props-desk-sections";
 type CoverageEntryLike = {
   leagueKey: string;
   status: string;
-  supportLabel: string;
+  supportLabel?: string;
   note: string;
 };
 

@@ -3,9 +3,7 @@ import Link from "next/link";
 import { BetActionButton } from "@/components/bets/bet-action-button";
 import {
   getOpportunityTrapLine,
-  OpportunityActionBadge,
-  OpportunityBadgeRow,
-  OpportunityScoreBadge
+  OpportunityBadgeRow
 } from "@/components/intelligence/opportunity-badges";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -25,7 +23,6 @@ type PropListProps = {
     note: string;
     supportedMarkets: PropMarketType[];
   };
-  spotlightPropId?: string | null;
 };
 
 function getTone(status: BoardSupportStatus) {
@@ -48,13 +45,7 @@ function formatValueFlag(flag: PropCardView["valueFlag"]) {
   return flag.replace(/_/g, " ");
 }
 
-function FeaturedPropCard({
-  prop,
-  spotlight = false
-}: {
-  prop: PropCardView;
-  spotlight?: boolean;
-}) {
+function FeaturedPropCard({ prop }: { prop: PropCardView }) {
   const matchupHref = prop.gameHref ?? `/game/${prop.gameId}`;
   const opportunity = buildPropOpportunity(prop);
   const trapLine = getOpportunityTrapLine(opportunity);
@@ -68,14 +59,7 @@ function FeaturedPropCard({
       : "N/A";
 
   return (
-    <Card
-      id={`prop-${prop.id}`}
-      className={
-        spotlight
-          ? "surface-panel border-sky-400/20 bg-[linear-gradient(180deg,rgba(56,189,248,0.08),rgba(10,20,34,0.96))] p-5"
-          : "surface-panel p-5"
-      }
-    >
+    <Card className="surface-panel p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
@@ -87,10 +71,7 @@ function FeaturedPropCard({
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {spotlight ? <Badge tone="success">Decision target</Badge> : null}
-          {formatValueFlag(prop.valueFlag) ? (
-            <Badge tone="brand">{formatValueFlag(prop.valueFlag)}</Badge>
-          ) : null}
+          {formatValueFlag(prop.valueFlag) ? <Badge tone="brand">{formatValueFlag(prop.valueFlag)}</Badge> : null}
           <Badge tone={getEdgeToneFromBand(prop.edgeScore.label)}>{prop.edgeScore.label}</Badge>
         </div>
       </div>
@@ -99,7 +80,7 @@ function FeaturedPropCard({
         <OpportunityBadgeRow opportunity={opportunity} />
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-4">
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
           <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Best price</div>
           <div className="mt-2 text-base font-semibold text-white">
@@ -122,9 +103,7 @@ function FeaturedPropCard({
           <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Fair line</div>
           <div className="mt-2 text-base font-semibold text-white">{fairLineDisplay}</div>
           <div className="mt-1 text-xs text-slate-500">
-            {prop.fairPrice?.pricingMethod
-              ? prop.fairPrice.pricingMethod.replace(/_/g, " ")
-              : "Fair price unavailable"}
+            {prop.fairPrice?.pricingMethod ? prop.fairPrice.pricingMethod.replace(/_/g, " ") : "Fair price unavailable"}
           </div>
         </div>
         <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
@@ -167,7 +146,99 @@ function FeaturedPropCard({
           >
             Matchup
           </Link>
-          <BetActionButton intent={buildPropBetIntent(prop, "matchup", matchupHref)}>
-            Add to slip
+          <BetActionButton intent={buildPropBetIntent(prop, "matchup", matchupHref)}>Add to slip</BetActionButton>
+          <BetActionButton intent={buildPropBetIntent(prop, "matchup", matchupHref)} mode="log">
+            Log now
           </BetActionButton>
-          <Bet
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+export function PropList({ props, support }: PropListProps) {
+  if (!props.length) {
+    return (
+      <EmptyState
+        title={`Props ${support.status.toLowerCase().replace("_", " ")}`}
+        description={support.note}
+        action={
+          support.supportedMarkets.length ? (
+            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+              Supported markets:{" "}
+              <span className="text-slate-300">
+                {support.supportedMarkets.map((market) => formatMarketType(market)).join(", ")}
+              </span>
+            </div>
+          ) : null
+        }
+      />
+    );
+  }
+
+  const rankedProps = [...props]
+    .map((prop) => ({ prop, opportunity: buildPropOpportunity(prop) }))
+    .sort((left, right) => right.opportunity.opportunityScore - left.opportunity.opportunityScore);
+  const featuredProps = rankedProps.slice(0, 3).map((entry) => entry.prop);
+  const restProps = rankedProps.slice(3, 10);
+
+  return (
+    <div className="grid gap-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={getTone(support.status)}>Props {support.status}</Badge>
+        {support.supportedMarkets.slice(0, 4).map((market) => (
+          <Badge key={market} tone="muted">
+            {formatMarketType(market)}
+          </Badge>
+        ))}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        {featuredProps.map((prop) => (
+          <FeaturedPropCard key={prop.id} prop={prop} />
+        ))}
+      </div>
+
+      {restProps.length ? (
+        <Card className="surface-panel p-5">
+          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">More matchup props</div>
+          <div className="mt-4 grid gap-3">
+            {restProps.map(({ prop, opportunity }) => {
+              const matchupHref = prop.gameHref ?? `/game/${prop.gameId}`;
+              const trapLine = getOpportunityTrapLine(opportunity);
+
+              return (
+                <div
+                  key={prop.id}
+                  className="flex flex-wrap items-center justify-between gap-4 rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-4"
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-white">{prop.player.name}</div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {formatMarketType(prop.marketType)} {prop.side} {prop.line} | {formatAmericanOdds(prop.bestAvailableOddsAmerican ?? prop.oddsAmerican)}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {prop.bestAvailableSportsbookName ?? prop.sportsbook.name} | {trapLine ?? opportunity.reasonSummary}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge tone={opportunity.actionState === "BET_NOW" ? "success" : opportunity.actionState === "WAIT" ? "brand" : opportunity.actionState === "WATCH" ? "premium" : "muted"}>
+                      {opportunity.actionState.replace(/_/g, " ")}
+                    </Badge>
+                    <Badge tone={trapLine ? "danger" : "muted"}>{opportunity.opportunityScore}</Badge>
+                    <Link
+                      href={matchupHref}
+                      className="rounded-full border border-line px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-300"
+                    >
+                      Matchup
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      ) : null}
+    </div>
+  );
+}

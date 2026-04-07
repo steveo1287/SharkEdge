@@ -11,6 +11,29 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SectionTitle } from "@/components/ui/section-title";
 import { formatMarketType } from "@/lib/formatters/odds";
+import type { MarketType } from "@/lib/types/domain";
+
+const MARKET_TYPES = new Set<MarketType>([
+  "spread",
+  "moneyline",
+  "total",
+  "team_total",
+  "player_points",
+  "player_rebounds",
+  "player_assists",
+  "player_threes",
+  "fight_winner",
+  "method_of_victory",
+  "round_total",
+  "round_winner",
+  "other"
+]);
+
+function formatDecisionMarketType(marketType: string) {
+  return MARKET_TYPES.has(marketType as MarketType)
+    ? formatMarketType(marketType as MarketType)
+    : marketType;
+}
 
 function MetricCard({
   label,
@@ -82,7 +105,7 @@ export function MatchupDecisionModule({
                 {decision.headline.selectionLabel}
               </div>
               <div className="mt-2 text-sm leading-6 text-slate-400">
-                {formatMarketType(decision.headline.marketType)} ·{" "}
+                {formatDecisionMarketType(decision.headline.marketType)} |{" "}
                 {decision.headline.sportsbookName ?? "Best available book"}
               </div>
             </div>
