@@ -16,6 +16,12 @@ import { formatGameDateTime } from "@/lib/formatters/date";
 import type { OpportunityView } from "@/lib/types/opportunity";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
 import {
+  DeskCard,
+  HubTab,
+  MetricTile,
+  QuickJump
+} from "./_components/game-hub-primitives";
+import {
   buildGameHubKalshiCards,
   buildGameHubMetrics,
   buildGameHubMovementCards,
