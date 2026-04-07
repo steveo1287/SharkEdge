@@ -63,9 +63,19 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
           <div className="grid gap-3 rounded-[1.6rem] border border-white/8 bg-[#09131f]/85 p-5">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-[0.66rem] uppercase tracking-[0.28em] text-slate-500">Current desk</div>
-              <Badge tone={getProviderHealthTone(home.boardData.providerHealth.state)}>
-                {home.liveDeskAvailable ? home.boardData.providerHealth.label : "Live desk unavailable"}
+              <div className="text-[0.66rem] uppercase tracking-[0.28em] text-slate-500">
+                Current desk
+              </div>
+              <Badge
+                tone={getProviderHealthTone(
+                  home.liveDeskAvailable
+                    ? home.liveBoardData?.providerHealth.state ?? "DEGRADED"
+                    : home.boardData.providerHealth.state
+                )}
+              >
+                {home.liveDeskAvailable
+                  ? home.liveBoardData?.providerHealth.label ?? "Live desk connected"
+                  : "Live desk unavailable"}
               </Badge>
             </div>
             <div className="text-3xl font-semibold text-white">
@@ -73,47 +83,57 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             </div>
             <div className="text-sm leading-6 text-slate-300">
               {home.liveDeskAvailable
-                ? home.boardData.providerHealth.summary
+                ? home.liveDeskMessage ?? home.liveBoardData?.providerHealth.summary
                 : home.liveDeskMessage ?? home.boardData.sourceNote}
             </div>
             <div className="flex flex-wrap gap-2 text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
               <span>Focus league: {home.focusedLeague}</span>
               <span>Slate: {formatHomeDateLabel(home.selectedDate)}</span>
-              {home.liveDeskAvailable ? (
-                <>
-                  <span>{home.boardData.providerHealth.freshnessLabel}</span>
-                  {typeof home.boardData.providerHealth.freshnessMinutes === "number" ? (
-                    <span>{home.boardData.providerHealth.freshnessMinutes}m old</span>
-                  ) : null}
-                </>
-              ) : (
-                <span>Support-aware fallback</span>
-              )}
+              <span>{home.liveDeskFreshnessLabel}</span>
+              {typeof home.liveDeskFreshnessMinutes === "number" ? (
+                <span>{home.liveDeskFreshnessMinutes}m old</span>
+              ) : null}
             </div>
             <div className="terminal-rule mt-2" />
             <div className="data-grid">
               <div>
-                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Actionables</div>
-                <div className="mt-2 text-2xl font-semibold text-white">{home.topActionables.length}</div>
+                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">
+                  Actionables
+                </div>
+                <div className="mt-2 text-2xl font-semibold text-white">
+                  {home.topActionables.length}
+                </div>
               </div>
               <div>
-                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Verified games</div>
-                <div className="mt-2 text-2xl font-semibold text-white">{home.verifiedGames.length}</div>
+                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">
+                  Verified games
+                </div>
+                <div className="mt-2 text-2xl font-semibold text-white">
+                  {home.verifiedGames.length}
+                </div>
               </div>
               <div>
-                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Live watch</div>
+                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">
+                  Live watch
+                </div>
                 <div className="mt-2 text-2xl font-semibold text-white">
                   {home.liveDeskAvailable ? home.movementGames.length : 0}
                 </div>
               </div>
               <div>
-                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">Desk warnings</div>
+                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-slate-500">
+                  Desk warnings
+                </div>
                 <div className="mt-2 text-2xl font-semibold text-white">
-                  {home.boardData.providerHealth.warnings.length}
+                  {home.liveDeskAvailable
+                    ? home.liveBoardData?.providerHealth.warnings.length ?? 0
+                    : home.boardData.providerHealth.warnings.length}
                 </div>
               </div>
             </div>
-            <div className="text-sm leading-6 text-slate-400">{home.boardData.sourceNote}</div>
+            <div className="text-sm leading-6 text-slate-400">
+              {home.boardData.sourceNote}
+            </div>
           </div>
         </div>
 
@@ -185,7 +205,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           <Card className="surface-panel p-5">
             <div className="grid gap-5">
               <div className="grid gap-3">
-                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Bet now windows</div>
+                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+                  Bet now windows
+                </div>
                 {home.decisionWindows.length ? (
                   home.decisionWindows.map((opportunity) => (
                     <div
@@ -193,12 +215,16 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                       className="rounded-[1rem] border border-white/8 bg-slate-950/60 px-4 py-3"
                     >
                       <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-medium text-white">{opportunity.selectionLabel}</div>
+                        <div className="text-sm font-medium text-white">
+                          {opportunity.selectionLabel}
+                        </div>
                         <div className="text-[0.68rem] uppercase tracking-[0.18em] text-sky-300">
                           {opportunity.league}
                         </div>
                       </div>
-                      <div className="mt-2 text-sm leading-6 text-slate-300">{opportunity.reasonSummary}</div>
+                      <div className="mt-2 text-sm leading-6 text-slate-300">
+                        {opportunity.reasonSummary}
+                      </div>
                     </div>
                   ))
                 ) : (
@@ -209,14 +235,18 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               </div>
 
               <div className="grid gap-3">
-                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-rose-300">Trap desk</div>
+                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-rose-300">
+                  Trap desk
+                </div>
                 {home.traps.length ? (
                   home.traps.map((opportunity) => (
                     <div
                       key={`${opportunity.id}-trap`}
                       className="rounded-[1rem] border border-rose-400/20 bg-rose-500/8 px-4 py-3"
                     >
-                      <div className="text-sm font-medium text-white">{opportunity.selectionLabel}</div>
+                      <div className="text-sm font-medium text-white">
+                        {opportunity.selectionLabel}
+                      </div>
                       <div className="mt-2 text-sm leading-6 text-rose-100">
                         {opportunity.whatCouldKillIt[0] ?? opportunity.reasonSummary}
                       </div>
