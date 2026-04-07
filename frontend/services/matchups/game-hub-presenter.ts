@@ -1,3 +1,4 @@
+import { formatAmericanOdds } from "@/lib/formatters/odds";
 import type { OpportunityView } from "@/lib/types/opportunity";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
 import {
@@ -8,11 +9,26 @@ import {
 
 type MatchupDetail = NonNullable<Awaited<ReturnType<typeof getMatchupDetail>>>;
 
+export type MatchupDecisionModuleView = {
+  headline: OpportunityView | null;
+  marketPriceLabel: string;
+  fairPriceLabel: string;
+  edgeGapLabel: string;
+  timingLabel: string;
+  confidenceLabel: string;
+  freshnessLabel: string;
+  changeSummary: string;
+  executionNote: string;
+  whyNow: string[];
+  killSwitches: string[];
+};
+
 export type GameHubPresentation = {
   forYou: OpportunityView[];
   headline: OpportunityView | null;
   postureLabel: string;
   contextNotes: string[];
+  decisionModule: MatchupDecisionModuleView;
 };
 
 function formatGameHubAction(actionState: OpportunityView["actionState"]) {
@@ -29,6 +45,43 @@ function formatGameHubAction(actionState: OpportunityView["actionState"]) {
   }
 
   return "Pass";
+}
+
+function formatTimingLabel(timingState: OpportunityView["timingState"]) {
+  if (timingState === "WINDOW_OPEN") {
+    return "Window open";
+  }
+
+  if (timingState === "WAIT_FOR_PULLBACK") {
+    return "Wait for pullback";
+  }
+
+  if (timingState === "WAIT_FOR_CONFIRMATION") {
+    return "Wait for confirmation";
+  }
+
+  if (timingState === "MONITOR_ONLY") {
+    return "Monitor only";
+  }
+
+  return "Pass on price";
+}
+
+function formatDeltaLabel(value: number | null) {
+  if (typeof value !== "number") {
+    return "N/A";
+  }
+
+  return `${value > 0 ? "+" : ""}${value}`;
+}
+
+function formatMovementLabel(value: number | null) {
+  if (typeof value !== "number") {
+    return "No tracked move";
+  }
+
+  const digits = Math.abs(value) >= 10 ? 0 : 1;
+  return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
 }
 
 function buildForYouOpportunities(detail: MatchupDetail) {
@@ -51,6 +104,74 @@ function buildForYouOpportunities(detail: MatchupDetail) {
     .slice(0, 4);
 }
 
+function buildDecisionModule(headline: OpportunityView | null): MatchupDecisionModuleView {
+  if (!headline) {
+    return {
+      headline: null,
+      marketPriceLabel: "N/A",
+      fairPriceLabel: "N/A",
+      edgeGapLabel: "N/A",
+      timingLabel: "No qualified edge",
+      confidenceLabel: "Unrated",
+      freshnessLabel: "Unknown freshness",
+      changeSummary: "No market or prop angle has cleared the current threshold on this matchup.",
+      executionNote: "Pass for now and wait for a cleaner signal.",
+      whyNow: [],
+      killSwitches: []
+    };
+  }
+
+  const marketPriceLabel =
+    typeof headline.displayOddsAmerican === "number"
+      ? formatAmericanOdds(headline.displayOddsAmerican)
+      : "N/A";
+
+  const fairPriceLabel =
+    typeof headline.fairPriceAmerican === "number"
+      ? formatAmericanOdds(headline.fairPriceAmerican)
+      : "N/A";
+
+  const freshnessLabel =
+    typeof headline.providerFreshnessMinutes === "number"
+      ? `${headline.providerFreshnessMinutes}m old`
+      : headline.sourceHealth.state.replace(/_/g, " ").toLowerCase();
+
+  const changeSummary =
+    typeof headline.lineMovement === "number" && Math.abs(headline.lineMovement) > 0
+      ? `Market has moved ${formatMovementLabel(
+          headline.lineMovement
+        )} since the opening snapshot.`
+      : headline.staleFlag
+        ? "Current view is stale. Confirm the number before entry."
+        : typeof headline.providerFreshnessMinutes === "number" &&
+            headline.providerFreshnessMinutes > 15
+          ? `Market feed is aging at ${headline.providerFreshnessMinutes}m old. Confirm before entry.`
+          : "No major movement pressure is distorting the current number right now.";
+
+  const executionNote =
+    headline.actionState === "BET_NOW"
+      ? `Current price${headline.sportsbookName ? ` at ${headline.sportsbookName}` : ""} is inside the acceptable entry window.`
+      : headline.actionState === "WAIT"
+        ? "Angle is alive, but the price or timing still wants patience."
+        : headline.actionState === "WATCH"
+          ? "Keep this on the desk until movement or confirmation improves the entry."
+          : "Current number does not justify exposure.";
+
+  return {
+    headline,
+    marketPriceLabel,
+    fairPriceLabel,
+    edgeGapLabel: formatDeltaLabel(headline.marketDeltaAmerican),
+    timingLabel: formatTimingLabel(headline.timingState),
+    confidenceLabel: `${headline.confidenceTier} confidence`,
+    freshnessLabel,
+    changeSummary,
+    executionNote,
+    whyNow: headline.whyItShows.slice(0, 3),
+    killSwitches: headline.whatCouldKillIt.slice(0, 3)
+  };
+}
+
 export function buildGameHubPresentation(detail: MatchupDetail): GameHubPresentation {
   const forYou = buildForYouOpportunities(detail);
   const headline = forYou[0] ?? null;
@@ -69,6 +190,7 @@ export function buildGameHubPresentation(detail: MatchupDetail): GameHubPresenta
     forYou,
     headline,
     postureLabel,
-    contextNotes
+    contextNotes,
+    decisionModule: buildDecisionModule(headline)
   };
 }
