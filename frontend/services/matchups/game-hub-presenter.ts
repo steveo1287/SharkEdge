@@ -157,20 +157,14 @@ function buildDecisionTarget(
   const marketType = getMarketTargetType(headline.marketType);
 
   if (!marketType) {
-    return {
-      kind: "market",
-      href: "#markets",
-      label: "Jump to target market",
-      marketType: "spread",
-      sportsbookName: headline.sportsbookName ?? null
-    };
+    return null;
   }
 
   return {
     kind: "market",
-    href: "#market-target",
+    href: headline.sportsbookName ? "#market-target" : "#markets",
     label: headline.sportsbookName
-      ? `Jump to ${headline.sportsbookName} entry`
+      ? `Jump to ${headline.sportsbookName}`
       : "Jump to target market",
     marketType,
     sportsbookName: headline.sportsbookName ?? null
