@@ -1,5 +1,8 @@
 import { Badge } from "@/components/ui/badge";
-import type { OpportunitySnapshotView, OpportunityView } from "@/lib/types/opportunity";
+import type {
+  OpportunitySnapshotView,
+  OpportunityView
+} from "@/lib/types/opportunity";
 
 type OpportunityPostureLike = Pick<
   OpportunityView,
@@ -8,11 +11,15 @@ type OpportunityPostureLike = Pick<
   Partial<Pick<OpportunityView, "whatCouldKillIt">> &
   Partial<Pick<OpportunitySnapshotView, "killSummary">>;
 
-export function formatOpportunityAction(actionState: OpportunityPostureLike["actionState"]) {
+export function formatOpportunityAction(
+  actionState: OpportunityPostureLike["actionState"]
+) {
   return actionState.replace(/_/g, " ");
 }
 
-export function getOpportunityTone(actionState: OpportunityPostureLike["actionState"]) {
+export function getOpportunityTone(
+  actionState: OpportunityPostureLike["actionState"]
+) {
   if (actionState === "BET_NOW") {
     return "success" as const;
   }
@@ -44,7 +51,9 @@ export function getOpportunityScoreBand(score: number) {
   return { label: "Pass", tone: "muted" as const };
 }
 
-export function getConfidenceTone(tier: OpportunityPostureLike["confidenceTier"]) {
+export function getConfidenceTone(
+  tier: OpportunityPostureLike["confidenceTier"]
+) {
   if (tier === "A") {
     return "success" as const;
   }
@@ -60,7 +69,9 @@ export function getConfidenceTone(tier: OpportunityPostureLike["confidenceTier"]
   return "muted" as const;
 }
 
-export function formatOpportunityTrap(flag: OpportunityPostureLike["trapFlags"][number]) {
+export function formatOpportunityTrap(
+  flag: OpportunityPostureLike["trapFlags"][number]
+) {
   switch (flag) {
     case "STALE_EDGE":
       return "Stale edge";
@@ -86,11 +97,17 @@ export function formatOpportunityTrap(flag: OpportunityPostureLike["trapFlags"][
 }
 
 export function getOpportunityTrapLine(opportunity: OpportunityPostureLike) {
-  if (Array.isArray(opportunity.whatCouldKillIt) && opportunity.whatCouldKillIt.length) {
+  if (
+    Array.isArray(opportunity.whatCouldKillIt) &&
+    opportunity.whatCouldKillIt.length
+  ) {
     return opportunity.whatCouldKillIt[0];
   }
 
-  if (typeof opportunity.killSummary === "string" && opportunity.killSummary.length) {
+  if (
+    typeof opportunity.killSummary === "string" &&
+    opportunity.killSummary.length
+  ) {
     return opportunity.killSummary;
   }
 
@@ -106,7 +123,11 @@ export function OpportunityActionBadge({
 }: {
   actionState: OpportunityPostureLike["actionState"];
 }) {
-  return <Badge tone={getOpportunityTone(actionState)}>{formatOpportunityAction(actionState)}</Badge>;
+  return (
+    <Badge tone={getOpportunityTone(actionState)}>
+      {formatOpportunityAction(actionState)}
+    </Badge>
+  );
 }
 
 export function OpportunityConfidenceBadge({
@@ -114,7 +135,11 @@ export function OpportunityConfidenceBadge({
 }: {
   confidenceTier: OpportunityPostureLike["confidenceTier"];
 }) {
-  return <Badge tone={getConfidenceTone(confidenceTier)}>{confidenceTier} confidence</Badge>;
+  return (
+    <Badge tone={getConfidenceTone(confidenceTier)}>
+      {confidenceTier} confidence
+    </Badge>
+  );
 }
 
 export function OpportunityScoreBadge({
@@ -124,7 +149,11 @@ export function OpportunityScoreBadge({
 }) {
   const scoreBand = getOpportunityScoreBand(score);
 
-  return <Badge tone={scoreBand.tone}>{scoreBand.label} {score}</Badge>;
+  return (
+    <Badge tone={scoreBand.tone}>
+      {scoreBand.label} {score}
+    </Badge>
+  );
 }
 
 export function TrapFlagBadge({
@@ -157,7 +186,11 @@ export function TrapWarning({
   return <div className={className}>{trapLine}</div>;
 }
 
-export function OpportunityBadgeRow({ opportunity }: { opportunity: OpportunityPostureLike }) {
+export function OpportunityBadgeRow({
+  opportunity
+}: {
+  opportunity: OpportunityPostureLike;
+}) {
   return (
     <div className="flex flex-wrap gap-2">
       <OpportunityActionBadge actionState={opportunity.actionState} />
