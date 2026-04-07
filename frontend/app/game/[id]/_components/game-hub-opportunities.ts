@@ -19,22 +19,35 @@ function shouldSurfaceOpportunity(opportunity: OpportunityView) {
     return false;
   }
 
-  if (opportunity.trapFlags.includes("LOW_PROVIDER_HEALTH")) {
+  if (
+    opportunity.trapFlags.includes("LOW_PROVIDER_HEALTH") ||
+    opportunity.trapFlags.includes("STALE_EDGE") ||
+    opportunity.trapFlags.includes("ONE_BOOK_OUTLIER")
+  ) {
     return false;
   }
 
-  if (opportunity.trapFlags.includes("STALE_EDGE")) {
-    return false;
-  }
-
-  if (opportunity.opportunityScore >= 75) {
+  if (
+    opportunity.actionState === "BET_NOW" &&
+    opportunity.opportunityScore >= 78 &&
+    opportunity.confidenceTier !== "D"
+  ) {
     return true;
   }
 
   if (
-    opportunity.opportunityScore >= 68 &&
-    opportunity.actionState === "BET_NOW" &&
-    opportunity.confidenceTier !== "D"
+    opportunity.actionState === "WAIT" &&
+    opportunity.opportunityScore >= 82 &&
+    opportunity.confidenceTier === "A"
+  ) {
+    return true;
+  }
+
+  if (
+    opportunity.actionState === "WATCH" &&
+    opportunity.opportunityScore >= 86 &&
+    opportunity.confidenceTier === "A" &&
+    !opportunity.trapFlags.includes("FAKE_MOVE_RISK")
   ) {
     return true;
   }
@@ -54,7 +67,7 @@ export function buildForYouOpportunities(
     buildBetSignalOpportunity(signal, detail.league.key, detail.providerHealth)
   );
 
-  const propOpportunities = detail.props.slice(0, 6).map((prop) =>
+  const propOpportunities = detail.props.slice(0, 8).map((prop) =>
     buildPropOpportunity(prop, detail.providerHealth)
   );
 
