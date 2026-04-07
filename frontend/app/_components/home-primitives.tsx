@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { EdgeScoreBadge } from "@/components/intelligence/edge-score-badges";
-import { TrendValueBadge } from "@/components/intelligence/trend-signal-badges";
+import { TrendSignalPanel } from "@/components/intelligence/trend-signal-panel";
 import { Badge } from "@/components/ui/badge";
 import { getProviderHealthTone } from "@/components/intelligence/provider-status-badges";
 import type { GameCardView, LeagueKey, LeagueSnapshotView, TrendCardView } from "@/lib/types/domain";
@@ -223,19 +223,7 @@ export function StoryCard({
 }
 
 export function TrendSignalCard({ trend }: { trend: TrendCardView }) {
-  return (
-    <Link
-      href={trend.href ?? "/trends"}
-      className="rounded-[1.35rem] border border-white/8 bg-[#0a1422]/90 p-4 transition hover:border-sky-400/25 hover:bg-white/[0.03]"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <TrendValueBadge tone={trend.tone} value={`${trend.sampleSize} samples`} />
-        <div className="text-sm font-semibold text-emerald-300">{trend.value}</div>
-      </div>
-      <div className="mt-4 text-lg font-semibold leading-tight text-white">{trend.title}</div>
-      <div className="mt-3 text-sm leading-6 text-slate-400">{trend.note}</div>
-    </Link>
-  );
+  return <TrendSignalPanel trend={trend} />;
 }
 
 export function ResearchRail({
