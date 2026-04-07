@@ -20,11 +20,11 @@ export function Badge({ children, tone = "neutral" }: BadgeProps) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.18em]",
+        "inline-flex min-h-8 max-w-full items-center rounded-full border px-2.5 py-1 text-center text-[11px] font-semibold uppercase leading-none tracking-[0.12em] sm:text-xs sm:tracking-[0.18em]",
         toneClasses[tone]
       )}
     >
-      {children}
+      <span className="truncate">{children}</span>
     </span>
   );
 }
