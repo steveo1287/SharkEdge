@@ -496,26 +496,45 @@ export function buildBetSignalOpportunity(
 }
 
 export function rankOpportunities<T extends OpportunityView>(opportunities: T[]) {
-  return [...opportunities].sort((left, right) => {
+  return [...opportunities].sort((a, b) => {
+    // 1. HARD FILTER: never let weak stuff float up
+    const aDead =
+      a.actionState === "PASS" ||
+      a.trapFlags.includes("STALE_EDGE") ||
+      a.trapFlags.includes("LOW_PROVIDER_HEALTH");
+
+    const bDead =
+      b.actionState === "PASS" ||
+      b.trapFlags.includes("STALE_EDGE") ||
+      b.trapFlags.includes("LOW_PROVIDER_HEALTH");
+
+    if (aDead !== bDead) {
+      return aDead ? 1 : -1;
+    }
+
+    // 2. ACTION STATE PRIORITY (this is your "opinion")
     const actionDelta =
-      getActionPriority(right.actionState) - getActionPriority(left.actionState);
-    if (actionDelta !== 0) {
-      return actionDelta;
-    }
+      getActionPriority(b.actionState) - getActionPriority(a.actionState);
+    if (actionDelta !== 0) return actionDelta;
 
-    const scoreDelta = right.opportunityScore - left.opportunityScore;
-    if (scoreDelta !== 0) {
-      return scoreDelta;
-    }
+    // 3. TIMING QUALITY (NEW — this is critical)
+    const timingDelta =
+      (b.scoreComponents?.timingQuality ?? 0) -
+      (a.scoreComponents?.timingQuality ?? 0);
+    if (timingDelta !== 0) return timingDelta;
 
+    // 4. OPPORTUNITY SCORE
+    const scoreDelta = b.opportunityScore - a.opportunityScore;
+    if (scoreDelta !== 0) return scoreDelta;
+
+    // 5. CONFIDENCE
     const confidenceDelta =
-      getConfidencePriority(right.confidenceTier) -
-      getConfidencePriority(left.confidenceTier);
-    if (confidenceDelta !== 0) {
-      return confidenceDelta;
-    }
+      getConfidencePriority(b.confidenceTier) -
+      getConfidencePriority(a.confidenceTier);
+    if (confidenceDelta !== 0) return confidenceDelta;
 
-    return (right.expectedValuePct ?? -999) - (left.expectedValuePct ?? -999);
+    // 6. EV (LAST — not first anymore)
+    return (b.expectedValuePct ?? -999) - (a.expectedValuePct ?? -999);
   });
 }
 
