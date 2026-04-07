@@ -3,8 +3,9 @@ import Link from "next/link";
 import { EdgeScoreBadge } from "@/components/intelligence/edge-score-badges";
 import {
   getOpportunityScoreBand,
-  getOpportunityTrapLine,
-  OpportunityBadgeRow
+  OpportunityBadgeRow,
+  OpportunityScoreBadge,
+  TrapWarning
 } from "@/components/intelligence/opportunity-badges";
 import {
   getCoverageTone,
@@ -32,7 +33,6 @@ function FeaturedPropCard({ prop }: { prop: PropCardView }) {
   const matchupHref = prop.gameHref ?? `/game/${prop.gameId}`;
   const opportunity = buildPropOpportunity(prop);
   const scoreBand = getOpportunityScoreBand(opportunity.opportunityScore);
-  const trapLine = getOpportunityTrapLine(opportunity);
   const fairLine =
     typeof prop.fairPrice?.fairOddsAmerican === "number"
       ? `${prop.fairPrice.fairOddsAmerican > 0 ? "+" : ""}${prop.fairPrice.fairOddsAmerican}`
@@ -56,9 +56,7 @@ function FeaturedPropCard({ prop }: { prop: PropCardView }) {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge tone={scoreBand.tone}>
-            {scoreBand.label} {opportunity.opportunityScore}
-          </Badge>
+          <OpportunityScoreBadge score={opportunity.opportunityScore} />
           {prop.fairPrice ? (
             <Badge tone="muted">{prop.fairPrice.pricingMethod.replace(/_/g, " ")}</Badge>
           ) : null}
@@ -107,11 +105,10 @@ function FeaturedPropCard({ prop }: { prop: PropCardView }) {
         <OpportunityBadgeRow opportunity={opportunity} />
       </div>
 
-      {trapLine ? (
-        <div className="mt-4 rounded-[1.15rem] border border-rose-400/20 bg-rose-500/8 px-4 py-3 text-sm leading-6 text-rose-100">
-          {trapLine}
-        </div>
-      ) : null}
+      <TrapWarning
+        opportunity={opportunity}
+        className="mt-4 rounded-[1.15rem] border border-rose-400/20 bg-rose-500/8 px-4 py-3 text-sm leading-6 text-rose-100"
+      />
 
       <div className="mt-4 flex flex-wrap gap-3">
         <Link
@@ -133,7 +130,7 @@ function FeaturedPropCard({ prop }: { prop: PropCardView }) {
 
 function WatchlistPropCard({ prop }: { prop: PropCardView }) {
   const opportunity = buildPropOpportunity(prop);
-  const trapLine = getOpportunityTrapLine(opportunity);
+
   return (
     <Card className="surface-panel p-5">
       <div className="flex items-start justify-between gap-3">
@@ -158,11 +155,7 @@ function WatchlistPropCard({ prop }: { prop: PropCardView }) {
       <div className="mt-4">
         <OpportunityBadgeRow opportunity={opportunity} />
       </div>
-      {trapLine ? (
-        <div className="mt-4 rounded-[1rem] border border-rose-400/20 bg-rose-500/8 px-4 py-3 text-sm leading-6 text-rose-100">
-          {trapLine}
-        </div>
-      ) : null}
+      <TrapWarning opportunity={opportunity} />
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
         <div className="text-slate-400">
           {formatAmericanOdds(prop.bestAvailableOddsAmerican ?? prop.oddsAmerican)}
