@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { OpportunityStateBadge } from "@/app/game/[id]/_components/game-hub-primitives";
 import { BetActionButton } from "@/components/bets/bet-action-button";
 import {
   getOpportunityTrapLine,
@@ -8,8 +9,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
-import type { BoardSupportStatus, PropCardView, PropMarketType } from "@/lib/types/domain";
 import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
+import type { BoardSupportStatus, PropCardView, PropMarketType } from "@/lib/types/domain";
 import {
   buildPropBetIntent,
   getEdgeToneFromBand
@@ -222,9 +223,10 @@ export function PropList({ props, support }: PropListProps) {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Badge tone={opportunity.actionState === "BET_NOW" ? "success" : opportunity.actionState === "WAIT" ? "brand" : opportunity.actionState === "WATCH" ? "premium" : "muted"}>
-                      {opportunity.actionState.replace(/_/g, " ")}
-                    </Badge>
+                    <OpportunityStateBadge
+                      actionState={opportunity.actionState}
+                      label={opportunity.actionState.replace(/_/g, " ")}
+                    />
                     <Badge tone={trapLine ? "danger" : "muted"}>{opportunity.opportunityScore}</Badge>
                     <Link
                       href={matchupHref}
