@@ -99,6 +99,11 @@ export function buildOpportunityTiming(
   const freshnessPenalty = buildFreshnessPenalty(args.freshnessMinutes);
   const disagreementPenalty = buildDisagreementPenalty(args.disagreementScore);
   const movementState = buildMovementState(args.lineMovement);
+
+const isSharpSteam =
+  Math.abs(args.lineMovement ?? 0) >= 10 &&
+  args.bestPriceFlag &&
+  (args.disagreementScore ?? 0) < 0.12;
   const ev = args.expectedValuePct ?? 0;
 
   let timingQuality = clamp(
