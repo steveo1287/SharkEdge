@@ -5,6 +5,7 @@ import type {
   LeagueKey,
   PropCardView
 } from "@/lib/types/domain";
+import type { OpportunityView } from "@/lib/types/opportunity";
 import {
   buildHomeOpportunitySnapshot,
   rankOpportunities
@@ -48,9 +49,9 @@ export type HomeCommandData = {
   verifiedGames: GameCardView[];
   movementGames: GameCardView[];
   topProps: PropCardView[];
-  topActionables: ReturnType<typeof rankOpportunities>;
-  decisionWindows: ReturnType<typeof rankOpportunities>;
-  traps: ReturnType<typeof rankOpportunities>;
+  topActionables: OpportunityView[];
+  decisionWindows: OpportunityView[];
+  traps: OpportunityView[];
 };
 
 function readValue(
@@ -141,7 +142,7 @@ function getMovementGames(games: GameCardView[]) {
 
 function getVerifiedGames(
   games: GameCardView[],
-  boardTop: ReturnType<typeof buildHomeOpportunitySnapshot>["boardTop"]
+  boardTop: OpportunityView[]
 ) {
   const rankedGames = Array.from(
     new Map(
@@ -155,6 +156,40 @@ function getVerifiedGames(
   );
 
   return (rankedGames.length ? rankedGames : games.filter(isVerifiedGame)).slice(0, 4);
+}
+
+function shouldSurfaceCommandOpportunity(opportunity: OpportunityView) {
+  if (opportunity.actionState === "PASS") {
+    return false;
+  }
+
+  if (
+    opportunity.staleFlag ||
+    opportunity.sourceHealth.state === "OFFLINE" ||
+    opportunity.trapFlags.includes("LOW_PROVIDER_HEALTH") ||
+    opportunity.trapFlags.includes("STALE_EDGE") ||
+    opportunity.trapFlags.includes("ONE_BOOK_OUTLIER")
+  ) {
+    return false;
+  }
+
+  if (
+    opportunity.actionState === "BET_NOW" &&
+    opportunity.opportunityScore >= 80 &&
+    opportunity.confidenceTier !== "D"
+  ) {
+    return true;
+  }
+
+  if (
+    opportunity.actionState === "WAIT" &&
+    opportunity.opportunityScore >= 84 &&
+    (opportunity.confidenceTier === "A" || opportunity.confidenceTier === "B")
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 function buildLiveDeskState(liveBoardData: BoardPageData | null, boardData: BoardPageData) {
@@ -247,10 +282,13 @@ export async function getHomeCommandData(
   });
 
   const focusedLeague = chooseFocusedLeague(selectedLeague, boardData.games);
+
   const topActionables = rankOpportunities([
     ...opportunitySnapshot.boardTop,
     ...opportunitySnapshot.propsTop
-  ]).slice(0, 4);
+  ])
+    .filter(shouldSurfaceCommandOpportunity)
+    .slice(0, 2);
 
   const liveDeskState = buildLiveDeskState(liveBoardResult, boardData);
 
