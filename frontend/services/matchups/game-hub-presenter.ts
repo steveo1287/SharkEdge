@@ -181,7 +181,8 @@ function buildDecisionModule(headline: OpportunityView | null): MatchupDecisionM
       timingLabel: "No qualified edge",
       confidenceLabel: "Unrated",
       freshnessLabel: "Unknown freshness",
-      changeSummary: "No market or prop angle has cleared the current threshold on this matchup.",
+      changeSummary:
+        "No market or prop angle has cleared the current threshold on this matchup.",
       executionNote: "Pass for now and wait for a cleaner signal.",
       whyNow: [],
       killSwitches: [],
@@ -206,9 +207,7 @@ function buildDecisionModule(headline: OpportunityView | null): MatchupDecisionM
 
   const changeSummary =
     typeof headline.lineMovement === "number" && Math.abs(headline.lineMovement) > 0
-      ? `Market has moved ${formatMovementLabel(
-          headline.lineMovement
-        )} since the opening snapshot.`
+      ? `Market has moved ${formatMovementLabel(headline.lineMovement)} since the opening snapshot.`
       : headline.staleFlag
         ? "Current view is stale. Confirm the number before entry."
         : typeof headline.providerFreshnessMinutes === "number" &&
