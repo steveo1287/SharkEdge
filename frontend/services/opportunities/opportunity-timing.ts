@@ -61,18 +61,18 @@ function buildMovementState(lineMovement: number | null) {
   const movementMagnitude = Math.abs(lineMovement ?? 0);
 
   if (movementMagnitude >= 20) {
-    return "violent";
+    return "violent" as const;
   }
 
   if (movementMagnitude >= 10) {
-    return "strong";
+    return "strong" as const;
   }
 
   if (movementMagnitude >= 4) {
-    return "active";
+    return "active" as const;
   }
 
-  return "stable";
+  return "stable" as const;
 }
 
 export function buildOpportunityTiming(
@@ -99,11 +99,10 @@ export function buildOpportunityTiming(
   const freshnessPenalty = buildFreshnessPenalty(args.freshnessMinutes);
   const disagreementPenalty = buildDisagreementPenalty(args.disagreementScore);
   const movementState = buildMovementState(args.lineMovement);
-
-const isSharpSteam =
-  Math.abs(args.lineMovement ?? 0) >= 10 &&
-  args.bestPriceFlag &&
-  (args.disagreementScore ?? 0) < 0.12;
+  const isSharpSteam =
+    Math.abs(args.lineMovement ?? 0) >= 10 &&
+    args.bestPriceFlag &&
+    (args.disagreementScore ?? 0) < 0.12;
   const ev = args.expectedValuePct ?? 0;
 
   let timingQuality = clamp(
@@ -150,11 +149,11 @@ const isSharpSteam =
   }
 
   if (
-    args.score >= 86 &&
-    ev >= 2 &&
+    args.score >= 84 &&
+    ev >= 1.8 &&
     args.bestPriceFlag &&
-    movementState !== "violent" &&
-    freshnessPenalty <= 9
+    freshnessPenalty <= 9 &&
+    (movementState === "stable" || isSharpSteam)
   ) {
     timingQuality = Math.max(timingQuality, 84);
 
