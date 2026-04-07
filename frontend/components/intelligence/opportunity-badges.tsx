@@ -34,11 +34,11 @@ export function getOpportunityScoreBand(score: number) {
   }
 
   if (score >= 70) {
-    return { label: "Strong", tone: "brand" as const };
+    return { label: "Strong", tone: "premium" as const };
   }
 
   if (score >= 55) {
-    return { label: "Watch", tone: "premium" as const };
+    return { label: "Watch", tone: "brand" as const };
   }
 
   return { label: "Pass", tone: "muted" as const };
@@ -80,8 +80,8 @@ export function formatOpportunityTrap(flag: OpportunityPostureLike["trapFlags"][
       return "Low feed health";
     case "MODEL_MARKET_CONFLICT":
       return "Model conflict";
-default:
-  return "Unknown";
+    default:
+      return "Unknown";
   }
 }
 
@@ -101,21 +101,74 @@ export function getOpportunityTrapLine(opportunity: OpportunityPostureLike) {
   return null;
 }
 
+export function OpportunityActionBadge({
+  actionState
+}: {
+  actionState: OpportunityPostureLike["actionState"];
+}) {
+  return <Badge tone={getOpportunityTone(actionState)}>{formatOpportunityAction(actionState)}</Badge>;
+}
+
+export function OpportunityConfidenceBadge({
+  confidenceTier
+}: {
+  confidenceTier: OpportunityPostureLike["confidenceTier"];
+}) {
+  return <Badge tone={getConfidenceTone(confidenceTier)}>{confidenceTier} confidence</Badge>;
+}
+
+export function OpportunityScoreBadge({
+  score
+}: {
+  score: number;
+}) {
+  const scoreBand = getOpportunityScoreBand(score);
+
+  return <Badge tone={scoreBand.tone}>{scoreBand.label} {score}</Badge>;
+}
+
+export function TrapFlagBadge({
+  flag,
+  badgeKey
+}: {
+  flag: OpportunityPostureLike["trapFlags"][number];
+  badgeKey?: string;
+}) {
+  return (
+    <Badge key={badgeKey ?? flag} tone="danger">
+      {formatOpportunityTrap(flag)}
+    </Badge>
+  );
+}
+
+export function TrapWarning({
+  opportunity,
+  className = "mt-4 rounded-[1rem] border border-rose-400/20 bg-rose-500/8 px-4 py-3 text-sm leading-6 text-rose-100"
+}: {
+  opportunity: OpportunityPostureLike;
+  className?: string;
+}) {
+  const trapLine = getOpportunityTrapLine(opportunity);
+
+  if (!trapLine) {
+    return null;
+  }
+
+  return <div className={className}>{trapLine}</div>;
+}
+
 export function OpportunityBadgeRow({ opportunity }: { opportunity: OpportunityPostureLike }) {
-  const scoreBand = getOpportunityScoreBand(opportunity.opportunityScore);
   return (
     <div className="flex flex-wrap gap-2">
-      <Badge tone={getOpportunityTone(opportunity.actionState)}>{formatOpportunityAction(opportunity.actionState)}</Badge>
-      <Badge tone={getConfidenceTone(opportunity.confidenceTier)}>
-        {opportunity.confidenceTier} confidence
-      </Badge>
-      <Badge tone={scoreBand.tone}>
-        {scoreBand.label} {opportunity.opportunityScore}
-      </Badge>
+      <OpportunityActionBadge actionState={opportunity.actionState} />
+      <OpportunityConfidenceBadge confidenceTier={opportunity.confidenceTier} />
+      <OpportunityScoreBadge score={opportunity.opportunityScore} />
       {opportunity.trapFlags.slice(0, 2).map((flag) => (
-        <Badge key={`${opportunity.id}-${flag}`} tone="danger">
-          {formatOpportunityTrap(flag)}
-        </Badge>
+        <TrapFlagBadge
+          key={`${opportunity.id}-${flag}`}
+          badgeKey={`${opportunity.id}-${flag}`}
+          flag={flag}
+        />
       ))}
     </div>
   );
