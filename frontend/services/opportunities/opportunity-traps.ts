@@ -21,9 +21,7 @@ function addIf(
   condition: boolean,
   flag: OpportunityTrapFlag
 ) {
-  if (condition) {
-    flags.add(flag);
-  }
+  if (condition) flags.add(flag);
 }
 
 export function buildOpportunityTrapFlags(
@@ -31,36 +29,28 @@ export function buildOpportunityTrapFlags(
 ): OpportunityTrapFlag[] {
   const flags = new Set<OpportunityTrapFlag>();
 
-  const disagreementScore = args.marketIntelligence?.marketDisagreementScore ?? 0;
-  const disagreementPct = args.marketTruth?.disagreementPct ?? 0;
-  const confidenceScore = args.fairPrice?.pricingConfidenceScore ?? 0;
+  const disagreement = args.marketIntelligence?.marketDisagreementScore ?? 0;
+  const confidence = args.fairPrice?.pricingConfidenceScore ?? 0;
   const providerState = args.providerHealth?.state ?? "HEALTHY";
 
   const bookCount = args.bookCount ?? args.marketTruth?.bookCount ?? 0;
-  const movementStrength = Math.abs(
+  const movement = Math.abs(
     args.lineMovement ?? args.marketTruth?.movementStrength ?? 0
   );
   const stale =
     args.marketIntelligence?.staleFlag === true || args.marketTruth?.stale === true;
-  const bestPriceFlag = args.marketIntelligence?.bestPriceFlag === true;
-  const freshnessMinutes = args.providerHealth?.freshnessMinutes ?? null;
+  const bestPrice = args.marketIntelligence?.bestPriceFlag === true;
+  const freshness = args.providerHealth?.freshnessMinutes ?? null;
 
+  // --- CORE TRAPS ---
   addIf(flags, stale, "STALE_EDGE");
 
   addIf(flags, bookCount <= 1, "ONE_BOOK_OUTLIER");
   addIf(flags, bookCount > 1 && bookCount < 4, "THIN_MARKET");
 
-  addIf(
-    flags,
-    disagreementScore >= 0.16 || disagreementPct >= 5,
-    "HIGH_MARKET_DISAGREEMENT"
-  );
+  addIf(flags, disagreement >= 0.18, "HIGH_MARKET_DISAGREEMENT");
 
-  addIf(
-    flags,
-    confidenceScore > 0 && confidenceScore < 58,
-    "LOW_CONFIDENCE_FAIR_PRICE"
-  );
+  addIf(flags, confidence > 0 && confidence < 58, "LOW_CONFIDENCE_FAIR_PRICE");
 
   addIf(
     flags,
@@ -70,29 +60,37 @@ export function buildOpportunityTrapFlags(
     "LOW_PROVIDER_HEALTH"
   );
 
-  addIf(
-    flags,
-    movementStrength >= 12 && !bestPriceFlag && bookCount < 5,
-    "FAKE_MOVE_RISK"
-  );
+  // --- 🔥 STEAM vs FAKE MOVE DETECTION ---
 
-  addIf(
-    flags,
-    movementStrength >= 8 &&
-      stale &&
-      !bestPriceFlag,
-    "FAKE_MOVE_RISK"
-  );
+  // STEAM: strong move + many books + still best price
+  const isSteam =
+    movement >= 10 &&
+    bookCount >= 5 &&
+    bestPrice &&
+    !stale;
 
-  addIf(flags, args.conflictSignal === true, "MODEL_MARKET_CONFLICT");
+  // FAKE MOVE: strong move but thin / no confirmation
+  const isFakeMove =
+    movement >= 10 &&
+    (!bestPrice || bookCount < 4 || stale);
 
-  addIf(
-    flags,
-    freshnessMinutes !== null &&
-      freshnessMinutes > 45 &&
-      !bestPriceFlag,
-    "STALE_EDGE"
-  );
+  if (isFakeMove) {
+    flags.add("FAKE_MOVE_RISK");
+  }
+
+  // --- EDGE DECAY ---
+  if (
+    freshness !== null &&
+    freshness > 30 &&
+    !bestPrice
+  ) {
+    flags.add("STALE_EDGE");
+  }
+
+  // --- MODEL VS MARKET ---
+  if (args.conflictSignal === true) {
+    flags.add("MODEL_MARKET_CONFLICT");
+  }
 
   return Array.from(flags);
 }
