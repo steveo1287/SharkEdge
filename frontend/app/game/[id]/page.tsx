@@ -12,6 +12,7 @@ import {
   DiagnosticNotesPanel,
   ProviderHealthSummaryPanel
 } from "@/components/intelligence/provider-diagnostic-shells";
+import { ProviderSourceChipRow } from "@/components/intelligence/provider-source-chips";
 import { TrendValueBadge } from "@/components/intelligence/trend-signal-badges";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -334,16 +335,11 @@ export default async function GameDetailPage({ params }: PageProps) {
                 label={detail.providerHealth.label}
                 summary={detail.providerHealth.summary}
                 badges={[
-                  detail.currentOddsProvider ? (
-                    <Badge key="current-provider" tone="brand">
-                      {detail.currentOddsProvider}
-                    </Badge>
-                  ) : null,
-                  detail.historicalOddsProvider ? (
-                    <Badge key="historical-provider" tone="premium">
-                      {detail.historicalOddsProvider}
-                    </Badge>
-                  ) : null
+                  <ProviderSourceChipRow
+                    key="provider-source-row"
+                    currentProvider={detail.currentOddsProvider}
+                    historicalProvider={detail.historicalOddsProvider}
+                  />
                 ]}
                 asOfLabel={
                   detail.providerHealth.asOf
