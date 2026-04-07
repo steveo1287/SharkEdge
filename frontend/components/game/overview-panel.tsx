@@ -40,14 +40,8 @@ function MiniMetric({ label, value, note }: MiniMetricProps) {
       <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
         {label}
       </div>
-      <div className="mt-1 text-sm font-semibold text-white">
-        {value}
-      </div>
-      {note && (
-        <div className="mt-1 text-[11px] text-slate-400">
-          {note}
-        </div>
-      )}
+      <div className="mt-1 text-sm font-semibold text-white">{value}</div>
+      {note ? <div className="mt-1 text-[11px] text-slate-400">{note}</div> : null}
     </div>
   );
 }
@@ -67,37 +61,50 @@ function SignalCard({
       : typeof signal.evProfile?.evPerUnit === "number"
         ? Number((signal.evProfile.evPerUnit * 100).toFixed(2))
         : null;
+
   const fairLineDisplay =
     typeof signal.fairPrice?.fairOddsAmerican === "number"
       ? `${signal.fairPrice.fairOddsAmerican > 0 ? "+" : ""}${signal.fairPrice.fairOddsAmerican}`
       : "N/A";
+
   const stakePct =
     typeof signal.evProfile?.kellyFraction === "number"
       ? `${(signal.evProfile.kellyFraction * 100).toFixed(1)}%`
       : "Suppressed";
-  const opportunity = buildBetSignalOpportunity(signal, detail.league.key, detail.providerHealth);
+
+  const opportunity = buildBetSignalOpportunity(
+    signal,
+    detail.league.key,
+    detail.providerHealth
+  );
   const trapLine = getOpportunityTrapLine(opportunity);
 
   return (
     <div
       className={
         featured
-          ? "rounded-[1.45rem] border border-sky-400/20 bg-sky-500/10 p-5"
+          ? "rounded-[1.45rem] border border-sky-400/20 bg-sky-500/10 p-4 sm:p-5"
           : "rounded-[1.35rem] border border-white/8 bg-slate-950/60 p-4"
       }
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
             {signal.marketLabel}
           </div>
-          <div className="mt-2 text-lg font-semibold leading-tight text-white">{signal.selection}</div>
+          <div className="mt-2 text-base font-semibold leading-tight text-white sm:text-lg">
+            {signal.selection}
+          </div>
           <div className="mt-2 text-sm text-slate-400">
-            {signal.sportsbookName ?? "Book pending"} | {signal.oddsAmerican > 0 ? "+" : ""}
+            {signal.sportsbookName ?? "Book pending"} |{" "}
+            {signal.oddsAmerican > 0 ? "+" : ""}
             {signal.oddsAmerican}
           </div>
         </div>
-        <Badge tone={getEdgeToneFromBand(signal.edgeScore.label)}>{signal.edgeScore.label}</Badge>
+
+        <Badge tone={getEdgeToneFromBand(signal.edgeScore.label)}>
+          {signal.edgeScore.label}
+        </Badge>
       </div>
 
       <div className="mt-4">
@@ -107,16 +114,14 @@ function SignalCard({
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <MiniMetric
           label="EV"
-          value={typeof displayEvPct === "number" ? `${displayEvPct > 0 ? "+" : ""}${displayEvPct.toFixed(2)}%` : "N/A"}
+          value={
+            typeof displayEvPct === "number"
+              ? `${displayEvPct > 0 ? "+" : ""}${displayEvPct.toFixed(2)}%`
+              : "N/A"
+          }
         />
-        <MiniMetric
-          label="Fair line"
-          value={fairLineDisplay}
-        />
-        <MiniMetric
-          label="Stake guide"
-          value={stakePct}
-        />
+        <MiniMetric label="Fair line" value={fairLineDisplay} />
+        <MiniMetric label="Stake guide" value={stakePct} />
       </div>
 
       <div className="mt-4 rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
@@ -129,7 +134,7 @@ function SignalCard({
         </div>
       ) : null}
 
-      <div className="mt-4 flex flex-wrap gap-3">
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <BetActionButton
           intent={buildSignalBetIntent(signal, detail.league.key, `/game/${detail.routeId}`)}
         >
@@ -149,20 +154,27 @@ function SignalCard({
 export function OverviewPanel({ detail }: OverviewPanelProps) {
   const featuredSignals = detail.betSignals.slice(0, 2);
   const additionalSignals = detail.betSignals.slice(2, 6);
+
   const marketContext = [
     detail.hasVerifiedOdds
       ? `${detail.books.length} books currently mapped into this matchup view.`
       : "No verified odds table is exposed yet for this matchup.",
-    detail.currentOddsProvider ? `Current pricing source: ${detail.currentOddsProvider}.` : null,
-    detail.historicalOddsProvider ? `Historical movement source: ${detail.historicalOddsProvider}.` : null,
+    detail.currentOddsProvider
+      ? `Current pricing source: ${detail.currentOddsProvider}.`
+      : null,
+    detail.historicalOddsProvider
+      ? `Historical movement source: ${detail.historicalOddsProvider}.`
+      : null,
     detail.propsSupport.note
   ].filter(Boolean) as string[];
 
   return (
     <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-      <Card className="surface-panel p-5">
+      <Card className="surface-panel p-4 sm:p-5">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={getSupportTone(detail.supportStatus)}>{detail.supportStatus}</Badge>
+          <Badge tone={getSupportTone(detail.supportStatus)}>
+            {detail.supportStatus}
+          </Badge>
           {detail.hasVerifiedOdds && detail.currentOddsProvider ? (
             <Badge tone="brand">{detail.currentOddsProvider}</Badge>
           ) : null}
@@ -188,7 +200,8 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
             </div>
           ) : (
             <div className="rounded-[1.35rem] border border-white/8 bg-slate-950/60 px-4 py-4 text-sm leading-7 text-slate-400">
-              No live betting signals are qualified for this matchup yet. SharkEdge keeps the slot quiet instead of forcing fake conviction.
+              No live betting signals are qualified for this matchup yet. SharkEdge
+              keeps the slot quiet instead of forcing fake conviction.
             </div>
           )}
 
@@ -197,31 +210,48 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
               <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
                 Secondary signals
               </div>
+
               <div className="mt-3 grid gap-2">
                 {additionalSignals.map((signal) => {
-                  const opportunity = buildBetSignalOpportunity(signal, detail.league.key, detail.providerHealth);
+                  const opportunity = buildBetSignalOpportunity(
+                    signal,
+                    detail.league.key,
+                    detail.providerHealth
+                  );
                   const trapLine = getOpportunityTrapLine(opportunity);
+
                   return (
                     <div
                       key={signal.id}
                       className="rounded-[1.1rem] border border-white/8 bg-slate-900/60 px-4 py-3"
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-medium text-white">{signal.selection}</div>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-white">
+                            {signal.selection}
+                          </div>
                           <div className="mt-1 text-xs text-slate-500">
-                            {signal.marketLabel} | {signal.sportsbookName ?? "Book pending"} | {signal.oddsAmerican > 0 ? "+" : ""}
+                            {signal.marketLabel} | {signal.sportsbookName ?? "Book pending"} |{" "}
+                            {signal.oddsAmerican > 0 ? "+" : ""}
                             {signal.oddsAmerican}
                           </div>
                         </div>
+
                         <div className="text-xs text-sky-300">
-                          {opportunity.actionState.replace(/_/g, " ")} | {opportunity.opportunityScore}
+                          {opportunity.actionState.replace(/_/g, " ")} |{" "}
+                          {opportunity.opportunityScore}
                         </div>
                       </div>
+
                       <div className="mt-3">
                         <OpportunityBadgeRow opportunity={opportunity} />
                       </div>
-                      <div className={`mt-3 text-sm leading-6 ${trapLine ? "text-rose-100" : "text-slate-300"}`}>
+
+                      <div
+                        className={`mt-3 text-sm leading-6 ${
+                          trapLine ? "text-rose-100" : "text-slate-300"
+                        }`}
+                      >
                         {trapLine ?? opportunity.reasonSummary}
                       </div>
                     </div>
@@ -234,8 +264,10 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
       </Card>
 
       <div className="grid gap-4">
-        <Card className="surface-panel p-5">
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Market context</div>
+        <Card className="surface-panel p-4 sm:p-5">
+          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+            Market context
+          </div>
           <div className="mt-4 grid gap-3 text-sm leading-6 text-slate-300">
             {marketContext.map((item) => (
               <div
@@ -249,13 +281,14 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
         </Card>
 
         {detail.nbaModel?.available ? (
-          <Card className="surface-panel p-5">
-            <div className="flex items-center justify-between gap-3">
+          <Card className="surface-panel p-4 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
                 Model pulse
               </div>
               <Badge tone="brand">{detail.nbaModel.source}</Badge>
             </div>
+
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <MiniMetric
                 label="Adj margin"
@@ -276,28 +309,38 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
                 note="Estimated game pace."
               />
             </div>
+
             <div className="mt-4 grid gap-2">
               {detail.nbaModel.factors.slice(0, 4).map((factor) => (
                 <div
                   key={factor.label}
                   className="rounded-[1.1rem] border border-white/8 bg-slate-950/60 px-4 py-3"
                 >
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{factor.label}</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                    {factor.label}
+                  </div>
                   <div className="mt-2 text-sm font-medium text-white">
                     {factor.awayValue} vs {factor.homeValue}
                   </div>
                   {factor.note ? (
-                    <div className="mt-1 text-xs leading-5 text-slate-500">{factor.note}</div>
+                    <div className="mt-1 text-xs leading-5 text-slate-500">
+                      {factor.note}
+                    </div>
                   ) : null}
                 </div>
               ))}
             </div>
-            <div className="mt-4 text-sm leading-6 text-slate-400">{detail.nbaModel.note}</div>
+
+            <div className="mt-4 text-sm leading-6 text-slate-400">
+              {detail.nbaModel.note}
+            </div>
           </Card>
         ) : null}
 
-        <Card className="surface-panel p-5">
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Matchup notes</div>
+        <Card className="surface-panel p-4 sm:p-5">
+          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+            Matchup notes
+          </div>
           <div className="mt-4 grid gap-3">
             {detail.notes.length ? (
               detail.notes.map((note) => (
@@ -310,7 +353,8 @@ export function OverviewPanel({ detail }: OverviewPanelProps) {
               ))
             ) : (
               <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
-                Matchup notes will appear here when provider context is explicit enough to matter.
+                Matchup notes will appear here when provider context is explicit enough
+                to matter.
               </div>
             )}
           </div>
