@@ -9,7 +9,6 @@ type OddsTableProps = {
   spotlight?: {
     marketType: "spread" | "moneyline" | "total";
     sportsbookName: string | null;
-    selectionLabel: string;
   } | null;
 };
 
@@ -125,8 +124,8 @@ export function OddsTable({ detail, spotlight = null }: OddsTableProps) {
         columns={["Sportsbook", "Spread", "Moneyline", "Total"]}
         rows={detail.books.map((row) => {
           const rowIsTarget =
-            spotlight?.sportsbookName &&
-            normalize(row.sportsbook.name) === normalize(spotlight.sportsbookName);
+            Boolean(spotlight?.sportsbookName) &&
+            normalize(row.sportsbook.name) === normalize(spotlight?.sportsbookName);
 
           return [
             <div
@@ -170,9 +169,7 @@ export function OddsTable({ detail, spotlight = null }: OddsTableProps) {
 
       <div className="grid gap-4">
         <Card className="surface-panel p-5">
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-            Market tape
-          </div>
+          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Market tape</div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <TapeCard
               label="Opening spread"
@@ -214,9 +211,7 @@ export function OddsTable({ detail, spotlight = null }: OddsTableProps) {
         </Card>
 
         <Card className="surface-panel p-5">
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-            Snapshot timeline
-          </div>
+          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Snapshot timeline</div>
           <div className="mt-4 grid gap-3">
             {detail.lineMovement.length ? (
               detail.lineMovement.map((point, index) => (
@@ -243,9 +238,7 @@ export function OddsTable({ detail, spotlight = null }: OddsTableProps) {
                   key={range.label}
                   className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3"
                 >
-                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                    {range.label}
-                  </div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{range.label}</div>
                   <div className="mt-2 text-sm text-slate-300">{range.value}</div>
                 </div>
               ))
