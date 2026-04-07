@@ -71,7 +71,7 @@ export default async function GameDetailPage({ params }: PageProps) {
 
   return (
     <BetSlipBoundary>
-      <div className="grid gap-5 sm:gap-6 lg:gap-7">
+      <div className="grid gap-4 sm:gap-6 lg:gap-7 xl:gap-8">
         <Card className="surface-panel-strong overflow-hidden px-4 py-4 sm:px-6 sm:py-6 xl:px-8 xl:py-8">
           <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr] xl:gap-6">
             <div className="grid gap-4 sm:gap-5">
@@ -178,7 +178,7 @@ export default async function GameDetailPage({ params }: PageProps) {
           </div>
         </Card>
 
-        <section id="for-you" className="grid gap-4">
+        <section id="for-you" className="grid gap-3 sm:gap-4 lg:gap-5">
           <SectionTitle
             eyebrow="For you"
             title="What actually deserves attention"
@@ -214,7 +214,7 @@ export default async function GameDetailPage({ params }: PageProps) {
           <OverviewPanel detail={detail} />
         </section>
 
-        <section id="markets" className="grid gap-4">
+        <section id="markets" className="grid gap-3 sm:gap-4 lg:gap-5">
           <SectionTitle
             eyebrow="Markets"
             title="Book table and tape"
@@ -223,7 +223,7 @@ export default async function GameDetailPage({ params }: PageProps) {
           <OddsTable detail={detail} />
         </section>
 
-        <section id="props" className="grid gap-4">
+        <section id="props" className="grid gap-3 sm:gap-4 lg:gap-5">
           <SectionTitle
             eyebrow="Props"
             title="Prop context"
@@ -233,7 +233,7 @@ export default async function GameDetailPage({ params }: PageProps) {
         </section>
 
         <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-          <section id="movement" className="grid gap-4">
+          <section id="movement" className="grid gap-3 sm:gap-4 lg:gap-5">
             <SectionTitle
               eyebrow="Movement"
               title="Line pressure"
@@ -252,7 +252,7 @@ export default async function GameDetailPage({ params }: PageProps) {
             </div>
           </section>
 
-          <section id="splits" className="grid gap-4">
+          <section id="splits" className="grid gap-3 sm:gap-4 lg:gap-5">
             <SectionTitle
               eyebrow="Splits"
               title="Public / money / health"
@@ -273,7 +273,7 @@ export default async function GameDetailPage({ params }: PageProps) {
         </div>
 
         <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-          <section id="trends" className="grid gap-4">
+          <section id="trends" className="grid gap-3 sm:gap-4 lg:gap-5">
             <SectionTitle
               eyebrow="Trends"
               title="Historical support"
@@ -322,7 +322,7 @@ export default async function GameDetailPage({ params }: PageProps) {
             )}
           </section>
 
-          <section id="kalshi" className="grid gap-4">
+          <section id="kalshi" className="grid gap-3 sm:gap-4 lg:gap-5">
             <SectionTitle
               eyebrow="Kalshi"
               title="Prediction-market bridge"
@@ -342,7 +342,7 @@ export default async function GameDetailPage({ params }: PageProps) {
           </section>
         </div>
 
-        <section id="feed" className="grid gap-4">
+        <section id="feed" className="grid gap-3 sm:gap-4 lg:gap-5">
           <SectionTitle
             eyebrow="Feed"
             title="Matchup intelligence and provider notes"
