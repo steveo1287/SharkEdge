@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { EdgeScoreBadge } from "@/components/intelligence/edge-score-badges";
 import { Badge } from "@/components/ui/badge";
 import { getProviderHealthTone } from "@/components/intelligence/provider-status-badges";
 import type { GameCardView, LeagueKey, LeagueSnapshotView, TrendCardView } from "@/lib/types/domain";
@@ -127,19 +128,7 @@ export function MovementCard({ game }: { game: GameCardView }) {
         </div>
         <div className="flex flex-wrap justify-end gap-2">
           <Badge tone={severity.tone}>{severity.label}</Badge>
-          <Badge
-            tone={
-              game.edgeScore.label === "Elite"
-                ? "success"
-                : game.edgeScore.label === "Strong"
-                  ? "premium"
-                  : game.edgeScore.label === "Watchlist"
-                    ? "brand"
-                    : "muted"
-            }
-          >
-            {game.edgeScore.label}
-          </Badge>
+          <EdgeScoreBadge label={game.edgeScore.label} />
         </div>
       </div>
 
@@ -239,7 +228,9 @@ export function TrendSignalCard({ trend }: { trend: TrendCardView }) {
       className="rounded-[1.35rem] border border-white/8 bg-[#0a1422]/90 p-4 transition hover:border-sky-400/25 hover:bg-white/[0.03]"
     >
       <div className="flex items-center justify-between gap-3">
-        <Badge tone={trend.tone === "success" ? "success" : trend.tone === "premium" ? "premium" : "brand"}>
+        <Badge
+          tone={trend.tone === "success" ? "success" : trend.tone === "premium" ? "premium" : "brand"}
+        >
           {trend.sampleSize} samples
         </Badge>
         <div className="text-sm font-semibold text-emerald-300">{trend.value}</div>
