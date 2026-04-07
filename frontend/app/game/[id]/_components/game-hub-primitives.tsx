@@ -1,46 +1,10 @@
-export function getStatusTone(status: string) {
-  if (status === "LIVE") {
-    return "success" as const;
-  }
+import {
+  getProviderHealthTone,
+  getStatusTone,
+  getSupportTone
+} from "@/components/intelligence/provider-status-badges";
 
-  if (status === "FINAL") {
-    return "neutral" as const;
-  }
-
-  if (status === "POSTPONED" || status === "CANCELED") {
-    return "danger" as const;
-  }
-
-  return "muted" as const;
-}
-
-export function getSupportTone(status: string) {
-  if (status === "LIVE") {
-    return "success" as const;
-  }
-
-  if (status === "PARTIAL") {
-    return "premium" as const;
-  }
-
-  return "muted" as const;
-}
-
-export function getProviderHealthTone(state: string) {
-  if (state === "HEALTHY") {
-    return "success" as const;
-  }
-
-  if (state === "DEGRADED") {
-    return "premium" as const;
-  }
-
-  if (state === "OFFLINE") {
-    return "danger" as const;
-  }
-
-  return "muted" as const;
-}
+export { getProviderHealthTone, getStatusTone, getSupportTone };
 
 export function QuickJump({
   href,
