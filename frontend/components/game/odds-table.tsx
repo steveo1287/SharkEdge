@@ -6,13 +6,28 @@ import type { MatchupDetailView } from "@/lib/types/domain";
 
 type OddsTableProps = {
   detail: MatchupDetailView;
+  spotlight?: {
+    marketType: "spread" | "moneyline" | "total";
+    sportsbookName: string | null;
+    selectionLabel: string;
+  } | null;
 };
 
 function isMissingMarket(value: string) {
   return !value || value === "Pending" || value === "No market" || value === "-";
 }
 
-function formatCell(value: string, bestHint: string | null) {
+function normalize(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function formatCell(args: {
+  value: string;
+  bestHint: string | null;
+  decisionTarget?: boolean;
+}) {
+  const { value, bestHint, decisionTarget = false } = args;
+
   if (isMissingMarket(value)) {
     return <span className="text-slate-500">-</span>;
   }
@@ -31,16 +46,36 @@ function formatCell(value: string, bestHint: string | null) {
       : [];
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <span className={highlighted ? "font-medium text-white" : "text-slate-300"}>{value}</span>
-      {highlighted ? (
-        <span className="text-[11px] uppercase tracking-[0.18em] text-sky-300">Best available</span>
-      ) : null}
-      {noVig.length >= 2 ? (
-        <span className="text-[11px] text-slate-500">
-          No-vig {`${(noVig[0] * 100).toFixed(1)}% / ${(noVig[1] * 100).toFixed(1)}%`}
+    <div
+      className={
+        decisionTarget
+          ? "rounded-[0.9rem] border border-sky-400/20 bg-sky-500/10 px-3 py-2"
+          : undefined
+      }
+    >
+      <div className="flex flex-col gap-1.5">
+        <span
+          className={
+            decisionTarget || highlighted ? "font-medium text-white" : "text-slate-300"
+          }
+        >
+          {value}
         </span>
-      ) : null}
+        {decisionTarget ? (
+          <span className="text-[11px] uppercase tracking-[0.18em] text-sky-200">
+            Decision target
+          </span>
+        ) : highlighted ? (
+          <span className="text-[11px] uppercase tracking-[0.18em] text-sky-300">
+            Best available
+          </span>
+        ) : null}
+        {noVig.length >= 2 ? (
+          <span className="text-[11px] text-slate-500">
+            No-vig {`${(noVig[0] * 100).toFixed(1)}% / ${(noVig[1] * 100).toFixed(1)}%`}
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -63,18 +98,24 @@ function TapeCard({
   );
 }
 
-export function OddsTable({ detail }: OddsTableProps) {
+export function OddsTable({ detail, spotlight = null }: OddsTableProps) {
   const openingPoint = detail.lineMovement[0] ?? null;
   const currentPoint = detail.lineMovement[detail.lineMovement.length - 1] ?? null;
   const spreadHint = detail.oddsSummary?.bestSpread ?? null;
   const moneylineHint = detail.oddsSummary?.bestMoneyline ?? null;
   const totalHint = detail.oddsSummary?.bestTotal?.replace("O/U ", "") ?? null;
   const spreadMove =
-    openingPoint && currentPoint && typeof openingPoint.spreadLine === "number" && typeof currentPoint.spreadLine === "number"
+    openingPoint &&
+    currentPoint &&
+    typeof openingPoint.spreadLine === "number" &&
+    typeof currentPoint.spreadLine === "number"
       ? currentPoint.spreadLine - openingPoint.spreadLine
       : null;
   const totalMove =
-    openingPoint && currentPoint && typeof openingPoint.totalLine === "number" && typeof currentPoint.totalLine === "number"
+    openingPoint &&
+    currentPoint &&
+    typeof openingPoint.totalLine === "number" &&
+    typeof currentPoint.totalLine === "number"
       ? currentPoint.totalLine - openingPoint.totalLine
       : null;
 
@@ -82,43 +123,100 @@ export function OddsTable({ detail }: OddsTableProps) {
     <div className="grid gap-5 xl:grid-cols-[1.08fr_0.92fr]">
       <DataTable
         columns={["Sportsbook", "Spread", "Moneyline", "Total"]}
-        rows={detail.books.map((row) => [
-          row.sportsbook.name,
-          formatCell(row.spread, spreadHint),
-          formatCell(row.moneyline, moneylineHint),
-          formatCell(row.total, totalHint)
-        ])}
+        rows={detail.books.map((row) => {
+          const rowIsTarget =
+            spotlight?.sportsbookName &&
+            normalize(row.sportsbook.name) === normalize(spotlight.sportsbookName);
+
+          return [
+            <div
+              key={`${row.sportsbook.name}-label`}
+              id={rowIsTarget ? "market-target" : undefined}
+              className={
+                rowIsTarget
+                  ? "rounded-[0.9rem] border border-sky-400/20 bg-sky-500/10 px-3 py-2"
+                  : undefined
+              }
+            >
+              <div className="flex flex-col gap-1">
+                <span className={rowIsTarget ? "font-medium text-white" : "text-slate-300"}>
+                  {row.sportsbook.name}
+                </span>
+                {rowIsTarget ? (
+                  <span className="text-[11px] uppercase tracking-[0.18em] text-sky-200">
+                    Target book
+                  </span>
+                ) : null}
+              </div>
+            </div>,
+            formatCell({
+              value: row.spread,
+              bestHint: spreadHint,
+              decisionTarget: Boolean(rowIsTarget && spotlight?.marketType === "spread")
+            }),
+            formatCell({
+              value: row.moneyline,
+              bestHint: moneylineHint,
+              decisionTarget: Boolean(rowIsTarget && spotlight?.marketType === "moneyline")
+            }),
+            formatCell({
+              value: row.total,
+              bestHint: totalHint,
+              decisionTarget: Boolean(rowIsTarget && spotlight?.marketType === "total")
+            })
+          ];
+        })}
       />
 
       <div className="grid gap-4">
         <Card className="surface-panel p-5">
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Market tape</div>
+          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+            Market tape
+          </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <TapeCard
               label="Opening spread"
-              value={openingPoint?.spreadLine !== null && openingPoint?.spreadLine !== undefined ? String(openingPoint.spreadLine) : "N/A"}
+              value={
+                openingPoint?.spreadLine !== null && openingPoint?.spreadLine !== undefined
+                  ? String(openingPoint.spreadLine)
+                  : "N/A"
+              }
               note="First stored spread snapshot for this matchup."
             />
             <TapeCard
               label="Current spread"
-              value={currentPoint?.spreadLine !== null && currentPoint?.spreadLine !== undefined ? String(currentPoint.spreadLine) : "N/A"}
+              value={
+                currentPoint?.spreadLine !== null && currentPoint?.spreadLine !== undefined
+                  ? String(currentPoint.spreadLine)
+                  : "N/A"
+              }
               note="Most recent spread snapshot currently stored."
             />
             <TapeCard
               label="Spread move"
-              value={spreadMove === null ? "N/A" : `${spreadMove > 0 ? "+" : ""}${spreadMove.toFixed(1)} pts`}
+              value={
+                spreadMove === null
+                  ? "N/A"
+                  : `${spreadMove > 0 ? "+" : ""}${spreadMove.toFixed(1)} pts`
+              }
               note="Opening versus latest tracked spread."
             />
             <TapeCard
               label="Total move"
-              value={totalMove === null ? "N/A" : `${totalMove > 0 ? "+" : ""}${totalMove.toFixed(1)} pts`}
+              value={
+                totalMove === null
+                  ? "N/A"
+                  : `${totalMove > 0 ? "+" : ""}${totalMove.toFixed(1)} pts`
+              }
               note="Opening versus latest tracked total."
             />
           </div>
         </Card>
 
         <Card className="surface-panel p-5">
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Snapshot timeline</div>
+          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+            Snapshot timeline
+          </div>
           <div className="mt-4 grid gap-3">
             {detail.lineMovement.length ? (
               detail.lineMovement.map((point, index) => (
@@ -145,7 +243,9 @@ export function OddsTable({ detail }: OddsTableProps) {
                   key={range.label}
                   className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3"
                 >
-                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{range.label}</div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                    {range.label}
+                  </div>
                   <div className="mt-2 text-sm text-slate-300">{range.value}</div>
                 </div>
               ))
