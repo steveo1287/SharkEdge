@@ -67,16 +67,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               <div className="text-[0.66rem] uppercase tracking-[0.28em] text-slate-500">
                 Current desk
               </div>
-              <Badge
-                tone={getProviderHealthTone(
-                  home.liveDeskAvailable
-                    ? home.liveBoardData?.providerHealth.state ?? "DEGRADED"
-                    : "DEGRADED"
-                )}
-              >
-                {home.liveDeskAvailable
-                  ? home.liveBoardData?.providerHealth.label ?? "Live desk connected"
-                  : "Live desk unavailable"}
+              <Badge tone={getProviderHealthTone(home.deskStatusState)}>
+                {home.deskStatusLabel}
               </Badge>
             </div>
             <div className="text-3xl font-semibold text-white">
@@ -135,7 +127,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               </div>
             </div>
             <div className="text-sm leading-6 text-slate-400">
-              {home.boardData.sourceNote}
+              {home.deskSourceNote}
             </div>
           </div>
         </div>
