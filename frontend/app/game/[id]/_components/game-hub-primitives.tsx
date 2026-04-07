@@ -1,4 +1,66 @@
-type Tone = "default" | "success" | "premium" | "danger";
+import { Badge } from "@/components/ui/badge";
+
+type DeskCardTone = "default" | "success" | "premium" | "danger";
+
+export function getStatusTone(status: string) {
+  if (status === "LIVE") {
+    return "success" as const;
+  }
+
+  if (status === "FINAL") {
+    return "neutral" as const;
+  }
+
+  if (status === "POSTPONED" || status === "CANCELED") {
+    return "danger" as const;
+  }
+
+  return "muted" as const;
+}
+
+export function getSupportTone(status: string) {
+  if (status === "LIVE") {
+    return "success" as const;
+  }
+
+  if (status === "PARTIAL") {
+    return "premium" as const;
+  }
+
+  return "muted" as const;
+}
+
+export function getProviderHealthTone(state: string) {
+  if (state === "HEALTHY") {
+    return "success" as const;
+  }
+
+  if (state === "DEGRADED") {
+    return "premium" as const;
+  }
+
+  if (state === "OFFLINE") {
+    return "danger" as const;
+  }
+
+  return "muted" as const;
+}
+
+export function getOpportunityTone(actionState: string) {
+  if (actionState === "BET_NOW") {
+    return "success" as const;
+  }
+
+  if (actionState === "WAIT") {
+    return "brand" as const;
+  }
+
+  if (actionState === "WATCH") {
+    return "premium" as const;
+  }
+
+  return "muted" as const;
+}
 
 export function QuickJump({
   href,
@@ -84,7 +146,7 @@ export function DeskCard({
   title: string;
   value: string;
   note: string;
-  tone?: Tone;
+  tone?: DeskCardTone;
 }) {
   const toneClass =
     tone === "success"
@@ -104,4 +166,14 @@ export function DeskCard({
       <div className="mt-2 text-sm leading-6 text-slate-400">{note}</div>
     </div>
   );
+}
+
+export function OpportunityStateBadge({
+  actionState,
+  label
+}: {
+  actionState: string;
+  label: string;
+}) {
+  return <Badge tone={getOpportunityTone(actionState)}>{label}</Badge>;
 }
