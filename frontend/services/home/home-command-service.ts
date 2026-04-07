@@ -1,11 +1,8 @@
 import type { BoardFilters, BoardPageData, GameCardView, LeagueKey, PropCardView } from "@/lib/types/domain";
-import { withTimeoutFallback } from "@/lib/utils/async";
 import {
   buildHomeOpportunitySnapshot,
   rankOpportunities
 } from "@/services/opportunities/opportunity-service";
-
-const LIVE_HOME_TIMEOUT_MS = 1_800;
 
 export type HomeLeagueScope = LeagueKey | "ALL";
 export type HomeDeskDateKey = "today" | "tomorrow" | "upcoming";
@@ -37,6 +34,8 @@ export type HomeCommandData = {
   liveBoardData: BoardPageData | null;
   liveDeskAvailable: boolean;
   liveDeskMessage: string | null;
+  liveDeskFreshnessLabel: string;
+  liveDeskFreshnessMinutes: number | null;
   verifiedGames: GameCardView[];
   movementGames: GameCardView[];
   topProps: PropCardView[];
@@ -44,20 +43,6 @@ export type HomeCommandData = {
   decisionWindows: ReturnType<typeof rankOpportunities>;
   traps: ReturnType<typeof rankOpportunities>;
 };
-
-function buildLiveDeskState(boardData: BoardPageData) {
-  const liveDeskAvailable = boardData.source === "live";
-  const liveDeskMessage = liveDeskAvailable
-    ? boardData.liveMessage
-    : boardData.providerHealth.warnings[0] ??
-      "Live desk unavailable right now. SharkEdge is staying honest with verified pregame rows and scoreboard context only.";
-
-  return {
-    liveBoardData: liveDeskAvailable ? boardData : null,
-    liveDeskAvailable,
-    liveDeskMessage
-  };
-}
 
 function readValue(
   searchParams: Record<string, string | string[] | undefined>,
@@ -152,13 +137,54 @@ function getVerifiedGames(
   const rankedGames = Array.from(
     new Map(
       boardTop
-        .map((opportunity) => games.find((game) => opportunity.id.startsWith(`${game.id}:`)))
+        .map((opportunity) =>
+          games.find((game) => opportunity.id.startsWith(`${game.id}:`))
+        )
         .filter((game): game is GameCardView => Boolean(game))
         .map((game) => [game.id, game] as const)
     ).values()
   );
 
   return (rankedGames.length ? rankedGames : games.filter(isVerifiedGame)).slice(0, 4);
+}
+
+function buildLiveDeskState(liveBoardData: BoardPageData | null) {
+  if (!liveBoardData) {
+    return {
+      liveDeskAvailable: false,
+      liveDeskMessage:
+        "Live desk unavailable right now. SharkEdge is staying honest with verified pregame rows and scoreboard context only.",
+      liveDeskFreshnessLabel: "Unavailable",
+      liveDeskFreshnessMinutes: null
+    };
+  }
+
+  const liveDeskAvailable =
+    liveBoardData.source !== "mock" &&
+    liveBoardData.providerHealth.state !== "OFFLINE";
+
+  if (liveDeskAvailable) {
+    return {
+      liveDeskAvailable: true,
+      liveDeskMessage: liveBoardData.liveMessage ?? liveBoardData.providerHealth.summary,
+      liveDeskFreshnessLabel: liveBoardData.providerHealth.freshnessLabel,
+      liveDeskFreshnessMinutes:
+        typeof liveBoardData.providerHealth.freshnessMinutes === "number"
+          ? liveBoardData.providerHealth.freshnessMinutes
+          : null
+    };
+  }
+
+  return {
+    liveDeskAvailable: false,
+    liveDeskMessage:
+      liveBoardData.liveMessage ??
+      liveBoardData.providerHealth.warnings[0] ??
+      liveBoardData.providerHealth.summary ??
+      "Live desk unavailable right now. SharkEdge is staying honest with verified pregame rows and scoreboard context only.",
+    liveDeskFreshnessLabel: "Support-aware fallback",
+    liveDeskFreshnessMinutes: null
+  };
 }
 
 export function formatHomeDateLabel(value: HomeDeskDateKey) {
@@ -170,6 +196,7 @@ export async function getHomeCommandData(
 ): Promise<HomeCommandData> {
   const selectedLeague = getSelectedLeague(readValue(searchParams, "league"));
   const selectedDate = getSelectedDate(readValue(searchParams, "date"));
+
   const oddsService = await import("@/services/odds/board-service");
   const propsService = await import("@/services/odds/props-service");
 
@@ -181,12 +208,18 @@ export async function getHomeCommandData(
     status: "pregame"
   });
 
-  const [boardData, topProps] = await Promise.all([
+  const liveFilters = oddsService.parseBoardFilters({
+    league: selectedLeague,
+    date: resolveBoardDate(selectedDate),
+    sportsbook: "best",
+    market: "all",
+    status: "live"
+  });
+
+  const [boardData, liveBoardResult, topProps] = await Promise.all([
     oddsService.getBoardPageData(boardFilters),
-    withTimeoutFallback(propsService.getTopPlayCards(4), {
-      timeoutMs: LIVE_HOME_TIMEOUT_MS,
-      fallback: []
-    })
+    oddsService.getBoardPageData(liveFilters).catch(() => null),
+    propsService.getTopPlayCards(4)
   ]);
 
   const opportunitySnapshot = buildHomeOpportunitySnapshot({
@@ -200,7 +233,8 @@ export async function getHomeCommandData(
     ...opportunitySnapshot.boardTop,
     ...opportunitySnapshot.propsTop
   ]).slice(0, 4);
-  const liveDeskState = buildLiveDeskState(boardData);
+
+  const liveDeskState = buildLiveDeskState(liveBoardResult);
 
   return {
     selectedLeague,
@@ -208,11 +242,15 @@ export async function getHomeCommandData(
     focusedLeague,
     boardFilters,
     boardData,
-    liveBoardData: liveDeskState.liveBoardData,
+    liveBoardData: liveDeskState.liveDeskAvailable ? liveBoardResult : null,
     liveDeskAvailable: liveDeskState.liveDeskAvailable,
     liveDeskMessage: liveDeskState.liveDeskMessage,
+    liveDeskFreshnessLabel: liveDeskState.liveDeskFreshnessLabel,
+    liveDeskFreshnessMinutes: liveDeskState.liveDeskFreshnessMinutes,
     verifiedGames: getVerifiedGames(boardData.games, opportunitySnapshot.boardTop),
-    movementGames: getMovementGames(liveDeskState.liveBoardData?.games ?? []),
+    movementGames: getMovementGames(
+      liveDeskState.liveDeskAvailable && liveBoardResult ? liveBoardResult.games : []
+    ),
     topProps,
     topActionables,
     decisionWindows: opportunitySnapshot.timingWindows.slice(0, 2),
