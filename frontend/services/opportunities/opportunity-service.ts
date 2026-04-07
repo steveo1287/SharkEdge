@@ -31,7 +31,10 @@ function round(value: number | null | undefined, digits = 2) {
   return typeof value === "number" ? Number(value.toFixed(digits)) : null;
 }
 
-function getConfidenceTier(score: number, trapFlags: string[]): OpportunityConfidenceTier {
+function getConfidenceTier(
+  score: number,
+  trapFlags: string[]
+): OpportunityConfidenceTier {
   if (trapFlags.includes("STALE_EDGE") || trapFlags.includes("LOW_PROVIDER_HEALTH")) {
     return score >= 70 ? "B" : score >= 55 ? "C" : "D";
   }
@@ -76,6 +79,74 @@ function getProviderFreshnessMinutes(args: {
   return args.providerHealth?.freshnessMinutes ?? null;
 }
 
+function getActionPriority(actionState: OpportunityView["actionState"]) {
+  if (actionState === "BET_NOW") {
+    return 4;
+  }
+
+  if (actionState === "WAIT") {
+    return 3;
+  }
+
+  if (actionState === "WATCH") {
+    return 2;
+  }
+
+  return 1;
+}
+
+function getConfidencePriority(confidenceTier: OpportunityConfidenceTier) {
+  if (confidenceTier === "A") {
+    return 4;
+  }
+
+  if (confidenceTier === "B") {
+    return 3;
+  }
+
+  if (confidenceTier === "C") {
+    return 2;
+  }
+
+  return 1;
+}
+
+function shouldSurfaceHomeOpportunity(opportunity: OpportunityView) {
+  if (opportunity.actionState === "PASS") {
+    return false;
+  }
+
+  if (opportunity.staleFlag) {
+    return false;
+  }
+
+  if (opportunity.sourceHealth.state === "OFFLINE") {
+    return false;
+  }
+
+  if (opportunity.trapFlags.includes("LOW_PROVIDER_HEALTH")) {
+    return false;
+  }
+
+  if (opportunity.trapFlags.includes("STALE_EDGE")) {
+    return false;
+  }
+
+  if (opportunity.opportunityScore >= 75) {
+    return true;
+  }
+
+  if (
+    opportunity.opportunityScore >= 68 &&
+    opportunity.actionState === "BET_NOW" &&
+    opportunity.confidenceTier !== "D"
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 type BaseOpportunityArgs = {
   id: string;
   kind: OpportunityKind;
@@ -116,6 +187,7 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     providerHealth: args.providerHealth,
     snapshotAgeSeconds: args.snapshotAgeSeconds
   });
+
   const trapFlags = buildOpportunityTrapFlags({
     fairPrice: args.fairPriceMethod
       ? ({
@@ -152,6 +224,7 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     trapFlags,
     disagreementScore: args.marketDisagreementScore
   });
+
   const personalizationAdjustments = buildOpportunityPersonalization({
     opportunity: {
       league: args.league,
@@ -161,11 +234,14 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     } as OpportunityView,
     profile: args.profile
   });
+
   const personalizationDelta = personalizationAdjustments.reduce(
     (total, item) => total + item.delta,
     0
   );
+
   const supportScore = supportScoreFromReasons(args.reasons);
+
   const scoring = buildOpportunityScore({
     expectedValuePct: args.expectedValuePct,
     fairLineGap: args.fairLineGap,
@@ -180,6 +256,7 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     trapFlags,
     personalizationDelta
   });
+
   const timing = buildOpportunityTiming({
     score: scoring.score,
     expectedValuePct: args.expectedValuePct,
@@ -189,6 +266,7 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     trapFlags,
     disagreementScore: args.marketDisagreementScore
   });
+
   const explanation = buildOpportunityExplanation({
     eventLabel: args.eventLabel,
     selectionLabel: args.selectionLabel,
@@ -253,7 +331,9 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
   };
 }
 
-function marketLabelToKind(marketType: "spread" | "moneyline" | "total"): OpportunityKind {
+function marketLabelToKind(
+  marketType: "spread" | "moneyline" | "total"
+): OpportunityKind {
   if (marketType === "moneyline") {
     return "moneyline";
   }
@@ -408,7 +488,8 @@ export function buildBetSignalOpportunity(
     fairLineGap: signal.evProfile?.fairLineGap ?? signal.marketTruth?.sharpGapAmerican ?? null,
     bestPriceFlag: signal.marketIntelligence?.bestPriceFlag ?? false,
     reasons: signal.reasons ?? [],
-    sourceNote: signal.supportNote ?? signal.marketTruth?.note ?? providerHealth?.summary ?? "Signal context only.",
+    sourceNote:
+      signal.supportNote ?? signal.marketTruth?.note ?? providerHealth?.summary ?? "Signal context only.",
     truthClassification: signal.marketTruth?.classification ?? null,
     profile
   });
@@ -416,9 +497,22 @@ export function buildBetSignalOpportunity(
 
 export function rankOpportunities<T extends OpportunityView>(opportunities: T[]) {
   return [...opportunities].sort((left, right) => {
+    const actionDelta =
+      getActionPriority(right.actionState) - getActionPriority(left.actionState);
+    if (actionDelta !== 0) {
+      return actionDelta;
+    }
+
     const scoreDelta = right.opportunityScore - left.opportunityScore;
     if (scoreDelta !== 0) {
       return scoreDelta;
+    }
+
+    const confidenceDelta =
+      getConfidencePriority(right.confidenceTier) -
+      getConfidencePriority(left.confidenceTier);
+    if (confidenceDelta !== 0) {
+      return confidenceDelta;
     }
 
     return (right.expectedValuePct ?? -999) - (left.expectedValuePct ?? -999);
@@ -432,25 +526,35 @@ export function buildHomeOpportunitySnapshot(args: {
   performance?: PerformanceDashboardView | null;
 }): OpportunityHomeSnapshot {
   const profile = buildOpportunityProfile(args.performance);
-  const boardTop = rankOpportunities(
-    args.games.flatMap((game) =>
-      (["spread", "moneyline", "total"] as const)
-        .map((marketType) =>
-          buildGameMarketOpportunity(game, marketType, args.providerHealth, profile)
-        )
-        .filter((opportunity) => opportunity.opportunityScore >= 60)
+
+  const boardCandidates = args.games.flatMap((game) =>
+    (["spread", "moneyline", "total"] as const).map((marketType) =>
+      buildGameMarketOpportunity(game, marketType, args.providerHealth, profile)
     )
+  );
+
+  const propCandidates = args.props.map((prop) =>
+    buildPropOpportunity(prop, args.providerHealth, profile)
+  );
+
+  const boardTop = rankOpportunities(
+    boardCandidates.filter(shouldSurfaceHomeOpportunity)
   ).slice(0, 5);
+
   const propsTop = rankOpportunities(
-    args.props.map((prop) => buildPropOpportunity(prop, args.providerHealth, profile))
+    propCandidates.filter(shouldSurfaceHomeOpportunity)
   ).slice(0, 5);
+
+  const surfaced = [...boardTop, ...propsTop];
+
   const traps = rankOpportunities(
-    [...boardTop, ...propsTop].filter((opportunity) => opportunity.trapFlags.length)
+    surfaced.filter((opportunity) => opportunity.trapFlags.length)
   )
     .sort((left, right) => right.trapFlags.length - left.trapFlags.length)
     .slice(0, 3);
+
   const timingWindows = rankOpportunities(
-    [...boardTop, ...propsTop].filter((opportunity) => opportunity.actionState === "BET_NOW")
+    surfaced.filter((opportunity) => opportunity.actionState === "BET_NOW")
   ).slice(0, 4);
 
   return {
