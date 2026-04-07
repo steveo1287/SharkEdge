@@ -7,6 +7,7 @@ import {
 } from "@/app/_components/home-primitives";
 import { GameCard } from "@/components/board/game-card";
 import { OpportunitySpotlightCard } from "@/components/intelligence/opportunity-spotlight-card";
+import { DiagnosticMetaStrip } from "@/components/intelligence/provider-diagnostic-shells";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SectionTitle } from "@/components/ui/section-title";
@@ -86,14 +87,16 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 ? home.liveDeskMessage ?? home.liveBoardData?.providerHealth.summary
                 : home.liveDeskMessage ?? home.boardData.sourceNote}
             </div>
-            <div className="flex flex-wrap gap-2 text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
-              <span>Focus league: {home.focusedLeague}</span>
-              <span>Slate: {formatHomeDateLabel(home.selectedDate)}</span>
-              <span>{home.liveDeskFreshnessLabel}</span>
-              {typeof home.liveDeskFreshnessMinutes === "number" ? (
-                <span>{home.liveDeskFreshnessMinutes}m old</span>
-              ) : null}
-            </div>
+            <DiagnosticMetaStrip
+              items={[
+                `Focus league: ${home.focusedLeague}`,
+                `Slate: ${formatHomeDateLabel(home.selectedDate)}`,
+                home.liveDeskFreshnessLabel,
+                typeof home.liveDeskFreshnessMinutes === "number"
+                  ? `${home.liveDeskFreshnessMinutes}m old`
+                  : null
+              ]}
+            />
             <div className="terminal-rule mt-2" />
             <div className="data-grid">
               <div>
