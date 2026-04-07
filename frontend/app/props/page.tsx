@@ -6,6 +6,11 @@ import {
   getProviderHealthTone
 } from "@/app/_components/props-desk-sections";
 import { BetSlipBoundary } from "@/components/bets/bet-slip-boundary";
+import {
+  DiagnosticMetaStrip,
+  ProviderHealthSummaryPanel,
+  RawProviderDetailsDisclosure
+} from "@/components/intelligence/provider-diagnostic-shells";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -89,34 +94,39 @@ export default async function PropsPage({ searchParams }: PageProps) {
               <div className="md:col-span-2 rounded-[1.1rem] border border-emerald-400/15 bg-emerald-400/8 px-4 py-3 text-sm leading-6 text-emerald-200">
                 The prop page now ranks by actual prop usefulness, not just table order.
               </div>
-              <div className="md:col-span-2 rounded-[1.1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300 break-words overflow-hidden">
-                {props.summarizedDeskStatus}
+              <div className="md:col-span-2">
+                <ProviderHealthSummaryPanel
+                  title="Provider health"
+                  state={props.data.providerHealth.state}
+                  label={props.data.providerHealth.label}
+                  summary={props.summarizedDeskStatus}
+                  metaItems={[
+                    props.data.providerHealth.freshnessLabel,
+                    typeof props.data.providerHealth.freshnessMinutes === "number"
+                      ? `${props.data.providerHealth.freshnessMinutes}m old`
+                      : null,
+                    props.data.providerHealth.warnings.length
+                      ? `${props.data.providerHealth.warnings.length} warning${props.data.providerHealth.warnings.length === 1 ? "" : "s"}`
+                      : null
+                  ]}
+                />
               </div>
-              <div className="md:col-span-2 flex flex-wrap gap-2 text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
-                <span>{props.data.providerHealth.freshnessLabel}</span>
-                {typeof props.data.providerHealth.freshnessMinutes === "number" ? (
-                  <span>{props.data.providerHealth.freshnessMinutes}m old</span>
-                ) : null}
-                {props.data.providerHealth.warnings.length ? (
-                  <span>
-                    {props.data.providerHealth.warnings.length} warning
-                    {props.data.providerHealth.warnings.length === 1 ? "" : "s"}
-                  </span>
-                ) : null}
+              <div className="md:col-span-2">
+                <RawProviderDetailsDisclosure
+                  items={[
+                    {
+                      label: "Provider summary",
+                      value: props.data.providerHealth.summary,
+                      breakMode: "words"
+                    },
+                    {
+                      label: "Source note",
+                      value: props.data.sourceNote,
+                      breakMode: "all"
+                    }
+                  ]}
+                />
               </div>
-              <details className="md:col-span-2 rounded-[1.1rem] border border-white/8 bg-slate-950/50 px-4 py-3">
-                <summary className="cursor-pointer text-xs uppercase tracking-[0.18em] text-slate-500">
-                  Raw provider details
-                </summary>
-                <div className="mt-3 grid gap-3 text-xs leading-6 text-slate-400">
-                  <div className="break-words overflow-hidden whitespace-pre-wrap">
-                    {props.data.providerHealth.summary}
-                  </div>
-                  <div className="break-all overflow-hidden whitespace-pre-wrap">
-                    {props.data.sourceNote}
-                  </div>
-                </div>
-              </details>
             </div>
           </div>
         </Card>
