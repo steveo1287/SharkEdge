@@ -9,6 +9,21 @@ import {
 
 type MatchupDetail = NonNullable<Awaited<ReturnType<typeof getMatchupDetail>>>;
 
+export type MatchupDecisionTargetView =
+  | {
+      kind: "market";
+      href: string;
+      label: string;
+      marketType: "spread" | "moneyline" | "total";
+      sportsbookName: string | null;
+    }
+  | {
+      kind: "prop";
+      href: string;
+      label: string;
+      propId: string;
+    };
+
 export type MatchupDecisionModuleView = {
   headline: OpportunityView | null;
   marketPriceLabel: string;
@@ -21,6 +36,7 @@ export type MatchupDecisionModuleView = {
   executionNote: string;
   whyNow: string[];
   killSwitches: string[];
+  focusTarget: MatchupDecisionTargetView | null;
 };
 
 export type GameHubPresentation = {
@@ -104,6 +120,63 @@ function buildForYouOpportunities(detail: MatchupDetail) {
     .slice(0, 4);
 }
 
+function getMarketTargetType(
+  marketType: string
+): "spread" | "moneyline" | "total" | null {
+  if (marketType === "spread") {
+    return "spread";
+  }
+
+  if (marketType === "moneyline") {
+    return "moneyline";
+  }
+
+  if (marketType === "total") {
+    return "total";
+  }
+
+  return null;
+}
+
+function buildDecisionTarget(
+  headline: OpportunityView | null
+): MatchupDecisionTargetView | null {
+  if (!headline) {
+    return null;
+  }
+
+  if (headline.kind === "prop") {
+    return {
+      kind: "prop",
+      href: `#prop-${headline.id}`,
+      label: "Jump to target prop",
+      propId: headline.id
+    };
+  }
+
+  const marketType = getMarketTargetType(headline.marketType);
+
+  if (!marketType) {
+    return {
+      kind: "market",
+      href: "#markets",
+      label: "Jump to target market",
+      marketType: "spread",
+      sportsbookName: headline.sportsbookName ?? null
+    };
+  }
+
+  return {
+    kind: "market",
+    href: "#market-target",
+    label: headline.sportsbookName
+      ? `Jump to ${headline.sportsbookName} entry`
+      : "Jump to target market",
+    marketType,
+    sportsbookName: headline.sportsbookName ?? null
+  };
+}
+
 function buildDecisionModule(headline: OpportunityView | null): MatchupDecisionModuleView {
   if (!headline) {
     return {
@@ -117,7 +190,8 @@ function buildDecisionModule(headline: OpportunityView | null): MatchupDecisionM
       changeSummary: "No market or prop angle has cleared the current threshold on this matchup.",
       executionNote: "Pass for now and wait for a cleaner signal.",
       whyNow: [],
-      killSwitches: []
+      killSwitches: [],
+      focusTarget: null
     };
   }
 
@@ -168,7 +242,8 @@ function buildDecisionModule(headline: OpportunityView | null): MatchupDecisionM
     changeSummary,
     executionNote,
     whyNow: headline.whyItShows.slice(0, 3),
-    killSwitches: headline.whatCouldKillIt.slice(0, 3)
+    killSwitches: headline.whatCouldKillIt.slice(0, 3),
+    focusTarget: buildDecisionTarget(headline)
   };
 }
 
