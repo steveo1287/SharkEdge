@@ -6,6 +6,42 @@ import {
   rankOpportunities
 } from "@/services/opportunities/opportunity-service";
 
+function shouldSurfaceOpportunity(opportunity: OpportunityView) {
+  if (opportunity.actionState === "PASS") {
+    return false;
+  }
+
+  if (opportunity.staleFlag) {
+    return false;
+  }
+
+  if (opportunity.sourceHealth.state === "OFFLINE") {
+    return false;
+  }
+
+  if (opportunity.trapFlags.includes("LOW_PROVIDER_HEALTH")) {
+    return false;
+  }
+
+  if (opportunity.trapFlags.includes("STALE_EDGE")) {
+    return false;
+  }
+
+  if (opportunity.opportunityScore >= 75) {
+    return true;
+  }
+
+  if (
+    opportunity.opportunityScore >= 68 &&
+    opportunity.actionState === "BET_NOW" &&
+    opportunity.confidenceTier !== "D"
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export function buildForYouOpportunities(
   routeId: string,
   detail: Awaited<ReturnType<typeof getMatchupDetail>>
@@ -26,9 +62,10 @@ export function buildForYouOpportunities(
     ...signalOpportunities,
     ...propOpportunities
   ])
+    .filter(shouldSurfaceOpportunity)
     .map((opportunity) => ({
       ...opportunity,
       eventId: routeId
     }))
-    .slice(0, 4);
+    .slice(0, 2);
 }
