@@ -13,7 +13,6 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { formatGameDateTime } from "@/lib/formatters/date";
-import type { OpportunityView } from "@/lib/types/opportunity";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
 import {
   buildGameHubKalshiCards,
@@ -22,12 +21,8 @@ import {
   buildGameHubSplitsCards,
   buildGameHubTabs
 } from "@/services/matchups/game-ui-adapter";
-import {
-  buildBetSignalOpportunity,
-  buildPropOpportunity,
-  rankOpportunities
-} from "@/services/opportunities/opportunity-service";
 
+import { buildForYouOpportunities } from "./_components/game-hub-opportunities";
 import {
   DeskCard,
   getProviderHealthTone,
@@ -46,33 +41,6 @@ type PageProps = {
     id: string;
   }>;
 };
-
-function buildForYouOpportunities(
-  routeId: string,
-  detail: Awaited<ReturnType<typeof getMatchupDetail>>
-) {
-  if (!detail) {
-    return [];
-  }
-
-  const signalOpportunities = detail.betSignals.map((signal) =>
-    buildBetSignalOpportunity(signal, detail.league.key, detail.providerHealth)
-  );
-
-  const propOpportunities = detail.props.slice(0, 6).map((prop) =>
-    buildPropOpportunity(prop, detail.providerHealth)
-  );
-
-  return rankOpportunities<OpportunityView>([
-    ...signalOpportunities,
-    ...propOpportunities
-  ])
-    .map((opportunity) => ({
-      ...opportunity,
-      eventId: routeId
-    }))
-    .slice(0, 4);
-}
 
 export default async function GameDetailPage({ params }: PageProps) {
   const { id } = await params;
@@ -103,10 +71,10 @@ export default async function GameDetailPage({ params }: PageProps) {
 
   return (
     <BetSlipBoundary>
-      <div className="grid gap-7">
-        <Card className="surface-panel-strong overflow-hidden px-6 py-6 xl:px-8 xl:py-8">
-          <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-            <div className="grid gap-5">
+      <div className="grid gap-5 sm:gap-6 lg:gap-7">
+        <Card className="surface-panel-strong overflow-hidden px-4 py-4 sm:px-6 sm:py-6 xl:px-8 xl:py-8">
+          <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr] xl:gap-6">
+            <div className="grid gap-4 sm:gap-5">
               <div className="section-kicker">{detail.league.key} matchup hub</div>
 
               <div className="grid gap-3">
@@ -126,40 +94,40 @@ export default async function GameDetailPage({ params }: PageProps) {
                   ) : null}
                 </div>
 
-                <h1 className="max-w-5xl font-display text-4xl font-semibold tracking-tight text-white md:text-5xl xl:text-[3.8rem] xl:leading-[0.98]">
+                <h1 className="max-w-5xl font-display text-3xl font-semibold tracking-tight text-white sm:text-4xl md:text-5xl xl:text-[3.8rem] xl:leading-[0.98]">
                   {detail.eventLabel}
                 </h1>
 
-                <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-400">
+                <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-slate-400 sm:gap-x-5">
                   <span>{formatGameDateTime(detail.startTime)}</span>
                   {detail.venue ? <span>{detail.venue}</span> : null}
                   {detail.stateDetail ? <span>{detail.stateDetail}</span> : null}
                   {detail.scoreboard ? <span>{detail.scoreboard}</span> : null}
                 </div>
 
-                <p className="max-w-3xl text-base leading-8 text-slate-300">
+                <p className="max-w-3xl text-sm leading-7 text-slate-300 sm:text-base sm:leading-8">
                   This page should tell you the current posture fast: what the best
                   angle is, what could kill it, how the number moved, and whether the
                   feed is trustworthy enough to act.
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                 <Link
                   href={`/board?league=${detail.league.key}`}
-                  className="rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400"
+                  className="rounded-full bg-sky-500 px-5 py-3 text-center text-sm font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400"
                 >
                   Open board
                 </Link>
                 <Link
                   href={`/props?league=${detail.league.key}`}
-                  className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25"
+                  className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-center text-sm font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25"
                 >
                   Open props
                 </Link>
                 <Link
                   href={`/trends?league=${detail.league.key}&sample=5`}
-                  className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25"
+                  className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-center text-sm font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25"
                 >
                   Open trends
                 </Link>
@@ -178,7 +146,7 @@ export default async function GameDetailPage({ params }: PageProps) {
               </div>
             </div>
 
-            <div className="grid gap-3 rounded-[1.6rem] border border-white/10 bg-slate-950/65 p-4">
+            <div className="grid gap-3 rounded-[1.6rem] border border-white/10 bg-slate-950/65 p-3 sm:p-4">
               <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
                 Desk posture
               </div>
