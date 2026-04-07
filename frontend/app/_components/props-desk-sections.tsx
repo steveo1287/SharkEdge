@@ -5,6 +5,10 @@ import {
   getOpportunityTrapLine,
   OpportunityBadgeRow
 } from "@/components/intelligence/opportunity-badges";
+import {
+  getCoverageTone,
+  getProviderHealthTone
+} from "@/components/intelligence/provider-status-badges";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -13,33 +17,7 @@ import type { PropCardView } from "@/lib/types/domain";
 import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
 import { buildPropOpportunity } from "@/services/opportunities/opportunity-service";
 
-export function getCoverageTone(status: string) {
-  if (status === "LIVE") {
-    return "success" as const;
-  }
-
-  if (status === "PARTIAL") {
-    return "premium" as const;
-  }
-
-  return "muted" as const;
-}
-
-export function getProviderHealthTone(state: string) {
-  if (state === "HEALTHY") {
-    return "success" as const;
-  }
-
-  if (state === "DEGRADED") {
-    return "premium" as const;
-  }
-
-  if (state === "OFFLINE") {
-    return "danger" as const;
-  }
-
-  return "muted" as const;
-}
+export { getCoverageTone, getProviderHealthTone };
 
 function getPropPriorityScore(prop: PropCardView) {
   return buildPropOpportunity(prop).opportunityScore;
@@ -58,7 +36,11 @@ function FeaturedPropCard({ prop }: { prop: PropCardView }) {
     typeof prop.fairPrice?.fairOddsAmerican === "number"
       ? `${prop.fairPrice.fairOddsAmerican > 0 ? "+" : ""}${prop.fairPrice.fairOddsAmerican}`
       : "N/A";
-  const reason = opportunity.reasonSummary ?? prop.reasons?.[0]?.detail ?? prop.analyticsSummary?.reason ?? prop.supportNote;
+  const reason =
+    opportunity.reasonSummary ??
+    prop.reasons?.[0]?.detail ??
+    prop.analyticsSummary?.reason ??
+    prop.supportNote;
 
   return (
     <Card className="surface-panel p-5">
