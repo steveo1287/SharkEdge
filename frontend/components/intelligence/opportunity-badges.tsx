@@ -101,6 +101,22 @@ export function getOpportunityTrapLine(opportunity: OpportunityPostureLike) {
   return null;
 }
 
+export function OpportunityActionBadge({
+  actionState
+}: {
+  actionState: OpportunityPostureLike["actionState"];
+}) {
+  return <Badge tone={getOpportunityTone(actionState)}>{formatOpportunityAction(actionState)}</Badge>;
+}
+
+export function OpportunityConfidenceBadge({
+  confidenceTier
+}: {
+  confidenceTier: OpportunityPostureLike["confidenceTier"];
+}) {
+  return <Badge tone={getConfidenceTone(confidenceTier)}>{confidenceTier} confidence</Badge>;
+}
+
 export function OpportunityScoreBadge({
   score
 }: {
@@ -144,12 +160,8 @@ export function TrapWarning({
 export function OpportunityBadgeRow({ opportunity }: { opportunity: OpportunityPostureLike }) {
   return (
     <div className="flex flex-wrap gap-2">
-      <Badge tone={getOpportunityTone(opportunity.actionState)}>
-        {formatOpportunityAction(opportunity.actionState)}
-      </Badge>
-      <Badge tone={getConfidenceTone(opportunity.confidenceTier)}>
-        {opportunity.confidenceTier} confidence
-      </Badge>
+      <OpportunityActionBadge actionState={opportunity.actionState} />
+      <OpportunityConfidenceBadge confidenceTier={opportunity.confidenceTier} />
       <OpportunityScoreBadge score={opportunity.opportunityScore} />
       {opportunity.trapFlags.slice(0, 2).map((flag) => (
         <TrapFlagBadge
