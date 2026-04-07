@@ -42,6 +42,9 @@ export type HomeCommandData = {
   liveDeskMessage: string | null;
   liveDeskFreshnessLabel: string;
   liveDeskFreshnessMinutes: number | null;
+  deskStatusState: string;
+  deskStatusLabel: string;
+  deskSourceNote: string;
   verifiedGames: GameCardView[];
   movementGames: GameCardView[];
   topProps: PropCardView[];
@@ -154,14 +157,17 @@ function getVerifiedGames(
   return (rankedGames.length ? rankedGames : games.filter(isVerifiedGame)).slice(0, 4);
 }
 
-function buildLiveDeskState(liveBoardData: BoardPageData | null) {
+function buildLiveDeskState(liveBoardData: BoardPageData | null, boardData: BoardPageData) {
   if (!liveBoardData) {
     return {
       liveDeskAvailable: false,
       liveDeskMessage:
         "Live desk unavailable right now. SharkEdge is staying honest with verified pregame rows and scoreboard context only.",
       liveDeskFreshnessLabel: "Unavailable",
-      liveDeskFreshnessMinutes: null
+      liveDeskFreshnessMinutes: null,
+      deskStatusState: boardData.providerHealth.state,
+      deskStatusLabel: "Live desk unavailable",
+      deskSourceNote: boardData.sourceNote
     };
   }
 
@@ -177,7 +183,10 @@ function buildLiveDeskState(liveBoardData: BoardPageData | null) {
       liveDeskFreshnessMinutes:
         typeof liveBoardData.providerHealth.freshnessMinutes === "number"
           ? liveBoardData.providerHealth.freshnessMinutes
-          : null
+          : null,
+      deskStatusState: liveBoardData.providerHealth.state,
+      deskStatusLabel: liveBoardData.providerHealth.label,
+      deskSourceNote: liveBoardData.sourceNote
     };
   }
 
@@ -189,7 +198,10 @@ function buildLiveDeskState(liveBoardData: BoardPageData | null) {
       liveBoardData.providerHealth.summary ??
       "Live desk unavailable right now. SharkEdge is staying honest with verified pregame rows and scoreboard context only.",
     liveDeskFreshnessLabel: "Support-aware fallback",
-    liveDeskFreshnessMinutes: null
+    liveDeskFreshnessMinutes: null,
+    deskStatusState: boardData.providerHealth.state,
+    deskStatusLabel: "Live desk unavailable",
+    deskSourceNote: boardData.sourceNote
   };
 }
 
@@ -240,7 +252,7 @@ export async function getHomeCommandData(
     ...opportunitySnapshot.propsTop
   ]).slice(0, 4);
 
-  const liveDeskState = buildLiveDeskState(liveBoardResult);
+  const liveDeskState = buildLiveDeskState(liveBoardResult, boardData);
 
   return {
     selectedLeague,
@@ -253,6 +265,9 @@ export async function getHomeCommandData(
     liveDeskMessage: liveDeskState.liveDeskMessage,
     liveDeskFreshnessLabel: liveDeskState.liveDeskFreshnessLabel,
     liveDeskFreshnessMinutes: liveDeskState.liveDeskFreshnessMinutes,
+    deskStatusState: liveDeskState.deskStatusState,
+    deskStatusLabel: liveDeskState.deskStatusLabel,
+    deskSourceNote: liveDeskState.deskSourceNote,
     verifiedGames: getVerifiedGames(boardData.games, opportunitySnapshot.boardTop),
     movementGames: getMovementGames(
       liveDeskState.liveDeskAvailable && liveBoardResult ? liveBoardResult.games : []
