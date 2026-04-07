@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import {
   formatOpportunityAction,
   getConfidenceTone,
@@ -139,6 +141,17 @@ export function MatchupDecisionModule({
               <div className="mt-3 text-sm leading-7 text-slate-300">
                 {decision.executionNote}
               </div>
+
+              {decision.focusTarget ? (
+                <div className="mt-4">
+                  <Link
+                    href={decision.focusTarget.href}
+                    className="inline-flex rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-sky-200"
+                  >
+                    {decision.focusTarget.label}
+                  </Link>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
