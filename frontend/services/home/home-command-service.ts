@@ -1,4 +1,10 @@
-import type { BoardFilters, BoardPageData, GameCardView, LeagueKey, PropCardView } from "@/lib/types/domain";
+import type {
+  BoardFilters,
+  BoardPageData,
+  GameCardView,
+  LeagueKey,
+  PropCardView
+} from "@/lib/types/domain";
 import {
   buildHomeOpportunitySnapshot,
   rankOpportunities
