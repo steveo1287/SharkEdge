@@ -1,4 +1,5 @@
 import type {
+  MarketEfficiencyClass,
   OpportunityActionState,
   OpportunityTimingState,
   OpportunityTrapFlag
@@ -12,6 +13,8 @@ type BuildOpportunityTimingArgs = {
   freshnessMinutes: number | null;
   trapFlags: OpportunityTrapFlag[];
   disagreementScore: number | null;
+  marketEfficiency?: MarketEfficiencyClass;
+  edgeDecayPenalty?: number;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -99,6 +102,8 @@ export function buildOpportunityTiming(
   const freshnessPenalty = buildFreshnessPenalty(args.freshnessMinutes);
   const disagreementPenalty = buildDisagreementPenalty(args.disagreementScore);
   const movementState = buildMovementState(args.lineMovement);
+  const marketEfficiency = args.marketEfficiency ?? "MID_EFFICIENCY";
+  const edgeDecayPenalty = args.edgeDecayPenalty ?? 0;
   const isSharpSteam =
     Math.abs(args.lineMovement ?? 0) >= 10 &&
     args.bestPriceFlag &&
@@ -114,13 +119,16 @@ export function buildOpportunityTiming(
         (severeTrap ? 26 : 0) +
         (args.bestPriceFlag ? 8 : 0) +
         (movementState === "stable" ? 4 : 0) -
-        (movementState === "violent" ? 8 : 0)
+        (movementState === "violent" ? 8 : 0) -
+        edgeDecayPenalty * 0.4 -
+        (marketEfficiency === "THIN_SPECIALTY" ? 8 : 0) -
+        (marketEfficiency === "FRAGMENTED_PROP" ? 5 : 0)
     ),
     0,
     100
   );
 
-  if (severeTrap || args.score < 55 || ev <= 0) {
+  if (severeTrap || args.score < 55 || ev <= 0 || edgeDecayPenalty >= 34) {
     return {
       actionState: "PASS",
       timingState: "PASS_ON_PRICE",

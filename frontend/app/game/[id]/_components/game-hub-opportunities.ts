@@ -1,5 +1,6 @@
 import type { OpportunityView } from "@/lib/types/opportunity";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
+import { recordSurfacedOpportunities } from "@/services/opportunities/opportunity-clv-service";
 import {
   buildBetSignalOpportunity,
   buildPropOpportunity,
@@ -55,7 +56,7 @@ function shouldSurfaceOpportunity(opportunity: OpportunityView) {
   return false;
 }
 
-export function buildForYouOpportunities(
+export async function buildForYouOpportunities(
   routeId: string,
   detail: Awaited<ReturnType<typeof getMatchupDetail>>
 ) {
@@ -71,7 +72,7 @@ export function buildForYouOpportunities(
     buildPropOpportunity(prop, detail.providerHealth)
   );
 
-  return rankOpportunities<OpportunityView>([
+  const opportunities = rankOpportunities<OpportunityView>([
     ...signalOpportunities,
     ...propOpportunities
   ])
@@ -81,4 +82,14 @@ export function buildForYouOpportunities(
       eventId: routeId
     }))
     .slice(0, 2);
+
+  await recordSurfacedOpportunities(opportunities, "matchup_for_you", {
+    primaryCount: 1,
+    metadata: {
+      routeId,
+      source: "game_hub_for_you"
+    }
+  }).catch(() => []);
+
+  return opportunities;
 }

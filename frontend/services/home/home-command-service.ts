@@ -6,6 +6,7 @@ import type {
   PropCardView
 } from "@/lib/types/domain";
 import type { OpportunityView } from "@/lib/types/opportunity";
+import { recordSurfacedOpportunities } from "@/services/opportunities/opportunity-clv-service";
 import {
   buildHomeOpportunitySnapshot,
   rankOpportunities
@@ -192,45 +193,33 @@ function shouldSurfaceCommandOpportunity(opportunity: OpportunityView) {
   return false;
 }
 
-function buildLiveDeskState(liveBoardData: BoardPageData | null, boardData: BoardPageData) {
-  if (!liveBoardData) {
-    return {
-      liveDeskAvailable: false,
-      liveDeskMessage:
-        "Live desk unavailable right now. SharkEdge is staying honest with verified pregame rows and scoreboard context only.",
-      liveDeskFreshnessLabel: "Unavailable",
-      liveDeskFreshnessMinutes: null,
-      deskStatusState: boardData.providerHealth.state,
-      deskStatusLabel: "Live desk unavailable",
-      deskSourceNote: boardData.sourceNote
-    };
-  }
-
+function buildLiveDeskState(boardData: BoardPageData) {
   const liveDeskAvailable =
-    liveBoardData.source !== "mock" &&
-    liveBoardData.providerHealth.state !== "OFFLINE";
+    boardData.source !== "mock" &&
+    boardData.providerHealth.state !== "OFFLINE" &&
+    boardData.providerHealth.state !== "FALLBACK";
 
   if (liveDeskAvailable) {
     return {
       liveDeskAvailable: true,
-      liveDeskMessage: liveBoardData.liveMessage ?? liveBoardData.providerHealth.summary,
-      liveDeskFreshnessLabel: liveBoardData.providerHealth.freshnessLabel,
+      liveDeskMessage: boardData.liveMessage ?? boardData.providerHealth.summary,
+      liveDeskFreshnessLabel: boardData.providerHealth.freshnessLabel,
       liveDeskFreshnessMinutes:
-        typeof liveBoardData.providerHealth.freshnessMinutes === "number"
-          ? liveBoardData.providerHealth.freshnessMinutes
+        typeof boardData.providerHealth.freshnessMinutes === "number"
+          ? boardData.providerHealth.freshnessMinutes
           : null,
-      deskStatusState: liveBoardData.providerHealth.state,
-      deskStatusLabel: liveBoardData.providerHealth.label,
-      deskSourceNote: liveBoardData.sourceNote
+      deskStatusState: boardData.providerHealth.state,
+      deskStatusLabel: boardData.providerHealth.label,
+      deskSourceNote: boardData.sourceNote
     };
   }
 
   return {
     liveDeskAvailable: false,
     liveDeskMessage:
-      liveBoardData.liveMessage ??
-      liveBoardData.providerHealth.warnings[0] ??
-      liveBoardData.providerHealth.summary ??
+      boardData.liveMessage ??
+      boardData.providerHealth.warnings[0] ??
+      boardData.providerHealth.summary ??
       "Live desk unavailable right now. SharkEdge is staying honest with verified pregame rows and scoreboard context only.",
     liveDeskFreshnessLabel: "Support-aware fallback",
     liveDeskFreshnessMinutes: null,
@@ -261,17 +250,8 @@ export async function getHomeCommandData(
     status: "pregame"
   });
 
-  const liveFilters = oddsService.parseBoardFilters({
-    league: selectedLeague,
-    date: resolveBoardDate(selectedDate),
-    sportsbook: "best",
-    market: "all",
-    status: "live"
-  });
-
-  const [boardData, liveBoardResult, topProps] = await Promise.all([
+  const [boardData, topProps] = await Promise.all([
     oddsService.getBoardPageData(boardFilters),
-    oddsService.getBoardPageData(liveFilters).catch(() => null),
     propsService.getTopPlayCards(4)
   ]);
 
@@ -290,7 +270,16 @@ export async function getHomeCommandData(
     .filter(shouldSurfaceCommandOpportunity)
     .slice(0, 2);
 
-  const liveDeskState = buildLiveDeskState(liveBoardResult, boardData);
+  await recordSurfacedOpportunities(topActionables, "home_command", {
+    primaryCount: 1,
+    metadata: {
+      selectedLeague,
+      selectedDate,
+      source: "home_command_service"
+    }
+  }).catch(() => []);
+
+  const liveDeskState = buildLiveDeskState(boardData);
 
   return {
     selectedLeague,
@@ -298,7 +287,7 @@ export async function getHomeCommandData(
     focusedLeague,
     boardFilters,
     boardData,
-    liveBoardData: liveDeskState.liveDeskAvailable ? liveBoardResult : null,
+    liveBoardData: liveDeskState.liveDeskAvailable ? boardData : null,
     liveDeskAvailable: liveDeskState.liveDeskAvailable,
     liveDeskMessage: liveDeskState.liveDeskMessage,
     liveDeskFreshnessLabel: liveDeskState.liveDeskFreshnessLabel,
@@ -308,7 +297,7 @@ export async function getHomeCommandData(
     deskSourceNote: liveDeskState.deskSourceNote,
     verifiedGames: getVerifiedGames(boardData.games, opportunitySnapshot.boardTop),
     movementGames: getMovementGames(
-      liveDeskState.liveDeskAvailable && liveBoardResult ? liveBoardResult.games : []
+      liveDeskState.liveDeskAvailable ? boardData.games : []
     ),
     topProps,
     topActionables,

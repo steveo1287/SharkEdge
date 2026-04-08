@@ -1,82 +1,58 @@
 import type { ReasonAttributionView } from "@/lib/types/domain";
-import type { OpportunityTrapFlag, OpportunityView } from "@/lib/types/opportunity";
+import type {
+  MarketEfficiencyClass,
+  OpportunityEdgeDecayView,
+  OpportunitySourceQuality,
+  OpportunityTrapFlag,
+  OpportunityView,
+  PositionSizingGuidance
+} from "@/lib/types/opportunity";
 
-function shorten(text: string, max = 84) {
+function shorten(text: string, max = 96) {
   const trimmed = text.replace(/\s+/g, " ").trim().replace(/\.$/, "");
   if (trimmed.length <= max) {
     return trimmed;
   }
 
-  return `${trimmed.slice(0, max - 1).trimEnd()}…`;
+  return `${trimmed.slice(0, max - 3).trimEnd()}...`;
 }
 
 function formatTrap(flag: OpportunityTrapFlag) {
   switch (flag) {
     case "STALE_EDGE":
-      return "the price is getting stale";
+      return "screen is stale";
     case "LOW_PROVIDER_HEALTH":
-      return "the feed is not healthy enough";
+      return "feed health is not strong enough";
     case "THIN_MARKET":
-      return "the market is too thin";
+      return "market depth is thin";
     case "ONE_BOOK_OUTLIER":
-      return "the number may only be a one-book outlier";
+      return "edge may be a one-book outlier";
     case "HIGH_MARKET_DISAGREEMENT":
-      return "books are too far apart";
+      return "books disagree too much";
     case "LOW_CONFIDENCE_FAIR_PRICE":
-      return "the fair price model is not confident";
+      return "fair price confidence is weak";
     case "FAKE_MOVE_RISK":
-      return "the move can still be fake";
+      return "move is not confirmed by enough market depth";
     case "MODEL_MARKET_CONFLICT":
-      return "the model and market are not aligned";
+      return "model and market are fighting each other";
     case "INJURY_UNCERTAINTY":
-      return "injury uncertainty still hangs over it";
+      return "injury uncertainty can reprice the number";
   }
 }
 
 function formatTimingLabel(timingState: OpportunityView["timingState"]) {
   switch (timingState) {
     case "WINDOW_OPEN":
-      return "Bet now window";
+      return "window open";
     case "WAIT_FOR_PULLBACK":
-      return "Wait for a better number";
+      return "wait for pullback";
     case "WAIT_FOR_CONFIRMATION":
-      return "Wait for confirmation";
+      return "wait for confirmation";
     case "MONITOR_ONLY":
-      return "Watch only";
+      return "monitor only";
     default:
-      return "Pass on price";
+      return "pass on price";
   }
-}
-
-function formatActionLabel(actionState: OpportunityView["actionState"]) {
-  switch (actionState) {
-    case "BET_NOW":
-      return "bet now";
-    case "WAIT":
-      return "wait";
-    case "WATCH":
-      return "watch";
-    default:
-      return "pass";
-  }
-}
-
-function describeMovement(lineMovement: number | null) {
-  const movement = Math.abs(lineMovement ?? 0);
-
-  if (movement >= 20) {
-    return "The market already moved hard";
-  }
-
-  if (movement >= 10) {
-    return "The market has already moved";
-  }
-
-  if (movement >= 4) {
-    return "The number is starting to move";
-  }
-
-  return null;
 }
 
 function describeFairGap(fairLineGap: number | null) {
@@ -84,16 +60,13 @@ function describeFairGap(fairLineGap: number | null) {
     return null;
   }
 
-  if (Math.abs(fairLineGap) >= 12) {
-    return `${fairLineGap > 0 ? "+" : ""}${fairLineGap}c versus fair still holds`;
+  const gap = Math.abs(fairLineGap);
+  if (gap >= 12) {
+    return `Market is still off fair by ${fairLineGap > 0 ? "+" : ""}${fairLineGap} cents`;
   }
 
-  if (Math.abs(fairLineGap) >= 8) {
-    return "There is still a real gap to fair price";
-  }
-
-  if (Math.abs(fairLineGap) >= 5) {
-    return "There is still a measurable gap to fair price";
+  if (gap >= 6) {
+    return "Market is still leaving a measurable gap to fair";
   }
 
   return null;
@@ -104,83 +77,99 @@ function describeEv(expectedValuePct: number | null) {
     return null;
   }
 
-  if (expectedValuePct >= 4) {
-    return `EV still sits at +${expectedValuePct.toFixed(2)}%`;
-  }
-
-  if (expectedValuePct >= 2) {
-    return `EV remains positive at +${expectedValuePct.toFixed(2)}%`;
-  }
-
-  return "Positive EV still remains";
+  return `EV still grades at +${expectedValuePct.toFixed(2)}%`;
 }
 
-function describeMarketShape(args: {
+function describeMarketProblem(args: {
+  fairLineGap: number | null;
+  expectedValuePct: number | null;
   bestPriceFlag: boolean;
+}) {
+  return (
+    describeFairGap(args.fairLineGap) ??
+    describeEv(args.expectedValuePct) ??
+    (args.bestPriceFlag ? "Best available price is still mispriced versus the desk number" : null) ??
+    "No clean market dislocation is confirmed"
+  );
+}
+
+function describeWhyNumberExists(args: {
+  marketEfficiency: MarketEfficiencyClass;
+  sourceQuality: OpportunitySourceQuality;
   bookCount: number;
+  bestPriceFlag: boolean;
   marketDisagreementScore: number | null;
 }) {
-  if (args.bestPriceFlag && args.bookCount >= 5) {
-    return "Best price is still available across a broad market";
+  if (args.marketEfficiency === "FRAGMENTED_PROP") {
+    return "Number likely exists because prop liquidity is fragmented across books";
   }
 
-  if (args.bestPriceFlag && args.bookCount >= 3) {
-    return "Best price is still available across a real market";
+  if (args.marketEfficiency === "THIN_SPECIALTY") {
+    return "Number likely exists because this specialty market is thin and slower to normalize";
   }
 
-  if (
-    typeof args.marketDisagreementScore === "number" &&
-    args.marketDisagreementScore <= 0.08 &&
-    args.bookCount >= 2
-  ) {
-    return "Books are relatively aligned around this number";
+  if (!args.bestPriceFlag) {
+    return "Number may already be gone at the best book, so do not chase without confirmation";
   }
 
-  return null;
+  if ((args.marketDisagreementScore ?? 0) >= 0.14) {
+    return "Number exists because the board has not converged yet";
+  }
+
+  if (args.sourceQuality.influenceTier === "MAJOR_RETAIL") {
+    return "Number is sitting at a retail book while the market-maker signal is lighter";
+  }
+
+  if (args.bookCount < 4) {
+    return "Number exists in a shallow comparison set, so sizing has to stay capped";
+  }
+
+  return "Number exists because the edge has not fully closed into consensus yet";
 }
 
-function describeFreshness(freshnessMinutes: number | null) {
-  if (freshnessMinutes === null) {
-    return null;
+function describeConfirmation(args: {
+  sourceQuality: OpportunitySourceQuality;
+  bookCount: number;
+  freshnessMinutes: number | null;
+  lineMovement: number | null;
+  bestPriceFlag: boolean;
+}) {
+  if (args.sourceQuality.sharpBookPresent && args.bookCount >= 4) {
+    return "Sharp-book source quality and market depth both confirm the setup";
   }
 
-  if (freshnessMinutes <= 5) {
-    return "Feed freshness is strong";
+  if (args.bestPriceFlag && args.freshnessMinutes !== null && args.freshnessMinutes <= 8) {
+    return "Best price is fresh enough to act if the sizing gate clears";
   }
 
-  if (freshnessMinutes <= 15) {
-    return "Feed freshness is still acceptable";
+  if (Math.abs(args.lineMovement ?? 0) >= 10 && args.bookCount >= 4) {
+    return "Move has enough book depth to treat as real pressure";
   }
 
-  return null;
+  return args.sourceQuality.notes[0] ?? "Confirmation is limited, so the posture stays conservative";
+}
+
+function describeDecay(edgeDecay: OpportunityEdgeDecayView) {
+  if (edgeDecay.label === "COMPRESSED") {
+    return "Edge is compressing; another tick against entry invalidates the bet-now case";
+  }
+
+  if (edgeDecay.label === "STALE" || edgeDecay.label === "DECAYING") {
+    return "Edge is decaying; require a fresh snapshot before acting";
+  }
+
+  if (edgeDecay.label === "AGING") {
+    return "Edge is aging but not dead yet";
+  }
+
+  return "Edge is fresh enough for the current timing posture";
 }
 
 function getReasonDetail(reasons: ReasonAttributionView[]) {
   return reasons
     .slice(0, 2)
-    .map((reason) => shorten(reason.detail, 76))
+    .map((reason) => shorten(reason.detail, 86))
     .filter(Boolean);
-}
-
-function buildPrimaryReason(args: {
-  selectionLabel: string;
-  actionState: OpportunityView["actionState"];
-  fairGapLine: string | null;
-  evLine: string | null;
-  marketShapeLine: string | null;
-  movementLine: string | null;
-  freshnessLine: string | null;
-  reasons: ReasonAttributionView[];
-}) {
-  return (
-    args.fairGapLine ??
-    args.evLine ??
-    args.marketShapeLine ??
-    args.movementLine ??
-    args.freshnessLine ??
-    getReasonDetail(args.reasons)[0] ??
-    `${args.selectionLabel} is still grading as ${formatActionLabel(args.actionState)}`
-  );
 }
 
 export function buildOpportunityExplanation(args: {
@@ -199,71 +188,64 @@ export function buildOpportunityExplanation(args: {
   trapFlags: OpportunityTrapFlag[];
   actionState: OpportunityView["actionState"];
   timingState: OpportunityView["timingState"];
+  marketEfficiency: MarketEfficiencyClass;
+  sourceQuality: OpportunitySourceQuality;
+  edgeDecay: OpportunityEdgeDecayView;
+  sizing: PositionSizingGuidance;
 }) {
-  const whyItShows: string[] = [];
-  const whatCouldKillIt: string[] = [];
-
-  const fairGapLine = describeFairGap(args.fairLineGap);
-  const evLine = describeEv(args.expectedValuePct);
-  const movementLine = describeMovement(args.lineMovement);
-  const marketShapeLine = describeMarketShape({
-    bestPriceFlag: args.bestPriceFlag,
+  const marketProblem = describeMarketProblem({
+    fairLineGap: args.fairLineGap,
+    expectedValuePct: args.expectedValuePct,
+    bestPriceFlag: args.bestPriceFlag
+  });
+  const whyNumberExists = describeWhyNumberExists({
+    marketEfficiency: args.marketEfficiency,
+    sourceQuality: args.sourceQuality,
     bookCount: args.bookCount,
+    bestPriceFlag: args.bestPriceFlag,
     marketDisagreementScore: args.marketDisagreementScore
   });
-  const freshnessLine = describeFreshness(args.freshnessMinutes);
-
-  if (fairGapLine) whyItShows.push(fairGapLine);
-  if (evLine) whyItShows.push(evLine);
-  if (marketShapeLine) whyItShows.push(marketShapeLine);
-  if (freshnessLine) whyItShows.push(freshnessLine);
-  if (movementLine) whyItShows.push(movementLine);
-
-  for (const detail of getReasonDetail(args.reasons)) {
-    if (!whyItShows.includes(detail)) {
-      whyItShows.push(detail);
-    }
-  }
-
-  for (const flag of args.trapFlags.slice(0, 2)) {
-    whatCouldKillIt.push(`${formatTrap(flag)}.`);
-  }
-
-  if (typeof args.fairLineGap === "number" && Math.abs(args.fairLineGap) >= 6) {
-    whatCouldKillIt.push("If the line closes back toward fair, the edge disappears.");
-  }
-
-  if (typeof args.lineMovement === "number" && Math.abs(args.lineMovement) >= 4) {
-    whatCouldKillIt.push("Another move against this entry will damage timing quickly.");
-  }
-
-  if (
-    typeof args.marketDisagreementScore === "number" &&
-    args.marketDisagreementScore >= 0.12
-  ) {
-    whatCouldKillIt.push("If books stay far apart, this should remain watch-only.");
-  }
-
-  if (args.freshnessMinutes === null || args.freshnessMinutes > 20) {
-    whatCouldKillIt.push("If the feed gets older, this becomes a stale setup.");
-  }
-
-  const primaryReason = buildPrimaryReason({
-    selectionLabel: args.selectionLabel,
-    actionState: args.actionState,
-    fairGapLine,
-    evLine,
-    marketShapeLine,
-    movementLine,
-    freshnessLine,
-    reasons: args.reasons
+  const confirmation = describeConfirmation({
+    sourceQuality: args.sourceQuality,
+    bookCount: args.bookCount,
+    freshnessMinutes: args.freshnessMinutes,
+    lineMovement: args.lineMovement,
+    bestPriceFlag: args.bestPriceFlag
   });
+  const decayLine = describeDecay(args.edgeDecay);
+  const reasonDetails = getReasonDetail(args.reasons);
 
-  const timingLabel = formatTimingLabel(args.timingState);
+  const whyItShows = [
+    marketProblem,
+    whyNumberExists,
+    confirmation,
+    decayLine,
+    ...reasonDetails
+  ].filter(Boolean);
+
+  const whatCouldKillIt = [
+    ...args.trapFlags.slice(0, 2).map((flag) => `${formatTrap(flag)}.`),
+    args.edgeDecay.compressed
+      ? "If the best price disappears or the fair gap compresses, the edge is gone."
+      : null,
+    typeof args.marketDisagreementScore === "number" &&
+    args.marketDisagreementScore >= 0.14
+      ? "If books stay split, this should not size beyond a token position."
+      : null,
+    args.freshnessMinutes === null || args.freshnessMinutes > 20
+      ? "If the feed is not refreshed, treat the number as stale."
+      : null
+  ].filter(Boolean) as string[];
+
+  const summary = [
+    shorten(marketProblem, 82),
+    `${args.sizing.label} sizing`,
+    formatTimingLabel(args.timingState)
+  ].join(". ");
 
   return {
-    whyItShows: whyItShows.slice(0, 2).map((item) => shorten(item, 76)),
-    whatCouldKillIt: whatCouldKillIt.slice(0, 2).map((item) => shorten(item, 82)),
-    reasonSummary: `${shorten(primaryReason, 92)}. ${timingLabel}.`
+    whyItShows: whyItShows.slice(0, 3).map((item) => shorten(item, 88)),
+    whatCouldKillIt: whatCouldKillIt.slice(0, 3).map((item) => shorten(item, 92)),
+    reasonSummary: `${summary}.`
   };
 }

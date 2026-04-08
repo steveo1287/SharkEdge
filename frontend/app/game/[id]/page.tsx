@@ -51,7 +51,7 @@ export default async function GameDetailPage({ params }: PageProps) {
   }
 
   const tabs = buildGameHubTabs(detail);
-  const forYou = buildForYouOpportunities(detail.routeId, detail);
+  const forYou = await buildForYouOpportunities(detail.routeId, detail);
   const headline = forYou[0] ?? null;
   const postureLabel = headline
     ? formatOpportunityAction(headline.actionState)

@@ -888,6 +888,68 @@ model BetLeg {
   @@map("bet_legs")
 }
 
+model OpportunitySurfaceRecord {
+  id                       String   @id @default(cuid())
+  surfaceKey               String   @unique
+  surfacedOpportunityId    String
+  eventId                  String
+  league                   String?
+  marketType               String
+  selection                String
+  surfaceContext           String   @default("unknown")
+  surfaceRank              String   @default("secondary")
+  isPrimarySurface         Boolean  @default(false)
+  sportsbookKey            String?
+  sportsbookName           String?
+  displayedOddsAmerican    Int?
+  displayedLine            Float?
+  displayedLineLabel       String?
+  fairPriceAmerican        Int?
+  expectedValuePct         Float?
+  surfacedAt               DateTime @default(now())
+  actionState              String
+  timingState              String?
+  opportunityScore         Int
+  confidenceTier           String
+  trapFlagsJson            Json
+  sourceHealthState        String?
+  marketEfficiency         String?
+  sizingRecommendation     String?
+  providerFreshnessMinutes Int?
+  closeOddsAmerican        Int?
+  closeLine                Float?
+  closeSportsbookKey       String?
+  closeSportsbookName      String?
+  closeSource              String?
+  closeState               String   @default("UNRESOLVED")
+  closeCapturedAt          DateTime?
+  clvAmericanDelta         Int?
+  clvLineDelta             Float?
+  clvPct                   Float?
+  clvResult                String   @default("NO_CLOSE_DATA")
+  closeBeatEntry           Boolean?
+  entryBeatCloseMaterially Boolean?
+  normalizedTruthScore     Float?
+  closeUnavailableReason   String?
+  finalOutcome             String?
+  finalOutcomeCapturedAt   DateTime?
+  metadataJson             Json?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@index([eventId, surfacedAt])
+  @@index([surfaceContext, surfacedAt])
+  @@index([league, marketType, surfacedAt])
+  @@index([sportsbookKey, surfacedAt])
+  @@index([timingState, surfacedAt])
+  @@index([actionState, surfacedAt])
+  @@index([confidenceTier, surfacedAt])
+  @@index([sourceHealthState, surfacedAt])
+  @@index([clvResult, closeCapturedAt])
+  @@index([closeBeatEntry, closeCapturedAt])
+  @@map("opportunity_surface_records")
+}
+
 model SavedTrend {
   id        String      @id @default(cuid())
   userId    String

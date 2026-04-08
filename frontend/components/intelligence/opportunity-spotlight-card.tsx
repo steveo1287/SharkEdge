@@ -92,6 +92,10 @@ export function OpportunitySpotlightCard({
           {evLabel ? <Badge tone="success">EV {evLabel}</Badge> : null}
 
           {lineLabel ? <Badge tone="muted">Line {lineLabel}</Badge> : null}
+
+          <Badge tone={opportunity.sizing.recommendation === "NO_BET" ? "danger" : "muted"}>
+            Size {opportunity.sizing.label}
+          </Badge>
         </div>
 
         <Link

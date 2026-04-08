@@ -14,6 +14,9 @@ type BuildOpportunityScoreArgs = {
   bookCount: number;
   timingQuality: number;
   supportScore: number;
+  sourceQualityScore?: number;
+  marketEfficiencyScore?: number;
+  edgeDecayPenalty?: number;
   trapFlags: OpportunityTrapFlag[];
   personalizationDelta: number;
 };
@@ -144,51 +147,16 @@ function buildSupportScore(args: BuildOpportunityScoreArgs) {
   return clamp(baseSupport + confidenceSupport, 0, 14);
 }
 
-function buildEfficiencyPenalty(args: BuildOpportunityScoreArgs) {
-  const disagreement = args.disagreementScore ?? 0;
+function buildSourceQualityScore(args: BuildOpportunityScoreArgs) {
+  return clamp((args.sourceQualityScore ?? 50) * 0.12, 0, 12);
+}
 
-  if (
-    args.bookCount >= 5 &&
-    disagreement <= 0.04 &&
-    (args.expectedValuePct ?? 0) < 1.25 &&
-    (args.fairLineGap ?? 0) < 6
-  ) {
-    return 12;
-  }
-
-  if (
-    args.bookCount >= 4 &&
-    disagreement <= 0.06 &&
-    (args.expectedValuePct ?? 0) < 1.75
-  ) {
-    return 7;
-  }
-
-  return 0;
+function buildMarketEfficiencyScore(args: BuildOpportunityScoreArgs) {
+  return clamp(args.marketEfficiencyScore ?? 0, -8, 8);
 }
 
 function buildDecayPenalty(args: BuildOpportunityScoreArgs) {
-  if (args.freshnessMinutes === null) {
-    return 2;
-  }
-
-  if (args.freshnessMinutes <= 8) {
-    return 0;
-  }
-
-  if (args.freshnessMinutes <= 15) {
-    return 2;
-  }
-
-  if (args.freshnessMinutes <= 30) {
-    return 5;
-  }
-
-  if (args.freshnessMinutes <= 60) {
-    return 9;
-  }
-
-  return 14;
+  return clamp((args.edgeDecayPenalty ?? 0) * 0.55, 0, 24);
 }
 
 export function buildOpportunityScore(
@@ -203,15 +171,16 @@ export function buildOpportunityScore(
   const freshness = buildFreshnessScore(args);
   const timingQuality = buildTimingScore(args);
   const support = buildSupportScore(args);
+  const sourceQuality = buildSourceQualityScore(args);
+  const marketEfficiency = buildMarketEfficiencyScore(args);
+  const edgeDecayPenalty = buildDecayPenalty(args);
   const personalization = clamp(args.personalizationDelta, -8, 8);
 
   const trapPenalties = args.trapFlags.reduce(
     (total, flag) => total + trapPenalty(flag),
     0
   );
-  const efficiencyPenalty = buildEfficiencyPenalty(args);
-  const decayPenalty = buildDecayPenalty(args);
-  const penalties = trapPenalties + efficiencyPenalty + decayPenalty;
+  const penalties = trapPenalties + edgeDecayPenalty;
 
   const baseScore = 10;
   const rawScore =
@@ -222,6 +191,8 @@ export function buildOpportunityScore(
     freshness +
     timingQuality +
     support +
+    sourceQuality +
+    marketEfficiency +
     personalization -
     penalties;
 
@@ -236,6 +207,9 @@ export function buildOpportunityScore(
       timingQuality: round(timingQuality),
       freshness: round(freshness),
       support: round(support),
+      sourceQuality: round(sourceQuality),
+      marketEfficiency: round(marketEfficiency),
+      edgeDecay: -round(edgeDecayPenalty),
       personalization,
       penalties
     }

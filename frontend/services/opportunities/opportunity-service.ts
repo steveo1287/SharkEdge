@@ -15,11 +15,18 @@ import type {
   OpportunityView
 } from "@/lib/types/opportunity";
 import { buildOpportunityExplanation } from "@/services/opportunities/opportunity-explainer";
+import { buildOpportunityEdgeDecay } from "@/services/opportunities/opportunity-edge-decay";
+import {
+  classifyMarketEfficiency,
+  evaluateMarketSourceQuality,
+  getMarketEfficiencyScore
+} from "@/services/opportunities/opportunity-market-model";
 import {
   buildOpportunityPersonalization,
   buildOpportunityProfile
 } from "@/services/opportunities/opportunity-personalization";
 import { buildOpportunityScore } from "@/services/opportunities/opportunity-scoring";
+import { buildPositionSizingGuidance } from "@/services/opportunities/opportunity-sizing";
 import { buildOpportunityTiming } from "@/services/opportunities/opportunity-timing";
 import { buildOpportunityTrapFlags } from "@/services/opportunities/opportunity-traps";
 
@@ -58,48 +65,13 @@ function getConfidenceTier(
   return "D";
 }
 
-function normalizeSportsbookName(name: string | null | undefined) {
-  return (name ?? "").trim().toLowerCase();
-}
-
-function getSportsbookSharpnessBoost(
-  sportsbookName: string | null | undefined,
-  bestPriceFlag: boolean,
-  bookCount: number
-) {
-  const normalized = normalizeSportsbookName(sportsbookName);
-
-  if (!normalized) {
-    return 0;
-  }
-
-  if (
-    normalized.includes("pinnacle") ||
-    normalized.includes("circa") ||
-    normalized.includes("bookmaker") ||
-    normalized.includes("betcris")
-  ) {
-    return bestPriceFlag ? 6 : 4;
-  }
-
-  if (
-    normalized.includes("draftkings") ||
-    normalized.includes("fanduel") ||
-    normalized.includes("betmgm")
-  ) {
-    return bestPriceFlag && bookCount >= 4 ? 2 : 1;
-  }
-
-  return 0;
-}
-
 function supportScoreFromReasons(args: {
   reasons: ReasonAttributionView[];
-  sportsbookName: string | null;
   bestPriceFlag: boolean;
   bookCount: number;
   marketDisagreementScore: number | null;
   freshnessMinutes: number | null;
+  sourceQualityScore: number;
 }) {
   let total = args.reasons.slice(0, 3).reduce((score, reason) => {
     if (reason.category === "market_edge" || reason.category === "trend_support") {
@@ -113,11 +85,7 @@ function supportScoreFromReasons(args: {
     return score + 1;
   }, 0);
 
-  total += getSportsbookSharpnessBoost(
-    args.sportsbookName,
-    args.bestPriceFlag,
-    args.bookCount
-  );
+  total += clamp(args.sourceQualityScore * 0.08, 0, 6);
 
   if (
     args.bestPriceFlag &&
@@ -257,6 +225,34 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     providerHealth: args.providerHealth,
     snapshotAgeSeconds: args.snapshotAgeSeconds
   });
+  const marketEfficiency = classifyMarketEfficiency({
+    league: args.league,
+    marketType: args.marketType,
+    bookCount: args.bookCount,
+    disagreementScore: args.marketDisagreementScore,
+    lineMovement: args.lineMovement,
+    sportsbookKey: args.sportsbookKey,
+    sportsbookName: args.sportsbookName
+  });
+  const sourceQuality = evaluateMarketSourceQuality({
+    league: args.league,
+    marketType: args.marketType,
+    sportsbookKey: args.sportsbookKey,
+    sportsbookName: args.sportsbookName,
+    bookCount: args.bookCount,
+    disagreementScore: args.marketDisagreementScore,
+    bestPriceFlag: args.bestPriceFlag,
+    freshnessMinutes: providerFreshnessMinutes
+  });
+  const edgeDecay = buildOpportunityEdgeDecay({
+    expectedValuePct: args.expectedValuePct,
+    fairLineGap: args.fairLineGap,
+    providerFreshnessMinutes,
+    snapshotAgeSeconds: args.snapshotAgeSeconds,
+    lineMovement: args.lineMovement,
+    bestPriceFlag: args.bestPriceFlag,
+    marketEfficiency
+  });
 
   const trapFlags = buildOpportunityTrapFlags({
     fairPrice: args.fairPriceMethod
@@ -292,7 +288,9 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     bestPriceFlag: args.bestPriceFlag,
     freshnessMinutes: providerFreshnessMinutes,
     trapFlags,
-    disagreementScore: args.marketDisagreementScore
+    disagreementScore: args.marketDisagreementScore,
+    marketEfficiency,
+    edgeDecayPenalty: edgeDecay.penalty
   });
 
   const personalizationAdjustments = buildOpportunityPersonalization({
@@ -312,11 +310,11 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
 
   const supportScore = supportScoreFromReasons({
     reasons: args.reasons,
-    sportsbookName: args.sportsbookName,
     bestPriceFlag: args.bestPriceFlag,
     bookCount: args.bookCount,
     marketDisagreementScore: args.marketDisagreementScore,
-    freshnessMinutes: providerFreshnessMinutes
+    freshnessMinutes: providerFreshnessMinutes,
+    sourceQualityScore: sourceQuality.score
   });
 
   const scoring = buildOpportunityScore({
@@ -330,6 +328,9 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     bookCount: args.bookCount,
     timingQuality: provisionalTiming.timingQuality,
     supportScore,
+    sourceQualityScore: sourceQuality.score,
+    marketEfficiencyScore: getMarketEfficiencyScore(marketEfficiency),
+    edgeDecayPenalty: edgeDecay.penalty,
     trapFlags,
     personalizationDelta
   });
@@ -341,7 +342,21 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     bestPriceFlag: args.bestPriceFlag,
     freshnessMinutes: providerFreshnessMinutes,
     trapFlags,
-    disagreementScore: args.marketDisagreementScore
+    disagreementScore: args.marketDisagreementScore,
+    marketEfficiency,
+    edgeDecayPenalty: edgeDecay.penalty
+  });
+  const confidenceTier = getConfidenceTier(scoring.score, trapFlags);
+  const sizing = buildPositionSizingGuidance({
+    opportunityScore: scoring.score,
+    confidenceTier,
+    trapFlags,
+    bookCount: args.bookCount,
+    providerFreshnessMinutes,
+    marketDisagreementScore: args.marketDisagreementScore,
+    marketEfficiency,
+    bestPriceFlag: args.bestPriceFlag,
+    edgeDecay
   });
 
   const explanation = buildOpportunityExplanation({
@@ -359,7 +374,11 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     reasons: args.reasons,
     trapFlags,
     actionState: timing.actionState,
-    timingState: timing.timingState
+    timingState: timing.timingState,
+    marketEfficiency,
+    sourceQuality,
+    edgeDecay,
+    sizing
   });
 
   return {
@@ -387,9 +406,13 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     staleFlag: args.staleFlag,
     bookCount: args.bookCount,
     lineMovement: round(args.lineMovement),
+    marketEfficiency,
+    sourceQuality,
+    edgeDecay,
+    sizing,
     edgeScore: Math.round(args.edgeScore),
     opportunityScore: scoring.score,
-    confidenceTier: getConfidenceTier(scoring.score, trapFlags),
+    confidenceTier,
     actionState: timing.actionState,
     timingState: timing.timingState,
     trapFlags,

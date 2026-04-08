@@ -18,6 +18,26 @@ export type OpportunityTimingState =
   | "MONITOR_ONLY"
   | "PASS_ON_PRICE";
 
+export type MarketEfficiencyClass =
+  | "HIGH_EFFICIENCY"
+  | "MID_EFFICIENCY"
+  | "LOW_EFFICIENCY"
+  | "FRAGMENTED_PROP"
+  | "THIN_SPECIALTY";
+
+export type BookInfluenceTier =
+  | "MARKET_MAKER"
+  | "MAJOR_RETAIL"
+  | "LOW_SIGNAL"
+  | "UNKNOWN";
+
+export type PositionSizeRecommendation =
+  | "NO_BET"
+  | "MICRO"
+  | "SMALL"
+  | "STANDARD"
+  | "AGGRESSIVE";
+
 export type OpportunityTrapFlag =
   | "STALE_EDGE"
   | "THIN_MARKET"
@@ -38,6 +58,8 @@ export type OpportunityPersonalizationAdjustment = {
   kind: "league" | "market" | "sportsbook" | "timing";
   delta: number;
   note: string;
+  sampleSize: number | null;
+  qualityGate: "PASSED" | "WEAK_SAMPLE" | "BLOCKED";
 };
 
 export type OpportunityScoreComponents = {
@@ -47,6 +69,9 @@ export type OpportunityScoreComponents = {
   timingQuality: number;
   freshness: number;
   support: number;
+  sourceQuality: number;
+  marketEfficiency: number;
+  edgeDecay: number;
   personalization: number;
   penalties: number;
 };
@@ -55,6 +80,33 @@ export type OpportunitySourceHealth = {
   state: ProviderHealthState;
   freshnessMinutes: number | null;
   warnings: string[];
+};
+
+export type OpportunitySourceQuality = {
+  score: number;
+  label: string;
+  influenceTier: BookInfluenceTier;
+  influenceWeight: number;
+  sharpBookPresent: boolean;
+  notes: string[];
+};
+
+export type OpportunityEdgeDecayView = {
+  score: number;
+  penalty: number;
+  label: "FRESH" | "AGING" | "DECAYING" | "COMPRESSED" | "STALE";
+  minutesSinceDetection: number | null;
+  minutesSinceSnapshot: number | null;
+  compressed: boolean;
+  notes: string[];
+};
+
+export type PositionSizingGuidance = {
+  recommendation: PositionSizeRecommendation;
+  units: number;
+  label: string;
+  rationale: string;
+  riskFlags: string[];
 };
 
 export type OpportunitySnapshotView = {
@@ -95,6 +147,10 @@ export type OpportunityView = {
   staleFlag: boolean;
   bookCount: number;
   lineMovement: number | null;
+  marketEfficiency: MarketEfficiencyClass;
+  sourceQuality: OpportunitySourceQuality;
+  edgeDecay: OpportunityEdgeDecayView;
+  sizing: PositionSizingGuidance;
   edgeScore: number;
   opportunityScore: number;
   confidenceTier: OpportunityConfidenceTier;
@@ -120,6 +176,12 @@ export type OpportunityProfile = {
   weakSportsbooks: Set<string>;
   preferredTimingLabels: Set<string>;
   weakTimingLabels: Set<string>;
+  sampleSizes: {
+    leagues: Map<string, number>;
+    markets: Map<string, number>;
+    sportsbooks: Map<string, number>;
+    timing: Map<string, number>;
+  };
 };
 
 export type OpportunityHomeSnapshot = {
