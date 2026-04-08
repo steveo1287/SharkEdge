@@ -36,36 +36,102 @@ function getConfidenceTier(
   trapFlags: string[]
 ): OpportunityConfidenceTier {
   if (trapFlags.includes("STALE_EDGE") || trapFlags.includes("LOW_PROVIDER_HEALTH")) {
-    return score >= 70 ? "B" : score >= 55 ? "C" : "D";
+    return score >= 72 ? "B" : score >= 58 ? "C" : "D";
   }
 
-  if (score >= 85) {
+  if (trapFlags.includes("ONE_BOOK_OUTLIER") || trapFlags.includes("FAKE_MOVE_RISK")) {
+    return score >= 86 ? "B" : score >= 70 ? "C" : "D";
+  }
+
+  if (score >= 88) {
     return "A";
   }
 
-  if (score >= 70) {
+  if (score >= 74) {
     return "B";
   }
 
-  if (score >= 55) {
+  if (score >= 60) {
     return "C";
   }
 
   return "D";
 }
 
-function supportScoreFromReasons(reasons: ReasonAttributionView[]) {
-  return reasons.slice(0, 3).reduce((total, reason) => {
+function normalizeSportsbookName(name: string | null | undefined) {
+  return (name ?? "").trim().toLowerCase();
+}
+
+function getSportsbookSharpnessBoost(
+  sportsbookName: string | null | undefined,
+  bestPriceFlag: boolean,
+  bookCount: number
+) {
+  const normalized = normalizeSportsbookName(sportsbookName);
+
+  if (!normalized) {
+    return 0;
+  }
+
+  if (
+    normalized.includes("pinnacle") ||
+    normalized.includes("circa") ||
+    normalized.includes("bookmaker") ||
+    normalized.includes("betcris")
+  ) {
+    return bestPriceFlag ? 6 : 4;
+  }
+
+  if (
+    normalized.includes("draftkings") ||
+    normalized.includes("fanduel") ||
+    normalized.includes("betmgm")
+  ) {
+    return bestPriceFlag && bookCount >= 4 ? 2 : 1;
+  }
+
+  return 0;
+}
+
+function supportScoreFromReasons(args: {
+  reasons: ReasonAttributionView[];
+  sportsbookName: string | null;
+  bestPriceFlag: boolean;
+  bookCount: number;
+  marketDisagreementScore: number | null;
+  freshnessMinutes: number | null;
+}) {
+  let total = args.reasons.slice(0, 3).reduce((score, reason) => {
     if (reason.category === "market_edge" || reason.category === "trend_support") {
-      return total + 4;
+      return score + 4;
     }
 
     if (reason.category === "model_edge" || reason.category === "momentum_edge") {
-      return total + 3;
+      return score + 3;
     }
 
-    return total + 1;
+    return score + 1;
   }, 0);
+
+  total += getSportsbookSharpnessBoost(
+    args.sportsbookName,
+    args.bestPriceFlag,
+    args.bookCount
+  );
+
+  if (
+    args.bestPriceFlag &&
+    args.bookCount >= 4 &&
+    (args.marketDisagreementScore ?? 0) <= 0.08
+  ) {
+    total += 2;
+  }
+
+  if (args.freshnessMinutes !== null && args.freshnessMinutes <= 8) {
+    total += 1;
+  }
+
+  return total;
 }
 
 function getProviderFreshnessMinutes(args: {
@@ -124,22 +190,26 @@ function shouldSurfaceHomeOpportunity(opportunity: OpportunityView) {
     return false;
   }
 
-  if (opportunity.trapFlags.includes("LOW_PROVIDER_HEALTH")) {
+  if (
+    opportunity.trapFlags.includes("LOW_PROVIDER_HEALTH") ||
+    opportunity.trapFlags.includes("STALE_EDGE") ||
+    opportunity.trapFlags.includes("ONE_BOOK_OUTLIER")
+  ) {
     return false;
   }
 
-  if (opportunity.trapFlags.includes("STALE_EDGE")) {
-    return false;
-  }
-
-  if (opportunity.opportunityScore >= 75) {
+  if (
+    opportunity.actionState === "BET_NOW" &&
+    opportunity.opportunityScore >= 78 &&
+    opportunity.confidenceTier !== "D"
+  ) {
     return true;
   }
 
   if (
-    opportunity.opportunityScore >= 68 &&
-    opportunity.actionState === "BET_NOW" &&
-    opportunity.confidenceTier !== "D"
+    opportunity.actionState === "WAIT" &&
+    opportunity.opportunityScore >= 84 &&
+    (opportunity.confidenceTier === "A" || opportunity.confidenceTier === "B")
   ) {
     return true;
   }
@@ -240,7 +310,14 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     0
   );
 
-  const supportScore = supportScoreFromReasons(args.reasons);
+  const supportScore = supportScoreFromReasons({
+    reasons: args.reasons,
+    sportsbookName: args.sportsbookName,
+    bestPriceFlag: args.bestPriceFlag,
+    bookCount: args.bookCount,
+    marketDisagreementScore: args.marketDisagreementScore,
+    freshnessMinutes: providerFreshnessMinutes
+  });
 
   const scoring = buildOpportunityScore({
     expectedValuePct: args.expectedValuePct,
@@ -368,14 +445,16 @@ export function buildGameMarketOpportunity(
     sportsbookName: market.bestBook !== "Unavailable" ? market.bestBook : null,
     displayOddsAmerican: offeredOdds,
     displayLine: market.lineLabel,
-    fairPriceAmerican: market.fairPrice?.fairOddsAmerican ?? market.marketTruth?.fairOddsAmerican ?? null,
+    fairPriceAmerican:
+      market.fairPrice?.fairOddsAmerican ?? market.marketTruth?.fairOddsAmerican ?? null,
     fairPriceMethod: market.fairPrice?.pricingMethod ?? null,
     expectedValuePct: market.evProfile?.edgePct ?? null,
     marketDeltaAmerican:
       market.marketTruth?.consensusOddsAmerican && offeredOdds
         ? offeredOdds - market.marketTruth.consensusOddsAmerican
         : null,
-    consensusImpliedProbability: market.marketIntelligence?.consensusImpliedProbability ?? null,
+    consensusImpliedProbability:
+      market.marketIntelligence?.consensusImpliedProbability ?? null,
     marketDisagreementScore: market.marketIntelligence?.marketDisagreementScore ?? null,
     providerHealth,
     snapshotAgeSeconds: market.marketIntelligence?.snapshotAgeSeconds ?? null,
@@ -414,7 +493,8 @@ export function buildPropOpportunity(
     sportsbookName: prop.bestAvailableSportsbookName ?? prop.sportsbook.name,
     displayOddsAmerican: offeredOdds,
     displayLine: prop.line,
-    fairPriceAmerican: prop.fairPrice?.fairOddsAmerican ?? prop.marketTruth?.fairOddsAmerican ?? null,
+    fairPriceAmerican:
+      prop.fairPrice?.fairOddsAmerican ?? prop.marketTruth?.fairOddsAmerican ?? null,
     fairPriceMethod: prop.fairPrice?.pricingMethod ?? null,
     expectedValuePct: prop.expectedValuePct ?? prop.evProfile?.edgePct ?? null,
     marketDeltaAmerican:
@@ -423,7 +503,8 @@ export function buildPropOpportunity(
         : typeof prop.averageOddsAmerican === "number"
           ? offeredOdds - prop.averageOddsAmerican
           : null,
-    consensusImpliedProbability: prop.marketIntelligence?.consensusImpliedProbability ?? null,
+    consensusImpliedProbability:
+      prop.marketIntelligence?.consensusImpliedProbability ?? null,
     marketDisagreementScore: prop.marketIntelligence?.marketDisagreementScore ?? null,
     providerHealth,
     snapshotAgeSeconds: prop.marketIntelligence?.snapshotAgeSeconds ?? null,
@@ -468,14 +549,16 @@ export function buildBetSignalOpportunity(
     sportsbookName: signal.sportsbookName ?? null,
     displayOddsAmerican: signal.oddsAmerican,
     displayLine: signal.line ?? signal.selection,
-    fairPriceAmerican: signal.fairPrice?.fairOddsAmerican ?? signal.marketTruth?.fairOddsAmerican ?? null,
+    fairPriceAmerican:
+      signal.fairPrice?.fairOddsAmerican ?? signal.marketTruth?.fairOddsAmerican ?? null,
     fairPriceMethod: signal.fairPrice?.pricingMethod ?? null,
     expectedValuePct: signal.expectedValuePct ?? signal.evProfile?.edgePct ?? null,
     marketDeltaAmerican:
       typeof signal.marketDeltaAmerican === "number"
         ? signal.marketDeltaAmerican
         : signal.marketTruth?.sharpGapAmerican ?? null,
-    consensusImpliedProbability: signal.marketIntelligence?.consensusImpliedProbability ?? null,
+    consensusImpliedProbability:
+      signal.marketIntelligence?.consensusImpliedProbability ?? null,
     marketDisagreementScore: signal.marketIntelligence?.marketDisagreementScore ?? null,
     providerHealth,
     snapshotAgeSeconds: signal.marketIntelligence?.snapshotAgeSeconds ?? null,
@@ -497,7 +580,6 @@ export function buildBetSignalOpportunity(
 
 export function rankOpportunities<T extends OpportunityView>(opportunities: T[]) {
   return [...opportunities].sort((a, b) => {
-    // 1. HARD FILTER: never let weak stuff float up
     const aDead =
       a.actionState === "PASS" ||
       a.trapFlags.includes("STALE_EDGE") ||
@@ -512,28 +594,31 @@ export function rankOpportunities<T extends OpportunityView>(opportunities: T[])
       return aDead ? 1 : -1;
     }
 
-    // 2. ACTION STATE PRIORITY (this is your "opinion")
     const actionDelta =
       getActionPriority(b.actionState) - getActionPriority(a.actionState);
-    if (actionDelta !== 0) return actionDelta;
+    if (actionDelta !== 0) {
+      return actionDelta;
+    }
 
-    // 3. TIMING QUALITY (NEW — this is critical)
     const timingDelta =
       (b.scoreComponents?.timingQuality ?? 0) -
       (a.scoreComponents?.timingQuality ?? 0);
-    if (timingDelta !== 0) return timingDelta;
+    if (timingDelta !== 0) {
+      return timingDelta;
+    }
 
-    // 4. OPPORTUNITY SCORE
     const scoreDelta = b.opportunityScore - a.opportunityScore;
-    if (scoreDelta !== 0) return scoreDelta;
+    if (scoreDelta !== 0) {
+      return scoreDelta;
+    }
 
-    // 5. CONFIDENCE
     const confidenceDelta =
       getConfidencePriority(b.confidenceTier) -
       getConfidencePriority(a.confidenceTier);
-    if (confidenceDelta !== 0) return confidenceDelta;
+    if (confidenceDelta !== 0) {
+      return confidenceDelta;
+    }
 
-    // 6. EV (LAST — not first anymore)
     return (b.expectedValuePct ?? -999) - (a.expectedValuePct ?? -999);
   });
 }
