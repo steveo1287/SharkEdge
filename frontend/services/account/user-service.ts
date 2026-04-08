@@ -1,6 +1,7 @@
 import { PlanTier, Prisma, SubscriptionState } from "@prisma/client";
 
 import { getServerDatabaseResolution, hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
+import type { OpportunityBankrollSettings } from "@/lib/types/opportunity";
 import type {
   AlertType,
   NotificationPreferencesView,
@@ -77,6 +78,109 @@ function toJsonInput(value: unknown) {
   return value as Prisma.InputJsonValue;
 }
 
+export function buildDefaultBankrollSettings(): OpportunityBankrollSettings {
+  return {
+    bankroll: 5000,
+    availableBankroll: 5000,
+    unitSize: 100,
+    riskTolerance: "CONSERVATIVE",
+    baseKellyFraction: 0.25,
+    maxSingleBetPct: 0.0225,
+    maxOpenExposurePct: 0.12,
+    maxEventExposurePct: 0.04,
+    maxMarketExposurePct: 0.03
+  };
+}
+
+function normalizeBankrollSettings(raw: Prisma.JsonValue | null): OpportunityBankrollSettings {
+  const defaults = buildDefaultBankrollSettings();
+
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return defaults;
+  }
+
+  const value = raw as Partial<{
+    bankroll: number;
+    availableBankroll: number;
+    unitSize: number;
+    riskTolerance: OpportunityBankrollSettings["riskTolerance"];
+    baseKellyFraction: number;
+    preferredStakePlan: string;
+    maxSingleBetPct: number;
+    maxOpenExposurePct: number;
+    maxEventExposurePct: number;
+    maxMarketExposurePct: number;
+  }>;
+
+  const riskTolerance =
+    value.riskTolerance === "AGGRESSIVE" ||
+    value.riskTolerance === "BALANCED" ||
+    value.riskTolerance === "CONSERVATIVE"
+      ? value.riskTolerance
+      : value.preferredStakePlan === "kelly"
+        ? "BALANCED"
+        : "CONSERVATIVE";
+  const bankroll =
+    typeof value.bankroll === "number" && value.bankroll > 0
+      ? value.bankroll
+      : defaults.bankroll;
+  const availableBankroll =
+    typeof value.availableBankroll === "number" && value.availableBankroll > 0
+      ? Math.min(value.availableBankroll, bankroll)
+      : bankroll;
+  const unitSize =
+    typeof value.unitSize === "number" && value.unitSize > 0
+      ? value.unitSize
+      : defaults.unitSize;
+
+  return {
+    bankroll,
+    availableBankroll,
+    unitSize,
+    riskTolerance,
+    baseKellyFraction:
+      typeof value.baseKellyFraction === "number" && value.baseKellyFraction > 0
+        ? Math.min(value.baseKellyFraction, 1)
+        : riskTolerance === "AGGRESSIVE"
+          ? 0.5
+          : riskTolerance === "BALANCED"
+            ? 0.35
+            : defaults.baseKellyFraction,
+    maxSingleBetPct:
+      typeof value.maxSingleBetPct === "number" && value.maxSingleBetPct > 0
+        ? value.maxSingleBetPct
+        : riskTolerance === "AGGRESSIVE"
+          ? 0.04
+          : riskTolerance === "BALANCED"
+            ? 0.03
+            : defaults.maxSingleBetPct,
+    maxOpenExposurePct:
+      typeof value.maxOpenExposurePct === "number" && value.maxOpenExposurePct > 0
+        ? value.maxOpenExposurePct
+        : riskTolerance === "AGGRESSIVE"
+          ? 0.2
+          : riskTolerance === "BALANCED"
+            ? 0.15
+            : defaults.maxOpenExposurePct,
+    maxEventExposurePct:
+      typeof value.maxEventExposurePct === "number" && value.maxEventExposurePct > 0
+        ? value.maxEventExposurePct
+        : riskTolerance === "AGGRESSIVE"
+          ? 0.07
+          : riskTolerance === "BALANCED"
+            ? 0.05
+            : defaults.maxEventExposurePct,
+    maxMarketExposurePct:
+      typeof value.maxMarketExposurePct === "number" && value.maxMarketExposurePct > 0
+        ? value.maxMarketExposurePct
+        : riskTolerance === "AGGRESSIVE"
+          ? 0.05
+          : riskTolerance === "BALANCED"
+            ? 0.04
+            : defaults.maxMarketExposurePct
+  };
+}
+
 export async function ensureDefaultUser() {
   return prisma.user.upsert({
     where: {
@@ -143,6 +247,20 @@ export async function getCurrentUserProfile() {
     planRenewsAt: user.planRenewsAt?.toISOString() ?? null,
     preferences: normalizePreferences(user.notificationPrefsJson)
   };
+}
+
+export async function getCurrentUserBankrollSettings(): Promise<OpportunityBankrollSettings> {
+  await ensureDefaultUser();
+  const user = await prisma.user.findUniqueOrThrow({
+    where: {
+      id: DEFAULT_USER_ID
+    },
+    select: {
+      bankrollSettingsJson: true
+    }
+  });
+
+  return normalizeBankrollSettings(user.bankrollSettingsJson);
 }
 
 export async function updateNotificationPreferences(

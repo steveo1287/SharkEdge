@@ -46,6 +46,18 @@ function formatLine(value: string | number | null) {
   return null;
 }
 
+function formatStake(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "$0";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: value >= 100 ? 0 : 2
+  }).format(value);
+}
+
 export function OpportunitySpotlightCard({
   opportunity,
   href,
@@ -54,6 +66,11 @@ export function OpportunitySpotlightCard({
   const oddsLabel = formatOdds(opportunity.displayOddsAmerican);
   const evLabel = formatPercent(opportunity.expectedValuePct);
   const lineLabel = formatLine(opportunity.displayLine);
+  const stakeLabel = formatStake(opportunity.sizing.recommendedStake);
+  const bankrollLabel = `${opportunity.sizing.bankrollPct.toFixed(2)}% BR`;
+  const hasPortfolioPenalty =
+    opportunity.sizing.correlationPenalty < 0.99 ||
+    opportunity.sizing.competitionPenalty < 0.99;
 
   return (
     <Card className="surface-panel p-4 sm:p-5">
@@ -78,6 +95,12 @@ export function OpportunitySpotlightCard({
           <div className="mt-2 text-sm leading-6 text-slate-300">
             {opportunity.reasonSummary}
           </div>
+          <div className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">
+            Stake {stakeLabel} • {bankrollLabel}
+            {hasPortfolioPenalty
+              ? ` • Corr ${(opportunity.sizing.correlationPenalty * 100).toFixed(0)}% • Comp ${(opportunity.sizing.competitionPenalty * 100).toFixed(0)}%`
+              : ""}
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -96,6 +119,47 @@ export function OpportunitySpotlightCard({
           <Badge tone={opportunity.sizing.recommendation === "NO_BET" ? "danger" : "muted"}>
             Size {opportunity.sizing.label}
           </Badge>
+
+          {hasPortfolioPenalty ? (
+            <Badge tone="danger">Portfolio clipped</Badge>
+          ) : null}
+
+          {opportunity.executionContext?.status === "HISTORICAL" ? (
+            <Badge
+              tone={
+                opportunity.executionContext.classification === "EXCELLENT_ENTRY"
+                  ? "success"
+                  : opportunity.executionContext.classification === "MISSED_OPPORTUNITY"
+                    ? "danger"
+                    : "muted"
+              }
+            >
+              Exec {opportunity.executionContext.executionScore}
+            </Badge>
+          ) : null}
+
+          {opportunity.truthCalibration.status === "APPLIED" ? (
+            <Badge
+              tone={opportunity.truthCalibration.scoreDelta >= 0 ? "brand" : "danger"}
+            >
+              Cal {opportunity.truthCalibration.scoreDelta >= 0 ? "+" : ""}
+              {opportunity.truthCalibration.scoreDelta}
+            </Badge>
+          ) : null}
+
+          {opportunity.marketMicrostructure.status === "APPLIED" ? (
+            <Badge
+              tone={
+                opportunity.marketMicrostructure.regime === "STALE_COPY"
+                  ? "success"
+                  : opportunity.marketMicrostructure.regime === "FRAGMENTED"
+                    ? "danger"
+                    : "premium"
+              }
+            >
+              {opportunity.marketMicrostructure.regime.toLowerCase().replace(/_/g, " ")}
+            </Badge>
+          ) : null}
         </div>
 
         <Link

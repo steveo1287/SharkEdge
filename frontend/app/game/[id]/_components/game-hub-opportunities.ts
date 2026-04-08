@@ -1,6 +1,9 @@
 import type { OpportunityView } from "@/lib/types/opportunity";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
 import { recordSurfacedOpportunities } from "@/services/opportunities/opportunity-clv-service";
+import { getOpportunityMarketPathResolver } from "@/services/opportunities/opportunity-market-path";
+import { getOpportunityPortfolioAllocator } from "@/services/opportunities/opportunity-portfolio";
+import { getOpportunityTruthCalibrationResolver } from "@/services/opportunities/opportunity-truth-calibration";
 import {
   buildBetSignalOpportunity,
   buildPropOpportunity,
@@ -64,23 +67,45 @@ export async function buildForYouOpportunities(
     return [];
   }
 
+  const [truthCalibrationResolver, marketPathResolver, portfolioAllocator] = await Promise.all([
+    getOpportunityTruthCalibrationResolver({
+      league: detail.league.key
+    }),
+    getOpportunityMarketPathResolver({
+      league: detail.league.key
+    }),
+    getOpportunityPortfolioAllocator()
+  ]);
   const signalOpportunities = detail.betSignals.map((signal) =>
-    buildBetSignalOpportunity(signal, detail.league.key, detail.providerHealth)
+    buildBetSignalOpportunity(
+      signal,
+      detail.league.key,
+      detail.providerHealth,
+      null,
+      truthCalibrationResolver,
+      marketPathResolver
+    )
   );
 
   const propOpportunities = detail.props.slice(0, 8).map((prop) =>
-    buildPropOpportunity(prop, detail.providerHealth)
+    buildPropOpportunity(
+      prop,
+      detail.providerHealth,
+      null,
+      truthCalibrationResolver,
+      marketPathResolver
+    )
   );
 
-  const opportunities = rankOpportunities<OpportunityView>([
-    ...signalOpportunities,
-    ...propOpportunities
-  ])
-    .filter(shouldSurfaceOpportunity)
-    .map((opportunity) => ({
+  const allocatedOpportunities = portfolioAllocator.apply(
+    [...signalOpportunities, ...propOpportunities].map((opportunity) => ({
       ...opportunity,
       eventId: routeId
     }))
+  );
+
+  const opportunities = rankOpportunities<OpportunityView>(allocatedOpportunities)
+    .filter(shouldSurfaceOpportunity)
     .slice(0, 2);
 
   await recordSurfacedOpportunities(opportunities, "matchup_for_you", {

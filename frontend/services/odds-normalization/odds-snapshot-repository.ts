@@ -9,6 +9,11 @@ export type OddsPriceSample = {
   price: number | null;
   line?: number | null;
   updatedAt?: string | null;
+  history?: Array<{
+    capturedAt: string;
+    price: number | null;
+    line?: number | null;
+  }>;
 };
 
 export type SnapshotNormalizationInput = {
@@ -50,46 +55,78 @@ export function buildNormalizedSnapshotsFromPriceSamples(
   samples: OddsPriceSample[]
 ) {
   return samples
-    .map((sample) => {
-      if (typeof sample.price !== "number" || !Number.isFinite(sample.price) || sample.price === 0) {
-        return null;
-      }
+    .flatMap((sample) => {
+      const history =
+        sample.history?.length
+          ? [...sample.history]
+              .filter(
+                (point) =>
+                  typeof point.price === "number" &&
+                  Number.isFinite(point.price) &&
+                  point.price !== 0 &&
+                  typeof point.capturedAt === "string" &&
+                  point.capturedAt.length > 0
+              )
+              .sort((left, right) => left.capturedAt.localeCompare(right.capturedAt))
+          : null;
 
-      const freshnessSeconds = deriveFreshnessSeconds(sample.updatedAt);
-      const capturedAt = sample.updatedAt ?? new Date().toISOString();
-      const market = {
-        sport: input.sport,
-        league: input.league,
-        eventId: input.eventId,
-        providerEventId: input.providerEventId ?? null,
-        sportsbookKey: normalizeCanonicalSide(sample.bookKey),
-        marketType: input.marketType,
-        marketScope: input.marketScope,
-        period: input.period ?? "full_game",
-        side: input.side,
-        line: typeof sample.line === "number" ? sample.line : null,
-        outcomeType: input.outcomeType ?? "other",
-        participantTeamId: input.participantTeamId ?? null,
-        participantPlayerId: input.participantPlayerId ?? null,
-        capturedAt,
-        isLive: input.isLive,
-        source: input.source,
-        status: input.status ?? "active",
-        freshnessSeconds,
-        isStale:
-          typeof freshnessSeconds === "number"
-            ? freshnessSeconds > (input.staleAfterSeconds ?? (input.isLive ? 120 : 900))
-            : false
-      } satisfies CanonicalMarketInput;
+      const points =
+        history && history.length
+          ? history
+          : typeof sample.price === "number" &&
+              Number.isFinite(sample.price) &&
+              sample.price !== 0
+            ? [
+                {
+                  capturedAt: sample.updatedAt ?? new Date().toISOString(),
+                  price: sample.price,
+                  line: typeof sample.line === "number" ? sample.line : null
+                }
+              ]
+            : [];
 
-      return buildNormalizedOddsSnapshot({
-        market,
-        oddsAmerican: sample.price,
-        sourceName: input.sourceName,
-        sourceType: input.sourceType
-      });
+      return points
+        .map((point) => {
+          const freshnessSeconds = deriveFreshnessSeconds(point.capturedAt);
+          const market = {
+            sport: input.sport,
+            league: input.league,
+            eventId: input.eventId,
+            providerEventId: input.providerEventId ?? null,
+            sportsbookKey: normalizeCanonicalSide(sample.bookKey),
+            marketType: input.marketType,
+            marketScope: input.marketScope,
+            period: input.period ?? "full_game",
+            side: input.side,
+            line: typeof point.line === "number" ? point.line : null,
+            outcomeType: input.outcomeType ?? "other",
+            participantTeamId: input.participantTeamId ?? null,
+            participantPlayerId: input.participantPlayerId ?? null,
+            capturedAt: point.capturedAt,
+            isLive: input.isLive,
+            source: input.source,
+            status: input.status ?? "active",
+            freshnessSeconds,
+            isStale:
+              typeof freshnessSeconds === "number"
+                ? freshnessSeconds > (input.staleAfterSeconds ?? (input.isLive ? 120 : 900))
+                : false
+          } satisfies CanonicalMarketInput;
+
+          return buildNormalizedOddsSnapshot({
+            market,
+            oddsAmerican: point.price as number,
+            sourceName: input.sourceName,
+            sourceType: input.sourceType
+          });
+        })
+        .filter((snapshot): snapshot is NormalizedOddsSnapshot => Boolean(snapshot));
     })
-    .filter((snapshot): snapshot is NormalizedOddsSnapshot => Boolean(snapshot));
+    .sort((left, right) =>
+      left.sportsbookKey === right.sportsbookKey
+        ? left.capturedAt.localeCompare(right.capturedAt)
+        : left.sportsbookKey.localeCompare(right.sportsbookKey)
+    );
 }
 
 export function matchSnapshotsBySportsbook(

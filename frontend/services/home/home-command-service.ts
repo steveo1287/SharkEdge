@@ -11,6 +11,9 @@ import {
   buildHomeOpportunitySnapshot,
   rankOpportunities
 } from "@/services/opportunities/opportunity-service";
+import { getOpportunityMarketPathResolver } from "@/services/opportunities/opportunity-market-path";
+import { getOpportunityPortfolioAllocator } from "@/services/opportunities/opportunity-portfolio";
+import { getOpportunityTruthCalibrationResolver } from "@/services/opportunities/opportunity-truth-calibration";
 
 export type HomeLeagueScope = LeagueKey | "ALL";
 export type HomeDeskDateKey = "today" | "tomorrow" | "upcoming";
@@ -255,10 +258,22 @@ export async function getHomeCommandData(
     propsService.getTopPlayCards(4)
   ]);
 
-  const opportunitySnapshot = buildHomeOpportunitySnapshot({
+  const [truthCalibrationResolver, marketPathResolver, portfolioAllocator] = await Promise.all([
+    getOpportunityTruthCalibrationResolver({
+      league: selectedLeague
+    }),
+    getOpportunityMarketPathResolver({
+      league: selectedLeague
+    }),
+    getOpportunityPortfolioAllocator()
+  ]);
+  const opportunitySnapshot = await buildHomeOpportunitySnapshot({
     games: boardData.games,
     props: topProps,
-    providerHealth: boardData.providerHealth
+    providerHealth: boardData.providerHealth,
+    truthCalibrationResolver,
+    marketPathResolver,
+    portfolioAllocator
   });
 
   const focusedLeague = chooseFocusedLeague(selectedLeague, boardData.games);

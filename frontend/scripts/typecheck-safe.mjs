@@ -23,7 +23,12 @@ if (!existsSync(nextTypesDir)) {
 }
 
 if (process.platform === "win32") {
-  run("npx.cmd", ["tsc", "--noEmit", "--pretty", "false"]);
+  run(process.execPath, [
+    path.join(projectRoot, "node_modules", "typescript", "bin", "tsc"),
+    "--noEmit",
+    "--pretty",
+    "false"
+  ]);
 } else {
   const tscBin = path.join(projectRoot, "node_modules", ".bin", "tsc");
   run(tscBin, ["--noEmit", "--pretty", "false"]);

@@ -164,7 +164,12 @@ function buildMockMarketSamples(
       bookName: getBook(market.sportsbookId).name,
       price: market.oddsAmerican,
       line: market.line ?? null,
-      updatedAt: market.updatedAt ?? null
+      updatedAt: market.updatedAt ?? null,
+      history: getSnapshots(market.id).map((snapshot) => ({
+        capturedAt: snapshot.capturedAt,
+        price: snapshot.oddsAmerican,
+        line: snapshot.line ?? null
+      }))
     })) satisfies MarketPriceSample[];
 }
 
@@ -233,6 +238,7 @@ function buildMockMarketView(
     fairPrice: analysis.fairPrice,
     evProfile: analysis.ev,
     marketIntelligence: analysis.marketIntelligence,
+    marketPath: analysis.marketPath,
     reasons: analysis.reasons,
     confidenceBand: analysis.confidenceBand,
     confidenceScore: analysis.confidenceScore,

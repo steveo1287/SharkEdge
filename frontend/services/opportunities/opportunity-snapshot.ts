@@ -23,7 +23,10 @@ export function buildOpportunitySnapshot(
     providerFreshnessMinutes: opportunity.providerFreshnessMinutes,
     staleFlag: opportunity.staleFlag,
     sportsbookName: opportunity.sportsbookName,
-    sourceHealthState: opportunity.sourceHealth.state
+    sourceHealthState: opportunity.sourceHealth.state,
+    calibrationStatus: opportunity.truthCalibration.status,
+    calibrationSummary: opportunity.truthCalibration.summary,
+    microstructureSummary: opportunity.marketMicrostructure.summary
   };
 }
 

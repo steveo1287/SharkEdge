@@ -11,6 +11,11 @@ export type MarketPriceSample = {
   price: number | null;
   line?: number | null;
   updatedAt?: string | null;
+  history?: Array<{
+    capturedAt: string;
+    price: number | null;
+    line?: number | null;
+  }>;
 };
 
 type BuildMarketTruthArgs = {

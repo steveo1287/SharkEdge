@@ -1,4 +1,5 @@
 import { buildReasonAttribution } from "@/services/market/reason-attribution-service";
+import { buildMarketPath } from "@/services/market/market-path-service";
 import { buildMarketTruth, type MarketPriceSample } from "@/services/market/market-truth-service";
 import { buildFairPrice, buildEvResult } from "@/services/fair-price/fair-price-service";
 import { buildMarketIntelligence } from "@/services/market-intelligence/market-intelligence-service";
@@ -11,6 +12,7 @@ import type {
   FairPriceView,
   MarketIntelligenceView,
   MarketTruthView,
+  MarketPathView,
   ReasonAttributionView,
   MarketType,
   SportCode,
@@ -27,6 +29,7 @@ export type MarketAnalysisResult = {
   fairPrice: FairPriceView | null;
   ev: EvResultView | null;
   marketIntelligence: MarketIntelligenceView | null;
+  marketPath: MarketPathView | null;
   expectedValuePct: number | null;
   bestPriceFlag: boolean;
 };
@@ -103,12 +106,27 @@ export function analyzeMarket(args: {
     },
     args.oppositeSamples ?? []
   );
+  const sportsbookNamesByKey = Object.fromEntries(
+    [...args.sideSamples, ...(args.oppositeSamples ?? [])].map((sample) => [
+      sample.bookKey,
+      sample.bookName
+    ])
+  );
 
   const marketIntelligence = sideSnapshots.length
     ? buildMarketIntelligence({
         marketLabel: args.marketLabel,
         sideSnapshots,
         offeredSportsbookKey: args.offeredSportsbookKey ?? null
+      })
+    : null;
+  const marketPath = sideSnapshots.length
+    ? buildMarketPath({
+        marketLabel: args.marketLabel,
+        marketType: args.marketType,
+        sideSnapshots,
+        offeredSportsbookKey: args.offeredSportsbookKey ?? null,
+        sportsbookNamesByKey
       })
     : null;
 
@@ -151,6 +169,7 @@ export function analyzeMarket(args: {
     fairPrice,
     ev,
     marketIntelligence,
+    marketPath,
     expectedValuePct: ev?.evPerUnit !== null && typeof ev?.evPerUnit === "number" ? Number((ev.evPerUnit * 100).toFixed(2)) : null,
     bestPriceFlag: marketIntelligence?.bestPriceFlag ?? false
   } satisfies MarketAnalysisResult;

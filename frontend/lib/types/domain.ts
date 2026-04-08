@@ -427,6 +427,66 @@ export type MarketIntelligenceView = {
   notes: string[];
 };
 
+export type MarketPathBookRole =
+  | "LEADER"
+  | "CONFIRMER"
+  | "FOLLOWER"
+  | "LAGGER"
+  | "OUTLIER"
+  | "UNCLASSIFIED";
+
+export type MarketPathSynchronizationState =
+  | "BROAD_CONFIRMATION"
+  | "PARTIAL_CONFIRMATION"
+  | "FRAGMENTED"
+  | "NO_PATH";
+
+export type MarketPathRegime =
+  | "STALE_COPY"
+  | "LEADER_CONFIRMED"
+  | "BROAD_REPRICE"
+  | "FRAGMENTED"
+  | "NO_SIGNAL";
+
+export type MarketPathExecutionHint =
+  | "HIT_NOW"
+  | "WAIT_FOR_COPY"
+  | "WATCH"
+  | "SUPPRESS";
+
+export type MarketPathBookDebugView = {
+  sportsbookKey: string;
+  sportsbookName: string;
+  role: MarketPathBookRole;
+  lastMoveAt: string | null;
+  moveCount: number;
+  currentOddsAmerican: number | null;
+  currentLine: number | null;
+  betterThanConsensus: boolean;
+  notes: string[];
+};
+
+export type MarketPathView = {
+  regime: MarketPathRegime;
+  leaderCandidates: string[];
+  confirmerBooks: string[];
+  followerBooks: string[];
+  laggingBooks: string[];
+  outlierBooks: string[];
+  confirmationCount: number;
+  confirmationQuality: number;
+  leaderFollowerConfidence: number;
+  synchronizationState: MarketPathSynchronizationState;
+  repriceSpread: number | null;
+  staleCopyConfidence: number;
+  staleCopyReasons: string[];
+  staleCopySuppressed: boolean;
+  executionHint: MarketPathExecutionHint;
+  moveCoherenceScore: number;
+  notes: string[];
+  debug: MarketPathBookDebugView[];
+};
+
 export type EvResultView = {
   edgePct: number;
   evPerUnit: number | null;
@@ -466,6 +526,7 @@ export type BoardMarketView = {
   fairPrice?: FairPriceView | null;
   evProfile?: EvResultView | null;
   marketIntelligence?: MarketIntelligenceView | null;
+  marketPath?: MarketPathView | null;
   reasons?: ReasonAttributionView[];
   confidenceBand?: ConfidenceBand;
   confidenceScore?: number;
@@ -695,6 +756,7 @@ export type PropCardView = {
   fairPrice?: FairPriceView | null;
   evProfile?: EvResultView | null;
   marketIntelligence?: MarketIntelligenceView | null;
+  marketPath?: MarketPathView | null;
   reasons?: ReasonAttributionView[];
   confidenceBand?: ConfidenceBand;
   confidenceScore?: number;
@@ -729,6 +791,7 @@ export type BetSignalView = {
   fairPrice?: FairPriceView | null;
   evProfile?: EvResultView | null;
   marketIntelligence?: MarketIntelligenceView | null;
+  marketPath?: MarketPathView | null;
   reasons?: ReasonAttributionView[];
   confidenceBand?: ConfidenceBand;
   confidenceScore?: number;

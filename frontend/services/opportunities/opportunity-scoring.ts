@@ -17,6 +17,8 @@ type BuildOpportunityScoreArgs = {
   sourceQualityScore?: number;
   marketEfficiencyScore?: number;
   edgeDecayPenalty?: number;
+  truthCalibrationScoreDelta?: number;
+  marketPathScoreDelta?: number;
   trapFlags: OpportunityTrapFlag[];
   personalizationDelta: number;
 };
@@ -174,6 +176,8 @@ export function buildOpportunityScore(
   const sourceQuality = buildSourceQualityScore(args);
   const marketEfficiency = buildMarketEfficiencyScore(args);
   const edgeDecayPenalty = buildDecayPenalty(args);
+  const truthCalibration = clamp(args.truthCalibrationScoreDelta ?? 0, -8, 6);
+  const marketPath = clamp(args.marketPathScoreDelta ?? 0, -6, 6);
   const personalization = clamp(args.personalizationDelta, -8, 8);
 
   const trapPenalties = args.trapFlags.reduce(
@@ -193,6 +197,8 @@ export function buildOpportunityScore(
     support +
     sourceQuality +
     marketEfficiency +
+    truthCalibration +
+    marketPath +
     personalization -
     penalties;
 
@@ -210,6 +216,8 @@ export function buildOpportunityScore(
       sourceQuality: round(sourceQuality),
       marketEfficiency: round(marketEfficiency),
       edgeDecay: -round(edgeDecayPenalty),
+      truthCalibration: round(truthCalibration),
+      marketPath: round(marketPath),
       personalization,
       penalties
     }

@@ -36,38 +36,47 @@ function testScoreBuckets() {
     bookCount: 6,
     timingQuality: 88,
     supportScore: 11,
+    sourceQualityScore: 88,
+    marketEfficiencyScore: 6,
+    edgeDecayPenalty: 2,
     trapFlags: [],
     personalizationDelta: 2
   });
   assert(elite.score >= 85, `expected elite score, got ${elite.score}`);
 
   const strong = buildOpportunityScore({
-    expectedValuePct: 3.8,
-    fairLineGap: 12,
-    edgeScore: 72,
-    confidenceScore: 68,
-    qualityScore: 64,
-    disagreementScore: 0.06,
-    freshnessMinutes: 5,
-    bookCount: 4,
-    timingQuality: 70,
-    supportScore: 7,
+    expectedValuePct: 2.2,
+    fairLineGap: 8,
+    edgeScore: 60,
+    confidenceScore: 50,
+    qualityScore: 50,
+    disagreementScore: 0.08,
+    freshnessMinutes: 9,
+    bookCount: 3,
+    timingQuality: 60,
+    supportScore: 5,
+    sourceQualityScore: 44,
+    marketEfficiencyScore: 0,
+    edgeDecayPenalty: 10,
     trapFlags: [],
     personalizationDelta: 0
   });
   assert(strong.score >= 70 && strong.score < 85, `expected strong score band, got ${strong.score}`);
 
   const watch = buildOpportunityScore({
-    expectedValuePct: 1.8,
-    fairLineGap: 8,
-    edgeScore: 61,
-    confidenceScore: 58,
-    qualityScore: 50,
-    disagreementScore: 0.09,
-    freshnessMinutes: 9,
+    expectedValuePct: 1.4,
+    fairLineGap: 6,
+    edgeScore: 58,
+    confidenceScore: 50,
+    qualityScore: 42,
+    disagreementScore: 0.12,
+    freshnessMinutes: 14,
     bookCount: 3,
     timingQuality: 58,
     supportScore: 4,
+    sourceQualityScore: 44,
+    marketEfficiencyScore: -2,
+    edgeDecayPenalty: 12,
     trapFlags: [],
     personalizationDelta: 0
   });
@@ -84,6 +93,9 @@ function testScoreBuckets() {
     bookCount: 1,
     timingQuality: 28,
     supportScore: 1,
+    sourceQualityScore: 22,
+    marketEfficiencyScore: -4,
+    edgeDecayPenalty: 24,
     trapFlags: ["THIN_MARKET"],
     personalizationDelta: 0
   });
@@ -102,6 +114,9 @@ function testPenaltyBehavior() {
     bookCount: 5,
     timingQuality: 75,
     supportScore: 8,
+    sourceQualityScore: 72,
+    marketEfficiencyScore: 4,
+    edgeDecayPenalty: 4,
     personalizationDelta: 0
   };
   const clean = buildOpportunityScore({
@@ -124,6 +139,9 @@ function testPenaltyBehavior() {
     bookCount: 6,
     timingQuality: 86,
     supportScore: 10,
+    sourceQualityScore: 84,
+    marketEfficiencyScore: 6,
+    edgeDecayPenalty: 2,
     trapFlags: [],
     personalizationDelta: 0
   });
@@ -138,6 +156,9 @@ function testPenaltyBehavior() {
     bookCount: 1,
     timingQuality: 86,
     supportScore: 10,
+    sourceQualityScore: 36,
+    marketEfficiencyScore: -4,
+    edgeDecayPenalty: 28,
     trapFlags: [
       "STALE_EDGE",
       "ONE_BOOK_OUTLIER",
@@ -165,7 +186,7 @@ function testTimingTransitions() {
   const betNow = buildOpportunityTiming({
     score: 89,
     expectedValuePct: 5.2,
-    lineMovement: 4,
+    lineMovement: 3,
     bestPriceFlag: true,
     freshnessMinutes: 3,
     trapFlags: [],
@@ -189,7 +210,7 @@ function testTimingTransitions() {
   const waitForConfirmation = buildOpportunityTiming({
     score: 76,
     expectedValuePct: 3.1,
-    lineMovement: 3,
+    lineMovement: 10,
     bestPriceFlag: true,
     freshnessMinutes: 4,
     trapFlags: [],
@@ -253,7 +274,6 @@ function testTrapFlags() {
   for (const expected of [
     "STALE_EDGE",
     "ONE_BOOK_OUTLIER",
-    "THIN_MARKET",
     "HIGH_MARKET_DISAGREEMENT",
     "LOW_CONFIDENCE_FAIR_PRICE",
     "LOW_PROVIDER_HEALTH",
@@ -262,6 +282,29 @@ function testTrapFlags() {
   ]) {
     assert(flags.includes(expected as (typeof flags)[number]), `expected trap flag ${expected}`);
   }
+
+  const thinFlags = buildOpportunityTrapFlags({
+    fairPrice: null,
+    marketIntelligence: {
+      staleFlag: false,
+      marketDisagreementScore: 0.08,
+      bestPriceFlag: true
+    } as never,
+    marketTruth: {
+      stale: false,
+      disagreementPct: 3,
+      movementStrength: 2,
+      bookCount: 3
+    } as never,
+    providerHealth: {
+      state: "HEALTHY"
+    } as never,
+    bookCount: 3,
+    lineMovement: 2,
+    conflictSignal: false
+  });
+
+  assert(thinFlags.includes("THIN_MARKET"), "expected THIN_MARKET for shallow but not one-book depth");
 }
 
 function run() {

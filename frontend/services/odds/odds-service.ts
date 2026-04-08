@@ -102,7 +102,12 @@ function buildMockMarketSamples(
       bookName: getBook(market.sportsbookId).name,
       price: market.oddsAmerican,
       line: market.line ?? null,
-      updatedAt: market.updatedAt ?? null
+      updatedAt: market.updatedAt ?? null,
+      history: getSnapshots(market.id).map((snapshot) => ({
+        capturedAt: snapshot.capturedAt,
+        price: snapshot.oddsAmerican,
+        line: snapshot.line ?? null
+      }))
     })) satisfies MarketPriceSample[];
 }
 
@@ -185,6 +190,7 @@ function buildMockMarketView(
     fairPrice: analysis.fairPrice,
     evProfile: analysis.ev,
     marketIntelligence: analysis.marketIntelligence,
+    marketPath: analysis.marketPath,
     reasons: analysis.reasons,
     confidenceBand: analysis.confidenceBand,
     confidenceScore: analysis.confidenceScore,
@@ -564,14 +570,24 @@ function buildPropCard(angleId: string): PropCardView | null {
     bookName: getBook(row.sportsbookId).name,
     price: row.oddsAmerican,
     line: row.line ?? null,
-    updatedAt: row.updatedAt ?? null
+    updatedAt: row.updatedAt ?? null,
+    history: getSnapshots(row.id).map((snapshot) => ({
+      capturedAt: snapshot.capturedAt,
+      price: snapshot.oddsAmerican,
+      line: snapshot.line ?? null
+    }))
   })) satisfies MarketPriceSample[];
   const oppositeSamples = oppositeMarketRows.map((row) => ({
     bookKey: getBook(row.sportsbookId).key,
     bookName: getBook(row.sportsbookId).name,
     price: row.oddsAmerican,
     line: row.line ?? null,
-    updatedAt: row.updatedAt ?? null
+    updatedAt: row.updatedAt ?? null,
+    history: getSnapshots(row.id).map((snapshot) => ({
+      capturedAt: snapshot.capturedAt,
+      price: snapshot.oddsAmerican,
+      line: snapshot.line ?? null
+    }))
   })) satisfies MarketPriceSample[];
   const priceDelta =
     market.oddsAmerican - Math.round(
@@ -660,6 +676,7 @@ function buildPropCard(angleId: string): PropCardView | null {
     fairPrice: analysis.fairPrice,
     evProfile: analysis.ev,
     marketIntelligence: analysis.marketIntelligence,
+    marketPath: analysis.marketPath,
     reasons: analysis.reasons,
     confidenceBand: analysis.confidenceBand,
     confidenceScore: analysis.confidenceScore,

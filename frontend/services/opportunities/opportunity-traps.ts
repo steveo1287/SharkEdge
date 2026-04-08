@@ -1,6 +1,7 @@
 import type { OpportunityTrapFlag } from "@/lib/types/opportunity";
 import type {
   FairPriceView,
+  MarketPathView,
   MarketIntelligenceView,
   MarketTruthView,
   ProviderHealthView
@@ -10,6 +11,7 @@ type BuildOpportunityTrapsArgs = {
   fairPrice?: FairPriceView | null;
   marketIntelligence?: MarketIntelligenceView | null;
   marketTruth?: MarketTruthView | null;
+  marketPath?: MarketPathView | null;
   providerHealth?: ProviderHealthView | null;
   bookCount?: number | null;
   lineMovement?: number | null;
@@ -41,12 +43,18 @@ export function buildOpportunityTrapFlags(
     args.marketIntelligence?.staleFlag === true || args.marketTruth?.stale === true;
   const bestPrice = args.marketIntelligence?.bestPriceFlag === true;
   const freshness = args.providerHealth?.freshnessMinutes ?? null;
+  const strongStaleCopy =
+    args.marketPath !== null &&
+    args.marketPath !== undefined &&
+    args.marketPath.staleCopyConfidence >= 70 &&
+    !args.marketPath.staleCopySuppressed &&
+    args.marketPath.confirmationCount >= 2;
 
   // --- CORE TRAPS ---
-  addIf(flags, stale, "STALE_EDGE");
+  addIf(flags, stale && !strongStaleCopy, "STALE_EDGE");
 
-  addIf(flags, bookCount <= 1, "ONE_BOOK_OUTLIER");
-  addIf(flags, bookCount > 1 && bookCount < 4, "THIN_MARKET");
+  addIf(flags, bookCount <= 1 || (bookCount <= 2 && !strongStaleCopy), "ONE_BOOK_OUTLIER");
+  addIf(flags, bookCount > 1 && bookCount < 4 && !strongStaleCopy, "THIN_MARKET");
 
   addIf(flags, disagreement >= 0.18, "HIGH_MARKET_DISAGREEMENT");
 
@@ -72,7 +80,11 @@ export function buildOpportunityTrapFlags(
   // FAKE MOVE: strong move but thin / no confirmation
   const isFakeMove =
     movement >= 10 &&
-    (!bestPrice || bookCount < 4 || stale);
+    ((args.marketPath?.regime === "FRAGMENTED" ||
+      args.marketPath?.moveCoherenceScore && args.marketPath.moveCoherenceScore < 45 ||
+      (args.marketPath?.confirmationCount ?? 0) < 2) ||
+      (!bestPrice || bookCount < 4 || stale)) &&
+    !strongStaleCopy;
 
   if (isFakeMove) {
     flags.add("FAKE_MOVE_RISK");
@@ -82,7 +94,8 @@ export function buildOpportunityTrapFlags(
   if (
     freshness !== null &&
     freshness > 30 &&
-    !bestPrice
+    !bestPrice &&
+    !strongStaleCopy
   ) {
     flags.add("STALE_EDGE");
   }

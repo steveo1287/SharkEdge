@@ -333,6 +333,7 @@ function buildLivePropCard(props: LiveProp[], allGroups: Map<string, LiveProp[]>
     fairPrice: analysis.fairPrice,
     evProfile: analysis.ev,
     marketIntelligence: analysis.marketIntelligence,
+    marketPath: analysis.marketPath,
     reasons: analysis.reasons,
     confidenceBand: analysis.confidenceBand,
     confidenceScore: analysis.confidenceScore,

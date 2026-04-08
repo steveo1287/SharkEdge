@@ -2,6 +2,7 @@ import type {
   BetSignalView,
   BoardMarketView,
   GameCardView,
+  MarketPathView,
   PropCardView,
   ProviderHealthView,
   ReasonAttributionView
@@ -22,13 +23,30 @@ import {
   getMarketEfficiencyScore
 } from "@/services/opportunities/opportunity-market-model";
 import {
+  createOpportunityMarketPathResolver,
+  type OpportunityMarketPathResolver
+} from "@/services/opportunities/opportunity-market-path";
+import {
   buildOpportunityPersonalization,
   buildOpportunityProfile
 } from "@/services/opportunities/opportunity-personalization";
+import {
+  createOpportunityPortfolioAllocator,
+  type OpportunityPortfolioAllocator
+} from "@/services/opportunities/opportunity-portfolio";
 import { buildOpportunityScore } from "@/services/opportunities/opportunity-scoring";
 import { buildPositionSizingGuidance } from "@/services/opportunities/opportunity-sizing";
 import { buildOpportunityTiming } from "@/services/opportunities/opportunity-timing";
+import {
+  createOpportunityTruthCalibrationResolver,
+  type OpportunityTruthCalibrationResolver
+} from "@/services/opportunities/opportunity-truth-calibration";
 import { buildOpportunityTrapFlags } from "@/services/opportunities/opportunity-traps";
+import { getMarketPathRole } from "@/services/market/market-path-service";
+
+const neutralTruthCalibrationResolver = createOpportunityTruthCalibrationResolver();
+const neutralMarketPathResolver = createOpportunityMarketPathResolver();
+const neutralPortfolioAllocator = createOpportunityPortfolioAllocator();
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -216,15 +234,25 @@ type BaseOpportunityArgs = {
   reasons: ReasonAttributionView[];
   sourceNote: string;
   truthClassification: OpportunityView["truthClassification"];
+  marketPath?: MarketPathView | null;
   profile?: OpportunityProfile | null;
+  truthCalibrationResolver?: OpportunityTruthCalibrationResolver | null;
+  marketPathResolver?: OpportunityMarketPathResolver | null;
   conflictSignal?: boolean;
 };
 
 function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
+  const truthCalibrationResolver =
+    args.truthCalibrationResolver ?? neutralTruthCalibrationResolver;
+  const marketPathResolver = args.marketPathResolver ?? neutralMarketPathResolver;
   const providerFreshnessMinutes = getProviderFreshnessMinutes({
     providerHealth: args.providerHealth,
     snapshotAgeSeconds: args.snapshotAgeSeconds
   });
+  const offeredMarketPathRole = getMarketPathRole(
+    args.marketPath ?? null,
+    args.sportsbookKey
+  );
   const marketEfficiency = classifyMarketEfficiency({
     league: args.league,
     marketType: args.marketType,
@@ -234,7 +262,7 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     sportsbookKey: args.sportsbookKey,
     sportsbookName: args.sportsbookName
   });
-  const sourceQuality = evaluateMarketSourceQuality({
+  const baseSourceQuality = evaluateMarketSourceQuality({
     league: args.league,
     marketType: args.marketType,
     sportsbookKey: args.sportsbookKey,
@@ -242,7 +270,9 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     bookCount: args.bookCount,
     disagreementScore: args.marketDisagreementScore,
     bestPriceFlag: args.bestPriceFlag,
-    freshnessMinutes: providerFreshnessMinutes
+    freshnessMinutes: providerFreshnessMinutes,
+    marketPathRole: offeredMarketPathRole,
+    marketPathNote: args.marketPath?.notes[0] ?? null
   });
   const edgeDecay = buildOpportunityEdgeDecay({
     expectedValuePct: args.expectedValuePct,
@@ -276,6 +306,7 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
       classification: args.truthClassification
     } as any,
     providerHealth: args.providerHealth,
+    marketPath: args.marketPath ?? null,
     bookCount: args.bookCount,
     lineMovement: args.lineMovement,
     conflictSignal: args.conflictSignal
@@ -308,6 +339,90 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     0
   );
 
+  const baseSupportScore = supportScoreFromReasons({
+    reasons: args.reasons,
+    bestPriceFlag: args.bestPriceFlag,
+    bookCount: args.bookCount,
+    marketDisagreementScore: args.marketDisagreementScore,
+    freshnessMinutes: providerFreshnessMinutes,
+    sourceQualityScore: baseSourceQuality.score
+  });
+
+  const baseScoring = buildOpportunityScore({
+    expectedValuePct: args.expectedValuePct,
+    fairLineGap: args.fairLineGap,
+    edgeScore: args.edgeScore,
+    confidenceScore: args.confidenceScore,
+    qualityScore: args.qualityScore,
+    disagreementScore: args.marketDisagreementScore,
+    freshnessMinutes: providerFreshnessMinutes,
+    bookCount: args.bookCount,
+    timingQuality: provisionalTiming.timingQuality,
+    supportScore: baseSupportScore,
+    sourceQualityScore: baseSourceQuality.score,
+    marketEfficiencyScore: getMarketEfficiencyScore(marketEfficiency),
+    edgeDecayPenalty: edgeDecay.penalty,
+    truthCalibrationScoreDelta: 0,
+    marketPathScoreDelta: 0,
+    trapFlags,
+    personalizationDelta
+  });
+
+  const baseTiming = buildOpportunityTiming({
+    score: baseScoring.score,
+    expectedValuePct: args.expectedValuePct,
+    lineMovement: args.lineMovement,
+    bestPriceFlag: args.bestPriceFlag,
+    freshnessMinutes: providerFreshnessMinutes,
+    trapFlags,
+    disagreementScore: args.marketDisagreementScore,
+    marketEfficiency,
+    edgeDecayPenalty: edgeDecay.penalty
+  });
+  const baseConfidenceTier = getConfidenceTier(baseScoring.score, trapFlags);
+  const truthCalibration = truthCalibrationResolver.resolve({
+    league: args.league,
+    marketType: args.marketType,
+    sportsbookKey: args.sportsbookKey,
+    sportsbookName: args.sportsbookName,
+    timingState: baseTiming.timingState,
+    actionState: baseTiming.actionState,
+    confidenceTier: baseConfidenceTier,
+    trapFlags,
+    sourceHealthState: args.providerHealth?.state ?? "HEALTHY",
+    baseScore: baseScoring.score,
+    baseTimingQuality: baseTiming.timingQuality
+  });
+  const marketMicrostructure = marketPathResolver.resolve({
+    league: args.league,
+    marketType: args.marketType,
+    sportsbookKey: args.sportsbookKey,
+    sportsbookName: args.sportsbookName,
+    actionState: baseTiming.actionState,
+    timingState: baseTiming.timingState,
+    marketEfficiency,
+    bookCount: args.bookCount,
+    bestPriceFlag: args.bestPriceFlag,
+    marketDisagreementScore: args.marketDisagreementScore,
+    providerFreshnessMinutes,
+    lineMovement: args.lineMovement,
+    trapFlags,
+    marketPath: args.marketPath ?? null
+  });
+  const sourceQuality = evaluateMarketSourceQuality({
+    league: args.league,
+    marketType: args.marketType,
+    sportsbookKey: args.sportsbookKey,
+    sportsbookName: args.sportsbookName,
+    bookCount: args.bookCount,
+    disagreementScore: args.marketDisagreementScore,
+    bestPriceFlag: args.bestPriceFlag,
+    freshnessMinutes: providerFreshnessMinutes,
+    truthAdjustment: truthCalibration.sourceWeightDelta,
+    marketPathAdjustment: marketMicrostructure.sourceWeightDelta,
+    marketPathRole: offeredMarketPathRole,
+    marketPathNote: marketMicrostructure.reasons[0] ?? args.marketPath?.notes[0] ?? null
+  });
   const supportScore = supportScoreFromReasons({
     reasons: args.reasons,
     bestPriceFlag: args.bestPriceFlag,
@@ -316,7 +431,6 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     freshnessMinutes: providerFreshnessMinutes,
     sourceQualityScore: sourceQuality.score
   });
-
   const scoring = buildOpportunityScore({
     expectedValuePct: args.expectedValuePct,
     fairLineGap: args.fairLineGap,
@@ -331,10 +445,11 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     sourceQualityScore: sourceQuality.score,
     marketEfficiencyScore: getMarketEfficiencyScore(marketEfficiency),
     edgeDecayPenalty: edgeDecay.penalty,
+    truthCalibrationScoreDelta: truthCalibration.scoreDelta,
+    marketPathScoreDelta: marketMicrostructure.scoreDelta,
     trapFlags,
     personalizationDelta
   });
-
   const timing = buildOpportunityTiming({
     score: scoring.score,
     expectedValuePct: args.expectedValuePct,
@@ -344,9 +459,22 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     trapFlags,
     disagreementScore: args.marketDisagreementScore,
     marketEfficiency,
-    edgeDecayPenalty: edgeDecay.penalty
+    edgeDecayPenalty: edgeDecay.penalty,
+    truthTimingDelta: truthCalibration.timingDelta,
+    calibrationTrapEscalation: truthCalibration.trapEscalation,
+    marketPathTimingDelta: marketMicrostructure.timingDelta,
+    marketPathExecutionHint: args.marketPath?.executionHint,
+    marketPathStaleCopyConfidence: args.marketPath?.staleCopyConfidence,
+    marketPathRepricingLikelihood: marketMicrostructure.repricingLikelihood,
+    marketPathWaitImprovementLikelihood: marketMicrostructure.waitImprovementLikelihood,
+    marketPathTrapEscalation: marketMicrostructure.trapEscalation
   });
   const confidenceTier = getConfidenceTier(scoring.score, trapFlags);
+  const appliedTruthCalibration = {
+    ...truthCalibration,
+    calibratedScore: scoring.score,
+    calibratedTimingQuality: timing.timingQuality
+  };
   const sizing = buildPositionSizingGuidance({
     opportunityScore: scoring.score,
     confidenceTier,
@@ -356,7 +484,15 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     marketDisagreementScore: args.marketDisagreementScore,
     marketEfficiency,
     bestPriceFlag: args.bestPriceFlag,
-    edgeDecay
+    edgeDecay,
+    expectedValuePct: args.expectedValuePct,
+    fairPriceAmerican: args.fairPriceAmerican,
+    displayOddsAmerican: args.displayOddsAmerican,
+    actionState: timing.actionState,
+    sourceQualityScore: sourceQuality.score,
+    sourceHealthState: args.providerHealth?.state ?? "HEALTHY",
+    truthCalibrationScoreDelta: truthCalibration.scoreDelta,
+    marketMicrostructure
   });
 
   const explanation = buildOpportunityExplanation({
@@ -378,7 +514,10 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     marketEfficiency,
     sourceQuality,
     edgeDecay,
-    sizing
+    sizing,
+    executionContext: null,
+    truthCalibration: appliedTruthCalibration,
+    marketMicrostructure
   });
 
   return {
@@ -406,10 +545,13 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     staleFlag: args.staleFlag,
     bookCount: args.bookCount,
     lineMovement: round(args.lineMovement),
+    marketPath: args.marketPath ?? null,
     marketEfficiency,
     sourceQuality,
     edgeDecay,
+    marketMicrostructure,
     sizing,
+    executionContext: null,
     edgeScore: Math.round(args.edgeScore),
     opportunityScore: scoring.score,
     confidenceTier,
@@ -427,6 +569,7 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     },
     sourceNote: args.sourceNote,
     scoreComponents: scoring.components,
+    truthCalibration: appliedTruthCalibration,
     truthClassification: args.truthClassification
   };
 }
@@ -449,7 +592,9 @@ export function buildGameMarketOpportunity(
   game: GameCardView,
   marketType: "spread" | "moneyline" | "total",
   providerHealth?: ProviderHealthView | null,
-  profile?: OpportunityProfile | null
+  profile?: OpportunityProfile | null,
+  truthCalibrationResolver?: OpportunityTruthCalibrationResolver | null,
+  marketPathResolver?: OpportunityMarketPathResolver | null
 ): OpportunityView {
   const market: BoardMarketView = game[marketType];
   const eventLabel = `${game.awayTeam.name} @ ${game.homeTeam.name}`;
@@ -492,14 +637,19 @@ export function buildGameMarketOpportunity(
     reasons: market.reasons ?? [],
     sourceNote: market.marketTruth?.note ?? providerHealth?.summary ?? "Market context only.",
     truthClassification: market.marketTruth?.classification ?? null,
-    profile
+    marketPath: market.marketPath ?? null,
+    profile,
+    truthCalibrationResolver,
+    marketPathResolver
   });
 }
 
 export function buildPropOpportunity(
   prop: PropCardView,
   providerHealth?: ProviderHealthView | null,
-  profile?: OpportunityProfile | null
+  profile?: OpportunityProfile | null,
+  truthCalibrationResolver?: OpportunityTruthCalibrationResolver | null,
+  marketPathResolver?: OpportunityMarketPathResolver | null
 ): OpportunityView {
   const offeredOdds = prop.bestAvailableOddsAmerican ?? prop.oddsAmerican;
   const eventLabel = prop.gameLabel ?? `${prop.team.name} vs ${prop.opponent.name}`;
@@ -543,7 +693,10 @@ export function buildPropOpportunity(
     sourceNote:
       prop.supportNote ?? prop.marketTruth?.note ?? providerHealth?.summary ?? "Prop context only.",
     truthClassification: prop.marketTruth?.classification ?? null,
-    profile
+    marketPath: prop.marketPath ?? null,
+    profile,
+    truthCalibrationResolver,
+    marketPathResolver
   });
 }
 
@@ -551,7 +704,9 @@ export function buildBetSignalOpportunity(
   signal: BetSignalView,
   league: OpportunityView["league"],
   providerHealth?: ProviderHealthView | null,
-  profile?: OpportunityProfile | null
+  profile?: OpportunityProfile | null,
+  truthCalibrationResolver?: OpportunityTruthCalibrationResolver | null,
+  marketPathResolver?: OpportunityMarketPathResolver | null
 ): OpportunityView {
   return buildOpportunity({
     id: signal.id,
@@ -597,7 +752,10 @@ export function buildBetSignalOpportunity(
     sourceNote:
       signal.supportNote ?? signal.marketTruth?.note ?? providerHealth?.summary ?? "Signal context only.",
     truthClassification: signal.marketTruth?.classification ?? null,
-    profile
+    marketPath: signal.marketPath ?? null,
+    profile,
+    truthCalibrationResolver,
+    marketPathResolver
   });
 }
 
@@ -623,6 +781,12 @@ export function rankOpportunities<T extends OpportunityView>(opportunities: T[])
       return actionDelta;
     }
 
+    const capitalPriorityDelta =
+      (b.sizing.capitalPriorityScore ?? 0) - (a.sizing.capitalPriorityScore ?? 0);
+    if (capitalPriorityDelta !== 0) {
+      return capitalPriorityDelta;
+    }
+
     const timingDelta =
       (b.scoreComponents?.timingQuality ?? 0) -
       (a.scoreComponents?.timingQuality ?? 0);
@@ -646,30 +810,59 @@ export function rankOpportunities<T extends OpportunityView>(opportunities: T[])
   });
 }
 
-export function buildHomeOpportunitySnapshot(args: {
+export async function buildHomeOpportunitySnapshot(args: {
   games: GameCardView[];
   props: PropCardView[];
   providerHealth?: ProviderHealthView | null;
   performance?: PerformanceDashboardView | null;
-}): OpportunityHomeSnapshot {
+  truthCalibrationResolver?: OpportunityTruthCalibrationResolver | null;
+  marketPathResolver?: OpportunityMarketPathResolver | null;
+  portfolioAllocator?: OpportunityPortfolioAllocator | null;
+}): Promise<OpportunityHomeSnapshot> {
   const profile = buildOpportunityProfile(args.performance);
+  const portfolioAllocator = args.portfolioAllocator ?? neutralPortfolioAllocator;
 
   const boardCandidates = args.games.flatMap((game) =>
     (["spread", "moneyline", "total"] as const).map((marketType) =>
-      buildGameMarketOpportunity(game, marketType, args.providerHealth, profile)
+      buildGameMarketOpportunity(
+        game,
+        marketType,
+        args.providerHealth,
+        profile,
+        args.truthCalibrationResolver,
+        args.marketPathResolver
+      )
     )
   );
 
   const propCandidates = args.props.map((prop) =>
-    buildPropOpportunity(prop, args.providerHealth, profile)
+    buildPropOpportunity(
+      prop,
+      args.providerHealth,
+      profile,
+      args.truthCalibrationResolver,
+      args.marketPathResolver
+    )
+  );
+
+  const boardIds = new Set(boardCandidates.map((opportunity) => opportunity.id));
+  const allocatedCandidates = portfolioAllocator.apply([
+    ...boardCandidates,
+    ...propCandidates
+  ]);
+  const allocatedBoardCandidates = allocatedCandidates.filter((opportunity) =>
+    boardIds.has(opportunity.id)
+  );
+  const allocatedPropCandidates = allocatedCandidates.filter(
+    (opportunity) => !boardIds.has(opportunity.id)
   );
 
   const boardTop = rankOpportunities(
-    boardCandidates.filter(shouldSurfaceHomeOpportunity)
+    allocatedBoardCandidates.filter(shouldSurfaceHomeOpportunity)
   ).slice(0, 5);
 
   const propsTop = rankOpportunities(
-    propCandidates.filter(shouldSurfaceHomeOpportunity)
+    allocatedPropCandidates.filter(shouldSurfaceHomeOpportunity)
   ).slice(0, 5);
 
   const surfaced = [...boardTop, ...propsTop];

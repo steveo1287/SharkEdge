@@ -2,8 +2,11 @@ import type { ReasonAttributionView } from "@/lib/types/domain";
 import type {
   MarketEfficiencyClass,
   OpportunityEdgeDecayView,
+  OpportunityExecutionContextView,
+  OpportunityMarketMicrostructureView,
   OpportunitySourceQuality,
   OpportunityTrapFlag,
+  OpportunityTruthCalibrationView,
   OpportunityView,
   PositionSizingGuidance
 } from "@/lib/types/opportunity";
@@ -165,6 +168,91 @@ function describeDecay(edgeDecay: OpportunityEdgeDecayView) {
   return "Edge is fresh enough for the current timing posture";
 }
 
+function describeCalibration(calibration: OpportunityTruthCalibrationView) {
+  if (calibration.status === "APPLIED") {
+    const parts = [
+      `Historical close truth is nudging the lane ${calibration.scoreDelta >= 0 ? "+" : ""}${calibration.scoreDelta} score`,
+      calibration.timingDelta !== 0
+        ? `with ${calibration.timingDelta >= 0 ? "+" : ""}${calibration.timingDelta} timing`
+        : null,
+      calibration.sourceWeightDelta !== 0
+        ? `and ${calibration.sourceWeightDelta >= 0 ? "+" : ""}${calibration.sourceWeightDelta.toFixed(2)} source weight`
+        : null
+    ].filter(Boolean);
+
+    return `${parts.join(" ")} from qualified close samples`;
+  }
+
+  if (calibration.status === "SKIPPED_INSUFFICIENT_SAMPLE") {
+    return "Calibration is parked because similar spots have not closed enough samples yet";
+  }
+
+  if (calibration.status === "SKIPPED_NEUTRAL") {
+    return "Close history for similar spots is flat enough that calibration stayed neutral";
+  }
+
+  return "No matching close-history lane was strong enough to change this call";
+}
+
+function describeMicrostructure(microstructure: OpportunityMarketMicrostructureView) {
+  if (microstructure.status !== "APPLIED") {
+    return microstructure.summary;
+  }
+
+  if (microstructure.regime === "STALE_COPY") {
+    return `Market path reads as stale copy with ${microstructure.staleCopyConfidence}% confidence and roughly ${microstructure.estimatedHalfLifeMinutes ?? "n/a"}m half-life`;
+  }
+
+  if (microstructure.regime === "LEADER_CONFIRMED") {
+    return `Leader-confirmed move with urgency ${microstructure.urgencyScore} and repricing likelihood ${microstructure.repricingLikelihood}%`;
+  }
+
+  if (microstructure.decayRiskBucket === "IMPROVEMENT_PRONE") {
+    return `Path looks improvement-prone, so waiting carries ${microstructure.waitImprovementLikelihood}% pullback likelihood`;
+  }
+
+  return microstructure.summary;
+}
+
+function describeSizing(sizing: PositionSizingGuidance) {
+  if (sizing.recommendedStake <= 0) {
+    return sizing.reasonCodes.includes("ACTION_WAIT_NO_ALLOCATION")
+      ? "Capital stays uncommitted because the desk posture is wait, not hit."
+      : "Allocator keeps stake at zero because the edge is too fragile after risk controls.";
+  }
+
+  const parts = [
+    `${sizing.label} stake at ${sizing.bankrollPct.toFixed(2)}% of bankroll`,
+    `Kelly cut from ${(sizing.baseKellyFraction * 100).toFixed(2)}% to ${(sizing.adjustedKellyFraction * 100).toFixed(2)}%`
+  ];
+
+  if (sizing.correlationPenalty < 0.99) {
+    parts.push(`correlation clipped size to ${(sizing.correlationPenalty * 100).toFixed(0)}%`);
+  }
+
+  if (sizing.competitionPenalty < 0.99) {
+    parts.push(`better capital use elsewhere clipped size to ${(sizing.competitionPenalty * 100).toFixed(0)}%`);
+  }
+
+  return `${parts.join("; ")}.`;
+}
+
+function describeExecution(executionContext: OpportunityExecutionContextView | null | undefined) {
+  if (!executionContext || executionContext.status !== "HISTORICAL") {
+    return "Execution history is neutral here, so size leans on current edge quality rather than prior fills.";
+  }
+
+  if (executionContext.classification === "EXCELLENT_ENTRY") {
+    return `Historical execution has been strong here: ${executionContext.entryQualityLabel.toLowerCase()} with score ${executionContext.executionScore}.`;
+  }
+
+  if (executionContext.classification === "MISSED_OPPORTUNITY") {
+    return "Similar entries have missed the best price before, so execution quality is a real risk on this lane.";
+  }
+
+  return `Historical execution is ${executionContext.entryQualityLabel.toLowerCase()} with score ${executionContext.executionScore}.`;
+}
+
 function getReasonDetail(reasons: ReasonAttributionView[]) {
   return reasons
     .slice(0, 2)
@@ -192,6 +280,9 @@ export function buildOpportunityExplanation(args: {
   sourceQuality: OpportunitySourceQuality;
   edgeDecay: OpportunityEdgeDecayView;
   sizing: PositionSizingGuidance;
+  executionContext?: OpportunityExecutionContextView | null;
+  truthCalibration: OpportunityTruthCalibrationView;
+  marketMicrostructure: OpportunityMarketMicrostructureView;
 }) {
   const marketProblem = describeMarketProblem({
     fairLineGap: args.fairLineGap,
@@ -213,18 +304,41 @@ export function buildOpportunityExplanation(args: {
     bestPriceFlag: args.bestPriceFlag
   });
   const decayLine = describeDecay(args.edgeDecay);
+  const calibrationLine = describeCalibration(args.truthCalibration);
+  const microstructureLine = describeMicrostructure(args.marketMicrostructure);
+  const sizingLine = describeSizing(args.sizing);
+  const executionLine = describeExecution(args.executionContext);
   const reasonDetails = getReasonDetail(args.reasons);
 
   const whyItShows = [
     marketProblem,
     whyNumberExists,
     confirmation,
+    microstructureLine,
+    calibrationLine,
+    sizingLine,
+    executionLine,
     decayLine,
     ...reasonDetails
   ].filter(Boolean);
 
   const whatCouldKillIt = [
     ...args.trapFlags.slice(0, 2).map((flag) => `${formatTrap(flag)}.`),
+    args.truthCalibration.trapEscalation
+      ? "Historical close results are weak for this pattern, so the trap posture is tighter than normal."
+      : null,
+    args.marketMicrostructure.trapEscalation
+      ? "Market-path structure looks noisy enough that the trap gate is tighter than the static heuristics alone."
+      : null,
+    args.sizing.correlationPenalty < 0.99
+      ? "Existing exposure in the same risk cluster is already large enough to force a smaller size."
+      : null,
+    args.sizing.competitionPenalty < 0.99
+      ? "Better capital efficiency exists elsewhere on the board, so this gets downsized before it gets crowded."
+      : null,
+    args.executionContext?.status === "HISTORICAL" && args.executionContext.missedEdge
+      ? "Past fills on similar spots missed the best screen, so execution discipline matters as much as selection."
+      : null,
     args.edgeDecay.compressed
       ? "If the best price disappears or the fair gap compresses, the edge is gone."
       : null,
@@ -239,9 +353,17 @@ export function buildOpportunityExplanation(args: {
 
   const summary = [
     shorten(marketProblem, 82),
-    `${args.sizing.label} sizing`,
-    formatTimingLabel(args.timingState)
-  ].join(". ");
+    `${args.sizing.label} sizing at ${args.sizing.bankrollPct.toFixed(2)}%`,
+    formatTimingLabel(args.timingState),
+    args.marketMicrostructure.status === "APPLIED"
+      ? `${args.marketMicrostructure.regime.toLowerCase().replace(/_/g, " ")}`
+      : null,
+    args.truthCalibration.status === "APPLIED"
+      ? `calibrated ${args.truthCalibration.scoreDelta >= 0 ? "+" : ""}${args.truthCalibration.scoreDelta}`
+      : null
+  ]
+    .filter((item): item is string => Boolean(item))
+    .join(". ");
 
   return {
     whyItShows: whyItShows.slice(0, 3).map((item) => shorten(item, 88)),

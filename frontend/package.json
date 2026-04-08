@@ -9,7 +9,7 @@
     "build": "node scripts/build-local-safe.mjs",
     "typecheck": "node scripts/typecheck-safe.mjs",
     "start": "next start",
-    "test": "tsx tests/ledger-utils.test.ts",
+    "test": "tsx tests/ledger-utils.test.ts && tsx tests/opportunity-engine.test.ts && tsx tests/opportunity-truth-calibration.test.ts && tsx tests/market-path-engine.test.ts && tsx tests/opportunity-portfolio.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",

@@ -127,8 +127,8 @@ type OpportunitySurfaceRecordRow = {
 const DEFAULT_SURFACE_WINDOW_MINUTES = 15;
 const MATERIAL_ODDS_CLV_PCT = 1;
 const MATERIAL_LINE_CLV = 0.25;
-const MIN_FEEDBACK_SURFACED = 40;
-const MIN_FEEDBACK_CLOSED = 20;
+export const TRUTH_CALIBRATION_MIN_SURFACED = 40;
+export const TRUTH_CALIBRATION_MIN_CLOSED = 20;
 
 function toJsonInput(value: unknown) {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -361,6 +361,26 @@ export async function recordSurfacedOpportunity(
   const displayedLineLabel = toDisplayLineLabel(input.opportunity.displayLine);
   const surfaceRank = input.surfaceRank ?? "SECONDARY";
   const isPrimarySurface = input.isPrimarySurface ?? surfaceRank === "PRIMARY";
+  const metadata = {
+    ...(input.metadata ?? {}),
+    marketPath: input.opportunity.marketPath
+      ? {
+          regime: input.opportunity.marketPath.regime,
+          confirmationCount: input.opportunity.marketPath.confirmationCount,
+          staleCopyConfidence: input.opportunity.marketPath.staleCopyConfidence,
+          executionHint: input.opportunity.marketPath.executionHint,
+          laggingBooks: input.opportunity.marketPath.laggingBooks
+        }
+      : null,
+    microstructure: {
+      regime: input.opportunity.marketMicrostructure.regime,
+      urgencyScore: input.opportunity.marketMicrostructure.urgencyScore,
+      decayRiskBucket: input.opportunity.marketMicrostructure.decayRiskBucket,
+      estimatedHalfLifeMinutes:
+        input.opportunity.marketMicrostructure.estimatedHalfLifeMinutes,
+      summary: input.opportunity.marketMicrostructure.summary
+    }
+  };
 
   await prisma.$executeRaw`
     INSERT INTO "opportunity_surface_records" (
@@ -422,7 +442,7 @@ export async function recordSurfacedOpportunity(
       ${input.opportunity.marketEfficiency},
       ${input.opportunity.sizing.recommendation},
       ${input.opportunity.providerFreshnessMinutes},
-      ${input.metadata ? toJsonInput(input.metadata) : null},
+      ${toJsonInput(metadata)},
       CURRENT_TIMESTAMP
     )
     ON CONFLICT ("surfaceKey") DO UPDATE SET
@@ -752,8 +772,8 @@ export function buildTruthCalibrationFeedback(args: {
   row: TruthCalibrationSummaryRow;
 }): TruthCalibrationFeedback {
   const insufficient =
-    args.row.surfaced < MIN_FEEDBACK_SURFACED ||
-    args.row.closed < MIN_FEEDBACK_CLOSED ||
+    args.row.surfaced < TRUTH_CALIBRATION_MIN_SURFACED ||
+    args.row.closed < TRUTH_CALIBRATION_MIN_CLOSED ||
     args.row.beatClosePct === null;
 
   if (insufficient) {

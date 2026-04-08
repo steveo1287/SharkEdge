@@ -1,4 +1,4 @@
-import type { LeagueKey } from "@/lib/types/domain";
+import type { LeagueKey, MarketPathBookRole } from "@/lib/types/domain";
 import type {
   BookInfluenceTier,
   MarketEfficiencyClass,
@@ -185,16 +185,22 @@ export function getSportsbookInfluenceWeight(args: {
   marketType: string;
   sportsbookKey: string | null;
   sportsbookName: string | null;
+  truthAdjustment?: number;
 }) {
   const family = getMarketFamily(args.marketType);
   const tier = getBookInfluenceTier(args.sportsbookKey, args.sportsbookName);
   const leagueWeights = MARKET_MODEL_CONFIG.leagueOverrides?.[args.league]?.[family];
   const weights = leagueWeights ?? MARKET_MODEL_CONFIG.defaultWeights[family];
+  const baseWeight = weights[tier];
+  const truthAdjustment = clamp(args.truthAdjustment ?? 0, -0.12, 0.08);
+  const weight = clamp(baseWeight + truthAdjustment, 0.12, 1.08);
 
   return {
     tier,
     family,
-    weight: weights[tier]
+    baseWeight: Number(baseWeight.toFixed(2)),
+    truthAdjustment: Number(truthAdjustment.toFixed(2)),
+    weight: Number(weight.toFixed(2))
   };
 }
 
@@ -277,6 +283,10 @@ export function evaluateMarketSourceQuality(args: {
   disagreementScore: number | null;
   bestPriceFlag: boolean;
   freshnessMinutes: number | null;
+  truthAdjustment?: number;
+  marketPathAdjustment?: number;
+  marketPathRole?: MarketPathBookRole;
+  marketPathNote?: string | null;
 }) {
   const influence = getSportsbookInfluenceWeight(args);
   const disagreement = args.disagreementScore ?? 0;
@@ -285,7 +295,8 @@ export function evaluateMarketSourceQuality(args: {
       ? 8
       : clamp(20 - args.freshnessMinutes * 0.8, 0, 20);
   const bookDepth = clamp(args.bookCount * 5, 0, 24);
-  const influenceScore = influence.weight * 30;
+  const marketPathAdjustment = clamp(args.marketPathAdjustment ?? 0, -0.12, 0.12);
+  const influenceScore = clamp(influence.weight + marketPathAdjustment, 0.12, 1.16) * 30;
   const agreementScore = clamp(20 - disagreement * 80, 0, 20);
   const bestPriceScore = args.bestPriceFlag ? 8 : 0;
   const score = Math.round(
@@ -293,6 +304,14 @@ export function evaluateMarketSourceQuality(args: {
   );
 
   const notes = [
+    influence.truthAdjustment !== 0
+      ? `Truth calibration nudged book influence by ${influence.truthAdjustment > 0 ? "+" : ""}${influence.truthAdjustment.toFixed(2)} from qualified close history.`
+      : "Truth calibration left book influence at the static market-model baseline.",
+    marketPathAdjustment !== 0
+      ? `Market path shifted source quality ${marketPathAdjustment > 0 ? "+" : ""}${marketPathAdjustment.toFixed(2)} because the offered book is behaving like a ${(
+          args.marketPathRole ?? "UNCLASSIFIED"
+        ).toLowerCase().replace(/_/g, " ")} in the current move.`
+      : args.marketPathNote ?? "Market path left source quality at the book-taxonomy prior.",
     `${formatInfluenceLabel(influence.tier)} at ${Number(influence.weight.toFixed(2))}x market influence.`,
     `${args.bookCount} book${args.bookCount === 1 ? "" : "s"} in the comparison set.`,
     args.bestPriceFlag
@@ -311,7 +330,11 @@ export function evaluateMarketSourceQuality(args: {
             ? "Thin source quality"
             : "Weak source quality",
     influenceTier: influence.tier,
-    influenceWeight: Number(influence.weight.toFixed(2)),
+    baseInfluenceWeight: influence.baseWeight,
+    influenceWeight: Number(clamp(influence.weight + marketPathAdjustment, 0.12, 1.16).toFixed(2)),
+    truthAdjustment: influence.truthAdjustment,
+    marketPathAdjustment: Number(marketPathAdjustment.toFixed(2)),
+    marketPathRole: args.marketPathRole ?? "UNCLASSIFIED",
     sharpBookPresent: influence.tier === "MARKET_MAKER",
     notes
   } satisfies OpportunitySourceQuality;
