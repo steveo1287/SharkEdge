@@ -17,6 +17,7 @@ import {
   getOpportunityExecutionResolver,
   type OpportunityExecutionResolver
 } from "@/services/opportunities/opportunity-execution";
+import { buildOpportunityRanking } from "@/services/opportunities/opportunity-ranking";
 
 type PortfolioPosition = {
   id: string;
@@ -328,18 +329,7 @@ function isActionable(opportunity: OpportunityView) {
 }
 
 function getBasePriority(opportunity: OpportunityView) {
-  const existingPriority = opportunity.sizing.capitalPriorityScore ?? 0;
-  return Math.round(
-    clamp(
-      existingPriority +
-        (opportunity.marketMicrostructure.status === "APPLIED"
-          ? opportunity.marketMicrostructure.urgencyScore * 0.08
-          : 0) +
-        (opportunity.executionContext?.executionScore ?? 60) * 0.06,
-      0,
-      100
-    )
-  );
+  return buildOpportunityRanking(opportunity).compositeScore;
 }
 
 function applyBaseExposureAdjustments(args: {
@@ -409,17 +399,19 @@ function applyBaseExposureAdjustments(args: {
     )
   });
 
+  const rankedOpportunity = {
+    ...args.opportunity,
+    sizing: updatedSizing,
+    executionContext
+  } as OpportunityView;
+  const ranking = buildOpportunityRanking(rankedOpportunity);
+
   return {
     opportunity: {
-      ...args.opportunity,
-      sizing: updatedSizing,
-      executionContext
+      ...rankedOpportunity,
+      ranking
     },
-    priorityScore: getBasePriority({
-      ...args.opportunity,
-      sizing: updatedSizing,
-      executionContext
-    } as OpportunityView)
+    priorityScore: ranking.compositeScore
   };
 }
 
@@ -539,12 +531,21 @@ export function createOpportunityPortfolioAllocator(args?: {
         const updatedOpportunity = {
           ...opportunity,
           sizing: updatedSizing
-        };
-        finalById.set(updatedOpportunity.id, updatedOpportunity);
+        } as OpportunityView;
+        const ranking = buildOpportunityRanking(updatedOpportunity);
+        finalById.set(updatedOpportunity.id, {
+          ...updatedOpportunity,
+          ranking
+        });
 
         if (recommendedStake > 0) {
           remainingBudget = Math.max(0, remainingBudget - recommendedStake);
-          simulatedOpenPositions.push(clonePosition(updatedOpportunity));
+          simulatedOpenPositions.push(
+            clonePosition({
+              ...updatedOpportunity,
+              ranking
+            })
+          );
         }
       }
 

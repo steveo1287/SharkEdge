@@ -5,7 +5,9 @@ import type {
   OpportunityActionState,
   OpportunityBankrollSettings,
   OpportunityConfidenceTier,
+  OpportunityCloseDestinationView,
   OpportunityEdgeDecayView,
+  OpportunityExecutionCapacityView,
   OpportunityMarketMicrostructureView,
   OpportunitySizingConfidence,
   OpportunitySizingReasonCode,
@@ -33,6 +35,8 @@ type BuildPositionSizingGuidanceArgs = {
   sourceHealthState: ProviderHealthState;
   truthCalibrationScoreDelta?: number;
   marketMicrostructure?: OpportunityMarketMicrostructureView | null;
+  closeDestination?: OpportunityCloseDestinationView | null;
+  executionCapacity?: OpportunityExecutionCapacityView | null;
   bankrollSettings?: OpportunityBankrollSettings | null;
 };
 
@@ -302,6 +306,26 @@ function getMicrostructureFactor(
   return 0.94;
 }
 
+function getDestinationFactor(
+  closeDestination: OpportunityCloseDestinationView | null | undefined
+) {
+  if (!closeDestination || closeDestination.status !== "APPLIED") {
+    return 1;
+  }
+
+  return clamp(closeDestination.sizingMultiplier, 0.6, 1.1);
+}
+
+function getExecutionCapacityFactor(
+  executionCapacity: OpportunityExecutionCapacityView | null | undefined
+) {
+  if (!executionCapacity || executionCapacity.status !== "APPLIED") {
+    return 1;
+  }
+
+  return clamp(executionCapacity.stakeMultiplier, 0.2, 1);
+}
+
 function getSizingConfidence(args: {
   confidenceTier: OpportunityConfidenceTier;
   marketDisagreementScore: number | null;
@@ -349,6 +373,14 @@ function buildRiskFlags(reasonCodes: OpportunitySizingReasonCode[]) {
         return "Fragmented market behavior forces a smaller stake.";
       case "FAST_DECAY_CAP":
         return "Fast edge decay forces a smaller stake.";
+      case "DESTINATION_IMPROVE_CAP":
+        return "Replay and destination guidance suggest better entry can develop later.";
+      case "DESTINATION_MOSTLY_PRICED_CAP":
+        return "Destination guidance says most of the edge is already priced.";
+      case "EXECUTION_CAPACITY_SCREEN_ONLY":
+        return "Displayed edge looks more like screen value than deployable size.";
+      case "EXECUTION_CAPACITY_FRAGILE":
+        return "Execution capacity is real but fragile, so size stays small.";
       case "EXECUTION_RISK_CAP":
         return "Execution quality risk forced a size reduction.";
       case "TRAP_CAPPED":
@@ -445,6 +477,16 @@ export function buildPositionSizingGuidance(
     reasonCodes.push("FAST_DECAY_CAP");
   }
 
+  if (args.closeDestination?.status === "APPLIED") {
+    if (args.closeDestination.label === "IMPROVE") {
+      reasonCodes.push("DESTINATION_IMPROVE_CAP");
+    } else if (args.closeDestination.label === "MOSTLY_PRICED") {
+      reasonCodes.push("DESTINATION_MOSTLY_PRICED_CAP");
+    } else if (args.closeDestination.label === "DECAY") {
+      reasonCodes.push("DESTINATION_DECAY_SUPPORT");
+    }
+  }
+
   const criticalTrap =
     hasAnyTrap(args.trapFlags, [
       "STALE_EDGE",
@@ -464,6 +506,14 @@ export function buildPositionSizingGuidance(
     reasonCodes.push("STALE_COPY_CONFIRMED");
   }
 
+  if (args.executionCapacity?.status === "APPLIED") {
+    if (args.executionCapacity.label === "SCREEN_VALUE_ONLY") {
+      reasonCodes.push("EXECUTION_CAPACITY_SCREEN_ONLY");
+    } else if (args.executionCapacity.label === "FRAGILE_STALE") {
+      reasonCodes.push("EXECUTION_CAPACITY_FRAGILE");
+    }
+  }
+
   const uncertaintyFactor =
     getConfidenceFactor(args.confidenceTier) *
     getBookDepthFactor(args.bookCount) *
@@ -481,6 +531,8 @@ export function buildPositionSizingGuidance(
   );
   const calibrationFactor = getCalibrationFactor(args.truthCalibrationScoreDelta);
   const microstructureFactor = getMicrostructureFactor(args.marketMicrostructure);
+  const destinationFactor = getDestinationFactor(args.closeDestination);
+  const executionCapacityFactor = getExecutionCapacityFactor(args.executionCapacity);
 
   let adjustedKellyFraction = round(
     clamp(
@@ -490,7 +542,9 @@ export function buildPositionSizingGuidance(
         decayFactor *
         freshnessFactor *
         calibrationFactor *
-        microstructureFactor,
+        microstructureFactor *
+        destinationFactor *
+        executionCapacityFactor,
       0,
       bankrollSettings.maxSingleBetPct
     ),
@@ -552,7 +606,9 @@ export function buildPositionSizingGuidance(
         (args.expectedValuePct ?? 0) * 7 +
         adjustedKellyFraction * 1200 +
         args.sourceQualityScore * 0.08 +
-        (args.marketMicrostructure?.urgencyScore ?? 0) * 0.12 -
+        (args.marketMicrostructure?.urgencyScore ?? 0) * 0.12 +
+        (args.closeDestination?.scoreDelta ?? 0) * 2 +
+        (args.executionCapacity?.rankingDelta ?? 0) * 1.5 -
         args.trapFlags.length * 4,
       0,
       100
@@ -587,6 +643,8 @@ export function buildPositionSizingGuidance(
     exposureAdjustedStake: recommendedStake,
     competitionAdjustedStake: recommendedStake,
     recommendedStake,
+    destinationSizingMultiplier: round(destinationFactor, 4),
+    executionCapacityMultiplier: round(executionCapacityFactor, 4),
     exposureAdjustment: 1,
     correlationPenalty: 1,
     competitionPenalty: 1,

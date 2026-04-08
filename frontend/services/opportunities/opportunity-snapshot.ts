@@ -2,6 +2,9 @@ import type {
   OpportunitySnapshotView,
   OpportunityView
 } from "@/lib/types/opportunity";
+import { buildOpportunityBookLeadershipSummary } from "@/services/opportunities/opportunity-book-leadership";
+import { buildOpportunityCloseDestinationSummary } from "@/services/opportunities/opportunity-close-destination";
+import { buildOpportunityExecutionCapacitySummary } from "@/services/opportunities/opportunity-execution-capacity";
 
 export function buildOpportunitySnapshot(
   opportunity: OpportunityView | null | undefined
@@ -26,7 +29,14 @@ export function buildOpportunitySnapshot(
     sourceHealthState: opportunity.sourceHealth.state,
     calibrationStatus: opportunity.truthCalibration.status,
     calibrationSummary: opportunity.truthCalibration.summary,
-    microstructureSummary: opportunity.marketMicrostructure.summary
+    reasonCalibrationSummary: opportunity.reasonCalibration.summary,
+    microstructureSummary: opportunity.marketMicrostructure.summary,
+    bookLeadershipSummary: buildOpportunityBookLeadershipSummary(opportunity.bookLeadership),
+    destinationSummary: buildOpportunityCloseDestinationSummary(opportunity.closeDestination),
+    capacitySummary: buildOpportunityExecutionCapacitySummary(opportunity.executionCapacity),
+    timingReplaySummary: opportunity.timingReplay.summary,
+    rankingSummary: opportunity.ranking?.notes[0] ?? null,
+    surfacingSummary: opportunity.surfacing?.surfacedBecause ?? null
   };
 }
 

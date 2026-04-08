@@ -1,10 +1,15 @@
 import type { ReasonAttributionView } from "@/lib/types/domain";
 import type {
   MarketEfficiencyClass,
+  OpportunityBookLeadershipView,
+  OpportunityCloseDestinationView,
   OpportunityEdgeDecayView,
+  OpportunityExecutionCapacityView,
   OpportunityExecutionContextView,
   OpportunityMarketMicrostructureView,
+  OpportunityReasonCalibrationView,
   OpportunitySourceQuality,
+  OpportunityTimingReplayView,
   OpportunityTrapFlag,
   OpportunityTruthCalibrationView,
   OpportunityView,
@@ -194,6 +199,47 @@ function describeCalibration(calibration: OpportunityTruthCalibrationView) {
   return "No matching close-history lane was strong enough to change this call";
 }
 
+function describeReasonCalibration(calibration: OpportunityReasonCalibrationView) {
+  if (calibration.status === "APPLIED") {
+    const appliedLabels = calibration.applied
+      .slice(0, 2)
+      .map((item) => item.label)
+      .join(", ");
+
+    return `Reason-level truth nudged the setup ${calibration.scoreDelta >= 0 ? "+" : ""}${calibration.scoreDelta} score and ${calibration.timingDelta >= 0 ? "+" : ""}${calibration.timingDelta} timing from ${appliedLabels}.`;
+  }
+
+  if (calibration.status === "SKIPPED_INSUFFICIENT_SAMPLE") {
+    return "Reason-level truth stayed neutral because the exact explanation lanes do not have enough closed history yet.";
+  }
+
+  if (calibration.status === "SKIPPED_NEUTRAL") {
+    return "Reason-level truth qualified but stayed neutral because similar explanation lanes are close to flat.";
+  }
+
+  return "Reason-level truth is neutral because this exact explanation pattern does not have useful close history yet.";
+}
+
+function describeTimingReplay(timingReplay: OpportunityTimingReplayView) {
+  if (timingReplay.status !== "APPLIED") {
+    return timingReplay.summary;
+  }
+
+  if (timingReplay.bias === "STRENGTHEN_BET_NOW") {
+    return "Replay truth supports betting now because similar spots beat close or die fast too often to watch passively.";
+  }
+
+  if (timingReplay.bias === "STRENGTHEN_WAIT") {
+    return "Replay truth supports waiting because similar spots improve before close often enough to avoid forcing entry.";
+  }
+
+  if (timingReplay.bias === "DEMOTE_WATCH") {
+    return "Replay truth says watch posture is too passive here because similar spots miss the window too often.";
+  }
+
+  return "Replay truth stayed near neutral for this timing lane.";
+}
+
 function describeMicrostructure(microstructure: OpportunityMarketMicrostructureView) {
   if (microstructure.status !== "APPLIED") {
     return microstructure.summary;
@@ -212,6 +258,38 @@ function describeMicrostructure(microstructure: OpportunityMarketMicrostructureV
   }
 
   return microstructure.summary;
+}
+
+function describeBookLeadership(bookLeadership: OpportunityBookLeadershipView) {
+  if (bookLeadership.status !== "APPLIED") {
+    return bookLeadership.notes[0] ?? "Book lane history stayed neutral.";
+  }
+
+  if (bookLeadership.role === "LEADER" || bookLeadership.role === "CONFIRMER") {
+    return `Lane history says this book matters here: ${bookLeadership.role.toLowerCase()} behavior with ${bookLeadership.surfaced}/${bookLeadership.closed} qualified samples.`;
+  }
+
+  if (bookLeadership.role === "LAGGER") {
+    return `Lane history treats this book as a lagger, so the price can be executable even when it is not a signal source.`;
+  }
+
+  if (bookLeadership.role === "OUTLIER") {
+    return "Lane history treats this book as noisy in this market, so source trust stays capped.";
+  }
+
+  return bookLeadership.notes[0] ?? "Lane history is present but not decisive.";
+}
+
+function describeCloseDestination(closeDestination: OpportunityCloseDestinationView) {
+  if (closeDestination.status !== "APPLIED") {
+    return closeDestination.notes[0] ?? "Close destination stayed neutral.";
+  }
+
+  return `Close destination reads ${closeDestination.label.toLowerCase().replace(/_/g, " ")} with ${closeDestination.confidence.toLowerCase()} confidence.`;
+}
+
+function describeExecutionCapacity(executionCapacity: OpportunityExecutionCapacityView) {
+  return `Execution capacity looks ${executionCapacity.label.toLowerCase().replace(/_/g, " ")} with score ${executionCapacity.capacityScore}.`;
 }
 
 function describeSizing(sizing: PositionSizingGuidance) {
@@ -282,7 +360,12 @@ export function buildOpportunityExplanation(args: {
   sizing: PositionSizingGuidance;
   executionContext?: OpportunityExecutionContextView | null;
   truthCalibration: OpportunityTruthCalibrationView;
+  reasonCalibration: OpportunityReasonCalibrationView;
   marketMicrostructure: OpportunityMarketMicrostructureView;
+  bookLeadership: OpportunityBookLeadershipView;
+  closeDestination: OpportunityCloseDestinationView;
+  executionCapacity: OpportunityExecutionCapacityView;
+  timingReplay: OpportunityTimingReplayView;
 }) {
   const marketProblem = describeMarketProblem({
     fairLineGap: args.fairLineGap,
@@ -305,7 +388,12 @@ export function buildOpportunityExplanation(args: {
   });
   const decayLine = describeDecay(args.edgeDecay);
   const calibrationLine = describeCalibration(args.truthCalibration);
+  const reasonCalibrationLine = describeReasonCalibration(args.reasonCalibration);
   const microstructureLine = describeMicrostructure(args.marketMicrostructure);
+  const bookLeadershipLine = describeBookLeadership(args.bookLeadership);
+  const closeDestinationLine = describeCloseDestination(args.closeDestination);
+  const executionCapacityLine = describeExecutionCapacity(args.executionCapacity);
+  const timingReplayLine = describeTimingReplay(args.timingReplay);
   const sizingLine = describeSizing(args.sizing);
   const executionLine = describeExecution(args.executionContext);
   const reasonDetails = getReasonDetail(args.reasons);
@@ -315,7 +403,12 @@ export function buildOpportunityExplanation(args: {
     whyNumberExists,
     confirmation,
     microstructureLine,
+    bookLeadershipLine,
+    closeDestinationLine,
+    executionCapacityLine,
     calibrationLine,
+    reasonCalibrationLine,
+    timingReplayLine,
     sizingLine,
     executionLine,
     decayLine,
@@ -327,8 +420,29 @@ export function buildOpportunityExplanation(args: {
     args.truthCalibration.trapEscalation
       ? "Historical close results are weak for this pattern, so the trap posture is tighter than normal."
       : null,
+    args.reasonCalibration.trapEscalation
+      ? "Reason-level truth says this exact explanation stack underperforms, so the trap posture is tighter than normal."
+      : null,
     args.marketMicrostructure.trapEscalation
       ? "Market-path structure looks noisy enough that the trap gate is tighter than the static heuristics alone."
+      : null,
+    args.closeDestination.status === "APPLIED" &&
+    args.closeDestination.label === "MOSTLY_PRICED"
+      ? "Close-destination guidance says most of the edge is already priced, so chasing this number is dangerous."
+      : null,
+    args.closeDestination.status === "APPLIED" &&
+    args.closeDestination.label === "IMPROVE"
+      ? "Replay and destination guidance say better entry often develops later in this lane."
+      : null,
+    args.timingReplay.status === "APPLIED" &&
+    args.timingReplay.bias === "DEMOTE_WATCH"
+      ? "Replay truth says sitting in watch mode usually misses this window."
+      : null,
+    args.executionCapacity.label === "SCREEN_VALUE_ONLY"
+      ? "Displayed edge looks more like screen value than a scalable bet."
+      : null,
+    args.executionCapacity.label === "FRAGILE_STALE"
+      ? "Execution window is real but fragile, so size has to stay small even if the path is right."
       : null,
     args.sizing.correlationPenalty < 0.99
       ? "Existing exposure in the same risk cluster is already large enough to force a smaller size."
@@ -358,8 +472,20 @@ export function buildOpportunityExplanation(args: {
     args.marketMicrostructure.status === "APPLIED"
       ? `${args.marketMicrostructure.regime.toLowerCase().replace(/_/g, " ")}`
       : null,
+    args.closeDestination.status === "APPLIED"
+      ? `destination ${args.closeDestination.label.toLowerCase().replace(/_/g, " ")}`
+      : null,
+    args.executionCapacity.status === "APPLIED"
+      ? `${args.executionCapacity.label.toLowerCase().replace(/_/g, " ")}`
+      : null,
     args.truthCalibration.status === "APPLIED"
       ? `calibrated ${args.truthCalibration.scoreDelta >= 0 ? "+" : ""}${args.truthCalibration.scoreDelta}`
+      : null,
+    args.reasonCalibration.status === "APPLIED"
+      ? `reason truth ${args.reasonCalibration.scoreDelta >= 0 ? "+" : ""}${args.reasonCalibration.scoreDelta}`
+      : null,
+    args.timingReplay.status === "APPLIED"
+      ? `replay ${args.timingReplay.bias.toLowerCase().replace(/_/g, " ")}`
       : null
   ]
     .filter((item): item is string => Boolean(item))

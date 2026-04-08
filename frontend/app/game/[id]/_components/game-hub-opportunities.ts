@@ -1,63 +1,19 @@
 import type { OpportunityView } from "@/lib/types/opportunity";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
 import { recordSurfacedOpportunities } from "@/services/opportunities/opportunity-clv-service";
+import { getOpportunityBookLeadershipResolver } from "@/services/opportunities/opportunity-book-leadership";
+import { getOpportunityCloseDestinationResolver } from "@/services/opportunities/opportunity-close-destination";
 import { getOpportunityMarketPathResolver } from "@/services/opportunities/opportunity-market-path";
 import { getOpportunityPortfolioAllocator } from "@/services/opportunities/opportunity-portfolio";
+import { getOpportunityReasonCalibrationResolver } from "@/services/opportunities/opportunity-reason-calibration";
+import { getOpportunityTimingReplayResolver } from "@/services/opportunities/opportunity-timing-review";
 import { getOpportunityTruthCalibrationResolver } from "@/services/opportunities/opportunity-truth-calibration";
 import {
   buildBetSignalOpportunity,
   buildPropOpportunity,
   rankOpportunities
 } from "@/services/opportunities/opportunity-service";
-
-function shouldSurfaceOpportunity(opportunity: OpportunityView) {
-  if (opportunity.actionState === "PASS") {
-    return false;
-  }
-
-  if (opportunity.staleFlag) {
-    return false;
-  }
-
-  if (opportunity.sourceHealth.state === "OFFLINE") {
-    return false;
-  }
-
-  if (
-    opportunity.trapFlags.includes("LOW_PROVIDER_HEALTH") ||
-    opportunity.trapFlags.includes("STALE_EDGE") ||
-    opportunity.trapFlags.includes("ONE_BOOK_OUTLIER")
-  ) {
-    return false;
-  }
-
-  if (
-    opportunity.actionState === "BET_NOW" &&
-    opportunity.opportunityScore >= 78 &&
-    opportunity.confidenceTier !== "D"
-  ) {
-    return true;
-  }
-
-  if (
-    opportunity.actionState === "WAIT" &&
-    opportunity.opportunityScore >= 82 &&
-    opportunity.confidenceTier === "A"
-  ) {
-    return true;
-  }
-
-  if (
-    opportunity.actionState === "WATCH" &&
-    opportunity.opportunityScore >= 86 &&
-    opportunity.confidenceTier === "A" &&
-    !opportunity.trapFlags.includes("FAKE_MOVE_RISK")
-  ) {
-    return true;
-  }
-
-  return false;
-}
+import { applyOpportunitySurfacing } from "@/services/opportunities/opportunity-surfacing";
 
 export async function buildForYouOpportunities(
   routeId: string,
@@ -67,11 +23,31 @@ export async function buildForYouOpportunities(
     return [];
   }
 
-  const [truthCalibrationResolver, marketPathResolver, portfolioAllocator] = await Promise.all([
+  const [
+    truthCalibrationResolver,
+    marketPathResolver,
+    bookLeadershipResolver,
+    closeDestinationResolver,
+    reasonCalibrationResolver,
+    timingReplayResolver,
+    portfolioAllocator
+  ] = await Promise.all([
     getOpportunityTruthCalibrationResolver({
       league: detail.league.key
     }),
     getOpportunityMarketPathResolver({
+      league: detail.league.key
+    }),
+    getOpportunityBookLeadershipResolver({
+      league: detail.league.key
+    }),
+    getOpportunityCloseDestinationResolver({
+      league: detail.league.key
+    }),
+    getOpportunityReasonCalibrationResolver({
+      league: detail.league.key
+    }),
+    getOpportunityTimingReplayResolver({
       league: detail.league.key
     }),
     getOpportunityPortfolioAllocator()
@@ -83,7 +59,11 @@ export async function buildForYouOpportunities(
       detail.providerHealth,
       null,
       truthCalibrationResolver,
-      marketPathResolver
+      marketPathResolver,
+      bookLeadershipResolver,
+      closeDestinationResolver,
+      reasonCalibrationResolver,
+      timingReplayResolver
     )
   );
 
@@ -93,7 +73,11 @@ export async function buildForYouOpportunities(
       detail.providerHealth,
       null,
       truthCalibrationResolver,
-      marketPathResolver
+      marketPathResolver,
+      bookLeadershipResolver,
+      closeDestinationResolver,
+      reasonCalibrationResolver,
+      timingReplayResolver
     )
   );
 
@@ -104,8 +88,11 @@ export async function buildForYouOpportunities(
     }))
   );
 
-  const opportunities = rankOpportunities<OpportunityView>(allocatedOpportunities)
-    .filter(shouldSurfaceOpportunity)
+  const surfacedOpportunities = allocatedOpportunities.map((opportunity) =>
+    applyOpportunitySurfacing(opportunity, "matchup_for_you")
+  );
+  const opportunities = rankOpportunities<OpportunityView>(surfacedOpportunities)
+    .filter((opportunity) => opportunity.surfacing?.status === "SURFACED")
     .slice(0, 2);
 
   await recordSurfacedOpportunities(opportunities, "matchup_for_you", {

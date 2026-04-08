@@ -18,7 +18,10 @@ type BuildOpportunityScoreArgs = {
   marketEfficiencyScore?: number;
   edgeDecayPenalty?: number;
   truthCalibrationScoreDelta?: number;
+  reasonCalibrationScoreDelta?: number;
   marketPathScoreDelta?: number;
+  closeDestinationScoreDelta?: number;
+  executionCapacityScoreDelta?: number;
   trapFlags: OpportunityTrapFlag[];
   personalizationDelta: number;
 };
@@ -177,7 +180,10 @@ export function buildOpportunityScore(
   const marketEfficiency = buildMarketEfficiencyScore(args);
   const edgeDecayPenalty = buildDecayPenalty(args);
   const truthCalibration = clamp(args.truthCalibrationScoreDelta ?? 0, -8, 6);
+  const reasonCalibration = clamp(args.reasonCalibrationScoreDelta ?? 0, -5, 5);
   const marketPath = clamp(args.marketPathScoreDelta ?? 0, -6, 6);
+  const closeDestination = clamp(args.closeDestinationScoreDelta ?? 0, -6, 5);
+  const executionCapacity = clamp(args.executionCapacityScoreDelta ?? 0, -6, 4);
   const personalization = clamp(args.personalizationDelta, -8, 8);
 
   const trapPenalties = args.trapFlags.reduce(
@@ -198,7 +204,10 @@ export function buildOpportunityScore(
     sourceQuality +
     marketEfficiency +
     truthCalibration +
+    reasonCalibration +
     marketPath +
+    closeDestination +
+    executionCapacity +
     personalization -
     penalties;
 
@@ -217,7 +226,10 @@ export function buildOpportunityScore(
       marketEfficiency: round(marketEfficiency),
       edgeDecay: -round(edgeDecayPenalty),
       truthCalibration: round(truthCalibration),
+      reasonCalibration: round(reasonCalibration),
       marketPath: round(marketPath),
+      closeDestination: round(closeDestination),
+      executionCapacity: round(executionCapacity),
       personalization,
       penalties
     }

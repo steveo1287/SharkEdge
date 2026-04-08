@@ -285,6 +285,7 @@ export function evaluateMarketSourceQuality(args: {
   freshnessMinutes: number | null;
   truthAdjustment?: number;
   marketPathAdjustment?: number;
+  leadershipAdjustment?: number;
   marketPathRole?: MarketPathBookRole;
   marketPathNote?: string | null;
 }) {
@@ -296,7 +297,12 @@ export function evaluateMarketSourceQuality(args: {
       : clamp(20 - args.freshnessMinutes * 0.8, 0, 20);
   const bookDepth = clamp(args.bookCount * 5, 0, 24);
   const marketPathAdjustment = clamp(args.marketPathAdjustment ?? 0, -0.12, 0.12);
-  const influenceScore = clamp(influence.weight + marketPathAdjustment, 0.12, 1.16) * 30;
+  const leadershipAdjustment = clamp(args.leadershipAdjustment ?? 0, -0.12, 0.1);
+  const influenceScore = clamp(
+    influence.weight + marketPathAdjustment + leadershipAdjustment,
+    0.12,
+    1.18
+  ) * 30;
   const agreementScore = clamp(20 - disagreement * 80, 0, 20);
   const bestPriceScore = args.bestPriceFlag ? 8 : 0;
   const score = Math.round(
@@ -312,6 +318,9 @@ export function evaluateMarketSourceQuality(args: {
           args.marketPathRole ?? "UNCLASSIFIED"
         ).toLowerCase().replace(/_/g, " ")} in the current move.`
       : args.marketPathNote ?? "Market path left source quality at the book-taxonomy prior.",
+    leadershipAdjustment !== 0
+      ? `Lane history shifted source quality ${leadershipAdjustment > 0 ? "+" : ""}${leadershipAdjustment.toFixed(2)} based on how this book actually behaves in this sport and market lane.`
+      : "Lane history left source quality at the current book-behavior baseline.",
     `${formatInfluenceLabel(influence.tier)} at ${Number(influence.weight.toFixed(2))}x market influence.`,
     `${args.bookCount} book${args.bookCount === 1 ? "" : "s"} in the comparison set.`,
     args.bestPriceFlag
@@ -331,9 +340,12 @@ export function evaluateMarketSourceQuality(args: {
             : "Weak source quality",
     influenceTier: influence.tier,
     baseInfluenceWeight: influence.baseWeight,
-    influenceWeight: Number(clamp(influence.weight + marketPathAdjustment, 0.12, 1.16).toFixed(2)),
+    influenceWeight: Number(
+      clamp(influence.weight + marketPathAdjustment + leadershipAdjustment, 0.12, 1.18).toFixed(2)
+    ),
     truthAdjustment: influence.truthAdjustment,
     marketPathAdjustment: Number(marketPathAdjustment.toFixed(2)),
+    leadershipAdjustment: Number(leadershipAdjustment.toFixed(2)),
     marketPathRole: args.marketPathRole ?? "UNCLASSIFIED",
     sharpBookPresent: influence.tier === "MARKET_MAKER",
     notes

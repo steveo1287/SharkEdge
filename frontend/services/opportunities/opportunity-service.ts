@@ -15,6 +15,20 @@ import type {
   OpportunityProfile,
   OpportunityView
 } from "@/lib/types/opportunity";
+import {
+  buildOpportunityBookLeadershipSummary,
+  createOpportunityBookLeadershipResolver,
+  type OpportunityBookLeadershipResolver
+} from "@/services/opportunities/opportunity-book-leadership";
+import {
+  buildOpportunityCloseDestinationSummary,
+  createOpportunityCloseDestinationResolver,
+  type OpportunityCloseDestinationResolver
+} from "@/services/opportunities/opportunity-close-destination";
+import {
+  buildOpportunityExecutionCapacity,
+  buildOpportunityExecutionCapacitySummary
+} from "@/services/opportunities/opportunity-execution-capacity";
 import { buildOpportunityExplanation } from "@/services/opportunities/opportunity-explainer";
 import { buildOpportunityEdgeDecay } from "@/services/opportunities/opportunity-edge-decay";
 import {
@@ -34,9 +48,19 @@ import {
   createOpportunityPortfolioAllocator,
   type OpportunityPortfolioAllocator
 } from "@/services/opportunities/opportunity-portfolio";
+import {
+  createOpportunityReasonCalibrationResolver,
+  type OpportunityReasonCalibrationResolver
+} from "@/services/opportunities/opportunity-reason-calibration";
+import { buildOpportunityRanking } from "@/services/opportunities/opportunity-ranking";
 import { buildOpportunityScore } from "@/services/opportunities/opportunity-scoring";
 import { buildPositionSizingGuidance } from "@/services/opportunities/opportunity-sizing";
+import { applyOpportunitySurfacing } from "@/services/opportunities/opportunity-surfacing";
 import { buildOpportunityTiming } from "@/services/opportunities/opportunity-timing";
+import {
+  createOpportunityTimingReplayResolver,
+  type OpportunityTimingReplayResolver
+} from "@/services/opportunities/opportunity-timing-review";
 import {
   createOpportunityTruthCalibrationResolver,
   type OpportunityTruthCalibrationResolver
@@ -46,6 +70,10 @@ import { getMarketPathRole } from "@/services/market/market-path-service";
 
 const neutralTruthCalibrationResolver = createOpportunityTruthCalibrationResolver();
 const neutralMarketPathResolver = createOpportunityMarketPathResolver();
+const neutralBookLeadershipResolver = createOpportunityBookLeadershipResolver();
+const neutralCloseDestinationResolver = createOpportunityCloseDestinationResolver();
+const neutralReasonCalibrationResolver = createOpportunityReasonCalibrationResolver();
+const neutralTimingReplayResolver = createOpportunityTimingReplayResolver();
 const neutralPortfolioAllocator = createOpportunityPortfolioAllocator();
 
 function clamp(value: number, min: number, max: number) {
@@ -131,22 +159,6 @@ function getProviderFreshnessMinutes(args: {
   return args.providerHealth?.freshnessMinutes ?? null;
 }
 
-function getActionPriority(actionState: OpportunityView["actionState"]) {
-  if (actionState === "BET_NOW") {
-    return 4;
-  }
-
-  if (actionState === "WAIT") {
-    return 3;
-  }
-
-  if (actionState === "WATCH") {
-    return 2;
-  }
-
-  return 1;
-}
-
 function getConfidencePriority(confidenceTier: OpportunityConfidenceTier) {
   if (confidenceTier === "A") {
     return 4;
@@ -161,46 +173,6 @@ function getConfidencePriority(confidenceTier: OpportunityConfidenceTier) {
   }
 
   return 1;
-}
-
-function shouldSurfaceHomeOpportunity(opportunity: OpportunityView) {
-  if (opportunity.actionState === "PASS") {
-    return false;
-  }
-
-  if (opportunity.staleFlag) {
-    return false;
-  }
-
-  if (opportunity.sourceHealth.state === "OFFLINE") {
-    return false;
-  }
-
-  if (
-    opportunity.trapFlags.includes("LOW_PROVIDER_HEALTH") ||
-    opportunity.trapFlags.includes("STALE_EDGE") ||
-    opportunity.trapFlags.includes("ONE_BOOK_OUTLIER")
-  ) {
-    return false;
-  }
-
-  if (
-    opportunity.actionState === "BET_NOW" &&
-    opportunity.opportunityScore >= 78 &&
-    opportunity.confidenceTier !== "D"
-  ) {
-    return true;
-  }
-
-  if (
-    opportunity.actionState === "WAIT" &&
-    opportunity.opportunityScore >= 84 &&
-    (opportunity.confidenceTier === "A" || opportunity.confidenceTier === "B")
-  ) {
-    return true;
-  }
-
-  return false;
 }
 
 type BaseOpportunityArgs = {
@@ -238,6 +210,10 @@ type BaseOpportunityArgs = {
   profile?: OpportunityProfile | null;
   truthCalibrationResolver?: OpportunityTruthCalibrationResolver | null;
   marketPathResolver?: OpportunityMarketPathResolver | null;
+  bookLeadershipResolver?: OpportunityBookLeadershipResolver | null;
+  closeDestinationResolver?: OpportunityCloseDestinationResolver | null;
+  reasonCalibrationResolver?: OpportunityReasonCalibrationResolver | null;
+  timingReplayResolver?: OpportunityTimingReplayResolver | null;
   conflictSignal?: boolean;
 };
 
@@ -245,6 +221,14 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
   const truthCalibrationResolver =
     args.truthCalibrationResolver ?? neutralTruthCalibrationResolver;
   const marketPathResolver = args.marketPathResolver ?? neutralMarketPathResolver;
+  const bookLeadershipResolver =
+    args.bookLeadershipResolver ?? neutralBookLeadershipResolver;
+  const closeDestinationResolver =
+    args.closeDestinationResolver ?? neutralCloseDestinationResolver;
+  const reasonCalibrationResolver =
+    args.reasonCalibrationResolver ?? neutralReasonCalibrationResolver;
+  const timingReplayResolver =
+    args.timingReplayResolver ?? neutralTimingReplayResolver;
   const providerFreshnessMinutes = getProviderFreshnessMinutes({
     providerHealth: args.providerHealth,
     snapshotAgeSeconds: args.snapshotAgeSeconds
@@ -364,6 +348,8 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     edgeDecayPenalty: edgeDecay.penalty,
     truthCalibrationScoreDelta: 0,
     marketPathScoreDelta: 0,
+    closeDestinationScoreDelta: 0,
+    executionCapacityScoreDelta: 0,
     trapFlags,
     personalizationDelta
   });
@@ -409,6 +395,14 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     trapFlags,
     marketPath: args.marketPath ?? null
   });
+  const bookLeadership = bookLeadershipResolver.resolve({
+    league: args.league,
+    marketType: args.marketType,
+    marketEfficiency,
+    sportsbookKey: args.sportsbookKey,
+    sportsbookName: args.sportsbookName,
+    marketPath: args.marketPath ?? null
+  });
   const sourceQuality = evaluateMarketSourceQuality({
     league: args.league,
     marketType: args.marketType,
@@ -420,8 +414,34 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     freshnessMinutes: providerFreshnessMinutes,
     truthAdjustment: truthCalibration.sourceWeightDelta,
     marketPathAdjustment: marketMicrostructure.sourceWeightDelta,
+    leadershipAdjustment: bookLeadership.influenceAdjustment,
     marketPathRole: offeredMarketPathRole,
     marketPathNote: marketMicrostructure.reasons[0] ?? args.marketPath?.notes[0] ?? null
+  });
+  const closeDestination = closeDestinationResolver.resolve({
+    league: args.league,
+    marketType: args.marketType,
+    marketEfficiency,
+    bestPriceFlag: args.bestPriceFlag,
+    marketDisagreementScore: args.marketDisagreementScore,
+    providerFreshnessMinutes,
+    sourceHealthState: args.providerHealth?.state ?? "HEALTHY",
+    marketPath: args.marketPath ?? null,
+    marketMicrostructure,
+    bookLeadership
+  });
+  const executionCapacity = buildOpportunityExecutionCapacity({
+    marketType: args.marketType,
+    marketEfficiency,
+    bookCount: args.bookCount,
+    bestPriceFlag: args.bestPriceFlag,
+    providerFreshnessMinutes,
+    sourceHealthState: args.providerHealth?.state ?? "HEALTHY",
+    marketDisagreementScore: args.marketDisagreementScore,
+    sourceQualityScore: sourceQuality.score,
+    marketMicrostructure,
+    bookLeadership,
+    closeDestination
   });
   const supportScore = supportScoreFromReasons({
     reasons: args.reasons,
@@ -431,7 +451,7 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     freshnessMinutes: providerFreshnessMinutes,
     sourceQualityScore: sourceQuality.score
   });
-  const scoring = buildOpportunityScore({
+  const preReasonScoring = buildOpportunityScore({
     expectedValuePct: args.expectedValuePct,
     fairLineGap: args.fairLineGap,
     edgeScore: args.edgeScore,
@@ -446,12 +466,15 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     marketEfficiencyScore: getMarketEfficiencyScore(marketEfficiency),
     edgeDecayPenalty: edgeDecay.penalty,
     truthCalibrationScoreDelta: truthCalibration.scoreDelta,
+    reasonCalibrationScoreDelta: 0,
     marketPathScoreDelta: marketMicrostructure.scoreDelta,
+    closeDestinationScoreDelta: closeDestination.scoreDelta,
+    executionCapacityScoreDelta: executionCapacity.rankingDelta,
     trapFlags,
     personalizationDelta
   });
-  const timing = buildOpportunityTiming({
-    score: scoring.score,
+  const preReasonTiming = buildOpportunityTiming({
+    score: preReasonScoring.score,
     expectedValuePct: args.expectedValuePct,
     lineMovement: args.lineMovement,
     bestPriceFlag: args.bestPriceFlag,
@@ -467,11 +490,126 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     marketPathStaleCopyConfidence: args.marketPath?.staleCopyConfidence,
     marketPathRepricingLikelihood: marketMicrostructure.repricingLikelihood,
     marketPathWaitImprovementLikelihood: marketMicrostructure.waitImprovementLikelihood,
-    marketPathTrapEscalation: marketMicrostructure.trapEscalation
+    marketPathTrapEscalation: marketMicrostructure.trapEscalation,
+    closeDestinationLabel: closeDestination.label,
+    closeDestinationConfidence: closeDestination.confidence,
+    closeDestinationTimingDelta: closeDestination.timingDelta,
+    executionCapacityLabel: executionCapacity.label,
+    executionCapacityTimingDelta: executionCapacity.timingDelta
+  });
+  const preReasonConfidenceTier = getConfidenceTier(preReasonScoring.score, trapFlags);
+  const reasonCalibration = reasonCalibrationResolver.resolve({
+    league: args.league,
+    marketType: args.marketType,
+    marketEfficiency,
+    bestPriceFlag: args.bestPriceFlag,
+    bookCount: args.bookCount,
+    marketDisagreementScore: args.marketDisagreementScore,
+    sourceQualityScore: sourceQuality.score,
+    trapFlags,
+    actionState: preReasonTiming.actionState,
+    timingState: preReasonTiming.timingState,
+    marketPathRegime: args.marketPath?.regime ?? marketMicrostructure.regime,
+    staleCopyConfidence:
+      args.marketPath?.staleCopyConfidence ?? marketMicrostructure.staleCopyConfidence,
+    closeDestinationLabel: closeDestination.label,
+    executionCapacityLabel: executionCapacity.label,
+    baseScore: preReasonScoring.score,
+    baseTimingQuality: preReasonTiming.timingQuality
+  });
+  const calibratedSourceQuality = evaluateMarketSourceQuality({
+    league: args.league,
+    marketType: args.marketType,
+    sportsbookKey: args.sportsbookKey,
+    sportsbookName: args.sportsbookName,
+    bookCount: args.bookCount,
+    disagreementScore: args.marketDisagreementScore,
+    bestPriceFlag: args.bestPriceFlag,
+    freshnessMinutes: providerFreshnessMinutes,
+    truthAdjustment: truthCalibration.sourceWeightDelta + reasonCalibration.sourceWeightDelta,
+    marketPathAdjustment: marketMicrostructure.sourceWeightDelta,
+    leadershipAdjustment: bookLeadership.influenceAdjustment,
+    marketPathRole: offeredMarketPathRole,
+    marketPathNote: marketMicrostructure.reasons[0] ?? args.marketPath?.notes[0] ?? null
+  });
+  const calibratedSupportScore = supportScoreFromReasons({
+    reasons: args.reasons,
+    bestPriceFlag: args.bestPriceFlag,
+    bookCount: args.bookCount,
+    marketDisagreementScore: args.marketDisagreementScore,
+    freshnessMinutes: providerFreshnessMinutes,
+    sourceQualityScore: calibratedSourceQuality.score
+  });
+  const timingReplay = timingReplayResolver.resolve({
+    league: args.league,
+    marketType: args.marketType,
+    marketPathRegime: args.marketPath?.regime ?? marketMicrostructure.regime,
+    staleCopyConfidence:
+      args.marketPath?.staleCopyConfidence ?? marketMicrostructure.staleCopyConfidence,
+    actionState: preReasonTiming.actionState,
+    timingState: preReasonTiming.timingState,
+    confidenceTier: preReasonConfidenceTier,
+    reasonLanes: reasonCalibration.reasonLanes
+  });
+  const scoring = buildOpportunityScore({
+    expectedValuePct: args.expectedValuePct,
+    fairLineGap: args.fairLineGap,
+    edgeScore: args.edgeScore,
+    confidenceScore: args.confidenceScore,
+    qualityScore: args.qualityScore,
+    disagreementScore: args.marketDisagreementScore,
+    freshnessMinutes: providerFreshnessMinutes,
+    bookCount: args.bookCount,
+    timingQuality: preReasonTiming.timingQuality,
+    supportScore: calibratedSupportScore,
+    sourceQualityScore: calibratedSourceQuality.score,
+    marketEfficiencyScore: getMarketEfficiencyScore(marketEfficiency),
+    edgeDecayPenalty: edgeDecay.penalty,
+    truthCalibrationScoreDelta: truthCalibration.scoreDelta,
+    reasonCalibrationScoreDelta: reasonCalibration.scoreDelta,
+    marketPathScoreDelta: marketMicrostructure.scoreDelta,
+    closeDestinationScoreDelta: closeDestination.scoreDelta,
+    executionCapacityScoreDelta: executionCapacity.rankingDelta,
+    trapFlags,
+    personalizationDelta
+  });
+  const timing = buildOpportunityTiming({
+    score: scoring.score,
+    expectedValuePct: args.expectedValuePct,
+    lineMovement: args.lineMovement,
+    bestPriceFlag: args.bestPriceFlag,
+    freshnessMinutes: providerFreshnessMinutes,
+    trapFlags,
+    disagreementScore: args.marketDisagreementScore,
+    marketEfficiency,
+    edgeDecayPenalty: edgeDecay.penalty,
+    truthTimingDelta: truthCalibration.timingDelta,
+    calibrationTrapEscalation:
+      truthCalibration.trapEscalation || reasonCalibration.trapEscalation,
+    reasonTimingDelta: reasonCalibration.timingDelta,
+    reasonTrapEscalation: reasonCalibration.trapEscalation,
+    marketPathTimingDelta: marketMicrostructure.timingDelta,
+    marketPathExecutionHint: args.marketPath?.executionHint,
+    marketPathStaleCopyConfidence: args.marketPath?.staleCopyConfidence,
+    marketPathRepricingLikelihood: marketMicrostructure.repricingLikelihood,
+    marketPathWaitImprovementLikelihood: marketMicrostructure.waitImprovementLikelihood,
+    marketPathTrapEscalation: marketMicrostructure.trapEscalation,
+    closeDestinationLabel: closeDestination.label,
+    closeDestinationConfidence: closeDestination.confidence,
+    closeDestinationTimingDelta: closeDestination.timingDelta,
+    executionCapacityLabel: executionCapacity.label,
+    executionCapacityTimingDelta: executionCapacity.timingDelta,
+    timingReplayDelta: timingReplay.timingDelta,
+    timingReplayBias: timingReplay.bias
   });
   const confidenceTier = getConfidenceTier(scoring.score, trapFlags);
   const appliedTruthCalibration = {
     ...truthCalibration,
+    calibratedScore: scoring.score,
+    calibratedTimingQuality: timing.timingQuality
+  };
+  const appliedReasonCalibration = {
+    ...reasonCalibration,
     calibratedScore: scoring.score,
     calibratedTimingQuality: timing.timingQuality
   };
@@ -489,10 +627,12 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     fairPriceAmerican: args.fairPriceAmerican,
     displayOddsAmerican: args.displayOddsAmerican,
     actionState: timing.actionState,
-    sourceQualityScore: sourceQuality.score,
+    sourceQualityScore: calibratedSourceQuality.score,
     sourceHealthState: args.providerHealth?.state ?? "HEALTHY",
     truthCalibrationScoreDelta: truthCalibration.scoreDelta,
-    marketMicrostructure
+    marketMicrostructure,
+    closeDestination,
+    executionCapacity
   });
 
   const explanation = buildOpportunityExplanation({
@@ -512,15 +652,20 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     actionState: timing.actionState,
     timingState: timing.timingState,
     marketEfficiency,
-    sourceQuality,
+    sourceQuality: calibratedSourceQuality,
     edgeDecay,
     sizing,
     executionContext: null,
     truthCalibration: appliedTruthCalibration,
-    marketMicrostructure
+    reasonCalibration: appliedReasonCalibration,
+    marketMicrostructure,
+    bookLeadership,
+    closeDestination,
+    executionCapacity,
+    timingReplay
   });
 
-  return {
+  const opportunityBase: OpportunityView = {
     id: args.id,
     kind: args.kind,
     league: args.league,
@@ -547,11 +692,18 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     lineMovement: round(args.lineMovement),
     marketPath: args.marketPath ?? null,
     marketEfficiency,
-    sourceQuality,
+    reasonLanes: reasonCalibration.reasonLanes,
+    sourceQuality: calibratedSourceQuality,
     edgeDecay,
     marketMicrostructure,
+    bookLeadership,
+    closeDestination,
+    executionCapacity,
     sizing,
     executionContext: null,
+    reasonCalibration: appliedReasonCalibration,
+    timingReplay,
+    postCloseReview: null,
     edgeScore: Math.round(args.edgeScore),
     opportunityScore: scoring.score,
     confidenceTier,
@@ -571,6 +723,12 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     scoreComponents: scoring.components,
     truthCalibration: appliedTruthCalibration,
     truthClassification: args.truthClassification
+  };
+
+  return {
+    ...opportunityBase,
+    ranking: buildOpportunityRanking(opportunityBase),
+    surfacing: null
   };
 }
 
@@ -594,7 +752,11 @@ export function buildGameMarketOpportunity(
   providerHealth?: ProviderHealthView | null,
   profile?: OpportunityProfile | null,
   truthCalibrationResolver?: OpportunityTruthCalibrationResolver | null,
-  marketPathResolver?: OpportunityMarketPathResolver | null
+  marketPathResolver?: OpportunityMarketPathResolver | null,
+  bookLeadershipResolver?: OpportunityBookLeadershipResolver | null,
+  closeDestinationResolver?: OpportunityCloseDestinationResolver | null,
+  reasonCalibrationResolver?: OpportunityReasonCalibrationResolver | null,
+  timingReplayResolver?: OpportunityTimingReplayResolver | null
 ): OpportunityView {
   const market: BoardMarketView = game[marketType];
   const eventLabel = `${game.awayTeam.name} @ ${game.homeTeam.name}`;
@@ -640,7 +802,11 @@ export function buildGameMarketOpportunity(
     marketPath: market.marketPath ?? null,
     profile,
     truthCalibrationResolver,
-    marketPathResolver
+    marketPathResolver,
+    bookLeadershipResolver,
+    closeDestinationResolver,
+    reasonCalibrationResolver,
+    timingReplayResolver
   });
 }
 
@@ -649,7 +815,11 @@ export function buildPropOpportunity(
   providerHealth?: ProviderHealthView | null,
   profile?: OpportunityProfile | null,
   truthCalibrationResolver?: OpportunityTruthCalibrationResolver | null,
-  marketPathResolver?: OpportunityMarketPathResolver | null
+  marketPathResolver?: OpportunityMarketPathResolver | null,
+  bookLeadershipResolver?: OpportunityBookLeadershipResolver | null,
+  closeDestinationResolver?: OpportunityCloseDestinationResolver | null,
+  reasonCalibrationResolver?: OpportunityReasonCalibrationResolver | null,
+  timingReplayResolver?: OpportunityTimingReplayResolver | null
 ): OpportunityView {
   const offeredOdds = prop.bestAvailableOddsAmerican ?? prop.oddsAmerican;
   const eventLabel = prop.gameLabel ?? `${prop.team.name} vs ${prop.opponent.name}`;
@@ -696,7 +866,11 @@ export function buildPropOpportunity(
     marketPath: prop.marketPath ?? null,
     profile,
     truthCalibrationResolver,
-    marketPathResolver
+    marketPathResolver,
+    bookLeadershipResolver,
+    closeDestinationResolver,
+    reasonCalibrationResolver,
+    timingReplayResolver
   });
 }
 
@@ -706,7 +880,11 @@ export function buildBetSignalOpportunity(
   providerHealth?: ProviderHealthView | null,
   profile?: OpportunityProfile | null,
   truthCalibrationResolver?: OpportunityTruthCalibrationResolver | null,
-  marketPathResolver?: OpportunityMarketPathResolver | null
+  marketPathResolver?: OpportunityMarketPathResolver | null,
+  bookLeadershipResolver?: OpportunityBookLeadershipResolver | null,
+  closeDestinationResolver?: OpportunityCloseDestinationResolver | null,
+  reasonCalibrationResolver?: OpportunityReasonCalibrationResolver | null,
+  timingReplayResolver?: OpportunityTimingReplayResolver | null
 ): OpportunityView {
   return buildOpportunity({
     id: signal.id,
@@ -755,43 +933,77 @@ export function buildBetSignalOpportunity(
     marketPath: signal.marketPath ?? null,
     profile,
     truthCalibrationResolver,
-    marketPathResolver
+    marketPathResolver,
+    bookLeadershipResolver,
+    closeDestinationResolver,
+    reasonCalibrationResolver,
+    timingReplayResolver
   });
 }
 
 export function rankOpportunities<T extends OpportunityView>(opportunities: T[]) {
   return [...opportunities].sort((a, b) => {
     const aDead =
+      a.surfacing?.status === "SUPPRESSED" ||
       a.actionState === "PASS" ||
-      a.trapFlags.includes("STALE_EDGE") ||
-      a.trapFlags.includes("LOW_PROVIDER_HEALTH");
+      a.sourceHealth.state === "OFFLINE";
 
     const bDead =
+      b.surfacing?.status === "SUPPRESSED" ||
       b.actionState === "PASS" ||
-      b.trapFlags.includes("STALE_EDGE") ||
-      b.trapFlags.includes("LOW_PROVIDER_HEALTH");
+      b.sourceHealth.state === "OFFLINE";
 
     if (aDead !== bDead) {
       return aDead ? 1 : -1;
     }
 
-    const actionDelta =
-      getActionPriority(b.actionState) - getActionPriority(a.actionState);
-    if (actionDelta !== 0) {
-      return actionDelta;
+    const aRanking = a.ranking ?? buildOpportunityRanking(a);
+    const bRanking = b.ranking ?? buildOpportunityRanking(b);
+
+    const compositeDelta = bRanking.compositeScore - aRanking.compositeScore;
+    if (compositeDelta !== 0) {
+      return compositeDelta;
     }
 
     const capitalPriorityDelta =
-      (b.sizing.capitalPriorityScore ?? 0) - (a.sizing.capitalPriorityScore ?? 0);
+      bRanking.capitalEfficiencyScore - aRanking.capitalEfficiencyScore;
     if (capitalPriorityDelta !== 0) {
       return capitalPriorityDelta;
     }
 
-    const timingDelta =
-      (b.scoreComponents?.timingQuality ?? 0) -
-      (a.scoreComponents?.timingQuality ?? 0);
-    if (timingDelta !== 0) {
-      return timingDelta;
+    const edgeQualityDelta = bRanking.edgeQualityScore - aRanking.edgeQualityScore;
+    if (edgeQualityDelta !== 0) {
+      return edgeQualityDelta;
+    }
+
+    const destinationDelta =
+      bRanking.destinationQualityScore - aRanking.destinationQualityScore;
+    if (destinationDelta !== 0) {
+      return destinationDelta;
+    }
+
+    const capacityDelta =
+      bRanking.executionCapacityScore - aRanking.executionCapacityScore;
+    if (capacityDelta !== 0) {
+      return capacityDelta;
+    }
+
+    const executionDelta =
+      bRanking.executionQualityScore - aRanking.executionQualityScore;
+    if (executionDelta !== 0) {
+      return executionDelta;
+    }
+
+    const marketPathDelta =
+      bRanking.marketPathQualityScore - aRanking.marketPathQualityScore;
+    if (marketPathDelta !== 0) {
+      return marketPathDelta;
+    }
+
+    const portfolioFitDelta =
+      bRanking.portfolioFitScore - aRanking.portfolioFitScore;
+    if (portfolioFitDelta !== 0) {
+      return portfolioFitDelta;
     }
 
     const scoreDelta = b.opportunityScore - a.opportunityScore;
@@ -817,6 +1029,10 @@ export async function buildHomeOpportunitySnapshot(args: {
   performance?: PerformanceDashboardView | null;
   truthCalibrationResolver?: OpportunityTruthCalibrationResolver | null;
   marketPathResolver?: OpportunityMarketPathResolver | null;
+  bookLeadershipResolver?: OpportunityBookLeadershipResolver | null;
+  closeDestinationResolver?: OpportunityCloseDestinationResolver | null;
+  reasonCalibrationResolver?: OpportunityReasonCalibrationResolver | null;
+  timingReplayResolver?: OpportunityTimingReplayResolver | null;
   portfolioAllocator?: OpportunityPortfolioAllocator | null;
 }): Promise<OpportunityHomeSnapshot> {
   const profile = buildOpportunityProfile(args.performance);
@@ -830,7 +1046,11 @@ export async function buildHomeOpportunitySnapshot(args: {
         args.providerHealth,
         profile,
         args.truthCalibrationResolver,
-        args.marketPathResolver
+        args.marketPathResolver,
+        args.bookLeadershipResolver,
+        args.closeDestinationResolver,
+        args.reasonCalibrationResolver,
+        args.timingReplayResolver
       )
     )
   );
@@ -841,7 +1061,11 @@ export async function buildHomeOpportunitySnapshot(args: {
       args.providerHealth,
       profile,
       args.truthCalibrationResolver,
-      args.marketPathResolver
+      args.marketPathResolver,
+      args.bookLeadershipResolver,
+      args.closeDestinationResolver,
+      args.reasonCalibrationResolver,
+      args.timingReplayResolver
     )
   );
 
@@ -852,17 +1076,21 @@ export async function buildHomeOpportunitySnapshot(args: {
   ]);
   const allocatedBoardCandidates = allocatedCandidates.filter((opportunity) =>
     boardIds.has(opportunity.id)
-  );
+  ).map((opportunity) => applyOpportunitySurfacing(opportunity, "home_command"));
   const allocatedPropCandidates = allocatedCandidates.filter(
     (opportunity) => !boardIds.has(opportunity.id)
-  );
+  ).map((opportunity) => applyOpportunitySurfacing(opportunity, "home_command"));
 
   const boardTop = rankOpportunities(
-    allocatedBoardCandidates.filter(shouldSurfaceHomeOpportunity)
+    allocatedBoardCandidates.filter(
+      (opportunity) => opportunity.surfacing?.status === "SURFACED"
+    )
   ).slice(0, 5);
 
   const propsTop = rankOpportunities(
-    allocatedPropCandidates.filter(shouldSurfaceHomeOpportunity)
+    allocatedPropCandidates.filter(
+      (opportunity) => opportunity.surfacing?.status === "SURFACED"
+    )
   ).slice(0, 5);
 
   const surfaced = [...boardTop, ...propsTop];

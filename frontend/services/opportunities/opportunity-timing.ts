@@ -2,6 +2,10 @@ import type { MarketPathExecutionHint } from "@/lib/types/domain";
 import type {
   MarketEfficiencyClass,
   OpportunityActionState,
+  OpportunityCloseDestinationConfidence,
+  OpportunityCloseDestinationLabel,
+  OpportunityExecutionCapacityLabel,
+  OpportunityTimingReplayBias,
   OpportunityTimingState,
   OpportunityTrapFlag
 } from "@/lib/types/opportunity";
@@ -18,12 +22,21 @@ type BuildOpportunityTimingArgs = {
   edgeDecayPenalty?: number;
   truthTimingDelta?: number;
   calibrationTrapEscalation?: boolean;
+  reasonTimingDelta?: number;
+  reasonTrapEscalation?: boolean;
   marketPathTimingDelta?: number;
   marketPathExecutionHint?: MarketPathExecutionHint;
   marketPathStaleCopyConfidence?: number;
   marketPathRepricingLikelihood?: number;
   marketPathWaitImprovementLikelihood?: number;
   marketPathTrapEscalation?: boolean;
+  closeDestinationLabel?: OpportunityCloseDestinationLabel;
+  closeDestinationConfidence?: OpportunityCloseDestinationConfidence;
+  closeDestinationTimingDelta?: number;
+  executionCapacityLabel?: OpportunityExecutionCapacityLabel;
+  executionCapacityTimingDelta?: number;
+  timingReplayDelta?: number;
+  timingReplayBias?: OpportunityTimingReplayBias;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -115,6 +128,8 @@ export function buildOpportunityTiming(
   const edgeDecayPenalty = args.edgeDecayPenalty ?? 0;
   const truthTimingDelta = clamp(args.truthTimingDelta ?? 0, -8, 5);
   const calibrationTrapEscalation = args.calibrationTrapEscalation === true;
+  const reasonTimingDelta = clamp(args.reasonTimingDelta ?? 0, -5, 5);
+  const reasonTrapEscalation = args.reasonTrapEscalation === true;
   const marketPathTimingDelta = clamp(args.marketPathTimingDelta ?? 0, -9, 8);
   const marketPathTrapEscalation = args.marketPathTrapEscalation === true;
   const marketPathExecutionHint = args.marketPathExecutionHint ?? "SUPPRESS";
@@ -133,6 +148,17 @@ export function buildOpportunityTiming(
     0,
     100
   );
+  const closeDestinationLabel = args.closeDestinationLabel ?? "HOLD";
+  const closeDestinationConfidence = args.closeDestinationConfidence ?? "LOW";
+  const closeDestinationTimingDelta = clamp(args.closeDestinationTimingDelta ?? 0, -6, 5);
+  const executionCapacityLabel = args.executionCapacityLabel ?? "MODERATELY_ACTIONABLE";
+  const executionCapacityTimingDelta = clamp(
+    args.executionCapacityTimingDelta ?? 0,
+    -5,
+    3
+  );
+  const timingReplayDelta = clamp(args.timingReplayDelta ?? 0, -5, 5);
+  const timingReplayBias = args.timingReplayBias ?? "NEUTRAL";
   const isSharpSteam =
     Math.abs(args.lineMovement ?? 0) >= 10 &&
     args.bestPriceFlag &&
@@ -148,14 +174,32 @@ export function buildOpportunityTiming(
   const waitImprovementLikely =
     marketPathWaitImprovementLikelihood >= 62 &&
     marketPathExecutionHint !== "HIT_NOW";
+  const destinationDecay =
+    closeDestinationLabel === "DECAY" && closeDestinationConfidence !== "LOW";
+  const destinationImprove =
+    closeDestinationLabel === "IMPROVE" && closeDestinationConfidence !== "LOW";
+  const mostlyPriced =
+    closeDestinationLabel === "MOSTLY_PRICED" &&
+    closeDestinationConfidence !== "LOW";
+  const screenOnlyCapacity = executionCapacityLabel === "SCREEN_VALUE_ONLY";
+  const fragileCapacity = executionCapacityLabel === "FRAGILE_STALE";
+  const replaySupportsHitNow = timingReplayBias === "STRENGTHEN_BET_NOW";
+  const replaySupportsWait = timingReplayBias === "STRENGTHEN_WAIT";
+  const replayDemotesWatch = timingReplayBias === "DEMOTE_WATCH";
   const ev = args.expectedValuePct ?? 0;
   const decisionScore = clamp(
     Math.round(
       args.score +
         truthTimingDelta * 0.65 -
         (calibrationTrapEscalation ? 6 : 0) +
+        reasonTimingDelta * 0.7 -
+        (reasonTrapEscalation ? 4 : 0) +
         marketPathTimingDelta * 0.8 -
-        (marketPathTrapEscalation ? 5 : 0)
+        (marketPathTrapEscalation ? 5 : 0) +
+        closeDestinationTimingDelta * 0.9 +
+        executionCapacityTimingDelta * 0.8 +
+        timingReplayDelta * 0.9 -
+        (screenOnlyCapacity ? 8 : 0)
     ),
     0,
     100
@@ -174,8 +218,15 @@ export function buildOpportunityTiming(
         edgeDecayPenalty * 0.4 -
         (calibrationTrapEscalation ? 6 : 0) +
         truthTimingDelta -
+        (reasonTrapEscalation ? 4 : 0) +
+        reasonTimingDelta -
         (marketPathTrapEscalation ? 5 : 0) +
         marketPathTimingDelta +
+        closeDestinationTimingDelta +
+        executionCapacityTimingDelta -
+        timingReplayDelta +
+        (screenOnlyCapacity ? 10 : 0) -
+        (fragileCapacity ? 4 : 0) +
         (marketEfficiency === "THIN_SPECIALTY" ? 8 : 0) -
         (marketEfficiency === "FRAGMENTED_PROP" ? 5 : 0)
     ),
@@ -183,7 +234,13 @@ export function buildOpportunityTiming(
     100
   );
 
-  if (severeTrap || decisionScore < 55 || ev <= 0 || edgeDecayPenalty >= 34) {
+  if (
+    severeTrap ||
+    decisionScore < 55 ||
+    ev <= 0 ||
+    edgeDecayPenalty >= 34 ||
+    (screenOnlyCapacity && decisionScore < 72)
+  ) {
     return {
       actionState: "PASS",
       timingState: "PASS_ON_PRICE",
@@ -205,11 +262,55 @@ export function buildOpportunityTiming(
 
   if (
     fastStaleCopy &&
+    !screenOnlyCapacity &&
     decisionScore >= 70 &&
     ev >= 1 &&
-    freshnessPenalty <= 16
+    freshnessPenalty <= 16 &&
+    (destinationDecay || closeDestinationLabel === "HOLD")
   ) {
     timingQuality = Math.max(timingQuality, 82);
+
+    return {
+      actionState: "BET_NOW",
+      timingState: "WINDOW_OPEN",
+      timingQuality
+    };
+  }
+
+  if (mostlyPriced && decisionScore < 86) {
+    return {
+      actionState: args.bestPriceFlag ? "WATCH" : "PASS",
+      timingState: args.bestPriceFlag ? "MONITOR_ONLY" : "PASS_ON_PRICE",
+      timingQuality
+    };
+  }
+
+  if (destinationImprove && decisionScore >= 64 && !screenOnlyCapacity) {
+    return {
+      actionState: "WAIT",
+      timingState: "WAIT_FOR_PULLBACK",
+      timingQuality
+    };
+  }
+
+  if (replaySupportsWait && decisionScore >= 62 && !screenOnlyCapacity && !fastStaleCopy) {
+    return {
+      actionState: "WAIT",
+      timingState: "WAIT_FOR_PULLBACK",
+      timingQuality
+    };
+  }
+
+  if (
+    replayDemotesWatch &&
+    decisionScore >= 72 &&
+    ev >= 1 &&
+    args.bestPriceFlag &&
+    !screenOnlyCapacity &&
+    !destinationImprove &&
+    !mostlyPriced
+  ) {
+    timingQuality = Math.max(timingQuality, 78);
 
     return {
       actionState: "BET_NOW",
@@ -246,6 +347,9 @@ export function buildOpportunityTiming(
     decisionScore >= 84 &&
     ev >= 1.8 &&
     args.bestPriceFlag &&
+    !mostlyPriced &&
+    !destinationImprove &&
+    !screenOnlyCapacity &&
     freshnessPenalty <= 9 &&
     (movementState === "stable" || isSharpSteam)
   ) {
@@ -262,6 +366,9 @@ export function buildOpportunityTiming(
     decisionScore >= 78 &&
     ev >= 1.25 &&
     args.bestPriceFlag &&
+    !mostlyPriced &&
+    !destinationImprove &&
+    !screenOnlyCapacity &&
     movementState === "stable"
   ) {
     timingQuality = Math.max(timingQuality, 76);
@@ -297,10 +404,36 @@ export function buildOpportunityTiming(
     };
   }
 
+  if (
+    replaySupportsHitNow &&
+    decisionScore >= 76 &&
+    ev >= 1 &&
+    args.bestPriceFlag &&
+    !screenOnlyCapacity &&
+    !destinationImprove &&
+    !mostlyPriced
+  ) {
+    timingQuality = Math.max(timingQuality, 80);
+
+    return {
+      actionState: "BET_NOW",
+      timingState: "WINDOW_OPEN",
+      timingQuality
+    };
+  }
+
+  if (fragileCapacity && fastStaleCopy && decisionScore >= 72) {
+    return {
+      actionState: "BET_NOW",
+      timingState: "WINDOW_OPEN",
+      timingQuality
+    };
+  }
+
   if (decisionScore >= 68) {
     return {
-      actionState: "WATCH",
-      timingState: "MONITOR_ONLY",
+      actionState: destinationImprove ? "WAIT" : "WATCH",
+      timingState: destinationImprove ? "WAIT_FOR_CONFIRMATION" : "MONITOR_ONLY",
       timingQuality
     };
   }

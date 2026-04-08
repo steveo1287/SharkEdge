@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import type { LeagueKey } from "@/lib/types/domain";
-import type { OpportunityView } from "@/lib/types/opportunity";
+import type { OpportunityReasonLaneView, OpportunityView } from "@/lib/types/opportunity";
+import { getMarketPathRole } from "@/services/market/market-path-service";
 
 export type OpportunitySurfaceContext =
   | "home_command"
@@ -116,6 +117,51 @@ export type TruthCalibrationFeedback = {
   note: string;
 };
 
+export type OpportunitySurfaceExecutionSnapshot = {
+  surfaceKey: string;
+  surfaceContext: OpportunitySurfaceContext;
+  surfacedAt: string;
+  displayedOddsAmerican: number | null;
+  displayedLine: number | null;
+  bestAvailableOddsAmerican: number | null;
+  bestAvailableLine: number | null;
+  bestPriceTiedSportsbookKeys: string[];
+  bestPriceTiedSportsbookNames: string[];
+  marketPathRegime: string;
+  leaderCandidates: string[];
+  confirmerBooks: string[];
+  followerBooks: string[];
+  laggingBooks: string[];
+  outlierBooks: string[];
+  offeredBookRole: string;
+  staleCopyConfidence: number | null;
+  confirmationCount: number | null;
+  confirmationQuality: number | null;
+  leaderFollowerConfidence: number | null;
+  moveCoherenceScore: number | null;
+  synchronizationState: string | null;
+  providerFreshnessMinutes: number | null;
+  sourceHealthState: string;
+  sourceQualityScore: number | null;
+  actionState: string;
+  timingState: string;
+  opportunityScore: number;
+  confidenceTier: string;
+  recommendedStake: number;
+  bankrollPct: number;
+  capitalPriorityScore: number | null;
+  reasonLanes: OpportunityReasonLaneView[];
+  closeDestinationLabel: string | null;
+  closeDestinationConfidence: string | null;
+  executionCapacityLabel: string | null;
+  executionCapacityConfidence: string | null;
+  executionCapacityScore: number | null;
+};
+
+export type OpportunitySurfaceMetadata = Record<string, unknown> & {
+  executionSnapshot?: OpportunitySurfaceExecutionSnapshot | null;
+};
+
 type OpportunitySurfaceRecordRow = {
   surfaceKey: string;
   marketType: string;
@@ -157,6 +203,156 @@ function toDisplayLineLabel(value: OpportunityView["displayLine"]) {
   }
 
   return typeof value === "string" && value.trim().length ? value.trim() : null;
+}
+
+function sameLine(left: number | null, right: number | null) {
+  if (left === null && right === null) {
+    return true;
+  }
+
+  if (typeof left !== "number" || typeof right !== "number") {
+    return false;
+  }
+
+  return Math.abs(left - right) <= 0.001;
+}
+
+function buildBestPriceTiedBooks(opportunity: OpportunityView) {
+  const displayLine = toNumericLine(opportunity.displayLine);
+  const bestOdds = opportunity.displayOddsAmerican;
+  const debugRows = opportunity.marketPath?.debug ?? [];
+
+  const matches = debugRows.filter((book) => {
+    if (typeof bestOdds === "number" && book.currentOddsAmerican !== bestOdds) {
+      return false;
+    }
+
+    const currentLine =
+      typeof book.currentLine === "number" ? book.currentLine : null;
+    return sameLine(displayLine, currentLine);
+  });
+
+  if (!matches.length) {
+    return {
+      keys: opportunity.sportsbookKey ? [opportunity.sportsbookKey] : [],
+      names: opportunity.sportsbookName ? [opportunity.sportsbookName] : []
+    };
+  }
+
+  return {
+    keys: Array.from(new Set(matches.map((book) => book.sportsbookKey).filter(Boolean))),
+    names: Array.from(new Set(matches.map((book) => book.sportsbookName).filter(Boolean)))
+  };
+}
+
+export function buildOpportunitySurfaceMetadata(args: {
+  opportunity: OpportunityView;
+  surfaceContext: OpportunitySurfaceContext;
+  surfaceKey: string;
+  surfacedAt: Date;
+  metadata?: Record<string, unknown>;
+}): OpportunitySurfaceMetadata {
+  const tiedBooks = buildBestPriceTiedBooks(args.opportunity);
+  const executionSnapshot: OpportunitySurfaceExecutionSnapshot = {
+    surfaceKey: args.surfaceKey,
+    surfaceContext: args.surfaceContext,
+    surfacedAt: args.surfacedAt.toISOString(),
+    displayedOddsAmerican: args.opportunity.displayOddsAmerican,
+    displayedLine: toNumericLine(args.opportunity.displayLine),
+    bestAvailableOddsAmerican: args.opportunity.displayOddsAmerican,
+    bestAvailableLine: toNumericLine(args.opportunity.displayLine),
+    bestPriceTiedSportsbookKeys: tiedBooks.keys,
+    bestPriceTiedSportsbookNames: tiedBooks.names,
+    marketPathRegime:
+      args.opportunity.marketPath?.regime ??
+      args.opportunity.marketMicrostructure.regime ??
+      "NO_PATH",
+    leaderCandidates: [...(args.opportunity.marketPath?.leaderCandidates ?? [])],
+    confirmerBooks: [...(args.opportunity.marketPath?.confirmerBooks ?? [])],
+    followerBooks: [...(args.opportunity.marketPath?.followerBooks ?? [])],
+    laggingBooks: [...(args.opportunity.marketPath?.laggingBooks ?? [])],
+    outlierBooks: [...(args.opportunity.marketPath?.outlierBooks ?? [])],
+    offeredBookRole: getMarketPathRole(
+      args.opportunity.marketPath ?? null,
+      args.opportunity.sportsbookKey
+    ),
+    staleCopyConfidence:
+      args.opportunity.marketPath?.staleCopyConfidence ??
+      args.opportunity.marketMicrostructure.staleCopyConfidence ??
+      null,
+    confirmationCount: args.opportunity.marketPath?.confirmationCount ?? null,
+    confirmationQuality: args.opportunity.marketPath?.confirmationQuality ?? null,
+    leaderFollowerConfidence:
+      args.opportunity.marketPath?.leaderFollowerConfidence ?? null,
+    moveCoherenceScore: args.opportunity.marketPath?.moveCoherenceScore ?? null,
+    synchronizationState:
+      args.opportunity.marketPath?.synchronizationState ?? null,
+    providerFreshnessMinutes: args.opportunity.providerFreshnessMinutes,
+    sourceHealthState: args.opportunity.sourceHealth.state,
+    sourceQualityScore: args.opportunity.sourceQuality.score,
+    actionState: args.opportunity.actionState,
+    timingState: args.opportunity.timingState,
+    opportunityScore: args.opportunity.opportunityScore,
+    confidenceTier: args.opportunity.confidenceTier,
+    recommendedStake: Number(args.opportunity.sizing.recommendedStake.toFixed(2)),
+    bankrollPct: Number(args.opportunity.sizing.bankrollPct.toFixed(4)),
+    capitalPriorityScore: args.opportunity.sizing.capitalPriorityScore ?? null,
+    reasonLanes: args.opportunity.reasonLanes.map((lane) => ({
+      key: lane.key,
+      category: lane.category,
+      label: lane.label,
+      description: lane.description
+    })),
+    closeDestinationLabel: args.opportunity.closeDestination.label,
+    closeDestinationConfidence: args.opportunity.closeDestination.confidence,
+    executionCapacityLabel: args.opportunity.executionCapacity.label,
+    executionCapacityConfidence: args.opportunity.executionCapacity.confidence,
+    executionCapacityScore: args.opportunity.executionCapacity.capacityScore
+  };
+
+  return {
+    ...(args.metadata ?? {}),
+    executionSnapshot,
+    marketPath: args.opportunity.marketPath
+      ? {
+          regime: args.opportunity.marketPath.regime,
+          confirmationCount: args.opportunity.marketPath.confirmationCount,
+          staleCopyConfidence: args.opportunity.marketPath.staleCopyConfidence,
+          executionHint: args.opportunity.marketPath.executionHint,
+          laggingBooks: args.opportunity.marketPath.laggingBooks
+        }
+      : null,
+    microstructure: {
+      regime: args.opportunity.marketMicrostructure.regime,
+      urgencyScore: args.opportunity.marketMicrostructure.urgencyScore,
+      decayRiskBucket: args.opportunity.marketMicrostructure.decayRiskBucket,
+      estimatedHalfLifeMinutes:
+        args.opportunity.marketMicrostructure.estimatedHalfLifeMinutes,
+      summary: args.opportunity.marketMicrostructure.summary
+    },
+    ranking: args.opportunity.ranking
+      ? {
+          compositeScore: args.opportunity.ranking.compositeScore,
+          capitalEfficiencyScore:
+            args.opportunity.ranking.capitalEfficiencyScore,
+          edgeQualityScore: args.opportunity.ranking.edgeQualityScore,
+          executionQualityScore:
+            args.opportunity.ranking.executionQualityScore,
+          marketPathQualityScore:
+            args.opportunity.ranking.marketPathQualityScore,
+          portfolioFitScore: args.opportunity.ranking.portfolioFitScore,
+          actionModifier: args.opportunity.ranking.actionModifier
+        }
+      : null,
+    surfacing: args.opportunity.surfacing
+      ? {
+          status: args.opportunity.surfacing.status,
+          visibility: args.opportunity.surfacing.visibility,
+          surfacedBecause: args.opportunity.surfacing.surfacedBecause,
+          cautionReasons: args.opportunity.surfacing.cautionReasons
+        }
+      : null
+  };
 }
 
 function toDecimalOdds(american: number | null | undefined) {
@@ -361,26 +557,13 @@ export async function recordSurfacedOpportunity(
   const displayedLineLabel = toDisplayLineLabel(input.opportunity.displayLine);
   const surfaceRank = input.surfaceRank ?? "SECONDARY";
   const isPrimarySurface = input.isPrimarySurface ?? surfaceRank === "PRIMARY";
-  const metadata = {
-    ...(input.metadata ?? {}),
-    marketPath: input.opportunity.marketPath
-      ? {
-          regime: input.opportunity.marketPath.regime,
-          confirmationCount: input.opportunity.marketPath.confirmationCount,
-          staleCopyConfidence: input.opportunity.marketPath.staleCopyConfidence,
-          executionHint: input.opportunity.marketPath.executionHint,
-          laggingBooks: input.opportunity.marketPath.laggingBooks
-        }
-      : null,
-    microstructure: {
-      regime: input.opportunity.marketMicrostructure.regime,
-      urgencyScore: input.opportunity.marketMicrostructure.urgencyScore,
-      decayRiskBucket: input.opportunity.marketMicrostructure.decayRiskBucket,
-      estimatedHalfLifeMinutes:
-        input.opportunity.marketMicrostructure.estimatedHalfLifeMinutes,
-      summary: input.opportunity.marketMicrostructure.summary
-    }
-  };
+  const metadata = buildOpportunitySurfaceMetadata({
+    opportunity: input.opportunity,
+    surfaceContext: input.surfaceContext,
+    surfaceKey,
+    surfacedAt,
+    metadata: input.metadata
+  });
 
   await prisma.$executeRaw`
     INSERT INTO "opportunity_surface_records" (

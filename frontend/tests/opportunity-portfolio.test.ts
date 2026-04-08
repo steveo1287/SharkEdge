@@ -6,6 +6,8 @@ import { buildDefaultBankrollSettings } from "@/services/account/user-service";
 import { buildExecutionQualityAssessment } from "@/services/opportunities/opportunity-execution";
 import { createOpportunityPortfolioAllocator } from "@/services/opportunities/opportunity-portfolio";
 import { buildPositionSizingGuidance } from "@/services/opportunities/opportunity-sizing";
+import { applyOpportunitySurfacing, buildOpportunitySurfacing } from "@/services/opportunities/opportunity-surfacing";
+import { rankOpportunities } from "@/services/opportunities/opportunity-service";
 
 function assert(condition: unknown, message: string) {
   if (!condition) {
@@ -65,6 +67,62 @@ function makeMicrostructure(overrides: Record<string, unknown> = {}) {
   } as OpportunityView["marketMicrostructure"];
 }
 
+function makeBookLeadership(overrides: Record<string, unknown> = {}) {
+  return {
+    status: "SKIPPED_NO_HISTORY",
+    laneKey: null,
+    laneLabel: null,
+    sportsbookIdentity: "draftkings",
+    role: "UNCLASSIFIED",
+    surfaced: 0,
+    closed: 0,
+    requiredSurfaced: 16,
+    requiredClosed: 8,
+    leaderFrequency: null,
+    confirmerFrequency: null,
+    lagFrequency: null,
+    staleCopyFrequency: null,
+    beatClosePct: null,
+    averageTruthScore: null,
+    influenceAdjustment: 0,
+    pathConfidenceAdjustment: 0,
+    staleCopyConfidenceAdjustment: 0,
+    notes: ["No lane history."]
+  } as OpportunityView["bookLeadership"] & typeof overrides;
+}
+
+function makeCloseDestination(overrides: Record<string, unknown> = {}) {
+  return {
+    status: "APPLIED",
+    label: "HOLD",
+    confidence: "LOW",
+    confidenceScore: 40,
+    surfaced: 0,
+    closed: 0,
+    requiredSurfaced: 16,
+    requiredClosed: 8,
+    timingDelta: 0,
+    scoreDelta: 0,
+    sizingMultiplier: 1,
+    reasonCodes: ["DESTINATION_NEUTRAL"],
+    notes: ["Neutral destination."]
+  } as OpportunityView["closeDestination"] & typeof overrides;
+}
+
+function makeExecutionCapacity(overrides: Record<string, unknown> = {}) {
+  return {
+    status: "APPLIED",
+    label: "MODERATELY_ACTIONABLE",
+    confidence: "MEDIUM",
+    capacityScore: 62,
+    stakeMultiplier: 0.82,
+    rankingDelta: 0,
+    timingDelta: 0,
+    reasonCodes: ["CAPACITY_MODERATE"],
+    notes: ["Playable but still size-capped."]
+  } as OpportunityView["executionCapacity"] & typeof overrides;
+}
+
 function makeSizing(args?: {
   bankrollSettings?: OpportunityBankrollSettings;
   actionState?: OpportunityView["actionState"];
@@ -77,6 +135,8 @@ function makeSizing(args?: {
   providerFreshnessMinutes?: number | null;
   truthCalibrationScoreDelta?: number;
   marketMicrostructure?: OpportunityView["marketMicrostructure"] | null;
+  closeDestination?: OpportunityView["closeDestination"] | null;
+  executionCapacity?: OpportunityView["executionCapacity"] | null;
   trapFlags?: OpportunityView["trapFlags"];
 }) {
   return buildPositionSizingGuidance({
@@ -105,6 +165,8 @@ function makeSizing(args?: {
     sourceHealthState: "HEALTHY",
     truthCalibrationScoreDelta: args?.truthCalibrationScoreDelta ?? 0,
     marketMicrostructure: args?.marketMicrostructure ?? null,
+    closeDestination: args?.closeDestination ?? makeCloseDestination(),
+    executionCapacity: args?.executionCapacity ?? makeExecutionCapacity(),
     bankrollSettings: args?.bankrollSettings ?? makeBankrollSettings()
   });
 }
@@ -125,6 +187,8 @@ function makeOpportunity(
     marketDisagreementScore?: number | null;
     marketEfficiency?: OpportunityView["marketEfficiency"];
     marketMicrostructure?: OpportunityView["marketMicrostructure"] | null;
+    closeDestination?: OpportunityView["closeDestination"] | null;
+    executionCapacity?: OpportunityView["executionCapacity"] | null;
     trapFlags?: OpportunityView["trapFlags"];
   } = {}
 ): OpportunityView {
@@ -136,6 +200,8 @@ function makeOpportunity(
     marketDisagreementScore: overrides.marketDisagreementScore,
     marketEfficiency: overrides.marketEfficiency,
     marketMicrostructure: overrides.marketMicrostructure,
+    closeDestination: overrides.closeDestination,
+    executionCapacity: overrides.executionCapacity,
     trapFlags: overrides.trapFlags
   });
 
@@ -163,9 +229,24 @@ function makeOpportunity(
     lineMovement: 1.5,
     marketPath: null,
     marketEfficiency: overrides.marketEfficiency ?? "MID_EFFICIENCY",
+    reasonLanes: [
+      {
+        key: "path_leader_confirmed",
+        category: "path_regime",
+        label: "Leader confirmed",
+        description: "Leader books moved and the broader market confirmed the move."
+      }
+    ],
     sourceQuality: {
       score: 78,
+      label: "Usable source quality",
       influenceTier: "MAJOR_RETAIL",
+      baseInfluenceWeight: 0.62,
+      influenceWeight: 0.62,
+      truthAdjustment: 0,
+      marketPathAdjustment: 0,
+      leadershipAdjustment: 0,
+      marketPathRole: "UNCLASSIFIED",
       sharpBookPresent: true,
       notes: []
     } as unknown as OpportunityView["sourceQuality"],
@@ -186,6 +267,9 @@ function makeOpportunity(
         urgencyScore: 58,
         decayRiskBucket: "MODERATE"
       }),
+    bookLeadership: makeBookLeadership(),
+    closeDestination: overrides.closeDestination ?? makeCloseDestination(),
+    executionCapacity: overrides.executionCapacity ?? makeExecutionCapacity(),
     sizing,
     executionContext: null,
     edgeScore: 82,
@@ -215,7 +299,10 @@ function makeOpportunity(
       marketEfficiency: 2,
       edgeDecay: -2,
       truthCalibration: 0,
+      reasonCalibration: 0,
       marketPath: 0,
+      closeDestination: 0,
+      executionCapacity: 0,
       personalization: 0,
       penalties: 0
     },
@@ -239,6 +326,56 @@ function makeOpportunity(
       summary: "No calibration sample.",
       applied: [],
       skipped: []
+    },
+    reasonCalibration: {
+      status: "SKIPPED_NO_DATA",
+      reasonLanes: [
+        {
+          key: "path_leader_confirmed",
+          category: "path_regime",
+          label: "Leader confirmed",
+          description: "Leader books moved and the broader market confirmed the move."
+        }
+      ],
+      scoreDelta: 0,
+      timingDelta: 0,
+      sourceWeightDelta: 0,
+      trapEscalation: false,
+      trapDeEscalation: false,
+      baseScore: overrides.opportunityScore ?? 84,
+      calibratedScore: overrides.opportunityScore ?? 84,
+      baseTimingQuality: 84,
+      calibratedTimingQuality: 84,
+      sampleGate: {
+        requiredSurfaced: 24,
+        requiredClosed: 12,
+        qualifiedSignals: 0,
+        insufficientSignals: 0
+      },
+      summary: "No reason calibration sample.",
+      applied: [],
+      skipped: []
+    },
+    timingReplay: {
+      status: "SKIPPED_NO_HISTORY",
+      laneKey: null,
+      laneLabel: null,
+      bias: "NEUTRAL",
+      confidence: "LOW",
+      surfaced: 0,
+      replayQualified: 0,
+      requiredSurfaced: 20,
+      requiredQualified: 10,
+      hitNowCorrectPct: null,
+      waitWasBetterPct: null,
+      edgeDiedFastPct: null,
+      averageTimingReviewScore: null,
+      averageClvPct: null,
+      timingDelta: 0,
+      trapEscalation: false,
+      summary: "No timing replay sample.",
+      reasonCodes: ["TIMING_REPLAY_NEUTRAL"],
+      notes: []
     },
     truthClassification: null
   };
@@ -361,15 +498,16 @@ function testCompetingOpportunitiesDownsizeLowerPriorityBet() {
 function testBankrollConstraintRespected() {
   const settings = makeBankrollSettings({
     bankroll: 1_500,
-    availableBankroll: 25,
-    maxOpenExposurePct: 0.02
+    availableBankroll: 10,
+    maxOpenExposurePct: 0.08,
+    maxSingleBetPct: 0.06
   });
   const sizing = makeSizing({
     bankrollSettings: settings,
-    expectedValuePct: 7.5
+    expectedValuePct: 12
   });
 
-  assert(sizing.recommendedStake <= 25, `expected stake capped by available bankroll, got ${sizing.recommendedStake}`);
+  assert(sizing.recommendedStake <= 10, `expected stake capped by available bankroll, got ${sizing.recommendedStake}`);
   assert(sizing.reasonCodes.includes("PORTFOLIO_BANKROLL_CAP"), "expected bankroll cap reason");
 }
 
@@ -437,6 +575,101 @@ function testExecutionScoring() {
   );
 }
 
+function testRankingPrioritizesCapitalOverPosture() {
+  const stronger = {
+    ...makeOpportunity("stronger", {
+      actionState: "WAIT",
+      timingState: "WAIT_FOR_PULLBACK",
+      opportunityScore: 92,
+      confidenceTier: "A"
+    }),
+    ranking: {
+      compositeScore: 91,
+      capitalEfficiencyScore: 94,
+      edgeQualityScore: 90,
+      destinationQualityScore: 72,
+      executionQualityScore: 66,
+      executionCapacityScore: 74,
+      marketPathQualityScore: 74,
+      portfolioFitScore: 82,
+      actionModifier: 2,
+      notes: ["Capital efficiency drives this rank."]
+    }
+  };
+  const cleanerButWeaker = {
+    ...makeOpportunity("cleaner", {
+      actionState: "BET_NOW",
+      timingState: "WINDOW_OPEN",
+      opportunityScore: 76,
+      confidenceTier: "B"
+    }),
+    ranking: {
+      compositeScore: 73,
+      capitalEfficiencyScore: 68,
+      edgeQualityScore: 72,
+      destinationQualityScore: 46,
+      executionQualityScore: 60,
+      executionCapacityScore: 52,
+      marketPathQualityScore: 58,
+      portfolioFitScore: 78,
+      actionModifier: 4,
+      notes: ["Posture is clean but capital efficiency is weaker."]
+    }
+  };
+
+  const ranked = rankOpportunities([cleanerButWeaker, stronger]);
+  assert(ranked[0].id === "stronger", "expected stronger capital use to outrank cleaner posture");
+}
+
+function testFragileEdgeDownsizesInsteadOfSuppressing() {
+  const fragile = makeOpportunity("fragile", {
+    actionState: "WAIT",
+    timingState: "WAIT_FOR_CONFIRMATION",
+    opportunityScore: 78,
+    confidenceTier: "B",
+    trapFlags: ["THIN_MARKET"],
+    marketMicrostructure: makeMicrostructure({
+      status: "APPLIED",
+      regime: "STALE_COPY",
+      pathTrusted: true,
+      staleCopyConfidence: 76,
+      confirmationCount: 2,
+      urgencyScore: 72
+    })
+  });
+
+  const surfacing = buildOpportunitySurfacing(fragile, "home_command");
+  const decorated = applyOpportunitySurfacing(fragile, "home_command");
+
+  assert(surfacing.status === "SURFACED", "expected usable fragile edge to stay surfaced");
+  assert(surfacing.visibility === "CAUTION", "expected fragile edge to surface under caution");
+  assert(
+    decorated.whyItShows[0]?.includes("Surfaced"),
+    "expected decorated surface explanation to describe why it survived"
+  );
+}
+
+function testTrulyBadEdgeStillGetsSuppressed() {
+  const bad = {
+    ...makeOpportunity("bad", {
+      actionState: "PASS",
+      timingState: "PASS_ON_PRICE",
+      opportunityScore: 48,
+      confidenceTier: "D",
+      trapFlags: ["STALE_EDGE", "LOW_PROVIDER_HEALTH"]
+    }),
+    sourceHealth: {
+      state: "OFFLINE" as const,
+      freshnessMinutes: 40,
+      warnings: ["Feed offline"]
+    },
+    staleFlag: true
+  };
+
+  const surfacing = buildOpportunitySurfacing(bad, "home_command");
+  assert(surfacing.status === "SUPPRESSED", "expected truly bad edge to stay suppressed");
+}
+
 function testNoRegressionWhenPortfolioDataAbsent() {
   const settings = makeBankrollSettings();
   const allocator = createOpportunityPortfolioAllocator({
@@ -462,6 +695,9 @@ function run() {
   testBankrollConstraintRespected();
   testZeroStakeForWatchAndPass();
   testExecutionScoring();
+  testRankingPrioritizesCapitalOverPosture();
+  testFragileEdgeDownsizesInsteadOfSuppressing();
+  testTrulyBadEdgeStillGetsSuppressed();
   testNoRegressionWhenPortfolioDataAbsent();
   console.log("opportunity-portfolio tests passed");
 }

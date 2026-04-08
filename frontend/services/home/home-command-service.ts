@@ -7,12 +7,16 @@ import type {
 } from "@/lib/types/domain";
 import type { OpportunityView } from "@/lib/types/opportunity";
 import { recordSurfacedOpportunities } from "@/services/opportunities/opportunity-clv-service";
+import { getOpportunityBookLeadershipResolver } from "@/services/opportunities/opportunity-book-leadership";
+import { getOpportunityCloseDestinationResolver } from "@/services/opportunities/opportunity-close-destination";
 import {
   buildHomeOpportunitySnapshot,
   rankOpportunities
 } from "@/services/opportunities/opportunity-service";
 import { getOpportunityMarketPathResolver } from "@/services/opportunities/opportunity-market-path";
 import { getOpportunityPortfolioAllocator } from "@/services/opportunities/opportunity-portfolio";
+import { getOpportunityReasonCalibrationResolver } from "@/services/opportunities/opportunity-reason-calibration";
+import { getOpportunityTimingReplayResolver } from "@/services/opportunities/opportunity-timing-review";
 import { getOpportunityTruthCalibrationResolver } from "@/services/opportunities/opportunity-truth-calibration";
 
 export type HomeLeagueScope = LeagueKey | "ALL";
@@ -162,40 +166,6 @@ function getVerifiedGames(
   return (rankedGames.length ? rankedGames : games.filter(isVerifiedGame)).slice(0, 4);
 }
 
-function shouldSurfaceCommandOpportunity(opportunity: OpportunityView) {
-  if (opportunity.actionState === "PASS") {
-    return false;
-  }
-
-  if (
-    opportunity.staleFlag ||
-    opportunity.sourceHealth.state === "OFFLINE" ||
-    opportunity.trapFlags.includes("LOW_PROVIDER_HEALTH") ||
-    opportunity.trapFlags.includes("STALE_EDGE") ||
-    opportunity.trapFlags.includes("ONE_BOOK_OUTLIER")
-  ) {
-    return false;
-  }
-
-  if (
-    opportunity.actionState === "BET_NOW" &&
-    opportunity.opportunityScore >= 80 &&
-    opportunity.confidenceTier !== "D"
-  ) {
-    return true;
-  }
-
-  if (
-    opportunity.actionState === "WAIT" &&
-    opportunity.opportunityScore >= 84 &&
-    (opportunity.confidenceTier === "A" || opportunity.confidenceTier === "B")
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
 function buildLiveDeskState(boardData: BoardPageData) {
   const liveDeskAvailable =
     boardData.source !== "mock" &&
@@ -258,11 +228,31 @@ export async function getHomeCommandData(
     propsService.getTopPlayCards(4)
   ]);
 
-  const [truthCalibrationResolver, marketPathResolver, portfolioAllocator] = await Promise.all([
+  const [
+    truthCalibrationResolver,
+    marketPathResolver,
+    bookLeadershipResolver,
+    closeDestinationResolver,
+    reasonCalibrationResolver,
+    timingReplayResolver,
+    portfolioAllocator
+  ] = await Promise.all([
     getOpportunityTruthCalibrationResolver({
       league: selectedLeague
     }),
     getOpportunityMarketPathResolver({
+      league: selectedLeague
+    }),
+    getOpportunityBookLeadershipResolver({
+      league: selectedLeague
+    }),
+    getOpportunityCloseDestinationResolver({
+      league: selectedLeague
+    }),
+    getOpportunityReasonCalibrationResolver({
+      league: selectedLeague
+    }),
+    getOpportunityTimingReplayResolver({
       league: selectedLeague
     }),
     getOpportunityPortfolioAllocator()
@@ -273,6 +263,10 @@ export async function getHomeCommandData(
     providerHealth: boardData.providerHealth,
     truthCalibrationResolver,
     marketPathResolver,
+    bookLeadershipResolver,
+    closeDestinationResolver,
+    reasonCalibrationResolver,
+    timingReplayResolver,
     portfolioAllocator
   });
 
@@ -281,9 +275,7 @@ export async function getHomeCommandData(
   const topActionables = rankOpportunities([
     ...opportunitySnapshot.boardTop,
     ...opportunitySnapshot.propsTop
-  ])
-    .filter(shouldSurfaceCommandOpportunity)
-    .slice(0, 2);
+  ]).slice(0, 2);
 
   await recordSurfacedOpportunities(topActionables, "home_command", {
     primaryCount: 1,

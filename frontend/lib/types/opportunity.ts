@@ -2,6 +2,7 @@ import type {
   FairPriceMethod,
   LeagueKey,
   MarketPathBookRole,
+  MarketPathSynchronizationState,
   MarketPathRegime,
   MarketPathView,
   MarketTruthClassification,
@@ -125,6 +126,11 @@ export type OpportunitySizingReasonCode =
   | "ACTION_WAIT_NO_ALLOCATION"
   | "ACTION_WATCH_NO_ALLOCATION"
   | "ACTION_PASS_NO_ALLOCATION"
+  | "DESTINATION_IMPROVE_CAP"
+  | "DESTINATION_MOSTLY_PRICED_CAP"
+  | "EXECUTION_CAPACITY_SCREEN_ONLY"
+  | "EXECUTION_CAPACITY_FRAGILE"
+  | "DESTINATION_DECAY_SUPPORT"
   | "PORTFOLIO_BANKROLL_CAP"
   | "PORTFOLIO_EVENT_CAP"
   | "PORTFOLIO_MARKET_CAP"
@@ -165,22 +171,128 @@ export type OpportunityTimingCorrectness =
   | "MISSED"
   | "UNKNOWN";
 
+export type OpportunityTimingReviewClassification =
+  | "HIT_NOW_CORRECT"
+  | "WAIT_WAS_BETTER"
+  | "WINDOW_HELD"
+  | "EDGE_DIED_FAST"
+  | "STALE_COPY_CAPTURE_WINDOW"
+  | "NO_REPLAY_CONFIDENCE";
+
+export type OpportunityTimingReviewVerdict =
+  | "VALIDATED"
+  | "CONTRADICTED"
+  | "NEUTRAL"
+  | "UNKNOWN";
+
+export type OpportunityTimingReplayBias =
+  | "STRENGTHEN_BET_NOW"
+  | "STRENGTHEN_WAIT"
+  | "DEMOTE_WATCH"
+  | "NEUTRAL";
+
+export type OpportunityTimingReplayStatus =
+  | "APPLIED"
+  | "SKIPPED_NO_HISTORY"
+  | "SKIPPED_INSUFFICIENT_SAMPLE"
+  | "SKIPPED_LOW_CONFIDENCE";
+
+export type OpportunityReasonLaneCategory =
+  | "path_regime"
+  | "price_confirmation"
+  | "destination"
+  | "capacity"
+  | "market_efficiency"
+  | "source_quality"
+  | "trap"
+  | "timing"
+  | "action";
+
+export type OpportunityCloseDestinationLabel =
+  | "IMPROVE"
+  | "HOLD"
+  | "DECAY"
+  | "MOSTLY_PRICED";
+
+export type OpportunityCloseDestinationConfidence = "HIGH" | "MEDIUM" | "LOW";
+
+export type OpportunityExecutionCapacityLabel =
+  | "FULLY_ACTIONABLE"
+  | "MODERATELY_ACTIONABLE"
+  | "SCREEN_VALUE_ONLY"
+  | "FRAGILE_STALE";
+
+export type OpportunityExecutionCapacityConfidence = "HIGH" | "MEDIUM" | "LOW";
+
+export type OpportunityReasonLaneView = {
+  key: string;
+  category: OpportunityReasonLaneCategory;
+  label: string;
+  description: string;
+};
+
+export type OpportunityDecisionSnapshotView = {
+  surfaceKey: string | null;
+  surfaceContext: string | null;
+  surfacedAt: string | null;
+  displayedOddsAmerican: number | null;
+  displayedLine: number | null;
+  bestAvailableOddsAmerican: number | null;
+  bestAvailableLine: number | null;
+  bestPriceTiedSportsbookKeys: string[];
+  bestPriceTiedSportsbookNames: string[];
+  marketPathRegime: MarketPathRegime | "NO_PATH";
+  leaderCandidates: string[];
+  confirmerBooks: string[];
+  followerBooks: string[];
+  laggingBooks: string[];
+  outlierBooks: string[];
+  offeredBookRole: MarketPathBookRole;
+  staleCopyConfidence: number | null;
+  confirmationCount: number | null;
+  confirmationQuality: number | null;
+  leaderFollowerConfidence: number | null;
+  moveCoherenceScore: number | null;
+  synchronizationState: MarketPathSynchronizationState | "NO_PATH" | null;
+  providerFreshnessMinutes: number | null;
+  sourceHealthState: ProviderHealthState;
+  actionState: OpportunityActionState;
+  timingState: OpportunityTimingState;
+  opportunityScore: number;
+  confidenceTier: OpportunityConfidenceTier;
+  recommendedStake: number | null;
+  bankrollPct: number | null;
+  capitalPriorityScore: number | null;
+  reasonLanes: OpportunityReasonLaneView[];
+  closeDestinationLabel: OpportunityCloseDestinationLabel | null;
+  closeDestinationConfidence: OpportunityCloseDestinationConfidence | null;
+  executionCapacityLabel: OpportunityExecutionCapacityLabel | null;
+  executionCapacityConfidence: OpportunityExecutionCapacityConfidence | null;
+  executionCapacityScore: number | null;
+};
+
 export type OpportunityExecutionContextView = {
   status: "HISTORICAL" | "NO_EXECUTION_DATA";
   classification: OpportunityExecutionClassification;
   executionScore: number | null;
   entryQualityLabel: string;
+  surfaceKey: string | null;
+  decisionSnapshotUsed: boolean;
+  decisionSnapshot: OpportunityDecisionSnapshotView | null;
   bestAvailableOddsAmerican: number | null;
+  bestAvailableLine: number | null;
   actualOddsAmerican: number | null;
   actualLine: number | null;
   closingOddsAmerican: number | null;
   closingLine: number | null;
   slippageAmerican: number | null;
+  slippageVsCloseAmerican: number | null;
   clvPct: number | null;
   timeToCloseMinutes: number | null;
   staleCopyCaptured: boolean | null;
   missedEdge: boolean;
   timingCorrectness: OpportunityTimingCorrectness;
+  reasonCodes: string[];
   reasons: string[];
 };
 
@@ -198,6 +310,23 @@ export type OpportunityBankrollSettings = {
 
 export type OpportunityCalibrationTrace = {
   groupBy: TruthCalibrationDimension;
+  label: string;
+  sampleState: TruthCalibrationSampleState;
+  surfaced: number;
+  closed: number;
+  beatClosePct: number | null;
+  averageTruthScore: number | null;
+  applied: boolean;
+  scoreDelta: number;
+  timingDelta: number;
+  sourceWeightDelta: number;
+  trapHint: TruthCalibrationTrapHint;
+  note: string;
+};
+
+export type OpportunityReasonCalibrationTrace = {
+  key: string;
+  category: OpportunityReasonLaneCategory;
   label: string;
   sampleState: TruthCalibrationSampleState;
   surfaced: number;
@@ -234,6 +363,100 @@ export type OpportunityTruthCalibrationView = {
   skipped: OpportunityCalibrationTrace[];
 };
 
+export type OpportunityReasonCalibrationView = {
+  status: TruthCalibrationStatus;
+  reasonLanes: OpportunityReasonLaneView[];
+  scoreDelta: number;
+  timingDelta: number;
+  sourceWeightDelta: number;
+  trapEscalation: boolean;
+  trapDeEscalation: boolean;
+  baseScore: number;
+  calibratedScore: number;
+  baseTimingQuality: number;
+  calibratedTimingQuality: number;
+  sampleGate: {
+    requiredSurfaced: number;
+    requiredClosed: number;
+    qualifiedSignals: number;
+    insufficientSignals: number;
+  };
+  summary: string;
+  applied: OpportunityReasonCalibrationTrace[];
+  skipped: OpportunityReasonCalibrationTrace[];
+};
+
+export type OpportunityTimingReplayView = {
+  status: OpportunityTimingReplayStatus;
+  laneKey: string | null;
+  laneLabel: string | null;
+  bias: OpportunityTimingReplayBias;
+  confidence: OpportunityCloseDestinationConfidence;
+  surfaced: number;
+  replayQualified: number;
+  requiredSurfaced: number;
+  requiredQualified: number;
+  hitNowCorrectPct: number | null;
+  waitWasBetterPct: number | null;
+  edgeDiedFastPct: number | null;
+  averageTimingReviewScore: number | null;
+  averageClvPct: number | null;
+  timingDelta: number;
+  trapEscalation: boolean;
+  summary: string;
+  reasonCodes: string[];
+  notes: string[];
+};
+
+export type OpportunityTimingReviewView = {
+  status: "QUALIFIED" | "NO_REPLAY_CONFIDENCE";
+  surfaceKey: string;
+  surfacedAt: string;
+  surfaceContext: string | null;
+  classification: OpportunityTimingReviewClassification;
+  verdict: OpportunityTimingReviewVerdict;
+  timingReviewScore: number | null;
+  actionStateAtSurface: OpportunityActionState | null;
+  timingStateAtSurface: OpportunityTimingState | null;
+  marketPathRegimeAtSurface: MarketPathRegime | "NO_PATH";
+  reasonLanes: OpportunityReasonLaneView[];
+  staleCopyExpected: boolean;
+  closeDestinationLabelAtSurface: OpportunityCloseDestinationLabel | null;
+  executionCapacityLabelAtSurface: OpportunityExecutionCapacityLabel | null;
+  clvPct: number | null;
+  normalizedTruthScore: number | null;
+  timeToCloseMinutes: number | null;
+  validatedOriginalAction: boolean | null;
+  reasonCodes: string[];
+  reasons: string[];
+};
+
+export type OpportunityPostCloseReviewView = {
+  surfaceKey: string;
+  surfacedAt: string;
+  surfaceContext: string | null;
+  surfacedOpportunityId: string;
+  eventId: string;
+  league: LeagueKey;
+  marketType: string;
+  selectionLabel: string;
+  sportsbookKey: string | null;
+  sportsbookName: string | null;
+  displayedOddsAmerican: number | null;
+  displayedLine: number | null;
+  closeOddsAmerican: number | null;
+  closeLine: number | null;
+  clvPct: number | null;
+  clvResult: string | null;
+  normalizedTruthScore: number | null;
+  finalOutcome: string | null;
+  decisionSnapshot: OpportunityDecisionSnapshotView | null;
+  reasonLanes: OpportunityReasonLaneView[];
+  timingReview: OpportunityTimingReviewView;
+  executionContext: OpportunityExecutionContextView | null;
+  summary: string;
+};
+
 export type OpportunityScoreComponents = {
   priceEdge: number;
   expectedValue: number;
@@ -245,7 +468,10 @@ export type OpportunityScoreComponents = {
   marketEfficiency: number;
   edgeDecay: number;
   truthCalibration: number;
+  reasonCalibration: number;
   marketPath: number;
+  closeDestination: number;
+  executionCapacity: number;
   personalization: number;
   penalties: number;
 };
@@ -264,8 +490,59 @@ export type OpportunitySourceQuality = {
   influenceWeight: number;
   truthAdjustment: number;
   marketPathAdjustment: number;
+  leadershipAdjustment: number;
   marketPathRole: MarketPathBookRole;
   sharpBookPresent: boolean;
+  notes: string[];
+};
+
+export type OpportunityBookLeadershipView = {
+  status: "APPLIED" | "SKIPPED_NO_HISTORY" | "SKIPPED_INSUFFICIENT_SAMPLE";
+  laneKey: string | null;
+  laneLabel: string | null;
+  sportsbookIdentity: string | null;
+  role: MarketPathBookRole;
+  surfaced: number;
+  closed: number;
+  requiredSurfaced: number;
+  requiredClosed: number;
+  leaderFrequency: number | null;
+  confirmerFrequency: number | null;
+  lagFrequency: number | null;
+  staleCopyFrequency: number | null;
+  beatClosePct: number | null;
+  averageTruthScore: number | null;
+  influenceAdjustment: number;
+  pathConfidenceAdjustment: number;
+  staleCopyConfidenceAdjustment: number;
+  notes: string[];
+};
+
+export type OpportunityCloseDestinationView = {
+  status: "APPLIED" | "SKIPPED_NO_HISTORY" | "SKIPPED_LOW_CONFIDENCE";
+  label: OpportunityCloseDestinationLabel;
+  confidence: OpportunityCloseDestinationConfidence;
+  confidenceScore: number;
+  surfaced: number;
+  closed: number;
+  requiredSurfaced: number;
+  requiredClosed: number;
+  timingDelta: number;
+  scoreDelta: number;
+  sizingMultiplier: number;
+  reasonCodes: string[];
+  notes: string[];
+};
+
+export type OpportunityExecutionCapacityView = {
+  status: "APPLIED" | "SKIPPED_LOW_CONFIDENCE";
+  label: OpportunityExecutionCapacityLabel;
+  confidence: OpportunityExecutionCapacityConfidence;
+  capacityScore: number;
+  stakeMultiplier: number;
+  rankingDelta: number;
+  timingDelta: number;
+  reasonCodes: string[];
   notes: string[];
 };
 
@@ -328,6 +605,8 @@ export type PositionSizingGuidance = {
   exposureAdjustedStake: number;
   competitionAdjustedStake: number;
   recommendedStake: number;
+  destinationSizingMultiplier: number;
+  executionCapacityMultiplier: number;
   exposureAdjustment: number;
   correlationPenalty: number;
   competitionPenalty: number;
@@ -355,7 +634,36 @@ export type OpportunitySnapshotView = {
   sourceHealthState: ProviderHealthState;
   calibrationStatus: OpportunityTruthCalibrationView["status"];
   calibrationSummary: string | null;
+  reasonCalibrationSummary: string | null;
   microstructureSummary: string | null;
+  bookLeadershipSummary: string | null;
+  destinationSummary: string | null;
+  capacitySummary: string | null;
+  timingReplaySummary: string | null;
+  rankingSummary: string | null;
+  surfacingSummary: string | null;
+};
+
+export type OpportunityRankingView = {
+  compositeScore: number;
+  capitalEfficiencyScore: number;
+  edgeQualityScore: number;
+  destinationQualityScore: number;
+  executionQualityScore: number;
+  executionCapacityScore: number;
+  marketPathQualityScore: number;
+  portfolioFitScore: number;
+  actionModifier: number;
+  notes: string[];
+};
+
+export type OpportunitySurfacingVisibility = "FULL" | "CAUTION" | "HIDDEN";
+
+export type OpportunitySurfacingView = {
+  status: "SURFACED" | "SUPPRESSED";
+  visibility: OpportunitySurfacingVisibility;
+  surfacedBecause: string;
+  cautionReasons: string[];
 };
 
 export type OpportunityView = {
@@ -382,11 +690,20 @@ export type OpportunityView = {
   lineMovement: number | null;
   marketPath: MarketPathView | null;
   marketEfficiency: MarketEfficiencyClass;
+  reasonLanes: OpportunityReasonLaneView[];
   sourceQuality: OpportunitySourceQuality;
   edgeDecay: OpportunityEdgeDecayView;
   marketMicrostructure: OpportunityMarketMicrostructureView;
+  bookLeadership: OpportunityBookLeadershipView;
+  closeDestination: OpportunityCloseDestinationView;
+  executionCapacity: OpportunityExecutionCapacityView;
   sizing: PositionSizingGuidance;
   executionContext: OpportunityExecutionContextView | null;
+  reasonCalibration: OpportunityReasonCalibrationView;
+  timingReplay: OpportunityTimingReplayView;
+  postCloseReview?: OpportunityPostCloseReviewView | null;
+  ranking?: OpportunityRankingView | null;
+  surfacing?: OpportunitySurfacingView | null;
   edgeScore: number;
   opportunityScore: number;
   confidenceTier: OpportunityConfidenceTier;
