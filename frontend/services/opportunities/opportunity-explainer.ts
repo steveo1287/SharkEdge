@@ -48,6 +48,19 @@ function formatTimingLabel(timingState: OpportunityView["timingState"]) {
   }
 }
 
+function formatActionLabel(actionState: OpportunityView["actionState"]) {
+  switch (actionState) {
+    case "BET_NOW":
+      return "bet now";
+    case "WAIT":
+      return "wait";
+    case "WATCH":
+      return "watch";
+    default:
+      return "pass";
+  }
+}
+
 function describeMovement(lineMovement: number | null) {
   const movement = Math.abs(lineMovement ?? 0);
 
@@ -75,7 +88,11 @@ function describeFairGap(fairLineGap: number | null) {
     return `${fairLineGap > 0 ? "+" : ""}${fairLineGap}c versus fair still holds`;
   }
 
-  if (Math.abs(fairLineGap) >= 6) {
+  if (Math.abs(fairLineGap) >= 8) {
+    return "There is still a real gap to fair price";
+  }
+
+  if (Math.abs(fairLineGap) >= 5) {
     return "There is still a measurable gap to fair price";
   }
 
@@ -87,8 +104,12 @@ function describeEv(expectedValuePct: number | null) {
     return null;
   }
 
-  if (expectedValuePct >= 3) {
+  if (expectedValuePct >= 4) {
     return `EV still sits at +${expectedValuePct.toFixed(2)}%`;
+  }
+
+  if (expectedValuePct >= 2) {
+    return `EV remains positive at +${expectedValuePct.toFixed(2)}%`;
   }
 
   return "Positive EV still remains";
@@ -99,6 +120,10 @@ function describeMarketShape(args: {
   bookCount: number;
   marketDisagreementScore: number | null;
 }) {
+  if (args.bestPriceFlag && args.bookCount >= 5) {
+    return "Best price is still available across a broad market";
+  }
+
   if (args.bestPriceFlag && args.bookCount >= 3) {
     return "Best price is still available across a real market";
   }
@@ -135,6 +160,27 @@ function getReasonDetail(reasons: ReasonAttributionView[]) {
     .slice(0, 2)
     .map((reason) => shorten(reason.detail, 76))
     .filter(Boolean);
+}
+
+function buildPrimaryReason(args: {
+  selectionLabel: string;
+  actionState: OpportunityView["actionState"];
+  fairGapLine: string | null;
+  evLine: string | null;
+  marketShapeLine: string | null;
+  movementLine: string | null;
+  freshnessLine: string | null;
+  reasons: ReasonAttributionView[];
+}) {
+  return (
+    args.fairGapLine ??
+    args.evLine ??
+    args.marketShapeLine ??
+    args.movementLine ??
+    args.freshnessLine ??
+    getReasonDetail(args.reasons)[0] ??
+    `${args.selectionLabel} is still grading as ${formatActionLabel(args.actionState)}`
+  );
 }
 
 export function buildOpportunityExplanation(args: {
@@ -202,11 +248,16 @@ export function buildOpportunityExplanation(args: {
     whatCouldKillIt.push("If the feed gets older, this becomes a stale setup.");
   }
 
-  const primaryReason =
-    whyItShows[0] ??
-    `${args.selectionLabel} is still grading as ${args.actionState
-      .replace(/_/g, " ")
-      .toLowerCase()}.`;
+  const primaryReason = buildPrimaryReason({
+    selectionLabel: args.selectionLabel,
+    actionState: args.actionState,
+    fairGapLine,
+    evLine,
+    marketShapeLine,
+    movementLine,
+    freshnessLine,
+    reasons: args.reasons
+  });
 
   const timingLabel = formatTimingLabel(args.timingState);
 
