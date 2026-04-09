@@ -6,7 +6,7 @@
       "framework": "nextjs"
     },
     "backend": {
-      "entrypoint": "backend/main.py",
+      "entrypoint": "backend/app.py",
       "routePrefix": "/_/backend"
     }
   }
