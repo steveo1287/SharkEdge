@@ -68,6 +68,7 @@ function testBalancedCase() {
       influenceWeight: 0.72,
       truthAdjustment: 0,
       marketPathAdjustment: 0,
+      leadershipAdjustment: 0,
       marketPathRole: "UNCLASSIFIED",
       sharpBookPresent: false,
       notes: []
@@ -95,7 +96,7 @@ function testMinorOverlapCase() {
       sampleGate: {
         requiredSurfaced: 40,
         requiredClosed: 20,
-        qualifiedSignals: 5,
+        qualifiedSignals: 2,
         insufficientSignals: 0
       },
       summary: "Applied.",
@@ -141,6 +142,7 @@ function testMinorOverlapCase() {
       influenceWeight: 1.04,
       truthAdjustment: 0.04,
       marketPathAdjustment: 0,
+      leadershipAdjustment: 0,
       marketPathRole: "UNCLASSIFIED",
       sharpBookPresent: true,
       notes: []
@@ -220,6 +222,7 @@ function testStackedOverlapCase() {
       influenceWeight: 1.08,
       truthAdjustment: 0.06,
       marketPathAdjustment: 0.05,
+      leadershipAdjustment: 0,
       marketPathRole: "FOLLOWER",
       sharpBookPresent: true,
       notes: []

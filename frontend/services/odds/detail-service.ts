@@ -11,7 +11,9 @@ import type {
 import { mockDatabase } from "@/prisma/seed-data";
 import { analyzeMarket } from "@/services/market/market-analysis-service";
 import type { MarketPriceSample } from "@/services/market/market-truth-service";
+import type { ProviderEvent } from "@/services/events/provider-types";
 import { buildProviderHealth } from "@/services/providers/provider-health";
+import { getScoreProviders } from "@/services/providers/registry";
 import { getStoredPropsForEvent } from "@/services/props/warehouse-service";
 import { getLiveGameDetail } from "@/services/odds/live-odds";
 import { getTeamStatComparison } from "@/services/stats/stats-service";
@@ -24,6 +26,108 @@ const leagueMap = new Map(mockDatabase.leagues.map((league) => [league.id, leagu
 const teamMap = new Map(mockDatabase.teams.map((team) => [team.id, team] as const));
 const playerMap = new Map(mockDatabase.players.map((player) => [player.id, player] as const));
 const bookMap = new Map(mockDatabase.sportsbooks.map((book) => [book.id, book] as const));
+
+function normalizeName(value: string | null | undefined) {
+  return (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function mapProviderStatus(
+  status: ProviderEvent["status"]
+): GameDetailView["game"]["status"] {
+  if (status === "LIVE") {
+    return "LIVE";
+  }
+
+  if (status === "FINAL") {
+    return "FINAL";
+  }
+
+  if (status === "CANCELED") {
+    return "CANCELED";
+  }
+
+  if (status === "POSTPONED" || status === "DELAYED") {
+    return "POSTPONED";
+  }
+
+  return "PREGAME";
+}
+
+function getProviderEventStateDetail(event: ProviderEvent) {
+  const state = (event.stateJson ?? {}) as Record<string, unknown>;
+  const detail =
+    typeof state.detail === "string"
+      ? state.detail
+      : typeof state.shortDetail === "string"
+        ? state.shortDetail
+        : null;
+  const period =
+    typeof state.period === "number" || typeof state.period === "string"
+      ? `P${state.period}`
+      : null;
+  const clock =
+    typeof state.displayClock === "string" ? state.displayClock : null;
+
+  return [detail, period, clock].filter(Boolean).join(" | ") || null;
+}
+
+function buildScoreJsonFromProviderEvent(event: ProviderEvent) {
+  const away = event.participants.find((participant) => participant.role === "AWAY");
+  const home = event.participants.find((participant) => participant.role === "HOME");
+
+  const awayScore =
+    typeof away?.score === "string" && away.score.trim().length
+      ? Number(away.score)
+      : null;
+  const homeScore =
+    typeof home?.score === "string" && home.score.trim().length
+      ? Number(home.score)
+      : null;
+
+  return {
+    awayScore: Number.isFinite(awayScore) ? awayScore : null,
+    homeScore: Number.isFinite(homeScore) ? homeScore : null
+  };
+}
+
+async function findProviderEventForLiveDetail(
+  detail: GameDetailView
+): Promise<ProviderEvent | null> {
+  const providers = getScoreProviders(detail.league.key);
+
+  for (const provider of providers) {
+    try {
+      const events = await withTimeoutFallback(
+        provider.fetchScoreboard(detail.league.key),
+        {
+          timeoutMs: 2_500,
+          fallback: []
+        }
+      );
+
+      const matched =
+        events.find((event) => event.externalEventId === detail.game.externalEventId) ??
+        events.find((event) => {
+          const away = event.participants.find((participant) => participant.role === "AWAY");
+          const home = event.participants.find((participant) => participant.role === "HOME");
+
+          return (
+            normalizeName(away?.name) === normalizeName(detail.awayTeam.name) &&
+            normalizeName(home?.name) === normalizeName(detail.homeTeam.name)
+          );
+        }) ??
+        null;
+
+      if (matched) {
+        return matched;
+      }
+    } catch {
+      // Let the existing live detail stand if score providers miss.
+    }
+  }
+
+  return null;
+}
 
 async function attachPropTrendSummaries(props: GameDetailView["props"]) {
   if (!props.length) {
@@ -399,12 +503,30 @@ export async function getGameDetail(id: string) {
   ]);
 
   if (liveDetail) {
+    const providerEvent = await findProviderEventForLiveDetail(liveDetail);
     const mergedProps = await attachPropTrendSummaries(
       storedProps.length ? [...liveDetail.props, ...storedProps.filter((stored) => !liveDetail.props.some((live) => live.id === stored.id))] : liveDetail.props
     );
 
+    const liveStateJson = {
+      ...(liveDetail.game.liveStateJson ?? {}),
+      providerScoreEventId: providerEvent?.externalEventId ?? null,
+      stateDetail: providerEvent ? getProviderEventStateDetail(providerEvent) : null,
+      providerStateJson: providerEvent?.stateJson ?? null
+    };
+
     return {
       ...liveDetail,
+      game: {
+        ...liveDetail.game,
+        status: providerEvent
+          ? mapProviderStatus(providerEvent.status)
+          : liveDetail.game.status,
+        scoreJson: providerEvent
+          ? buildScoreJsonFromProviderEvent(providerEvent)
+          : liveDetail.game.scoreJson,
+        liveStateJson
+      },
       props: mergedProps,
       propsNotice:
         storedProps.length && !liveDetail.props.length

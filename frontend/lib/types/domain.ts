@@ -22,6 +22,8 @@ export type MarketType =
   | "player_rebounds"
   | "player_assists"
   | "player_threes"
+  | "player_pitcher_outs"
+  | "player_pitcher_strikeouts"
   | "fight_winner"
   | "method_of_victory"
   | "round_total"
@@ -34,6 +36,8 @@ export type PropMarketType = Extract<
   | "player_rebounds"
   | "player_assists"
   | "player_threes"
+  | "player_pitcher_outs"
+  | "player_pitcher_strikeouts"
   | "fight_winner"
   | "method_of_victory"
   | "round_total"
@@ -276,7 +280,7 @@ export type BoardFilters = {
   date: string;
   sportsbook: string;
   market: "all" | "spread" | "moneyline" | "total";
-  status: "pregame" | "live";
+  status: "pregame" | "live" | "all";
 };
 
 export type PropFilters = {

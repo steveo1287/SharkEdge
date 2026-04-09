@@ -1,18 +1,53 @@
 import { z } from "zod";
 
+const ingestMarketTypeSchema = z.enum([
+  "spread",
+  "moneyline",
+  "total",
+  "team_total",
+  "player_points",
+  "player_rebounds",
+  "player_assists",
+  "player_threes",
+  "player_pitcher_outs",
+  "player_pitcher_strikeouts",
+  "fight_winner",
+  "method_of_victory",
+  "round_total",
+  "round_winner",
+  "other"
+]);
+
+const advancedOddsMarketSchema = z.object({
+  marketType: ingestMarketTypeSchema,
+  period: z.string().min(1).optional(),
+  marketLabel: z.string().min(1).optional(),
+  selection: z.string().min(1),
+  side: z.string().min(1),
+  line: z.number().nullable().optional(),
+  oddsAmerican: z.number().nullable(),
+  teamSide: z.enum(["home", "away"]).optional(),
+  playerId: z.string().min(1).optional(),
+  playerName: z.string().min(1).optional(),
+  teamId: z.string().min(1).optional()
+});
+
 export const oddsLineSchema = z.object({
   book: z.string().min(1),
   fetchedAt: z.string().datetime(),
-  odds: z.object({
-    homeMoneyline: z.number().nullable().optional(),
-    awayMoneyline: z.number().nullable().optional(),
-    homeSpread: z.number().nullable().optional(),
-    homeSpreadOdds: z.number().nullable().optional(),
-    awaySpreadOdds: z.number().nullable().optional(),
-    total: z.number().nullable().optional(),
-    overOdds: z.number().nullable().optional(),
-    underOdds: z.number().nullable().optional()
-  })
+  odds: z
+    .object({
+      homeMoneyline: z.number().nullable().optional(),
+      awayMoneyline: z.number().nullable().optional(),
+      homeSpread: z.number().nullable().optional(),
+      homeSpreadOdds: z.number().nullable().optional(),
+      awaySpreadOdds: z.number().nullable().optional(),
+      total: z.number().nullable().optional(),
+      overOdds: z.number().nullable().optional(),
+      underOdds: z.number().nullable().optional()
+    })
+    .optional(),
+  markets: z.array(advancedOddsMarketSchema).optional()
 });
 
 export const ingestPayloadSchema = z.object({
@@ -21,7 +56,7 @@ export const ingestPayloadSchema = z.object({
   homeTeam: z.string().min(1),
   awayTeam: z.string().min(1),
   commenceTime: z.string().datetime(),
-  source: z.enum(["theoddsapi", "scraper", "therundown"]),
+  source: z.enum(["theoddsapi", "scraper", "therundown", "draftkings", "fanduel"]),
   lines: z.array(oddsLineSchema).min(1),
   sourceMeta: z.record(z.string(), z.unknown()).optional()
 });

@@ -7,7 +7,7 @@ export const boardFiltersSchema = z.object({
   date: z.string().default("all"),
   sportsbook: z.string().default("best"),
   market: z.enum(["all", "spread", "moneyline", "total"]).default("all"),
-  status: z.enum(["pregame", "live"]).default("pregame")
+  status: z.enum(["pregame", "live", "all"]).default("pregame")
 });
 
 export const propsFiltersSchema = z.object({
@@ -21,6 +21,8 @@ export const propsFiltersSchema = z.object({
       "player_rebounds",
       "player_assists",
       "player_threes",
+      "player_pitcher_outs",
+      "player_pitcher_strikeouts",
       "fight_winner",
       "method_of_victory",
       "round_total",
@@ -54,6 +56,8 @@ export const trendFiltersSchema = z.object({
       "player_rebounds",
       "player_assists",
       "player_threes",
+      "player_pitcher_outs",
+      "player_pitcher_strikeouts",
       "fight_winner",
       "method_of_victory",
       "round_total",
@@ -100,6 +104,8 @@ export const betFiltersSchema = z.object({
       "player_rebounds",
       "player_assists",
       "player_threes",
+      "player_pitcher_outs",
+      "player_pitcher_strikeouts",
       "fight_winner",
       "method_of_victory",
       "round_total",

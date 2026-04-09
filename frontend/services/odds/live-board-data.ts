@@ -494,6 +494,23 @@ function countRenderedRows(sections: BoardPageData["sportSections"]) {
   return sections.reduce((total, section) => total + section.games.length + section.scoreboard.length, 0);
 }
 
+export function selectBoardGamesByStatus(
+  sections: BoardPageData["sportSections"],
+  status: BoardFilters["status"]
+) {
+  const matchedGames = sections.flatMap((section) => section.games);
+
+  if (status === "live") {
+    return matchedGames.filter((game) => game.status === "LIVE");
+  }
+
+  if (status === "pregame") {
+    return matchedGames.filter((game) => game.status === "PREGAME");
+  }
+
+  return matchedGames;
+}
+
 function getLiveSourceNote(response: CurrentOddsBoardResponse) {
   const providerLabel =
     response.provider === "odds_api"
@@ -591,13 +608,14 @@ export async function getLiveBoardPageData(filters: BoardFilters): Promise<Board
   ).sort();
   const supportSummary = getBoardSupportSummary();
   const livePropSports = sportSections.filter((section) => section.propsStatus === "LIVE").length;
+  const surfacedGames = selectBoardGamesByStatus(sportSections, filters.status);
 
   return {
     filters,
     availableDates: Array.from(new Set([...availableDates, ...sectionDates])).sort(),
     leagues: getBoardVisibleLeagues(filters.league),
     sportsbooks: liveSportsbooks,
-    games: filteredGames,
+    games: surfacedGames,
     sportSections,
     snapshots: [],
     summary: {
@@ -618,7 +636,10 @@ export async function getLiveBoardPageData(filters: BoardFilters): Promise<Board
       source: "live",
       generatedAt: response?.generated_at ?? null,
       warnings: response?.errors ?? [],
-      healthySummary: "The live board feed is connected and powering verified pregame comparisons.",
+      healthySummary:
+        filters.status === "live"
+          ? "The live board feed is connected and powering verified live comparisons."
+          : "The live board feed is connected and powering verified board comparisons.",
       degradedSummary:
         "The live board feed is connected, but warnings or timestamp drift mean this board should be treated as partially degraded.",
       fallbackSummary:

@@ -1,6 +1,8 @@
 import type { LeagueKey } from "@/lib/types/domain";
+import { upsertOddsIngestPayload } from "@/services/market-data/market-data-service";
 
 import { readBookFeedState, writeBookFeedState, hashBookFeedPayload } from "./book-feed-cache";
+import { normalizeBookFeedPayload } from "./book-feed-normalization";
 import { getBookFeedProviders, getBookFeedProvidersForLeague } from "./book-feed-registry";
 import type { BookFeedProvider, BookFeedRefreshSummary } from "./book-feed-provider-types";
 
@@ -103,6 +105,19 @@ export async function refreshCurrentBookFeeds(args?: { leagues?: LeagueKey[] }) 
     }
 
     const payloadHash = hashBookFeedPayload(result.payload);
+    const normalizedPayloads = normalizeBookFeedPayload({
+      providerKey: result.providerKey,
+      sportsbookKey: result.sportsbookKey,
+      payload: result.payload,
+      fetchedAt: result.fetchedAt
+    });
+    let ingestedMarketCount = 0;
+
+    for (const payload of normalizedPayloads) {
+      const ingested = await upsertOddsIngestPayload(payload);
+      ingestedMarketCount += ingested.touchedMarketIds.length;
+    }
+
     writeBookFeedState(provider.key, {
       consecutiveFailures: 0,
       lastAttemptAt: now,
@@ -117,7 +132,9 @@ export async function refreshCurrentBookFeeds(args?: { leagues?: LeagueKey[] }) 
       attempted: true,
       status: "READY",
       reason: payloadHash === state.lastPayloadHash ? "unchanged_payload" : "refreshed",
-      leagues
+      leagues,
+      ingestedEventCount: normalizedPayloads.length,
+      ingestedMarketCount
     });
   }
 

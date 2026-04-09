@@ -168,6 +168,7 @@ export default async function GameDetailPage({ params }: PageProps) {
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <QuickJump href="#for-you" label="For You" emphasis />
+                  <QuickJump href="#matchup" label="Live matchup" />
                   <QuickJump href="#markets" label="Markets" />
                   <QuickJump href="#props" label="Props" />
                   <QuickJump href="#movement" label="Movement" />
@@ -212,6 +213,15 @@ export default async function GameDetailPage({ params }: PageProps) {
           )}
 
           <OverviewPanel detail={detail} />
+        </section>
+
+        <section id="matchup" className="grid gap-3 sm:gap-4 lg:gap-5">
+          <SectionTitle
+            eyebrow={detail.status === "LIVE" ? "Live matchup" : "Matchup"}
+            title="Game state and team context"
+            description="Score, leader summaries, team live stats, and player boxscore context should stay visible without making you dig through provider notes."
+          />
+          <MatchupPanel detail={detail} />
         </section>
 
         <section id="markets" className="grid gap-3 sm:gap-4 lg:gap-5">
@@ -345,61 +355,57 @@ export default async function GameDetailPage({ params }: PageProps) {
         <section id="feed" className="grid gap-3 sm:gap-4 lg:gap-5">
           <SectionTitle
             eyebrow="Feed"
-            title="Matchup intelligence and provider notes"
-            description="Participant detail, context notes, and feed honesty all stay visible here."
+            title="Provider notes and feed honesty"
+            description="This keeps the data-quality story visible without hiding the actual live matchup context lower on the page."
           />
 
-          <div className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
-            <div className="grid gap-4">
-              <Card className="surface-panel p-5">
-                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-                  Provider health
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Badge tone={getProviderHealthTone(detail.providerHealth.state)}>
-                    {detail.providerHealth.label}
-                  </Badge>
-                  {detail.currentOddsProvider ? (
-                    <Badge tone="brand">{detail.currentOddsProvider}</Badge>
-                  ) : null}
-                  {detail.historicalOddsProvider ? (
-                    <Badge tone="premium">{detail.historicalOddsProvider}</Badge>
-                  ) : null}
-                </div>
-                <div className="mt-4 text-sm leading-7 text-slate-300">
-                  {detail.providerHealth.summary}
-                </div>
-                {detail.providerHealth.asOf ? (
-                  <div className="mt-3 text-xs uppercase tracking-[0.18em] text-slate-500">
-                    As of {formatGameDateTime(detail.providerHealth.asOf)}
-                  </div>
+          <div className="grid gap-4">
+            <Card className="surface-panel p-5">
+              <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+                Provider health
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge tone={getProviderHealthTone(detail.providerHealth.state)}>
+                  {detail.providerHealth.label}
+                </Badge>
+                {detail.currentOddsProvider ? (
+                  <Badge tone="brand">{detail.currentOddsProvider}</Badge>
                 ) : null}
-              </Card>
-
-              <Card className="surface-panel p-5">
-                <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-                  Desk notes
+                {detail.historicalOddsProvider ? (
+                  <Badge tone="premium">{detail.historicalOddsProvider}</Badge>
+                ) : null}
+              </div>
+              <div className="mt-4 text-sm leading-7 text-slate-300">
+                {detail.providerHealth.summary}
+              </div>
+              {detail.providerHealth.asOf ? (
+                <div className="mt-3 text-xs uppercase tracking-[0.18em] text-slate-500">
+                  As of {formatGameDateTime(detail.providerHealth.asOf)}
                 </div>
-                <div className="mt-4 grid gap-3">
-                  {contextNotes.length ? (
-                    contextNotes.slice(0, 8).map((note) => (
-                      <div
-                        key={note}
-                        className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300"
-                      >
-                        {note}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
-                      No explicit provider or matchup notes were attached on this render.
+              ) : null}
+            </Card>
+
+            <Card className="surface-panel p-5">
+              <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+                Desk notes
+              </div>
+              <div className="mt-4 grid gap-3">
+                {contextNotes.length ? (
+                  contextNotes.slice(0, 8).map((note) => (
+                    <div
+                      key={note}
+                      className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300"
+                    >
+                      {note}
                     </div>
-                  )}
-                </div>
-              </Card>
-            </div>
-
-            <MatchupPanel detail={detail} />
+                  ))
+                ) : (
+                  <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
+                    No explicit provider or matchup notes were attached on this render.
+                  </div>
+                )}
+              </div>
+            </Card>
           </div>
         </section>
       </div>

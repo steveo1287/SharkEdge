@@ -77,7 +77,7 @@ export default async function TeamsPage() {
         date: "today",
         sportsbook: "best",
         market: "all",
-        status: "pregame"
+        status: "all"
       })
     )
   ]);

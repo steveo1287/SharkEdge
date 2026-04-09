@@ -77,6 +77,8 @@ enum MarketType {
   player_rebounds
   player_assists
   player_threes
+  player_pitcher_outs
+  player_pitcher_strikeouts
   fight_winner
   method_of_victory
   round_total
@@ -250,6 +252,7 @@ model Player {
   aliases         PlayerAlias[]
   competitors     Competitor[]
   markets         Market[]
+  eventMarkets    EventMarket[]
   playerGameStats PlayerGameStat[]
   injuries        Injury[]
   bets            Bet[]
@@ -313,6 +316,8 @@ model Competitor {
   player           Player?           @relation(fields: [playerId], references: [id], onDelete: SetNull)
   eventParticipants EventParticipant[]
   selectedMarkets  EventMarket[]     @relation("EventMarketSelectionCompetitor")
+  currentMarketStates CurrentMarketState[] @relation("CurrentMarketStateSelectionCompetitor")
+  edgeSignals      EdgeSignal[]      @relation("EdgeSignalSelectionCompetitor")
   primaryBets      Bet[]             @relation("BetPrimaryCompetitor")
   selectedBetLegs  BetLeg[]          @relation("BetLegSelectionCompetitor")
   wonEventResults  EventResult[]     @relation("EventResultWinner")
@@ -523,16 +528,19 @@ model EventMarket {
   isLive               Boolean              @default(false)
   sourceKey            String?
   selectionCompetitorId String?
+  playerId             String?
   updatedAt            DateTime
   createdAt            DateTime             @default(now())
   event                Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
   sportsbook           Sportsbook?          @relation(fields: [sportsbookId], references: [id], onDelete: SetNull)
   selectionCompetitor  Competitor?          @relation("EventMarketSelectionCompetitor", fields: [selectionCompetitorId], references: [id], onDelete: SetNull)
+  player               Player?              @relation(fields: [playerId], references: [id], onDelete: SetNull)
   snapshots            EventMarketSnapshot[]
   betLegs              BetLeg[]
 
   @@index([eventId, marketType, sportsbookId])
   @@index([selectionCompetitorId, marketType])
+  @@index([playerId, marketType])
   @@index([updatedAt])
   @@map("event_markets")
 }
@@ -1125,6 +1133,8 @@ model CurrentMarketState {
   id                    String      @id @default(cuid())
   eventId               String
   marketType            MarketType
+  period                String      @default("full_game")
+  selectionCompetitorId String?
   playerId              String?
   consensusLineValue    Float?
   bestHomeOddsAmerican  Int?
@@ -1138,14 +1148,16 @@ model CurrentMarketState {
   noVigSource           String?
   updatedAt             DateTime    @default(now()) @updatedAt
   event                 Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  selectionCompetitor   Competitor? @relation("CurrentMarketStateSelectionCompetitor", fields: [selectionCompetitorId], references: [id], onDelete: SetNull)
   player                Player?     @relation(fields: [playerId], references: [id], onDelete: SetNull)
   bestHomeBook          Sportsbook? @relation("CurrentMarketStateBestHomeBook", fields: [bestHomeBookId], references: [id], onDelete: SetNull)
   bestAwayBook          Sportsbook? @relation("CurrentMarketStateBestAwayBook", fields: [bestAwayBookId], references: [id], onDelete: SetNull)
   bestOverBook          Sportsbook? @relation("CurrentMarketStateBestOverBook", fields: [bestOverBookId], references: [id], onDelete: SetNull)
   bestUnderBook         Sportsbook? @relation("CurrentMarketStateBestUnderBook", fields: [bestUnderBookId], references: [id], onDelete: SetNull)
 
-  @@unique([eventId, marketType, playerId])
+  @@unique([eventId, marketType, period, selectionCompetitorId, playerId])
   @@index([eventId, updatedAt])
+  @@index([selectionCompetitorId, updatedAt])
   @@index([playerId, updatedAt])
   @@map("current_market_state")
 }
@@ -1193,6 +1205,8 @@ model EdgeSignal {
   id                  String     @id @default(cuid())
   eventId             String
   marketType          MarketType
+  period              String     @default("full_game")
+  selectionCompetitorId String?
   playerId            String?
   sportsbookId        String
   side                String
@@ -1213,6 +1227,7 @@ model EdgeSignal {
   metadataJson        Json?
   createdAt           DateTime   @default(now())
   event               Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  selectionCompetitor Competitor? @relation("EdgeSignalSelectionCompetitor", fields: [selectionCompetitorId], references: [id], onDelete: SetNull)
   player              Player?    @relation(fields: [playerId], references: [id], onDelete: SetNull)
   sportsbook          Sportsbook @relation(fields: [sportsbookId], references: [id], onDelete: Cascade)
   modelRun            ModelRun?  @relation(fields: [modelRunId], references: [id], onDelete: SetNull)
@@ -1220,6 +1235,7 @@ model EdgeSignal {
   @@index([isActive, createdAt])
   @@index([edgeScore, evPercent])
   @@index([eventId, createdAt])
+  @@index([selectionCompetitorId, createdAt])
   @@index([playerId, createdAt])
   @@map("edge_signals")
 }

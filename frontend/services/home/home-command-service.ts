@@ -220,7 +220,7 @@ export async function getHomeCommandData(
     date: resolveBoardDate(selectedDate),
     sportsbook: "best",
     market: "all",
-    status: "pregame"
+    status: "all"
   });
 
   const [boardData, topProps] = await Promise.all([

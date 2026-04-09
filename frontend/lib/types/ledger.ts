@@ -34,6 +34,8 @@ export const LEDGER_MARKET_TYPES = [
   "player_rebounds",
   "player_assists",
   "player_threes",
+  "player_pitcher_outs",
+  "player_pitcher_strikeouts",
   "fight_winner",
   "method_of_victory",
   "round_total",

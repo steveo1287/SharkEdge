@@ -1,6 +1,7 @@
-import { MarketType, Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
+import { buildMlbEventProjection, buildMlbPlayerPropProjections } from "@/services/modeling/mlb-game-sim-service";
 
 function getNumericStat(stats: Prisma.JsonValue, keys: string[]) {
   if (!stats || typeof stats !== "object" || Array.isArray(stats)) {
@@ -13,7 +14,7 @@ function getNumericStat(stats: Prisma.JsonValue, keys: string[]) {
       return value;
     }
     if (typeof value === "string") {
-      const parsed = Number(value);
+      const parsed = Number(value.replace(/[^0-9.+-]/g, ""));
       if (Number.isFinite(parsed)) {
         return parsed;
       }
@@ -54,8 +55,8 @@ function buildSportFeatureSet(sportKey: string) {
       };
     case "MLB":
       return {
-        offense: ["runs", "R", "runs_per_game"],
-        defense: ["runs_allowed", "RA", "era"],
+        offense: ["runs", "R", "runs_per_game", "runs_scored"],
+        defense: ["runs_allowed", "RA", "opp_runs", "era"],
         pace: ["innings", "plate_appearances"],
         player: {
           other: ["hits", "H", "strikeouts", "SO", "total_bases", "TB"]
@@ -130,24 +131,60 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     throw new Error("Event not found for projection build.");
   }
 
-  const features = buildSportFeatureSet(event.league.key);
-  const teams = event.participants
-    .map((participant) => participant.competitor.team)
-    .filter(Boolean);
+  if (event.league.key === "MLB") {
+    const mlbProjection = await buildMlbEventProjection(eventId);
+    if (mlbProjection) {
+      return mlbProjection;
+    }
+  }
 
-  if (teams.length < 2) {
+  const features = buildSportFeatureSet(event.league.key);
+  const awayTeam =
+    event.participants.find((participant) => participant.role === "AWAY")?.competitor.team ??
+    event.participants[0]?.competitor.team ??
+    null;
+  const homeTeam =
+    event.participants.find((participant) => participant.role === "HOME")?.competitor.team ??
+    event.participants[1]?.competitor.team ??
+    null;
+
+  if (!awayTeam || !homeTeam) {
     return null;
   }
 
-  const [awayTeam, homeTeam] = teams;
-  const homeOffense = average(homeTeam!.teamGameStats.map((row) => getNumericStat(row.statsJson, features.offense)).filter((v): v is number => v !== null)) ?? 0;
-  const awayOffense = average(awayTeam!.teamGameStats.map((row) => getNumericStat(row.statsJson, features.offense)).filter((v): v is number => v !== null)) ?? 0;
-  const homeDefense = average(homeTeam!.teamGameStats.map((row) => getNumericStat(row.statsJson, features.defense)).filter((v): v is number => v !== null)) ?? 0;
-  const awayDefense = average(awayTeam!.teamGameStats.map((row) => getNumericStat(row.statsJson, features.defense)).filter((v): v is number => v !== null)) ?? 0;
-  const pace = average([
-    ...(homeTeam!.teamGameStats.map((row) => getNumericStat(row.statsJson, features.pace)).filter((v): v is number => v !== null)),
-    ...(awayTeam!.teamGameStats.map((row) => getNumericStat(row.statsJson, features.pace)).filter((v): v is number => v !== null))
-  ]) ?? 1;
+  const homeOffense =
+    average(
+      homeTeam.teamGameStats
+        .map((row) => getNumericStat(row.statsJson, features.offense))
+        .filter((value): value is number => value !== null)
+    ) ?? 0;
+  const awayOffense =
+    average(
+      awayTeam.teamGameStats
+        .map((row) => getNumericStat(row.statsJson, features.offense))
+        .filter((value): value is number => value !== null)
+    ) ?? 0;
+  const homeDefense =
+    average(
+      homeTeam.teamGameStats
+        .map((row) => getNumericStat(row.statsJson, features.defense))
+        .filter((value): value is number => value !== null)
+    ) ?? 0;
+  const awayDefense =
+    average(
+      awayTeam.teamGameStats
+        .map((row) => getNumericStat(row.statsJson, features.defense))
+        .filter((value): value is number => value !== null)
+    ) ?? 0;
+  const pace =
+    average([
+      ...homeTeam.teamGameStats
+        .map((row) => getNumericStat(row.statsJson, features.pace))
+        .filter((value): value is number => value !== null),
+      ...awayTeam.teamGameStats
+        .map((row) => getNumericStat(row.statsJson, features.pace))
+        .filter((value): value is number => value !== null)
+    ]) ?? 1;
 
   const projectedHomeScore = (homeOffense + awayDefense) / 2;
   const projectedAwayScore = (awayOffense + homeDefense) / 2;
@@ -174,20 +211,34 @@ export async function buildEventProjectionFromHistory(eventId: string) {
 }
 
 export async function buildPlayerPropProjectionsForEvent(eventId: string) {
-  const players = await prisma.player.findMany({
-    where: {
-      team: {
-        homeGames: { some: { id: eventId } }
-      }
-    }
-  }).catch(() => []);
-
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    include: { league: true }
+    include: {
+      league: true,
+      participants: {
+        include: {
+          competitor: {
+            include: {
+              team: true
+            }
+          }
+        }
+      }
+    }
   });
   if (!event) {
     return [];
+  }
+
+  const teamIds = event.participants
+    .map((participant) => participant.competitor.team?.id)
+    .filter((value): value is string => Boolean(value));
+  if (!teamIds.length) {
+    return [];
+  }
+
+  if (event.league.key === "MLB") {
+    return buildMlbPlayerPropProjections(eventId);
   }
 
   const features = buildSportFeatureSet(event.league.key);
@@ -195,26 +246,7 @@ export async function buildPlayerPropProjectionsForEvent(eventId: string) {
 
   const roster = await prisma.player.findMany({
     where: {
-      OR: [
-        {
-          team: {
-            homeGames: {
-              some: {
-                id: eventId
-              }
-            }
-          }
-        },
-        {
-          team: {
-            awayGames: {
-              some: {
-                id: eventId
-              }
-            }
-          }
-        }
-      ]
+      teamId: { in: teamIds }
     },
     include: {
       playerGameStats: {
@@ -225,30 +257,34 @@ export async function buildPlayerPropProjectionsForEvent(eventId: string) {
   });
 
   return roster.flatMap((player) => {
-    return statKeys.map(([marketType, keys]) => {
-      const values = player.playerGameStats
-        .map((row) => getNumericStat(row.statsJson, keys))
-        .filter((value): value is number => value !== null);
-      const meanValue = average(values);
-      if (meanValue === null) {
-        return null;
-      }
-      const stdDev = standardDeviation(values) ?? 0;
-      return {
-        modelKey: `player-props-${event.league.key.toLowerCase()}`,
-        modelVersion: "v1",
-        eventId: event.id,
-        playerId: player.id,
-        statKey: marketType === "other" ? keys[0] : marketType,
-        meanValue,
-        medianValue: values.sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? meanValue,
-        stdDev,
-        hitProbOver: {},
-        hitProbUnder: {},
-        metadata: {
-          sampleSize: values.length
+    return statKeys
+      .map(([marketType, keys]) => {
+        const values = player.playerGameStats
+          .map((row) => getNumericStat(row.statsJson, keys))
+          .filter((value): value is number => value !== null);
+        const meanValue = average(values);
+        if (meanValue === null) {
+          return null;
         }
-      };
-    }).filter(Boolean);
+        const sorted = [...values].sort((left, right) => left - right);
+        const stdDev = standardDeviation(values) ?? 0;
+        return {
+          modelKey: `player-props-${event.league.key.toLowerCase()}`,
+          modelVersion: "v1",
+          eventId: event.id,
+          playerId: player.id,
+          statKey: marketType === "other" ? keys[0] : marketType,
+          meanValue,
+          medianValue: sorted[Math.floor(sorted.length / 2)] ?? meanValue,
+          stdDev,
+          hitProbOver: {},
+          hitProbUnder: {},
+          metadata: {
+            sampleSize: values.length,
+            source: "recent_game_history"
+          }
+        };
+      })
+      .filter(Boolean);
   });
 }

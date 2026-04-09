@@ -146,7 +146,7 @@ export async function getBoardCommandData(
     date: resolveBoardDate(selectedDate),
     sportsbook: "best",
     market: "all",
-    status: "pregame"
+    status: "all"
   });
 
   const boardData = await oddsService.getBoardPageData(filters);

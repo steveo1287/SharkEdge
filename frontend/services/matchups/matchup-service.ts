@@ -488,6 +488,8 @@ function mergeMetricViews(
 
 function extractLiveStateJson(detail: LegacyGameDetailView) {
   return (detail.game.liveStateJson ?? {}) as {
+    stateDetail?: string | null;
+    providerStateJson?: Record<string, unknown> | null;
     playerSpotlights?: {
       teams?: Record<
         string,
@@ -500,6 +502,49 @@ function extractLiveStateJson(detail: LegacyGameDetailView) {
       >;
     } | null;
   };
+}
+
+function buildLegacyStateDetail(detail: LegacyGameDetailView) {
+  const liveState = extractLiveStateJson(detail);
+
+  if (typeof liveState.stateDetail === "string" && liveState.stateDetail.trim()) {
+    return liveState.stateDetail.trim();
+  }
+
+  const providerState = liveState.providerStateJson ?? {};
+  const detailValue =
+    typeof providerState.detail === "string"
+      ? providerState.detail
+      : typeof providerState.shortDetail === "string"
+        ? providerState.shortDetail
+        : null;
+  const period =
+    typeof providerState.period === "number" || typeof providerState.period === "string"
+      ? `P${providerState.period}`
+      : null;
+  const clock =
+    typeof providerState.displayClock === "string"
+      ? providerState.displayClock
+      : null;
+
+  return [detailValue, period, clock].filter(Boolean).join(" | ") || null;
+}
+
+function buildLegacyScoreboard(detail: LegacyGameDetailView) {
+  const scoreJson = (detail.game.scoreJson ?? {}) as Record<string, unknown>;
+  const awayScore =
+    typeof scoreJson.awayScore === "number" ? String(scoreJson.awayScore) : null;
+  const homeScore =
+    typeof scoreJson.homeScore === "number" ? String(scoreJson.homeScore) : null;
+
+  if (awayScore || homeScore) {
+    return [
+      `${detail.awayTeam.abbreviation}${awayScore ? ` ${awayScore}` : ""}`,
+      `${detail.homeTeam.abbreviation}${homeScore ? ` ${homeScore}` : ""}`
+    ].join(" | ");
+  }
+
+  return `${detail.awayTeam.abbreviation} @ ${detail.homeTeam.abbreviation}`;
 }
 
 function buildSpotlightMetrics(
@@ -619,18 +664,22 @@ function mergeMatchupDetail(args: {
         : "OTHER"),
     status:
       payload?.status ??
-      (legacyDetail?.game.status === "PREGAME"
-        ? "PREGAME"
-        : legacyDetail?.game.status === "FINAL"
-          ? "FINAL"
-          : legacyDetail?.game.status === "POSTPONED"
-            ? "POSTPONED"
-            : "PREGAME"),
-    stateDetail: payload?.stateDetail ?? null,
+      (legacyDetail?.game.status === "LIVE"
+        ? "LIVE"
+        : legacyDetail?.game.status === "PREGAME"
+          ? "PREGAME"
+          : legacyDetail?.game.status === "FINAL"
+            ? "FINAL"
+            : legacyDetail?.game.status === "POSTPONED"
+              ? "POSTPONED"
+              : legacyDetail?.game.status === "CANCELED"
+                ? "CANCELED"
+                : "PREGAME"),
+    stateDetail: payload?.stateDetail ?? (legacyDetail ? buildLegacyStateDetail(legacyDetail) : null),
     scoreboard:
       payload?.scoreboard ??
       (legacyDetail
-        ? `${legacyDetail.awayTeam.abbreviation} @ ${legacyDetail.homeTeam.abbreviation}`
+        ? buildLegacyScoreboard(legacyDetail)
         : null),
     venue: payload?.venue ?? legacyDetail?.game.venue ?? null,
     startTime: payload?.startTime ?? legacyDetail?.game.startTime ?? new Date().toISOString(),

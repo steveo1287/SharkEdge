@@ -130,7 +130,7 @@ export default async function LeagueCenterPage({ params }: PageProps) {
     date: "today",
     sportsbook: "best",
     market: "all",
-    status: "pregame"
+    status: "all"
   });
 
   const [boardData, propsData, trendCards, snapshots] = await Promise.all([

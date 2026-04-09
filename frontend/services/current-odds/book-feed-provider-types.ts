@@ -59,6 +59,8 @@ export type BookFeedRefreshSummary = {
   status: BookFeedProviderStatus | "SKIPPED";
   reason?: string;
   leagues: LeagueKey[];
+  ingestedEventCount?: number;
+  ingestedMarketCount?: number;
 };
 
 export interface BookFeedProvider {

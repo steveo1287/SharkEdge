@@ -4,6 +4,7 @@ export type CanonicalMarketScope = "game" | "team" | "player" | "fight" | "marke
 
 export type CanonicalMarketPeriod =
   | "full_game"
+  | "first_5"
   | "first_half"
   | "second_half"
   | "first_quarter"

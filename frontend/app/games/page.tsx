@@ -83,7 +83,7 @@ export default async function GamesPage() {
         date: "today",
         sportsbook: "best",
         market: "all",
-        status: "pregame"
+        status: "all"
       })
     ),
     withTimeoutFallback(statsService.getLeagueSnapshots("ALL"), {

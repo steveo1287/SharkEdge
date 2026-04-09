@@ -53,6 +53,8 @@ const MARKET_LABELS: Record<TrendFilters["market"], string> = {
   player_rebounds: "Player rebounds",
   player_assists: "Player assists",
   player_threes: "Player threes",
+  player_pitcher_outs: "Pitcher outs",
+  player_pitcher_strikeouts: "Pitcher strikeouts",
   fight_winner: "Fight winner",
   method_of_victory: "Method of victory",
   round_total: "Round total",

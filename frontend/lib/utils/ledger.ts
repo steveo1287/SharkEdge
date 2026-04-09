@@ -49,6 +49,8 @@ export const MARKET_LABELS: Record<LedgerMarketType, string> = {
   player_rebounds: "Player Rebounds",
   player_assists: "Player Assists",
   player_threes: "Player Threes",
+  player_pitcher_outs: "Pitcher Outs",
+  player_pitcher_strikeouts: "Pitcher Strikeouts",
   fight_winner: "Fight Winner",
   method_of_victory: "Method of Victory",
   round_total: "Round Total",
