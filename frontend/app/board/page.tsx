@@ -1,4 +1,5 @@
 import { BoardHero } from "@/components/board/board-hero";
+import { ProviderOpsBanner } from "@/components/board/provider-ops-banner";
 import { BoardSummaryStrip } from "@/components/board/board-summary-strip";
 import { LeagueDeskGrid } from "@/components/board/league-desk-grid";
 import { MarketMoversPanel } from "@/components/board/market-movers-panel";
@@ -18,7 +19,12 @@ type BoardPageProps = {
 
 export default async function BoardPage({ searchParams }: BoardPageProps) {
   const resolvedSearch = (await searchParams) ?? {};
-  const board = await getBoardCommandData(resolvedSearch);
+  const [board, readiness] = await Promise.all([
+    getBoardCommandData(resolvedSearch),
+    import("@/services/current-odds/provider-readiness-service").then((module) =>
+      module.getProviderReadinessView()
+    )
+  ]);
 
   return (
     <div className="grid gap-8">
@@ -28,6 +34,8 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
         leagues={BOARD_LEAGUE_ITEMS}
         dates={BOARD_DATE_ITEMS}
       />
+
+      <ProviderOpsBanner readiness={readiness} />
 
       <BoardSummaryStrip
         verifiedCount={board.verifiedGames.length}
