@@ -1214,29 +1214,6 @@ def normalize_game(game: dict[str, Any]) -> dict[str, Any]:
     )
 
     return normalized
-        "commence_time": game.get("commence_time"),
-        "home_team": home_team,
-        "away_team": away_team,
-        "bookmakers_available": len(normalized_bookmakers),
-        "bookmakers": normalized_bookmakers,
-        "market_stats": {
-            "moneyline": summarize_market(
-                normalized_bookmakers,
-                "moneyline",
-                [away_team, home_team],
-            ),
-            "spread": summarize_market(
-                normalized_bookmakers,
-                "spread",
-                [away_team, home_team],
-            ),
-            "total": summarize_market(
-                normalized_bookmakers,
-                "total",
-                ["Over", "Under"],
-            ),
-        },
-    }
 
 
 def collect_unique_bookmakers(sports: list[dict[str, Any]]) -> int:
