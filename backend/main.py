@@ -21,6 +21,7 @@ from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException
+from pinnacle_mlb_scraper import get_pinnacle_mlb_odds
 from sharkedge_analytics import (
     build_game_edge_block,
     build_sharp_signals,
@@ -3479,6 +3480,46 @@ def odds_board() -> dict[str, Any]:
         "split_stats_note": split_stats_note,
         "errors": errors,
         "sports": sports,
+    }
+
+
+@app.get("/api/odds/pinnacle/mlb")
+def pinnacle_mlb_odds(source: str = "auto") -> dict[str, Any]:
+    normalized_source = (source or "auto").strip().lower()
+    if normalized_source not in {"auto", "actionnetwork", "pinnacle_direct"}:
+        raise HTTPException(
+            status_code=400,
+            detail="source must be one of: auto, actionnetwork, pinnacle_direct",
+        )
+
+    try:
+        games = get_pinnacle_mlb_odds(source=normalized_source)
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch Pinnacle MLB odds: {error}",
+        ) from error
+
+    resolved_source = None
+    if games:
+        resolved_source = Counter(game.get("source") for game in games if game.get("source")).most_common(1)[0][0]
+
+    return {
+        "configured": True,
+        "generated_at": format_now(),
+        "sport": {
+            "key": "baseball_mlb",
+            "title": "MLB",
+            "short_title": "MLB",
+        },
+        "provider": "pinnacle_mlb_scraper",
+        "requested_source": normalized_source,
+        "resolved_source": resolved_source,
+        "game_count": len(games),
+        "games": games,
+        "message": None
+        if games
+        else "No Pinnacle MLB games were returned from ActionNetwork or the direct Pinnacle fallback.",
     }
 
 
