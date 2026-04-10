@@ -258,12 +258,23 @@ def get_api_key() -> str:
 
 
 def get_board_provider_mode() -> str:
-    configured = os.getenv("ODDS_BOARD_PROVIDER", "odds_api").strip().lower()
-    if configured == "oddsharvester":
-        return "odds_api"
-    if configured in {"auto", "odds_api"}:
-        return "odds_api"
-    return "odds_api"
+    configured = os.getenv("ODDS_BOARD_PROVIDER", "auto").strip().lower()
+    if configured in {"auto", "odds_api", "scraper_cache", "oddsharvester"}:
+        return configured
+    return "auto"
+
+
+def get_board_fallback_providers() -> list[str]:
+    raw_value = os.getenv("ODDS_BOARD_FALLBACKS", "scraper_cache,oddsharvester").strip()
+    if not raw_value:
+        return []
+
+    fallbacks: list[str] = []
+    for token in raw_value.split(","):
+        normalized = token.strip().lower()
+        if normalized in {"scraper_cache", "oddsharvester"} and normalized not in fallbacks:
+            fallbacks.append(normalized)
+    return fallbacks
 
 
 def get_oddsharvester_command() -> str:
@@ -1579,34 +1590,244 @@ def fetch_sport_odds_from_oddsharvester(sport: dict[str, str]) -> dict[str, Any]
         return response
 
 
-def resolve_board_provider(api_key: str) -> tuple[str | None, str | None]:
-    if api_key:
-        return "odds_api", None
+def build_empty_sport_payload(sport: dict[str, str], error: str | None = None) -> dict[str, Any]:
+    payload = {
+        "key": sport["key"],
+        "title": sport["title"],
+        "short_title": sport["short_title"],
+        "game_count": 0,
+        "games": [],
+    }
+    if error:
+        payload["error"] = error
+    return payload
 
-    if any(sport.get("game_count") for sport in get_scraper_cache_sports()):
-        return "scraper_cache", None
 
-    return (
-        None,
-        "Current odds board requires ODDS_API_KEY. OddsHarvester is reserved for historical ingestion and is not used in the live board request path.",
-    )
+def is_odds_api_quota_error(detail: str | Exception | None) -> bool:
+    text = str(detail or "").upper()
+    return "OUT_OF_USAGE_CREDITS" in text or "USAGE QUOTA HAS BEEN REACHED" in text
+
+
+def get_available_board_provider_status(
+    api_key: str,
+    scraper_cache_sports: list[dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    cached_sports = scraper_cache_sports if scraper_cache_sports is not None else get_scraper_cache_sports()
+    cache_game_count = sum(int(sport.get("game_count", 0) or 0) for sport in cached_sports)
+
+    return {
+        "odds_api": {
+            "available": bool(api_key),
+            "reason": None if api_key else "ODDS_API_KEY is not configured.",
+        },
+        "scraper_cache": {
+            "available": cache_game_count > 0,
+            "reason": None if cache_game_count > 0 else "Scraper cache has no fresh live games.",
+            "game_count": cache_game_count,
+        },
+        "oddsharvester": {
+            "available": is_oddsharvester_available(),
+            "reason": None if is_oddsharvester_available() else "OddsHarvester is not available in this runtime.",
+        },
+    }
+
+
+def build_board_provider_candidates(
+    api_key: str,
+    scraper_cache_sports: list[dict[str, Any]] | None = None,
+) -> tuple[list[str], str | None, dict[str, dict[str, Any]]]:
+    mode = get_board_provider_mode()
+    status_map = get_available_board_provider_status(api_key, scraper_cache_sports)
+
+    requested: list[str]
+    if mode == "scraper_cache":
+        requested = ["scraper_cache"]
+    elif mode == "oddsharvester":
+        requested = ["oddsharvester"]
+    elif mode == "odds_api":
+        requested = ["odds_api"]
+    else:
+        requested = ["odds_api", *get_board_fallback_providers()]
+
+    candidates: list[str] = []
+    unavailable: list[str] = []
+    for provider in requested:
+        provider_status = status_map.get(provider, {})
+        if provider_status.get("available"):
+            if provider not in candidates:
+                candidates.append(provider)
+        else:
+            reason = provider_status.get("reason")
+            unavailable.append(f"{provider}: {reason}" if reason else provider)
+
+    if candidates:
+        return candidates, None, status_map
+
+    if unavailable:
+        return [], " | ".join(unavailable), status_map
+
+    return [], "No live board providers are available in this runtime.", status_map
 
 
 def fetch_sport_odds(
-    sport: dict[str, str], api_key: str, provider: str
+    sport: dict[str, str],
+    api_key: str,
+    provider: str,
+    scraper_cache_sports: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if provider == "scraper_cache":
-        for cached_sport in get_scraper_cache_sports():
+        cached_sports = scraper_cache_sports if scraper_cache_sports is not None else get_scraper_cache_sports()
+        for cached_sport in cached_sports:
             if cached_sport.get("key") == sport["key"]:
                 return cached_sport
-        return {
-            "key": sport["key"],
-            "title": sport["title"],
-            "short_title": sport["short_title"],
-            "game_count": 0,
-            "games": [],
-        }
+        return build_empty_sport_payload(sport)
+
+    if provider == "oddsharvester":
+        return fetch_sport_odds_from_oddsharvester(sport)
+
     return fetch_sport_odds_from_api(sport, api_key)
+
+
+def fetch_board_snapshot_for_provider(
+    selected_sports: list[dict[str, str]],
+    api_key: str,
+    provider: str,
+    scraper_cache_sports: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    sports: list[dict[str, Any]] = []
+    errors: list[str] = []
+    quota_exhausted = False
+
+    with ThreadPoolExecutor(max_workers=max(1, len(selected_sports))) as executor:
+        future_to_sport = {
+            executor.submit(fetch_sport_odds, sport, api_key, provider, scraper_cache_sports): sport
+            for sport in selected_sports
+        }
+
+        for future, sport in future_to_sport.items():
+            try:
+                sports.append(future.result())
+            except Exception as error:
+                detail = str(error)
+                errors.append(f"{sport['key']}: {detail}")
+                sports.append(build_empty_sport_payload(sport, detail))
+                quota_exhausted = quota_exhausted or (provider == "odds_api" and is_odds_api_quota_error(detail))
+
+    sports.sort(key=lambda item: SPORT_ORDER.get(item["key"], 999))
+    game_count = sum(int(sport.get("game_count", 0) or 0) for sport in sports)
+    sport_count = len(sports)
+
+    if quota_exhausted:
+        status = "QUOTA_EXHAUSTED"
+    elif errors and game_count == 0:
+        status = "FAILED"
+    elif errors:
+        status = "PARTIAL"
+    else:
+        status = "SUCCESS"
+
+    return {
+        "provider": provider,
+        "status": status,
+        "sports": sports,
+        "errors": errors,
+        "game_count": game_count,
+        "sport_count": sport_count,
+        "quota_exhausted": quota_exhausted,
+    }
+
+
+def resolve_board_snapshot(
+    api_key: str,
+    selected_sports: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    sports_to_fetch = selected_sports or SPORTS
+    scraper_cache_sports = get_scraper_cache_sports()
+    candidates, provider_error, status_map = build_board_provider_candidates(
+        api_key,
+        scraper_cache_sports,
+    )
+
+    attempts: list[dict[str, Any]] = []
+    if not candidates:
+        return {
+            "provider_mode": get_board_provider_mode(),
+            "resolved_provider": None,
+            "message": provider_error
+            or "Current odds board is not configured with a usable live provider.",
+            "provider_error": provider_error,
+            "provider_trace": attempts,
+            "sports": [build_empty_sport_payload(sport) for sport in sports_to_fetch],
+            "errors": [provider_error] if provider_error else [],
+            "provider_status": status_map,
+        }
+
+    winning_snapshot: dict[str, Any] | None = None
+    for provider in candidates:
+        attempt = fetch_board_snapshot_for_provider(
+            sports_to_fetch,
+            api_key,
+            provider,
+            scraper_cache_sports=scraper_cache_sports,
+        )
+        attempts.append(
+            {
+                "provider": provider,
+                "status": attempt["status"],
+                "game_count": attempt["game_count"],
+                "sport_count": attempt["sport_count"],
+                "errors": attempt["errors"],
+                "quota_exhausted": attempt["quota_exhausted"],
+            }
+        )
+
+        if attempt["status"] in {"SUCCESS", "PARTIAL"}:
+            winning_snapshot = attempt
+            break
+
+    if winning_snapshot:
+        fallback_triggered = winning_snapshot["provider"] != candidates[0]
+        message = None
+        if fallback_triggered:
+            first_attempt = attempts[0]
+            reason = (
+                "Odds API credits were exhausted."
+                if first_attempt.get("quota_exhausted")
+                else "Primary provider failed."
+            )
+            message = f"{reason} Live board fell back to {winning_snapshot['provider']}."
+        return {
+            "provider_mode": get_board_provider_mode(),
+            "resolved_provider": winning_snapshot["provider"],
+            "message": message,
+            "provider_error": provider_error,
+            "provider_trace": attempts,
+            "sports": winning_snapshot["sports"],
+            "errors": winning_snapshot["errors"],
+            "provider_status": status_map,
+            "fallback_triggered": fallback_triggered,
+        }
+
+    return {
+        "provider_mode": get_board_provider_mode(),
+        "resolved_provider": None,
+        "message": provider_error
+        or "No live board provider returned a usable board payload.",
+        "provider_error": provider_error,
+        "provider_trace": attempts,
+        "sports": [build_empty_sport_payload(sport) for sport in sports_to_fetch],
+        "errors": [error for attempt in attempts for error in attempt["errors"]],
+        "provider_status": status_map,
+    }
+
+
+def resolve_board_provider(api_key: str) -> tuple[str | None, str | None]:
+    scraper_cache_sports = get_scraper_cache_sports()
+    candidates, provider_error, _ = build_board_provider_candidates(
+        api_key,
+        scraper_cache_sports,
+    )
+    return (candidates[0], None) if candidates else (None, provider_error)
 
 
 def fetch_sport_events(sport_key: str, api_key: str) -> list[dict[str, Any]]:
@@ -3608,13 +3829,16 @@ def ingest_odds(
 @app.get("/api/odds/board")
 def odds_board() -> dict[str, Any]:
     api_key = get_api_key()
-    provider, provider_error = resolve_board_provider(api_key)
     regions = get_regions()
     bookmakers = get_bookmakers()
     split_stats_note = (
         "Consensus stats in SharkEdge are derived from sportsbook lines and best "
         "prices. Public ticket and money percentages require an additional data feed."
     )
+    snapshot = resolve_board_snapshot(api_key)
+    provider = snapshot.get("resolved_provider")
+    provider_trace = snapshot.get("provider_trace", [])
+    provider_error = snapshot.get("provider_error")
 
     if not provider:
         return {
@@ -3622,57 +3846,40 @@ def odds_board() -> dict[str, Any]:
             "generated_at": format_now(),
             "provider_mode": get_board_provider_mode(),
             "provider": None,
+            "provider_resolution": {
+                "requested_mode": get_board_provider_mode(),
+                "resolved_provider": None,
+                "winner": None,
+                "fallback_triggered": False,
+                "attempts": provider_trace,
+                "provider_status": snapshot.get("provider_status"),
+            },
             "regions": regions,
             "bookmakers": bookmakers,
             "split_stats_supported": False,
             "split_stats_note": split_stats_note,
             "message": provider_error
+            or snapshot.get("message")
             or "Configure ODDS_API_KEY to load live current odds.",
-            "sports": [
-                {
-                    "key": sport["key"],
-                    "title": sport["title"],
-                    "short_title": sport["short_title"],
-                    "game_count": 0,
-                    "games": [],
-                }
-                for sport in SPORTS
-            ],
+            "errors": snapshot.get("errors", []),
+            "sports": snapshot.get("sports", [build_empty_sport_payload(sport) for sport in SPORTS]),
         }
-
-    sports: list[dict[str, Any]] = []
-    errors: list[str] = []
-    print(f"[odds-board] provider={provider} sports={len(SPORTS)}")
-
-    with ThreadPoolExecutor(max_workers=len(SPORTS)) as executor:
-        future_to_sport = {
-            executor.submit(fetch_sport_odds, sport, api_key, provider): sport
-            for sport in SPORTS
-        }
-
-        for future, sport in future_to_sport.items():
-            try:
-                sports.append(future.result())
-            except Exception as error:
-                errors.append(str(error))
-                sports.append(
-                    {
-                        "key": sport["key"],
-                        "title": sport["title"],
-                        "short_title": sport["short_title"],
-                        "game_count": 0,
-                        "games": [],
-                        "error": str(error),
-                    }
-                )
-
-    sports.sort(key=lambda item: SPORT_ORDER.get(item["key"], 999))
+    sports = snapshot.get("sports", [])
+    errors = snapshot.get("errors", [])
 
     return {
         "configured": True,
         "generated_at": format_now(),
         "provider_mode": get_board_provider_mode(),
         "provider": provider,
+        "provider_resolution": {
+            "requested_mode": get_board_provider_mode(),
+            "resolved_provider": provider,
+            "winner": provider,
+            "fallback_triggered": bool(snapshot.get("fallback_triggered")),
+            "attempts": provider_trace,
+            "provider_status": snapshot.get("provider_status"),
+        },
         "regions": regions,
         "bookmakers": bookmakers,
         "sport_count": len(sports),
@@ -3680,6 +3887,7 @@ def odds_board() -> dict[str, Any]:
         "bookmaker_count": collect_unique_bookmakers(sports),
         "split_stats_supported": False,
         "split_stats_note": split_stats_note,
+        "message": snapshot.get("message"),
         "errors": errors,
         "sports": sports,
     }
@@ -3738,6 +3946,7 @@ def mlb_sharp_reference_debug(
     pinnacle_snapshot = get_pinnacle_mlb_snapshot(source=normalized_source)
     pinnacle_lookup = build_pinnacle_reference_lookup(pinnacle_snapshot)
 
+    board_snapshot = resolve_board_snapshot(api_key, selected_sports=[sport])
     response: dict[str, Any] = {
         "configured": bool(api_key),
         "generated_at": format_now(),
@@ -3750,6 +3959,14 @@ def mlb_sharp_reference_debug(
         "bookmakers": get_bookmakers(),
         "regions": get_regions(),
         "requested_source": normalized_source,
+        "board_provider_resolution": {
+            "requested_mode": board_snapshot.get("provider_mode"),
+            "resolved_provider": board_snapshot.get("resolved_provider"),
+            "winner": board_snapshot.get("resolved_provider"),
+            "fallback_triggered": bool(board_snapshot.get("fallback_triggered")),
+            "attempts": board_snapshot.get("provider_trace", []),
+            "provider_status": board_snapshot.get("provider_status"),
+        },
         "pinnacle_snapshot": {
             "resolved_source": pinnacle_snapshot.get("resolved_source"),
             "game_count": pinnacle_snapshot.get("game_count"),
@@ -3768,12 +3985,20 @@ def mlb_sharp_reference_debug(
         )
         return response
 
-    try:
-        sport_odds = fetch_sport_odds_from_api(sport, api_key)
-    except Exception as error:
+    if not board_snapshot.get("resolved_provider"):
         response["message"] = (
             "MLB board fetch failed before a sample game could be built. "
-            f"Provider error: {error}"
+            f"Provider error: {board_snapshot.get('message') or 'No provider won.'}"
+        )
+        return response
+
+    sport_odds = next(
+        (item for item in board_snapshot.get("sports", []) if item.get("key") == sport["key"]),
+        None,
+    )
+    if not sport_odds:
+        response["message"] = (
+            "MLB board provider resolved, but no MLB payload was returned for inspection."
         )
         return response
 
@@ -3788,6 +4013,7 @@ def mlb_sharp_reference_debug(
             "MLB board is configured, but there was no live MLB game available to inspect in the current board payload."
         )
         response["sharp_reference_diagnostics"] = sport_odds.get("sharp_reference_diagnostics")
+        response["board_errors"] = board_snapshot.get("errors", [])
         return response
 
     away_team = sample_game.get("away_team")
@@ -3797,6 +4023,7 @@ def mlb_sharp_reference_debug(
     response["sharp_reference_diagnostics"] = sample_game.get("sharp_reference_diagnostics")
     response["sample_game"] = sample_game
     response["matched_pinnacle_game"] = matched_pinnacle
+    response["board_errors"] = board_snapshot.get("errors", [])
     response["message"] = (
         "Sample MLB game with merged sharp-reference context. "
         "Use event_id to inspect a different live MLB matchup."
@@ -3932,14 +4159,25 @@ def game_detail(sport_key: str, event_id: str) -> dict[str, Any]:
         }
 
     odds_error: str | None = None
+    score_games: list[dict[str, Any]] = []
     try:
-        provider, _ = resolve_board_provider(api_key)
+        board_snapshot = resolve_board_snapshot(api_key, selected_sports=[sport])
+        provider = board_snapshot.get("resolved_provider")
         if not provider:
             raise RuntimeError(
-                "Current odds board requires ODDS_API_KEY. OddsHarvester is reserved for historical ingestion and is not used in the live board request path."
+                board_snapshot.get("message")
+                or "Current odds board could not resolve a live provider for this game."
             )
-        sport_odds = fetch_sport_odds(sport, api_key, provider)
-        score_games = fetch_sport_scores(sport_key, api_key)
+        sport_odds = next(
+            (item for item in board_snapshot.get("sports", []) if item.get("key") == sport["key"]),
+            build_empty_sport_payload(sport),
+        )
+        if api_key:
+            try:
+                score_games = fetch_sport_scores(sport_key, api_key)
+            except RuntimeError as error:
+                odds_error = str(error)
+                score_games = []
     except RuntimeError as error:
         odds_error = str(error)
         fallback_detail = build_espn_only_game_detail(sport_key, event_id, odds_error)

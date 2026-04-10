@@ -7,6 +7,7 @@ import { backfillHistoricalEventCatalog } from "@/services/historical-odds/catal
 import { ingestHistoricalOddsSnapshots } from "@/services/historical-odds/ingestion-service";
 import { refreshEventParticipantContextWarehouse } from "@/services/trends/event-context-warehouse";
 import { refreshTrendFeatureWarehouse } from "@/services/trends/feature-warehouse";
+import { refreshDiscoveredTrendSystems } from "@/services/trends/discovered-systems";
 
 const DEFAULT_TREND_LEAGUES: SupportedLeagueKey[] = ["NBA", "MLB", "NCAAB", "NHL", "NFL", "NCAAF"];
 const PUBLISHABLE_TREND_LEAGUES = new Set<SupportedLeagueKey>(["NBA", "MLB", "NCAAB", "NHL", "NFL", "NCAAF"]);
@@ -81,6 +82,11 @@ export async function refreshTrendIntelligence(args?: {
     days: args?.days
   });
 
+  const discovered = await refreshDiscoveredTrendSystems({
+    leagues,
+    days: args?.days
+  });
+
   const published = await Promise.all([
     getPublishedTrendCards({ window: "365d", sample: 10 }, { limit: 4 }),
     ...leagues.map((leagueKey) =>
@@ -106,6 +112,7 @@ export async function refreshTrendIntelligence(args?: {
     intelligence,
     contexts,
     features,
+    discovered,
     publishedTrendCount: published.reduce((total, cards) => total + cards.length, 0),
     leagues
   };

@@ -363,6 +363,7 @@ model Event {
   edgeSignals    EdgeSignal[]
   lineMovements  LineMovement[]
   savedTrendMatches SavedTrendMatch[]
+  discoveredTrendActivations DiscoveredTrendActivation[]
   bets           Bet[]
   betLegs        BetLeg[]
   watchlistItems WatchlistItem[]
@@ -1081,6 +1082,109 @@ model TrendCache {
 
   @@index([scope, expiresAt])
   @@map("trend_cache")
+}
+
+model TrendDiscoveryRun {
+  id                    String                  @id @default(cuid())
+  status                String                  @default("RUNNING")
+  leaguesJson           Json?
+  historicalRowCount    Int                     @default(0)
+  currentRowCount       Int                     @default(0)
+  discoveredSystemCount Int                     @default(0)
+  activationCount       Int                     @default(0)
+  summaryJson           Json?
+  completedAt           DateTime?
+  systems               DiscoveredTrendSystem[]
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  @@index([status, createdAt])
+  @@map("trend_discovery_runs")
+}
+
+model DiscoveredTrendSystem {
+  id               String                         @id @default(cuid())
+  discoveryRunId   String?
+  slug             String                         @unique
+  name             String
+  sport            String
+  league           String
+  marketType       String
+  side             String
+  tier             String                         @default("C")
+  status           String                         @default("ACTIVE")
+  score            Float?
+  validationScore  Float?
+  sampleSize       Int                            @default(0)
+  wins             Int                            @default(0)
+  losses           Int                            @default(0)
+  pushes           Int                            @default(0)
+  hitRate          Float?
+  roi              Float?
+  totalProfit      Float?
+  avgClv           Float?
+  beatCloseRate    Float?
+  recentSampleSize Int                            @default(0)
+  seasonsJson      Json?
+  warningsJson     Json?
+  conditionsJson   Json
+  discoveryRun     TrendDiscoveryRun?            @relation(fields: [discoveryRunId], references: [id], onDelete: SetNull)
+  snapshots        DiscoveredTrendSystemSnapshot[]
+  activations      DiscoveredTrendActivation[]
+  createdAt        DateTime                       @default(now())
+  updatedAt        DateTime                       @updatedAt
+
+  @@index([league, marketType])
+  @@index([tier, updatedAt])
+  @@map("discovered_trend_systems")
+}
+
+model DiscoveredTrendSystemSnapshot {
+  id              String                @id @default(cuid())
+  systemId        String
+  sampleSize      Int                   @default(0)
+  wins            Int                   @default(0)
+  losses          Int                   @default(0)
+  pushes          Int                   @default(0)
+  roi             Float?
+  hitRate         Float?
+  totalProfit     Float?
+  avgClv          Float?
+  beatCloseRate   Float?
+  score           Float?
+  validationScore Float?
+  activationCount Int                   @default(0)
+  warningsJson    Json?
+  system          DiscoveredTrendSystem @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@index([systemId, createdAt])
+  @@map("discovered_trend_system_snapshots")
+}
+
+model DiscoveredTrendActivation {
+  id             String                @id @default(cuid())
+  systemId       String
+  eventId        String?
+  eventLabel     String
+  eventStartTime DateTime?
+  currentLine    Float?
+  currentOdds    Int?
+  fairOdds       Int?
+  edgePct        Float?
+  timingState    String?
+  confidenceTier String?
+  reasonsJson    Json?
+  isActive       Boolean               @default(true)
+  system         DiscoveredTrendSystem @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  event          Event?                @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@index([systemId, isActive])
+  @@index([eventId, createdAt])
+  @@map("discovered_trend_activations")
 }
 
 model TeamAlias {
