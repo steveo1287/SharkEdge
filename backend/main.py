@@ -3478,6 +3478,7 @@ def root() -> dict[str, Any]:
         "message": "SharkEdge API is live",
         "odds_board_endpoint": "/api/odds/board",
         "pinnacle_mlb_endpoint": "/api/odds/pinnacle/mlb",
+        "mlb_sharp_reference_debug_endpoint": "/api/debug/mlb/sharp-reference",
         "props_board_endpoint": "/api/props/board",
         "game_detail_endpoint_template": "/api/games/{sport_key}/{event_id}",
         "historical_provider_status_endpoint": "/api/historical/odds/provider-status",
@@ -3718,6 +3719,81 @@ def pinnacle_mlb_odds(source: str = "auto") -> dict[str, Any]:
         "diagnostics": snapshot.get("diagnostics"),
         "message": snapshot.get("message"),
     }
+
+
+@app.get("/api/debug/mlb/sharp-reference")
+def mlb_sharp_reference_debug(
+    event_id: str | None = None,
+    source: str = "auto",
+) -> dict[str, Any]:
+    normalized_source = (source or "auto").strip().lower()
+    if normalized_source not in {"auto", "actionnetwork", "pinnacle_direct"}:
+        raise HTTPException(
+            status_code=400,
+            detail="source must be one of: auto, actionnetwork, pinnacle_direct",
+        )
+
+    api_key = get_api_key()
+    sport = find_sport("baseball_mlb")
+    pinnacle_snapshot = get_pinnacle_mlb_snapshot(source=normalized_source)
+    pinnacle_lookup = build_pinnacle_reference_lookup(pinnacle_snapshot)
+
+    response: dict[str, Any] = {
+        "configured": bool(api_key),
+        "generated_at": format_now(),
+        "sport": {
+            "key": sport["key"],
+            "title": sport["title"],
+            "short_title": sport["short_title"],
+        },
+        "provider_mode": get_board_provider_mode(),
+        "bookmakers": get_bookmakers(),
+        "regions": get_regions(),
+        "requested_source": normalized_source,
+        "pinnacle_snapshot": {
+            "resolved_source": pinnacle_snapshot.get("resolved_source"),
+            "game_count": pinnacle_snapshot.get("game_count"),
+            "cache": pinnacle_snapshot.get("cache"),
+            "diagnostics": pinnacle_snapshot.get("diagnostics"),
+            "message": pinnacle_snapshot.get("message"),
+        },
+        "sample_game": None,
+        "message": None,
+    }
+
+    if not api_key:
+        response["message"] = (
+            "ODDS_API_KEY is not set on the backend service, so SharkEdge cannot build a live MLB board sample yet. "
+            "Pinnacle diagnostics are still included above."
+        )
+        return response
+
+    sport_odds = fetch_sport_odds_from_api(sport, api_key)
+    games = sport_odds.get("games", [])
+    if event_id:
+        sample_game = next((game for game in games if str(game.get("id")) == str(event_id)), None)
+    else:
+        sample_game = games[0] if games else None
+
+    if not sample_game:
+        response["message"] = (
+            "MLB board is configured, but there was no live MLB game available to inspect in the current board payload."
+        )
+        response["sharp_reference_diagnostics"] = sport_odds.get("sharp_reference_diagnostics")
+        return response
+
+    away_team = sample_game.get("away_team")
+    home_team = sample_game.get("home_team")
+    matched_pinnacle = pinnacle_lookup.get((normalize_match_key(away_team), normalize_match_key(home_team)))
+
+    response["sharp_reference_diagnostics"] = sample_game.get("sharp_reference_diagnostics")
+    response["sample_game"] = sample_game
+    response["matched_pinnacle_game"] = matched_pinnacle
+    response["message"] = (
+        "Sample MLB game with merged sharp-reference context. "
+        "Use event_id to inspect a different live MLB matchup."
+    )
+    return response
 
 
 @app.get("/api/props/board")
