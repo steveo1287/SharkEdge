@@ -5,6 +5,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
+from threading import Lock
 from typing import Any
 
 import requests
@@ -46,6 +47,14 @@ PINNACLE_HEADERS = {
     "Origin": "https://www.pinnacle.com",
 }
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("PINNACLE_REQUEST_TIMEOUT_SECONDS", "10"))
+PINNACLE_CACHE_SECONDS = int(os.getenv("PINNACLE_CACHE_SECONDS", "45"))
+
+_CACHE_LOCK = Lock()
+_SNAPSHOT_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _safe_int(value: Any) -> int | None:
@@ -64,6 +73,22 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _safe_iso_timestamp(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+
+
+def _empty_source_diagnostic(source: str) -> dict[str, Any]:
+    return {
+        "source": source,
+        "attempted": False,
+        "ok": False,
+        "game_count": 0,
+        "duration_ms": None,
+        "error": None,
+        "fetched_at": None,
+    }
 
 
 def _iter_actionnetwork_odds_entries(odds_map: Any) -> list[tuple[str, dict[str, Any]]]:
@@ -152,44 +177,9 @@ def _parse_an_odds(game: dict[str, Any]) -> dict[str, Any] | None:
             }
 
         return result
-    except Exception as error:  # pragma: no cover - defensive parse guard
+    except Exception as error:  # pragma: no cover
         log.warning("ActionNetwork parse error: %s", error)
         return None
-
-
-def fetch_from_actionnetwork() -> list[dict[str, Any]]:
-    log.info("Trying ActionNetwork for Pinnacle MLB odds...")
-    try:
-        response = requests.get(AN_MLB_URL, headers=AN_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
-        response.raise_for_status()
-        data = response.json()
-    except requests.RequestException as error:
-        log.warning("ActionNetwork request failed: %s", error)
-        return []
-    except json.JSONDecodeError as error:
-        log.warning("ActionNetwork JSON decode error: %s", error)
-        return []
-
-    games_raw = data.get("games", data) if isinstance(data, dict) else data
-    if not isinstance(games_raw, list):
-        log.warning("ActionNetwork returned an unexpected response shape")
-        return []
-
-    games = [
-        parsed
-        for parsed in (_parse_an_odds(game) for game in games_raw)
-        if parsed and _has_any_market(parsed)
-    ]
-    log.info("ActionNetwork parsed %s Pinnacle MLB games", len(games))
-    return games
-
-
-def _decimal_to_american(decimal_odds: float | None) -> int | None:
-    if decimal_odds is None or decimal_odds <= 1:
-        return None
-    if decimal_odds >= 2:
-        return int(round((decimal_odds - 1) * 100))
-    return int(round(-100 / (decimal_odds - 1)))
 
 
 def _extract_json_array(payload: Any) -> list[dict[str, Any]]:
@@ -201,6 +191,14 @@ def _extract_json_array(payload: Any) -> list[dict[str, Any]]:
             if isinstance(candidate, list):
                 return [item for item in candidate if isinstance(item, dict)]
     return []
+
+
+def _decimal_to_american(decimal_odds: float | None) -> int | None:
+    if decimal_odds is None or decimal_odds <= 1:
+        return None
+    if decimal_odds >= 2:
+        return int(round((decimal_odds - 1) * 100))
+    return int(round(-100 / (decimal_odds - 1)))
 
 
 def _parse_pinnacle_feed(
@@ -225,48 +223,30 @@ def _parse_pinnacle_feed(
         if not isinstance(prices, list):
             continue
 
-        matchup_bucket = odds_by_matchup.setdefault(matchup_id, {})
+        bucket = odds_by_matchup.setdefault(matchup_id, {})
         if market_type == "moneyline":
-            home_price = next(
-                (price for price in prices if price.get("designation") == "home"),
-                None,
-            )
-            away_price = next(
-                (price for price in prices if price.get("designation") == "away"),
-                None,
-            )
+            home_price = next((price for price in prices if price.get("designation") == "home"), None)
+            away_price = next((price for price in prices if price.get("designation") == "away"), None)
             if home_price and away_price:
-                matchup_bucket["moneyline"] = {
+                bucket["moneyline"] = {
                     "home": _decimal_to_american(_safe_float(home_price.get("price"))),
                     "away": _decimal_to_american(_safe_float(away_price.get("price"))),
                 }
         elif market_type == "spread":
-            home_price = next(
-                (price for price in prices if price.get("designation") == "home"),
-                None,
-            )
-            away_price = next(
-                (price for price in prices if price.get("designation") == "away"),
-                None,
-            )
+            home_price = next((price for price in prices if price.get("designation") == "home"), None)
+            away_price = next((price for price in prices if price.get("designation") == "away"), None)
             if home_price and away_price:
-                matchup_bucket["spread"] = {
+                bucket["spread"] = {
                     "home": _safe_float(home_price.get("points")),
                     "home_odds": _decimal_to_american(_safe_float(home_price.get("price"))),
                     "away": _safe_float(away_price.get("points")),
                     "away_odds": _decimal_to_american(_safe_float(away_price.get("price"))),
                 }
         elif market_type == "total":
-            over_price = next(
-                (price for price in prices if price.get("designation") == "over"),
-                None,
-            )
-            under_price = next(
-                (price for price in prices if price.get("designation") == "under"),
-                None,
-            )
+            over_price = next((price for price in prices if price.get("designation") == "over"), None)
+            under_price = next((price for price in prices if price.get("designation") == "under"), None)
             if over_price and under_price:
-                matchup_bucket["total"] = {
+                bucket["total"] = {
                     "line": _safe_float(over_price.get("points")),
                     "over": _decimal_to_american(_safe_float(over_price.get("price"))),
                     "under": _decimal_to_american(_safe_float(under_price.get("price"))),
@@ -294,16 +274,15 @@ def _parse_pinnacle_feed(
             participants[0],
         )
 
-        market_block = odds_by_matchup.get(matchup_id, {})
         game = {
             "game_id": f"pinnacle_{matchup_id}",
             "commence_time": matchup.get("startTime") or "",
             "home_team": home.get("name", ""),
             "away_team": away.get("name", ""),
             "source": "pinnacle_direct",
-            "moneyline": market_block.get("moneyline"),
-            "spread": market_block.get("spread"),
-            "total": market_block.get("total"),
+            "moneyline": odds_by_matchup.get(matchup_id, {}).get("moneyline"),
+            "spread": odds_by_matchup.get(matchup_id, {}).get("spread"),
+            "total": odds_by_matchup.get(matchup_id, {}).get("total"),
         }
         if _has_any_market(game):
             games.append(game)
@@ -357,20 +336,14 @@ def _fetch_pinnacle_selenium() -> list[dict[str, Any]]:
 
                 if "matchups" in url and "leagues/246" in url and matchups_payload is None:
                     try:
-                        body = driver.execute_cdp_cmd(
-                            "Network.getResponseBody",
-                            {"requestId": request_id},
-                        )
+                        body = driver.execute_cdp_cmd("Network.getResponseBody", {"requestId": request_id})
                         matchups_payload = json.loads(body["body"])
                     except Exception:
                         pass
 
                 if "markets/straight" in url and "leagues/246" in url and markets_payload is None:
                     try:
-                        body = driver.execute_cdp_cmd(
-                            "Network.getResponseBody",
-                            {"requestId": request_id},
-                        )
+                        body = driver.execute_cdp_cmd("Network.getResponseBody", {"requestId": request_id})
                         markets_payload = json.loads(body["body"])
                     except Exception:
                         pass
@@ -382,37 +355,164 @@ def _fetch_pinnacle_selenium() -> list[dict[str, Any]]:
             return []
         finally:
             driver.quit()
-    except Exception as error:  # pragma: no cover - browser runtime varies by host
+    except Exception as error:  # pragma: no cover
         log.error("Selenium Pinnacle fallback failed: %s", error)
         return []
 
 
-def fetch_from_pinnacle_direct() -> list[dict[str, Any]]:
-    log.info("Trying Pinnacle guest API for MLB odds...")
+def _run_source_fetch(
+    source: str,
+    fetcher: Any,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    diagnostic = _empty_source_diagnostic(source)
+    started = time.monotonic()
+    diagnostic["attempted"] = True
+    diagnostic["fetched_at"] = _utc_now()
     try:
-        matchups_response = requests.get(
-            PINNACLE_FEED_URL,
-            headers=PINNACLE_HEADERS,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-        matchups_response.raise_for_status()
-        matchups_payload = matchups_response.json()
+        games = fetcher()
+        diagnostic["ok"] = True
+        diagnostic["game_count"] = len(games)
+        return games, diagnostic
+    except Exception as error:  # pragma: no cover
+        diagnostic["error"] = str(error)
+        log.warning("%s failed: %s", source, error)
+        return [], diagnostic
+    finally:
+        diagnostic["duration_ms"] = int(round((time.monotonic() - started) * 1000))
 
-        markets_response = requests.get(
-            PINNACLE_ODDS_URL,
-            headers=PINNACLE_HEADERS,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-        markets_response.raise_for_status()
-        markets_payload = markets_response.json()
 
-        return _parse_pinnacle_feed(matchups_payload, markets_payload)
-    except requests.RequestException as error:
-        log.warning("Pinnacle guest API failed (%s); trying Selenium fallback...", error)
-        return _fetch_pinnacle_selenium()
-    except json.JSONDecodeError as error:
-        log.warning("Pinnacle guest API JSON decode failed (%s); trying Selenium fallback...", error)
-        return _fetch_pinnacle_selenium()
+def fetch_from_actionnetwork() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def _fetch() -> list[dict[str, Any]]:
+        log.info("Trying ActionNetwork for Pinnacle MLB odds...")
+        response = requests.get(AN_MLB_URL, headers=AN_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        data = response.json()
+
+        games_raw = data.get("games", data) if isinstance(data, dict) else data
+        if not isinstance(games_raw, list):
+            raise RuntimeError("ActionNetwork returned an unexpected response shape")
+
+        games = [
+            parsed
+            for parsed in (_parse_an_odds(game) for game in games_raw)
+            if parsed and _has_any_market(parsed)
+        ]
+        log.info("ActionNetwork parsed %s Pinnacle MLB games", len(games))
+        return games
+
+    try:
+        return _run_source_fetch("actionnetwork", _fetch)
+    except json.JSONDecodeError as error:  # pragma: no cover
+        diagnostic = _empty_source_diagnostic("actionnetwork")
+        diagnostic["attempted"] = True
+        diagnostic["fetched_at"] = _utc_now()
+        diagnostic["error"] = f"JSON decode error: {error}"
+        diagnostic["duration_ms"] = 0
+        return [], diagnostic
+
+
+def fetch_from_pinnacle_direct() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def _fetch() -> list[dict[str, Any]]:
+        log.info("Trying Pinnacle guest API for MLB odds...")
+        try:
+            matchups_response = requests.get(
+                PINNACLE_FEED_URL,
+                headers=PINNACLE_HEADERS,
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+            matchups_response.raise_for_status()
+            matchups_payload = matchups_response.json()
+
+            markets_response = requests.get(
+                PINNACLE_ODDS_URL,
+                headers=PINNACLE_HEADERS,
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+            markets_response.raise_for_status()
+            markets_payload = markets_response.json()
+
+            return _parse_pinnacle_feed(matchups_payload, markets_payload)
+        except (requests.RequestException, json.JSONDecodeError) as error:
+            log.warning("Pinnacle guest API failed (%s); trying Selenium fallback...", error)
+            return _fetch_pinnacle_selenium()
+
+    return _run_source_fetch("pinnacle_direct", _fetch)
+
+
+def _get_cached_snapshot(source: str) -> dict[str, Any] | None:
+    with _CACHE_LOCK:
+        cached = _SNAPSHOT_CACHE.get(source)
+        if not cached:
+            return None
+        if cached["expires_at_epoch"] <= time.time():
+            _SNAPSHOT_CACHE.pop(source, None)
+            return None
+        snapshot = dict(cached["snapshot"])
+        snapshot["cache"] = {
+            "hit": True,
+            "ttl_seconds": PINNACLE_CACHE_SECONDS,
+            "expires_at": _safe_iso_timestamp(cached["expires_at_epoch"]),
+        }
+        return snapshot
+
+
+def _set_cached_snapshot(source: str, snapshot: dict[str, Any]) -> dict[str, Any]:
+    expires_at_epoch = time.time() + PINNACLE_CACHE_SECONDS
+    stored = dict(snapshot)
+    stored["cache"] = {
+        "hit": False,
+        "ttl_seconds": PINNACLE_CACHE_SECONDS,
+        "expires_at": _safe_iso_timestamp(expires_at_epoch),
+    }
+    with _CACHE_LOCK:
+        _SNAPSHOT_CACHE[source] = {
+            "expires_at_epoch": expires_at_epoch,
+            "snapshot": stored,
+        }
+    return stored
+
+
+def get_pinnacle_mlb_snapshot(source: str = "auto") -> dict[str, Any]:
+    normalized_source = (source or "auto").strip().lower()
+    if normalized_source not in {"auto", "actionnetwork", "pinnacle_direct"}:
+        raise ValueError("source must be one of: auto, actionnetwork, pinnacle_direct")
+
+    cached = _get_cached_snapshot(normalized_source)
+    if cached:
+        return cached
+
+    diagnostics = {
+        "actionnetwork": _empty_source_diagnostic("actionnetwork"),
+        "pinnacle_direct": _empty_source_diagnostic("pinnacle_direct"),
+    }
+    resolved_source: str | None = None
+    games: list[dict[str, Any]] = []
+
+    if normalized_source in {"auto", "actionnetwork"}:
+        games, actionnetwork_diagnostic = fetch_from_actionnetwork()
+        diagnostics["actionnetwork"] = actionnetwork_diagnostic
+        if games or normalized_source == "actionnetwork":
+            resolved_source = "actionnetwork" if games else None
+
+    if not games and normalized_source in {"auto", "pinnacle_direct"}:
+        games, pinnacle_diagnostic = fetch_from_pinnacle_direct()
+        diagnostics["pinnacle_direct"] = pinnacle_diagnostic
+        if games:
+            resolved_source = "pinnacle_direct"
+
+    snapshot = {
+        "configured": True,
+        "generated_at": _utc_now(),
+        "requested_source": normalized_source,
+        "resolved_source": resolved_source,
+        "game_count": len(games),
+        "games": games,
+        "diagnostics": diagnostics,
+        "message": None
+        if games
+        else "No Pinnacle MLB games were returned from ActionNetwork or the direct Pinnacle fallback.",
+    }
+    return _set_cached_snapshot(normalized_source, snapshot)
 
 
 def american_to_implied(american: int) -> float:
@@ -458,33 +558,22 @@ def get_ev_vs_pinnacle(
 
 
 def get_pinnacle_mlb_odds(source: str = "auto") -> list[dict[str, Any]]:
-    normalized_source = (source or "auto").strip().lower()
-    if normalized_source not in {"auto", "actionnetwork", "pinnacle_direct"}:
-        raise ValueError("source must be one of: auto, actionnetwork, pinnacle_direct")
-
-    if normalized_source in {"auto", "actionnetwork"}:
-        games = fetch_from_actionnetwork()
-        if games or normalized_source == "actionnetwork":
-            return games
-        log.info("ActionNetwork returned nothing; falling back to Pinnacle direct feed...")
-
-    games = fetch_from_pinnacle_direct()
-    if not games:
-        log.error("Both Pinnacle MLB sources failed. Returning an empty list.")
-    return games
+    return list(get_pinnacle_mlb_snapshot(source=source).get("games") or [])
 
 
 if __name__ == "__main__":
-    games = get_pinnacle_mlb_odds()
+    snapshot = get_pinnacle_mlb_snapshot()
+    games = snapshot["games"]
     if not games:
         print("No games found.")
+        print(snapshot["message"])
     else:
         print("=" * 60)
         print(
             "  Pinnacle MLB Lines - "
             f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
         )
-        print(f"  Source: {games[0]['source']}  |  Games: {len(games)}")
+        print(f"  Source: {snapshot['resolved_source']}  |  Games: {len(games)}")
         print("=" * 60)
         print()
 

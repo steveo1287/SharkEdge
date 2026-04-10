@@ -21,7 +21,7 @@ from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException
-from pinnacle_mlb_scraper import get_pinnacle_mlb_odds
+from pinnacle_mlb_scraper import get_pinnacle_mlb_snapshot
 from sharkedge_analytics import (
     build_game_edge_block,
     build_sharp_signals,
@@ -115,6 +115,15 @@ DEFAULT_BOOKMAKERS = [
     "espnbet",
     "fanatics",
 ]
+SHARP_REFERENCE_BOOK_KEYS = {
+    "pinnacle",
+    "circa",
+    "bookmaker",
+    "cris",
+    "lowvig",
+    "betonline",
+    "heritage",
+}
 SPORT_ORDER = {sport["key"]: index for index, sport in enumerate(SPORTS)}
 ODDS_API_BASE_URL = "https://api.the-odds-api.com/v4/sports"
 ODDS_API_MARKETS = "h2h,spreads,totals"
@@ -645,6 +654,10 @@ def slugify_key(value: str | None, fallback: str) -> str:
     return normalized or fallback
 
 
+def normalize_match_key(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).strip()
+
+
 def normalize_harvester_market_key(value: Any) -> str | None:
     normalized = re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
 
@@ -1171,7 +1184,180 @@ def build_point_range(points: list[float]) -> dict[str, Any] | None:
     }
 
 
-def normalize_game(game: dict[str, Any]) -> dict[str, Any]:
+def build_pinnacle_reference_lookup(
+    snapshot: dict[str, Any] | None,
+) -> dict[tuple[str, str], dict[str, Any]]:
+    if not snapshot:
+        return {}
+
+    lookup: dict[tuple[str, str], dict[str, Any]] = {}
+    for game in snapshot.get("games", []):
+        if not isinstance(game, dict):
+            continue
+        away_key = normalize_match_key(game.get("away_team"))
+        home_key = normalize_match_key(game.get("home_team"))
+        if not away_key or not home_key:
+            continue
+        lookup[(away_key, home_key)] = game
+    return lookup
+
+
+def build_external_sharp_reference(
+    away_team: str | None,
+    home_team: str | None,
+    lookup: dict[tuple[str, str], dict[str, Any]],
+    snapshot: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    diagnostics = {
+        "selected_source": None,
+        "matched_external": False,
+        "external_game_id": None,
+        "external_requested_source": snapshot.get("requested_source") if snapshot else None,
+        "external_resolved_source": snapshot.get("resolved_source") if snapshot else None,
+        "external_cache": snapshot.get("cache") if snapshot else None,
+        "source_health": snapshot.get("diagnostics") if snapshot else None,
+    }
+
+    if not away_team or not home_team or not lookup:
+        return None, diagnostics
+
+    matched = lookup.get((normalize_match_key(away_team), normalize_match_key(home_team)))
+    if not matched:
+        return None, diagnostics
+
+    source = matched.get("source")
+    diagnostics["selected_source"] = source
+    diagnostics["matched_external"] = True
+    diagnostics["external_game_id"] = matched.get("game_id")
+
+    return (
+        {
+            "source": source,
+            "book_key": "pinnacle",
+            "book_name": "Pinnacle",
+            "moneyline": matched.get("moneyline"),
+            "spread": matched.get("spread"),
+            "total": matched.get("total"),
+        },
+        diagnostics,
+    )
+
+
+def build_market_sharp_fallback(
+    bookmakers: list[dict[str, Any]],
+    away_team: str | None,
+    home_team: str | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    sharp_bookmakers = [
+        bookmaker
+        for bookmaker in bookmakers
+        if bookmaker.get("key") in SHARP_REFERENCE_BOOK_KEYS
+    ]
+    fallback_books = [bookmaker.get("title") for bookmaker in sharp_bookmakers if bookmaker.get("title")]
+    diagnostics = {
+        "fallback_books": fallback_books,
+        "fallback_book_count": len(fallback_books),
+    }
+
+    if not sharp_bookmakers:
+        return None, diagnostics
+
+    def _find_market(bookmaker: dict[str, Any], market_name: str) -> list[dict[str, Any]]:
+        return list(bookmaker.get("markets", {}).get(market_name, []) or [])
+
+    reference = {
+        "source": "market_sharp_fallback",
+        "book_key": "sharp_fallback",
+        "book_name": ", ".join(fallback_books[:3]) if fallback_books else "Sharp fallback",
+        "moneyline": None,
+        "spread": None,
+        "total": None,
+    }
+
+    moneyline_book = next((bookmaker for bookmaker in sharp_bookmakers if len(_find_market(bookmaker, "moneyline")) >= 2), None)
+    if moneyline_book:
+        outcomes = _find_market(moneyline_book, "moneyline")
+        away_outcome = next((outcome for outcome in outcomes if outcome.get("name") == away_team), outcomes[0])
+        home_outcome = next((outcome for outcome in outcomes if outcome.get("name") == home_team), outcomes[-1])
+        reference["moneyline"] = {
+            "away": away_outcome.get("price"),
+            "home": home_outcome.get("price"),
+        }
+
+    spread_book = next((bookmaker for bookmaker in sharp_bookmakers if len(_find_market(bookmaker, "spread")) >= 2), None)
+    if spread_book:
+        outcomes = _find_market(spread_book, "spread")
+        away_outcome = next((outcome for outcome in outcomes if outcome.get("name") == away_team), outcomes[0])
+        home_outcome = next((outcome for outcome in outcomes if outcome.get("name") == home_team), outcomes[-1])
+        reference["spread"] = {
+            "away": away_outcome.get("point"),
+            "away_odds": away_outcome.get("price"),
+            "home": home_outcome.get("point"),
+            "home_odds": home_outcome.get("price"),
+        }
+
+    total_book = next((bookmaker for bookmaker in sharp_bookmakers if len(_find_market(bookmaker, "total")) >= 2), None)
+    if total_book:
+        outcomes = _find_market(total_book, "total")
+        over_outcome = next((outcome for outcome in outcomes if outcome.get("name") == "Over"), outcomes[0])
+        under_outcome = next((outcome for outcome in outcomes if outcome.get("name") == "Under"), outcomes[-1])
+        reference["total"] = {
+            "line": over_outcome.get("point"),
+            "over": over_outcome.get("price"),
+            "under": under_outcome.get("price"),
+        }
+
+    if not any(reference.get(key) for key in ("moneyline", "spread", "total")):
+        return None, diagnostics
+
+    return reference, diagnostics
+
+
+def build_sharp_reference_context(
+    sport_key: str,
+    away_team: str | None,
+    home_team: str | None,
+    normalized_bookmakers: list[dict[str, Any]],
+    pinnacle_lookup: dict[tuple[str, str], dict[str, Any]] | None = None,
+    pinnacle_snapshot: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    diagnostics: dict[str, Any] = {
+        "selected_source": None,
+        "source_health": pinnacle_snapshot.get("diagnostics") if pinnacle_snapshot else None,
+        "fallback_books": [],
+        "fallback_book_count": 0,
+    }
+
+    if sport_key == "baseball_mlb":
+        external_reference, external_diagnostics = build_external_sharp_reference(
+            away_team,
+            home_team,
+            pinnacle_lookup or {},
+            pinnacle_snapshot,
+        )
+        diagnostics.update(external_diagnostics)
+        if external_reference:
+            return external_reference, diagnostics
+
+    fallback_reference, fallback_diagnostics = build_market_sharp_fallback(
+        normalized_bookmakers,
+        away_team,
+        home_team,
+    )
+    diagnostics.update(fallback_diagnostics)
+    if fallback_reference:
+        diagnostics["selected_source"] = fallback_reference.get("source")
+        return fallback_reference, diagnostics
+
+    return None, diagnostics
+
+
+def normalize_game(
+    game: dict[str, Any],
+    sport_key: str | None = None,
+    pinnacle_lookup: dict[tuple[str, str], dict[str, Any]] | None = None,
+    pinnacle_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     normalized_bookmakers = [
         normalize_bookmaker(bookmaker)
         for bookmaker in sort_bookmakers(game.get("bookmakers", []))
@@ -1206,11 +1392,24 @@ def normalize_game(game: dict[str, Any]) -> dict[str, Any]:
         },
     }
 
+    sharp_reference, sharp_reference_diagnostics = build_sharp_reference_context(
+        sport_key or "",
+        away_team,
+        home_team,
+        normalized_bookmakers,
+        pinnacle_lookup=pinnacle_lookup,
+        pinnacle_snapshot=pinnacle_snapshot,
+    )
+    normalized["sharp_reference"] = sharp_reference
+    normalized["sharp_reference_diagnostics"] = sharp_reference_diagnostics
+
     normalized["edge_analytics"] = build_game_edge_block(normalized)
     normalized["sharp_signals"] = build_sharp_signals(
         normalized_bookmakers,
         str(away_team or "Away"),
         str(home_team or "Home"),
+        sharp_reference=sharp_reference,
+        source_diagnostics=sharp_reference_diagnostics,
     )
 
     return normalized
@@ -1246,18 +1445,42 @@ def fetch_sport_odds_from_api(sport: dict[str, str], api_key: str) -> dict[str, 
     if not isinstance(payload, list):
         raise RuntimeError(f"{sport['title']} returned an unexpected response.")
 
+    pinnacle_snapshot = None
+    pinnacle_lookup: dict[tuple[str, str], dict[str, Any]] = {}
+    if sport["key"] == "baseball_mlb":
+        pinnacle_snapshot = get_pinnacle_mlb_snapshot(source="auto")
+        pinnacle_lookup = build_pinnacle_reference_lookup(pinnacle_snapshot)
+
     games = sorted(
-        (normalize_game(game) for game in payload),
+        (
+            normalize_game(
+                game,
+                sport_key=sport["key"],
+                pinnacle_lookup=pinnacle_lookup,
+                pinnacle_snapshot=pinnacle_snapshot,
+            )
+            for game in payload
+        ),
         key=lambda game: game.get("commence_time") or "",
     )
 
-    return {
+    response = {
         "key": sport["key"],
         "title": sport["title"],
         "short_title": sport["short_title"],
         "game_count": len(games),
         "games": games,
     }
+    if pinnacle_snapshot:
+        response["sharp_reference_diagnostics"] = {
+            "provider": "pinnacle_mlb_scraper",
+            "requested_source": pinnacle_snapshot.get("requested_source"),
+            "resolved_source": pinnacle_snapshot.get("resolved_source"),
+            "game_count": pinnacle_snapshot.get("game_count"),
+            "cache": pinnacle_snapshot.get("cache"),
+            "source_health": pinnacle_snapshot.get("diagnostics"),
+        }
+    return response
 
 
 def fetch_sport_odds_from_oddsharvester(sport: dict[str, str]) -> dict[str, Any]:
@@ -3254,6 +3477,7 @@ def root() -> dict[str, Any]:
     return {
         "message": "SharkEdge API is live",
         "odds_board_endpoint": "/api/odds/board",
+        "pinnacle_mlb_endpoint": "/api/odds/pinnacle/mlb",
         "props_board_endpoint": "/api/props/board",
         "game_detail_endpoint_template": "/api/games/{sport_key}/{event_id}",
         "historical_provider_status_endpoint": "/api/historical/odds/provider-status",
@@ -3470,20 +3694,16 @@ def pinnacle_mlb_odds(source: str = "auto") -> dict[str, Any]:
         )
 
     try:
-        games = get_pinnacle_mlb_odds(source=normalized_source)
+        snapshot = get_pinnacle_mlb_snapshot(source=normalized_source)
     except Exception as error:
         raise HTTPException(
             status_code=502,
             detail=f"Failed to fetch Pinnacle MLB odds: {error}",
         ) from error
 
-    resolved_source = None
-    if games:
-        resolved_source = Counter(game.get("source") for game in games if game.get("source")).most_common(1)[0][0]
-
     return {
-        "configured": True,
-        "generated_at": format_now(),
+        "configured": snapshot.get("configured", True),
+        "generated_at": snapshot.get("generated_at", format_now()),
         "sport": {
             "key": "baseball_mlb",
             "title": "MLB",
@@ -3491,12 +3711,12 @@ def pinnacle_mlb_odds(source: str = "auto") -> dict[str, Any]:
         },
         "provider": "pinnacle_mlb_scraper",
         "requested_source": normalized_source,
-        "resolved_source": resolved_source,
-        "game_count": len(games),
-        "games": games,
-        "message": None
-        if games
-        else "No Pinnacle MLB games were returned from ActionNetwork or the direct Pinnacle fallback.",
+        "resolved_source": snapshot.get("resolved_source"),
+        "game_count": snapshot.get("game_count", 0),
+        "games": snapshot.get("games", []),
+        "cache": snapshot.get("cache"),
+        "diagnostics": snapshot.get("diagnostics"),
+        "message": snapshot.get("message"),
     }
 
 

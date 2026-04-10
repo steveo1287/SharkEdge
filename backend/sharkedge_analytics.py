@@ -92,9 +92,60 @@ def _coerce_numeric(value: Any) -> float | int | None:
     return value if isinstance(value, (int, float)) else None
 
 
+def _build_sharp_reference_payload(
+    market_name: str,
+    ordered: list[dict[str, Any]],
+    sharp_reference_market: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(sharp_reference_market, dict):
+        return None
+
+    if market_name == "moneyline":
+        away_price = _coerce_numeric(sharp_reference_market.get("away"))
+        home_price = _coerce_numeric(sharp_reference_market.get("home"))
+        if away_price is None or home_price is None:
+            return None
+        return {"prices": [away_price, home_price], "line": None}
+
+    if market_name == "spread":
+        away_price = _coerce_numeric(sharp_reference_market.get("away_odds"))
+        home_price = _coerce_numeric(sharp_reference_market.get("home_odds"))
+        away_line = _coerce_numeric(sharp_reference_market.get("away"))
+        home_line = _coerce_numeric(sharp_reference_market.get("home"))
+        away_consensus = _coerce_numeric(ordered[0].get("consensus_point"))
+        home_consensus = _coerce_numeric(ordered[1].get("consensus_point"))
+        if (
+            away_price is None
+            or home_price is None
+            or away_line is None
+            or home_line is None
+            or away_consensus is None
+            or home_consensus is None
+        ):
+            return None
+        if abs(away_line - away_consensus) > 0.01 or abs(home_line - home_consensus) > 0.01:
+            return None
+        return {"prices": [away_price, home_price], "line": away_line}
+
+    if market_name == "total":
+        over_price = _coerce_numeric(sharp_reference_market.get("over"))
+        under_price = _coerce_numeric(sharp_reference_market.get("under"))
+        line = _coerce_numeric(sharp_reference_market.get("line"))
+        consensus_line = _coerce_numeric(ordered[0].get("consensus_point"))
+        if over_price is None or under_price is None or line is None or consensus_line is None:
+            return None
+        if abs(line - consensus_line) > 0.01:
+            return None
+        return {"prices": [over_price, under_price], "line": line}
+
+    return None
+
+
 def build_edge_analytics_for_market(
     market_stats: list[dict[str, Any]],
     outcome_names: list[str],
+    market_name: str,
+    sharp_reference: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not market_stats or len(market_stats) < 2:
         return {"available": False, "reason": "insufficient_market_data"}
@@ -113,11 +164,15 @@ def build_edge_analytics_for_market(
     if any(price is None for price in avg_prices):
         return {"available": False, "reason": "no_prices"}
 
-    fair_probs = vig_strip([price for price in avg_prices if price is not None])
+    reference_payload = _build_sharp_reference_payload(market_name, ordered, sharp_reference)
+    fair_source_prices = (
+        reference_payload["prices"] if reference_payload else [price for price in avg_prices if price is not None]
+    )
+    fair_probs = vig_strip(fair_source_prices)
     if len(fair_probs) != len(ordered):
         return {"available": False, "reason": "vig_strip_failed"}
 
-    market_vig = vig_percentage([price for price in avg_prices if price is not None])
+    market_vig = vig_percentage(fair_source_prices)
     outcomes_out: list[dict[str, Any]] = []
 
     for stat, fair_prob in zip(ordered, fair_probs):
@@ -145,6 +200,7 @@ def build_edge_analytics_for_market(
                 "price_vs_average": round(best_price - avg_price, 2)
                 if best_price is not None and avg_price is not None
                 else None,
+                "pricing_method": "sharp_reference" if reference_payload else "consensus_average",
             }
         )
 
@@ -159,6 +215,10 @@ def build_edge_analytics_for_market(
         "best_ev_pct": round(best_ev * 100.0, 3) if best_ev is not None else None,
         "best_outcome": best_outcome,
         "any_edge": any(item["has_edge"] for item in outcomes_out),
+        "pricing_method": "sharp_reference" if reference_payload else "consensus_average",
+        "reference_line": reference_payload.get("line") if reference_payload else None,
+        "reference_source": sharp_reference.get("source") if isinstance(sharp_reference, dict) else None,
+        "reference_book": sharp_reference.get("book_name") if isinstance(sharp_reference, dict) else None,
     }
 
 
@@ -259,6 +319,8 @@ def build_sharp_signals(
     bookmakers: list[dict[str, Any]],
     away_team: str,
     home_team: str,
+    sharp_reference: dict[str, Any] | None = None,
+    source_diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     moneyline_prices: dict[str, list[int]] = {away_team: [], home_team: []}
     spread_points: dict[str, list[float]] = {away_team: [], home_team: []}
@@ -291,6 +353,11 @@ def build_sharp_signals(
 
     away_ml = mean(moneyline_prices[away_team]) if moneyline_prices[away_team] else None
     home_ml = mean(moneyline_prices[home_team]) if moneyline_prices[home_team] else None
+    reference_moneyline = sharp_reference.get("moneyline") if isinstance(sharp_reference, dict) else None
+    reference_spread = sharp_reference.get("spread") if isinstance(sharp_reference, dict) else None
+    if isinstance(reference_moneyline, dict):
+        away_ml = _coerce_numeric(reference_moneyline.get("away")) or away_ml
+        home_ml = _coerce_numeric(reference_moneyline.get("home")) or home_ml
     favorite = None
     if away_ml is not None and home_ml is not None:
         favorite = away_team if away_ml < home_ml else home_team if home_ml < away_ml else None
@@ -301,6 +368,9 @@ def build_sharp_signals(
     estimated_lean_magnitude = None
     away_avg_spread = mean(spread_points[away_team]) if spread_points[away_team] else None
     home_avg_spread = mean(spread_points[home_team]) if spread_points[home_team] else None
+    if isinstance(reference_spread, dict):
+        away_avg_spread = _coerce_numeric(reference_spread.get("away")) or away_avg_spread
+        home_avg_spread = _coerce_numeric(reference_spread.get("home")) or home_avg_spread
     if away_avg_spread is not None and home_avg_spread is not None:
         # More negative spread indicates stronger market support for that team.
         if away_avg_spread <= -0.5:
@@ -325,6 +395,10 @@ def build_sharp_signals(
             "estimated_lean_magnitude": estimated_lean_magnitude,
             "movement_direction": movement_direction,
             "books_sampled": len(bookmakers or []),
+            "reference_source": sharp_reference.get("source") if isinstance(sharp_reference, dict) else None,
+            "reference_book": sharp_reference.get("book_name") if isinstance(sharp_reference, dict) else None,
+            "reference_available": isinstance(sharp_reference, dict),
+            "source_diagnostics": source_diagnostics or {},
             "note": (
                 "Sharp signals are inferred from cross-book line shape and spread dispersion. "
                 "True reverse-line-movement classification still requires ticket or money splits."
@@ -339,12 +413,34 @@ def build_game_edge_block(game: dict[str, Any]) -> dict[str, Any]:
     home_team = str(game.get("home_team") or "Home")
     market_stats = game.get("market_stats") or {}
     bookmakers = game.get("bookmakers") or []
+    sharp_reference = game.get("sharp_reference") if isinstance(game.get("sharp_reference"), dict) else None
     bookmakers_available = int(game.get("bookmakers_available") or len(bookmakers) or 1)
 
-    moneyline = build_edge_analytics_for_market(market_stats.get("moneyline") or [], [away_team, home_team])
-    spread = build_edge_analytics_for_market(market_stats.get("spread") or [], [away_team, home_team])
-    total = build_edge_analytics_for_market(market_stats.get("total") or [], ["Over", "Under"])
-    sharp_signals = build_sharp_signals(bookmakers, away_team, home_team)
+    moneyline = build_edge_analytics_for_market(
+        market_stats.get("moneyline") or [],
+        [away_team, home_team],
+        "moneyline",
+        sharp_reference=sharp_reference.get("moneyline") if sharp_reference else None,
+    )
+    spread = build_edge_analytics_for_market(
+        market_stats.get("spread") or [],
+        [away_team, home_team],
+        "spread",
+        sharp_reference=sharp_reference.get("spread") if sharp_reference else None,
+    )
+    total = build_edge_analytics_for_market(
+        market_stats.get("total") or [],
+        ["Over", "Under"],
+        "total",
+        sharp_reference=sharp_reference.get("total") if sharp_reference else None,
+    )
+    sharp_signals = build_sharp_signals(
+        bookmakers,
+        away_team,
+        home_team,
+        sharp_reference=sharp_reference,
+        source_diagnostics=game.get("sharp_reference_diagnostics"),
+    )
     sharkscore = build_sharkscore(
         moneyline,
         spread,
@@ -381,6 +477,7 @@ def build_game_edge_block(game: dict[str, Any]) -> dict[str, Any]:
         "spread": spread,
         "total": total,
         "sharp_signals": sharp_signals,
+        "sharp_reference": sharp_reference,
         "top_edges": top_edges[:5],
     }
 
