@@ -3768,7 +3768,15 @@ def mlb_sharp_reference_debug(
         )
         return response
 
-    sport_odds = fetch_sport_odds_from_api(sport, api_key)
+    try:
+        sport_odds = fetch_sport_odds_from_api(sport, api_key)
+    except Exception as error:
+        response["message"] = (
+            "MLB board fetch failed before a sample game could be built. "
+            f"Provider error: {error}"
+        )
+        return response
+
     games = sport_odds.get("games", [])
     if event_id:
         sample_game = next((game for game in games if str(game.get("id")) == str(event_id)), None)
