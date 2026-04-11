@@ -32,6 +32,7 @@ body {
   margin: 0;
   color: var(--brand-text);
   font-family: var(--font-body), system-ui, sans-serif;
+  overflow-x: hidden;
   background:
     linear-gradient(rgba(56, 86, 140, 0.08) 1px, transparent 1px),
     linear-gradient(90deg, rgba(56, 86, 140, 0.08) 1px, transparent 1px),
@@ -164,4 +165,105 @@ textarea {
 .table-scroll::-webkit-scrollbar-thumb {
   background: #1f3355;
   border-radius: 999px;
+}
+
+.mobile-shell {
+  background:
+    radial-gradient(circle at top, rgba(24, 140, 255, 0.12), transparent 28%),
+    linear-gradient(180deg, #101010 0%, #0d1016 40%, #090d13 100%);
+}
+
+.mobile-page-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.mobile-surface {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 1.5rem;
+  padding: 1rem;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(10px);
+}
+
+.mobile-hero {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(circle at top right, rgba(24, 140, 255, 0.14), transparent 30%),
+    linear-gradient(180deg, rgba(22, 28, 39, 0.96), rgba(11, 15, 24, 0.98));
+  border-radius: 1.9rem;
+  padding: 1rem;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.34);
+}
+
+.mobile-bottom-nav {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(12, 18, 29, 0.96);
+  border-radius: 1.7rem;
+  padding: 0.45rem;
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(18px);
+}
+
+.mobile-icon-button {
+  display: inline-flex;
+  height: 2.5rem;
+  width: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #f8fbff;
+}
+
+.mobile-trend-card {
+  display: block;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(18, 20, 24, 0.95), rgba(17, 18, 21, 0.98));
+  border-radius: 1.4rem;
+  padding: 0.95rem;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.26);
+}
+
+.mobile-board-card {
+  display: block;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(12, 18, 29, 0.96), rgba(13, 19, 32, 0.98));
+  border-radius: 1.4rem;
+  padding: 1rem;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+}
+
+.mobile-odds-tile {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 1.15rem;
+  padding: 0.85rem;
+  min-height: 6.75rem;
+}
+
+.mobile-scroll-row {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.15rem;
+}
+
+.mobile-section-eyebrow,
+.mobile-eyebrow {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+  color: #7d899e;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
 }

@@ -1,18 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { LeagueBadge } from "@/components/identity/league-badge";
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
-import { EmptyState } from "@/components/ui/empty-state";
-import { ResearchStatusNotice } from "@/components/ui/research-status-notice";
-import { SectionTitle } from "@/components/ui/section-title";
-import {
-  getPublishedTrendFeed,
-  type PublishedTrendCard
-} from "@/lib/trends/publisher";
+import { MobileTopBar } from "@/components/mobile/mobile-top-bar";
+import { SectionTabs } from "@/components/mobile/section-tabs";
+import { TrendBreakdownAccordion } from "@/components/trends/trend-breakdown-accordion";
+import { TrendHero } from "@/components/trends/trend-hero";
+import { getPublishedTrendFeed, type PublishedTrendCard } from "@/lib/trends/publisher";
 import type { TrendFilters } from "@/lib/types/domain";
 import { trendFiltersSchema } from "@/lib/validation/filters";
+import { getDiscoveredTrendSystem } from "@/services/trends/discovered-systems";
 
 export const dynamic = "force-dynamic";
 
@@ -48,37 +44,78 @@ function buildFilters(searchParams: Record<string, string | string[] | undefined
   });
 }
 
-function getConfidenceTone(value: PublishedTrendCard["confidence"]) {
-  if (value === "strong") {
-    return "success" as const;
-  }
-
-  if (value === "moderate") {
-    return "brand" as const;
-  }
-
-  if (value === "weak") {
-    return "premium" as const;
-  }
-
-  return "muted" as const;
+function formatPercent(value: number | null | undefined) {
+  return typeof value === "number" ? `${value.toFixed(2)}%` : "--";
 }
 
-function formatMetric(value: number | null, suffix: string) {
-  if (typeof value !== "number") {
+function formatUnits(value: number | null | undefined) {
+  return typeof value === "number" ? `${value > 0 ? "+" : ""}${value.toFixed(1)}u` : "--";
+}
+
+function formatRecord(wins: number | null | undefined, losses: number | null | undefined, pushes: number | null | undefined) {
+  if (typeof wins !== "number" || typeof losses !== "number") {
     return "--";
   }
+  return `${wins}-${losses}-${typeof pushes === "number" ? pushes : 0}`;
+}
 
-  if (suffix === "%") {
-    return `${value.toFixed(0)}%`;
-  }
+function normalizeBreakdownRows(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .map((entry) => {
+          if (!entry || typeof entry !== "object") {
+            return null;
+          }
+          const row = entry as Record<string, unknown>;
+          return {
+            label: String(row.label ?? row.team ?? row.opponent ?? row.season ?? row.line ?? "Item"),
+            value: typeof row.profit === "number" ? row.profit : typeof row.units === "number" ? row.units : null,
+            record: typeof row.record === "string" ? row.record : null,
+            note: typeof row.note === "string" ? row.note : null
+          };
+        })
+        .filter(
+          (
+            entry
+          ): entry is {
+            label: string;
+            value: number | null;
+            record: string | null;
+            note: string | null;
+          } => entry !== null
+        )
+    : [];
+}
 
-  return `${value > 0 ? "+" : ""}${value.toFixed(1)}${suffix}`;
+function buildSyntheticChart(card: PublishedTrendCard) {
+  const base = typeof card.profitUnits === "number" ? card.profitUnits : card.sampleSize / 6;
+  return Array.from({ length: 8 }, (_, index) => Number(((base / 8) * (index + 1) + index * 0.4).toFixed(2)));
+}
+
+function MiniBars({ items }: { items: Array<{ label: string; value: number | null; record?: string | null; note?: string | null }> }) {
+  const max = Math.max(...items.map((item) => Math.abs(item.value ?? 0)), 1);
+
+  return (
+    <div className="space-y-3">
+      {items.map((item) => (
+        <div key={item.label}>
+          <div className="mb-1 flex items-center justify-between gap-3 text-sm">
+            <span className="text-slate-300">{item.label}</span>
+            <span className="font-semibold text-[#2dd36f]">{item.value === null ? "--" : `${item.value > 0 ? "+" : ""}${item.value.toFixed(1)}u`}</span>
+          </div>
+          <div className="h-10 overflow-hidden rounded-[14px] bg-white/[0.04]">
+            <div className="flex h-full items-center bg-[#2dd36f] px-3 text-xs font-semibold text-[#04140a]" style={{ width: `${Math.max(14, Math.round((Math.abs(item.value ?? 0) / max) * 100))}%` }}>
+              {item.record ?? item.note ?? ""}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function buildBackHref(filters: TrendFilters) {
   const params = new URLSearchParams();
-
   if (filters.sport !== "ALL") params.set("sport", filters.sport);
   if (filters.league !== "ALL") params.set("league", filters.league);
   if (filters.market !== "ALL") params.set("market", filters.market);
@@ -91,378 +128,258 @@ function buildBackHref(filters: TrendFilters) {
   if (filters.opponent) params.set("opponent", filters.opponent);
   if (filters.window) params.set("window", filters.window);
   if (filters.sample) params.set("sample", String(filters.sample));
-
   const query = params.toString();
   return query ? `/trends?${query}` : "/trends";
-}
-
-function buildTrendDetailHref(card: PublishedTrendCard, filters: TrendFilters) {
-  const params = new URLSearchParams();
-
-  if (filters.sport !== "ALL") params.set("sport", filters.sport);
-  if (filters.league !== "ALL") params.set("league", filters.league);
-  if (filters.market !== "ALL") params.set("market", filters.market);
-  if (filters.sportsbook !== "all") params.set("sportsbook", filters.sportsbook);
-  if (filters.side !== "ALL") params.set("side", filters.side);
-  if (filters.subject) params.set("subject", filters.subject);
-  if (filters.team) params.set("team", filters.team);
-  if (filters.player) params.set("player", filters.player);
-  if (filters.fighter) params.set("fighter", filters.fighter);
-  if (filters.opponent) params.set("opponent", filters.opponent);
-  if (filters.window) params.set("window", filters.window);
-  if (filters.sample) params.set("sample", String(filters.sample));
-
-  const query = params.toString();
-  const base = `/trends/${encodeURIComponent(card.sourceTrend.id)}`;
-  return query ? `${base}?${query}` : base;
-}
-
-function MetricTile({
-  label,
-  value,
-  note
-}: {
-  label: string;
-  value: string;
-  note: string;
-}) {
-  return (
-    <Card className="surface-panel-muted px-4 py-4">
-      <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">{label}</div>
-      <div className="mt-2 font-display text-3xl font-semibold tracking-tight text-white">
-        {value}
-      </div>
-      <div className="mt-2 text-sm leading-6 text-slate-400">{note}</div>
-    </Card>
-  );
-}
-
-function RelatedTrendCard({
-  card,
-  href
-}: {
-  card: PublishedTrendCard;
-  href: string;
-}) {
-  return (
-    <Link href={href} className="block h-full">
-      <Card className="surface-panel h-full overflow-hidden px-5 py-5 transition hover:border-sky-400/20 hover:bg-white/[0.02]">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2">
-            <Badge tone="brand">{card.leagueLabel}</Badge>
-            <Badge tone="muted">{card.marketLabel}</Badge>
-          </div>
-          <div className="text-[0.68rem] uppercase tracking-[0.2em] text-slate-500">
-            {card.sampleSize} games
-          </div>
-        </div>
-
-        <div className="mt-4 text-xl font-semibold leading-tight text-white">{card.title}</div>
-        <div className="mt-3 text-sm leading-7 text-slate-400">{card.description}</div>
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          {card.whyNow.slice(0, 2).map((reason) => (
-            <div
-              key={`${card.id}-${reason}`}
-              className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5 text-[0.68rem] uppercase tracking-[0.18em] text-slate-300"
-            >
-              {reason}
-            </div>
-          ))}
-        </div>
-      </Card>
-    </Link>
-  );
 }
 
 export default async function TrendDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params;
   const resolved = (await searchParams) ?? {};
   const filters = buildFilters(resolved);
-  const feed = await getPublishedTrendFeed(filters);
-  const cards = feed.sections.flatMap((section) => section.cards);
+  const backHref = buildBackHref(filters);
 
-  const card =
-    cards.find((entry) => entry.sourceTrend.id === id) ??
-    cards.find((entry) => entry.id === id) ??
-    null;
+  const discovered = await getDiscoveredTrendSystem(id);
+  let published: PublishedTrendCard | null = null;
 
-  if (!card) {
+  if (!discovered) {
+    const feed = await getPublishedTrendFeed(filters);
+    published =
+      feed.sections.flatMap((section) => section.cards).find((entry) => entry.sourceTrend.id === id || entry.id === id) ?? null;
+  }
+
+  if (!discovered && !published) {
     notFound();
   }
 
-  const relatedCards = cards.filter((entry) => entry.id !== card.id).slice(0, 3);
-  const backHref = buildBackHref(filters);
+  const title = discovered?.name ?? published?.title ?? "Trend";
+  const eyebrow = discovered
+    ? `${discovered.league} · ${discovered.marketType.replace(/_/g, " ")}`
+    : `${published!.leagueLabel} · ${published!.marketLabel}`;
+  const score = Math.max(0, Math.min(100, Math.round(discovered?.validationScore ?? discovered?.score ?? published?.rankingScore ?? 70)));
+  const chartValues = discovered
+    ? (discovered.snapshots.slice().reverse().map((snapshot: any, index: number) => typeof snapshot.totalProfit === "number" ? snapshot.totalProfit : index + 1))
+    : buildSyntheticChart(published!);
+  const metrics = discovered
+    ? [
+        { label: "Record", value: formatRecord(discovered.wins, discovered.losses, discovered.pushes) },
+        { label: "ROI", value: formatPercent(discovered.roi) },
+        { label: "Win rate", value: formatPercent(discovered.hitRate) },
+        { label: "Units", value: formatUnits(discovered.totalProfit) }
+      ]
+    : [
+        { label: "Record", value: published!.record },
+        { label: "ROI", value: formatPercent(published!.roi) },
+        { label: "Win rate", value: formatPercent(published!.hitRate) },
+        { label: "Units", value: formatUnits(published!.profitUnits) }
+      ];
 
-  return (
-    <div className="grid gap-7">
-      <Card className="surface-panel-strong overflow-hidden px-6 py-6 xl:px-8 xl:py-8">
-        <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-          <div className="grid gap-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <LeagueBadge league={card.leagueLabel} />
-              <Badge tone="muted">{card.marketLabel}</Badge>
-              <Badge tone={card.overlooked ? "premium" : "muted"}>{card.category}</Badge>
-              <Badge tone={getConfidenceTone(card.confidence)}>{card.confidence}</Badge>
-            </div>
+  const seasonRows = normalizeBreakdownRows(discovered?.seasonsJson).slice(0, 8);
+  const teamRows = normalizeBreakdownRows(discovered?.teamBreakdownJson).slice(0, 8);
+  const opponentRows = normalizeBreakdownRows(discovered?.opponentBreakdownJson).slice(0, 8);
+  const lineRows = normalizeBreakdownRows(discovered?.lineDistributionJson).slice(0, 8);
 
-            <div className="font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">
-              {card.title}
-            </div>
-
-            <div className="max-w-3xl text-base leading-8 text-slate-300">
-              {card.description}
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href={backHref}
-                className="rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-400"
-              >
-                Back to trends
-              </Link>
-
-              {filters.league !== "ALL" ? (
-                <Link
-                  href={`/leagues/${filters.league}`}
-                  className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-white transition hover:border-sky-400/25"
-                >
-                  Open league desk
-                </Link>
-              ) : (
-                <Link
-                  href="/board"
-                  className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-white transition hover:border-sky-400/25"
-                >
-                  Open board
-                </Link>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-[1.6rem] border border-white/10 bg-slate-950/65 p-4">
+  const accordionSections = discovered
+    ? [
+        {
+          id: "breakdown",
+          title: "Breakdown",
+          defaultOpen: true,
+          content: (
             <div className="grid gap-3 md:grid-cols-2">
               <div>
-                <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
-                  Record
-                </div>
-                <div className="mt-2 text-2xl font-semibold text-white">{card.record}</div>
-              </div>
-
-              <div>
-                <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
-                  Date range
-                </div>
-                <div className="mt-2 text-sm font-medium text-white">
-                  {card.sourceTrend.dateRange}
+                <div className="text-slate-500">Conditions</div>
+                <div className="mt-2 space-y-2">
+                  {(discovered.conditionsJson as any[]).slice(0, 6).map((condition, index) => (
+                    <div key={`${index}-${String(condition)}`} className="rounded-[14px] bg-white/[0.03] px-3 py-2 text-sm text-slate-300">
+                      {typeof condition === "string" ? condition : JSON.stringify(condition)}
+                    </div>
+                  ))}
                 </div>
               </div>
-
               <div>
-                <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
-                  Trend type
-                </div>
-                <div className="mt-2 text-sm font-medium text-white">
-                  {card.sourceTrend.title}
-                </div>
-              </div>
-
-              <div>
-                <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
-                  Current scope
-                </div>
-                <div className="mt-2 text-sm font-medium text-white">
-                  {card.sourceTrend.contextLabel}
+                <div className="text-slate-500">Warnings</div>
+                <div className="mt-2 space-y-2">
+                  {(discovered.warningsJson as any[]).length ? (
+                    (discovered.warningsJson as any[]).slice(0, 6).map((warning, index) => (
+                      <div key={`${index}-${String(warning)}`} className="rounded-[14px] bg-white/[0.03] px-3 py-2 text-sm text-slate-300">
+                        {String(warning)}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-[14px] bg-white/[0.03] px-3 py-2 text-sm text-slate-400">No major warning flags were persisted for this system.</div>
+                  )}
                 </div>
               </div>
             </div>
+          )
+        },
+        {
+          id: "summary",
+          title: "Game summary",
+          content: (
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <div className="text-slate-500">Avg CLV</div>
+                <div className="mt-1 text-white">{formatPercent(discovered.avgClv)}</div>
+              </div>
+              <div>
+                <div className="text-slate-500">Beat close</div>
+                <div className="mt-1 text-white">{formatPercent(discovered.beatCloseRate)}</div>
+              </div>
+              <div>
+                <div className="text-slate-500">Recent sample</div>
+                <div className="mt-1 text-white">{discovered.recentSampleSize ?? "--"}</div>
+              </div>
+              <div>
+                <div className="text-slate-500">Active matches</div>
+                <div className="mt-1 text-white">{discovered.activations.filter((item: any) => item.isActive).length}</div>
+              </div>
+            </div>
+          )
+        },
+        {
+          id: "distribution",
+          title: "Line distribution",
+          content: lineRows.length ? <MiniBars items={lineRows} /> : <div className="text-slate-400">No line distribution was persisted for this system yet.</div>
+        },
+        {
+          id: "seasons",
+          title: "Profit by season",
+          content: seasonRows.length ? <MiniBars items={seasonRows} /> : <div className="text-slate-400">Season splits are not available yet.</div>
+        },
+        {
+          id: "teams",
+          title: "Profit by team",
+          content: teamRows.length ? <MiniBars items={teamRows} /> : <div className="text-slate-400">Team splits are not available yet.</div>
+        },
+        {
+          id: "opponents",
+          title: "Profit by opponent",
+          content: opponentRows.length ? <MiniBars items={opponentRows} /> : <div className="text-slate-400">Opponent splits are not available yet.</div>
+        }
+      ]
+    : [
+        {
+          id: "breakdown",
+          title: "Breakdown",
+          defaultOpen: true,
+          content: (
+            <div className="space-y-3">
+              {published!.whyNow.length ? published!.whyNow.map((reason) => (
+                <div key={reason} className="rounded-[14px] bg-white/[0.03] px-3 py-2 text-sm text-slate-300">{reason}</div>
+              )) : <div className="text-slate-400">No breakdown reasons were attached.</div>}
+            </div>
+          )
+        },
+        {
+          id: "summary",
+          title: "Game summary",
+          content: <div className="text-sm leading-7 text-slate-300">{published!.description}</div>
+        },
+        {
+          id: "distribution",
+          title: "Line distribution",
+          content: <div className="text-sm leading-7 text-slate-400">Published trend cards do not persist full line-distribution histograms yet.</div>
+        },
+        {
+          id: "seasons",
+          title: "Profit by season",
+          content: <div className="text-sm leading-7 text-slate-400">Season-level breakdowns are only available on discovered trend systems right now.</div>
+        },
+        {
+          id: "teams",
+          title: "Profit by team",
+          content: <div className="text-sm leading-7 text-slate-400">Team breakdowns are not persisted for this published trend card yet.</div>
+        },
+        {
+          id: "opponents",
+          title: "Profit by opponent",
+          content: <div className="text-sm leading-7 text-slate-400">Opponent breakdowns are not persisted for this published trend card yet.</div>
+        }
+      ];
+
+  const activationMatches = discovered?.activations.slice(0, 8) ?? published?.todayMatches ?? [];
+
+  return (
+    <div className="grid gap-4">
+      <MobileTopBar title="Explore" leftHref={backHref} />
+
+      <section className="mobile-surface !pb-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm text-slate-400">{eyebrow}</div>
+          <div className="flex items-center gap-2">
+            <button type="button" className="mobile-icon-button" aria-label="Favorite">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none">
+                <path d="M12 20l-6.5-6.2a4.5 4.5 0 016.4-6.3l.1.1.1-.1a4.5 4.5 0 016.4 6.3L12 20z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              </svg>
+            </button>
+            <button type="button" className="mobile-icon-button" aria-label="Share">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none">
+                <path d="M12 5v10M8 9l4-4 4 4M5 15v2a2 2 0 002 2h10a2 2 0 002-2v-2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
           </div>
         </div>
-      </Card>
 
-      <ResearchStatusNotice
-        eyebrow="Trend detail"
-        title="Historical support, not blind automation"
-        body="This page explains why a published trend exists, what is supporting it, and where it is still vulnerable. Use it to validate a read, not replace one."
-        meta="Best use: challenge or confirm a board/game angle. Worst use: treating one system page like a guaranteed bet."
-      />
-
-      {card.warning ? (
-        <Card className="rounded-[1.7rem] border border-amber-400/15 bg-amber-400/5 p-4 text-sm leading-7 text-amber-100">
-          {card.warning}
-        </Card>
-      ) : null}
-
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricTile
-          label="Sample"
-          value={String(card.sampleSize)}
-          note="Real rows used in this published system."
-        />
-        <MetricTile
-          label="Hit Rate"
-          value={formatMetric(card.hitRate, "%")}
-          note="Win rate across the stored sample."
-        />
-        <MetricTile
-          label="ROI"
-          value={formatMetric(card.roi, "%")}
-          note="Historical return on unit stake."
-        />
-        <MetricTile
-          label="Profit"
-          value={formatMetric(card.profitUnits, "u")}
-          note="Net unit result across the sample."
-        />
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <section className="grid gap-4">
-          <SectionTitle
-            eyebrow="Why it works"
-            title="Why this trend made the rail"
-            description="Published trends only stay visible when they clear sample, ranking, and live relevance thresholds."
-          />
-
-          <Card className="surface-panel p-5">
-            <div className="text-sm leading-7 text-slate-300">{card.description}</div>
-
-            <div className="mt-5 flex flex-wrap gap-2">
-              {card.whyNow.length ? (
-                card.whyNow.map((reason) => (
-                  <div
-                    key={`${card.id}-${reason}`}
-                    className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5 text-[0.68rem] uppercase tracking-[0.18em] text-slate-300"
-                  >
-                    {reason}
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5 text-[0.68rem] uppercase tracking-[0.18em] text-slate-300">
-                  No extra why-now tags
-                </div>
-              )}
-            </div>
-
-            <div className="mt-5 rounded-[1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
-              Primary metric: <span className="text-white">{card.primaryMetricLabel}</span> ={" "}
-              <span className="text-white">{card.primaryMetricValue}</span>
-            </div>
-          </Card>
-        </section>
-
-        <section className="grid gap-4">
-          <SectionTitle
-            eyebrow="Kill switch"
-            title="What could weaken it"
-            description="A trend can be real and still become unplayable at the current number or context."
-          />
-
-          <Card className="surface-panel p-5">
-            <div className="grid gap-3">
-              <div className="rounded-[1rem] border border-rose-400/20 bg-rose-500/8 px-4 py-3 text-sm leading-6 text-rose-100">
-                {card.warning ??
-                  "Historical support does not override bad current pricing, weak board support, or a matchup context that no longer fits."}
-              </div>
-
-              <div className="rounded-[1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
-                Confidence band: <span className="font-medium text-white">{card.confidence}</span>
-              </div>
-
-              <div className="rounded-[1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
-                Streak context:{" "}
-                <span className="font-medium text-white">{card.streak ?? "No active streak"}</span>
-              </div>
-            </div>
-          </Card>
-        </section>
-      </div>
-
-      <section className="grid gap-4">
-        <SectionTitle
-          eyebrow="Intelligence tags"
-          title="What is supporting this system"
-          description="These tags summarize the strongest reasons the trend remains visible."
-        />
-
-        <Card className="surface-panel p-5">
-          {card.intelligenceTags.length ? (
-            <div className="flex flex-wrap gap-2">
-              {card.intelligenceTags.map((tag) => (
-                <div
-                  key={`${card.id}-${tag}`}
-                  className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5 text-[0.68rem] uppercase tracking-[0.18em] text-slate-300"
-                >
-                  {tag}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-sm leading-7 text-slate-400">
-              No additional intelligence tags were attached to this published trend.
-            </div>
-          )}
-        </Card>
+        <div className="mt-3">
+          <SectionTabs items={[{ label: "Stats", active: true }, { label: "History" }]} />
+        </div>
       </section>
 
-      <section className="grid gap-4">
-        <SectionTitle
-          eyebrow="Matches now"
-          title="Current slate overlap"
-          description="These live or upcoming events currently match the trend scope."
-        />
+      <TrendHero
+        eyebrow={eyebrow}
+        title={title}
+        metrics={metrics}
+        score={score}
+        chartValues={chartValues}
+        note={
+          discovered
+            ? `${discovered.sampleSize} historical rows with ${discovered.activations.filter((item: any) => item.isActive).length} currently active matches.`
+            : published?.warning ?? published?.railReason ?? "Published historical support only."
+        }
+      />
 
-        {card.todayMatches.length ? (
-          <div className="grid gap-4 xl:grid-cols-3">
-            {card.todayMatches.map((match) => (
-              <Link key={match.id} href={match.href} className="block">
-                <Card className="surface-panel h-full p-5 transition hover:border-sky-400/20 hover:bg-white/[0.02]">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-[0.68rem] uppercase tracking-[0.2em] text-slate-500">
-                      {match.league}
+      <section className="mobile-surface">
+        <div className="text-sm leading-6 text-slate-300">
+          {discovered
+            ? `Validation score ${score}. Beat close ${formatPercent(discovered.beatCloseRate)}. Average CLV ${formatPercent(discovered.avgClv)}.`
+            : published?.description}
+        </div>
+      </section>
+
+      {activationMatches.length ? (
+        <section className="mobile-surface">
+          <div className="mb-3 text-[1.1rem] font-semibold text-white">Active games</div>
+          <div className="grid gap-3">
+            {activationMatches.map((match: any, index: number) => (
+              <Link
+                key={match.id ?? match.eventId ?? `${index}`}
+                href={match.href ?? (match.event?.id ? `/game/${match.event.id}` : "/games")}
+                className="rounded-[18px] bg-white/[0.03] px-4 py-3"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[1rem] font-semibold text-white">{match.eventLabel ?? match.matchup ?? match.event?.name ?? "Upcoming game"}</div>
+                    <div className="mt-1 text-sm text-slate-500">
+                      {match.eventStartTime
+                        ? new Date(match.eventStartTime).toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })
+                        : match.startTime ?? "Scheduled"}
                     </div>
-                    <Badge tone="brand">{match.tag}</Badge>
                   </div>
-
-                  <div className="mt-3 text-xl font-semibold text-white">{match.matchup}</div>
-                  <div className="mt-2 text-sm text-slate-400">{match.startTime}</div>
-                </Card>
+                  <div className="text-right text-sm text-[#2dd36f]">
+                    {typeof match.edgePct === "number" ? `${match.edgePct.toFixed(1)}% edge` : match.tag ?? "Live"}
+                  </div>
+                </div>
               </Link>
             ))}
           </div>
-        ) : (
-          <EmptyState
-            eyebrow="Matches now"
-            title="No current matchup is tied to this system right now"
-            description="The historical signal is still visible, but there is no live or near-term board match under the current scope."
-          />
-        )}
-      </section>
+        </section>
+      ) : null}
 
-      <section className="grid gap-4">
-        <SectionTitle
-          eyebrow="Related support"
-          title="Nearby trends in the same scope"
-          description="Use these to confirm or challenge the current read instead of overfitting one angle."
-        />
+      <TrendBreakdownAccordion sections={accordionSections} />
 
-        {relatedCards.length ? (
-          <div className="grid gap-4 xl:grid-cols-3">
-            {relatedCards.map((related) => (
-              <RelatedTrendCard
-                key={related.id}
-                card={related}
-                href={buildTrendDetailHref(related, filters)}
-              />
-            ))}
-          </div>
-        ) : (
-          <EmptyState
-            eyebrow="Related support"
-            title="No related published trends in this scope"
-            description="Widen the trend filters to compare this angle with a broader rail."
-          />
-        )}
+      <section className="mobile-surface text-sm leading-6 text-slate-500">
+        The information available here is believed, but not guaranteed, to be accurate. This product is for research and is not intended to violate state, local, or federal laws.
       </section>
     </div>
   );

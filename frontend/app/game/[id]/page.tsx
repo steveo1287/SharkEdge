@@ -2,37 +2,18 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { BetSlipBoundary } from "@/components/bets/bet-slip-boundary";
-import { MatchupPanel } from "@/components/game/matchup-panel";
-import { OddsTable } from "@/components/game/odds-table";
-import { OverviewPanel } from "@/components/game/overview-panel";
-import { PropList } from "@/components/game/prop-list";
+import { EventHero } from "@/components/event/event-hero";
+import { LineMovementPanel } from "@/components/event/line-movement-panel";
+import { MarketTileRow } from "@/components/event/market-tile-row";
+import { SplitBars } from "@/components/event/split-bars";
+import { TeamBadge } from "@/components/identity/team-badge";
+import { HorizontalEventRail } from "@/components/mobile/horizontal-event-rail";
+import { MobileTopBar } from "@/components/mobile/mobile-top-bar";
+import { SharkScoreRing } from "@/components/branding/shark-score-ring";
 import { formatOpportunityAction } from "@/components/intelligence/opportunity-badges";
-import { OpportunitySpotlightCard } from "@/components/intelligence/opportunity-spotlight-card";
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
-import { EmptyState } from "@/components/ui/empty-state";
-import { SectionTitle } from "@/components/ui/section-title";
-import { formatGameDateTime } from "@/lib/formatters/date";
+import { buildForYouOpportunities } from "@/app/game/[id]/_components/game-hub-opportunities";
+import { getBoardCommandData } from "@/services/board/board-command-service";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
-import {
-  buildGameHubKalshiCards,
-  buildGameHubMetrics,
-  buildGameHubMovementCards,
-  buildGameHubSplitsCards,
-  buildGameHubTabs
-} from "@/services/matchups/game-ui-adapter";
-
-import { buildForYouOpportunities } from "./_components/game-hub-opportunities";
-import {
-  DeskCard,
-  getProviderHealthTone,
-  getStatusTone,
-  getSupportTone,
-  HubTab,
-  MetricTile,
-  OpportunityStateBadge,
-  QuickJump
-} from "./_components/game-hub-primitives";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +23,33 @@ type PageProps = {
   }>;
 };
 
+function renderParticipantCard(label: string, participant: any) {
+  return (
+    <div className="mobile-surface">
+      <div className="flex items-center gap-3">
+        <TeamBadge name={participant?.name ?? label} abbreviation={participant?.abbreviation} size="md" />
+        <div>
+          <div className="text-[1rem] font-semibold text-white">{participant?.name ?? label}</div>
+          <div className="text-sm text-slate-500">{participant?.record ?? participant?.subtitle ?? label}</div>
+        </div>
+      </div>
+
+      {participant?.leaders?.length ? (
+        <div className="mt-4 grid gap-2">
+          {participant.leaders.slice(0, 3).map((leader: any) => (
+            <div key={`${participant.id}-${leader.label}`} className="flex items-center justify-between gap-3 rounded-[16px] bg-white/[0.03] px-3 py-2 text-sm">
+              <span className="text-slate-400">{leader.label}</span>
+              <span className="font-semibold text-white">{leader.value}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 text-sm leading-6 text-slate-400">Live leader summaries have not arrived for this side yet.</div>
+      )}
+    </div>
+  );
+}
+
 export default async function GameDetailPage({ params }: PageProps) {
   const { id } = await params;
   const detail = await getMatchupDetail(id);
@@ -50,362 +58,170 @@ export default async function GameDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  const tabs = buildGameHubTabs(detail);
-  const forYou = await buildForYouOpportunities(detail.routeId, detail);
-  const headline = forYou[0] ?? null;
-  const postureLabel = headline
-    ? formatOpportunityAction(headline.actionState)
-    : "No qualified edge";
+  const [board, forYou] = await Promise.all([
+    getBoardCommandData({ league: detail.league.key, date: "today" }),
+    buildForYouOpportunities(detail.routeId, detail)
+  ]);
 
-  const metrics = buildGameHubMetrics(detail, postureLabel);
-  const movementCards = buildGameHubMovementCards(detail);
-  const splitsCards = buildGameHubSplitsCards(detail);
-  const kalshiCards = buildGameHubKalshiCards(detail);
-
-  const contextNotes = [
-    detail.supportNote,
-    detail.propsSupport.note,
-    ...(detail.providerHealth.warnings ?? []),
-    ...(detail.notes ?? [])
-  ].filter(Boolean);
+  const away = detail.participants.find((participant) => participant.role === "AWAY") ?? detail.participants[0] ?? null;
+  const home = detail.participants.find((participant) => participant.role === "HOME") ?? detail.participants[1] ?? null;
+  const headliner = forYou[0] ?? null;
+  const railItems = board.verifiedGames.slice(0, 8).map((game) => ({
+    id: game.id,
+    label: `${game.awayTeam.abbreviation} ${game.homeTeam.abbreviation}`,
+    note: new Date(game.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
+    href: game.detailHref ?? `/game/${game.id}`,
+    active: game.detailHref === `/game/${detail.routeId}` || game.id === detail.routeId
+  }));
+  const tabs = [
+    { label: "For You", href: "#for-you", active: true },
+    { label: "Social", href: "#matchup" },
+    { label: "Props", href: "#props" },
+    { label: "Popular", href: "#movement" },
+    { label: "Run Line", href: "#splits" }
+  ];
 
   return (
     <BetSlipBoundary>
-      <div className="grid gap-4 sm:gap-6 lg:gap-7 xl:gap-8">
-        <Card className="surface-panel-strong overflow-hidden px-4 py-4 sm:px-6 sm:py-6 xl:px-8 xl:py-8">
-          <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr] xl:gap-6">
-            <div className="grid gap-4 sm:gap-5">
-              <div className="section-kicker">{detail.league.key} matchup hub</div>
+      <div className="grid gap-4">
+        <MobileTopBar
+          title={detail.eventLabel}
+          leftHref="/games"
+          subtitle={detail.league.key}
+          rightSlot={
+            <>
+              <button type="button" className="mobile-icon-button" aria-label="Share">
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none">
+                  <path d="M12 5v10M8 9l4-4 4 4M5 15v2a2 2 0 002 2h10a2 2 0 002-2v-2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </>
+          }
+        />
 
-              <div className="grid gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone={getStatusTone(detail.status)}>{detail.status}</Badge>
-                  <Badge tone={getSupportTone(detail.supportStatus)}>
-                    {detail.supportStatus}
-                  </Badge>
-                  <Badge tone={getProviderHealthTone(detail.providerHealth.state)}>
-                    {detail.providerHealth.label}
-                  </Badge>
-                  {headline ? (
-                    <OpportunityStateBadge
-                      actionState={headline.actionState}
-                      label={formatOpportunityAction(headline.actionState)}
-                    />
-                  ) : null}
-                </div>
+        <HorizontalEventRail items={railItems} />
 
-                <h1 className="max-w-5xl font-display text-3xl font-semibold tracking-tight text-white sm:text-4xl md:text-5xl xl:text-[3.8rem] xl:leading-[0.98]">
-                  {detail.eventLabel}
-                </h1>
+        <EventHero detail={detail} tabs={tabs} />
 
-                <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-slate-400 sm:gap-x-5">
-                  <span>{formatGameDateTime(detail.startTime)}</span>
-                  {detail.venue ? <span>{detail.venue}</span> : null}
-                  {detail.stateDetail ? <span>{detail.stateDetail}</span> : null}
-                  {detail.scoreboard ? <span>{detail.scoreboard}</span> : null}
-                </div>
-
-                <p className="max-w-3xl text-sm leading-7 text-slate-300 sm:text-base sm:leading-8">
-                  This page should tell you the current posture fast: what the best
-                  angle is, what could kill it, how the number moved, and whether the
-                  feed is trustworthy enough to act.
-                </p>
+        {headliner ? (
+          <section id="for-you" className="mobile-surface">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="mobile-section-eyebrow">For You</div>
+                <div className="mt-1 text-[1.2rem] font-semibold text-white">Best current angle</div>
+                <div className="mt-2 text-sm leading-6 text-slate-400">{headliner.reasonSummary}</div>
               </div>
-
-              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                <Link
-                  href={`/board?league=${detail.league.key}`}
-                  className="rounded-full bg-sky-500 px-5 py-3 text-center text-sm font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400"
-                >
-                  Open board
-                </Link>
-                <Link
-                  href={`/props?league=${detail.league.key}`}
-                  className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-center text-sm font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25"
-                >
-                  Open props
-                </Link>
-                <Link
-                  href={`/trends?league=${detail.league.key}&sample=5`}
-                  className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-center text-sm font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25"
-                >
-                  Open trends
-                </Link>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {tabs.map((tab, index) => (
-                  <HubTab
-                    key={tab.id}
-                    href={tab.href}
-                    label={tab.label}
-                    active={tab.active || index === 0}
-                    count={tab.count}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div className="grid gap-3 rounded-[1.6rem] border border-white/10 bg-slate-950/65 p-3 sm:p-4">
-              <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
-                Desk posture
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                {metrics.map((metric) => (
-                  <MetricTile
-                    key={metric.label}
-                    label={metric.label}
-                    value={metric.value}
-                    note={metric.note}
-                  />
-                ))}
-              </div>
-
-              <div className="rounded-[1.15rem] border border-white/8 bg-white/[0.03] px-4 py-4">
-                <div className="text-[0.68rem] uppercase tracking-[0.24em] text-slate-500">
-                  Quick jumps
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <QuickJump href="#for-you" label="For You" emphasis />
-                  <QuickJump href="#matchup" label="Live matchup" />
-                  <QuickJump href="#markets" label="Markets" />
-                  <QuickJump href="#props" label="Props" />
-                  <QuickJump href="#movement" label="Movement" />
-                  <QuickJump href="#feed" label="Feed" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        <section id="for-you" className="grid gap-3 sm:gap-4 lg:gap-5">
-          <SectionTitle
-            eyebrow="For you"
-            title="What actually deserves attention"
-            description="This is the short list for this matchup. If nothing qualifies, the page should say that cleanly."
-          />
-
-          {forYou.length ? (
-            <div className="grid gap-4 xl:grid-cols-2">
-              {forYou.map((opportunity) => (
-                <OpportunitySpotlightCard
-                  key={opportunity.id}
-                  opportunity={opportunity}
-                  href={
-                    opportunity.kind === "prop"
-                      ? `/game/${detail.routeId}#props`
-                      : `/game/${detail.routeId}#markets`
-                  }
-                  ctaLabel={
-                    opportunity.kind === "prop"
-                      ? "Jump to props"
-                      : "Jump to markets"
-                  }
-                />
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              title="No qualified angle right now"
-              description="Nothing on this matchup cleared the current threshold. That is better than fake conviction."
-            />
-          )}
-
-          <OverviewPanel detail={detail} />
-        </section>
-
-        <section id="matchup" className="grid gap-3 sm:gap-4 lg:gap-5">
-          <SectionTitle
-            eyebrow={detail.status === "LIVE" ? "Live matchup" : "Matchup"}
-            title="Game state and team context"
-            description="Score, leader summaries, team live stats, and player boxscore context should stay visible without making you dig through provider notes."
-          />
-          <MatchupPanel detail={detail} />
-        </section>
-
-        <section id="markets" className="grid gap-3 sm:gap-4 lg:gap-5">
-          <SectionTitle
-            eyebrow="Markets"
-            title="Book table and tape"
-            description="Verified books, price context, and stored movement snapshots for this matchup."
-          />
-          <OddsTable detail={detail} />
-        </section>
-
-        <section id="props" className="grid gap-3 sm:gap-4 lg:gap-5">
-          <SectionTitle
-            eyebrow="Props"
-            title="Prop context"
-            description="Only the markets that belong on the matchup page stay here."
-          />
-          <PropList props={detail.props} support={detail.propsSupport} />
-        </section>
-
-        <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-          <section id="movement" className="grid gap-3 sm:gap-4 lg:gap-5">
-            <SectionTitle
-              eyebrow="Movement"
-              title="Line pressure"
-              description="Opening versus latest movement, plus current market range context."
-            />
-            <div className="grid gap-4">
-              {movementCards.map((card) => (
-                <DeskCard
-                  key={`${card.title}-${card.value}`}
-                  title={card.title}
-                  value={card.value}
-                  note={card.note}
-                  tone={card.tone}
-                />
-              ))}
-            </div>
-          </section>
-
-          <section id="splits" className="grid gap-3 sm:gap-4 lg:gap-5">
-            <SectionTitle
-              eyebrow="Splits"
-              title="Public / money / health"
-              description="If split data is not wired, the page should say that instead of pretending."
-            />
-            <div className="grid gap-4">
-              {splitsCards.map((card) => (
-                <DeskCard
-                  key={`${card.title}-${card.value}`}
-                  title={card.title}
-                  value={card.value}
-                  note={card.note}
-                  tone={card.tone}
-                />
-              ))}
-            </div>
-          </section>
-        </div>
-
-        <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-          <section id="trends" className="grid gap-3 sm:gap-4 lg:gap-5">
-            <SectionTitle
-              eyebrow="Trends"
-              title="Historical support"
-              description="Published trend support attached to this matchup."
-            />
-            {detail.trendCards.length ? (
-              <div className="grid gap-4">
-                {detail.trendCards.map((trend) => (
-                  <Link
-                    key={trend.id}
-                    href={trend.href ?? "/trends"}
-                    className="rounded-[1.35rem] border border-white/8 bg-[#0a1422]/90 p-4 transition hover:border-sky-400/25 hover:bg-white/[0.03]"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-                        Trend support
-                      </div>
-                      <Badge
-                        tone={
-                          trend.tone === "success"
-                            ? "success"
-                            : trend.tone === "premium"
-                              ? "premium"
-                              : trend.tone === "brand"
-                                ? "brand"
-                                : "muted"
-                        }
-                      >
-                        {trend.value}
-                      </Badge>
-                    </div>
-                    <div className="mt-3 text-lg font-semibold leading-tight text-white">
-                      {trend.title}
-                    </div>
-                    <div className="mt-2 text-sm leading-6 text-slate-400">
-                      {trend.note}
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <EmptyState
-                title="No trend support attached"
-                description="This matchup does not have published trend cards on this render."
+              <SharkScoreRing
+                score={Math.round(headliner.opportunityScore)}
+                size="sm"
+                tone={headliner.opportunityScore >= 70 ? "success" : "brand"}
               />
-            )}
-          </section>
-
-          <section id="kalshi" className="grid gap-3 sm:gap-4 lg:gap-5">
-            <SectionTitle
-              eyebrow="Kalshi"
-              title="Prediction-market bridge"
-              description="The shell is here. Full contract overlay wiring comes later."
-            />
-            <div className="grid gap-4">
-              {kalshiCards.map((card) => (
-                <DeskCard
-                  key={`${card.title}-${card.value}`}
-                  title={card.title}
-                  value={card.value}
-                  note={card.note}
-                  tone={card.tone}
-                />
-              ))}
+            </div>
+            <div className="mt-4 rounded-[18px] border border-white/8 bg-white/[0.03] p-4">
+              <div className="text-[1.1rem] font-semibold text-white">{headliner.selectionLabel}</div>
+              <div className="mt-1 text-sm text-slate-500">{formatOpportunityAction(headliner.actionState)} · {headliner.confidenceTier}</div>
+              <div className="mt-4 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.14em] text-slate-500">
+                {headliner.whyItShows.slice(0, 3).map((reason) => (
+                  <span key={reason} className="rounded-full border border-white/8 px-3 py-1">{reason}</span>
+                ))}
+              </div>
             </div>
           </section>
-        </div>
+        ) : null}
 
-        <section id="feed" className="grid gap-3 sm:gap-4 lg:gap-5">
-          <SectionTitle
-            eyebrow="Feed"
-            title="Provider notes and feed honesty"
-            description="This keeps the data-quality story visible without hiding the actual live matchup context lower on the page."
+        <section>
+          <div className="mb-3 text-[1.35rem] font-semibold text-white">Market strip</div>
+          <MarketTileRow detail={detail} />
+        </section>
+
+        <section id="movement">
+          <LineMovementPanel detail={detail} />
+        </section>
+
+        <section id="matchup" className="grid gap-3">
+          <div className="text-[1.35rem] font-semibold text-white">Live matchup</div>
+          {detail.scoreboard ? (
+            <div className="mobile-surface text-sm text-slate-300">{detail.scoreboard} · {detail.stateDetail ?? detail.status}</div>
+          ) : null}
+          <div className="grid gap-3">
+            {renderParticipantCard("Away", away)}
+            {renderParticipantCard("Home", home)}
+          </div>
+        </section>
+
+        <section id="splits">
+          <SplitBars
+            summary={detail.providerHealth.summary}
+            items={[
+              {
+                label: "Moneyline",
+                leftLabel: away?.abbreviation ?? "Away",
+                rightLabel: home?.abbreviation ?? "Home",
+                note: detail.supportNote
+              },
+              {
+                label: "Spread",
+                leftLabel: away?.abbreviation ?? "Away",
+                rightLabel: home?.abbreviation ?? "Home",
+                note: detail.propsSupport.note
+              },
+              {
+                label: "Total",
+                leftLabel: "Under",
+                rightLabel: "Over",
+                note: detail.providerHealth.warnings[0] ?? "Public ticket and handle percentages are not wired for this matchup yet."
+              }
+            ]}
           />
+        </section>
 
-          <div className="grid gap-4">
-            <Card className="surface-panel p-5">
-              <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-                Provider health
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Badge tone={getProviderHealthTone(detail.providerHealth.state)}>
-                  {detail.providerHealth.label}
-                </Badge>
-                {detail.currentOddsProvider ? (
-                  <Badge tone="brand">{detail.currentOddsProvider}</Badge>
-                ) : null}
-                {detail.historicalOddsProvider ? (
-                  <Badge tone="premium">{detail.historicalOddsProvider}</Badge>
-                ) : null}
-              </div>
-              <div className="mt-4 text-sm leading-7 text-slate-300">
-                {detail.providerHealth.summary}
-              </div>
-              {detail.providerHealth.asOf ? (
-                <div className="mt-3 text-xs uppercase tracking-[0.18em] text-slate-500">
-                  As of {formatGameDateTime(detail.providerHealth.asOf)}
-                </div>
-              ) : null}
-            </Card>
-
-            <Card className="surface-panel p-5">
-              <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-                Desk notes
-              </div>
-              <div className="mt-4 grid gap-3">
-                {contextNotes.length ? (
-                  contextNotes.slice(0, 8).map((note) => (
-                    <div
-                      key={note}
-                      className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300"
-                    >
-                      {note}
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
-                    No explicit provider or matchup notes were attached on this render.
+        <section id="props" className="grid gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-[1.35rem] font-semibold text-white">Props</div>
+            <Link href={`/props?league=${detail.league.key}`} className="text-sm text-slate-500">View all</Link>
+          </div>
+          <div className="grid gap-3">
+            {detail.props.slice(0, 6).map((prop) => (
+              <Link key={prop.id} href={prop.gameHref ?? `/game/${detail.routeId}#props`} className="mobile-surface block">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">{prop.marketType.replace(/_/g, " ")}</div>
+                    <div className="mt-2 text-[1rem] font-semibold text-white">{prop.player.name} {prop.side} {prop.line}</div>
+                    <div className="mt-1 text-sm text-slate-500">{prop.team.abbreviation} vs {prop.opponent.abbreviation}</div>
                   </div>
-                )}
-              </div>
-            </Card>
+                  <div className="text-right">
+                    <div className="text-[1.1rem] font-semibold text-[#48e0d2]">{prop.oddsAmerican > 0 ? `+${prop.oddsAmerican}` : prop.oddsAmerican}</div>
+                    <div className="mt-1 text-[11px] text-slate-500">{prop.sportsbook.name}</div>
+                  </div>
+                </div>
+              </Link>
+            ))}
+            {!detail.props.length ? (
+              <div className="mobile-surface text-sm leading-6 text-slate-400">{detail.propsSupport.note}</div>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="grid gap-3">
+          <div className="text-[1.35rem] font-semibold text-white">Trend support</div>
+          <div className="grid gap-3">
+            {detail.trendCards.slice(0, 4).map((trend) => (
+              <Link key={trend.id} href={trend.href ?? "/trends"} className="mobile-surface block">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Trend support</div>
+                    <div className="mt-2 text-[1rem] font-semibold text-white">{trend.title}</div>
+                    <div className="mt-2 text-sm leading-6 text-slate-400">{trend.note}</div>
+                  </div>
+                  <div className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1 text-[11px] text-slate-300">
+                    {trend.value}
+                  </div>
+                </div>
+              </Link>
+            ))}
+            {!detail.trendCards.length ? (
+              <div className="mobile-surface text-sm leading-6 text-slate-400">Historical support is thin for this matchup right now.</div>
+            ) : null}
           </div>
         </section>
       </div>
