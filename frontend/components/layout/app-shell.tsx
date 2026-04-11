@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
 import { MobileBottomNav } from "@/components/mobile/mobile-bottom-nav";
@@ -13,8 +13,34 @@ type AppShellProps = {
 };
 
 export function AppShell({ children }: AppShellProps) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMobileOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [mobileOpen]);
 
   return (
     <div className="app-shell-grid min-h-screen">
@@ -28,7 +54,11 @@ export function AppShell({ children }: AppShellProps) {
               type="button"
             />
             <div className="relative h-full w-[300px]">
-              <Sidebar mobile pathname={pathname} onNavigate={() => setMobileOpen(false)} />
+              <Sidebar
+                mobile
+                pathname={pathname}
+                onNavigate={() => setMobileOpen(false)}
+              />
             </div>
           </div>
         ) : null}
@@ -43,15 +73,23 @@ export function AppShell({ children }: AppShellProps) {
                 className="mobile-icon-button"
               >
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none">
-                  <path d="M4 7h16M4 12h10M4 17h12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  <path
+                    d="M4 7h16M4 12h10M4 17h12"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                  />
                 </svg>
               </button>
+
               <div className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-slate-500">
                 Live
               </div>
             </div>
+
             <main className="mobile-page-shell">{children}</main>
           </div>
+
           <div className="fixed inset-x-0 bottom-0 z-30 mx-auto w-full max-w-[430px] px-4 pb-[calc(env(safe-area-inset-bottom,0px)+12px)]">
             <MobileBottomNav />
           </div>
