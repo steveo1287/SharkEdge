@@ -28,20 +28,24 @@ function readValue(
 }
 
 function buildFilters(searchParams: Record<string, string | string[] | undefined>) {
-  return trendFiltersSchema.parse({
-    sport: readValue(searchParams, "sport"),
-    league: readValue(searchParams, "league"),
-    market: readValue(searchParams, "market"),
-    sportsbook: readValue(searchParams, "sportsbook"),
-    side: readValue(searchParams, "side"),
-    subject: readValue(searchParams, "subject"),
-    team: readValue(searchParams, "team"),
-    player: readValue(searchParams, "player"),
-    fighter: readValue(searchParams, "fighter"),
-    opponent: readValue(searchParams, "opponent"),
-    window: readValue(searchParams, "window"),
-    sample: readValue(searchParams, "sample")
-  });
+  try {
+    return trendFiltersSchema.parse({
+      sport: readValue(searchParams, "sport"),
+      league: readValue(searchParams, "league"),
+      market: readValue(searchParams, "market"),
+      sportsbook: readValue(searchParams, "sportsbook"),
+      side: readValue(searchParams, "side"),
+      subject: readValue(searchParams, "subject"),
+      team: readValue(searchParams, "team"),
+      player: readValue(searchParams, "player"),
+      fighter: readValue(searchParams, "fighter"),
+      opponent: readValue(searchParams, "opponent"),
+      window: readValue(searchParams, "window"),
+      sample: readValue(searchParams, "sample")
+    });
+  } catch {
+    return trendFiltersSchema.parse({});
+  }
 }
 
 function formatPercent(value: number | null | undefined) {
@@ -49,13 +53,20 @@ function formatPercent(value: number | null | undefined) {
 }
 
 function formatUnits(value: number | null | undefined) {
-  return typeof value === "number" ? `${value > 0 ? "+" : ""}${value.toFixed(1)}u` : "--";
+  return typeof value === "number"
+    ? `${value > 0 ? "+" : ""}${value.toFixed(1)}u`
+    : "--";
 }
 
-function formatRecord(wins: number | null | undefined, losses: number | null | undefined, pushes: number | null | undefined) {
+function formatRecord(
+  wins: number | null | undefined,
+  losses: number | null | undefined,
+  pushes: number | null | undefined
+) {
   if (typeof wins !== "number" || typeof losses !== "number") {
     return "--";
   }
+
   return `${wins}-${losses}-${typeof pushes === "number" ? pushes : 0}`;
 }
 
@@ -66,10 +77,19 @@ function normalizeBreakdownRows(value: unknown) {
           if (!entry || typeof entry !== "object") {
             return null;
           }
+
           const row = entry as Record<string, unknown>;
+
           return {
-            label: String(row.label ?? row.team ?? row.opponent ?? row.season ?? row.line ?? "Item"),
-            value: typeof row.profit === "number" ? row.profit : typeof row.units === "number" ? row.units : null,
+            label: String(
+              row.label ?? row.team ?? row.opponent ?? row.season ?? row.line ?? "Item"
+            ),
+            value:
+              typeof row.profit === "number"
+                ? row.profit
+                : typeof row.units === "number"
+                  ? row.units
+                  : null,
             record: typeof row.record === "string" ? row.record : null,
             note: typeof row.note === "string" ? row.note : null
           };
@@ -88,11 +108,24 @@ function normalizeBreakdownRows(value: unknown) {
 }
 
 function buildSyntheticChart(card: PublishedTrendCard) {
-  const base = typeof card.profitUnits === "number" ? card.profitUnits : card.sampleSize / 6;
-  return Array.from({ length: 8 }, (_, index) => Number(((base / 8) * (index + 1) + index * 0.4).toFixed(2)));
+  const base =
+    typeof card.profitUnits === "number" ? card.profitUnits : card.sampleSize / 6;
+
+  return Array.from({ length: 8 }, (_, index) =>
+    Number(((base / 8) * (index + 1) + index * 0.4).toFixed(2))
+  );
 }
 
-function MiniBars({ items }: { items: Array<{ label: string; value: number | null; record?: string | null; note?: string | null }> }) {
+function MiniBars({
+  items
+}: {
+  items: Array<{
+    label: string;
+    value: number | null;
+    record?: string | null;
+    note?: string | null;
+  }>;
+}) {
   const max = Math.max(...items.map((item) => Math.abs(item.value ?? 0)), 1);
 
   return (
@@ -101,10 +134,22 @@ function MiniBars({ items }: { items: Array<{ label: string; value: number | nul
         <div key={item.label}>
           <div className="mb-1 flex items-center justify-between gap-3 text-sm">
             <span className="text-slate-300">{item.label}</span>
-            <span className="font-semibold text-[#2dd36f]">{item.value === null ? "--" : `${item.value > 0 ? "+" : ""}${item.value.toFixed(1)}u`}</span>
+            <span className="font-semibold text-[#2dd36f]">
+              {item.value === null
+                ? "--"
+                : `${item.value > 0 ? "+" : ""}${item.value.toFixed(1)}u`}
+            </span>
           </div>
           <div className="h-10 overflow-hidden rounded-[14px] bg-white/[0.04]">
-            <div className="flex h-full items-center bg-[#2dd36f] px-3 text-xs font-semibold text-[#04140a]" style={{ width: `${Math.max(14, Math.round((Math.abs(item.value ?? 0) / max) * 100))}%` }}>
+            <div
+              className="flex h-full items-center bg-[#2dd36f] px-3 text-xs font-semibold text-[#04140a]"
+              style={{
+                width: `${Math.max(
+                  14,
+                  Math.round((Math.abs(item.value ?? 0) / max) * 100)
+                )}%`
+              }}
+            >
               {item.record ?? item.note ?? ""}
             </div>
           </div>
@@ -116,6 +161,7 @@ function MiniBars({ items }: { items: Array<{ label: string; value: number | nul
 
 function buildBackHref(filters: TrendFilters) {
   const params = new URLSearchParams();
+
   if (filters.sport !== "ALL") params.set("sport", filters.sport);
   if (filters.league !== "ALL") params.set("league", filters.league);
   if (filters.market !== "ALL") params.set("market", filters.market);
@@ -128,8 +174,31 @@ function buildBackHref(filters: TrendFilters) {
   if (filters.opponent) params.set("opponent", filters.opponent);
   if (filters.window) params.set("window", filters.window);
   if (filters.sample) params.set("sample", String(filters.sample));
+
   const query = params.toString();
   return query ? `/trends?${query}` : "/trends";
+}
+
+async function getSafePublishedTrend(filters: TrendFilters, id: string) {
+  try {
+    const feed = await getPublishedTrendFeed(filters);
+
+    return (
+      feed.sections
+        .flatMap((section) => section.cards)
+        .find((entry) => entry.sourceTrend.id === id || entry.id === id) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function getSafeDiscoveredTrend(id: string) {
+  try {
+    return await getDiscoveredTrendSystem(id);
+  } catch {
+    return null;
+  }
 }
 
 export default async function TrendDetailPage({ params, searchParams }: PageProps) {
@@ -138,13 +207,11 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
   const filters = buildFilters(resolved);
   const backHref = buildBackHref(filters);
 
-  const discovered = await getDiscoveredTrendSystem(id);
+  const discovered = await getSafeDiscoveredTrend(id);
   let published: PublishedTrendCard | null = null;
 
   if (!discovered) {
-    const feed = await getPublishedTrendFeed(filters);
-    published =
-      feed.sections.flatMap((section) => section.cards).find((entry) => entry.sourceTrend.id === id || entry.id === id) ?? null;
+    published = await getSafePublishedTrend(filters, id);
   }
 
   if (!discovered && !published) {
@@ -155,13 +222,32 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
   const eyebrow = discovered
     ? `${discovered.league} · ${discovered.marketType.replace(/_/g, " ")}`
     : `${published!.leagueLabel} · ${published!.marketLabel}`;
-  const score = Math.max(0, Math.min(100, Math.round(discovered?.validationScore ?? discovered?.score ?? published?.rankingScore ?? 70)));
+
+  const score = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        discovered?.validationScore ?? discovered?.score ?? published?.rankingScore ?? 70
+      )
+    )
+  );
+
   const chartValues = discovered
-    ? (discovered.snapshots.slice().reverse().map((snapshot: any, index: number) => typeof snapshot.totalProfit === "number" ? snapshot.totalProfit : index + 1))
+    ? discovered.snapshots
+        .slice()
+        .reverse()
+        .map((snapshot: any, index: number) =>
+          typeof snapshot.totalProfit === "number" ? snapshot.totalProfit : index + 1
+        )
     : buildSyntheticChart(published!);
+
   const metrics = discovered
     ? [
-        { label: "Record", value: formatRecord(discovered.wins, discovered.losses, discovered.pushes) },
+        {
+          label: "Record",
+          value: formatRecord(discovered.wins, discovered.losses, discovered.pushes)
+        },
         { label: "ROI", value: formatPercent(discovered.roi) },
         { label: "Win rate", value: formatPercent(discovered.hitRate) },
         { label: "Units", value: formatUnits(discovered.totalProfit) }
@@ -189,24 +275,43 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
               <div>
                 <div className="text-slate-500">Conditions</div>
                 <div className="mt-2 space-y-2">
-                  {(discovered.conditionsJson as any[]).slice(0, 6).map((condition, index) => (
-                    <div key={`${index}-${String(condition)}`} className="rounded-[14px] bg-white/[0.03] px-3 py-2 text-sm text-slate-300">
-                      {typeof condition === "string" ? condition : JSON.stringify(condition)}
+                  {Array.isArray(discovered.conditionsJson) &&
+                  discovered.conditionsJson.length ? (
+                    discovered.conditionsJson.slice(0, 6).map((condition: any, index: number) => (
+                      <div
+                        key={`${index}-${String(condition)}`}
+                        className="rounded-[14px] bg-white/[0.03] px-3 py-2 text-sm text-slate-300"
+                      >
+                        {typeof condition === "string"
+                          ? condition
+                          : JSON.stringify(condition)}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-[14px] bg-white/[0.03] px-3 py-2 text-sm text-slate-400">
+                      No stored conditions were found for this system.
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
+
               <div>
                 <div className="text-slate-500">Warnings</div>
                 <div className="mt-2 space-y-2">
-                  {(discovered.warningsJson as any[]).length ? (
-                    (discovered.warningsJson as any[]).slice(0, 6).map((warning, index) => (
-                      <div key={`${index}-${String(warning)}`} className="rounded-[14px] bg-white/[0.03] px-3 py-2 text-sm text-slate-300">
+                  {Array.isArray(discovered.warningsJson) &&
+                  discovered.warningsJson.length ? (
+                    discovered.warningsJson.slice(0, 6).map((warning: any, index: number) => (
+                      <div
+                        key={`${index}-${String(warning)}`}
+                        className="rounded-[14px] bg-white/[0.03] px-3 py-2 text-sm text-slate-300"
+                      >
                         {String(warning)}
                       </div>
                     ))
                   ) : (
-                    <div className="rounded-[14px] bg-white/[0.03] px-3 py-2 text-sm text-slate-400">No major warning flags were persisted for this system.</div>
+                    <div className="rounded-[14px] bg-white/[0.03] px-3 py-2 text-sm text-slate-400">
+                      No major warning flags were persisted for this system.
+                    </div>
                   )}
                 </div>
               </div>
@@ -224,15 +329,21 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
               </div>
               <div>
                 <div className="text-slate-500">Beat close</div>
-                <div className="mt-1 text-white">{formatPercent(discovered.beatCloseRate)}</div>
+                <div className="mt-1 text-white">
+                  {formatPercent(discovered.beatCloseRate)}
+                </div>
               </div>
               <div>
                 <div className="text-slate-500">Recent sample</div>
-                <div className="mt-1 text-white">{discovered.recentSampleSize ?? "--"}</div>
+                <div className="mt-1 text-white">
+                  {discovered.recentSampleSize ?? "--"}
+                </div>
               </div>
               <div>
                 <div className="text-slate-500">Active matches</div>
-                <div className="mt-1 text-white">{discovered.activations.filter((item: any) => item.isActive).length}</div>
+                <div className="mt-1 text-white">
+                  {discovered.activations.filter((item: any) => item.isActive).length}
+                </div>
               </div>
             </div>
           )
@@ -240,22 +351,40 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
         {
           id: "distribution",
           title: "Line distribution",
-          content: lineRows.length ? <MiniBars items={lineRows} /> : <div className="text-slate-400">No line distribution was persisted for this system yet.</div>
+          content: lineRows.length ? (
+            <MiniBars items={lineRows} />
+          ) : (
+            <div className="text-slate-400">
+              No line distribution was persisted for this system yet.
+            </div>
+          )
         },
         {
           id: "seasons",
           title: "Profit by season",
-          content: seasonRows.length ? <MiniBars items={seasonRows} /> : <div className="text-slate-400">Season splits are not available yet.</div>
+          content: seasonRows.length ? (
+            <MiniBars items={seasonRows} />
+          ) : (
+            <div className="text-slate-400">Season splits are not available yet.</div>
+          )
         },
         {
           id: "teams",
           title: "Profit by team",
-          content: teamRows.length ? <MiniBars items={teamRows} /> : <div className="text-slate-400">Team splits are not available yet.</div>
+          content: teamRows.length ? (
+            <MiniBars items={teamRows} />
+          ) : (
+            <div className="text-slate-400">Team splits are not available yet.</div>
+          )
         },
         {
           id: "opponents",
           title: "Profit by opponent",
-          content: opponentRows.length ? <MiniBars items={opponentRows} /> : <div className="text-slate-400">Opponent splits are not available yet.</div>
+          content: opponentRows.length ? (
+            <MiniBars items={opponentRows} />
+          ) : (
+            <div className="text-slate-400">Opponent splits are not available yet.</div>
+          )
         }
       ]
     : [
@@ -265,9 +394,18 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
           defaultOpen: true,
           content: (
             <div className="space-y-3">
-              {published!.whyNow.length ? published!.whyNow.map((reason) => (
-                <div key={reason} className="rounded-[14px] bg-white/[0.03] px-3 py-2 text-sm text-slate-300">{reason}</div>
-              )) : <div className="text-slate-400">No breakdown reasons were attached.</div>}
+              {published!.whyNow.length ? (
+                published!.whyNow.map((reason) => (
+                  <div
+                    key={reason}
+                    className="rounded-[14px] bg-white/[0.03] px-3 py-2 text-sm text-slate-300"
+                  >
+                    {reason}
+                  </div>
+                ))
+              ) : (
+                <div className="text-slate-400">No breakdown reasons were attached.</div>
+              )}
             </div>
           )
         },
@@ -279,22 +417,38 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
         {
           id: "distribution",
           title: "Line distribution",
-          content: <div className="text-sm leading-7 text-slate-400">Published trend cards do not persist full line-distribution histograms yet.</div>
+          content: (
+            <div className="text-sm leading-7 text-slate-400">
+              Published trend cards do not persist full line-distribution histograms yet.
+            </div>
+          )
         },
         {
           id: "seasons",
           title: "Profit by season",
-          content: <div className="text-sm leading-7 text-slate-400">Season-level breakdowns are only available on discovered trend systems right now.</div>
+          content: (
+            <div className="text-sm leading-7 text-slate-400">
+              Season-level breakdowns are only available on discovered trend systems right now.
+            </div>
+          )
         },
         {
           id: "teams",
           title: "Profit by team",
-          content: <div className="text-sm leading-7 text-slate-400">Team breakdowns are not persisted for this published trend card yet.</div>
+          content: (
+            <div className="text-sm leading-7 text-slate-400">
+              Team breakdowns are not persisted for this published trend card yet.
+            </div>
+          )
         },
         {
           id: "opponents",
           title: "Profit by opponent",
-          content: <div className="text-sm leading-7 text-slate-400">Opponent breakdowns are not persisted for this published trend card yet.</div>
+          content: (
+            <div className="text-sm leading-7 text-slate-400">
+              Opponent breakdowns are not persisted for this published trend card yet.
+            </div>
+          )
         }
       ];
 
@@ -310,12 +464,23 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
           <div className="flex items-center gap-2">
             <button type="button" className="mobile-icon-button" aria-label="Favorite">
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none">
-                <path d="M12 20l-6.5-6.2a4.5 4.5 0 016.4-6.3l.1.1.1-.1a4.5 4.5 0 016.4 6.3L12 20z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                <path
+                  d="M12 20l-6.5-6.2a4.5 4.5 0 016.4-6.3l.1.1.1-.1a4.5 4.5 0 016.4 6.3L12 20z"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinejoin="round"
+                />
               </svg>
             </button>
             <button type="button" className="mobile-icon-button" aria-label="Share">
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none">
-                <path d="M12 5v10M8 9l4-4 4 4M5 15v2a2 2 0 002 2h10a2 2 0 002-2v-2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                <path
+                  d="M12 5v10M8 9l4-4 4 4M5 15v2a2 2 0 002 2h10a2 2 0 002-2v-2"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </svg>
             </button>
           </div>
@@ -334,7 +499,9 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
         chartValues={chartValues}
         note={
           discovered
-            ? `${discovered.sampleSize} historical rows with ${discovered.activations.filter((item: any) => item.isActive).length} currently active matches.`
+            ? `${discovered.sampleSize} historical rows with ${
+                discovered.activations.filter((item: any) => item.isActive).length
+              } currently active matches.`
             : published?.warning ?? published?.railReason ?? "Published historical support only."
         }
       />
@@ -342,7 +509,9 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
       <section className="mobile-surface">
         <div className="text-sm leading-6 text-slate-300">
           {discovered
-            ? `Validation score ${score}. Beat close ${formatPercent(discovered.beatCloseRate)}. Average CLV ${formatPercent(discovered.avgClv)}.`
+            ? `Validation score ${score}. Beat close ${formatPercent(
+                discovered.beatCloseRate
+              )}. Average CLV ${formatPercent(discovered.avgClv)}.`
             : published?.description}
         </div>
       </section>
@@ -359,15 +528,27 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
               >
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-[1rem] font-semibold text-white">{match.eventLabel ?? match.matchup ?? match.event?.name ?? "Upcoming game"}</div>
+                    <div className="text-[1rem] font-semibold text-white">
+                      {match.eventLabel ??
+                        match.matchup ??
+                        match.event?.name ??
+                        "Upcoming game"}
+                    </div>
                     <div className="mt-1 text-sm text-slate-500">
                       {match.eventStartTime
-                        ? new Date(match.eventStartTime).toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })
+                        ? new Date(match.eventStartTime).toLocaleString("en-US", {
+                            month: "numeric",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit"
+                          })
                         : match.startTime ?? "Scheduled"}
                     </div>
                   </div>
                   <div className="text-right text-sm text-[#2dd36f]">
-                    {typeof match.edgePct === "number" ? `${match.edgePct.toFixed(1)}% edge` : match.tag ?? "Live"}
+                    {typeof match.edgePct === "number"
+                      ? `${match.edgePct.toFixed(1)}% edge`
+                      : match.tag ?? "Live"}
                   </div>
                 </div>
               </Link>
@@ -379,7 +560,9 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
       <TrendBreakdownAccordion sections={accordionSections} />
 
       <section className="mobile-surface text-sm leading-6 text-slate-500">
-        The information available here is believed, but not guaranteed, to be accurate. This product is for research and is not intended to violate state, local, or federal laws.
+        The information available here is believed, but not guaranteed, to be accurate.
+        This product is for research and is not intended to violate state, local, or
+        federal laws.
       </section>
     </div>
   );
