@@ -1126,6 +1126,9 @@ model DiscoveredTrendSystem {
   beatCloseRate    Float?
   recentSampleSize Int                            @default(0)
   seasonsJson      Json?
+  teamBreakdownJson Json?
+  opponentBreakdownJson Json?
+  lineDistributionJson Json?
   warningsJson     Json?
   conditionsJson   Json
   discoveryRun     TrendDiscoveryRun?            @relation(fields: [discoveryRunId], references: [id], onDelete: SetNull)

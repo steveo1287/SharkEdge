@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db/prisma";
+import { safeArray, safeString, uniqueByKey } from "@/lib/utils/safe-data";
 import { activateTrendSystems, discoverTrendSystems, defaultDiscoveryConfig } from "./system-discovery";
 import { extractCurrentTrendRows, extractHistoricalTrendRows } from "./historical-row-extractor";
+import { buildPersistedTrendBreakdowns } from "./breakdown-builder";
 import type { CandidateTrendSystem } from "./types";
 
 function isMissingDiscoveredTrendTables(error: unknown) {
@@ -18,12 +20,33 @@ function isMissingDiscoveredTrendTables(error: unknown) {
 }
 
 function normalizeConditionJson(value: unknown) {
-  return Array.isArray(value) ? value : [];
+  return safeArray(value);
 }
 
-function recordToView(record: any) {
-  const snapshots = Array.isArray(record.snapshots) ? record.snapshots : [];
-  const activations = Array.isArray(record.activations) ? record.activations : [];
+function normalizeActivationReasons(value: unknown) {
+  return safeArray(value).filter(
+    (entry): entry is string => typeof entry === "string" && entry.trim().length > 0
+  );
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<R>
+): Promise<R[]> {
+  const output: R[] = [];
+
+  for (let index = 0; index < items.length; index += limit) {
+    const chunk = items.slice(index, index + limit);
+    output.push(...(await Promise.all(chunk.map(worker))));
+  }
+
+  return output;
+}
+
+export function recordToView(record: any) {
+  const snapshots = safeArray<any>(record.snapshots);
+  const activations = safeArray<any>(record.activations);
   const latestSnapshot = snapshots[0] ?? null;
   return {
     id: record.id,
@@ -40,18 +63,23 @@ function recordToView(record: any) {
     losses: record.losses,
     pushes: record.pushes,
     roi: record.roi,
+    totalProfit: record.totalProfit,
     hitRate: record.hitRate,
     avgClv: record.avgClv,
     beatCloseRate: record.beatCloseRate,
     validationScore: record.validationScore,
     score: record.score,
     recentSampleSize: record.recentSampleSize,
-    seasonsJson: record.seasonsJson,
-    warningsJson: record.warningsJson,
+    seasonsJson: safeArray(record.seasonsJson),
+    teamBreakdownJson: safeArray(record.teamBreakdownJson),
+    opponentBreakdownJson: safeArray(record.opponentBreakdownJson),
+    lineDistributionJson: safeArray(record.lineDistributionJson),
+    warningsJson: safeArray(record.warningsJson),
     conditionsJson: normalizeConditionJson(record.conditionsJson),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     latestSnapshot,
+    snapshots,
     activations: activations.map((activation: any) => ({
       id: activation.id,
       eventId: activation.eventId,
@@ -63,7 +91,7 @@ function recordToView(record: any) {
       fairOdds: activation.fairOdds,
       timingState: activation.timingState,
       confidenceTier: activation.confidenceTier,
-      reasonsJson: activation.reasonsJson,
+      reasonsJson: normalizeActivationReasons(activation.reasonsJson),
       isActive: activation.isActive,
       event: activation.event
         ? {
@@ -106,7 +134,11 @@ async function completeDiscoveryRun(id: string, result: { discoveredSystemCount:
   });
 }
 
-async function upsertSystem(runId: string, system: CandidateTrendSystem) {
+async function upsertSystem(
+  runId: string,
+  system: CandidateTrendSystem,
+  breakdowns: { seasons: unknown; teams: unknown; opponents: unknown; lines: unknown }
+) {
   return (prisma as any).discoveredTrendSystem.upsert({
     where: { slug: system.id },
     update: {
@@ -130,7 +162,10 @@ async function upsertSystem(runId: string, system: CandidateTrendSystem) {
       avgClv: system.avgClv,
       beatCloseRate: system.beatCloseRate,
       recentSampleSize: system.recentSampleSize,
-      seasonsJson: system.seasons,
+      seasonsJson: breakdowns.seasons,
+      teamBreakdownJson: breakdowns.teams,
+      opponentBreakdownJson: breakdowns.opponents,
+      lineDistributionJson: breakdowns.lines,
       warningsJson: system.warnings,
       conditionsJson: system.conditions
     },
@@ -156,7 +191,10 @@ async function upsertSystem(runId: string, system: CandidateTrendSystem) {
       avgClv: system.avgClv,
       beatCloseRate: system.beatCloseRate,
       recentSampleSize: system.recentSampleSize,
-      seasonsJson: system.seasons,
+      seasonsJson: breakdowns.seasons,
+      teamBreakdownJson: breakdowns.teams,
+      opponentBreakdownJson: breakdowns.opponents,
+      lineDistributionJson: breakdowns.lines,
       warningsJson: system.warnings,
       conditionsJson: system.conditions
     }
@@ -202,17 +240,25 @@ export async function refreshDiscoveredTrendSystems(args?: { leagues?: string[];
     });
 
     const systems = discoverTrendSystems(historicalRows, defaultDiscoveryConfig).slice(0, 60);
-    const signals = activateTrendSystems(systems, currentRows);
+    const signals = uniqueByKey(
+      activateTrendSystems(systems, currentRows),
+      (signal) => `${signal.systemId}:${signal.eventId ?? "none"}:${signal.side}`
+    );
     const signalCountBySystemId = new Map<string, number>();
     for (const signal of signals) {
       signalCountBySystemId.set(signal.systemId, (signalCountBySystemId.get(signal.systemId) ?? 0) + 1);
     }
 
     const persistedBySlug = new Map<string, string>();
-    for (const system of systems) {
-      const persisted = await upsertSystem(run.id, system);
-      persistedBySlug.set(system.id, persisted.id);
+    const persistedSystems = await mapWithConcurrency(systems, 8, async (system) => {
+      const breakdowns = buildPersistedTrendBreakdowns(system, historicalRows);
+      const persisted = await upsertSystem(run.id, system, breakdowns);
       await createSnapshot(persisted.id, system, signalCountBySystemId.get(system.id) ?? 0);
+      return { slug: system.id, id: persisted.id };
+    });
+
+    for (const persisted of persistedSystems) {
+      persistedBySlug.set(persisted.slug, persisted.id);
     }
 
     await (prisma as any).discoveredTrendActivation.updateMany({
@@ -235,8 +281,8 @@ export async function refreshDiscoveredTrendSystems(args?: { leagues?: string[];
         data: {
           systemId,
           eventId: signal.eventId,
-          eventLabel: signal.eventLabel,
-          eventStartTime: new Date(signal.gameDate),
+          eventLabel: safeString(signal.eventLabel, "Upcoming game"),
+          eventStartTime: signal.gameDate ? new Date(signal.gameDate) : null,
           currentLine: signal.currentLine,
           currentOdds: signal.currentOdds,
           fairOdds: signal.fairOdds,

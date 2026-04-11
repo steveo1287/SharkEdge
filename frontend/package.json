@@ -9,7 +9,7 @@
     "build": "node scripts/build-local-safe.mjs",
     "typecheck": "node scripts/typecheck-safe.mjs",
     "start": "next start",
-    "test": "tsx tests/ledger-utils.test.ts && tsx tests/live-board-data.test.ts && tsx tests/book-feed-normalization.test.ts && tsx tests/opportunity-engine.test.ts && tsx tests/opportunity-truth-calibration.test.ts && tsx tests/market-path-engine.test.ts && tsx tests/opportunity-portfolio.test.ts && tsx tests/opportunity-decision-replay.test.ts && tsx tests/opportunity-evidence-balance.test.ts && tsx tests/mlb-game-sim-service.test.ts && tsx tests/provider-readiness.test.ts && tsx tests/provider-readiness-banner.test.ts",
+    "test": "tsx tests/ledger-utils.test.ts && tsx tests/live-board-data.test.ts && tsx tests/book-feed-normalization.test.ts && tsx tests/opportunity-engine.test.ts && tsx tests/opportunity-truth-calibration.test.ts && tsx tests/market-path-engine.test.ts && tsx tests/opportunity-portfolio.test.ts && tsx tests/opportunity-decision-replay.test.ts && tsx tests/opportunity-evidence-balance.test.ts && tsx tests/mlb-game-sim-service.test.ts && tsx tests/provider-readiness.test.ts && tsx tests/provider-readiness-banner.test.ts && tsx tests/discovered-trend-route-contract.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
