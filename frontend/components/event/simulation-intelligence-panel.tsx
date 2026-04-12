@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import type { EventSimulationView } from "@/services/simulation/simulation-view-service";
+import { SimulationWorkbench } from "@/components/event/simulation-workbench";
 
 type Props = {
   simulation: EventSimulationView;
@@ -231,6 +232,8 @@ export function SimulationIntelligencePanel({ simulation }: Props) {
           </div>
         </div>
       </Card>
+
+      <SimulationWorkbench simulation={simulation} />
     </section>
   );
 }

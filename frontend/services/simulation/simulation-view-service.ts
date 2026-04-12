@@ -65,23 +65,6 @@ function getRecord(value: unknown) {
     : {};
 }
 
-function getProbabilityMap(
-  projection: unknown,
-  key: "hitProbOver" | "hitProbUnder"
-): Record<string, number> | null {
-  if (!projection || typeof projection !== "object") {
-    return null;
-  }
-
-  const record = projection as Record<string, unknown>;
-  const raw = record[key];
-  if (!raw || typeof raw !== "object") {
-    return null;
-  }
-
-  return raw as Record<string, number>;
-}
-
 function buildHeadline(eventProjection: NonNullable<Awaited<ReturnType<typeof buildEventProjectionFromHistory>>>) {
   const metadata = getRecord(eventProjection.metadata);
   const homeTeam = getRecord(metadata.homeTeam);
@@ -222,10 +205,21 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
         return null;
       }
 
-      const overMap = getProbabilityMap(projection, "hitProbOver");
-      const underMap = getProbabilityMap(projection, "hitProbUnder");
-      const overProbability = overMap ? overMap[String(marketLine)] ?? null : null;
-      const underProbability = underMap ? underMap[String(marketLine)] ?? null : null;
+      const overMap =
+        "hitProbOver" in projection &&
+        projection.hitProbOver &&
+        typeof projection.hitProbOver === "object"
+          ? (projection.hitProbOver as Record<string, number>)
+          : null;
+      const underMap =
+        "hitProbUnder" in projection &&
+        projection.hitProbUnder &&
+        typeof projection.hitProbUnder === "object"
+          ? (projection.hitProbUnder as Record<string, number>)
+          : null;
+
+      const overProbability = overMap?.[String(marketLine)] ?? null;
+      const underProbability = underMap?.[String(marketLine)] ?? null;
 
       return {
         playerId: projection.playerId,

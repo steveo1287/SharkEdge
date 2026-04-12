@@ -9,15 +9,10 @@ export type OpportunityDecision = {
   rationale: string[]
 }
 
-function metric(opportunity: RankedOpportunity, key: string, fallback = 50): number {
-  const raw = (opportunity as Record<string, unknown>)[key]
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : fallback
-}
-
 function getStakeTier(opportunity: RankedOpportunity): OpportunityDecision["stakeTier"] {
-  const edge = metric(opportunity, "score", metric(opportunity, "edgeScore", metric(opportunity, "opportunityScore", 50)))
-  const fragility = metric(opportunity, "fragilityScore", 50)
-  const clv = metric(opportunity, "expectedClvScore", 50)
+  const edge = opportunity.score
+  const fragility = opportunity.fragilityScore ?? 50
+  const clv = opportunity.expectedClvScore ?? 50
 
   if (edge >= 85 && fragility <= 28 && clv >= 70) return "LARGE"
   if (edge >= 76 && fragility <= 40 && clv >= 62) return "MEDIUM"
@@ -26,17 +21,17 @@ function getStakeTier(opportunity: RankedOpportunity): OpportunityDecision["stak
 }
 
 export function decideOpportunity(opportunity: RankedOpportunity): OpportunityDecision {
-  const clv = metric(opportunity, "expectedClvScore", 50)
-  const fragility = metric(opportunity, "fragilityScore", 50)
-  const reliability = metric(opportunity, "trendReliabilityScore", 50)
-  const market = metric(opportunity, "marketPathScore", 50)
-  const efficiency = metric(opportunity, "capitalEfficiencyScore", 50)
-  const edge = metric(opportunity, "score", metric(opportunity, "edgeScore", metric(opportunity, "opportunityScore", 50)))
+  const clv = opportunity.expectedClvScore ?? 50
+  const fragility = opportunity.fragilityScore ?? 50
+  const reliability = opportunity.trendReliabilityScore ?? 50
+  const market = opportunity.marketPathScore ?? 50
+  const efficiency = opportunity.capitalEfficiencyScore ?? 50
+  const edge = opportunity.score
 
   const context = assessBookContext({
     book: (opportunity as any).book ?? (opportunity as any).sportsbook ?? null,
-    marketPathScore: market,
-    expectedClvScore: clv,
+    marketPathScore: opportunity.marketPathScore ?? 50,
+    expectedClvScore: opportunity.expectedClvScore ?? 50,
     lineMovementScore: (opportunity as any).lineMovementScore ?? 50,
     liquidityScore: (opportunity as any).liquidityScore ?? 50,
     timeToStartMinutes: (opportunity as any).timeToStartMinutes ?? 180,

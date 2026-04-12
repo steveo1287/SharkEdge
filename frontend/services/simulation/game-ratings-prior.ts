@@ -160,13 +160,10 @@ function average(values: Array<number | null | undefined>) {
 }
 
 function sum(values: Array<number | null | undefined>) {
-  let total = 0;
-  for (const value of values) {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      total += value;
-    }
-  }
-  return total;
+  return values.reduce<number>(
+    (total, value) => total + (typeof value === "number" && Number.isFinite(value) ? value : 0),
+    0
+  );
 }
 
 function derivePlayerRatings(config: LeagueRatingConfig, input: PlayerRatingSnapshotInput) {
