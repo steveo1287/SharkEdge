@@ -17,10 +17,14 @@ type SafeProviderReadiness = Awaited<ReturnType<typeof getProviderReadinessView>
 
 async function getSafeProviderReadiness(): Promise<SafeProviderReadiness> {
   try {
-    return await getProviderReadinessView();
+    return await getProviderReadinessView({ leagues: ["NBA", "MLB"] });
   } catch {
     return null;
   }
+}
+
+function buildLeagueHref(league: "ALL" | "NBA" | "MLB") {
+  return league === "ALL" ? "/board" : `/board?league=${league}`;
 }
 
 export default async function BoardPage({ searchParams }: BoardPageProps) {
@@ -56,6 +60,13 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
         active: index === 0
       }));
 
+  const activeBoardSource = readiness?.liveBoardProvider ?? board.boardData.source;
+  const boardStatusCopy = board.verifiedGames.length
+    ? `${board.verifiedGames.length} verified ML/spread/total rows are live on the board.`
+    : board.boardData.liveMessage ??
+      board.boardData.sourceNote ??
+      "No verified ML/spread/total rows are available right now.";
+
   return (
     <div className="grid gap-4">
       <MobileTopBar title="LiveEdgeBoard" subtitle="SharkEdge" />
@@ -66,51 +77,42 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
             SHARKEDGE
           </div>
           <div className="rounded-full border border-[#2dd36f]/20 bg-[#2dd36f]/10 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#2dd36f]">
-            {board.boardData.source}
+            {activeBoardSource}
           </div>
         </div>
 
         <div className="mt-4">
           <SectionTabs
             items={[
-              { label: "ALL", active: board.selectedLeague === "ALL" },
-              { label: "NBA" },
-              { label: "MLB" },
-              { label: "NHL" }
+              { label: "ALL", href: buildLeagueHref("ALL"), active: board.selectedLeague === "ALL" },
+              { label: "NBA", href: buildLeagueHref("NBA"), active: board.selectedLeague === "NBA" },
+              { label: "MLB", href: buildLeagueHref("MLB"), active: board.selectedLeague === "MLB" }
             ]}
           />
         </div>
 
-        <div className="mt-4 grid grid-cols-5 gap-2 text-center text-[11px] uppercase tracking-[0.14em] text-slate-500">
-          {["All Tiers", "Tier A", "Tier B", "Tier C", "Tier D"].map((item) => (
-            <div
-              key={item}
-              className="rounded-[14px] border border-white/8 bg-white/[0.03] px-2 py-3"
-            >
-              {item}
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.14em] text-slate-400">
-          {["Shark", "+EV", "Time", "+EV only", "Kalshi"].map((item, index) => (
-            <div
-              key={item}
-              className={
-                index === 0
-                  ? "rounded-full bg-white px-3 py-1 text-slate-950"
-                  : "rounded-full border border-white/8 px-3 py-1"
-              }
-            >
-              {item}
-            </div>
-          ))}
+        <div className="mt-4 rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3">
+          <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Board status</div>
+          <div className="mt-2 text-sm leading-6 text-slate-300">{boardStatusCopy}</div>
+          <div className="mt-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.14em] text-slate-400">
+            {[
+              `${board.selectedLeague === "ALL" ? "ALL" : board.selectedLeague} scope`,
+              "Pregame only",
+              "Moneyline / Spread / Total",
+              "No props in this pass"
+            ].map((item) => (
+              <div key={item} className="rounded-full border border-white/8 px-3 py-1">
+                {item}
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
       {readiness ? (
         <section className="mobile-surface">
           <div className="text-sm leading-6 text-slate-300">{readiness.summary}</div>
+          <div className="mt-2 text-sm leading-6 text-slate-400">{readiness.safePathSummary}</div>
           <div className="mt-3 text-[11px] uppercase tracking-[0.16em] text-slate-500">
             {readiness.generatedAt
               ? `Updated ${new Date(readiness.generatedAt).toLocaleTimeString("en-US", {
@@ -166,11 +168,7 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
         ) : null}
 
         {!board.verifiedGames.length ? (
-          <div className="mobile-surface text-sm leading-6 text-slate-400">
-            {board.boardData.liveMessage ??
-              board.boardData.sourceNote ??
-              "No verified board rows are available right now."}
-          </div>
+          <div className="mobile-surface text-sm leading-6 text-slate-400">{boardStatusCopy}</div>
         ) : null}
       </section>
     </div>

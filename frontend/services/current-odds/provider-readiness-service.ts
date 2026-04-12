@@ -552,7 +552,9 @@ function summarizeBooks(values: string[]) {
 function buildBoardEntry(provider: BoardProviderReadiness): ProviderReadinessEntry {
   const booksIncluded =
     provider.providerKey === backendCurrentOddsProvider.key
-      ? uniqueBooks((process.env.ODDS_API_BOOKMAKERS?.trim() || "draftkings,fanduel,betmgm").split(","))
+      ? provider.providerMode === "book_feeds"
+        ? ["draftkings", "fanduel"]
+        : uniqueBooks((process.env.ODDS_API_BOOKMAKERS?.trim() || "draftkings,fanduel,betmgm").split(","))
       : [];
 
   return {
