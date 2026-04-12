@@ -299,6 +299,12 @@ def get_book_feed_providers() -> list[str]:
     return [provider for provider in ("draftkings", "fanduel") if get_book_feed_source_url(provider)]
 
 
+def has_internal_book_feed_fallback(api_key: str, scraper_cache_sports: list[dict[str, Any]] | None = None) -> bool:
+    cached_sports = scraper_cache_sports if scraper_cache_sports is not None else get_scraper_cache_sports()
+    cache_game_count = sum(int(sport.get("game_count", 0) or 0) for sport in cached_sports)
+    return cache_game_count > 0 or is_oddsharvester_available() or bool(api_key)
+
+
 def get_board_provider_mode() -> str:
     configured = os.getenv("ODDS_BOARD_PROVIDER", "auto").strip().lower()
     if configured in {"auto", "book_feeds", "odds_api", "scraper_cache", "oddsharvester"}:
@@ -708,57 +714,79 @@ def resolve_scraper_sport_key(sport: str | None, league: str | None) -> str | No
     return SCRAPER_SPORT_KEY_MAP.get((sport_token, league_token))
 
 
+def get_scraper_primary_line(event: dict[str, Any]) -> dict[str, Any]:
+    lines = event.get("lines")
+    if isinstance(lines, list):
+        for line in lines:
+            if isinstance(line, dict):
+                return line
+    return {}
+
+
+def get_scraper_line_odds(event: dict[str, Any]) -> dict[str, Any]:
+    primary_line = get_scraper_primary_line(event)
+    odds = primary_line.get("odds")
+    return odds if isinstance(odds, dict) else primary_line
+
+
+def resolve_scraper_event_value(event: dict[str, Any], key: str) -> Any:
+    if key in event:
+        return event.get(key)
+    return get_scraper_line_odds(event).get(key)
+
+
 def build_scraper_bookmaker(
     event: dict[str, Any], away_team: str, home_team: str
 ) -> dict[str, Any]:
     title = (
         event.get("book")
+        or get_scraper_primary_line(event).get("book")
         or event.get("sourceMeta", {}).get("moneylineHomeBook")
         or "Flashscore Best"
     )
     key = slugify_key(str(title), "flashscore")
-    home_spread = event.get("homeSpread")
+    home_spread = resolve_scraper_event_value(event, "homeSpread")
     away_spread = -home_spread if isinstance(home_spread, (int, float)) else None
-    total = event.get("total")
+    total = resolve_scraper_event_value(event, "total")
 
     return {
         "key": key,
         "title": title,
-        "last_update": event.get("lines", [{}])[0].get("fetchedAt") or event.get("scrapedAt"),
+        "last_update": get_scraper_primary_line(event).get("fetchedAt") or event.get("scrapedAt"),
         "markets": {
             "moneyline": [
                 {
                     "name": away_team,
-                    "price": event.get("awayMoneyline"),
+                    "price": resolve_scraper_event_value(event, "awayMoneyline"),
                     "point": None,
                 },
                 {
                     "name": home_team,
-                    "price": event.get("homeMoneyline"),
+                    "price": resolve_scraper_event_value(event, "homeMoneyline"),
                     "point": None,
                 },
             ],
             "spread": [
                 {
                     "name": away_team,
-                    "price": event.get("awaySpreadOdds"),
+                    "price": resolve_scraper_event_value(event, "awaySpreadOdds"),
                     "point": away_spread,
                 },
                 {
                     "name": home_team,
-                    "price": event.get("homeSpreadOdds"),
+                    "price": resolve_scraper_event_value(event, "homeSpreadOdds"),
                     "point": home_spread,
                 },
             ],
             "total": [
                 {
                     "name": "Over",
-                    "price": event.get("overOdds"),
+                    "price": resolve_scraper_event_value(event, "overOdds"),
                     "point": total,
                 },
                 {
                     "name": "Under",
-                    "price": event.get("underOdds"),
+                    "price": resolve_scraper_event_value(event, "underOdds"),
                     "point": total,
                 },
             ],
@@ -1838,6 +1866,207 @@ def merge_book_feed_games(games: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(merged.values(), key=lambda game: game.get("commence_time") or "")
 
 
+def normalize_book_feed_provider_match(value: Any) -> str:
+    return normalize_book_feed_token(str(value or "")).replace("_", " ")
+
+
+def filter_bookmakers_for_requested_provider(bookmakers: list[dict[str, Any]], provider: str) -> list[dict[str, Any]]:
+    if not bookmakers:
+        return []
+
+    provider_tokens = {
+        normalize_book_feed_provider_match(provider),
+        normalize_book_feed_provider_match(BOOK_FEED_PROVIDER_LABELS.get(provider, provider.title())),
+    }
+    filtered = []
+    for bookmaker in bookmakers:
+        candidate = normalize_book_feed_provider_match(
+            bookmaker.get("key") or bookmaker.get("title") or bookmaker.get("book")
+        )
+        if candidate in provider_tokens:
+            filtered.append(bookmaker)
+    return filtered or bookmakers
+
+
+def build_book_feed_payload_from_snapshot(
+    provider: str,
+    selected_sports: list[dict[str, str]],
+    snapshot: dict[str, Any],
+    *,
+    source_provider: str,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    selected_keys = {sport["key"] for sport in selected_sports}
+    generated_at = snapshot.get("generated_at") or format_now()
+    errors = [error for error in snapshot.get("errors", []) if isinstance(error, str)]
+    warnings: list[str] = []
+    if reason:
+        warnings.append(reason)
+
+    events: list[dict[str, Any]] = []
+    for sport in snapshot.get("sports", []):
+        if not isinstance(sport, dict) or sport.get("key") not in selected_keys:
+            continue
+        for game in sport.get("games", []):
+            if not isinstance(game, dict):
+                continue
+            home_team = game.get("home_team")
+            away_team = game.get("away_team")
+            commence_time = game.get("commence_time")
+            if not isinstance(home_team, str) or not isinstance(away_team, str) or not isinstance(commence_time, str):
+                continue
+
+            bookmakers = [
+                bookmaker
+                for bookmaker in filter_bookmakers_for_requested_provider(
+                    [item for item in game.get("bookmakers", []) if isinstance(item, dict)],
+                    provider,
+                )
+                if isinstance(bookmaker, dict)
+            ]
+            if not bookmakers:
+                continue
+
+            lines = []
+            for bookmaker in bookmakers:
+                markets = []
+                for market_type in ("moneyline", "spread", "total"):
+                    outcomes = []
+                    for outcome in bookmaker.get("markets", {}).get(market_type, []):
+                        if not isinstance(outcome, dict):
+                            continue
+                        name = outcome.get("name")
+                        if not isinstance(name, str) or not name.strip():
+                            continue
+                        if name == home_team:
+                            side = "home"
+                        elif name == away_team:
+                            side = "away"
+                        elif normalize_book_feed_token(name) == "over":
+                            side = "over"
+                        elif normalize_book_feed_token(name) == "under":
+                            side = "under"
+                        else:
+                            side = name
+                        outcomes.append(
+                            {
+                                "selection": name,
+                                "side": side,
+                                "line": outcome.get("point"),
+                                "oddsAmerican": outcome.get("price"),
+                            }
+                        )
+                    if outcomes:
+                        markets.append(
+                            {
+                                "marketType": market_type,
+                                "period": "full_game",
+                                "outcomes": outcomes,
+                            }
+                        )
+                if not markets:
+                    continue
+                lines.append(
+                    {
+                        "book": bookmaker.get("title") or bookmaker.get("book") or BOOK_FEED_PROVIDER_LABELS.get(provider, provider.title()),
+                        "key": bookmaker.get("key") or slugify_key(str(bookmaker.get("title") or provider), provider),
+                        "fetchedAt": bookmaker.get("last_update") or generated_at,
+                        "markets": markets,
+                    }
+                )
+
+            if not lines:
+                continue
+
+            event_id = str(game.get("id") or build_book_feed_event_key(
+                next((candidate for candidate in selected_sports if candidate["key"] == sport.get("key")), selected_sports[0]),
+                away_team,
+                home_team,
+                commence_time,
+            ))
+            events.append(
+                {
+                    "id": event_id,
+                    "eventKey": event_id,
+                    "league": sport.get("short_title") or sport.get("title"),
+                    "sport": sport.get("short_title") or sport.get("title"),
+                    "sportKey": sport.get("key"),
+                    "homeTeam": home_team,
+                    "awayTeam": away_team,
+                    "commenceTime": commence_time,
+                    "lines": lines,
+                }
+            )
+
+    payload = {
+        "provider": provider,
+        "configured": True,
+        "generatedAt": generated_at,
+        "selectedSports": [sport["key"] for sport in selected_sports],
+        "sourceUrl": None,
+        "sourceMode": "board_snapshot_fallback",
+        "sourceProvider": source_provider,
+        "events": events,
+        "errors": errors,
+    }
+    if warnings:
+        payload["warnings"] = warnings
+    return payload
+
+
+def resolve_internal_book_feed_fallback(provider: str, selected_sports: list[dict[str, str]], reason: str | None = None) -> dict[str, Any]:
+    scraper_cache_sports = get_scraper_cache_sports()
+    if should_refresh_scraper_cache(selected_sports, scraper_cache_sports):
+        refresh_scraper_cache_from_pinnacle(source=SCRAPER_AUTO_REFRESH_SOURCE, force=False)
+        scraper_cache_sports = get_scraper_cache_sports()
+
+    fallback_order = ["scraper_cache", "oddsharvester", "odds_api"]
+    api_key = get_api_key()
+    status_map = get_available_board_provider_status(api_key, scraper_cache_sports)
+    attempted_errors: list[str] = []
+
+    for source_provider in fallback_order:
+        status = status_map.get(source_provider, {})
+        if not status.get("available"):
+            detail = status.get("reason")
+            if detail:
+                attempted_errors.append(f"{source_provider}: {detail}")
+            continue
+
+        snapshot = fetch_board_snapshot_for_provider(
+            selected_sports,
+            api_key,
+            source_provider,
+            scraper_cache_sports=scraper_cache_sports,
+        )
+        if snapshot.get("status") in {"SUCCESS", "PARTIAL"} and int(snapshot.get("game_count", 0) or 0) > 0:
+            return build_book_feed_payload_from_snapshot(
+                provider,
+                selected_sports,
+                snapshot,
+                source_provider=source_provider,
+                reason=reason,
+            )
+
+        attempted_errors.extend(
+            error for error in snapshot.get("errors", []) if isinstance(error, str)
+        )
+
+    payload = {
+        "provider": provider,
+        "configured": False,
+        "generatedAt": format_now(),
+        "selectedSports": [sport["key"] for sport in selected_sports],
+        "sourceUrl": None,
+        "sourceMode": "board_snapshot_fallback",
+        "events": [],
+        "errors": attempted_errors or [reason or "No live fallback provider returned usable feed events."],
+    }
+    if reason:
+        payload["warnings"] = [reason]
+    return payload
+
+
 def parse_requested_book_feed_sports(
     leagues: str | None = None,
     sport_key: str | None = None,
@@ -1917,37 +2146,29 @@ def resolve_book_feed_payload(provider: str, selected_sports: list[dict[str, str
 
     source_url = get_book_feed_source_url(provider)
     if not source_url:
-        return set_cached_book_feed(
+        fallback_payload = resolve_internal_book_feed_fallback(
             provider,
             selected_sports,
-            {
-                "provider": provider,
-                "configured": False,
-                "generatedAt": format_now(),
-                "selectedSports": [sport["key"] for sport in selected_sports],
-                "sourceUrl": None,
-                "events": [],
-                "errors": [f"BOOK_FEED_{provider.upper()}_SOURCE_URL is not configured."],
-            },
+            reason=f"BOOK_FEED_{provider.upper()}_SOURCE_URL is not configured. Using the best available backend board provider instead.",
         )
+        return set_cached_book_feed(provider, selected_sports, fallback_payload)
 
     request_url = build_book_feed_request_url(provider, selected_sports)
     try:
         raw_payload = request_json_url(request_url, f"{BOOK_FEED_PROVIDER_LABELS.get(provider, provider.title())} book feed")
     except Exception as error:
-        return set_cached_book_feed(
+        fallback_payload = resolve_internal_book_feed_fallback(
             provider,
             selected_sports,
-            {
-                "provider": provider,
-                "configured": True,
-                "generatedAt": format_now(),
-                "selectedSports": [sport["key"] for sport in selected_sports],
-                "sourceUrl": request_url,
-                "events": [],
-                "errors": [str(error)],
-            },
+            reason=f"Direct {BOOK_FEED_PROVIDER_LABELS.get(provider, provider.title())} feed failed. Falling back to backend board data: {error}",
         )
+        if fallback_payload.get("events"):
+            return set_cached_book_feed(provider, selected_sports, fallback_payload)
+        error_payload = dict(fallback_payload)
+        error_payload["configured"] = True
+        error_payload["sourceUrl"] = request_url
+        error_payload["errors"] = [str(error), *[msg for msg in fallback_payload.get("errors", []) if isinstance(msg, str)]]
+        return set_cached_book_feed(provider, selected_sports, error_payload)
 
     events = [
         event
@@ -1963,33 +2184,34 @@ def resolve_book_feed_payload(provider: str, selected_sports: list[dict[str, str
     ) or (
         raw_payload.get("generated_at") if isinstance(raw_payload, dict) else None
     ) or format_now()
-
     payload = {
         "provider": provider,
         "configured": True,
         "generatedAt": generated_at,
         "selectedSports": [sport["key"] for sport in selected_sports],
         "sourceUrl": request_url,
+        "sourceMode": "direct",
         "events": events,
         "errors": [],
     }
+    if events:
+        return set_cached_book_feed(provider, selected_sports, payload)
+
+    fallback_payload = resolve_internal_book_feed_fallback(
+        provider,
+        selected_sports,
+        reason=f"Direct {BOOK_FEED_PROVIDER_LABELS.get(provider, provider.title())} feed returned no usable pregame ML/spread/total events. Using backend board data instead.",
+    )
+    if fallback_payload.get("events"):
+        fallback_payload["sourceUrl"] = request_url
+        return set_cached_book_feed(provider, selected_sports, fallback_payload)
+
+    payload["errors"] = [f"Direct {provider} feed returned no usable events."]
     return set_cached_book_feed(provider, selected_sports, payload)
 
 
 def fetch_book_feed_board_snapshot(selected_sports: list[dict[str, str]]) -> dict[str, Any]:
-    providers = [provider for provider in ("draftkings", "fanduel") if get_book_feed_source_url(provider)]
-    if not providers:
-        return {
-            "provider": "book_feeds",
-            "status": "FAILED",
-            "game_count": 0,
-            "sport_count": len(selected_sports),
-            "errors": ["No retail book feed source URLs are configured."],
-            "quota_exhausted": False,
-            "sports": [build_empty_sport_payload(sport) for sport in selected_sports],
-            "bookmakers": "draftkings,fanduel",
-        }
-
+    providers = get_book_feed_providers() or ["draftkings"]
     responses = [resolve_book_feed_payload(provider, selected_sports) for provider in providers]
     errors = [error for response in responses for error in response.get("errors", [])]
     games_by_sport: dict[str, list[dict[str, Any]]] = {sport["key"]: [] for sport in selected_sports}
@@ -2042,12 +2264,15 @@ def fetch_book_feed_board_snapshot(selected_sports: list[dict[str, str]]) -> dic
         "generated_at": generated_at_values[-1] if generated_at_values else format_now(),
         "provider_meta": {
             provider: {
-                "configured": bool(get_book_feed_source_url(provider)),
-                "sourceUrl": build_book_feed_request_url(provider, selected_sports),
-                "cache": resolve_book_feed_payload(provider, selected_sports).get("cache"),
-                "errors": resolve_book_feed_payload(provider, selected_sports).get("errors", []),
+                "configured": bool(response.get("configured")),
+                "sourceUrl": response.get("sourceUrl") or build_book_feed_request_url(provider, selected_sports),
+                "sourceMode": response.get("sourceMode"),
+                "sourceProvider": response.get("sourceProvider"),
+                "cache": response.get("cache"),
+                "errors": response.get("errors", []),
+                "warnings": response.get("warnings", []),
             }
-            for provider in providers
+            for provider, response in zip(providers, responses)
         },
     }
 
@@ -2502,9 +2727,12 @@ def get_available_board_provider_status(
 
     return {
         "book_feeds": {
-            "available": bool(get_book_feed_providers()),
-            "reason": None if get_book_feed_providers() else "Retail book feed source URLs are not configured.",
+            "available": bool(get_book_feed_providers()) or has_internal_book_feed_fallback(api_key, cached_sports),
+            "reason": None
+            if (bool(get_book_feed_providers()) or has_internal_book_feed_fallback(api_key, cached_sports))
+            else "Retail book feed source URLs are not configured and no live fallback provider is available.",
             "providers": get_book_feed_providers(),
+            "fallback_enabled": has_internal_book_feed_fallback(api_key, cached_sports),
         },
         "odds_api": {
             "available": bool(api_key),
@@ -4904,6 +5132,11 @@ def ingest_odds(
             detail="Could not resolve a supported SharkEdge sport key for this event.",
         )
 
+    primary_line = payload.get("lines") or []
+    primary_line = primary_line[0] if isinstance(primary_line, list) and primary_line else {}
+    primary_line = primary_line if isinstance(primary_line, dict) else {}
+    primary_odds = primary_line.get("odds") if isinstance(primary_line.get("odds"), dict) else primary_line
+
     normalized_payload = {
         "eventKey": event_key,
         "sport": payload.get("sport"),
@@ -4912,7 +5145,16 @@ def ingest_odds(
         "awayTeam": away_team,
         "commenceTime": payload.get("commenceTime"),
         "scrapedAt": payload.get("scrapedAt") or format_now(),
-        "book": (payload.get("lines") or [{}])[0].get("book") or payload.get("source") or "scraper",
+        "book": primary_line.get("book") or payload.get("source") or "scraper",
+        "homeMoneyline": primary_odds.get("homeMoneyline"),
+        "awayMoneyline": primary_odds.get("awayMoneyline"),
+        "homeSpread": primary_odds.get("homeSpread"),
+        "awaySpread": primary_odds.get("awaySpread"),
+        "homeSpreadOdds": primary_odds.get("homeSpreadOdds"),
+        "awaySpreadOdds": primary_odds.get("awaySpreadOdds"),
+        "total": primary_odds.get("total"),
+        "overOdds": primary_odds.get("overOdds"),
+        "underOdds": primary_odds.get("underOdds"),
         "lines": payload.get("lines") or [],
         "sourceMeta": source_meta if isinstance(source_meta, dict) else {},
     }

@@ -1,9 +1,12 @@
 import type { LeagueKey } from "@/lib/types/domain";
 
 import type { BookFeedProvider } from "../book-feed-provider-types";
+import { getCurrentOddsBackendBaseUrl } from "../backend-url";
 
 const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
-const FANDUEL_FEED_URL = process.env.SHARKEDGE_FANDUEL_FEED_URL?.trim() ?? "";
+const FANDUEL_FEED_URL =
+  process.env.SHARKEDGE_FANDUEL_FEED_URL?.trim() ??
+  `${getCurrentOddsBackendBaseUrl()}/api/book-feeds/fanduel`;
 
 function buildFanDuelFeedUrl(leagues: LeagueKey[]) {
   const url = new URL(FANDUEL_FEED_URL);
@@ -39,23 +42,11 @@ export const fanDuelBookFeedProvider: BookFeedProvider = {
     live: []
   },
   describe() {
-    return FANDUEL_FEED_URL
+    return process.env.SHARKEDGE_FANDUEL_FEED_URL?.trim()
       ? "Worker-only FanDuel feed adapter. Uses an externally configured feed endpoint and never runs in page requests."
-      : "Worker-only FanDuel feed scaffold. No request-path scraping, no page fetches, and no live integration is enabled until a verified stable feed contract is configured in-repo.";
+      : "Worker-only FanDuel feed adapter. Defaults to the backend /api/book-feeds/fanduel endpoint so the worker can ingest the same live board source even before a direct FanDuel source URL is configured.";
   },
   async fetchFeed(args) {
-    if (!FANDUEL_FEED_URL) {
-      return {
-        ok: false,
-        providerKey: "fanduel",
-        sportsbookKey: "fanduel",
-        fetchedAt: new Date().toISOString(),
-        status: "NOT_CONFIGURED",
-        reason: "Set SHARKEDGE_FANDUEL_FEED_URL to enable the worker-only FanDuel feed adapter.",
-        errorCode: "BOOK_FEED_NOT_CONFIGURED"
-      };
-    }
-
     const url = buildFanDuelFeedUrl(args.leagues ?? []);
 
     try {

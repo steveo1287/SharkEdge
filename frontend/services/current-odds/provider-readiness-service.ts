@@ -374,21 +374,21 @@ export function selectPreferredBoardProvider(
 }
 
 function getBookFeedConfigured(providerKey: string) {
-  if (providerKey === "draftkings") {
-    return Boolean(process.env.SHARKEDGE_DRAFTKINGS_FEED_URL?.trim());
-  }
-  if (providerKey === "fanduel") {
-    return Boolean(process.env.SHARKEDGE_FANDUEL_FEED_URL?.trim());
-  }
-  return false;
+  return Boolean(getBookFeedSourceUrl(providerKey));
 }
 
 function getBookFeedSourceUrl(providerKey: string) {
   if (providerKey === "draftkings") {
-    return process.env.SHARKEDGE_DRAFTKINGS_FEED_URL?.trim() || null;
+    return (
+      process.env.SHARKEDGE_DRAFTKINGS_FEED_URL?.trim() ||
+      `${getBackendBaseUrl().replace(/\/$/, "")}/api/book-feeds/draftkings`
+    );
   }
   if (providerKey === "fanduel") {
-    return process.env.SHARKEDGE_FANDUEL_FEED_URL?.trim() || null;
+    return (
+      process.env.SHARKEDGE_FANDUEL_FEED_URL?.trim() ||
+      `${getBackendBaseUrl().replace(/\/$/, "")}/api/book-feeds/fanduel`
+    );
   }
   return null;
 }
@@ -411,7 +411,7 @@ async function probeBookFeedProvider(
       checkedAt,
       warnings: [`${provider.label} is scaffolded but not configured with a feed URL.`],
       reason: `Set ${provider.key === "draftkings" ? "SHARKEDGE_DRAFTKINGS_FEED_URL" : "SHARKEDGE_FANDUEL_FEED_URL"} to enable this worker-only feed.`,
-      sourceUrl: null,
+      sourceUrl: getBookFeedSourceUrl(provider.key),
       lastAttemptAt: isoFromMs(stateSnapshot.lastAttemptAt),
       lastSuccessAt: isoFromMs(stateSnapshot.lastSuccessAt),
       nextAllowedAt: isoFromMs(stateSnapshot.nextAllowedAt),
@@ -440,7 +440,7 @@ async function probeBookFeedProvider(
       state = "DEGRADED";
       warnings.push("Feed recovered, but prior failures are still on the books.");
     }
-    reason = result.sourceUrl ?? null;
+    reason = result.sourceUrl ?? getBookFeedSourceUrl(provider.key);
   }
 
   return {
