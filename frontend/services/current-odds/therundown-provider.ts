@@ -32,6 +32,7 @@ const THERUNDOWN_SUPPORTED_LEAGUES: LeagueKey[] = [
   "NCAAF"
 ];
 const THERUNDOWN_PROVIDER_TIMEOUT_MS = 2_500;
+const THERUNDOWN_BOARD_CACHE_TTL_MS = 30_000;
 const THERUNDOWN_SPORT_IDS: Record<Exclude<LeagueKey, "UFC" | "BOXING">, number> = {
   NCAAF: 1,
   NFL: 2,
@@ -63,10 +64,15 @@ type TheRundownMarket = {
 
 type TheRundownTeam = {
   name: string;
+  mascot?: string;
+  abbreviation?: string;
+  is_home?: boolean;
+  is_away?: boolean;
 };
 
 type TheRundownEvent = {
   event_id: string;
+  event_date?: string;
   teams?: TheRundownTeam[];
   markets?: TheRundownMarket[];
 };
@@ -81,8 +87,22 @@ type BookOutcomeEntry = {
   point: number | null;
 };
 
+type TheRundownBoardCache = {
+  generatedAtMs: number;
+  payload: CurrentOddsBoardResponse | null;
+};
+
+declare global {
+  // eslint-disable-next-line no-var
+  var sharkedgeTheRundownBoardCache: TheRundownBoardCache | undefined;
+}
+
 function getApiKey() {
-  const value = process.env.THERUNDOWN_API_KEY?.trim();
+  const value =
+    process.env.THERUNDOWN_API_KEY?.trim() ??
+    process.env.THERUNDOWN_KEY?.trim() ??
+    process.env.THE_RUNDOWN_API_KEY?.trim() ??
+    process.env.THE_RUNDOWN_KEY?.trim();
   return value?.length ? value : null;
 }
 
@@ -96,7 +116,10 @@ function getAffiliateIds() {
 }
 
 function formatDateKey(date: Date) {
-  return date.toISOString().slice(0, 10);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 async function fetchTheRundownJson<T>(path: string, params: Record<string, string>) {
@@ -117,6 +140,10 @@ async function fetchTheRundownJson<T>(path: string, params: Record<string, strin
 
     const response = await fetch(url.toString(), {
       cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "X-TheRundown-Key": apiKey
+      },
       signal: AbortSignal.timeout(THERUNDOWN_PROVIDER_TIMEOUT_MS)
     });
 
@@ -137,6 +164,19 @@ function parsePoint(value?: string) {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parsePrice(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.round(value);
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return Math.round(parsed);
+    }
+  }
+  return null;
 }
 
 function normalizeMarketName(name: string) {
@@ -161,32 +201,52 @@ function buildBookTitle(affiliateId: string) {
   return `Affiliate ${affiliateId}`;
 }
 
+function buildTeamName(team: TheRundownTeam | undefined, fallback: string) {
+  if (!team) {
+    return fallback;
+  }
+
+  const name = team.name?.trim() ?? "";
+  const mascot = team.mascot?.trim() ?? "";
+  if (name && mascot && !name.toLowerCase().includes(mascot.toLowerCase())) {
+    return `${name} ${mascot}`;
+  }
+  return name || fallback;
+}
+
 function buildOutcomeRows(
   participants: TheRundownParticipant[],
   affiliateIds: string[]
 ) {
   const rows = new Map<string, BookOutcomeEntry[]>();
+  const fallbackRows = new Map<string, BookOutcomeEntry[]>();
 
   for (const participant of participants) {
     for (const line of participant.lines ?? []) {
       const point = parsePoint(line.value);
       for (const [affiliateId, priceData] of Object.entries(line.prices ?? {})) {
+        const row: BookOutcomeEntry = {
+          name: participant.name,
+          price: parsePrice(priceData.price),
+          point
+        };
+
+        const fallbackExisting = fallbackRows.get(affiliateId) ?? [];
+        fallbackExisting.push(row);
+        fallbackRows.set(affiliateId, fallbackExisting);
+
         if (affiliateIds.length && !affiliateIds.includes(affiliateId)) {
           continue;
         }
 
         const existing = rows.get(affiliateId) ?? [];
-        existing.push({
-          name: participant.name,
-          price: typeof priceData.price === "number" ? Math.round(priceData.price) : null,
-          point
-        });
+        existing.push(row);
         rows.set(affiliateId, existing);
       }
     }
   }
 
-  return rows;
+  return rows.size ? rows : fallbackRows;
 }
 
 function buildOffers(
@@ -234,8 +294,11 @@ function buildOffers(
 }
 
 function buildGame(event: TheRundownEvent, affiliateIds: string[]) {
-  const away = event.teams?.[0]?.name ?? "Away";
-  const home = event.teams?.[1]?.name ?? "Home";
+  const teams = event.teams ?? [];
+  const homeTeam = teams.find((team) => team.is_home) ?? teams[1] ?? teams[0];
+  const awayTeam = teams.find((team) => team.is_away) ?? teams[0] ?? teams[1];
+  const away = buildTeamName(awayTeam, "Away");
+  const home = buildTeamName(homeTeam, "Home");
   const bookmakers = new Map<string, CurrentOddsBookmaker>();
 
   for (const market of event.markets ?? []) {
@@ -278,7 +341,7 @@ function buildGame(event: TheRundownEvent, affiliateIds: string[]) {
 
   return {
     id: event.event_id,
-    commence_time: new Date().toISOString(),
+    commence_time: event.event_date ?? new Date().toISOString(),
     home_team: home,
     away_team: away,
     bookmakers_available: bookmakerRows.length,
@@ -308,7 +371,8 @@ async function fetchLeagueBoard(leagueKey: LeagueKey, dateKey: string) {
     }
   );
 
-  const games = (response?.events ?? [])
+  const events = Array.isArray(response?.events) ? response.events : [];
+  const games = events
     .map((event) => buildGame(event, affiliateIds))
     .filter(Boolean) as CurrentOddsGame[];
 
@@ -336,22 +400,31 @@ export const therundownCurrentOddsProvider: CurrentOddsProvider = {
       return null;
     }
 
-    const today = formatDateKey(new Date());
-    const tomorrow = formatDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+    const cached = global.sharkedgeTheRundownBoardCache;
+    if (
+      cached &&
+      Date.now() - cached.generatedAtMs < THERUNDOWN_BOARD_CACHE_TTL_MS
+    ) {
+      return cached.payload;
+    }
+
+    const dateKeys = Array.from(
+      new Set([
+        formatDateKey(new Date(Date.now() - 24 * 60 * 60 * 1000)),
+        formatDateKey(new Date()),
+        formatDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000))
+      ])
+    );
     const sports = (
       await Promise.all(
-        THERUNDOWN_SUPPORTED_LEAGUES.flatMap((leagueKey) => [
-          fetchLeagueBoard(leagueKey, today),
-          fetchLeagueBoard(leagueKey, tomorrow)
-        ])
+        THERUNDOWN_SUPPORTED_LEAGUES.flatMap((leagueKey) =>
+          dateKeys.map((dateKey) => fetchLeagueBoard(leagueKey, dateKey))
+        )
       )
     ).filter(Boolean) as CurrentOddsSport[];
 
-    if (!sports.length) {
-      return null;
-    }
-
-    return {
+    const payload = sports.length
+      ? ({
       configured: true,
       generated_at: new Date().toISOString(),
       provider: "therundown",
@@ -359,6 +432,14 @@ export const therundownCurrentOddsProvider: CurrentOddsProvider = {
       bookmakers: getAffiliateIds().join(","),
       errors: [],
       sports
-    } satisfies CurrentOddsBoardResponse;
+    } satisfies CurrentOddsBoardResponse)
+      : null;
+
+    global.sharkedgeTheRundownBoardCache = {
+      generatedAtMs: Date.now(),
+      payload
+    };
+
+    return payload;
   }
 };

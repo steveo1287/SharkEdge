@@ -68,12 +68,17 @@ function resolveBoardDate(value: BoardDateScope) {
 }
 
 function isVerifiedGame(game: GameCardView) {
-  return (
-    game.bestBookCount > 0 &&
-    (game.spread.bestOdds !== 0 ||
-      game.moneyline.bestOdds !== 0 ||
-      game.total.bestOdds !== 0)
-  );
+  const hasOdds =
+    game.spread.bestOdds !== 0 ||
+    game.moneyline.bestOdds !== 0 ||
+    game.total.bestOdds !== 0;
+
+  const hasMarketLabels =
+    Boolean(game.spread.lineLabel && game.spread.lineLabel !== "No market") ||
+    Boolean(game.moneyline.lineLabel && game.moneyline.lineLabel !== "No market") ||
+    Boolean(game.total.lineLabel && game.total.lineLabel !== "No market");
+
+  return hasOdds || hasMarketLabels;
 }
 
 function getGameMarketPriority(game: GameCardView, marketKey: BoardMarketKey) {
