@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { BoardCommandDeck } from "@/components/board/board-command-deck";
 import { BoardInspector } from "@/components/board/board-inspector";
+import { BoardTable } from "@/components/board/board-table";
 import { LiveEdgeBoardCard } from "@/components/board/live-edge-board-card";
 import { MobileTopBar } from "@/components/mobile/mobile-top-bar";
 import { SectionTabs } from "@/components/mobile/section-tabs";
@@ -196,6 +197,19 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
     active: board.selectedSort === item.sort
   }));
 
+  const sortHrefMap = {
+    edge: sortItems.find((item) => item.label === "Edge")?.href ?? buildBoardHref({ ...queryState, sort: "edge" }),
+    movement:
+      sortItems.find((item) => item.label === "Movement")?.href ?? buildBoardHref({ ...queryState, sort: "movement" }),
+    start: sortItems.find((item) => item.label === "Start")?.href ?? buildBoardHref({ ...queryState, sort: "start" })
+  } satisfies Record<"edge" | "movement" | "start", string>;
+
+  const tableRows = board.verifiedGames.slice(0, 24).map((game) => ({
+    game,
+    selected: game.id === board.focusedGame?.id,
+    inspectHref: buildBoardHref({ ...queryState, focus: game.id })
+  }));
+
   return (
     <div className="grid gap-4">
       <section className="mobile-hero">
@@ -343,14 +357,23 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
               </div>
             </div>
 
-            {board.verifiedGames.slice(0, 12).map((game) => (
-              <LiveEdgeBoardCard
-                key={game.id}
-                game={game}
-                selected={game.id === board.focusedGame?.id}
-                inspectHref={buildBoardHref({ ...queryState, focus: game.id })}
-              />
-            ))}
+            <BoardTable
+              rows={tableRows}
+              selectedMarket={board.selectedMarket}
+              selectedSort={board.selectedSort}
+              sortHrefs={sortHrefMap}
+            />
+
+            <div className="grid gap-3 xl:hidden">
+              {board.verifiedGames.slice(0, 12).map((game) => (
+                <LiveEdgeBoardCard
+                  key={game.id}
+                  game={game}
+                  selected={game.id === board.focusedGame?.id}
+                  inspectHref={buildBoardHref({ ...queryState, focus: game.id })}
+                />
+              ))}
+            </div>
 
             {!board.verifiedGames.length ? (
               <div className="mobile-surface">
