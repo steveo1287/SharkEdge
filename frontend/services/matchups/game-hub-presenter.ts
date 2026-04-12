@@ -160,9 +160,15 @@ function buildDecisionTarget(
     return null;
   }
 
+  const query = new URLSearchParams();
+  query.set("market", marketType);
+  if (headline.sportsbookName) {
+    query.set("book", headline.sportsbookName);
+  }
+
   return {
     kind: "market",
-    href: headline.sportsbookName ? "#market-target" : "#markets",
+    href: `?${query.toString()}#market-target`,
     label: headline.sportsbookName
       ? `Jump to ${headline.sportsbookName}`
       : "Jump to target market",

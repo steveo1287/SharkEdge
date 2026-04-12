@@ -23,6 +23,7 @@ type PageProps = {
   params: Promise<{
     id: string;
   }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 type SafeBoardData = Awaited<ReturnType<typeof getBoardCommandData>> | null;
@@ -44,8 +45,27 @@ async function getSafeBoardData(league: string): Promise<SafeBoardData> {
   }
 }
 
-export default async function GameDetailPage({ params }: PageProps) {
+function readParam(
+  searchParams: Record<string, string | string[] | undefined>,
+  key: string
+) {
+  const value = searchParams[key];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function readMarketFocus(value: string | undefined): "all" | "spread" | "moneyline" | "total" {
+  if (value === "spread" || value === "moneyline" || value === "total") {
+    return value;
+  }
+
+  return "all";
+}
+
+export default async function GameDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params;
+  const resolvedSearch = (await searchParams) ?? {};
+  const marketFocus = readMarketFocus(readParam(resolvedSearch, "market"));
+  const bookFocus = readParam(resolvedSearch, "book") ?? null;
   const detail = await getMatchupDetail(id);
 
   if (!detail) {
@@ -132,7 +152,7 @@ export default async function GameDetailPage({ params }: PageProps) {
                 </div>
               </div>
               <div id="market-target">
-                <OddsTable detail={detail} />
+                <OddsTable detail={detail} marketFocus={marketFocus} bookFocus={bookFocus} />
               </div>
             </section>
 
