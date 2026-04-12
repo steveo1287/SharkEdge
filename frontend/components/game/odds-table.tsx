@@ -5,6 +5,7 @@ import { formatLongDate } from "@/lib/formatters/date";
 import { americanToImplied, stripVig } from "@/lib/odds/index";
 import type { BetSignalView, MatchupDetailView } from "@/lib/types/domain";
 import { cn } from "@/lib/utils/cn";
+import { appendBoardStateToHref, type WorkflowBoardState } from "@/lib/utils/workflow-hrefs";
 
 type MarketFocus = "all" | "spread" | "moneyline" | "total";
 
@@ -12,6 +13,7 @@ type OddsTableProps = {
   detail: MatchupDetailView;
   marketFocus?: MarketFocus;
   bookFocus?: string | null;
+  boardContext?: WorkflowBoardState | null;
 };
 
 type ParsedSelection = {
@@ -256,7 +258,7 @@ function getRowRank(
   };
 }
 
-function buildFocusHref(nextFocus: MarketFocus, bookFocus?: string | null) {
+function buildFocusHref(nextFocus: MarketFocus, bookFocus?: string | null, boardContext?: WorkflowBoardState | null) {
   const params = new URLSearchParams();
   if (nextFocus !== "all") {
     params.set("market", nextFocus);
@@ -266,20 +268,22 @@ function buildFocusHref(nextFocus: MarketFocus, bookFocus?: string | null) {
   }
 
   const query = params.toString();
-  return query ? `?${query}#market-target` : "#market-target";
+  const href = query ? `?${query}#market-target` : "#market-target";
+  return boardContext ? appendBoardStateToHref(href, boardContext) : href;
 }
 
-function buildBookHref(marketFocus: MarketFocus, book: string) {
+function buildBookHref(marketFocus: MarketFocus, book: string, boardContext?: WorkflowBoardState | null) {
   const params = new URLSearchParams();
   if (marketFocus !== "all") {
     params.set("market", marketFocus);
   }
   params.set("book", book);
-  return `?${params.toString()}#market-target`;
+  const href = `?${params.toString()}#market-target`;
+  return boardContext ? appendBoardStateToHref(href, boardContext) : href;
 }
 
-function buildClearHref(marketFocus: MarketFocus) {
-  return buildFocusHref(marketFocus);
+function buildClearHref(marketFocus: MarketFocus, boardContext?: WorkflowBoardState | null) {
+  return buildFocusHref(marketFocus, undefined, boardContext);
 }
 
 function MarketPill({
@@ -415,7 +419,8 @@ function MarketSignalCard({
   detail,
   signal,
   active,
-  bookFocus
+  bookFocus,
+  boardContext
 }: {
   label: string;
   marketType: "spread" | "moneyline" | "total";
@@ -423,13 +428,14 @@ function MarketSignalCard({
   signal: BetSignalView | null;
   active: boolean;
   bookFocus: string | null;
+  boardContext?: WorkflowBoardState | null;
 }) {
   const bestDesk = getDeskBestValue(detail, marketType) ?? "Awaiting desk price";
   const fairPrice =
     signal?.fairPrice?.fairOddsAmerican ?? signal?.marketTruth?.fairOddsAmerican ?? null;
   const delta = signal?.marketDeltaAmerican ?? null;
   const stale = Boolean(signal?.marketIntelligence?.staleFlag || signal?.marketTruth?.stale);
-  const href = buildFocusHref(marketType, bookFocus);
+  const href = buildFocusHref(marketType, bookFocus, boardContext);
 
   return (
     <Link
@@ -486,7 +492,8 @@ function MarketSignalCard({
 export function OddsTable({
   detail,
   marketFocus = "all",
-  bookFocus = null
+  bookFocus = null,
+  boardContext = null
 }: OddsTableProps) {
   const openingPoint = detail.lineMovement[0] ?? null;
   const currentPoint = detail.lineMovement[detail.lineMovement.length - 1] ?? null;
@@ -537,24 +544,24 @@ export function OddsTable({
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <MarketPill label="All" href={buildFocusHref("all")} active={marketFocus === "all"} />
+                <MarketPill label="All" href={buildFocusHref("all", undefined, boardContext)} active={marketFocus === "all"} />
                 <MarketPill
                   label="Moneyline"
-                  href={buildFocusHref("moneyline", bookFocus)}
+                  href={buildFocusHref("moneyline", bookFocus, boardContext)}
                   active={marketFocus === "moneyline"}
                 />
                 <MarketPill
                   label="Spread"
-                  href={buildFocusHref("spread", bookFocus)}
+                  href={buildFocusHref("spread", bookFocus, boardContext)}
                   active={marketFocus === "spread"}
                 />
                 <MarketPill
                   label="Total"
-                  href={buildFocusHref("total", bookFocus)}
+                  href={buildFocusHref("total", bookFocus, boardContext)}
                   active={marketFocus === "total"}
                 />
                 {bookFocus ? (
-                  <MarketPill label="Clear book" href={buildClearHref(marketFocus)} active={false} tone="warning" />
+                  <MarketPill label="Clear book" href={buildClearHref(marketFocus, boardContext)} active={false} tone="warning" />
                 ) : null}
               </div>
             </div>
@@ -590,6 +597,7 @@ export function OddsTable({
                 signal={getPrimarySignal(detail, "moneyline")}
                 active={marketFocus === "moneyline"}
                 bookFocus={bookFocus}
+                boardContext={boardContext}
               />
               <MarketSignalCard
                 label="Spread"
@@ -598,6 +606,7 @@ export function OddsTable({
                 signal={getPrimarySignal(detail, "spread")}
                 active={marketFocus === "spread"}
                 bookFocus={bookFocus}
+                boardContext={boardContext}
               />
               <MarketSignalCard
                 label="Total"
@@ -606,6 +615,7 @@ export function OddsTable({
                 signal={getPrimarySignal(detail, "total")}
                 active={marketFocus === "total"}
                 bookFocus={bookFocus}
+                boardContext={boardContext}
               />
             </div>
           </div>
@@ -740,7 +750,7 @@ export function OddsTable({
                       <td className="px-4 py-4 align-top text-right">
                         <div className="flex flex-col items-end gap-2">
                           <Link
-                            href={buildBookHref(marketFocus, ranked.sportsbookName)}
+                            href={buildBookHref(marketFocus, ranked.sportsbookName, boardContext)}
                             className="inline-flex rounded-full border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-200"
                           >
                             {ranked.matchesFocusedBook ? "Focused" : "Target book"}

@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { SharkScoreRing } from "@/components/branding/shark-score-ring";
 import { TeamBadge } from "@/components/identity/team-badge";
 import { SectionTabs, type SectionTabItem } from "@/components/mobile/section-tabs";
@@ -42,9 +44,10 @@ type Props = {
   presentation: GameHubPresentation;
   tabs: SectionTabItem[];
   metrics: GameHubMetric[];
+  returnHref?: string | null;
 };
 
-export function GameDetailCommandHero({ detail, presentation, tabs, metrics }: Props) {
+export function GameDetailCommandHero({ detail, presentation, tabs, metrics, returnHref = null }: Props) {
   const away = getParticipant(detail, "AWAY");
   const home = getParticipant(detail, "HOME");
   const headline = presentation.headline;
@@ -54,6 +57,14 @@ export function GameDetailCommandHero({ detail, presentation, tabs, metrics }: P
       <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr] xl:items-end">
         <div>
           <div className="flex flex-wrap items-center gap-2">
+            {returnHref ? (
+              <Link
+                href={returnHref}
+                className="inline-flex rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-200 transition hover:border-white/18 hover:bg-white/[0.06]"
+              >
+                Back to board
+              </Link>
+            ) : null}
             <Badge tone={getSupportTone(detail.supportStatus)}>{detail.supportStatus}</Badge>
             <Badge tone="muted">{detail.league.key}</Badge>
             <Badge tone="muted">{detail.status === "LIVE" ? "Live" : "Pregame"}</Badge>

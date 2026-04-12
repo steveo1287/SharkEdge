@@ -57,10 +57,14 @@ function MarketColumn({ label, market }: { label: string; market: BoardMarketVie
 export function LiveEdgeBoardCard({
   game,
   inspectHref,
+  gameHref,
+  workflowLabel,
   selected = false
 }: {
   game: GameCardView;
   inspectHref?: string;
+  gameHref?: string;
+  workflowLabel?: string;
   selected?: boolean;
 }) {
   const leadMover = getLeadMover(game);
@@ -129,10 +133,10 @@ export function LiveEdgeBoardCard({
               {selected ? "Inspecting" : "Inspect"}
             </Link>
             <Link
-              href={game.detailHref ?? `/game/${game.id}`}
+              href={gameHref ?? game.detailHref ?? `/game/${game.id}`}
               className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-200 transition hover:border-white/18 hover:bg-white/[0.06]"
             >
-              Game page
+              {workflowLabel ? `Open ${workflowLabel}` : "Game page"}
             </Link>
           </div>
         </div>

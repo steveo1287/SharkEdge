@@ -34,9 +34,10 @@ function SidebarMetric({ label, value, note }: { label: string; value: string; n
 type Props = {
   detail: MatchupDetailView;
   presentation: GameHubPresentation;
+  returnHref?: string | null;
 };
 
-export function GameExecutionSidebar({ detail, presentation }: Props) {
+export function GameExecutionSidebar({ detail, presentation, returnHref = null }: Props) {
   const headline = presentation.headline;
   const openingPoint = detail.lineMovement[0] ?? null;
   const latestPoint = detail.lineMovement[detail.lineMovement.length - 1] ?? null;
@@ -126,6 +127,15 @@ export function GameExecutionSidebar({ detail, presentation }: Props) {
           </div>
         ) : null}
       </section>
+
+      {returnHref ? (
+        <Link
+          href={returnHref}
+          className="inline-flex items-center justify-center rounded-[1rem] border border-white/10 bg-white/[0.03] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-200 transition hover:border-white/18 hover:bg-white/[0.06]"
+        >
+          Return to board context
+        </Link>
+      ) : null}
 
       <section className="mobile-surface">
         <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Market tape</div>

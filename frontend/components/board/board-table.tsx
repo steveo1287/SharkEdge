@@ -10,6 +10,8 @@ type MarketScope = "all" | "moneyline" | "spread" | "total";
 type BoardTableRow = {
   game: GameCardView;
   inspectHref: string;
+  gameHref: string;
+  workflowLabel?: string;
   selected: boolean;
 };
 
@@ -234,7 +236,7 @@ export function BoardTable({ rows, selectedMarket, selectedSort, sortHrefs }: Bo
           </thead>
 
           <tbody>
-            {rows.map(({ game, inspectHref, selected }, index) => {
+            {rows.map(({ game, inspectHref, gameHref, workflowLabel, selected }, index) => {
               const leadMover = getLeadMover(game);
               const primaryBook = getPrimaryBook(game);
 
@@ -330,10 +332,10 @@ export function BoardTable({ rows, selectedMarket, selectedSort, sortHrefs }: Bo
                         {selected ? "Inspecting" : "Inspect"}
                       </Link>
                       <Link
-                        href={game.detailHref ?? `/game/${game.id}`}
+                        href={gameHref}
                         className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-200 transition hover:border-white/18 hover:bg-white/[0.06]"
                       >
-                        Game page
+                        {workflowLabel ? `Open ${workflowLabel}` : "Game page"}
                       </Link>
                     </div>
                   </td>

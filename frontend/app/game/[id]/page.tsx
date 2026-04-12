@@ -13,6 +13,7 @@ import { PropList } from "@/components/game/prop-list";
 import { HorizontalEventRail } from "@/components/mobile/horizontal-event-rail";
 import { MobileTopBar } from "@/components/mobile/mobile-top-bar";
 import { buildGameHubPresentation } from "@/services/matchups/game-hub-presenter";
+import { appendBoardStateToHref, buildBoardReturnHref, buildGameWorkflowHref, type WorkflowBoardLeague, type WorkflowBoardSort } from "@/lib/utils/workflow-hrefs";
 import { buildGameHubMetrics } from "@/services/matchups/game-ui-adapter";
 import { getBoardCommandData } from "@/services/board/board-command-service";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
@@ -62,6 +63,23 @@ function readMarketFocus(value: string | undefined): "all" | "spread" | "moneyli
   return "all";
 }
 
+function readBoardLeague(value: string | undefined, fallback: string): WorkflowBoardLeague {
+  if (value === "NBA" || value === "MLB" || value === "ALL") {
+    return value;
+  }
+
+  return fallback === "NBA" || fallback === "MLB" ? fallback : "ALL";
+}
+
+function readBoardSort(value: string | undefined): WorkflowBoardSort {
+  if (value === "movement" || value === "start") {
+    return value;
+  }
+
+  return "edge";
+}
+
+
 export default async function GameDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params;
   const resolvedSearch = (await searchParams) ?? {};
@@ -73,7 +91,31 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
     notFound();
   }
 
+  const boardState = {
+    league: readBoardLeague(readParam(resolvedSearch, "boardLeague"), detail.league.key),
+    market: readMarketFocus(readParam(resolvedSearch, "boardMarket")),
+    sort: readBoardSort(readParam(resolvedSearch, "boardSort")),
+    focus: readParam(resolvedSearch, "boardFocus") ?? detail.routeId
+  } satisfies { league: WorkflowBoardLeague; market: "all" | "spread" | "moneyline" | "total"; sort: WorkflowBoardSort; focus?: string | null };
+
+  const returnBoardHref = buildBoardReturnHref(boardState);
+  const currentGamePath = buildGameWorkflowHref(`/game/${detail.routeId}`, boardState, {
+    market: marketFocus === "all" ? "moneyline" : marketFocus,
+    book: bookFocus,
+    label: marketFocus === "all" ? "Moneyline" : marketFocus === "spread" ? "Spread" : marketFocus === "total" ? "Total" : "Moneyline"
+  });
+
   const presentation = buildGameHubPresentation(detail);
+  const decisionView = presentation.decisionModule.focusTarget?.kind === "market"
+    ? {
+        ...presentation.decisionModule,
+        focusTarget: {
+          ...presentation.decisionModule.focusTarget,
+          href: appendBoardStateToHref(presentation.decisionModule.focusTarget.href, boardState)
+        }
+      }
+    : presentation.decisionModule;
+
   const [board, simulation] = await Promise.all([
     getSafeBoardData(detail.league.key),
     getSafeSimulationData(detail.routeId)
@@ -87,8 +129,12 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
         hour: "numeric",
         minute: "2-digit"
       }),
-      href: game.detailHref ?? `/game/${game.id}`,
-      active: game.detailHref === `/game/${detail.routeId}` || game.id === detail.routeId
+      href: buildGameWorkflowHref(game.detailHref ?? `/game/${game.id}`, boardState, {
+        market: marketFocus === "all" ? "moneyline" : marketFocus,
+        book: bookFocus,
+        label: marketFocus === "all" ? "Moneyline" : marketFocus === "spread" ? "Spread" : marketFocus === "total" ? "Total" : "Moneyline"
+      }),
+      active: game.id === detail.routeId
     })) ?? [];
 
   const tabs = [
@@ -106,7 +152,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
       <div className="grid gap-4">
         <MobileTopBar
           title={detail.eventLabel}
-          leftHref="/games"
+          leftHref={returnBoardHref}
           subtitle={`${detail.league.key} Command`}
           rightSlot={
             <div className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300">
@@ -122,11 +168,12 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
           presentation={presentation}
           tabs={tabs}
           metrics={metrics}
+          returnHref={returnBoardHref}
         />
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_380px] xl:items-start">
           <main className="grid gap-4">
-            <MatchupDecisionModule decision={presentation.decisionModule} />
+            <MatchupDecisionModule decision={decisionView} />
 
             <section id="for-you" className="grid gap-3">
               <div className="flex items-center justify-between gap-3">
@@ -139,7 +186,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
                   </div>
                 </div>
               </div>
-              <OverviewPanel detail={detail} />
+              <OverviewPanel detail={detail} sourcePath={currentGamePath} />
             </section>
 
             <FocusedMarketTrendPanel
@@ -160,7 +207,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
                 </div>
               </div>
               <div id="market-target">
-                <OddsTable detail={detail} marketFocus={marketFocus} bookFocus={bookFocus} />
+                <OddsTable detail={detail} marketFocus={marketFocus} bookFocus={bookFocus} boardContext={boardState} />
               </div>
             </section>
 
@@ -203,7 +250,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
             </section>
           </main>
 
-          <GameExecutionSidebar detail={detail} presentation={presentation} />
+          <GameExecutionSidebar detail={detail} presentation={presentation} returnHref={returnBoardHref} />
         </div>
       </div>
     </BetSlipBoundary>

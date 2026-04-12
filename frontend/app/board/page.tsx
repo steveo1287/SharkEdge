@@ -7,6 +7,7 @@ import { LiveEdgeBoardCard } from "@/components/board/live-edge-board-card";
 import { MobileTopBar } from "@/components/mobile/mobile-top-bar";
 import { SectionTabs } from "@/components/mobile/section-tabs";
 import type { GameCardView } from "@/lib/types/domain";
+import { buildGameWorkflowHref, resolveGameWorkflowTarget } from "@/lib/utils/workflow-hrefs";
 import { getBoardCommandData } from "@/services/board/board-command-service";
 import { getProviderReadinessView } from "@/services/current-odds/provider-readiness-service";
 import { buildGameMarketOpportunity } from "@/services/opportunities/opportunity-service";
@@ -115,6 +116,13 @@ function getSelectedGameLabel(game: GameCardView | null) {
   return `${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`;
 }
 
+function getWorkflowLabel(game: GameCardView, market: "moneyline" | "spread" | "total") {
+  const marketLabel = market === "moneyline" ? "Moneyline" : market === "spread" ? "Spread" : "Total";
+  const bookLabel = game[market].bestBook && game[market].bestBook !== "No book" ? game[market].bestBook : game.selectedBook?.name ?? null;
+  return bookLabel ? `${marketLabel} @ ${bookLabel}` : marketLabel;
+}
+
+
 export default async function BoardPage({ searchParams }: BoardPageProps) {
   const resolvedSearch = (await searchParams) ?? {};
 
@@ -204,11 +212,26 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
     start: sortItems.find((item) => item.label === "Start")?.href ?? buildBoardHref({ ...queryState, sort: "start" })
   } satisfies Record<"edge" | "movement" | "start", string>;
 
-  const tableRows = board.verifiedGames.slice(0, 24).map((game) => ({
-    game,
-    selected: game.id === board.focusedGame?.id,
-    inspectHref: buildBoardHref({ ...queryState, focus: game.id })
-  }));
+  const tableRows = board.verifiedGames.slice(0, 24).map((game) => {
+    const workflowTarget = resolveGameWorkflowTarget(game, board.selectedMarket);
+    return {
+      game,
+      selected: game.id === board.focusedGame?.id,
+      inspectHref: buildBoardHref({ ...queryState, focus: game.id }),
+      gameHref: buildGameWorkflowHref(game.detailHref ?? `/game/${game.id}`, queryState, workflowTarget),
+      workflowLabel: getWorkflowLabel(game, workflowTarget.market)
+    };
+  });
+
+  const focusedWorkflowTarget = board.focusedGame
+    ? resolveGameWorkflowTarget(board.focusedGame, board.selectedMarket)
+    : null;
+  const focusedGameHref = board.focusedGame && focusedWorkflowTarget
+    ? buildGameWorkflowHref(board.focusedGame.detailHref ?? `/game/${board.focusedGame.id}`, queryState, focusedWorkflowTarget)
+    : null;
+  const focusedWorkflowLabel = board.focusedGame && focusedWorkflowTarget
+    ? getWorkflowLabel(board.focusedGame, focusedWorkflowTarget.market)
+    : null;
 
   return (
     <div className="grid gap-4">
@@ -371,6 +394,12 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
                   game={game}
                   selected={game.id === board.focusedGame?.id}
                   inspectHref={buildBoardHref({ ...queryState, focus: game.id })}
+                  gameHref={buildGameWorkflowHref(
+                    game.detailHref ?? `/game/${game.id}`,
+                    queryState,
+                    resolveGameWorkflowTarget(game, board.selectedMarket)
+                  )}
+                  workflowLabel={getWorkflowLabel(game, resolveGameWorkflowTarget(game, board.selectedMarket).market)}
                 />
               ))}
             </div>
@@ -389,6 +418,8 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
           markets={focusedMarkets}
           sourceLabel={activeBoardSource ?? "Board source"}
           updatedLabel={formatUpdatedLabel(readiness?.generatedAt)}
+          gameHref={focusedGameHref}
+          workflowLabel={focusedWorkflowLabel}
         />
       </section>
 
