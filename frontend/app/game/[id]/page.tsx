@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { BetSlipBoundary } from "@/components/bets/bet-slip-boundary";
 import { SharkScoreRing } from "@/components/branding/shark-score-ring";
 import { EventHero } from "@/components/event/event-hero";
+import { SimulationIntelligencePanel } from "@/components/event/simulation-intelligence-panel";
 import { LineMovementPanel } from "@/components/event/line-movement-panel";
 import { MarketTileRow } from "@/components/event/market-tile-row";
 import { SplitBars } from "@/components/event/split-bars";
@@ -14,6 +15,7 @@ import { MobileTopBar } from "@/components/mobile/mobile-top-bar";
 import { buildForYouOpportunities } from "@/app/game/[id]/_components/game-hub-opportunities";
 import { getBoardCommandData } from "@/services/board/board-command-service";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
+import { buildEventSimulationView } from "@/services/simulation/simulation-view-service";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +27,16 @@ type PageProps = {
 
 type SafeBoardData = Awaited<ReturnType<typeof getBoardCommandData>> | null;
 type SafeForYouData = Awaited<ReturnType<typeof buildForYouOpportunities>>;
+type SafeSimulationData = Awaited<ReturnType<typeof buildEventSimulationView>>;
+
+async function getSafeSimulationData(routeId: string): Promise<SafeSimulationData> {
+  try {
+    return await buildEventSimulationView(routeId);
+  } catch {
+    return null;
+  }
+}
+
 
 async function getSafeBoardData(league: string): Promise<SafeBoardData> {
   try {
@@ -97,9 +109,10 @@ export default async function GameDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  const [board, forYou] = await Promise.all([
+  const [board, forYou, simulation] = await Promise.all([
     getSafeBoardData(detail.league.key),
-    getSafeForYouData(detail.routeId, detail)
+    getSafeForYouData(detail.routeId, detail),
+    getSafeSimulationData(detail.routeId)
   ]);
 
   const away =
@@ -128,6 +141,7 @@ export default async function GameDetailPage({ params }: PageProps) {
 
   const tabs = [
     { label: "For You", href: "#for-you", active: true },
+    { label: "Sim", href: "#simulation" },
     { label: "Social", href: "#matchup" },
     { label: "Props", href: "#props" },
     { label: "Popular", href: "#movement" },
@@ -196,6 +210,8 @@ export default async function GameDetailPage({ params }: PageProps) {
             </div>
           </section>
         ) : null}
+
+        {simulation ? <SimulationIntelligencePanel simulation={simulation} /> : null}
 
         <section>
           <div className="mb-3 text-[1.35rem] font-semibold text-white">Market strip</div>
