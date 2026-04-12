@@ -3,6 +3,7 @@ import {
   buildPlayerPropProjectionsForEvent
 } from "@/services/modeling/model-engine";
 import { buildMlbBookMarketState } from "@/services/market-intelligence/mlb-book-market-state";
+import { sharpenMlbExecution } from "@/services/market-intelligence/mlb-execution-sharpener";
 
 type SimulationComparison = {
   marketType: "total" | "spread_home";
@@ -34,6 +35,9 @@ type SimulationBookSelection = {
   freshnessMinutes: number;
   isOutlier: boolean;
   isStale: boolean;
+  executionScore: number;
+  executionReasons: string[];
+  triggerCodes: string[];
 };
 
 type SimulationBookGameMarket = {
@@ -42,6 +46,9 @@ type SimulationBookGameMarket = {
   consensusLine: number | null;
   simSide: "OVER" | "UNDER" | "HOME" | "AWAY" | "NONE";
   bestBook: SimulationBookSelection | null;
+  bestBookCallout: string | null;
+  executionTriggers: string[];
+  staleOpportunityScore: number;
   books: SimulationBookSelection[];
 };
 
@@ -54,6 +61,9 @@ type SimulationBookPlayerMarket = {
   consensusLine: number | null;
   simSide: "OVER" | "UNDER" | "NONE";
   bestBook: SimulationBookSelection | null;
+  bestBookCallout: string | null;
+  executionTriggers: string[];
+  staleOpportunityScore: number;
   books: SimulationBookSelection[];
 };
 
@@ -207,6 +217,9 @@ function mapBookSelection(book: {
     freshnessMinutes: book.freshnessMinutes,
     isOutlier: book.isOutlier,
     isStale: book.isStale,
+    executionScore: 0,
+    executionReasons: [],
+    triggerCodes: [],
   };
 }
 
@@ -279,8 +292,10 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
             starterName: typeof getRecord(mlbSourceNative.home).starterName === "string" ? String(getRecord(mlbSourceNative.home).starterName) : null,
             starterConfidence: typeof getRecord(mlbSourceNative.home).starterConfidence === "number" ? Number(getRecord(mlbSourceNative.home).starterConfidence) : null,
             lineupStrength: typeof getRecord(mlbSourceNative.home).lineupStrength === "number" ? Number(getRecord(mlbSourceNative.home).lineupStrength) : null,
+            lineupContactScore: typeof getRecord(mlbSourceNative.home).lineupContactScore === "number" ? Number(getRecord(mlbSourceNative.home).lineupContactScore) : null,
             lineupCertainty: typeof getRecord(mlbSourceNative.home).lineupCertainty === "string" ? String(getRecord(mlbSourceNative.home).lineupCertainty) : null,
             bullpenFreshness: typeof getRecord(mlbSourceNative.home).bullpenFreshness === "number" ? Number(getRecord(mlbSourceNative.home).bullpenFreshness) : null,
+            bullpenRisk: typeof getRecord(mlbSourceNative.home).bullpenRisk === "string" ? String(getRecord(mlbSourceNative.home).bullpenRisk) : null,
             topBats: Array.isArray(getRecord(mlbSourceNative.home).topBats)
               ? (getRecord(mlbSourceNative.home).topBats as unknown[]).filter((value): value is string => typeof value === "string").slice(0, 5)
               : [],
@@ -293,8 +308,10 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
             starterName: typeof getRecord(mlbSourceNative.away).starterName === "string" ? String(getRecord(mlbSourceNative.away).starterName) : null,
             starterConfidence: typeof getRecord(mlbSourceNative.away).starterConfidence === "number" ? Number(getRecord(mlbSourceNative.away).starterConfidence) : null,
             lineupStrength: typeof getRecord(mlbSourceNative.away).lineupStrength === "number" ? Number(getRecord(mlbSourceNative.away).lineupStrength) : null,
+            lineupContactScore: typeof getRecord(mlbSourceNative.away).lineupContactScore === "number" ? Number(getRecord(mlbSourceNative.away).lineupContactScore) : null,
             lineupCertainty: typeof getRecord(mlbSourceNative.away).lineupCertainty === "string" ? String(getRecord(mlbSourceNative.away).lineupCertainty) : null,
             bullpenFreshness: typeof getRecord(mlbSourceNative.away).bullpenFreshness === "number" ? Number(getRecord(mlbSourceNative.away).bullpenFreshness) : null,
+            bullpenRisk: typeof getRecord(mlbSourceNative.away).bullpenRisk === "string" ? String(getRecord(mlbSourceNative.away).bullpenRisk) : null,
             topBats: Array.isArray(getRecord(mlbSourceNative.away).topBats)
               ? (getRecord(mlbSourceNative.away).topBats as unknown[]).filter((value): value is string => typeof value === "string").slice(0, 5)
               : [],
@@ -373,9 +390,36 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
 
   const bookMarketState =
     mlbBookMarketStateRaw
-      ? {
-          summary: mlbBookMarketStateRaw.summary,
-          gameMarkets: mlbBookMarketStateRaw.gameMarkets
+      ? (() => {
+          const executionContext = mlbSourceNativeContext
+            ? {
+                venue: {
+                  baselineRunFactor: mlbSourceNativeContext.venue.baselineRunFactor,
+                  windSensitivity: mlbSourceNativeContext.venue.windSensitivity,
+                  roofType: mlbSourceNativeContext.venue.roofType,
+                },
+                home: {
+                  abbreviation: mlbSourceNativeContext.home.abbreviation,
+                  lineupCertainty: mlbSourceNativeContext.home.lineupCertainty,
+                  lineupStrength: mlbSourceNativeContext.home.lineupStrength,
+                  lineupContactScore: mlbSourceNativeContext.home.lineupContactScore,
+                  bullpenFreshness: mlbSourceNativeContext.home.bullpenFreshness,
+                  bullpenRisk: mlbSourceNativeContext.home.bullpenRisk,
+                  starterConfidence: mlbSourceNativeContext.home.starterConfidence,
+                },
+                away: {
+                  abbreviation: mlbSourceNativeContext.away.abbreviation,
+                  lineupCertainty: mlbSourceNativeContext.away.lineupCertainty,
+                  lineupStrength: mlbSourceNativeContext.away.lineupStrength,
+                  lineupContactScore: mlbSourceNativeContext.away.lineupContactScore,
+                  bullpenFreshness: mlbSourceNativeContext.away.bullpenFreshness,
+                  bullpenRisk: mlbSourceNativeContext.away.bullpenRisk,
+                  starterConfidence: mlbSourceNativeContext.away.starterConfidence,
+                },
+              }
+            : null;
+
+          const gameMarkets = mlbBookMarketStateRaw.gameMarkets
             .filter((group) => group.marketKey === "total" || group.marketKey === "spread_home")
             .map((group) => {
               const books = group.books
@@ -400,23 +444,29 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
                         : "NONE"
                     : "NONE";
 
-              const bestBook =
-                simSide === "OVER" || simSide === "HOME"
-                  ? chooseBestBook(books, "LOW_LINE")
-                  : simSide === "UNDER" || simSide === "AWAY"
-                    ? chooseBestBook(books, "HIGH_LINE")
-                    : null;
+              const sharpened = sharpenMlbExecution({
+                marketKey: group.marketKey,
+                label: group.label,
+                simSide,
+                consensusLine: typeof group.consensusLine === "number" ? round(group.consensusLine, 2) : null,
+                books,
+                context: executionContext,
+              });
 
               return {
                 marketType: group.marketKey as "total" | "spread_home",
                 label: group.label,
                 consensusLine: typeof group.consensusLine === "number" ? round(group.consensusLine, 2) : null,
                 simSide,
-                bestBook,
-                books,
+                bestBook: sharpened.bestBook,
+                bestBookCallout: sharpened.bestBookCallout,
+                executionTriggers: sharpened.executionTriggers,
+                staleOpportunityScore: sharpened.staleOpportunityScore,
+                books: sharpened.books,
               } satisfies SimulationBookGameMarket;
-            }),
-          playerMarkets: mlbBookMarketStateRaw.playerMarkets
+            });
+
+          const playerMarkets = mlbBookMarketStateRaw.playerMarkets
             .map((group) => {
               const books = group.books
                 .map((book) => mapBookSelection(book))
@@ -434,12 +484,14 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
                       : "NONE"
                   : "NONE";
 
-              const bestBook =
-                simSide === "OVER"
-                  ? chooseBestBook(books, "LOW_LINE")
-                  : simSide === "UNDER"
-                    ? chooseBestBook(books, "HIGH_LINE")
-                    : null;
+              const sharpened = sharpenMlbExecution({
+                marketKey: group.marketKey,
+                label: group.label,
+                simSide,
+                consensusLine: typeof group.consensusLine === "number" ? round(group.consensusLine, 2) : null,
+                books,
+                context: executionContext,
+              });
 
               return {
                 key: `${group.playerId}:${group.marketKey}`,
@@ -449,12 +501,21 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
                 label: group.label,
                 consensusLine: typeof group.consensusLine === "number" ? round(group.consensusLine, 2) : null,
                 simSide,
-                bestBook,
-                books,
+                bestBook: sharpened.bestBook,
+                bestBookCallout: sharpened.bestBookCallout,
+                executionTriggers: sharpened.executionTriggers,
+                staleOpportunityScore: sharpened.staleOpportunityScore,
+                books: sharpened.books,
               } satisfies SimulationBookPlayerMarket;
             })
-            .sort((left, right) => right.books.length - left.books.length),
-        }
+            .sort((left, right) => right.staleOpportunityScore - left.staleOpportunityScore || right.books.length - left.books.length);
+
+          return {
+            summary: mlbBookMarketStateRaw.summary,
+            gameMarkets,
+            playerMarkets,
+          };
+        })()
       : null;
 
   const topPlayerEdges = playerProjections

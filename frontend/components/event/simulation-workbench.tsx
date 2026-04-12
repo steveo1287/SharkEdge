@@ -492,11 +492,26 @@ export function SimulationWorkbench({ simulation }: Props) {
                   </div>
                 </div>
 
+                {selectedGameBookMarket?.bestBookCallout ? (
+                  <div className="grid gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-500/5 p-3 text-sm text-emerald-50">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-emerald-200/80">Best book callout</div>
+                    <div>{selectedGameBookMarket.bestBookCallout}</div>
+                    {selectedGameBookMarket.executionTriggers.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {selectedGameBookMarket.executionTriggers.map((trigger) => (
+                          <Badge key={`game-trigger:${trigger}`} tone="muted">{trigger}</Badge>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {selectedGameBook ? (
                   <div className="grid gap-2 rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-sm text-slate-300">
                     <div className="flex items-center justify-between gap-2">
                       <div>{selectedGameBook.bookName}</div>
                       <div className="flex gap-2">
+                        <Badge tone="muted">Exec {selectedGameBook.executionScore.toFixed(1)}</Badge>
                         {selectedGameBook.isOutlier ? <Badge tone="brand">Outlier</Badge> : null}
                         {selectedGameBook.isStale ? <Badge tone="muted">Stale</Badge> : null}
                       </div>
@@ -511,6 +526,15 @@ export function SimulationWorkbench({ simulation }: Props) {
                         : ""}
                       {` · ${selectedGameBook.freshnessMinutes}m old`}
                     </div>
+                    {selectedGameBook.executionReasons.length ? (
+                      <div className="mt-1 grid gap-2">
+                        {selectedGameBook.executionReasons.map((reason) => (
+                          <div key={reason} className="rounded-xl bg-white/[0.04] px-3 py-2 text-slate-200">
+                            {reason}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -701,11 +725,26 @@ export function SimulationWorkbench({ simulation }: Props) {
                   </div>
                 </div>
 
+                {selectedPlayerBookMarket?.bestBookCallout ? (
+                  <div className="grid gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-500/5 p-3 text-sm text-emerald-50">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-emerald-200/80">Best book callout</div>
+                    <div>{selectedPlayerBookMarket.bestBookCallout}</div>
+                    {selectedPlayerBookMarket.executionTriggers.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {selectedPlayerBookMarket.executionTriggers.map((trigger) => (
+                          <Badge key={`player-trigger:${trigger}`} tone="muted">{trigger}</Badge>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {selectedPlayerBook ? (
                   <div className="grid gap-2 rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-sm text-slate-300">
                     <div className="flex items-center justify-between gap-2">
                       <div>{selectedPlayerBook.bookName}</div>
                       <div className="flex gap-2">
+                        <Badge tone="muted">Exec {selectedPlayerBook.executionScore.toFixed(1)}</Badge>
                         {selectedPlayerBook.isOutlier ? <Badge tone="brand">Outlier</Badge> : null}
                         {selectedPlayerBook.isStale ? <Badge tone="muted">Stale</Badge> : null}
                       </div>
@@ -720,6 +759,15 @@ export function SimulationWorkbench({ simulation }: Props) {
                         : ""}
                       {` · ${selectedPlayerBook.freshnessMinutes}m old`}
                     </div>
+                    {selectedPlayerBook.executionReasons.length ? (
+                      <div className="mt-1 grid gap-2">
+                        {selectedPlayerBook.executionReasons.map((reason) => (
+                          <div key={reason} className="rounded-xl bg-white/[0.04] px-3 py-2 text-slate-200">
+                            {reason}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 

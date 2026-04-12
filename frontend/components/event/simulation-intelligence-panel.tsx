@@ -182,6 +182,34 @@ export function SimulationIntelligencePanel({ simulation }: Props) {
             </div>
           ) : null}
 
+          {simulation.bookMarketState?.gameMarkets.some((market) => market.bestBookCallout) ? (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {simulation.bookMarketState.gameMarkets
+                .filter((market) => market.bestBookCallout)
+                .slice(0, 2)
+                .map((market) => (
+                  <div key={`callout:${market.marketType}`} className="rounded-2xl border border-emerald-400/20 bg-emerald-500/5 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-emerald-200/80">Best book callout · {market.label}</div>
+                      <Badge tone="brand">{market.simSide}</Badge>
+                    </div>
+                    <div className="mt-3 text-sm leading-6 text-emerald-50">
+                      {market.bestBookCallout}
+                    </div>
+                    {market.executionTriggers.length ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {market.executionTriggers.map((trigger) => (
+                          <Badge key={`${market.marketType}:${trigger}`} tone="muted">
+                            {trigger}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+            </div>
+          ) : null}
+
           {driverBuckets.length ? (
             <div className="grid gap-3 lg:grid-cols-3">
               {driverBuckets.map((bucket) => (
