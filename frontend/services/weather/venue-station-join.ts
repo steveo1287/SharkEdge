@@ -185,14 +185,37 @@ function joinStatusFromValue(value: string | null, fallbackPayloadSignal: boolea
 
 export function inferVenueWeatherJoin(opportunity: OpportunityView): VenueWeatherJoinView {
   const teamHints = parseTeamsFromEventLabel(opportunity.eventLabel);
+  return inferVenueWeatherJoinFromContext({
+    league: opportunity.league,
+    eventLabel: opportunity.eventLabel,
+    homeTeam: teamHints.homeTeam,
+    awayTeam: teamHints.awayTeam,
+    searchTexts: compact([
+      opportunity.reasonSummary,
+      opportunity.sourceNote,
+      opportunity.triggerSummary,
+      opportunity.killSummary,
+      ...opportunity.whyItShows,
+      ...opportunity.whatCouldKillIt
+    ])
+  });
+}
+
+
+export function inferVenueWeatherJoinFromContext(input: {
+  league: OpportunityView["league"];
+  eventLabel?: string | null;
+  homeTeam?: string | null;
+  awayTeam?: string | null;
+  venue?: string | null;
+  searchTexts?: string[];
+}): VenueWeatherJoinView {
   const searchTexts = compact([
-    opportunity.eventLabel,
-    opportunity.reasonSummary,
-    opportunity.sourceNote,
-    opportunity.triggerSummary,
-    opportunity.killSummary,
-    ...opportunity.whyItShows,
-    ...opportunity.whatCouldKillIt
+    input.eventLabel ?? null,
+    input.homeTeam ?? null,
+    input.awayTeam ?? null,
+    input.venue ?? null,
+    ...(input.searchTexts ?? [])
   ]);
 
   const payloadMentionsVenue = searchTexts.some((text) =>
@@ -200,37 +223,37 @@ export function inferVenueWeatherJoin(opportunity: OpportunityView): VenueWeathe
   );
 
   const homeSeed =
-    (teamHints.homeTeam ? findSeedByTeam(opportunity.league, teamHints.homeTeam) : null) ??
+    (input.homeTeam ? findSeedByTeam(input.league, input.homeTeam) : null) ??
     findSeedByAnyAlias(searchTexts);
 
-  const awayTeam = teamHints.awayTeam;
-  const homeTeam = teamHints.homeTeam ?? homeSeed?.teamKey ?? null;
+  const homeTeam = input.homeTeam ?? homeSeed?.teamKey ?? null;
+  const awayTeam = input.awayTeam ?? null;
 
   if (!homeSeed) {
     return {
-      league: opportunity.league,
+      league: input.league,
       homeTeam,
       awayTeam,
       venueKey: null,
-      venueName: null,
+      venueName: input.venue ?? null,
       stationCode: null,
       stationName: null,
-      roofType: opportunity.league === "NBA" ? "FIXED_DOME" : "UNKNOWN",
-      weatherExposure: opportunity.league === "NBA" ? "INDOOR" : "UNKNOWN",
+      roofType: input.league === "NBA" ? "FIXED_DOME" : "UNKNOWN",
+      weatherExposure: input.league === "NBA" ? "INDOOR" : "UNKNOWN",
       altitudeFeet: null,
       parkFactorNote: null,
-      windSensitivity: opportunity.league === "NBA" ? "NOT_APPLICABLE" : "LOW",
+      windSensitivity: input.league === "NBA" ? "NOT_APPLICABLE" : "LOW",
       joinMethod: payloadMentionsVenue ? "PAYLOAD_ONLY" : "NONE",
       venueJoinStatus: payloadMentionsVenue ? "PAYLOAD_ONLY" : "MISSING",
       stationJoinStatus: payloadMentionsVenue ? "PAYLOAD_ONLY" : "MISSING",
       notes: payloadMentionsVenue
         ? ["Venue/weather hints were found in payload text, but no structured venue mapping matched yet."]
-        : ["No structured venue or station join matched this opportunity yet."]
+        : ["No structured venue or station join matched this event context yet."]
     };
   }
 
   return {
-    league: opportunity.league,
+    league: input.league,
     homeTeam,
     awayTeam,
     venueKey: homeSeed.venueKey,
@@ -242,13 +265,14 @@ export function inferVenueWeatherJoin(opportunity: OpportunityView): VenueWeathe
     altitudeFeet: homeSeed.altitudeFeet ?? null,
     parkFactorNote: homeSeed.parkFactorNote ?? null,
     windSensitivity: homeSeed.windSensitivity,
-    joinMethod: teamHints.homeTeam ? "TEAM_HOME_MAP" : "VENUE_ALIAS_MAP",
+    joinMethod: input.homeTeam ? "TEAM_HOME_MAP" : "VENUE_ALIAS_MAP",
     venueJoinStatus: joinStatusFromValue(homeSeed.venueName, payloadMentionsVenue),
     stationJoinStatus: joinStatusFromValue(homeSeed.stationCode, payloadMentionsVenue),
     notes: compact([
-      `Mapped venue from home-team context${teamHints.homeTeam ? ` (${teamHints.homeTeam})` : ""}.`,
+      `Mapped venue from home-team context${input.homeTeam ? ` (${input.homeTeam})` : ""}.`,
       homeSeed.parkFactorNote ?? null,
       homeSeed.roofType === "RETRACTABLE" ? "Roof state should be joined later when game-day status is available." : null
     ])
   };
 }
+

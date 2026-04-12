@@ -46,6 +46,41 @@ export type EventSimulationView = {
     intangibleSignals: string[];
     sourceSummary: string[];
   };
+  mlbSourceNativeContext: {
+    sourceCoverageScore: number;
+    sourceSummary: string[];
+    matchupFlags: string[];
+    venue: {
+      venueName: string | null;
+      stationCode: string | null;
+      roofType: string | null;
+      altitudeFeet: number | null;
+      windSensitivity: string | null;
+      parkFactor: number | null;
+      baselineRunFactor: number | null;
+      notes: string[];
+    };
+    home: {
+      abbreviation: string;
+      starterName: string | null;
+      starterConfidence: number | null;
+      lineupStrength: number | null;
+      lineupCertainty: string | null;
+      bullpenFreshness: number | null;
+      topBats: string[];
+      notes: string[];
+    };
+    away: {
+      abbreviation: string;
+      starterName: string | null;
+      starterConfidence: number | null;
+      lineupStrength: number | null;
+      lineupCertainty: string | null;
+      bullpenFreshness: number | null;
+      topBats: string[];
+      notes: string[];
+    };
+  } | null;
   playerProjectionCount: number;
   topPlayerEdges: SimulationPlayerEdge[];
   topPlayerProjections: Awaited<ReturnType<typeof buildPlayerPropProjectionsForEvent>>;
@@ -122,6 +157,62 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
   const coachProfiles = getRecord(metadata.coachProfiles);
   const intangibles = getRecord(metadata.intangibles);
 
+  const mlbSourceNative = getRecord(metadata.mlbSourceNativeContext);
+
+  const mlbSourceNativeContext =
+    Object.keys(mlbSourceNative).length > 0
+      ? {
+          sourceCoverageScore:
+            typeof mlbSourceNative.sourceCoverageScore === "number" ? mlbSourceNative.sourceCoverageScore : 0,
+          sourceSummary: Array.isArray(mlbSourceNative.sourceSummary)
+            ? (mlbSourceNative.sourceSummary as unknown[]).filter((value): value is string => typeof value === "string").slice(0, 4)
+            : [],
+          matchupFlags: Array.isArray(mlbSourceNative.matchupFlags)
+            ? (mlbSourceNative.matchupFlags as unknown[]).filter((value): value is string => typeof value === "string").slice(0, 5)
+            : [],
+          venue: {
+            venueName: typeof getRecord(mlbSourceNative.venue).venueName === "string" ? String(getRecord(mlbSourceNative.venue).venueName) : null,
+            stationCode: typeof getRecord(mlbSourceNative.venue).stationCode === "string" ? String(getRecord(mlbSourceNative.venue).stationCode) : null,
+            roofType: typeof getRecord(mlbSourceNative.venue).roofType === "string" ? String(getRecord(mlbSourceNative.venue).roofType) : null,
+            altitudeFeet: typeof getRecord(mlbSourceNative.venue).altitudeFeet === "number" ? Number(getRecord(mlbSourceNative.venue).altitudeFeet) : null,
+            windSensitivity: typeof getRecord(mlbSourceNative.venue).windSensitivity === "string" ? String(getRecord(mlbSourceNative.venue).windSensitivity) : null,
+            parkFactor: typeof getRecord(mlbSourceNative.venue).parkFactor === "number" ? Number(getRecord(mlbSourceNative.venue).parkFactor) : null,
+            baselineRunFactor: typeof getRecord(mlbSourceNative.venue).baselineRunFactor === "number" ? Number(getRecord(mlbSourceNative.venue).baselineRunFactor) : null,
+            notes: Array.isArray(getRecord(mlbSourceNative.venue).notes)
+              ? (getRecord(mlbSourceNative.venue).notes as unknown[]).filter((value): value is string => typeof value === "string").slice(0, 3)
+              : []
+          },
+          home: {
+            abbreviation: typeof getRecord(mlbSourceNative.home).abbreviation === "string" ? String(getRecord(mlbSourceNative.home).abbreviation) : "HOME",
+            starterName: typeof getRecord(mlbSourceNative.home).starterName === "string" ? String(getRecord(mlbSourceNative.home).starterName) : null,
+            starterConfidence: typeof getRecord(mlbSourceNative.home).starterConfidence === "number" ? Number(getRecord(mlbSourceNative.home).starterConfidence) : null,
+            lineupStrength: typeof getRecord(mlbSourceNative.home).lineupStrength === "number" ? Number(getRecord(mlbSourceNative.home).lineupStrength) : null,
+            lineupCertainty: typeof getRecord(mlbSourceNative.home).lineupCertainty === "string" ? String(getRecord(mlbSourceNative.home).lineupCertainty) : null,
+            bullpenFreshness: typeof getRecord(mlbSourceNative.home).bullpenFreshness === "number" ? Number(getRecord(mlbSourceNative.home).bullpenFreshness) : null,
+            topBats: Array.isArray(getRecord(mlbSourceNative.home).topBats)
+              ? (getRecord(mlbSourceNative.home).topBats as unknown[]).filter((value): value is string => typeof value === "string").slice(0, 5)
+              : [],
+            notes: Array.isArray(getRecord(mlbSourceNative.home).notes)
+              ? (getRecord(mlbSourceNative.home).notes as unknown[]).filter((value): value is string => typeof value === "string").slice(0, 3)
+              : []
+          },
+          away: {
+            abbreviation: typeof getRecord(mlbSourceNative.away).abbreviation === "string" ? String(getRecord(mlbSourceNative.away).abbreviation) : "AWAY",
+            starterName: typeof getRecord(mlbSourceNative.away).starterName === "string" ? String(getRecord(mlbSourceNative.away).starterName) : null,
+            starterConfidence: typeof getRecord(mlbSourceNative.away).starterConfidence === "number" ? Number(getRecord(mlbSourceNative.away).starterConfidence) : null,
+            lineupStrength: typeof getRecord(mlbSourceNative.away).lineupStrength === "number" ? Number(getRecord(mlbSourceNative.away).lineupStrength) : null,
+            lineupCertainty: typeof getRecord(mlbSourceNative.away).lineupCertainty === "string" ? String(getRecord(mlbSourceNative.away).lineupCertainty) : null,
+            bullpenFreshness: typeof getRecord(mlbSourceNative.away).bullpenFreshness === "number" ? Number(getRecord(mlbSourceNative.away).bullpenFreshness) : null,
+            topBats: Array.isArray(getRecord(mlbSourceNative.away).topBats)
+              ? (getRecord(mlbSourceNative.away).topBats as unknown[]).filter((value): value is string => typeof value === "string").slice(0, 5)
+              : [],
+            notes: Array.isArray(getRecord(mlbSourceNative.away).notes)
+              ? (getRecord(mlbSourceNative.away).notes as unknown[]).filter((value): value is string => typeof value === "string").slice(0, 3)
+              : []
+          }
+        }
+      : null;
+
   const projectionSummary = buildHeadline(eventProjection);
 
   const eventBetComparisons: SimulationComparison[] = [
@@ -182,7 +273,8 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
     sourceSummary: [
       typeof metadata.modelVersion === "string" ? `Model ${metadata.modelVersion}` : null,
       typeof metadata.league === "string" ? `League ${metadata.league}` : null,
-      typeof getRecord(metadata.ratingsPrior).source === "string" ? `Ratings prior ${String(getRecord(metadata.ratingsPrior).source).toLowerCase()}` : null
+      typeof getRecord(metadata.ratingsPrior).source === "string" ? `Ratings prior ${String(getRecord(metadata.ratingsPrior).source).toLowerCase()}` : null,
+      mlbSourceNativeContext ? `MLB source coverage ${mlbSourceNativeContext.sourceCoverageScore}` : null
     ].filter((value): value is string => value !== null)
   };
 
@@ -245,6 +337,7 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
     eventBetComparisons,
     projectionSummary,
     simulationDrivers,
+    mlbSourceNativeContext,
     playerProjectionCount: playerProjections.length,
     topPlayerEdges,
     topPlayerProjections: playerProjections
