@@ -22,6 +22,7 @@ import { assessBookContext } from "@/services/market-intelligence/book-context";
 import { buildOpportunityThesisClusters, buildThesisFingerprint } from "@/services/portfolio/thesis-clustering";
 import { assessDistributionPricing } from "@/services/pricing/distribution-pricing";
 import { buildOpportunityRanking } from "@/services/opportunities/opportunity-ranking";
+import { buildOpportunityTrendIntelligence } from "@/services/trends/opportunity-trend-intelligence";
 
 type PortfolioPosition = {
   id: string;
@@ -436,21 +437,26 @@ function clonePosition(opportunity: OpportunityView): PortfolioPosition {
 
 
 function enrichOpportunityIntelligence(opportunity: OpportunityView): OpportunityView {
-  const ranking = opportunity.ranking ?? buildOpportunityRanking(opportunity);
+  const trendIntelligence = buildOpportunityTrendIntelligence(opportunity);
+  const enrichedOpportunity = {
+    ...opportunity,
+    trendIntelligence
+  } satisfies OpportunityView;
+  const ranking = buildOpportunityRanking(enrichedOpportunity);
 
   const bookContext = assessBookContext({
-    book: opportunity.sportsbookKey ?? opportunity.sportsbookName ?? null,
+    book: enrichedOpportunity.sportsbookKey ?? enrichedOpportunity.sportsbookName ?? null,
     marketPathScore: ranking.marketPathQualityScore,
     expectedClvScore: ranking.expectedClvScore,
     lineMovementScore:
-      opportunity.lineMovement !== null && Number.isFinite(opportunity.lineMovement)
-        ? clamp(50 + Math.abs(opportunity.lineMovement) * 5, 0, 100)
+      enrichedOpportunity.lineMovement !== null && Number.isFinite(enrichedOpportunity.lineMovement)
+        ? clamp(50 + Math.abs(enrichedOpportunity.lineMovement) * 5, 0, 100)
         : 50,
     liquidityScore: clamp(
       35 +
-        opportunity.bookCount * 8 -
-        (opportunity.marketDisagreementScore !== null
-          ? opportunity.marketDisagreementScore * 15
+        enrichedOpportunity.bookCount * 8 -
+        (enrichedOpportunity.marketDisagreementScore !== null
+          ? enrichedOpportunity.marketDisagreementScore * 15
           : 0),
       0,
       100
@@ -461,21 +467,21 @@ function enrichOpportunityIntelligence(opportunity: OpportunityView): Opportunit
   const pricing = assessDistributionPricing({
     marketType: opportunity.marketType,
     line:
-      typeof opportunity.displayLine === "number"
-        ? opportunity.displayLine
-        : typeof opportunity.displayLine === "string"
-          ? Number.parseFloat(opportunity.displayLine)
+      typeof enrichedOpportunity.displayLine === "number"
+        ? enrichedOpportunity.displayLine
+        : typeof enrichedOpportunity.displayLine === "string"
+          ? Number.parseFloat(enrichedOpportunity.displayLine)
           : null,
     projectionMean:
-      opportunity.fairPriceAmerican !== null && opportunity.displayOddsAmerican !== null
-        ? (opportunity.fairPriceAmerican - opportunity.displayOddsAmerican) / 20
-        : opportunity.expectedValuePct ?? null,
-    projectionMedian: opportunity.expectedValuePct ?? null,
+      enrichedOpportunity.fairPriceAmerican !== null && enrichedOpportunity.displayOddsAmerican !== null
+        ? (enrichedOpportunity.fairPriceAmerican - enrichedOpportunity.displayOddsAmerican) / 20
+        : enrichedOpportunity.expectedValuePct ?? null,
+    projectionMedian: enrichedOpportunity.expectedValuePct ?? null,
     standardDeviation:
-      opportunity.marketDisagreementScore !== null
-        ? Math.max(1, opportunity.marketDisagreementScore * 1.4)
+      enrichedOpportunity.marketDisagreementScore !== null
+        ? Math.max(1, enrichedOpportunity.marketDisagreementScore * 1.4)
         : null,
-    offeredOddsAmerican: opportunity.displayOddsAmerican
+    offeredOddsAmerican: enrichedOpportunity.displayOddsAmerican
   });
 
   const decision = decideOpportunity({
@@ -485,7 +491,7 @@ function enrichOpportunityIntelligence(opportunity: OpportunityView): Opportunit
     trendReliabilityScore: ranking.trendReliabilityScore,
     marketPathScore: ranking.marketPathQualityScore,
     capitalEfficiencyScore: ranking.capitalEfficiencyScore,
-    book: opportunity.sportsbookKey ?? opportunity.sportsbookName ?? null,
+    book: enrichedOpportunity.sportsbookKey ?? enrichedOpportunity.sportsbookName ?? null,
     lineMovementScore:
       opportunity.lineMovement !== null && Number.isFinite(opportunity.lineMovement)
         ? clamp(50 + Math.abs(opportunity.lineMovement) * 5, 0, 100)
@@ -503,11 +509,11 @@ function enrichOpportunityIntelligence(opportunity: OpportunityView): Opportunit
   } as any);
 
   return {
-    ...opportunity,
+    ...enrichedOpportunity,
     ranking,
     decisionAction: decision.action,
     stakeTier: decision.stakeTier,
-    decisionRationale: decision.rationale,
+    decisionRationale: Array.from(new Set([...(decision.rationale ?? []), ...(trendIntelligence.topAngle ? [trendIntelligence.topAngle] : [])])),
     marketRegime: bookContext.regime,
     staleLineProbability: bookContext.staleLineProbability,
     bookSoftnessScore: bookContext.softnessScore,

@@ -764,9 +764,8 @@ export type OpportunityView = {
   confidenceBandHigh?: number | null;
   pricingModel?: "NORMAL_APPROX" | null;
   thesisCluster?: OpportunityThesisClusterView | null;
+  trendIntelligence?: OpportunityTrendIntelligenceView | null;
 };
-
-export type RankedOpportunity = OpportunityView;
 
 export type OpportunityProfile = {
   preferredLeagues: Set<LeagueKey>;
@@ -792,10 +791,12 @@ export type OpportunityHomeSnapshot = {
   timingWindows: OpportunityView[];
 };
 
+export type RankedOpportunity = OpportunityView;
+
 
 export type OpportunityDecisionAction = "BET_NOW" | "WAIT" | "WATCH" | "PASS"
 
-export type DecisionReadyOpportunity = OpportunityView & {
+export type DecisionReadyOpportunity = RankedOpportunity & {
   decisionAction?: OpportunityDecisionAction
   stakeTier?: "TINY" | "SMALL" | "MEDIUM" | "LARGE"
   decisionRationale?: string[]
@@ -907,4 +908,46 @@ export type OpportunityGradingDashboardView = {
   timingByRegime: OpportunityGradingTimingRow[];
   reasonLeaders: OpportunityGradingReasonRow[];
   recentReviews: OpportunityPostCloseReviewView[];
+};
+
+
+export type OpportunityTrendLensKey =
+  | "WEATHER_DRIVEN"
+  | "PLAYER_VS_PLAYER"
+  | "TEAM_VS_TEAM"
+  | "COACH_VS_COACH"
+  | "PLAYSTYLE_VS_PLAYSTYLE";
+
+export type OpportunityTrendLensState =
+  | "SUPPORTIVE"
+  | "CONTRARY"
+  | "MIXED"
+  | "NEUTRAL"
+  | "PENDING_DATA"
+  | "NOT_APPLICABLE";
+
+export type OpportunityTrendLensConfidence = "HIGH" | "MEDIUM" | "LOW";
+
+export type OpportunityTrendLensView = {
+  key: OpportunityTrendLensKey;
+  label: string;
+  state: OpportunityTrendLensState;
+  confidence: OpportunityTrendLensConfidence;
+  score: number;
+  summary: string;
+  evidence: string[];
+  tags: string[];
+};
+
+export type OpportunityTrendIntelligenceView = {
+  intelligenceScore: number;
+  reliabilityScore: number;
+  summary: string;
+  topAngle: string | null;
+  activeLensCount: number;
+  supportiveLensCount: number;
+  contraryLensCount: number;
+  pendingLensCount: number;
+  tags: string[];
+  lenses: OpportunityTrendLensView[];
 };

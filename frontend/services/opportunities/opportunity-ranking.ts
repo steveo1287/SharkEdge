@@ -199,10 +199,18 @@ function getTrendReliabilityScore(opportunity: OpportunityView) {
   const trapPenalty = opportunity.trapFlags.includes("LOW_CONFIDENCE_FAIR_PRICE") ? 14 : 0;
   const disagreementPenalty = (opportunity.marketDisagreementScore ?? 0) * 70;
 
+  const trendIntelligenceLift = opportunity.trendIntelligence
+    ? opportunity.trendIntelligence.reliabilityScore * 0.26 +
+      opportunity.trendIntelligence.supportiveLensCount * 3 -
+      opportunity.trendIntelligence.contraryLensCount * 5 -
+      opportunity.trendIntelligence.pendingLensCount * 1.5
+    : 0;
+
   const score =
-    opportunity.sourceQuality.score * 0.52 +
-    opportunity.opportunityScore * 0.18 +
-    calibrationLift -
+    opportunity.sourceQuality.score * 0.44 +
+    opportunity.opportunityScore * 0.14 +
+    calibrationLift +
+    trendIntelligenceLift -
     disagreementPenalty -
     trapPenalty;
 
@@ -243,6 +251,7 @@ function buildRankingNotes(args: {
   fragilityScore: number;
   trendReliabilityScore: number;
   recommendationTier: "PRIME" | "ACTIONABLE" | "WATCH" | "PASS";
+  trendIntelligenceSummary?: string | null;
 }) {
   const capitalLeader = args.capitalEfficiencyScore >= args.edgeQualityScore;
   const notes = [
@@ -251,12 +260,13 @@ function buildRankingNotes(args: {
       : `Rank leans on edge quality ${args.edgeQualityScore} with capital efficiency ${args.capitalEfficiencyScore}.`,
     `Expected CLV quality is ${args.expectedClvScore} while fragility prints ${args.fragilityScore}.`,
     `Trend reliability contributes ${args.trendReliabilityScore}; recommendation tier is ${args.recommendationTier.toLowerCase()}.`,
+    args.trendIntelligenceSummary ? `Trend intelligence: ${args.trendIntelligenceSummary}` : null,
     `Destination quality contributes ${args.destinationQualityScore}, execution capacity ${args.executionCapacityScore}, and execution quality ${args.executionQualityScore}.`,
     `Market-path quality contributes ${args.marketPathQualityScore} and portfolio fit sits at ${args.portfolioFitScore}.`,
     `Portfolio fit is ${args.portfolioFitScore} and posture only adds ${args.actionModifier >= 0 ? "+" : ""}${args.actionModifier}.`
   ];
 
-  return notes;
+  return notes.filter((note): note is string => Boolean(note));
 }
 
 export function buildOpportunityRanking(opportunity: OpportunityView): OpportunityRankingView {
@@ -324,7 +334,8 @@ export function buildOpportunityRanking(opportunity: OpportunityView): Opportuni
       expectedClvScore,
       fragilityScore,
       trendReliabilityScore,
-      recommendationTier
+      recommendationTier,
+      trendIntelligenceSummary: opportunity.trendIntelligence?.summary ?? null
     })
   };
 }

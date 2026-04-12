@@ -228,6 +228,49 @@ export function OpportunitySpotlightCard({
             {!opportunity.thesisCluster.isPrimary ? " • secondary expression" : ""}
           </div>
         ) : null}
+        {opportunity.trendIntelligence ? (
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-xs leading-5 text-slate-300">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="uppercase tracking-[0.16em] text-slate-500">Trend stack</span>
+              <Badge tone={opportunity.trendIntelligence.supportiveLensCount > opportunity.trendIntelligence.contraryLensCount ? "success" : opportunity.trendIntelligence.contraryLensCount > 0 ? "danger" : "muted"}>
+                {opportunity.trendIntelligence.intelligenceScore}
+              </Badge>
+              <Badge tone="premium">
+                {opportunity.trendIntelligence.activeLensCount} lenses
+              </Badge>
+            </div>
+            <div className="mt-2 text-slate-200">
+              {opportunity.trendIntelligence.summary}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {opportunity.trendIntelligence.lenses
+                .filter((lens) => lens.state !== "NOT_APPLICABLE")
+                .slice(0, 4)
+                .map((lens) => (
+                  <Badge
+                    key={lens.key}
+                    tone={
+                      lens.state === "SUPPORTIVE"
+                        ? "success"
+                        : lens.state === "CONTRARY"
+                          ? "danger"
+                          : lens.state === "MIXED"
+                            ? "premium"
+                            : "muted"
+                    }
+                  >
+                    {lens.label} {lens.state.toLowerCase().replace(/_/g, " ")}
+                  </Badge>
+                ))}
+            </div>
+            {opportunity.trendIntelligence.topAngle ? (
+              <div className="mt-2 text-slate-400">
+                {opportunity.trendIntelligence.topAngle}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
 
         {(typeof opportunity.fairOddsAmerican === "number" || typeof opportunity.confidenceBandLow === "number") ? (
           <div className="text-xs leading-5 text-slate-400">
