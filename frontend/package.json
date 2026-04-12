@@ -31,6 +31,8 @@
     "worker:therundown-stream": "tsx scripts/worker-therundown-stream.ts",
     "worker:trends": "tsx scripts/worker-trends.ts",
     "providers:readiness": "tsx scripts/provider-readiness.ts",
+    "rescue:power": "node scripts/rescue-power.mjs",
+    "rescue:power:skip-refresh": "node scripts/rescue-power.mjs --refresh=skip",
     "openclaw:discord": "tsx scripts/openclaw-discord-bot.ts",
     "cache:refresh": "tsx scripts/cache-refresh.ts",
     "historical:ingest": "tsx scripts/ingest-historical-odds.ts",
