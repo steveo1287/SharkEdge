@@ -4,6 +4,7 @@ import { BetSlipBoundary } from "@/components/bets/bet-slip-boundary";
 import { SimulationIntelligencePanel } from "@/components/event/simulation-intelligence-panel";
 import { GameDetailCommandHero } from "@/components/game/game-detail-command-hero";
 import { GameExecutionSidebar } from "@/components/game/game-execution-sidebar";
+import { FocusedMarketTrendPanel } from "@/components/game/focused-market-trend-panel";
 import { MatchupDecisionModule } from "@/components/game/matchup-decision-module";
 import { MatchupPanel } from "@/components/game/matchup-panel";
 import { OddsTable } from "@/components/game/odds-table";
@@ -92,6 +93,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
 
   const tabs = [
     { label: "For You", href: "#for-you", active: true },
+    { label: "Support", href: "#support", active: true },
     { label: "Markets", href: "#markets", active: detail.hasVerifiedOdds },
     simulation ? { label: "Sim", href: "#simulation", active: true } : null,
     { label: "Matchup", href: "#matchup", active: true },
@@ -139,6 +141,12 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
               </div>
               <OverviewPanel detail={detail} />
             </section>
+
+            <FocusedMarketTrendPanel
+              detail={detail}
+              presentation={presentation}
+              marketFocus={marketFocus}
+            />
 
             <section id="markets" className="grid gap-3">
               <div className="flex items-center justify-between gap-3">
