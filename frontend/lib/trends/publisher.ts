@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import type { LeagueKey, TrendFilters } from "@/lib/types/domain";
+import type { LeagueKey, SportCode, TrendFilters } from "@/lib/types/domain";
 import {
   getATSTrend,
   getFavoriteROI,
@@ -8,10 +8,14 @@ import {
   getUnderdogROI,
   type TrendEngineResult
 } from "@/lib/trends/engine";
+import { listDiscoveredTrendSystems } from "@/services/trends/discovered-systems";
 import { scoreTrendResult } from "@/services/trends/scoring-engine";
 import type { TrendFeatureSummary } from "@/services/trends/feature-warehouse";
 
 export type PublishedTrendCategory =
+  | "Live Now"
+  | "Ready Next"
+  | "Historical Library"
   | "Best of Board"
   | "Most Profitable"
   | "Highest Win Rate"
@@ -69,9 +73,13 @@ type PublishedCandidate = PublishedTrendCard & {
   analysis: TrendAnalysis;
   canonicalKey: string;
 };
+type DiscoveredTrendView = Awaited<ReturnType<typeof listDiscoveredTrendSystems>>[number];
 
 const DISCOVER_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
 const CATEGORY_ORDER: PublishedTrendCategory[] = [
+  "Live Now",
+  "Ready Next",
+  "Historical Library",
   "Best of Board",
   "Overlooked Angles",
   "Most Profitable",
@@ -595,6 +603,12 @@ function getCanonicalKey(
 
 function getRailReason(category: PublishedTrendCategory) {
   switch (category) {
+    case "Live Now":
+      return "Discovered systems with active board matches, live timing support, and edge on the screen right now.";
+    case "Ready Next":
+      return "Discovered systems with near-live activation support that are close to becoming actionable.";
+    case "Historical Library":
+      return "Validated systems worth tracking, but not strong enough to pretend they are live board spots right now.";
     case "Best of Board":
       return "Highest-ranked, market-backed angles on today’s board.";
     case "Overlooked Angles":
@@ -1106,7 +1120,396 @@ export async function getPublishedTrendSections(filters?: Partial<TrendFilters> 
   return buildSections(cards);
 }
 
+function normalizeMarketFilter(value: string | null | undefined) {
+  if (!value || value === "ALL") {
+    return null;
+  }
+
+  return value.toLowerCase().replace(/\s+/g, "_");
+}
+
+function formatDiscoveredConfidence(score: number | null | undefined): TrendEngineResult["confidence"] {
+  if (typeof score !== "number") {
+    return "weak";
+  }
+
+  if (score >= 82) return "strong";
+  if (score >= 64) return "moderate";
+  if (score >= 48) return "weak";
+  return "insufficient";
+}
+
+function formatEdgePct(value: number | null | undefined) {
+  if (typeof value !== "number") {
+    return "--";
+  }
+
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function average(values: number[]) {
+  if (!values.length) {
+    return null;
+  }
+
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function getDiscoveredSearchText(system: DiscoveredTrendView) {
+  const parts = [
+    system.name,
+    system.slug,
+    system.league,
+    system.marketType,
+    system.side,
+    ...(system.conditionsJson as Array<string | Record<string, unknown>>).map((condition) =>
+      typeof condition === "string" ? condition : JSON.stringify(condition)
+    ),
+    ...(system.teamBreakdownJson as Array<{ label?: string }>).map((row) => row?.label ?? ""),
+    ...(system.opponentBreakdownJson as Array<{ label?: string }>).map((row) => row?.label ?? "")
+  ];
+
+  return normalizeText(parts.join(" "));
+}
+
+function matchesDiscoveredTrendFilters(
+  system: DiscoveredTrendView,
+  filters?: Partial<TrendFilters> | null
+) {
+  if (!filters) {
+    return true;
+  }
+
+  if (filters.league && filters.league !== "ALL" && system.league !== filters.league) {
+    return false;
+  }
+
+  if (filters.market && filters.market !== "ALL") {
+    const market = normalizeMarketFilter(filters.market);
+    if (market && normalizeMarketFilter(system.marketType) !== market) {
+      return false;
+    }
+  }
+
+  if (filters.side && filters.side !== "ALL" && normalizeText(system.side) !== normalizeText(filters.side)) {
+    return false;
+  }
+
+  if (filters.sample && system.sampleSize < filters.sample) {
+    return false;
+  }
+
+  const textHaystack = getDiscoveredSearchText(system);
+  const textNeedles = [
+    filters.team,
+    filters.subject,
+    filters.player,
+    filters.fighter,
+    filters.opponent
+  ]
+    .map((value) => normalizeText(value))
+    .filter(Boolean);
+
+  return textNeedles.every((needle) => textHaystack.includes(needle));
+}
+
+function buildDiscoveredRanking(system: DiscoveredTrendView) {
+  const activeActivations = system.activations.filter((activation: any) => activation.isActive);
+  const peakCount = activeActivations.filter((activation: any) => activation.timingState === "PEAK").length;
+  const buildingCount = activeActivations.filter((activation: any) => activation.timingState === "BUILDING").length;
+  const earlyCount = activeActivations.filter((activation: any) => activation.timingState === "EARLY").length;
+  const liveEdges = activeActivations
+    .map((activation: any) => activation.edgePct)
+    .filter((value: unknown): value is number => typeof value === "number");
+  const maxEdge = liveEdges.length ? Math.max(...liveEdges) : null;
+  const avgEdge = average(liveEdges);
+  const freshnessHours = Math.max(
+    0,
+    (Date.now() - new Date(system.updatedAt).getTime()) / 3_600_000
+  );
+
+  let total = 0;
+  total += Math.max(system.validationScore ?? 0, 0) * 4.5;
+  total += Math.max(system.score ?? 0, 0) * 1.4;
+  total += Math.min(220, system.sampleSize * 1.8);
+  total += Math.min(180, (system.recentSampleSize ?? 0) * 22);
+  total += activeActivations.length * 170;
+  total += peakCount * 95;
+  total += buildingCount * 65;
+  total += earlyCount * 28;
+  total += Math.max(0, avgEdge ?? 0) * 28;
+  total += Math.max(0, maxEdge ?? 0) * 18;
+  total += Math.max(0, system.avgClv ?? 0) * 10;
+  total += Math.max(0, system.beatCloseRate ?? 0) * 2.2;
+
+  if (!activeActivations.length) {
+    total -= 260;
+  }
+
+  if ((system.recentSampleSize ?? 0) < 3) {
+    total -= 90;
+  }
+
+  if (freshnessHours > 18) {
+    total -= Math.min(140, (freshnessHours - 18) * 7);
+  }
+
+  return {
+    total: Math.round(total),
+    activeCount: activeActivations.length,
+    peakCount,
+    buildingCount,
+    earlyCount,
+    maxEdge,
+    avgEdge
+  };
+}
+
+function getDiscoveredCategory(
+  system: DiscoveredTrendView,
+  ranking: ReturnType<typeof buildDiscoveredRanking>
+): PublishedTrendCategory {
+  if (
+    ranking.activeCount > 0 &&
+    (ranking.peakCount > 0 ||
+      ranking.buildingCount > 0 ||
+      (ranking.maxEdge ?? 0) >= 1.25)
+  ) {
+    return "Live Now";
+  }
+
+  if (system.activations.length > 0 || (system.recentSampleSize ?? 0) >= 4) {
+    return "Ready Next";
+  }
+
+  return "Historical Library";
+}
+
+function buildDiscoveredPrimaryMetric(
+  system: DiscoveredTrendView,
+  category: PublishedTrendCategory,
+  ranking: ReturnType<typeof buildDiscoveredRanking>
+) {
+  if (category === "Live Now" && typeof ranking.maxEdge === "number") {
+    return {
+      primaryMetricLabel: "EDGE" as const,
+      primaryMetricValue: formatEdgePct(ranking.maxEdge)
+    };
+  }
+
+  if (
+    category === "Ready Next" &&
+    typeof ranking.avgEdge === "number" &&
+    ranking.avgEdge > 0
+  ) {
+    return {
+      primaryMetricLabel: "EDGE" as const,
+      primaryMetricValue: formatEdgePct(ranking.avgEdge)
+    };
+  }
+
+  if (typeof system.totalProfit === "number" && system.totalProfit >= 5) {
+    return {
+      primaryMetricLabel: "PROFIT" as const,
+      primaryMetricValue: formatProfitUnits(system.totalProfit)
+    };
+  }
+
+  if (typeof system.hitRate === "number") {
+    return {
+      primaryMetricLabel: "WIN %" as const,
+      primaryMetricValue: formatHitRate(system.hitRate)
+    };
+  }
+
+  return {
+    primaryMetricLabel: "RECORD" as const,
+    primaryMetricValue: `${system.wins}-${system.losses}-${system.pushes}`
+  };
+}
+
+function buildDiscoveredWhyNow(
+  system: DiscoveredTrendView,
+  ranking: ReturnType<typeof buildDiscoveredRanking>
+) {
+  const reasons: string[] = [];
+
+  if (ranking.activeCount > 0) {
+    reasons.push(`${ranking.activeCount} active today`);
+  }
+  if (typeof ranking.maxEdge === "number" && ranking.maxEdge > 0) {
+    reasons.push(`${formatEdgePct(ranking.maxEdge)} best edge`);
+  }
+  if (typeof system.beatCloseRate === "number" && system.beatCloseRate >= 55) {
+    reasons.push(`${system.beatCloseRate.toFixed(0)}% beat close`);
+  }
+  if (typeof system.avgClv === "number" && system.avgClv > 0) {
+    reasons.push(`${system.avgClv > 0 ? "+" : ""}${system.avgClv.toFixed(1)}% avg CLV`);
+  }
+  if ((system.recentSampleSize ?? 0) >= 4) {
+    reasons.push(`${system.recentSampleSize} recent hits`);
+  }
+
+  return reasons.slice(0, 3);
+}
+
+function buildDiscoveredTags(system: DiscoveredTrendView, category: PublishedTrendCategory) {
+  const tags: string[] = [];
+
+  if (category === "Live Now") tags.push("Live board");
+  if (category === "Ready Next") tags.push("Near match");
+  if (typeof system.avgClv === "number" && system.avgClv > 0) tags.push("CLV-backed");
+  if (typeof system.beatCloseRate === "number" && system.beatCloseRate >= 55) tags.push("Beat close");
+  if (typeof system.validationScore === "number" && system.validationScore >= 75) tags.push("Validated");
+  if ((system.recentSampleSize ?? 0) >= 4) tags.push("Recent form");
+
+  return tags.slice(0, 4);
+}
+
+function buildDiscoveredDescription(
+  system: DiscoveredTrendView,
+  category: PublishedTrendCategory,
+  ranking: ReturnType<typeof buildDiscoveredRanking>
+) {
+  const record = `${system.wins}-${system.losses}-${system.pushes}`;
+  const roi = typeof system.roi === "number" ? `${system.roi > 0 ? "+" : ""}${system.roi.toFixed(1)}% ROI` : null;
+
+  if (category === "Live Now") {
+    return `${record}${roi ? `, ${roi}` : ""}. ${ranking.activeCount} active matchup${ranking.activeCount === 1 ? "" : "s"} are currently validating this system.`;
+  }
+
+  if (category === "Ready Next") {
+    return `${record}${roi ? `, ${roi}` : ""}. This system has current-board support, but it is not yet the cleanest live trigger on the page.`;
+  }
+
+  return `${record}${roi ? `, ${roi}` : ""}. Strong historical support, but no clean live trigger is active right now.`;
+}
+
+function buildDiscoveredTrendCard(system: DiscoveredTrendView): PublishedTrendCard {
+  const ranking = buildDiscoveredRanking(system);
+  const category = getDiscoveredCategory(system, ranking);
+  const primaryMetric = buildDiscoveredPrimaryMetric(system, category, ranking);
+  const activeMatches = system.activations
+    .filter((activation: any) => activation.isActive)
+    .map((activation: any) => ({
+      id: activation.id,
+      matchup: activation.eventLabel ?? "Upcoming game",
+      league: system.league as LeagueKey,
+      sport: system.sport as SportCode,
+      startTime: activation.eventStartTime,
+      tag: "Matches this trend" as const,
+      href: activation.event?.id ? `/game/${activation.event.id}` : "/games"
+    }));
+
+  return {
+    id: `discovered-${system.id}`,
+    title: system.name,
+    description: buildDiscoveredDescription(system, category, ranking),
+    category,
+    confidence: formatDiscoveredConfidence(system.validationScore ?? system.score),
+    hitRate: system.hitRate,
+    roi: system.roi,
+    profitUnits: system.totalProfit,
+    sampleSize: system.sampleSize,
+    record: `${system.wins}-${system.losses}-${system.pushes}`,
+    streak: ranking.activeCount > 0 ? `A${ranking.activeCount}` : null,
+    warning:
+      ranking.activeCount === 0
+        ? "Historical edge only until the board lines up again."
+        : null,
+    href: `/trends/${encodeURIComponent(system.slug)}`,
+    todayMatches: activeMatches,
+    sourceTrend: {
+      id: system.slug,
+      title: system.name,
+      hitRate: system.hitRate,
+      roi: system.roi,
+      profitUnits: system.totalProfit,
+      sampleSize: system.sampleSize,
+      wins: system.wins,
+      losses: system.losses,
+      pushes: system.pushes,
+      streak: ranking.activeCount > 0 ? `A${ranking.activeCount}` : null,
+      confidence: formatDiscoveredConfidence(system.validationScore ?? system.score),
+      warning:
+        ranking.activeCount === 0
+          ? "Historical edge only until the board lines up again."
+          : null,
+      dateRange: "Discovered system",
+      contextLabel: `${system.league} | ${system.marketType}`,
+      todayMatches: activeMatches
+    },
+    leagueLabel: system.league,
+    marketLabel: system.marketType.replace(/_/g, " "),
+    primaryMetricLabel: primaryMetric.primaryMetricLabel,
+    primaryMetricValue: primaryMetric.primaryMetricValue,
+    rankingScore: ranking.total,
+    whyNow: buildDiscoveredWhyNow(system, ranking),
+    intelligenceTags: buildDiscoveredTags(system, category),
+    overlooked: false,
+    railReason: getRailReason(category)
+  };
+}
+
+async function getDiscoveredTrendFeed(filters?: Partial<TrendFilters> | null) {
+  const league =
+    filters?.league && filters.league !== "ALL" ? filters.league : undefined;
+  const systems = await listDiscoveredTrendSystems({
+    league,
+    limit: 80
+  });
+
+  const filteredCards = systems
+    .filter((system: DiscoveredTrendView) => matchesDiscoveredTrendFilters(system, filters))
+    .map(buildDiscoveredTrendCard)
+    .sort(
+      (left: PublishedTrendCard, right: PublishedTrendCard) =>
+        right.rankingScore - left.rankingScore
+    );
+
+  if (!filteredCards.length) {
+    return null;
+  }
+
+  const categories: PublishedTrendCategory[] = [
+    "Live Now",
+    "Ready Next",
+    "Historical Library"
+  ];
+  const sections = categories
+    .map((category: PublishedTrendCategory) => ({
+      category,
+      cards: filteredCards
+        .filter((card: PublishedTrendCard) => card.category === category)
+        .slice(0, category === "Historical Library" ? 8 : 6)
+    }))
+    .filter((section: PublishedTrendSection) => section.cards.length > 0);
+
+  const featured =
+    sections.find((section) => section.category === "Live Now")?.cards ??
+    sections.find((section) => section.category === "Ready Next")?.cards ??
+    filteredCards.slice(0, 4);
+
+  return {
+    sections,
+    featured: featured.slice(0, 4),
+    overlooked: [],
+    meta: {
+      count: filteredCards.length,
+      sampleWarning:
+        filteredCards.find((card: PublishedTrendCard) => card.warning)?.warning ?? null,
+      activeSystems:
+        filteredCards.filter((card: PublishedTrendCard) => card.todayMatches.length > 0).length
+    }
+  };
+}
+
 export async function getPublishedTrendFeed(filters?: Partial<TrendFilters> | null) {
+  const discoveredFeed = await getDiscoveredTrendFeed(filters);
+  if (discoveredFeed) {
+    return discoveredFeed;
+  }
+
   const sections = await getPublishedTrendSections(filters);
   const cards = sections.flatMap((section) => section.cards);
 

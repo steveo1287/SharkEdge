@@ -5,6 +5,7 @@ import { readBookFeedState } from "./book-feed-cache";
 import { getBookFeedProviders } from "./book-feed-registry";
 import type { BookFeedProvider } from "./book-feed-provider-types";
 import { backendCurrentOddsProvider } from "./backend-provider";
+import { getCurrentOddsBackendBaseUrl } from "./backend-url";
 import type { CurrentOddsBoardResponse } from "./provider-types";
 import { therundownCurrentOddsProvider } from "./therundown-provider";
 
@@ -115,7 +116,7 @@ export type ProviderReadinessView = {
 };
 
 function getBackendBaseUrl() {
-  return process.env.SHARKEDGE_BACKEND_URL?.trim() || "https://shark-odds-1.onrender.com";
+  return getCurrentOddsBackendBaseUrl();
 }
 
 function getFreshnessMinutes(timestamp?: string | null) {

@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { LiveEdgeBoardCard } from "@/components/board/live-edge-board-card";
 import { HorizontalEventRail } from "@/components/mobile/horizontal-event-rail";
 import { MobileTopBar } from "@/components/mobile/mobile-top-bar";
@@ -29,16 +31,30 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
     getSafeProviderReadiness()
   ]);
 
-  const railItems = board.verifiedGames.slice(0, 8).map((game, index) => ({
-    id: game.id,
-    label: `${game.awayTeam.abbreviation} ${game.homeTeam.abbreviation}`,
-    note: new Date(game.startTime).toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit"
-    }),
-    href: game.detailHref ?? `/game/${game.id}`,
-    active: index === 0
-  }));
+  const railItems = board.verifiedGames.length
+    ? board.verifiedGames.slice(0, 8).map((game, index) => ({
+        id: game.id,
+        label: `${game.awayTeam.abbreviation} ${game.homeTeam.abbreviation}`,
+        note: new Date(game.startTime).toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit"
+        }),
+        href: game.detailHref ?? `/game/${game.id}`,
+        active: index === 0
+      }))
+    : board.scoreboardItems.slice(0, 8).map(({ item }, index) => ({
+        id: item.id,
+        label: item.label,
+        note:
+          item.scoreboard ??
+          item.stateDetail ??
+          new Date(item.startTime).toLocaleTimeString("en-US", {
+            hour: "numeric",
+            minute: "2-digit"
+          }),
+        href: item.detailHref ?? null,
+        active: index === 0
+      }));
 
   return (
     <div className="grid gap-4">
@@ -112,6 +128,42 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
         {board.verifiedGames.slice(0, 8).map((game) => (
           <LiveEdgeBoardCard key={game.id} game={game} />
         ))}
+
+        {!board.verifiedGames.length && board.scoreboardItems.length ? (
+          <div className="mobile-surface">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="text-[1.05rem] font-semibold text-white">Live scores</div>
+              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Odds fallback</div>
+            </div>
+            <div className="grid gap-3">
+              {board.scoreboardItems.slice(0, 8).map(({ section, item }) => (
+                <Link
+                  key={`${section.leagueKey}-${item.id}`}
+                  href={item.detailHref ?? "/games"}
+                  className="rounded-[20px] border border-white/[0.08] bg-white/[0.03] px-4 py-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                        {section.leagueKey} - {item.status}
+                      </div>
+                      <div className="mt-1 text-[0.98rem] font-semibold text-white">{item.label}</div>
+                      <div className="mt-2 text-sm text-slate-400">
+                        {item.scoreboard ?? item.stateDetail ?? "Score feed connected, odds temporarily unavailable."}
+                      </div>
+                    </div>
+                    <div className="text-right text-[11px] text-slate-500">
+                      {new Date(item.startTime).toLocaleTimeString("en-US", {
+                        hour: "numeric",
+                        minute: "2-digit"
+                      })}
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {!board.verifiedGames.length ? (
           <div className="mobile-surface text-sm leading-6 text-slate-400">

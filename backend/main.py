@@ -34,6 +34,8 @@ app = FastAPI()
 SCRAPER_CACHE_PATH = Path(__file__).with_name("data").joinpath("scraper_live_odds.json")
 SCRAPER_CACHE_MAX_AGE_SECONDS = int(os.getenv("SCRAPER_CACHE_MAX_AGE_SECONDS", "180"))
 SCRAPER_INGEST_API_KEY = os.getenv("SHARKEDGE_API_KEY", "").strip()
+SCRAPER_AUTO_REFRESH_SECONDS = int(os.getenv("SCRAPER_AUTO_REFRESH_SECONDS", "180"))
+SCRAPER_AUTO_REFRESH_SOURCE = os.getenv("SCRAPER_AUTO_REFRESH_SOURCE", "auto").strip().lower() or "auto"
 
 SPORTS = [
     {
@@ -251,6 +253,8 @@ PLAYER_PROP_MARKET_SET = set(PLAYER_PROP_MARKET_KEYS)
 BASKETBALL_PROP_SPORT_KEYS = {"basketball_nba", "basketball_ncaab"}
 REQUEST_CACHE: dict[str, tuple[float, Any]] = {}
 PROPS_BOARD_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+BOARD_SNAPSHOT_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+LAST_SCRAPER_REFRESH_ATTEMPT_AT = 0.0
 
 
 def get_api_key() -> str:
@@ -275,6 +279,27 @@ def get_board_fallback_providers() -> list[str]:
         if normalized in {"scraper_cache", "oddsharvester"} and normalized not in fallbacks:
             fallbacks.append(normalized)
     return fallbacks
+
+
+def get_board_cache_seconds() -> int:
+    raw_value = os.getenv("ODDS_BOARD_CACHE_SECONDS", "75").strip()
+    try:
+        return max(15, min(300, int(raw_value)))
+    except ValueError:
+        return 75
+
+
+def get_odds_api_primary_sport_keys() -> set[str]:
+    raw_value = os.getenv("ODDS_API_PRIMARY_SPORT_KEYS", "baseball_mlb").strip()
+    if not raw_value:
+        return {"baseball_mlb"}
+
+    keys = {
+        token.strip()
+        for token in raw_value.split(",")
+        if token.strip() in SPORT_ORDER
+    }
+    return keys or {"baseball_mlb"}
 
 
 def get_oddsharvester_command() -> str:
@@ -351,6 +376,24 @@ def get_bookmakers() -> str:
     return ",".join(DEFAULT_BOOKMAKERS)
 
 
+def normalize_sport_lookup(value: str | None) -> str:
+    if not value:
+        return ""
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def find_sport_by_alias(sport_key_or_alias: str) -> dict[str, str]:
+    normalized_input = normalize_sport_lookup(sport_key_or_alias)
+    for sport in SPORTS:
+        if normalize_sport_lookup(sport["key"]) == normalized_input:
+            return sport
+        if normalize_sport_lookup(sport["short_title"]) == normalized_input:
+            return sport
+        if normalize_sport_lookup(sport["title"]) == normalized_input:
+            return sport
+    raise HTTPException(status_code=404, detail="Sport not supported.")
+
+
 def get_scores_days() -> int:
     raw_value = os.getenv("ODDS_API_SCORES_DAYS", "3").strip()
     try:
@@ -417,6 +460,208 @@ def save_scraper_cache(cache: dict[str, Any]) -> None:
     temp_path = SCRAPER_CACHE_PATH.with_suffix(".tmp")
     temp_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
     temp_path.replace(SCRAPER_CACHE_PATH)
+
+
+def get_scraper_auto_refresh_seconds() -> int:
+    return max(30, SCRAPER_AUTO_REFRESH_SECONDS)
+
+
+def normalize_scraper_refresh_source(source: str | None) -> str:
+    normalized = (source or "auto").strip().lower()
+    if normalized in {"auto", "actionnetwork", "pinnacle_direct"}:
+        return normalized
+    return "auto"
+
+
+def build_scraper_event_from_pinnacle_game(game: dict[str, Any], source: str) -> dict[str, Any] | None:
+    home_team = game.get("home_team")
+    away_team = game.get("away_team")
+    if not isinstance(home_team, str) or not isinstance(away_team, str):
+        return None
+
+    event_key = str(game.get("game_id") or "").strip() or slugify_key(f"{away_team}-{home_team}", "pinnacle_mlb")
+    moneyline = game.get("moneyline") if isinstance(game.get("moneyline"), dict) else {}
+    spread = game.get("spread") if isinstance(game.get("spread"), dict) else {}
+    total = game.get("total") if isinstance(game.get("total"), dict) else {}
+
+    return {
+        "eventKey": f"pinnacle_mlb:{event_key}",
+        "sportKey": "baseball_mlb",
+        "sport": "baseball",
+        "homeTeam": home_team,
+        "awayTeam": away_team,
+        "commenceTime": game.get("commence_time"),
+        "scrapedAt": format_now(),
+        "source": "pinnacle_mlb_scraper",
+        "sourceMeta": {
+            "league": "MLB",
+            "origin": "pinnacle_mlb_scraper",
+            "requested_source": source,
+            "resolved_source": game.get("source"),
+        },
+        "homeMoneyline": moneyline.get("home"),
+        "awayMoneyline": moneyline.get("away"),
+        "homeSpread": spread.get("home"),
+        "awaySpread": spread.get("away"),
+        "homeSpreadOdds": spread.get("home_odds"),
+        "awaySpreadOdds": spread.get("away_odds"),
+        "total": total.get("line"),
+        "overOdds": total.get("over"),
+        "underOdds": total.get("under"),
+        "lines": [
+            {
+                "book": "Pinnacle",
+                "homeMoneyline": moneyline.get("home"),
+                "awayMoneyline": moneyline.get("away"),
+                "homeSpread": spread.get("home"),
+                "awaySpread": spread.get("away"),
+                "homeSpreadOdds": spread.get("home_odds"),
+                "awaySpreadOdds": spread.get("away_odds"),
+                "total": total.get("line"),
+                "overOdds": total.get("over"),
+                "underOdds": total.get("under"),
+                "fetchedAt": format_now(),
+            }
+        ],
+    }
+
+
+def merge_scraper_events(
+    sport_key: str,
+    events: list[dict[str, Any]],
+    *,
+    source_origin: str | None = None,
+) -> dict[str, Any]:
+    cache = load_scraper_cache()
+    sports_cache = cache.setdefault("sports", {})
+    existing_events = sports_cache.setdefault(sport_key, [])
+    retained_events: list[dict[str, Any]] = []
+    removed_count = 0
+
+    for existing in existing_events:
+        if not isinstance(existing, dict):
+            continue
+
+        existing_source = existing.get("sourceMeta", {})
+        existing_origin = (
+            existing_source.get("origin")
+            if isinstance(existing_source, dict)
+            else None
+        )
+        if source_origin and existing_origin == source_origin:
+            removed_count += 1
+            continue
+        retained_events.append(existing)
+
+    merged = retained_events + [event for event in events if isinstance(event, dict)]
+    merged.sort(key=lambda item: item.get("commenceTime") or "")
+    sports_cache[sport_key] = merged
+    cache["updated_at"] = format_now()
+    save_scraper_cache(cache)
+
+    return {
+        "sport_key": sport_key,
+        "inserted_events": len(events),
+        "removed_events": removed_count,
+        "total_events": len(merged),
+        "updated_at": cache["updated_at"],
+    }
+
+
+def refresh_scraper_cache_from_pinnacle(
+    source: str | None = None,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
+    global LAST_SCRAPER_REFRESH_ATTEMPT_AT
+
+    normalized_source = normalize_scraper_refresh_source(source or SCRAPER_AUTO_REFRESH_SOURCE)
+    now = monotonic()
+    cooldown_seconds = get_scraper_auto_refresh_seconds()
+
+    if not force and LAST_SCRAPER_REFRESH_ATTEMPT_AT and (now - LAST_SCRAPER_REFRESH_ATTEMPT_AT) < cooldown_seconds:
+        return {
+            "refreshed": False,
+            "skipped": True,
+            "reason": "cooldown_active",
+            "cooldown_seconds": cooldown_seconds,
+            "source": normalized_source,
+        }
+
+    LAST_SCRAPER_REFRESH_ATTEMPT_AT = now
+    snapshot = get_pinnacle_mlb_snapshot(source=normalized_source)
+    games = snapshot.get("games", [])
+    if not isinstance(games, list) or not games:
+        return {
+            "refreshed": False,
+            "skipped": True,
+            "reason": "no_games_returned",
+            "source": normalized_source,
+            "snapshot": {
+                "resolved_source": snapshot.get("resolved_source"),
+                "game_count": snapshot.get("game_count", 0),
+                "diagnostics": snapshot.get("diagnostics", {}),
+                "message": snapshot.get("message"),
+            },
+        }
+
+    events = [
+        event
+        for event in (
+            build_scraper_event_from_pinnacle_game(game, normalized_source)
+            for game in games
+            if isinstance(game, dict)
+        )
+        if event
+    ]
+
+    merge_result = merge_scraper_events(
+        "baseball_mlb",
+        events,
+        source_origin="pinnacle_mlb_scraper",
+    )
+
+    return {
+        "refreshed": True,
+        "skipped": False,
+        "source": normalized_source,
+        "snapshot": {
+            "resolved_source": snapshot.get("resolved_source"),
+            "game_count": snapshot.get("game_count", 0),
+            "diagnostics": snapshot.get("diagnostics", {}),
+            "cache": snapshot.get("cache"),
+        },
+        "merge": merge_result,
+    }
+
+
+def should_refresh_scraper_cache(
+    selected_sports: list[dict[str, str]],
+    scraper_cache_sports: list[dict[str, Any]],
+) -> bool:
+    selected_keys = {
+        sport.get("key")
+        for sport in selected_sports
+        if isinstance(sport, dict) and isinstance(sport.get("key"), str)
+    }
+    if "baseball_mlb" not in selected_keys:
+        return False
+
+    if not scraper_cache_sports:
+        return True
+
+    mlb_cache = next(
+        (
+            sport
+            for sport in scraper_cache_sports
+            if isinstance(sport, dict) and sport.get("key") == "baseball_mlb"
+        ),
+        None,
+    )
+    if not mlb_cache:
+        return True
+
+    return int(mlb_cache.get("game_count") or 0) <= 0
 
 
 def resolve_scraper_sport_key(sport: str | None, league: str | None) -> str | None:
@@ -1737,12 +1982,91 @@ def fetch_board_snapshot_for_provider(
     }
 
 
+def merge_snapshot_sports(
+    requested_sports: list[dict[str, str]],
+    partial_snapshots: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    by_key: dict[str, dict[str, Any]] = {}
+    for snapshot in partial_snapshots:
+        for sport in snapshot.get("sports", []):
+            if isinstance(sport, dict) and isinstance(sport.get("key"), str):
+                by_key[sport["key"]] = sport
+
+    merged: list[dict[str, Any]] = []
+    for sport in requested_sports:
+        merged.append(by_key.get(sport["key"]) or build_empty_sport_payload(sport))
+
+    merged.sort(key=lambda item: SPORT_ORDER.get(item["key"], 999))
+    return merged
+
+
+def build_board_snapshot_cache_key(
+    selected_sports: list[dict[str, str]],
+    api_key: str,
+) -> str:
+    sport_keys = ",".join(sorted(sport["key"] for sport in selected_sports))
+    return "|".join(
+        [
+            f"sports={sport_keys}",
+            f"provider_mode={get_board_provider_mode()}",
+            f"fallbacks={','.join(get_board_fallback_providers())}",
+            f"regions={get_regions()}",
+            f"bookmakers={get_bookmakers()}",
+            f"markets={ODDS_API_MARKETS}",
+            f"odds_api_primary={','.join(sorted(get_odds_api_primary_sport_keys()))}",
+            f"api_key={'1' if api_key else '0'}",
+        ]
+    )
+
+
+def get_cached_board_snapshot(cache_key: str) -> dict[str, Any] | None:
+    cached = BOARD_SNAPSHOT_CACHE.get(cache_key)
+    if not cached:
+        return None
+
+    expires_at, payload = cached
+    if expires_at <= monotonic():
+        BOARD_SNAPSHOT_CACHE.pop(cache_key, None)
+        return None
+
+    cached_payload = dict(payload)
+    cached_payload["cache"] = {
+        "hit": True,
+        "ttl_seconds": get_board_cache_seconds(),
+    }
+    return cached_payload
+
+
+def set_cached_board_snapshot(cache_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    ttl_seconds = get_board_cache_seconds()
+    stored_payload = dict(payload)
+    stored_payload["cache"] = {
+        "hit": False,
+        "ttl_seconds": ttl_seconds,
+    }
+    BOARD_SNAPSHOT_CACHE[cache_key] = (monotonic() + ttl_seconds, stored_payload)
+    return stored_payload
+
+
 def resolve_board_snapshot(
     api_key: str,
     selected_sports: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     sports_to_fetch = selected_sports or SPORTS
+    cache_key = build_board_snapshot_cache_key(sports_to_fetch, api_key)
+    cached_snapshot = get_cached_board_snapshot(cache_key)
+    if cached_snapshot:
+        return cached_snapshot
+
     scraper_cache_sports = get_scraper_cache_sports()
+    scraper_refresh: dict[str, Any] | None = None
+    if should_refresh_scraper_cache(sports_to_fetch, scraper_cache_sports):
+        scraper_refresh = refresh_scraper_cache_from_pinnacle(
+            source=SCRAPER_AUTO_REFRESH_SOURCE,
+            force=False,
+        )
+        scraper_cache_sports = get_scraper_cache_sports()
+
     candidates, provider_error, status_map = build_board_provider_candidates(
         api_key,
         scraper_cache_sports,
@@ -1750,17 +2074,110 @@ def resolve_board_snapshot(
 
     attempts: list[dict[str, Any]] = []
     if not candidates:
-        return {
+        return set_cached_board_snapshot(
+            cache_key,
+            {
             "provider_mode": get_board_provider_mode(),
             "resolved_provider": None,
             "message": provider_error
             or "Current odds board is not configured with a usable live provider.",
             "provider_error": provider_error,
             "provider_trace": attempts,
+            "scraper_refresh": scraper_refresh,
             "sports": [build_empty_sport_payload(sport) for sport in sports_to_fetch],
             "errors": [provider_error] if provider_error else [],
             "provider_status": status_map,
-        }
+            },
+        )
+
+    mode = get_board_provider_mode()
+    primary_sport_keys = get_odds_api_primary_sport_keys()
+    if (
+        mode == "auto"
+        and candidates
+        and candidates[0] == "odds_api"
+        and len(sports_to_fetch) > 1
+    ):
+        primary_sports = [sport for sport in sports_to_fetch if sport["key"] in primary_sport_keys]
+        secondary_sports = [sport for sport in sports_to_fetch if sport["key"] not in primary_sport_keys]
+
+        if primary_sports and secondary_sports and len(candidates) > 1:
+            mixed_attempts: list[dict[str, Any]] = []
+            partial_snapshots: list[dict[str, Any]] = []
+            mixed_errors: list[str] = []
+
+            primary_attempt = fetch_board_snapshot_for_provider(
+                primary_sports,
+                api_key,
+                "odds_api",
+                scraper_cache_sports=scraper_cache_sports,
+            )
+            mixed_attempts.append(
+                {
+                    "provider": "odds_api",
+                    "status": primary_attempt["status"],
+                    "game_count": primary_attempt["game_count"],
+                    "sport_count": primary_attempt["sport_count"],
+                    "errors": primary_attempt["errors"],
+                    "quota_exhausted": primary_attempt["quota_exhausted"],
+                    "scope": [sport["key"] for sport in primary_sports],
+                }
+            )
+            if primary_attempt["status"] in {"SUCCESS", "PARTIAL"}:
+                partial_snapshots.append(primary_attempt)
+            mixed_errors.extend(primary_attempt["errors"])
+
+            fallback_provider: str | None = None
+            for provider in candidates[1:]:
+                attempt = fetch_board_snapshot_for_provider(
+                    secondary_sports,
+                    api_key,
+                    provider,
+                    scraper_cache_sports=scraper_cache_sports,
+                )
+                mixed_attempts.append(
+                    {
+                        "provider": provider,
+                        "status": attempt["status"],
+                        "game_count": attempt["game_count"],
+                        "sport_count": attempt["sport_count"],
+                        "errors": attempt["errors"],
+                        "quota_exhausted": attempt["quota_exhausted"],
+                        "scope": [sport["key"] for sport in secondary_sports],
+                    }
+                )
+                mixed_errors.extend(attempt["errors"])
+                if attempt["status"] in {"SUCCESS", "PARTIAL"}:
+                    fallback_provider = provider
+                    partial_snapshots.append(attempt)
+                    break
+
+            attempts.extend(mixed_attempts)
+            merged_sports = merge_snapshot_sports(sports_to_fetch, partial_snapshots)
+            merged_game_count = sum(int(sport.get("game_count", 0) or 0) for sport in merged_sports)
+            fallback_triggered = fallback_provider is not None
+
+            if merged_game_count > 0:
+                message = (
+                    "Odds API is running in narrow primary scope; fallback provider filled remaining sports."
+                    if fallback_triggered
+                    else "Odds API is running in narrow primary scope."
+                )
+                return set_cached_board_snapshot(
+                    cache_key,
+                    {
+                    "provider_mode": mode,
+                    "resolved_provider": "mixed" if fallback_triggered else "odds_api",
+                    "message": message,
+                    "provider_error": provider_error,
+                    "provider_trace": attempts,
+                    "scraper_refresh": scraper_refresh,
+                    "sports": merged_sports,
+                    "errors": mixed_errors,
+                    "provider_status": status_map,
+                    "fallback_triggered": fallback_triggered,
+                    },
+                )
 
     winning_snapshot: dict[str, Any] | None = None
     for provider in candidates:
@@ -1796,33 +2213,48 @@ def resolve_board_snapshot(
                 else "Primary provider failed."
             )
             message = f"{reason} Live board fell back to {winning_snapshot['provider']}."
-        return {
+        return set_cached_board_snapshot(
+            cache_key,
+            {
             "provider_mode": get_board_provider_mode(),
             "resolved_provider": winning_snapshot["provider"],
             "message": message,
             "provider_error": provider_error,
             "provider_trace": attempts,
+            "scraper_refresh": scraper_refresh,
             "sports": winning_snapshot["sports"],
             "errors": winning_snapshot["errors"],
             "provider_status": status_map,
             "fallback_triggered": fallback_triggered,
-        }
+            },
+        )
 
-    return {
+    return set_cached_board_snapshot(
+        cache_key,
+        {
         "provider_mode": get_board_provider_mode(),
         "resolved_provider": None,
         "message": provider_error
         or "No live board provider returned a usable board payload.",
         "provider_error": provider_error,
         "provider_trace": attempts,
+        "scraper_refresh": scraper_refresh,
         "sports": [build_empty_sport_payload(sport) for sport in sports_to_fetch],
         "errors": [error for attempt in attempts for error in attempt["errors"]],
         "provider_status": status_map,
-    }
+        },
+    )
 
 
 def resolve_board_provider(api_key: str) -> tuple[str | None, str | None]:
     scraper_cache_sports = get_scraper_cache_sports()
+    if should_refresh_scraper_cache(SPORTS, scraper_cache_sports):
+        refresh_scraper_cache_from_pinnacle(
+            source=SCRAPER_AUTO_REFRESH_SOURCE,
+            force=False,
+        )
+        scraper_cache_sports = get_scraper_cache_sports()
+
     candidates, provider_error, _ = build_board_provider_candidates(
         api_key,
         scraper_cache_sports,
@@ -3699,6 +4131,7 @@ def root() -> dict[str, Any]:
         "message": "SharkEdge API is live",
         "odds_board_endpoint": "/api/odds/board",
         "pinnacle_mlb_endpoint": "/api/odds/pinnacle/mlb",
+        "scraper_refresh_endpoint": "/api/ingest/odds/refresh",
         "mlb_sharp_reference_debug_endpoint": "/api/debug/mlb/sharp-reference",
         "props_board_endpoint": "/api/props/board",
         "game_detail_endpoint_template": "/api/games/{sport_key}/{event_id}",
@@ -3732,6 +4165,8 @@ def ingest_odds_status() -> dict[str, Any]:
         "provider": "scraper_cache",
         "updated_at": cache.get("updated_at"),
         "cache_max_age_seconds": SCRAPER_CACHE_MAX_AGE_SECONDS,
+        "auto_refresh_seconds": get_scraper_auto_refresh_seconds(),
+        "auto_refresh_source": normalize_scraper_refresh_source(SCRAPER_AUTO_REFRESH_SOURCE),
         "sport_count": len(sports),
         "game_count": sum(sport.get("game_count", 0) for sport in sports),
         "sports": [
@@ -3743,6 +4178,33 @@ def ingest_odds_status() -> dict[str, Any]:
             }
             for sport in sports
         ],
+    }
+
+
+@app.post("/api/ingest/odds/refresh")
+def ingest_odds_refresh(
+    source: str = "auto",
+    force: bool = False,
+    x_api_key: str | None = Header(default=None),
+) -> dict[str, Any]:
+    if not SCRAPER_INGEST_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="SHARKEDGE_API_KEY is not configured on the backend service.",
+        )
+
+    if x_api_key != SCRAPER_INGEST_API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid scraper API key.")
+
+    refresh_result = refresh_scraper_cache_from_pinnacle(source=source, force=force)
+    sports = get_scraper_cache_sports()
+    return {
+        "ok": True,
+        "provider": "scraper_cache",
+        "refresh": refresh_result,
+        "sport_count": len(sports),
+        "game_count": sum(sport.get("game_count", 0) for sport in sports),
+        "updated_at": load_scraper_cache().get("updated_at"),
     }
 
 
@@ -3827,15 +4289,22 @@ def ingest_odds(
 
 
 @app.get("/api/odds/board")
-def odds_board() -> dict[str, Any]:
+def odds_board(sport_key: str | None = None, league: str | None = None) -> dict[str, Any]:
     api_key = get_api_key()
     regions = get_regions()
     bookmakers = get_bookmakers()
+    requested_scope = (sport_key or league or "").strip()
+    selected_sports = (
+        [find_sport_by_alias(requested_scope)]
+        if requested_scope
+        else SPORTS
+    )
+    selected_scope_keys = [sport["key"] for sport in selected_sports]
     split_stats_note = (
         "Consensus stats in SharkEdge are derived from sportsbook lines and best "
         "prices. Public ticket and money percentages require an additional data feed."
     )
-    snapshot = resolve_board_snapshot(api_key)
+    snapshot = resolve_board_snapshot(api_key, selected_sports=selected_sports)
     provider = snapshot.get("resolved_provider")
     provider_trace = snapshot.get("provider_trace", [])
     provider_error = snapshot.get("provider_error")
@@ -3851,18 +4320,23 @@ def odds_board() -> dict[str, Any]:
                 "resolved_provider": None,
                 "winner": None,
                 "fallback_triggered": False,
+                "odds_api_primary_sport_keys": sorted(get_odds_api_primary_sport_keys()),
                 "attempts": provider_trace,
                 "provider_status": snapshot.get("provider_status"),
             },
             "regions": regions,
             "bookmakers": bookmakers,
+            "requested_scope": requested_scope or "all",
+            "selected_sports": selected_scope_keys,
             "split_stats_supported": False,
             "split_stats_note": split_stats_note,
             "message": provider_error
             or snapshot.get("message")
             or "Configure ODDS_API_KEY to load live current odds.",
             "errors": snapshot.get("errors", []),
-            "sports": snapshot.get("sports", [build_empty_sport_payload(sport) for sport in SPORTS]),
+            "scraper_refresh": snapshot.get("scraper_refresh"),
+            "sports": snapshot.get("sports", [build_empty_sport_payload(sport) for sport in selected_sports]),
+            "cache": snapshot.get("cache"),
         }
     sports = snapshot.get("sports", [])
     errors = snapshot.get("errors", [])
@@ -3877,11 +4351,14 @@ def odds_board() -> dict[str, Any]:
             "resolved_provider": provider,
             "winner": provider,
             "fallback_triggered": bool(snapshot.get("fallback_triggered")),
+            "odds_api_primary_sport_keys": sorted(get_odds_api_primary_sport_keys()),
             "attempts": provider_trace,
             "provider_status": snapshot.get("provider_status"),
         },
         "regions": regions,
         "bookmakers": bookmakers,
+        "requested_scope": requested_scope or "all",
+        "selected_sports": selected_scope_keys,
         "sport_count": len(sports),
         "game_count": sum(sport["game_count"] for sport in sports),
         "bookmaker_count": collect_unique_bookmakers(sports),
@@ -3889,6 +4366,8 @@ def odds_board() -> dict[str, Any]:
         "split_stats_note": split_stats_note,
         "message": snapshot.get("message"),
         "errors": errors,
+        "scraper_refresh": snapshot.get("scraper_refresh"),
+        "cache": snapshot.get("cache"),
         "sports": sports,
     }
 

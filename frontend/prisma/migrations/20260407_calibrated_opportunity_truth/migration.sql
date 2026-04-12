@@ -1,4 +1,4 @@
-﻿-- CreateTable
+-- CreateTable
 CREATE TABLE "opportunity_surface_records" (
     "id" TEXT NOT NULL,
     "surfaceKey" TEXT NOT NULL,

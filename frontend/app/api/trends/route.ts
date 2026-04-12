@@ -8,26 +8,42 @@ import { filterConditionsSchema } from "@/types/trends";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const filters = trendFiltersSchema.parse(Object.fromEntries(url.searchParams.entries()));
-  const mode = url.searchParams.get("mode");
+  try {
+    const url = new URL(request.url);
+    const filters = trendFiltersSchema.parse(Object.fromEntries(url.searchParams.entries()));
+    const mode = url.searchParams.get("mode");
 
-  if (mode === "definitions") {
-    const page = Number(url.searchParams.get("page") ?? "1");
-    const limit = Number(url.searchParams.get("limit") ?? "20");
-    const minConfidence = Number(url.searchParams.get("minConfidence") ?? "0");
-    const payload = await listTrendDefinitions({
-      sport: filters.sport,
-      betType: filters.market === "ALL" ? undefined : filters.market,
-      minConfidence: Number.isFinite(minConfidence) ? minConfidence : undefined,
-      page,
-      limit
-    });
-    return NextResponse.json({ trends: payload }, { status: 200 });
+    if (mode === "definitions") {
+      const page = Number(url.searchParams.get("page") ?? "1");
+      const limit = Number(url.searchParams.get("limit") ?? "20");
+      const minConfidence = Number(url.searchParams.get("minConfidence") ?? "0");
+      const payload = await listTrendDefinitions({
+        sport: filters.sport,
+        betType: filters.market === "ALL" ? undefined : filters.market,
+        minConfidence: Number.isFinite(minConfidence) ? minConfidence : undefined,
+        page,
+        limit
+      });
+      return NextResponse.json({ trends: payload }, { status: 200 });
+    }
+
+    const payload = await getPublishedTrendFeed(filters);
+    return NextResponse.json(payload, { status: 200 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load trends.";
+    return NextResponse.json(
+      {
+        sections: [],
+        featured: [],
+        overlooked: [],
+        meta: {
+          count: 0,
+          sampleWarning: message
+        }
+      },
+      { status: 200 }
+    );
   }
-
-  const payload = await getPublishedTrendFeed(filters);
-  return NextResponse.json(payload, { status: 200 });
 }
 
 export async function POST(request: Request) {

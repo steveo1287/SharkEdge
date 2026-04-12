@@ -419,7 +419,7 @@ export default async function LeagueCenterPage({ params }: PageProps) {
         />
         <div className="grid gap-4 xl:grid-cols-3">
           {trendCards.length ? (
-            trendCards.map((card) => (
+            trendCards.map((card: any) => (
               <Link
                 key={card.id}
                 href={card.href}

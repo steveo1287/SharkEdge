@@ -1,9 +1,9 @@
 import type { LeagueKey } from "@/lib/types/domain";
 
 import type { CurrentOddsBoardResponse, CurrentOddsProvider } from "./provider-types";
+import { getCurrentOddsBackendBaseUrl } from "./backend-url";
 
-const LIVE_BACKEND_URL =
-  process.env.SHARKEDGE_BACKEND_URL?.trim() || "https://shark-odds-1.onrender.com";
+const LIVE_BACKEND_URL = getCurrentOddsBackendBaseUrl();
 
 const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
 const BACKEND_PROVIDER_TIMEOUT_MS = 2_500;

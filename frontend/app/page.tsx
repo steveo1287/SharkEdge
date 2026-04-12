@@ -20,6 +20,7 @@ import {
   type PublishedTrendCard,
   type PublishedTrendSection
 } from "@/lib/trends/publisher";
+import type { TrendFilters } from "@/lib/types/domain";
 import {
   HOME_DESK_DATES,
   HOME_LEAGUE_ITEMS,
@@ -37,6 +38,30 @@ type SafeTrendFeed = {
   featured: PublishedTrendCard[];
   sections: PublishedTrendSection[];
 };
+
+const VALID_TREND_LEAGUES: Array<NonNullable<TrendFilters["league"]>> = [
+  "ALL",
+  "NBA",
+  "NCAAB",
+  "MLB",
+  "NHL",
+  "NFL",
+  "NCAAF",
+  "BOXING",
+  "UFC"
+];
+
+function normalizeTrendLeague(
+  value: string | null | undefined
+): NonNullable<TrendFilters["league"]> {
+  if (!value) {
+    return "ALL";
+  }
+
+  return VALID_TREND_LEAGUES.includes(value as NonNullable<TrendFilters["league"]>)
+    ? (value as NonNullable<TrendFilters["league"]>)
+    : "ALL";
+}
 
 function isValidTrendCard(card: unknown): card is PublishedTrendCard {
   if (!card || typeof card !== "object") {
@@ -67,8 +92,10 @@ function isValidTrendSection(section: unknown): section is PublishedTrendSection
 
 async function getSafeTrendFeed(league: string): Promise<SafeTrendFeed> {
   try {
+    const safeLeague = normalizeTrendLeague(league);
+
     const feed = await getPublishedTrendFeed({
-      league,
+      league: safeLeague,
       window: "365d",
       sample: 5
     });

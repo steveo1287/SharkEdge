@@ -523,7 +523,25 @@ function getLiveSourceNote(response: CurrentOddsBoardResponse) {
     return `${providerLabel} is connected for the board, with partial fetch warnings still reported by the backend.`;
   }
 
-  return `${providerLabel} is powering the live pregame board. Basketball props are still the only live prop feed today, while the ledger and performance stack remain sport-agnostic.`;
+  return `${providerLabel} is powering the live current board. Basketball props are still the only live prop feed today, while the ledger and performance stack remain sport-agnostic.`;
+}
+
+function inferBoardGameStatus(startTime: string) {
+  const parsed = Date.parse(startTime);
+  if (!Number.isFinite(parsed)) {
+    return "PREGAME" as const;
+  }
+
+  const diffMs = Date.now() - parsed;
+  if (diffMs < 0) {
+    return "PREGAME" as const;
+  }
+
+  if (diffMs <= 8 * 60 * 60 * 1000) {
+    return "LIVE" as const;
+  }
+
+  return "FINAL" as const;
 }
 
 export async function getLiveBoardPageData(filters: BoardFilters): Promise<BoardPageData | null> {
@@ -566,7 +584,7 @@ export async function getLiveBoardPageData(filters: BoardFilters): Promise<Board
         awayTeam,
         homeTeam,
         startTime: game.commence_time,
-        status: "PREGAME",
+        status: inferBoardGameStatus(game.commence_time),
         venue: "Live market feed",
         selectedBook,
         bestBookCount: game.bookmakers_available,

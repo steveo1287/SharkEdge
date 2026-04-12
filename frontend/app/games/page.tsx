@@ -25,7 +25,9 @@ function flattenFeaturedGames(snapshots: LeagueSnapshotView[]) {
 function isVerifiedGame(game: GameCardView) {
   return (
     game.bestBookCount > 0 &&
-    (game.spread.bestOdds !== 0 || game.moneyline.bestOdds !== 0 || game.total.bestOdds !== 0)
+    (game.spread.bestOdds !== 0 ||
+      game.moneyline.bestOdds !== 0 ||
+      game.total.bestOdds !== 0)
   );
 }
 
@@ -39,7 +41,10 @@ function getGamePriorityScore(game: GameCardView) {
     const movementScore = Math.min(14, Math.abs(market.movement) * 2.5);
     const bestPriceBonus = market.marketIntelligence?.bestPriceFlag ? 10 : 0;
 
-    return Math.max(best, rankScore + confidenceScore * 0.4 + qualityScore * 0.2 + movementScore + bestPriceBonus);
+    return Math.max(
+      best,
+      rankScore + confidenceScore * 0.4 + qualityScore * 0.2 + movementScore + bestPriceBonus
+    );
   }, 0);
 }
 
@@ -76,16 +81,23 @@ export default async function GamesPage() {
     import("@/services/odds/board-service"),
     import("@/services/stats/stats-service")
   ]);
+
   const [boardData, snapshots] = await Promise.all([
-    oddsService.getBoardPageData(
-      oddsService.parseBoardFilters({
-        league: "ALL",
-        date: "today",
-        sportsbook: "best",
-        market: "all",
-        status: "all"
-      })
-    ),
+    (async () => {
+      try {
+        return await oddsService.getBoardPageData(
+          oddsService.parseBoardFilters({
+            league: "ALL",
+            date: "today",
+            sportsbook: "best",
+            market: "all",
+            status: "all"
+          })
+        );
+      } catch {
+        return null;
+      }
+    })(),
     withTimeoutFallback(statsService.getLeagueSnapshots("ALL"), {
       timeoutMs: GAMES_SNAPSHOT_TIMEOUT_MS,
       fallback: []
@@ -93,10 +105,15 @@ export default async function GamesPage() {
   ]);
 
   const slate = flattenFeaturedGames(snapshots).slice(0, 16);
-  const verifiedGames = boardData.games
-    .filter(isVerifiedGame)
-    .sort((left, right) => getGamePriorityScore(right) - getGamePriorityScore(left));
+
+  const verifiedGames = boardData
+    ? boardData.games
+        .filter(isVerifiedGame)
+        .sort((left, right) => getGamePriorityScore(right) - getGamePriorityScore(left))
+    : [];
+
   const openNowGames = verifiedGames.slice(0, 8);
+
   const scoreboardContext = slate
     .filter((game) => !verifiedGames.some((entry) => entry.id === game.id))
     .slice(0, 8);
@@ -111,7 +128,8 @@ export default async function GamesPage() {
               Start with the matchups that have both market truth and a reason to care.
             </div>
             <div className="max-w-3xl text-base leading-8 text-slate-300">
-              This is the entry desk for the slate. Verified games rise to the top. Thin games stay visible as scoreboard context, not fake conviction.
+              This is the entry desk for the slate. Verified games rise to the top.
+              Thin games stay visible as scoreboard context, not fake conviction.
             </div>
             <div className="flex flex-wrap gap-3">
               <Link
@@ -131,34 +149,55 @@ export default async function GamesPage() {
 
           <div className="grid gap-3 rounded-[1.55rem] border border-white/8 bg-[#09131f]/85 p-5 text-sm text-slate-300">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Desk state</div>
-              <Badge tone={getProviderHealthTone(boardData.providerHealth.state)}>
-                {boardData.providerHealth.label}
+              <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+                Desk state
+              </div>
+              <Badge tone={getProviderHealthTone(boardData?.providerHealth.state ?? "OFFLINE")}>
+                {boardData?.providerHealth.label ?? "Unavailable"}
               </Badge>
             </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">Open now</div>
-                <div className="mt-2 text-3xl font-semibold text-white">{openNowGames.length}</div>
+                <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
+                  Open now
+                </div>
+                <div className="mt-2 text-3xl font-semibold text-white">
+                  {openNowGames.length}
+                </div>
               </div>
               <div>
-                <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">Scoreboard only</div>
-                <div className="mt-2 text-3xl font-semibold text-white">{scoreboardContext.length}</div>
+                <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
+                  Scoreboard only
+                </div>
+                <div className="mt-2 text-3xl font-semibold text-white">
+                  {scoreboardContext.length}
+                </div>
               </div>
             </div>
+
             <div className="rounded-[1.1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
-              {boardData.providerHealth.summary}
+              {boardData?.providerHealth.summary ??
+                "Live board service is temporarily unavailable. Scoreboard context remains visible while verified market support repopulates."}
             </div>
+
             <div className="flex flex-wrap gap-2 text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
-              <span>{boardData.providerHealth.freshnessLabel}</span>
-              {typeof boardData.providerHealth.freshnessMinutes === "number" ? (
+              <span>{boardData?.providerHealth.freshnessLabel ?? "Freshness unknown"}</span>
+              {typeof boardData?.providerHealth.freshnessMinutes === "number" ? (
                 <span>{boardData.providerHealth.freshnessMinutes}m old</span>
               ) : null}
-              {boardData.providerHealth.warnings.length ? (
-                <span>{boardData.providerHealth.warnings.length} warning{boardData.providerHealth.warnings.length === 1 ? "" : "s"}</span>
+              {boardData?.providerHealth.warnings.length ? (
+                <span>
+                  {boardData.providerHealth.warnings.length} warning
+                  {boardData.providerHealth.warnings.length === 1 ? "" : "s"}
+                </span>
               ) : null}
             </div>
-            <div className="text-sm leading-6 text-slate-400">{boardData.sourceNote}</div>
+
+            <div className="text-sm leading-6 text-slate-400">
+              {boardData?.sourceNote ??
+                "The verified board is offline right now, so this page falls back to scoreboard-first context instead of faking market conviction."}
+            </div>
           </div>
         </div>
       </section>
@@ -166,16 +205,23 @@ export default async function GamesPage() {
       <section className="grid gap-4">
         <SectionTitle
           eyebrow="Open now"
-          title={openNowGames.length ? "Best matchup entry points on the slate" : "No verified matchup entries yet"}
+          title={
+            openNowGames.length
+              ? "Best matchup entry points on the slate"
+              : "No verified matchup entries yet"
+          }
           description={
             openNowGames.length
               ? "These are the games with the strongest current path into the board, the game page, and the prop lab."
               : "When the board is thin, SharkEdge stays honest instead of pretending every matchup is ready."
           }
         />
+
         <div className="grid gap-4 xl:grid-cols-2">
           {openNowGames.length ? (
-            openNowGames.map((game) => <GameCard key={game.id} game={game} focusMarket="best" />)
+            openNowGames.map((game) => (
+              <GameCard key={game.id} game={game} focusMarket="best" />
+            ))
           ) : (
             <div className="xl:col-span-2">
               <EmptyState
@@ -210,6 +256,7 @@ export default async function GamesPage() {
           title="Everything still worth watching"
           description="These games still matter. They just do not yet deserve top billing as betting-entry pages."
         />
+
         <div className="grid gap-4 xl:grid-cols-2">
           {scoreboardContext.length ? (
             scoreboardContext.map((game) => (
@@ -217,18 +264,23 @@ export default async function GamesPage() {
                 <Card className="surface-panel h-full p-5 transition hover:border-sky-400/25 hover:bg-white/[0.03]">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">{game.leagueKey}</div>
+                      <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+                        {game.leagueKey}
+                      </div>
                       <div className="mt-2 text-2xl font-semibold text-white">
                         {game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}
                       </div>
                     </div>
                     <Badge tone={getStatusTone(game.status)}>{game.status}</Badge>
                   </div>
+
                   <div className="mt-4 text-sm leading-6 text-slate-400">
                     {game.stateDetail ?? game.leagueName}
                   </div>
+
                   <div className="mt-5 rounded-[1.1rem] border border-white/8 bg-slate-950/55 px-4 py-3 text-sm leading-6 text-slate-300">
-                    Open this matchup for score, team context, and any emerging prop support. Market verification has not earned front-row placement yet.
+                    Open this matchup for score, team context, and any emerging prop
+                    support. Market verification has not earned front-row placement yet.
                   </div>
                 </Card>
               </Link>
@@ -244,6 +296,16 @@ export default async function GamesPage() {
           )}
         </div>
       </section>
+
+      {!boardData ? (
+        <section className="grid gap-4">
+          <SectionTitle
+            eyebrow="Board service"
+            title="Verified market data is temporarily unavailable"
+            description="The games page remains online with scoreboard context while the board service recovers."
+          />
+        </section>
+      ) : null}
     </div>
   );
 }

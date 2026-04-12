@@ -20,6 +20,11 @@ type PageProps = {
 type SafeTrendFeed = {
   featured: PublishedTrendCard[];
   sections: PublishedTrendSection[];
+  meta?: {
+    activeSystems?: number;
+    count?: number;
+    sampleWarning?: string | null;
+  };
 };
 
 function readValue(
@@ -100,7 +105,14 @@ async function getSafeTrendFeed(filters: TrendFilters): Promise<SafeTrendFeed> {
           .filter((section) => section.cards.length > 0)
       : [];
 
-    return { featured, sections };
+    return {
+      featured,
+      sections,
+      meta:
+        feed && typeof feed === "object" && "meta" in feed && feed.meta && typeof feed.meta === "object"
+          ? (feed.meta as SafeTrendFeed["meta"])
+          : undefined
+    };
   } catch {
     return { featured: [], sections: [] };
   }
@@ -134,6 +146,10 @@ export default async function TrendsPage({ searchParams }: PageProps) {
   const feed = await getSafeTrendFeed(filters);
   const sections = feed.sections;
   const cards = sections.flatMap((section) => section.cards);
+  const activeSystems =
+    typeof feed.meta?.activeSystems === "number"
+      ? feed.meta.activeSystems
+      : cards.filter((card) => card.todayMatches.length > 0).length;
 
   return (
     <div className="grid gap-4">
@@ -152,7 +168,7 @@ export default async function TrendsPage({ searchParams }: PageProps) {
             {filters.league === "ALL" ? "All leagues" : filters.league}
           </div>
           <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
-            {cards.length} systems live
+            {activeSystems} active - {cards.length} tracked
           </div>
         </div>
 
