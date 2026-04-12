@@ -247,6 +247,118 @@ export async function recomputeEdgeSignals(eventId?: string) {
       const periodBlock = getPeriodBlock(eventMetadata, (marketState as any).period ?? "full_game");
       const period = (marketState as any).period ?? "full_game";
 
+      // Priority 5 fix: no-vig fallback for moneyline when no model projection exists.
+      // Derives fair probabilities from the vig-stripped market consensus so EdgeSignals
+      // are generated even for events that have never had a model run.
+      if (marketState.marketType === "moneyline" && !eventProjection) {
+        const noVig = noVigFromTwoWay(marketState.bestHomeOddsAmerican, marketState.bestAwayOddsAmerican);
+        if (noVig && typeof marketState.bestHomeOddsAmerican === "number" && marketState.bestHomeBookId) {
+          const evPercent = calculateEV({
+            offeredOddsAmerican: marketState.bestHomeOddsAmerican,
+            modelProbability: noVig.left
+          });
+          if (evPercent !== null) {
+            await createEdgeSignal({
+              eventId: event.id,
+              marketType: marketState.marketType,
+              period,
+              sportsbookId: marketState.bestHomeBookId,
+              side: "home",
+              lineValue: marketState.consensusLineValue,
+              offeredOddsAmerican: marketState.bestHomeOddsAmerican,
+              modelProb: noVig.left,
+              noVigProb: noVig.left,
+              fairOddsAmerican: buildFairPrice(noVig.left),
+              evPercent,
+              flags: ["NO_VIG_EDGE", "NO_MODEL"],
+              metadata: { engine: "no-vig-consensus", marketFamily: "moneyline", period },
+              sampleSize: 10,
+              hold: noVig.hold
+            });
+          }
+        }
+        if (noVig && typeof marketState.bestAwayOddsAmerican === "number" && marketState.bestAwayBookId) {
+          const evPercent = calculateEV({
+            offeredOddsAmerican: marketState.bestAwayOddsAmerican,
+            modelProbability: noVig.right
+          });
+          if (evPercent !== null) {
+            await createEdgeSignal({
+              eventId: event.id,
+              marketType: marketState.marketType,
+              period,
+              sportsbookId: marketState.bestAwayBookId,
+              side: "away",
+              lineValue: marketState.consensusLineValue,
+              offeredOddsAmerican: marketState.bestAwayOddsAmerican,
+              modelProb: noVig.right,
+              noVigProb: noVig.right,
+              fairOddsAmerican: buildFairPrice(noVig.right),
+              evPercent,
+              flags: ["NO_VIG_EDGE", "NO_MODEL"],
+              metadata: { engine: "no-vig-consensus", marketFamily: "moneyline", period },
+              sampleSize: 10,
+              hold: noVig.hold
+            });
+          }
+        }
+      }
+
+      // Priority 5 fix: no-vig fallback for totals when no model projection exists.
+      if (marketState.marketType === "total" && !eventProjection) {
+        const noVig = noVigFromTwoWay(marketState.bestOverOddsAmerican, marketState.bestUnderOddsAmerican);
+        if (noVig && typeof marketState.bestOverOddsAmerican === "number" && marketState.bestOverBookId) {
+          const evPercent = calculateEV({
+            offeredOddsAmerican: marketState.bestOverOddsAmerican,
+            modelProbability: noVig.left
+          });
+          if (evPercent !== null) {
+            await createEdgeSignal({
+              eventId: event.id,
+              marketType: marketState.marketType,
+              period,
+              sportsbookId: marketState.bestOverBookId,
+              side: "over",
+              lineValue: marketState.consensusLineValue,
+              offeredOddsAmerican: marketState.bestOverOddsAmerican,
+              modelProb: noVig.left,
+              noVigProb: noVig.left,
+              fairOddsAmerican: buildFairPrice(noVig.left),
+              evPercent,
+              flags: ["NO_VIG_EDGE", "NO_MODEL", "TOTAL_MARKET"],
+              metadata: { engine: "no-vig-consensus", marketFamily: "total", period },
+              sampleSize: 10,
+              hold: noVig.hold
+            });
+          }
+        }
+        if (noVig && typeof marketState.bestUnderOddsAmerican === "number" && marketState.bestUnderBookId) {
+          const evPercent = calculateEV({
+            offeredOddsAmerican: marketState.bestUnderOddsAmerican,
+            modelProbability: noVig.right
+          });
+          if (evPercent !== null) {
+            await createEdgeSignal({
+              eventId: event.id,
+              marketType: marketState.marketType,
+              period,
+              sportsbookId: marketState.bestUnderBookId,
+              side: "under",
+              lineValue: marketState.consensusLineValue,
+              offeredOddsAmerican: marketState.bestUnderOddsAmerican,
+              modelProb: noVig.right,
+              noVigProb: noVig.right,
+              fairOddsAmerican: buildFairPrice(noVig.right),
+              evPercent,
+              flags: ["NO_VIG_EDGE", "NO_MODEL", "TOTAL_MARKET"],
+              metadata: { engine: "no-vig-consensus", marketFamily: "total", period },
+              sampleSize: 10,
+              hold: noVig.hold
+            });
+          }
+        }
+      }
+
       if (marketState.marketType === "moneyline" && eventProjection) {
         const noVig = noVigFromTwoWay(marketState.bestHomeOddsAmerican, marketState.bestAwayOddsAmerican);
         const probabilities = {

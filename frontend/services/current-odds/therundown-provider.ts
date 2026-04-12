@@ -32,7 +32,8 @@ const THERUNDOWN_SUPPORTED_LEAGUES: LeagueKey[] = [
   "NCAAF"
 ];
 const THERUNDOWN_PROVIDER_TIMEOUT_MS = 8_000;
-const THERUNDOWN_BOARD_CACHE_TTL_MS = 30_000;
+// 5 minutes: safe for free-tier TheRundown — stops hammering the API on every page load
+const THERUNDOWN_BOARD_CACHE_TTL_MS = 5 * 60_000;
 const THERUNDOWN_SPORT_IDS: Record<Exclude<LeagueKey, "UFC" | "BOXING">, number> = {
   NCAAF: 1,
   NFL: 2,
@@ -433,16 +434,28 @@ export const therundownCurrentOddsProvider: CurrentOddsProvider = {
       return cached.payload;
     }
 
-    const dateKey = formatDateKey(new Date());
+    // Sweep today then tomorrow so upcoming games are always visible.
+    // Sequential fetches keep free-tier rate limits safe.
+    // seenLeagues prevents double-counting a league across date passes.
+    const dateKeys = [
+      formatDateKey(new Date()),
+      formatDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000))
+    ];
     const sports: CurrentOddsSport[] = [];
-    for (const leagueKey of THERUNDOWN_SUPPORTED_LEAGUES) {
-      const sport = await fetchLeagueBoard(leagueKey, dateKey);
-      if (sport) {
-        sports.push(sport);
+    const seenLeagues = new Set<LeagueKey>();
+    for (const dateKey of dateKeys) {
+      for (const leagueKey of THERUNDOWN_SUPPORTED_LEAGUES) {
+        if (seenLeagues.has(leagueKey)) {
+          continue; // already have data for this league from an earlier date pass
+        }
+        const sport = await fetchLeagueBoard(leagueKey, dateKey);
+        if (sport) {
+          sports.push(sport);
+          seenLeagues.add(leagueKey);
+        }
       }
-
-      // Keep the runtime fast and avoid free-tier request bursts.
-      if (sports.length >= 3) {
+      // Short-circuit if every supported league already has games
+      if (seenLeagues.size === THERUNDOWN_SUPPORTED_LEAGUES.length) {
         break;
       }
     }
