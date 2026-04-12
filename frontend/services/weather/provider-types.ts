@@ -1,4 +1,3 @@
-
 export type WeatherProviderKey = "METAR" | "NWS" | "HRRR" | "WINDY";
 
 export type WeatherProviderRole =
@@ -13,6 +12,30 @@ export type WeatherJoinStatus =
   | "MISSING"
   | "NOT_APPLICABLE";
 
+export type WeatherRoofType =
+  | "OPEN_AIR"
+  | "RETRACTABLE"
+  | "FIXED_DOME"
+  | "UNKNOWN";
+
+export type WeatherExposure =
+  | "OUTDOOR"
+  | "MIXED"
+  | "INDOOR"
+  | "UNKNOWN";
+
+export type WeatherSensitivity =
+  | "HIGH"
+  | "MEDIUM"
+  | "LOW"
+  | "NOT_APPLICABLE";
+
+export type WeatherWindSensitivity =
+  | "HIGH"
+  | "MEDIUM"
+  | "LOW"
+  | "NOT_APPLICABLE";
+
 export type WeatherProviderDefinition = {
   key: WeatherProviderKey;
   label: string;
@@ -21,9 +44,28 @@ export type WeatherProviderDefinition = {
   note: string;
 };
 
+export type VenueWeatherJoinView = {
+  league: string | null;
+  homeTeam: string | null;
+  awayTeam: string | null;
+  venueKey: string | null;
+  venueName: string | null;
+  stationCode: string | null;
+  stationName: string | null;
+  roofType: WeatherRoofType | null;
+  weatherExposure: WeatherExposure;
+  altitudeFeet: number | null;
+  parkFactorNote: string | null;
+  windSensitivity: WeatherWindSensitivity;
+  joinMethod: "TEAM_HOME_MAP" | "VENUE_ALIAS_MAP" | "PAYLOAD_ONLY" | "NONE";
+  venueJoinStatus: WeatherJoinStatus;
+  stationJoinStatus: WeatherJoinStatus;
+  notes: string[];
+};
+
 export type WeatherSourcePlanView = {
   applicable: boolean;
-  sensitivity: "HIGH" | "MEDIUM" | "LOW" | "NOT_APPLICABLE";
+  sensitivity: WeatherSensitivity;
   primaryObservationProvider: WeatherProviderKey | null;
   primaryForecastProvider: WeatherProviderKey | null;
   visualizationProvider: WeatherProviderKey | null;
@@ -33,4 +75,16 @@ export type WeatherSourcePlanView = {
   sourceConfidence: number;
   summary: string;
   providerNotes: string[];
+  venueName?: string | null;
+  venueKey?: string | null;
+  stationCode?: string | null;
+  stationName?: string | null;
+  roofType?: WeatherRoofType | null;
+  weatherExposure?: WeatherExposure;
+  altitudeFeet?: number | null;
+  parkFactorNote?: string | null;
+  windSensitivity?: WeatherWindSensitivity;
+  homeTeam?: string | null;
+  awayTeam?: string | null;
+  joinMethod?: VenueWeatherJoinView["joinMethod"];
 };

@@ -213,6 +213,18 @@ function weatherAssessment(opportunity: OpportunityView): FeedNativeLensAssessme
 
   evidence.push(plan.summary);
   evidence.push(...plan.providerNotes.slice(0, 2));
+  if (plan.venueName) {
+    evidence.push(`Venue join: ${plan.venueName}.`);
+  }
+  if (plan.stationCode) {
+    evidence.push(`Station join: ${plan.stationCode}${plan.stationName ? ` (${plan.stationName})` : ""}.`);
+  }
+  if (plan.roofType) {
+    evidence.push(`Roof/exposure context: ${plan.roofType.toLowerCase().replace(/_/g, " ")} / ${plan.weatherExposure?.toLowerCase() ?? "unknown"}.`);
+  }
+  if (typeof plan.altitudeFeet === "number" && plan.altitudeFeet >= 3000) {
+    evidence.push("High-altitude environment can amplify carry or kick-distance effects.");
+  }
 
   if (sourceStatus === "JOINED") {
     evidence.push("Weather context has at least one joined source path.");
@@ -270,7 +282,10 @@ function weatherAssessment(opportunity: OpportunityView): FeedNativeLensAssessme
       sourceStatus.toLowerCase(),
       plan.primaryObservationProvider?.toLowerCase() ?? null,
       plan.primaryForecastProvider?.toLowerCase() ?? null,
-      plan.visualizationProvider?.toLowerCase() ?? null
+      plan.visualizationProvider?.toLowerCase() ?? null,
+      plan.roofType?.toLowerCase() ?? null,
+      plan.stationCode?.toLowerCase() ?? null,
+      plan.windSensitivity?.toLowerCase() ?? null
     ]),
     summary:
       stateHint === "SUPPORTIVE"

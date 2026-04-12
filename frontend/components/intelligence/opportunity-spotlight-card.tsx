@@ -258,7 +258,22 @@ export function OpportunitySpotlightCard({
     </div>
     <div className="mt-1 text-slate-400">
       Station {opportunity.weatherSourcePlan.stationJoinStatus.toLowerCase().replace(/_/g, " ")} • Venue {opportunity.weatherSourcePlan.venueJoinStatus.toLowerCase().replace(/_/g, " ")}
+      {opportunity.weatherSourcePlan.joinMethod ? ` • ${opportunity.weatherSourcePlan.joinMethod.toLowerCase().replace(/_/g, " ")}` : ""}
     </div>
+    {(opportunity.weatherSourcePlan.venueName || opportunity.weatherSourcePlan.stationCode || opportunity.weatherSourcePlan.roofType) ? (
+      <div className="mt-2 text-slate-400">
+        {opportunity.weatherSourcePlan.venueName ? `Venue ${opportunity.weatherSourcePlan.venueName}` : "Venue n/a"}
+        {opportunity.weatherSourcePlan.stationCode ? ` • Station ${opportunity.weatherSourcePlan.stationCode}` : ""}
+        {opportunity.weatherSourcePlan.roofType ? ` • ${opportunity.weatherSourcePlan.roofType.toLowerCase().replace(/_/g, " ")}` : ""}
+        {opportunity.weatherSourcePlan.weatherExposure ? ` • ${opportunity.weatherSourcePlan.weatherExposure.toLowerCase()}` : ""}
+        {typeof opportunity.weatherSourcePlan.altitudeFeet === "number" ? ` • ${opportunity.weatherSourcePlan.altitudeFeet} ft` : ""}
+      </div>
+    ) : null}
+    {opportunity.weatherSourcePlan.parkFactorNote ? (
+      <div className="mt-1 text-slate-400">
+        {opportunity.weatherSourcePlan.parkFactorNote}
+      </div>
+    ) : null}
   </div>
 ) : null}
 
