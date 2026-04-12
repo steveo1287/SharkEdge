@@ -433,19 +433,19 @@ export const therundownCurrentOddsProvider: CurrentOddsProvider = {
       return cached.payload;
     }
 
-    const dateKeys = Array.from(
-      new Set([
-        formatDateKey(new Date()),
-        formatDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000))
-      ])
-    );
-    const sports = (
-      await Promise.all(
-        THERUNDOWN_SUPPORTED_LEAGUES.flatMap((leagueKey) =>
-          dateKeys.slice(0, 1).map((dateKey) => fetchLeagueBoard(leagueKey, dateKey))
-        )
-      )
-    ).filter(Boolean) as CurrentOddsSport[];
+    const dateKey = formatDateKey(new Date());
+    const sports: CurrentOddsSport[] = [];
+    for (const leagueKey of THERUNDOWN_SUPPORTED_LEAGUES) {
+      const sport = await fetchLeagueBoard(leagueKey, dateKey);
+      if (sport) {
+        sports.push(sport);
+      }
+
+      // Keep the runtime fast and avoid free-tier request bursts.
+      if (sports.length >= 3) {
+        break;
+      }
+    }
 
     const payload = sports.length
       ? ({
