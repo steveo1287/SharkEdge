@@ -72,33 +72,18 @@ export const MAIN_NAV_ITEMS: NavItem[] = [
     description: "The live board with verified books, pricing truth, and movement worth reacting to."
   },
   {
-    href: "/props",
-    label: "Props",
-    description: "Hunt player markets, fair value, and usage-driven context."
+    href: "/games",
+    label: "Games",
+    description: "Open the slate, orient by matchup, and route straight into game detail."
   },
   {
     href: "/trends",
     label: "Trends",
     description: "Historical systems, validation warnings, and active matches."
-  },
-  {
-    href: "/watchlist",
-    label: "Watchlist",
-    description: "Saved books, props, teams, trends, and alerts."
-  },
-  {
-    href: "/performance",
-    label: "Performance",
-    description: "Review CLV, units, hit rate, and what is actually working."
   }
 ];
 
 export const RESEARCH_NAV_ITEMS: NavItem[] = [
-  {
-    href: "/games",
-    label: "Games",
-    description: "Open the slate, orient by matchup, and route straight into game detail."
-  },
   {
     href: "/players",
     label: "Players",
@@ -108,6 +93,11 @@ export const RESEARCH_NAV_ITEMS: NavItem[] = [
     href: "/teams",
     label: "Teams",
     description: "Team-level form, matchup context, and league-entry research."
+  },
+  {
+    href: "/performance",
+    label: "Performance",
+    description: "Review CLV, units, hit rate, and what is actually working."
   },
   {
     href: "/content",
@@ -126,6 +116,11 @@ export const SECONDARY_NAV_ITEMS: NavItem[] = [
     href: "/alerts",
     label: "Alerts",
     description: "Price, movement, and trend notifications."
+  },
+  {
+    href: "/watchlist",
+    label: "Watchlist",
+    description: "Saved books, props, teams, trends, and alerts."
   }
 ];
 
@@ -191,7 +186,7 @@ export function getRouteMeta(pathname: string) {
       eyebrow: `${leagueName} League Hub`,
       title: leagueName,
       subtitle:
-        "League-first scoreboard, best bets, standings, trends, and direct routing into every matchup that matters."
+        "League board, recent form, and direct routing into the slate."
     };
   }
 
@@ -200,19 +195,19 @@ export function getRouteMeta(pathname: string) {
       match: (value: string) => value === "/",
       eyebrow: "Command Center",
       title: "SharkEdge",
-      subtitle: "The market, the matchup, and the reason behind the edge."
+      subtitle: "Live markets, matchup context, and the next move."
     },
     {
       match: (value: string) => isActivePath(value, "/board"),
       eyebrow: "Market Board",
-      title: "Verified Prices",
-      subtitle: "Track the numbers that matter, the books that moved, and the lines worth chasing."
+      title: "Board",
+      subtitle: "Verified pricing, movement, and clean market reads."
     },
     {
       match: (value: string) => isActivePath(value, "/games") || value.startsWith("/game/"),
       eyebrow: "Games",
-      title: "Research Slate",
-      subtitle: "Open the matchup, understand the market, and move straight into the game lab."
+      title: "Games",
+      subtitle: "Open the slate and route straight into matchup detail."
     },
     {
       match: (value: string) => isActivePath(value, "/props"),
@@ -235,8 +230,8 @@ export function getRouteMeta(pathname: string) {
     {
       match: (value: string) => isActivePath(value, "/trends"),
       eyebrow: "Trends Engine",
-      title: "System Research",
-      subtitle: "Build, validate, and monitor historical angles with actual caution flags."
+      title: "Trends",
+      subtitle: "Historical systems, active matches, and validation signals."
     },
     {
       match: (value: string) => isActivePath(value, "/content") || value.startsWith("/stories/"),
@@ -253,8 +248,8 @@ export function getRouteMeta(pathname: string) {
     {
       match: (value: string) => isActivePath(value, "/bets"),
       eyebrow: "Bet Tracker",
-      title: "Open Exposure",
-      subtitle: "Keep your card, prices, and outcomes in one honest ledger."
+      title: "Bets",
+      subtitle: "Your card, prices, and outcomes in one ledger."
     },
     {
       match: (value: string) => isActivePath(value, "/performance"),
@@ -265,8 +260,8 @@ export function getRouteMeta(pathname: string) {
     {
       match: (value: string) => isActivePath(value, "/alerts"),
       eyebrow: "Alerts",
-      title: "Price Triggers",
-      subtitle: "Movement, thresholds, and saved-system matches worth reacting to."
+      title: "Alerts",
+      subtitle: "Movement and threshold alerts worth reacting to."
     }
   ];
 

@@ -141,3 +141,20 @@ It exits non-zero when the board still has zero verified requested-league games,
 - closing-line snapshots from live books
 - fighter and team history query engine
 - auth and user-owned ledgers
+
+
+## Guarded startup
+
+The default frontend boot path now refuses to start in a fake-green state. Before `npm run dev`, `npm run dev:turbopack`, or `npm start` launch Next.js, SharkEdge runs the rescue power check and exits non-zero if the live board path is still dead.
+
+To intentionally work without a healthy backend/feed path, set:
+
+```bash
+SHARKEDGE_ALLOW_DEGRADED_BOOT=true
+```
+
+You can also bypass the guard one time with:
+
+```bash
+npm run dev -- --skip-guard
+```

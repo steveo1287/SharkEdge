@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -6,11 +6,11 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 
 const NAV_ITEMS = [
-  { href: "/", label: "Discover", icon: "bolt" },
+  { href: "/", label: "Home", icon: "bolt" },
   { href: "/board", label: "Board", icon: "board" },
-  { href: "/trends", label: "Trends", icon: "trend" },
   { href: "/games", label: "Games", icon: "games" },
-  { href: "/performance", label: "Ledger", icon: "ledger" }
+  { href: "/trends", label: "Trends", icon: "trend" },
+  { href: "/bets", label: "Bets", icon: "ledger" }
 ] as const;
 
 function Icon({ type, active }: { type: (typeof NAV_ITEMS)[number]["icon"]; active: boolean }) {
@@ -87,4 +87,3 @@ export function MobileBottomNav() {
     </nav>
   );
 }
-

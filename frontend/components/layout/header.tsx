@@ -31,7 +31,7 @@ function getDeskStatus(pathname: string) {
     isActivePath(pathname, "/board") ||
     isActivePath(pathname, "/games") ||
     pathname.startsWith("/game/") ||
-    isActivePath(pathname, "/props")
+    isActivePath(pathname, "/bets")
   ) {
     return {
       label: "Core workflow",
@@ -44,7 +44,8 @@ function getDeskStatus(pathname: string) {
     isActivePath(pathname, "/players") ||
     isActivePath(pathname, "/teams") ||
     isActivePath(pathname, "/trends") ||
-    isActivePath(pathname, "/content")
+    isActivePath(pathname, "/content") ||
+    isActivePath(pathname, "/performance")
   ) {
     return {
       label: "Research beta",
