@@ -435,7 +435,6 @@ export const therundownCurrentOddsProvider: CurrentOddsProvider = {
 
     const dateKeys = Array.from(
       new Set([
-        formatDateKey(new Date(Date.now() - 24 * 60 * 60 * 1000)),
         formatDateKey(new Date()),
         formatDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000))
       ])
@@ -443,7 +442,7 @@ export const therundownCurrentOddsProvider: CurrentOddsProvider = {
     const sports = (
       await Promise.all(
         THERUNDOWN_SUPPORTED_LEAGUES.flatMap((leagueKey) =>
-          dateKeys.map((dateKey) => fetchLeagueBoard(leagueKey, dateKey))
+          dateKeys.slice(0, 1).map((dateKey) => fetchLeagueBoard(leagueKey, dateKey))
         )
       )
     ).filter(Boolean) as CurrentOddsSport[];
