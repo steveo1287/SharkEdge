@@ -136,6 +136,8 @@ export type OpportunitySizingReasonCode =
   | "PORTFOLIO_MARKET_CAP"
   | "CORRELATED_WITH_OPEN_EXPOSURE"
   | "BETTER_CAPITAL_USE_EXISTS"
+  | "THESIS_CLUSTER_DUPLICATE"
+  | "THESIS_CLUSTER_CORRELATED"
   | "PORTFOLIO_INCLUDED"
   | "PORTFOLIO_EXCLUDED";
 
@@ -654,6 +656,10 @@ export type OpportunityRankingView = {
   marketPathQualityScore: number;
   portfolioFitScore: number;
   actionModifier: number;
+  expectedClvScore: number;
+  fragilityScore: number;
+  trendReliabilityScore: number;
+  recommendationTier: "PRIME" | "ACTIONABLE" | "WATCH" | "PASS";
   notes: string[];
 };
 
@@ -664,6 +670,28 @@ export type OpportunitySurfacingView = {
   visibility: OpportunitySurfacingVisibility;
   surfacedBecause: string;
   cautionReasons: string[];
+};
+
+
+export type OpportunityThesisClusterType =
+  | "PLAYER_PROP_DIRECTION"
+  | "PLAYER_PROP_FAMILY"
+  | "EVENT_TOTAL"
+  | "EVENT_SIDE"
+  | "EVENT_MONEYLINE"
+  | "EVENT_GENERIC";
+
+export type OpportunityThesisClusterView = {
+  clusterKey: string;
+  correlationGroup: string;
+  clusterType: OpportunityThesisClusterType;
+  label: string;
+  duplicateCount: number;
+  correlationCount: number;
+  overlapScore: number;
+  relatedOpportunityIds: string[];
+  primaryOpportunityId: string | null;
+  isPrimary: boolean;
 };
 
 export type OpportunityView = {
@@ -712,6 +740,8 @@ export type OpportunityView = {
   trapFlags: OpportunityTrapFlag[];
   whyItShows: string[];
   whatCouldKillIt: string[];
+  triggerSummary: string;
+  killSummary: string;
   reasonSummary: string;
   personalizationAdjustments: OpportunityPersonalizationAdjustment[];
   sourceHealth: OpportunitySourceHealth;
@@ -719,7 +749,24 @@ export type OpportunityView = {
   scoreComponents: OpportunityScoreComponents;
   truthCalibration: OpportunityTruthCalibrationView;
   truthClassification: MarketTruthClassification | null;
+  decisionAction?: OpportunityDecisionAction | null;
+  stakeTier?: "TINY" | "SMALL" | "MEDIUM" | "LARGE" | null;
+  decisionRationale?: string[];
+  marketRegime?: MarketRegimeTag | null;
+  staleLineProbability?: number | null;
+  bookSoftnessScore?: number | null;
+  executionQualityScore?: number | null;
+  fairOddsAmerican?: number | null;
+  fairProbability?: number | null;
+  modelEdgePercent?: number | null;
+  pushProbability?: number | null;
+  confidenceBandLow?: number | null;
+  confidenceBandHigh?: number | null;
+  pricingModel?: "NORMAL_APPROX" | null;
+  thesisCluster?: OpportunityThesisClusterView | null;
 };
+
+export type RankedOpportunity = OpportunityView;
 
 export type OpportunityProfile = {
   preferredLeagues: Set<LeagueKey>;
@@ -743,4 +790,121 @@ export type OpportunityHomeSnapshot = {
   propsTop: OpportunityView[];
   traps: OpportunityView[];
   timingWindows: OpportunityView[];
+};
+
+
+export type OpportunityDecisionAction = "BET_NOW" | "WAIT" | "WATCH" | "PASS"
+
+export type DecisionReadyOpportunity = OpportunityView & {
+  decisionAction?: OpportunityDecisionAction
+  stakeTier?: "TINY" | "SMALL" | "MEDIUM" | "LARGE"
+  decisionRationale?: string[]
+}
+
+
+export type MarketRegimeTag =
+  | "OPEN_SOFT"
+  | "MID_MARKET"
+  | "PRECLOSE_SHARP"
+  | "NEWS_SENSITIVE"
+  | "LOW_LIQUIDITY"
+
+export type MarketAwareOpportunity = DecisionReadyOpportunity & {
+  marketRegime?: MarketRegimeTag
+  staleLineProbability?: number
+  bookSoftnessScore?: number
+  executionQualityScore?: number
+}
+
+
+export type PricedOpportunity = MarketAwareOpportunity & {
+  fairOddsAmerican?: number
+  fairProbability?: number
+  modelEdgePercent?: number
+  pushProbability?: number
+  confidenceBandLow?: number
+  confidenceBandHigh?: number
+  pricingModel?: "NORMAL_APPROX"
+}
+
+
+export type OpportunityGradingGrade =
+  | "STRONG"
+  | "POSITIVE"
+  | "MIXED"
+  | "NEGATIVE"
+  | "INSUFFICIENT_SAMPLE";
+
+export type OpportunityGradingMetricCard = {
+  key: string;
+  label: string;
+  value: string;
+  detail: string;
+  grade: OpportunityGradingGrade;
+};
+
+export type OpportunityGradingBreakdownRow = {
+  key: string;
+  label: string;
+  surfaced: number;
+  closed: number;
+  beatClosePct: number | null;
+  averageClvPct: number | null;
+  averageTruthScore: number | null;
+  grade: OpportunityGradingGrade;
+};
+
+export type OpportunityGradingTimingRow = {
+  key: string;
+  label: string;
+  surfaced: number;
+  replayQualified: number;
+  hitNowCorrectPct: number | null;
+  waitWasBetterPct: number | null;
+  edgeDiedFastPct: number | null;
+  averageTimingReviewScore: number | null;
+  averageClvPct: number | null;
+  grade: OpportunityGradingGrade;
+};
+
+export type OpportunityGradingReasonRow = {
+  key: string;
+  category: OpportunityReasonLaneCategory;
+  label: string;
+  surfaced: number;
+  closed: number;
+  beatClosePct: number | null;
+  averageClvPct: number | null;
+  averageTruthScore: number | null;
+  grade: OpportunityGradingGrade;
+};
+
+export type OpportunityGradingDashboardView = {
+  generatedAt: string;
+  league: LeagueKey | "ALL";
+  since: string;
+  reviewWindowDays: number;
+  summary: string;
+  totals: {
+    surfaced: number;
+    closed: number;
+    beatClose: number;
+    lostClose: number;
+    pushClose: number;
+    matchedExecutions: number;
+    wins: number;
+    losses: number;
+    pushes: number;
+    unresolved: number;
+  };
+  headlineMetrics: OpportunityGradingMetricCard[];
+  actionBreakdown: OpportunityGradingBreakdownRow[];
+  confidenceBreakdown: OpportunityGradingBreakdownRow[];
+  regimeBreakdown: OpportunityGradingBreakdownRow[];
+  marketBreakdown: OpportunityGradingBreakdownRow[];
+  sportsbookBreakdown: OpportunityGradingBreakdownRow[];
+  timingByAction: OpportunityGradingTimingRow[];
+  timingByRegime: OpportunityGradingTimingRow[];
+  reasonLeaders: OpportunityGradingReasonRow[];
+  recentReviews: OpportunityPostCloseReviewView[];
 };

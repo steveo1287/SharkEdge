@@ -11,13 +11,13 @@ export function TrendSignalPanel({ trend }: { trend: TrendCardView }) {
     >
       <div className="flex items-center justify-between gap-3">
         <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-          Trend support
+          Predictive trend
         </div>
         <TrendValueBadge tone={trend.tone} value={trend.value} />
       </div>
 
       <div className="mt-3 text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
-        {trend.sampleSize} samples
+        {trend.sampleSize} qualified samples
       </div>
 
       <div className="mt-3 text-lg font-semibold leading-tight text-white">

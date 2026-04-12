@@ -391,6 +391,10 @@ function buildRiskFlags(reasonCodes: OpportunitySizingReasonCode[]) {
         return "WATCH posture means no live allocation yet.";
       case "ACTION_PASS_NO_ALLOCATION":
         return "PASS posture blocks allocation.";
+      case "THESIS_CLUSTER_DUPLICATE":
+        return "A stronger version of this thesis already exists on the board.";
+      case "THESIS_CLUSTER_CORRELATED":
+        return "This bet overlaps a thesis cluster that is already active.";
       default:
         return null;
     }

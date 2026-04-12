@@ -712,6 +712,8 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     trapFlags,
     whyItShows: explanation.whyItShows,
     whatCouldKillIt: explanation.whatCouldKillIt,
+    triggerSummary: explanation.triggerSummary,
+    killSummary: explanation.killSummary,
     reasonSummary: explanation.reasonSummary,
     personalizationAdjustments,
     sourceHealth: {
