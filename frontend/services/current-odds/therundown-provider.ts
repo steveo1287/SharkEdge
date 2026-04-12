@@ -31,7 +31,7 @@ const THERUNDOWN_SUPPORTED_LEAGUES: LeagueKey[] = [
   "NFL",
   "NCAAF"
 ];
-const THERUNDOWN_PROVIDER_TIMEOUT_MS = 2_500;
+const THERUNDOWN_PROVIDER_TIMEOUT_MS = 8_000;
 const THERUNDOWN_BOARD_CACHE_TTL_MS = 30_000;
 const THERUNDOWN_SPORT_IDS: Record<Exclude<LeagueKey, "UFC" | "BOXING">, number> = {
   NCAAF: 1,
@@ -389,6 +389,31 @@ async function fetchLeagueBoard(leagueKey: LeagueKey, dateKey: string) {
   } satisfies CurrentOddsSport;
 }
 
+async function fetchEmergencyBoardFallback() {
+  const fallbackLeagues: LeagueKey[] = ["MLB", "NBA"];
+  const dateKey = formatDateKey(new Date());
+
+  const sports = (
+    await Promise.all(
+      fallbackLeagues.map((leagueKey) => fetchLeagueBoard(leagueKey, dateKey))
+    )
+  ).filter(Boolean) as CurrentOddsSport[];
+
+  if (!sports.length) {
+    return null;
+  }
+
+  return {
+    configured: true,
+    generated_at: new Date().toISOString(),
+    provider: "therundown",
+    provider_mode: "therundown_emergency_fallback",
+    bookmakers: getAffiliateIds().join(","),
+    errors: ["Primary TheRundown board sweep returned empty; emergency fallback scope is active."],
+    sports
+  } satisfies CurrentOddsBoardResponse;
+}
+
 export const therundownCurrentOddsProvider: CurrentOddsProvider = {
   key: "therundown",
   label: "The Rundown",
@@ -435,11 +460,13 @@ export const therundownCurrentOddsProvider: CurrentOddsProvider = {
     } satisfies CurrentOddsBoardResponse)
       : null;
 
+    const resolvedPayload = payload ?? (await fetchEmergencyBoardFallback());
+
     global.sharkedgeTheRundownBoardCache = {
       generatedAtMs: Date.now(),
-      payload
+      payload: resolvedPayload
     };
 
-    return payload;
+    return resolvedPayload;
   }
 };
