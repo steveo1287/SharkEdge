@@ -201,6 +201,7 @@ function getTrendReliabilityScore(opportunity: OpportunityView) {
 
   const trendIntelligenceLift = opportunity.trendIntelligence
     ? opportunity.trendIntelligence.reliabilityScore * 0.26 +
+      opportunity.trendIntelligence.sourceCoverageScore * 0.14 +
       opportunity.trendIntelligence.supportiveLensCount * 3 -
       opportunity.trendIntelligence.contraryLensCount * 5 -
       opportunity.trendIntelligence.pendingLensCount * 1.5

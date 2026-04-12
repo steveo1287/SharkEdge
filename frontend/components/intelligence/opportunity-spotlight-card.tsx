@@ -238,9 +238,23 @@ export function OpportunitySpotlightCard({
               <Badge tone="premium">
                 {opportunity.trendIntelligence.activeLensCount} lenses
               </Badge>
+              <Badge
+                tone={
+                  opportunity.trendIntelligence.sourceCoverageScore >= 70
+                    ? "success"
+                    : opportunity.trendIntelligence.sourceCoverageScore >= 45
+                      ? "premium"
+                      : "muted"
+                }
+              >
+                Source {opportunity.trendIntelligence.sourceCoverageScore}
+              </Badge>
             </div>
             <div className="mt-2 text-slate-200">
               {opportunity.trendIntelligence.summary}
+            </div>
+            <div className="mt-1 text-slate-400">
+              {opportunity.trendIntelligence.sourceSummary}
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
               {opportunity.trendIntelligence.lenses
@@ -259,7 +273,7 @@ export function OpportunitySpotlightCard({
                             : "muted"
                     }
                   >
-                    {lens.label} {lens.state.toLowerCase().replace(/_/g, " ")}
+                    {lens.label} {lens.state.toLowerCase().replace(/_/g, " ")}{lens.sourceStatus ? ` · ${lens.sourceStatus.toLowerCase().replace(/_/g, " ")}` : ""}
                   </Badge>
                 ))}
             </div>

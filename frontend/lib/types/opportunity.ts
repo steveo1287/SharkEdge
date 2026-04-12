@@ -791,8 +791,21 @@ export type OpportunityHomeSnapshot = {
   timingWindows: OpportunityView[];
 };
 
-export type RankedOpportunity = OpportunityView;
 
+export type RankedOpportunity = {
+  score: number;
+  expectedClvScore?: number | null;
+  fragilityScore?: number | null;
+  trendReliabilityScore?: number | null;
+  marketPathScore?: number | null;
+  capitalEfficiencyScore?: number | null;
+  book?: string | null;
+  sportsbook?: string | null;
+  lineMovementScore?: number | null;
+  liquidityScore?: number | null;
+  timeToStartMinutes?: number | null;
+  executionQualityScore?: number | null;
+};
 
 export type OpportunityDecisionAction = "BET_NOW" | "WAIT" | "WATCH" | "PASS"
 
@@ -928,6 +941,14 @@ export type OpportunityTrendLensState =
 
 export type OpportunityTrendLensConfidence = "HIGH" | "MEDIUM" | "LOW";
 
+export type OpportunityTrendSourceStatus =
+  | "JOINED"
+  | "PAYLOAD_ONLY"
+  | "MISSING"
+  | "NOT_APPLICABLE";
+
+export type OpportunityTrendSourceCoverage = "HIGH" | "MEDIUM" | "LOW";
+
 export type OpportunityTrendLensView = {
   key: OpportunityTrendLensKey;
   label: string;
@@ -937,11 +958,15 @@ export type OpportunityTrendLensView = {
   summary: string;
   evidence: string[];
   tags: string[];
+  sourceStatus?: OpportunityTrendSourceStatus;
+  sourceCoverage?: OpportunityTrendSourceCoverage;
 };
 
 export type OpportunityTrendIntelligenceView = {
   intelligenceScore: number;
   reliabilityScore: number;
+  sourceCoverageScore: number;
+  sourceSummary: string;
   summary: string;
   topAngle: string | null;
   activeLensCount: number;
