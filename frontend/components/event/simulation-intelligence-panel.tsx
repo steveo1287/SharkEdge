@@ -150,6 +150,38 @@ export function SimulationIntelligencePanel({ simulation }: Props) {
             </div>
           ) : null}
 
+          {simulation.bookMarketState ? (
+            <div className="grid gap-3 lg:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Book mesh</div>
+                <div className="mt-2 text-lg font-semibold text-white">
+                  {simulation.bookMarketState.summary.booksInMesh.length} books
+                </div>
+                <div className="mt-2 text-sm leading-6 text-slate-300">
+                  {simulation.bookMarketState.summary.gameMarketCount} game markets · {simulation.bookMarketState.summary.playerMarketCount} player markets
+                </div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Outliers</div>
+                <div className="mt-2 text-lg font-semibold text-white">
+                  {simulation.bookMarketState.summary.outlierBookCount}
+                </div>
+                <div className="mt-2 text-sm leading-6 text-slate-300">
+                  Books currently hanging numbers away from consensus.
+                </div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Stale books</div>
+                <div className="mt-2 text-lg font-semibold text-white">
+                  {simulation.bookMarketState.summary.staleBookCount}
+                </div>
+                <div className="mt-2 text-sm leading-6 text-slate-300">
+                  Mesh entries older than the current median freshness band.
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {driverBuckets.length ? (
             <div className="grid gap-3 lg:grid-cols-3">
               {driverBuckets.map((bucket) => (

@@ -18,8 +18,6 @@ type PlayerWorkbenchOption = {
   medianValue: number;
   stdDev: number;
   marketLine: number | null;
-  overOdds: number | null;
-  underOdds: number | null;
   p10: number | null;
   p50: number | null;
   p90: number | null;
@@ -110,10 +108,10 @@ function getPlayerStep(statKey: string, meanValue: number) {
   return 0.5;
 }
 
-function buildAltLines(baseLine: number, step: number, count = 2) {
+function buildAltLines(baseLine: number, step: number, count = 3) {
   const lines: number[] = [];
   for (let offset = -count; offset <= count; offset += 1) {
-    lines.push(round(baseLine + offset * step, step >= 1 ? 1 : 1));
+    lines.push(round(baseLine + offset * step, 1));
   }
   return Array.from(new Set(lines)).sort((left, right) => left - right);
 }
@@ -132,11 +130,9 @@ function getToneFromEdge(value: number) {
 
 function extractPlayerOptions(simulation: EventSimulationView): PlayerWorkbenchOption[] {
   return simulation.topPlayerProjections
-    .map((projection: EventSimulationView["topPlayerProjections"][number]) => {
+    .map((projection) => {
       const metadata = getRecord(projection.metadata);
       const marketLine = getNumber(metadata.marketLine);
-      const overOdds = getNumber(metadata.marketOddsOver);
-      const underOdds = getNumber(metadata.marketOddsUnder);
       const playerName =
         typeof metadata.playerName === "string" && metadata.playerName.trim().length
           ? metadata.playerName
@@ -153,15 +149,17 @@ function extractPlayerOptions(simulation: EventSimulationView): PlayerWorkbenchO
         medianValue: projection.medianValue ?? projection.meanValue,
         stdDev: projection.stdDev,
         marketLine,
-        overOdds,
-        underOdds,
         p10: getNumber(metadata.p10),
         p50: getNumber(metadata.p50),
         p90: getNumber(metadata.p90),
-        drivers
+        drivers,
       } satisfies PlayerWorkbenchOption;
     })
-    .sort((left: PlayerWorkbenchOption, right: PlayerWorkbenchOption) => Math.abs((right.marketLine ?? right.meanValue) - right.meanValue) - Math.abs((left.marketLine ?? left.meanValue) - left.meanValue));
+    .sort(
+      (left, right) =>
+        Math.abs((right.marketLine ?? right.meanValue) - right.meanValue) -
+        Math.abs((left.marketLine ?? left.meanValue) - left.meanValue)
+    );
 }
 
 function extractGameMarkets(simulation: EventSimulationView): GameMarketOption[] {
@@ -191,12 +189,11 @@ function extractGameMarkets(simulation: EventSimulationView): GameMarketOption[]
       comparison.marketType === "total"
         ? p10Total
         : round(comparison.projected - 1.28155 * spreadStdDev, 1),
-    scenarioMid:
-      comparison.marketType === "total" ? p50Total : comparison.projected,
+    scenarioMid: comparison.marketType === "total" ? p50Total : comparison.projected,
     scenarioHigh:
       comparison.marketType === "total"
         ? p90Total
-        : round(comparison.projected + 1.28155 * spreadStdDev, 1)
+        : round(comparison.projected + 1.28155 * spreadStdDev, 1),
   }));
 }
 
@@ -206,7 +203,7 @@ function buildProbabilityRow(mean: number, stdDev: number, line: number) {
   return {
     overProbability,
     underProbability,
-    edgeVsLine: round(mean - line, 2)
+    edgeVsLine: round(mean - line, 2),
   };
 }
 
@@ -214,12 +211,23 @@ export function SimulationWorkbench({ simulation }: Props) {
   const playerOptions = useMemo(() => extractPlayerOptions(simulation), [simulation]);
   const gameMarkets = useMemo(() => extractGameMarkets(simulation), [simulation]);
 
+  const bookGameMarkets = simulation.bookMarketState?.gameMarkets ?? [];
+  const bookPlayerMarkets = simulation.bookMarketState?.playerMarkets ?? [];
+
   const [gameMarketKey, setGameMarketKey] = useState<"total" | "spread_home">(
     gameMarkets[0]?.key ?? "total"
   );
   const selectedGameMarket =
     gameMarkets.find((market) => market.key === gameMarketKey) ?? gameMarkets[0] ?? null;
-  const [gameLineMode, setGameLineMode] = useState<"market" | "custom">("market");
+  const selectedGameBookMarket =
+    bookGameMarkets.find((market) => market.marketType === gameMarketKey) ?? null;
+
+  const [gameLineMode, setGameLineMode] = useState<"consensus" | "book" | "custom">(
+    selectedGameBookMarket?.books.length ? "book" : "consensus"
+  );
+  const [selectedGameBookKey, setSelectedGameBookKey] = useState<string>(
+    selectedGameBookMarket?.bestBook ? `${selectedGameBookMarket.bestBook.bookKey}:${selectedGameBookMarket.bestBook.line}` : selectedGameBookMarket?.books[0] ? `${selectedGameBookMarket.books[0].bookKey}:${selectedGameBookMarket.books[0].line}` : ""
+  );
   const [gameCustomLine, setGameCustomLine] = useState<string>(
     selectedGameMarket ? String(selectedGameMarket.marketLine) : ""
   );
@@ -227,10 +235,32 @@ export function SimulationWorkbench({ simulation }: Props) {
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>(playerOptions[0]?.id ?? "");
   const selectedPlayer =
     playerOptions.find((option) => option.id === selectedPlayerId) ?? playerOptions[0] ?? null;
-  const [playerLineMode, setPlayerLineMode] = useState<"market" | "custom">("market");
-  const [playerCustomLine, setPlayerCustomLine] = useState<string>(
-    selectedPlayer?.marketLine != null ? String(selectedPlayer.marketLine) : String(round(selectedPlayer?.meanValue ?? 0, 1))
+  const selectedPlayerBookMarket =
+    bookPlayerMarkets.find((market) => market.key === selectedPlayerId) ?? null;
+
+  const [playerLineMode, setPlayerLineMode] = useState<"consensus" | "book" | "custom">(
+    selectedPlayerBookMarket?.books.length ? "book" : "consensus"
   );
+  const [selectedPlayerBookKey, setSelectedPlayerBookKey] = useState<string>(
+    selectedPlayerBookMarket?.bestBook ? `${selectedPlayerBookMarket.bestBook.bookKey}:${selectedPlayerBookMarket.bestBook.line}` : selectedPlayerBookMarket?.books[0] ? `${selectedPlayerBookMarket.books[0].bookKey}:${selectedPlayerBookMarket.books[0].line}` : ""
+  );
+  const [playerCustomLine, setPlayerCustomLine] = useState<string>(
+    selectedPlayer?.marketLine != null
+      ? String(selectedPlayer.marketLine)
+      : String(round(selectedPlayer?.meanValue ?? 0, 1))
+  );
+
+  const selectedGameBook =
+    selectedGameBookMarket?.books.find((book) => `${book.bookKey}:${book.line}` === selectedGameBookKey) ??
+    selectedGameBookMarket?.bestBook ??
+    selectedGameBookMarket?.books[0] ??
+    null;
+
+  const selectedPlayerBook =
+    selectedPlayerBookMarket?.books.find((book) => `${book.bookKey}:${book.line}` === selectedPlayerBookKey) ??
+    selectedPlayerBookMarket?.bestBook ??
+    selectedPlayerBookMarket?.books[0] ??
+    null;
 
   const effectiveGameLine = useMemo(() => {
     if (!selectedGameMarket) {
@@ -240,8 +270,15 @@ export function SimulationWorkbench({ simulation }: Props) {
       const parsed = Number(gameCustomLine);
       return Number.isFinite(parsed) ? parsed : selectedGameMarket.marketLine;
     }
-    return selectedGameMarket.marketLine;
-  }, [gameCustomLine, gameLineMode, selectedGameMarket]);
+    if (gameLineMode === "book") {
+      return (
+        selectedGameBook?.line ??
+        selectedGameBookMarket?.consensusLine ??
+        selectedGameMarket.marketLine
+      );
+    }
+    return selectedGameBookMarket?.consensusLine ?? selectedGameMarket.marketLine;
+  }, [gameCustomLine, gameLineMode, selectedGameBook, selectedGameBookMarket, selectedGameMarket]);
 
   const effectivePlayerLine = useMemo(() => {
     if (!selectedPlayer) {
@@ -253,8 +290,20 @@ export function SimulationWorkbench({ simulation }: Props) {
         ? parsed
         : selectedPlayer.marketLine ?? round(selectedPlayer.meanValue, 1);
     }
-    return selectedPlayer.marketLine ?? round(selectedPlayer.meanValue, 1);
-  }, [playerCustomLine, playerLineMode, selectedPlayer]);
+    if (playerLineMode === "book") {
+      return (
+        selectedPlayerBook?.line ??
+        selectedPlayerBookMarket?.consensusLine ??
+        selectedPlayer.marketLine ??
+        round(selectedPlayer.meanValue, 1)
+      );
+    }
+    return (
+      selectedPlayerBookMarket?.consensusLine ??
+      selectedPlayer.marketLine ??
+      round(selectedPlayer.meanValue, 1)
+    );
+  }, [playerCustomLine, playerLineMode, selectedPlayer, selectedPlayerBook, selectedPlayerBookMarket]);
 
   const gameProbabilities =
     selectedGameMarket && effectiveGameLine != null
@@ -271,14 +320,18 @@ export function SimulationWorkbench({ simulation }: Props) {
       : [];
   const playerAltLines =
     selectedPlayer && effectivePlayerLine != null
-      ? buildAltLines(effectivePlayerLine, getPlayerStep(selectedPlayer.statKey, selectedPlayer.meanValue), 3)
+      ? buildAltLines(
+          effectivePlayerLine,
+          getPlayerStep(selectedPlayer.statKey, selectedPlayer.meanValue),
+          3
+        )
       : [];
 
   const playerBand = selectedPlayer
     ? {
         low: selectedPlayer.p10 ?? getScenarioBand(selectedPlayer.meanValue, selectedPlayer.stdDev).low,
         mid: selectedPlayer.p50 ?? round(selectedPlayer.medianValue, 1),
-        high: selectedPlayer.p90 ?? getScenarioBand(selectedPlayer.meanValue, selectedPlayer.stdDev).high
+        high: selectedPlayer.p90 ?? getScenarioBand(selectedPlayer.meanValue, selectedPlayer.stdDev).high,
       }
     : null;
 
@@ -291,14 +344,14 @@ export function SimulationWorkbench({ simulation }: Props) {
               Interactive sim workstation
             </div>
             <div className="mt-1 text-[1.2rem] font-semibold text-white">
-              Work the line against the model
+              Work the book mesh against the model
             </div>
             <div className="mt-2 text-sm leading-6 text-slate-400">
-              Current build supports consensus line or custom line reruns. True per-book selection still needs book-level prop states in the event payload.
+              MLB build now supports consensus, book-native, or custom-line reruns using the current market mesh.
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Badge tone="muted">Live line compare</Badge>
+            <Badge tone="muted">Consensus vs book</Badge>
             <Badge tone="muted">Alt line ladder</Badge>
             <Badge tone="muted">Scenario ranges</Badge>
           </div>
@@ -311,7 +364,7 @@ export function SimulationWorkbench({ simulation }: Props) {
                 <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Game markets</div>
                 <div className="mt-1 text-lg font-semibold text-white">Side and total rerun</div>
               </div>
-              {selectedGameMarket ? <Badge tone="muted">{selectedGameMarket.label}</Badge> : null}
+              {selectedGameBookMarket ? <Badge tone="muted">{selectedGameBookMarket.simSide}</Badge> : null}
             </div>
 
             {selectedGameMarket ? (
@@ -321,11 +374,21 @@ export function SimulationWorkbench({ simulation }: Props) {
                     <span className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Market</span>
                     <select
                       value={selectedGameMarket.key}
-                      onChange={(event: any) => {
-                        setGameMarketKey(event.target.value as "total" | "spread_home");
-                        const nextMarket = gameMarkets.find((market) => market.key === event.target.value);
+                      onChange={(event) => {
+                        const nextKey = event.target.value as "total" | "spread_home";
+                        setGameMarketKey(nextKey);
+                        const nextMarket = gameMarkets.find((market) => market.key === nextKey);
+                        const nextBookMarket =
+                          bookGameMarkets.find((market) => market.marketType === nextKey) ?? null;
                         if (nextMarket) {
                           setGameCustomLine(String(nextMarket.marketLine));
+                        }
+                        if (nextBookMarket?.books[0]) {
+                          setSelectedGameBookKey(
+                            nextBookMarket.bestBook
+                              ? `${nextBookMarket.bestBook.bookKey}:${nextBookMarket.bestBook.line}`
+                              : `${nextBookMarket.books[0].bookKey}:${nextBookMarket.books[0].line}`
+                          );
                         }
                       }}
                       className="rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-3 text-white outline-none"
@@ -343,17 +406,26 @@ export function SimulationWorkbench({ simulation }: Props) {
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          setGameLineMode("market");
-                          setGameCustomLine(String(selectedGameMarket.marketLine));
-                        }}
+                        onClick={() => setGameLineMode("consensus")}
                         className={`rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] ${
-                          gameLineMode === "market"
+                          gameLineMode === "consensus"
                             ? "border-sky-400/30 bg-sky-500/10 text-sky-300"
                             : "border-white/10 bg-slate-950/70 text-slate-400"
                         }`}
                       >
-                        Current market
+                        Consensus
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!selectedGameBookMarket?.books.length}
+                        onClick={() => setGameLineMode("book")}
+                        className={`rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] ${
+                          gameLineMode === "book"
+                            ? "border-sky-400/30 bg-sky-500/10 text-sky-300"
+                            : "border-white/10 bg-slate-950/70 text-slate-400"
+                        } disabled:cursor-not-allowed disabled:opacity-40`}
+                      >
+                        Book
                       </button>
                       <button
                         type="button"
@@ -364,68 +436,127 @@ export function SimulationWorkbench({ simulation }: Props) {
                             : "border-white/10 bg-slate-950/70 text-slate-400"
                         }`}
                       >
-                        Custom line
+                        Custom
                       </button>
                     </div>
                   </div>
                 </div>
 
-                <label className="grid gap-2 text-sm text-slate-300">
-                  <span className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Line</span>
-                  <input
-                    value={gameLineMode === "custom" ? gameCustomLine : String(selectedGameMarket.marketLine)}
-                    onChange={(event: any) => setGameCustomLine(event.target.value)}
-                    disabled={gameLineMode !== "custom"}
-                    inputMode="decimal"
-                    className="rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-3 text-white outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                  />
-                </label>
+                {gameLineMode === "book" && selectedGameBookMarket?.books.length ? (
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    <span className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Book</span>
+                    <select
+                      value={selectedGameBook ? `${selectedGameBook.bookKey}:${selectedGameBook.line}` : selectedGameBookKey}
+                      onChange={(event) => setSelectedGameBookKey(event.target.value)}
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-3 text-white outline-none"
+                    >
+                      {selectedGameBookMarket.books.map((book) => (
+                        <option key={`${book.bookKey}:${book.line}`} value={`${book.bookKey}:${book.line}`}>
+                          {book.bookName} · line {book.line}
+                          {book.oddsAmerican != null
+                            ? ` · ${book.oddsAmerican > 0 ? "+" : ""}${book.oddsAmerican}`
+                            : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
 
-                {gameProbabilities ? (
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Projected</div>
-                      <div className="mt-2 text-lg font-semibold text-white">{selectedGameMarket.projected.toFixed(1)}</div>
+                {gameLineMode === "custom" ? (
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    <span className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Custom line</span>
+                    <input
+                      value={gameCustomLine}
+                      onChange={(event) => setGameCustomLine(event.target.value)}
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-3 text-white outline-none"
+                    />
+                  </label>
+                ) : null}
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl bg-white/[0.04] p-3">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Projected</div>
+                    <div className="mt-2 text-lg font-semibold text-white">{selectedGameMarket.projected.toFixed(1)}</div>
+                  </div>
+                  <div className="rounded-2xl bg-white/[0.04] p-3">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Active line</div>
+                    <div className="mt-2 text-lg font-semibold text-white">
+                      {effectiveGameLine != null ? effectiveGameLine.toFixed(1) : "—"}
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Over / home cover</div>
-                      <div className="mt-2 text-lg font-semibold text-white">{formatProbability(gameProbabilities.overProbability)}</div>
+                  </div>
+                  <div className="rounded-2xl bg-white/[0.04] p-3">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Sim side</div>
+                    <div className="mt-2 text-lg font-semibold text-white">
+                      {selectedGameBookMarket?.simSide ?? "NONE"}
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Edge vs line</div>
-                      <div className="mt-2 text-lg font-semibold text-white">{formatSigned(gameProbabilities.edgeVsLine, 2)}</div>
+                  </div>
+                </div>
+
+                {selectedGameBook ? (
+                  <div className="grid gap-2 rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-sm text-slate-300">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>{selectedGameBook.bookName}</div>
+                      <div className="flex gap-2">
+                        {selectedGameBook.isOutlier ? <Badge tone="brand">Outlier</Badge> : null}
+                        {selectedGameBook.isStale ? <Badge tone="muted">Stale</Badge> : null}
+                      </div>
+                    </div>
+                    <div className="text-slate-400">
+                      Line {selectedGameBook.line.toFixed(1)}
+                      {selectedGameBook.oddsAmerican != null
+                        ? ` · odds ${selectedGameBook.oddsAmerican > 0 ? "+" : ""}${selectedGameBook.oddsAmerican}`
+                        : ""}
+                      {selectedGameBook.deltaFromConsensus != null
+                        ? ` · vs consensus ${formatSigned(selectedGameBook.deltaFromConsensus, 2)}`
+                        : ""}
+                      {` · ${selectedGameBook.freshnessMinutes}m old`}
                     </div>
                   </div>
                 ) : null}
 
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Scenario range</div>
-                    <div className="mt-2 text-sm leading-6 text-slate-300">
-                      Low {selectedGameMarket.scenarioLow?.toFixed(1) ?? "—"} · Mid {selectedGameMarket.scenarioMid?.toFixed(1) ?? "—"} · High {selectedGameMarket.scenarioHigh?.toFixed(1) ?? "—"}
+                {gameProbabilities ? (
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-2xl bg-white/[0.04] p-3">
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                        {selectedGameMarket.key === "total" ? "Over prob" : "Home cover prob"}
+                      </div>
+                      <div className="mt-2 text-lg font-semibold text-white">
+                        {formatProbability(gameProbabilities.overProbability)}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-white/[0.04] p-3">
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                        {selectedGameMarket.key === "total" ? "Under prob" : "Away cover prob"}
+                      </div>
+                      <div className="mt-2 text-lg font-semibold text-white">
+                        {formatProbability(gameProbabilities.underProbability)}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-white/[0.04] p-3">
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Edge vs line</div>
+                      <div className="mt-2 text-lg font-semibold text-white">
+                        {formatSigned(gameProbabilities.edgeVsLine, 2)}
+                      </div>
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Alternate lines</div>
+                ) : null}
+
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="rounded-2xl bg-white/[0.04] p-3">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Scenario range</div>
+                    <div className="mt-2 text-sm leading-6 text-slate-300">
+                      {selectedGameMarket.scenarioLow?.toFixed(1) ?? "—"} · {selectedGameMarket.scenarioMid?.toFixed(1) ?? "—"} · {selectedGameMarket.scenarioHigh?.toFixed(1) ?? "—"}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl bg-white/[0.04] p-3">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Alt line ladder</div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {gameAltLines.map((line) => {
-                        const probs = buildProbabilityRow(
-                          selectedGameMarket.projected,
-                          selectedGameMarket.stdDev,
-                          line
-                        );
+                        const probability = buildProbabilityRow(selectedGameMarket.projected, selectedGameMarket.stdDev, line);
                         return (
-                          <button
-                            key={line}
-                            type="button"
-                            onClick={() => {
-                              setGameLineMode("custom");
-                              setGameCustomLine(String(line));
-                            }}
-                            className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-300"
-                          >
-                            {line.toFixed(1)} · {formatProbability(probs.overProbability)}
-                          </button>
+                          <Badge key={line} tone={getToneFromEdge(probability.edgeVsLine)}>
+                            {line.toFixed(1)} · {formatProbability(probability.overProbability)}
+                          </Badge>
                         );
                       })}
                     </div>
@@ -433,30 +564,41 @@ export function SimulationWorkbench({ simulation }: Props) {
                 </div>
               </div>
             ) : (
-              <div className="mt-4 text-sm leading-6 text-slate-400">Game market comparisons are not populated for this event yet.</div>
+              <div className="mt-4 text-sm text-slate-400">No game market projections are available.</div>
             )}
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Player prop workbench</div>
-                <div className="mt-1 text-lg font-semibold text-white">Prop rerun against custom line</div>
+                <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Player markets</div>
+                <div className="mt-1 text-lg font-semibold text-white">Prop rerun</div>
               </div>
-              {selectedPlayer ? <Badge tone="muted">{formatStatLabel(selectedPlayer.statKey)}</Badge> : null}
+              {selectedPlayerBookMarket ? <Badge tone="muted">{selectedPlayerBookMarket.simSide}</Badge> : null}
             </div>
 
             {selectedPlayer ? (
               <div className="mt-4 grid gap-4">
                 <label className="grid gap-2 text-sm text-slate-300">
-                  <span className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Player and prop</span>
+                  <span className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Prop</span>
                   <select
                     value={selectedPlayer.id}
-                    onChange={(event: any) => {
-                      setSelectedPlayerId(event.target.value);
-                      const nextPlayer = playerOptions.find((option) => option.id === event.target.value);
+                    onChange={(event) => {
+                      const nextKey = event.target.value;
+                      setSelectedPlayerId(nextKey);
+                      const nextPlayer = playerOptions.find((option) => option.id === nextKey) ?? null;
+                      const nextBookMarket = bookPlayerMarkets.find((market) => market.key === nextKey) ?? null;
                       if (nextPlayer) {
-                        setPlayerCustomLine(String(nextPlayer.marketLine ?? round(nextPlayer.meanValue, 1)));
+                        setPlayerCustomLine(
+                          String(nextPlayer.marketLine ?? round(nextPlayer.meanValue, 1))
+                        );
+                      }
+                      if (nextBookMarket?.books[0]) {
+                        setSelectedPlayerBookKey(
+                          nextBookMarket.bestBook
+                            ? `${nextBookMarket.bestBook.bookKey}:${nextBookMarket.bestBook.line}`
+                            : `${nextBookMarket.books[0].bookKey}:${nextBookMarket.books[0].line}`
+                        );
                       }
                     }}
                     className="rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-3 text-white outline-none"
@@ -469,116 +611,180 @@ export function SimulationWorkbench({ simulation }: Props) {
                   </select>
                 </label>
 
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="grid gap-2">
-                    <span className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Line source</span>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPlayerLineMode("market");
-                          setPlayerCustomLine(String(selectedPlayer.marketLine ?? round(selectedPlayer.meanValue, 1)));
-                        }}
-                        className={`rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] ${
-                          playerLineMode === "market"
-                            ? "border-sky-400/30 bg-sky-500/10 text-sky-300"
-                            : "border-white/10 bg-slate-950/70 text-slate-400"
-                        }`}
-                      >
-                        Current market
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPlayerLineMode("custom")}
-                        className={`rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] ${
-                          playerLineMode === "custom"
-                            ? "border-sky-400/30 bg-sky-500/10 text-sky-300"
-                            : "border-white/10 bg-slate-950/70 text-slate-400"
-                        }`}
-                      >
-                        Custom line
-                      </button>
-                    </div>
+                <div className="grid gap-2">
+                  <span className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Line source</span>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPlayerLineMode("consensus")}
+                      className={`rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] ${
+                        playerLineMode === "consensus"
+                          ? "border-sky-400/30 bg-sky-500/10 text-sky-300"
+                          : "border-white/10 bg-slate-950/70 text-slate-400"
+                      }`}
+                    >
+                      Consensus
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedPlayerBookMarket?.books.length}
+                      onClick={() => setPlayerLineMode("book")}
+                      className={`rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] ${
+                        playerLineMode === "book"
+                          ? "border-sky-400/30 bg-sky-500/10 text-sky-300"
+                          : "border-white/10 bg-slate-950/70 text-slate-400"
+                      } disabled:cursor-not-allowed disabled:opacity-40`}
+                    >
+                      Book
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlayerLineMode("custom")}
+                      className={`rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] ${
+                        playerLineMode === "custom"
+                          ? "border-sky-400/30 bg-sky-500/10 text-sky-300"
+                          : "border-white/10 bg-slate-950/70 text-slate-400"
+                      }`}
+                    >
+                      Custom
+                    </button>
                   </div>
-
-                  <label className="grid gap-2 text-sm text-slate-300">
-                    <span className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Line</span>
-                    <input
-                      value={playerLineMode === "custom" ? playerCustomLine : String(selectedPlayer.marketLine ?? round(selectedPlayer.meanValue, 1))}
-                      onChange={(event: any) => setPlayerCustomLine(event.target.value)}
-                      disabled={playerLineMode !== "custom"}
-                      inputMode="decimal"
-                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-3 text-white outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                    />
-                  </label>
                 </div>
 
-                {playerProbabilities ? (
-                  <div className="grid gap-3 md:grid-cols-4">
-                    <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Sim mean</div>
-                      <div className="mt-2 text-lg font-semibold text-white">{selectedPlayer.meanValue.toFixed(1)}</div>
+                {playerLineMode === "book" && selectedPlayerBookMarket?.books.length ? (
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    <span className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Book</span>
+                    <select
+                      value={selectedPlayerBook ? `${selectedPlayerBook.bookKey}:${selectedPlayerBook.line}` : selectedPlayerBookKey}
+                      onChange={(event) => setSelectedPlayerBookKey(event.target.value)}
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-3 text-white outline-none"
+                    >
+                      {selectedPlayerBookMarket.books.map((book) => (
+                        <option key={`${book.bookKey}:${book.line}`} value={`${book.bookKey}:${book.line}`}>
+                          {book.bookName} · line {book.line}
+                          {book.oddsAmerican != null
+                            ? ` · ${book.oddsAmerican > 0 ? "+" : ""}${book.oddsAmerican}`
+                            : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+
+                {playerLineMode === "custom" ? (
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    <span className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Custom line</span>
+                    <input
+                      value={playerCustomLine}
+                      onChange={(event) => setPlayerCustomLine(event.target.value)}
+                      className="rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-3 text-white outline-none"
+                    />
+                  </label>
+                ) : null}
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl bg-white/[0.04] p-3">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Sim mean</div>
+                    <div className="mt-2 text-lg font-semibold text-white">{selectedPlayer.meanValue.toFixed(2)}</div>
+                  </div>
+                  <div className="rounded-2xl bg-white/[0.04] p-3">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Active line</div>
+                    <div className="mt-2 text-lg font-semibold text-white">
+                      {effectivePlayerLine != null ? effectivePlayerLine.toFixed(1) : "—"}
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Over probability</div>
-                      <div className="mt-2 text-lg font-semibold text-white">{formatProbability(playerProbabilities.overProbability)}</div>
+                  </div>
+                  <div className="rounded-2xl bg-white/[0.04] p-3">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Sim side</div>
+                    <div className="mt-2 text-lg font-semibold text-white">
+                      {selectedPlayerBookMarket?.simSide ?? "NONE"}
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Under probability</div>
-                      <div className="mt-2 text-lg font-semibold text-white">{formatProbability(playerProbabilities.underProbability)}</div>
+                  </div>
+                </div>
+
+                {selectedPlayerBook ? (
+                  <div className="grid gap-2 rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-sm text-slate-300">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>{selectedPlayerBook.bookName}</div>
+                      <div className="flex gap-2">
+                        {selectedPlayerBook.isOutlier ? <Badge tone="brand">Outlier</Badge> : null}
+                        {selectedPlayerBook.isStale ? <Badge tone="muted">Stale</Badge> : null}
+                      </div>
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Edge vs line</div>
-                      <div className="mt-2 text-lg font-semibold text-white">{formatSigned(playerProbabilities.edgeVsLine, 2)}</div>
+                    <div className="text-slate-400">
+                      Line {selectedPlayerBook.line.toFixed(1)}
+                      {selectedPlayerBook.oddsAmerican != null
+                        ? ` · odds ${selectedPlayerBook.oddsAmerican > 0 ? "+" : ""}${selectedPlayerBook.oddsAmerican}`
+                        : ""}
+                      {selectedPlayerBook.deltaFromConsensus != null
+                        ? ` · vs consensus ${formatSigned(selectedPlayerBook.deltaFromConsensus, 2)}`
+                        : ""}
+                      {` · ${selectedPlayerBook.freshnessMinutes}m old`}
                     </div>
                   </div>
                 ) : null}
 
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Confidence band</div>
-                    <div className="mt-2 text-sm leading-6 text-slate-300">
-                      P10 {playerBand?.low?.toFixed(1) ?? "—"} · P50 {playerBand?.mid?.toFixed(1) ?? "—"} · P90 {playerBand?.high?.toFixed(1) ?? "—"}
+                {playerProbabilities ? (
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-2xl bg-white/[0.04] p-3">
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Over prob</div>
+                      <div className="mt-2 text-lg font-semibold text-white">
+                        {formatProbability(playerProbabilities.overProbability)}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-white/[0.04] p-3">
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Under prob</div>
+                      <div className="mt-2 text-lg font-semibold text-white">
+                        {formatProbability(playerProbabilities.underProbability)}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-white/[0.04] p-3">
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Edge vs line</div>
+                      <div className="mt-2 text-lg font-semibold text-white">
+                        {formatSigned(playerProbabilities.edgeVsLine, 2)}
+                      </div>
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Alternate lines</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {playerAltLines.map((line) => {
-                        const probs = buildProbabilityRow(selectedPlayer.meanValue, selectedPlayer.stdDev, line);
-                        return (
-                          <button
-                            key={line}
-                            type="button"
-                            onClick={() => {
-                              setPlayerLineMode("custom");
-                              setPlayerCustomLine(String(line));
-                            }}
-                            className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-300"
-                          >
-                            {line.toFixed(getPlayerStep(selectedPlayer.statKey, selectedPlayer.meanValue) >= 1 ? 0 : 1)} · {formatProbability(probs.overProbability)}
-                          </button>
-                        );
-                      })}
+                ) : null}
+
+                {playerBand ? (
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-2xl bg-white/[0.04] p-3">
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Confidence band</div>
+                      <div className="mt-2 text-sm leading-6 text-slate-300">
+                        {playerBand.low.toFixed(1)} · {playerBand.mid.toFixed(1)} · {playerBand.high.toFixed(1)}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-white/[0.04] p-3">
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Alt line ladder</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {playerAltLines.map((line) => {
+                          const probability = buildProbabilityRow(selectedPlayer.meanValue, selectedPlayer.stdDev, line);
+                          return (
+                            <Badge key={line} tone={getToneFromEdge(probability.edgeVsLine)}>
+                              {line.toFixed(1)} · {formatProbability(probability.overProbability)}
+                            </Badge>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : null}
 
                 {selectedPlayer.drivers.length ? (
-                  <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Why the sim moved</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
+                  <div className="rounded-2xl bg-white/[0.04] p-3">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Drivers</div>
+                    <div className="mt-2 grid gap-2 text-sm leading-6 text-slate-300">
                       {selectedPlayer.drivers.map((driver) => (
-                        <Badge key={driver} tone={getToneFromEdge(playerProbabilities?.edgeVsLine ?? 0)}>
+                        <div key={driver} className="rounded-xl bg-slate-950/40 px-3 py-2">
                           {driver}
-                        </Badge>
+                        </div>
                       ))}
                     </div>
                   </div>
                 ) : null}
               </div>
             ) : (
-              <div className="mt-4 text-sm leading-6 text-slate-400">Player prop simulations are not populated for this event yet.</div>
+              <div className="mt-4 text-sm text-slate-400">No player projections are available.</div>
             )}
           </div>
         </div>

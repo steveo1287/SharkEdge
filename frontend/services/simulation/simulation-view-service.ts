@@ -2,6 +2,7 @@ import {
   buildEventProjectionFromHistory,
   buildPlayerPropProjectionsForEvent
 } from "@/services/modeling/model-engine";
+import { buildMlbBookMarketState } from "@/services/market-intelligence/mlb-book-market-state";
 
 type SimulationComparison = {
   marketType: "total" | "spread_home";
@@ -22,6 +23,38 @@ type SimulationPlayerEdge = {
   overProbability: number | null;
   underProbability: number | null;
   drivers: string[];
+};
+
+type SimulationBookSelection = {
+  bookKey: string;
+  bookName: string;
+  line: number;
+  oddsAmerican: number | null;
+  deltaFromConsensus: number | null;
+  freshnessMinutes: number;
+  isOutlier: boolean;
+  isStale: boolean;
+};
+
+type SimulationBookGameMarket = {
+  marketType: "total" | "spread_home";
+  label: string;
+  consensusLine: number | null;
+  simSide: "OVER" | "UNDER" | "HOME" | "AWAY" | "NONE";
+  bestBook: SimulationBookSelection | null;
+  books: SimulationBookSelection[];
+};
+
+type SimulationBookPlayerMarket = {
+  key: string;
+  playerId: string;
+  playerName: string | null;
+  statKey: string;
+  label: string;
+  consensusLine: number | null;
+  simSide: "OVER" | "UNDER" | "NONE";
+  bestBook: SimulationBookSelection | null;
+  books: SimulationBookSelection[];
 };
 
 export type EventSimulationView = {
@@ -82,6 +115,17 @@ export type EventSimulationView = {
     };
   } | null;
   playerProjectionCount: number;
+  bookMarketState: {
+    summary: {
+      booksInMesh: string[];
+      gameMarketCount: number;
+      playerMarketCount: number;
+      outlierBookCount: number;
+      staleBookCount: number;
+    };
+    gameMarkets: SimulationBookGameMarket[];
+    playerMarkets: SimulationBookPlayerMarket[];
+  } | null;
   topPlayerEdges: SimulationPlayerEdge[];
   topPlayerProjections: Awaited<ReturnType<typeof buildPlayerPropProjectionsForEvent>>;
 };
@@ -139,10 +183,58 @@ function buildHeadline(eventProjection: NonNullable<Awaited<ReturnType<typeof bu
   };
 }
 
+
+function mapBookSelection(book: {
+  bookKey: string;
+  bookName: string;
+  line: number | null;
+  oddsAmerican: number | null;
+  deltaFromConsensus: number | null;
+  freshnessMinutes: number;
+  isOutlier: boolean;
+  isStale: boolean;
+}): SimulationBookSelection | null {
+  if (typeof book.line !== "number" || !Number.isFinite(book.line)) {
+    return null;
+  }
+
+  return {
+    bookKey: book.bookKey,
+    bookName: book.bookName,
+    line: round(book.line, 2),
+    oddsAmerican: typeof book.oddsAmerican === "number" ? book.oddsAmerican : null,
+    deltaFromConsensus: typeof book.deltaFromConsensus === "number" ? round(book.deltaFromConsensus, 2) : null,
+    freshnessMinutes: book.freshnessMinutes,
+    isOutlier: book.isOutlier,
+    isStale: book.isStale,
+  };
+}
+
+function chooseBestBook(
+  books: SimulationBookSelection[],
+  preference: "LOW_LINE" | "HIGH_LINE"
+): SimulationBookSelection | null {
+  if (!books.length) {
+    return null;
+  }
+
+  const sorted = [...books].sort((left, right) => {
+    if (left.line !== right.line) {
+      return preference === "LOW_LINE" ? left.line - right.line : right.line - left.line;
+    }
+    const leftOdds = left.oddsAmerican ?? -110;
+    const rightOdds = right.oddsAmerican ?? -110;
+    return rightOdds - leftOdds;
+  });
+
+  return sorted[0] ?? null;
+}
+
 export async function buildEventSimulationView(eventId: string): Promise<EventSimulationView | null> {
-  const [eventProjection, playerProjections] = await Promise.all([
+  const [eventProjection, playerProjections, mlbBookMarketStateRaw] = await Promise.all([
     buildEventProjectionFromHistory(eventId),
-    buildPlayerPropProjectionsForEvent(eventId)
+    buildPlayerPropProjectionsForEvent(eventId),
+    buildMlbBookMarketState(eventId)
   ]);
 
   if (!eventProjection) {
@@ -278,6 +370,93 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
     ].filter((value): value is string => value !== null)
   };
 
+
+  const bookMarketState =
+    mlbBookMarketStateRaw
+      ? {
+          summary: mlbBookMarketStateRaw.summary,
+          gameMarkets: mlbBookMarketStateRaw.gameMarkets
+            .filter((group) => group.marketKey === "total" || group.marketKey === "spread_home")
+            .map((group) => {
+              const books = group.books
+                .map((book) => mapBookSelection(book))
+                .filter((value): value is SimulationBookSelection => value !== null);
+
+              const comparison = eventBetComparisons.find((item) => item.marketType === group.marketKey);
+              const simSide =
+                group.marketKey === "total"
+                  ? comparison
+                    ? comparison.projected > comparison.marketLine
+                      ? "OVER"
+                      : comparison.projected < comparison.marketLine
+                        ? "UNDER"
+                        : "NONE"
+                    : "NONE"
+                  : comparison
+                    ? comparison.projected > comparison.marketLine
+                      ? "HOME"
+                      : comparison.projected < comparison.marketLine
+                        ? "AWAY"
+                        : "NONE"
+                    : "NONE";
+
+              const bestBook =
+                simSide === "OVER" || simSide === "HOME"
+                  ? chooseBestBook(books, "LOW_LINE")
+                  : simSide === "UNDER" || simSide === "AWAY"
+                    ? chooseBestBook(books, "HIGH_LINE")
+                    : null;
+
+              return {
+                marketType: group.marketKey as "total" | "spread_home",
+                label: group.label,
+                consensusLine: typeof group.consensusLine === "number" ? round(group.consensusLine, 2) : null,
+                simSide,
+                bestBook,
+                books,
+              } satisfies SimulationBookGameMarket;
+            }),
+          playerMarkets: mlbBookMarketStateRaw.playerMarkets
+            .map((group) => {
+              const books = group.books
+                .map((book) => mapBookSelection(book))
+                .filter((value): value is SimulationBookSelection => value !== null);
+
+              const projection = playerProjections.find(
+                (item) => item.playerId === group.playerId && item.statKey === group.marketKey
+              );
+              const simSide =
+                projection && typeof group.consensusLine === "number"
+                  ? projection.meanValue > group.consensusLine
+                    ? "OVER"
+                    : projection.meanValue < group.consensusLine
+                      ? "UNDER"
+                      : "NONE"
+                  : "NONE";
+
+              const bestBook =
+                simSide === "OVER"
+                  ? chooseBestBook(books, "LOW_LINE")
+                  : simSide === "UNDER"
+                    ? chooseBestBook(books, "HIGH_LINE")
+                    : null;
+
+              return {
+                key: `${group.playerId}:${group.marketKey}`,
+                playerId: group.playerId ?? "unknown-player",
+                playerName: group.playerName,
+                statKey: group.marketKey,
+                label: group.label,
+                consensusLine: typeof group.consensusLine === "number" ? round(group.consensusLine, 2) : null,
+                simSide,
+                bestBook,
+                books,
+              } satisfies SimulationBookPlayerMarket;
+            })
+            .sort((left, right) => right.books.length - left.books.length),
+        }
+      : null;
+
   const topPlayerEdges = playerProjections
     .map((projection) => {
       const projectionMeta = getRecord(projection.metadata);
@@ -338,6 +517,7 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
     projectionSummary,
     simulationDrivers,
     mlbSourceNativeContext,
+    bookMarketState,
     playerProjectionCount: playerProjections.length,
     topPlayerEdges,
     topPlayerProjections: playerProjections
