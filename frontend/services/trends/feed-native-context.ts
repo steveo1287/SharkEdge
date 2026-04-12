@@ -4,6 +4,7 @@ import type {
   OpportunityTrendLensState,
   OpportunityView
 } from "@/lib/types/opportunity";
+import { buildWeatherSourcePlan } from "@/services/weather/weather-source-planner";
 
 export type OpportunityTrendSourceStatus =
   | "JOINED"
@@ -129,11 +130,13 @@ function sourceCoverageWeight(sourceStatus: OpportunityTrendSourceStatus) {
   }
 }
 
+
 function weatherAssessment(opportunity: OpportunityView): FeedNativeLensAssessment {
   const payloadText = getPayloadText(opportunity);
   const joinedText = getJoinedText(opportunity);
   const direction = inferSelectionDirection(opportunity.selectionLabel);
-  const applicable = ["MLB", "NFL", "NCAAF"].includes(opportunity.league);
+  const plan = buildWeatherSourcePlan(opportunity);
+  const applicable = plan.applicable;
 
   const weatherPatterns = [
     /\bweather\b/,
@@ -168,12 +171,24 @@ function weatherAssessment(opportunity: OpportunityView): FeedNativeLensAssessme
     /\bweather suppression\b/
   ];
 
-  const sourceStatus = deriveSourceStatus({
-    applicable,
-    joinedText,
-    payloadText,
-    patterns: weatherPatterns
-  });
+  let sourceStatus: OpportunityTrendSourceStatus = "NOT_APPLICABLE";
+  if (applicable) {
+    if (plan.stationJoinStatus === "JOINED" || plan.venueJoinStatus === "JOINED") {
+      sourceStatus = "JOINED";
+    } else if (
+      plan.stationJoinStatus === "PAYLOAD_ONLY" ||
+      plan.venueJoinStatus === "PAYLOAD_ONLY"
+    ) {
+      sourceStatus = "PAYLOAD_ONLY";
+    } else {
+      sourceStatus = deriveSourceStatus({
+        applicable,
+        joinedText,
+        payloadText,
+        patterns: weatherPatterns
+      });
+    }
+  }
 
   if (!applicable) {
     return {
@@ -193,15 +208,20 @@ function weatherAssessment(opportunity: OpportunityView): FeedNativeLensAssessme
   const negative = hasAny(combinedText, negativePatterns);
 
   let stateHint: OpportunityTrendLensState = "PENDING_DATA";
-  let scoreHint = 34;
+  let scoreHint = 28 + plan.sourceConfidence * 0.22;
   const evidence: string[] = [];
 
+  evidence.push(plan.summary);
+  evidence.push(...plan.providerNotes.slice(0, 2));
+
   if (sourceStatus === "JOINED") {
-    evidence.push("Joined opportunity evidence already carries weather or park context.");
-    scoreHint += 16;
+    evidence.push("Weather context has at least one joined source path.");
+    scoreHint += 12;
   } else if (sourceStatus === "PAYLOAD_ONLY") {
-    evidence.push("Weather context is present in the payload, but not yet as a clean joined source.");
-    scoreHint += 8;
+    evidence.push("Weather context is present, but still relies partly on payload-only clues.");
+    scoreHint += 6;
+  } else {
+    evidence.push("Weather source plan exists, but station and venue joins still need to be wired.");
   }
 
   if (positive) {
@@ -245,15 +265,21 @@ function weatherAssessment(opportunity: OpportunityView): FeedNativeLensAssessme
     scoreHint: clamp(round(scoreHint), 0, 100),
     sourceStatus,
     evidence: unique(evidence),
-    tags: unique(["weather", sourceStatus.toLowerCase()]),
+    tags: unique([
+      "weather",
+      sourceStatus.toLowerCase(),
+      plan.primaryObservationProvider?.toLowerCase() ?? null,
+      plan.primaryForecastProvider?.toLowerCase() ?? null,
+      plan.visualizationProvider?.toLowerCase() ?? null
+    ]),
     summary:
       stateHint === "SUPPORTIVE"
-        ? "Weather and environment context are aligned with the current side."
+        ? `Weather and environment context are aligned with the current side. ${plan.summary}`
         : stateHint === "CONTRARY"
-          ? "Weather context is pushing against the current side."
+          ? `Weather context is pushing against the current side. ${plan.summary}`
           : stateHint === "MIXED"
-            ? "Weather matters here, but the current signal is not one-directional."
-            : "Weather lens is applicable, but it still needs cleaner source joins."
+            ? `Weather matters here, but the current signal is not one-directional. ${plan.summary}`
+            : `Weather lens is applicable, but it still needs cleaner source joins. ${plan.summary}`
   };
 }
 

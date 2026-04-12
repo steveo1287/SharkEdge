@@ -8,6 +8,7 @@ import type {
   MarketTruthClassification,
   ProviderHealthState
 } from "@/lib/types/domain";
+import type { WeatherSourcePlanView } from "@/services/weather/provider-types";
 
 export type OpportunityKind = "game_side" | "game_total" | "moneyline" | "prop";
 
@@ -765,6 +766,7 @@ export type OpportunityView = {
   pricingModel?: "NORMAL_APPROX" | null;
   thesisCluster?: OpportunityThesisClusterView | null;
   trendIntelligence?: OpportunityTrendIntelligenceView | null;
+  weatherSourcePlan?: WeatherSourcePlanView | null;
 };
 
 export type OpportunityProfile = {

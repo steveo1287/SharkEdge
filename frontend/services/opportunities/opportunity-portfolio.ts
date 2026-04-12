@@ -23,6 +23,7 @@ import { buildOpportunityThesisClusters, buildThesisFingerprint } from "@/servic
 import { assessDistributionPricing } from "@/services/pricing/distribution-pricing";
 import { buildOpportunityRanking } from "@/services/opportunities/opportunity-ranking";
 import { buildOpportunityTrendIntelligence } from "@/services/trends/opportunity-trend-intelligence";
+import { buildWeatherSourcePlan } from "@/services/weather/weather-source-planner";
 
 type PortfolioPosition = {
   id: string;
@@ -437,10 +438,15 @@ function clonePosition(opportunity: OpportunityView): PortfolioPosition {
 
 
 function enrichOpportunityIntelligence(opportunity: OpportunityView): OpportunityView {
-  const trendIntelligence = buildOpportunityTrendIntelligence(opportunity);
+  const weatherSourcePlan = buildWeatherSourcePlan(opportunity);
+  const trendIntelligence = buildOpportunityTrendIntelligence({
+    ...opportunity,
+    weatherSourcePlan
+  });
   const enrichedOpportunity = {
     ...opportunity,
-    trendIntelligence
+    trendIntelligence,
+    weatherSourcePlan
   } satisfies OpportunityView;
   const ranking = buildOpportunityRanking(enrichedOpportunity);
 

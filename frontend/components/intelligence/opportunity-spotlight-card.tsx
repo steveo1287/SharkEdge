@@ -228,6 +228,40 @@ export function OpportunitySpotlightCard({
             {!opportunity.thesisCluster.isPrimary ? " • secondary expression" : ""}
           </div>
         ) : null}
+
+{opportunity.weatherSourcePlan?.applicable ? (
+  <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-xs leading-5 text-slate-300">
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="uppercase tracking-[0.16em] text-slate-500">Weather sourcing</span>
+      <Badge
+        tone={
+          opportunity.weatherSourcePlan.sourceConfidence >= 70
+            ? "success"
+            : opportunity.weatherSourcePlan.sourceConfidence >= 45
+              ? "premium"
+              : "muted"
+        }
+      >
+        {opportunity.weatherSourcePlan.sourceConfidence}
+      </Badge>
+      <Badge tone="premium">
+        {opportunity.weatherSourcePlan.primaryObservationProvider ?? "n/a"} / {opportunity.weatherSourcePlan.primaryForecastProvider ?? "n/a"}
+      </Badge>
+      {opportunity.weatherSourcePlan.visualizationProvider ? (
+        <Badge tone="muted">
+          Map {opportunity.weatherSourcePlan.visualizationProvider}
+        </Badge>
+      ) : null}
+    </div>
+    <div className="mt-2 text-slate-200">
+      {opportunity.weatherSourcePlan.summary}
+    </div>
+    <div className="mt-1 text-slate-400">
+      Station {opportunity.weatherSourcePlan.stationJoinStatus.toLowerCase().replace(/_/g, " ")} • Venue {opportunity.weatherSourcePlan.venueJoinStatus.toLowerCase().replace(/_/g, " ")}
+    </div>
+  </div>
+) : null}
+
         {opportunity.trendIntelligence ? (
           <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-xs leading-5 text-slate-300">
             <div className="flex flex-wrap items-center gap-2">
