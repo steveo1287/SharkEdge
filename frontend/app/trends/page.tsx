@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { headers } from "next/headers";
 
 import { MobileTrendCard } from "@/components/home/mobile-trend-card";
 import { MobileTopBar } from "@/components/mobile/mobile-top-bar";
@@ -11,7 +10,6 @@ import {
 } from "@/lib/trends/publisher";
 import type { TrendFilters } from "@/lib/types/domain";
 import { trendFiltersSchema } from "@/lib/validation/filters";
-import type { RankedTrendPlay, TrendsPlaysResponse } from "@/services/trends/play-types";
 
 export const dynamic = "force-dynamic";
 
@@ -142,120 +140,10 @@ function buildTrendDetailHref(card: PublishedTrendCard, filters: TrendFilters) {
   return query ? `${basePath}?${query}` : basePath;
 }
 
-async function getRequestOrigin() {
-  const hdrs = await headers();
-  const proto = hdrs.get("x-forwarded-proto") ?? "https";
-  const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host");
-  return host ? `${proto}://${host}` : null;
-}
-
-async function fetchTrendPlays(): Promise<TrendsPlaysResponse> {
-  const origin = await getRequestOrigin();
-  const url = origin ? `${origin}/api/trends/plays` : "http://localhost:3000/api/trends/plays";
-
-  try {
-    const resp = await fetch(url, { cache: "no-store" });
-    if (!resp.ok) {
-      throw new Error(`Trends plays route returned ${resp.status}`);
-    }
-    return (await resp.json()) as TrendsPlaysResponse;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to load trend plays.";
-    return {
-      generatedAt: new Date().toISOString(),
-      diagnostics: {
-        historicalRows: 0,
-        currentRows: 0,
-        discoveredSystems: 0,
-        validatedSystems: 0,
-        activeCandidates: 0,
-        surfacedPlays: 0,
-        providerStatus: "down",
-        issues: [message]
-      },
-      bestPlays: [],
-      buildingSignals: [],
-      historicalSystems: []
-    };
-  }
-}
-
-function formatProb(value: number | null) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
-  return `${(value * 100).toFixed(1)}%`;
-}
-
-function formatOdds(value: number | null) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
-  return `${value > 0 ? "+" : ""}${value}`;
-}
-
-function formatEdge(value: number | null) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
-  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
-}
-
-function playMarketLabel(play: RankedTrendPlay) {
-  if (play.marketType === "moneyline") return "Moneyline";
-  if (play.marketType === "spread") return "Spread";
-  return "Total";
-}
-
-function PlayCard({ play }: { play: RankedTrendPlay }) {
-  return (
-    <div className="mobile-surface grid gap-2">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-sm font-semibold text-white">{play.gameLabel}</div>
-        <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] text-slate-300">
-          {playMarketLabel(play)} {play.tier}
-        </div>
-      </div>
-
-      <div className="text-sm text-slate-300">
-        {play.selection}
-        {play.line !== null ? ` @ ${play.line}` : ""}{" "}
-        {play.oddsAmerican !== null ? `(${formatOdds(play.oddsAmerican)})` : ""}
-      </div>
-
-      <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.14em] text-slate-400">
-        <span className="rounded-full border border-white/8 px-3 py-1">
-          Edge {formatEdge(play.edgePct)}
-        </span>
-        <span className="rounded-full border border-white/8 px-3 py-1">
-          Conf {play.confidenceScore}
-        </span>
-        <span className="rounded-full border border-white/8 px-3 py-1">
-          Score {play.finalScore}
-        </span>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
-        <div className="rounded-[14px] border border-white/8 bg-white/[0.03] px-3 py-2">
-          <div className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Market</div>
-          <div className="mt-1 text-sm text-white">{formatProb(play.marketImpliedProb)}</div>
-        </div>
-        <div className="rounded-[14px] border border-white/8 bg-white/[0.03] px-3 py-2">
-          <div className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Fair</div>
-          <div className="mt-1 text-sm text-white">
-            {formatProb(play.calibratedModelProb)}{" "}
-            {play.fairOddsAmerican !== null ? `(${formatOdds(play.fairOddsAmerican)})` : ""}
-          </div>
-        </div>
-      </div>
-
-      {play.warnings.length ? (
-        <div className="rounded-[14px] border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
-          {play.warnings[0]}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 export default async function TrendsPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
   const filters = buildFilters(resolved);
-  const [plays, feed] = await Promise.all([fetchTrendPlays(), getSafeTrendFeed(filters)]);
+  const feed = await getSafeTrendFeed(filters);
   const sections = feed.sections;
   const cards = sections.flatMap((section) => section.cards);
   const activeSystems =
@@ -263,14 +151,17 @@ export default async function TrendsPage({ searchParams }: PageProps) {
       ? feed.meta.activeSystems
       : cards.filter((card) => card.todayMatches.length > 0).length;
 
-  const surfacedNow = plays.bestPlays.length + plays.buildingSignals.length;
-
   return (
     <div className="grid gap-4">
       <MobileTopBar title="My Trends" subtitle="Discover" />
 
       <section className="mobile-surface !pb-2">
-        <SectionTabs items={[{ label: "For You", active: true }, { label: "Search" }]} />
+        <SectionTabs
+          items={[
+            { label: "For You", active: true },
+            { label: "Search" }
+          ]}
+        />
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-white">
@@ -301,109 +192,10 @@ export default async function TrendsPage({ searchParams }: PageProps) {
         </div>
       </section>
 
-      <section className="mobile-surface">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-[1.25rem] font-semibold text-white">Trends Play Engine</div>
-          <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] text-slate-300">
-            {plays.diagnostics.providerStatus}
-          </div>
-        </div>
-        <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-          <div className="rounded-[14px] border border-white/8 bg-white/[0.03] px-3 py-2">
-            <div className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Validated</div>
-            <div className="mt-1 text-base font-semibold text-white">{plays.diagnostics.validatedSystems}</div>
-          </div>
-          <div className="rounded-[14px] border border-white/8 bg-white/[0.03] px-3 py-2">
-            <div className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Candidates</div>
-            <div className="mt-1 text-base font-semibold text-white">{plays.diagnostics.activeCandidates}</div>
-          </div>
-          <div className="rounded-[14px] border border-white/8 bg-white/[0.03] px-3 py-2">
-            <div className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Surfaced</div>
-            <div className="mt-1 text-base font-semibold text-white">{surfacedNow}</div>
-          </div>
-        </div>
-
-        <details className="mt-3 rounded-[14px] border border-white/8 bg-white/[0.03] px-3 py-2 text-sm text-slate-300">
-          <summary className="cursor-pointer list-none select-none text-slate-200">Diagnostics</summary>
-          <div className="mt-2 grid gap-1 text-sm text-slate-300">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-slate-400">Historical rows</span>
-              <span className="text-white">{plays.diagnostics.historicalRows}</span>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-slate-400">Current rows</span>
-              <span className="text-white">{plays.diagnostics.currentRows}</span>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-slate-400">Surfaced plays</span>
-              <span className="text-white">{plays.diagnostics.surfacedPlays}</span>
-            </div>
-            {plays.diagnostics.issues.length ? (
-              <div className="mt-2 rounded-[12px] border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-amber-100">
-                {plays.diagnostics.issues.map((issue) => (
-                  <div key={issue}>{issue}</div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        </details>
-      </section>
-
-      <section className="grid gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-[1.25rem] font-semibold text-white">Best Plays Now</div>
-        </div>
-        {plays.bestPlays.length ? (
-          <div className="grid gap-3">
-            {plays.bestPlays.slice(0, 8).map((play) => (
-              <PlayCard key={`${play.systemId}:${play.eventId}:${play.selection}`} play={play} />
-            ))}
-          </div>
-        ) : (
-          <div className="mobile-surface text-sm leading-6 text-slate-400">
-            No qualified best plays right now. The engine is staying conservative instead of forcing edges.
-          </div>
-        )}
-      </section>
-
-      <section className="grid gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-[1.25rem] font-semibold text-white">Building Signals</div>
-        </div>
-        {plays.buildingSignals.length ? (
-          <div className="grid gap-3">
-            {plays.buildingSignals.slice(0, 10).map((play) => (
-              <PlayCard key={`${play.systemId}:${play.eventId}:${play.selection}`} play={play} />
-            ))}
-          </div>
-        ) : (
-          <div className="mobile-surface text-sm leading-6 text-slate-400">
-            No building signals yet. If this stays empty, it usually means: DB not connected, not enough validated systems, or current odds ingestion is quiet.
-          </div>
-        )}
-      </section>
-
-      <section className="grid gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-[1.25rem] font-semibold text-white">Historical Systems</div>
-        </div>
-        {plays.historicalSystems.length ? (
-          <div className="grid gap-3">
-            {plays.historicalSystems.slice(0, 10).map((play) => (
-              <PlayCard key={`${play.systemId}:${play.eventId}`} play={play} />
-            ))}
-          </div>
-        ) : (
-          <div className="mobile-surface text-sm leading-6 text-slate-400">
-            No historical systems found yet. Once the database is connected and the trends worker runs, systems will populate here even when no live edges qualify.
-          </div>
-        )}
-      </section>
-
       {feed.featured.length ? (
         <section>
           <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="text-[1.4rem] font-semibold text-white">Legacy cards</div>
+            <div className="text-[1.4rem] font-semibold text-white">Hottest</div>
             <Link href="/trends" className="text-sm text-slate-500">
               Open
             </Link>
@@ -427,7 +219,9 @@ export default async function TrendsPage({ searchParams }: PageProps) {
       {sections.map((section) => (
         <section key={section.category}>
           <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="text-[1.4rem] font-semibold text-white">{section.category}</div>
+            <div className="text-[1.4rem] font-semibold text-white">
+              {section.category}
+            </div>
             <Link href="/trends" className="text-sm text-slate-500">
               Open
             </Link>
@@ -449,10 +243,10 @@ export default async function TrendsPage({ searchParams }: PageProps) {
 
       {!sections.length ? (
         <div className="mobile-surface text-sm leading-6 text-slate-400">
-          No trend systems matched this scope yet. SharkEdge is staying selective instead of stuffing the feed with weak systems.
+          No trend systems matched this scope yet. SharkEdge is staying selective
+          instead of stuffing the feed with weak systems.
         </div>
       ) : null}
     </div>
   );
 }
-

@@ -5,7 +5,8 @@ const config: Config = {
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
     "./lib/**/*.{ts,tsx}",
-    "./services/**/*.{ts,tsx}"
+    "./services/**/*.{ts,tsx}",
+    "./types/**/*.{ts,tsx}"
   ],
   theme: {
     extend: {
@@ -25,9 +26,9 @@ const config: Config = {
         panel: "0 18px 40px rgba(0, 0, 0, 0.28)"
       },
       fontFamily: {
-        display: ["var(--font-display)"],
-        body: ["var(--font-body)"],
-        mono: ["var(--font-mono)"]
+        display: ["var(--font-display)", "Space Grotesk", "system-ui", "sans-serif"],
+        body: ["var(--font-body)", "IBM Plex Sans", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "IBM Plex Mono", "monospace"]
       },
       backgroundImage: {
         grid: "linear-gradient(rgba(56, 86, 140, 0.14) 1px, transparent 1px), linear-gradient(90deg, rgba(56, 86, 140, 0.14) 1px, transparent 1px)"

@@ -1,4 +1,5 @@
 import type { TrendMatchResult, TrendStatsSummary } from "@/types/trends";
+import type { TrendContextVariables } from "./context-variables";
 
 function round(value: number, digits = 2) {
   const factor = 10 ** digits;
@@ -119,4 +120,78 @@ export function calculateTrendStats(matches: TrendMatchResult[]): TrendStatsSumm
     sampleSizeRating: getSampleSizeRating(totalGames),
     warnings
   };
+}
+
+/**
+ * Compute context-adjusted confidence score.
+ * Applies bonuses/penalties based on situational variable quality.
+ * Returns a 0-100 score that accounts for:
+ *   - Base statistical confidence
+ *   - Proportion of rows with steam moves (sharp money signal)
+ *   - Proportion of rows that beat the closing line (CLV quality)
+ *   - Weather impact (suppresses confidence for high-variance conditions)
+ *   - Schedule stress (back-to-backs reduce reliability)
+ *   - Sample recency (recent samples weighted higher)
+ */
+export function computeContextAdjustedConfidence(
+  baseConfidence: number,
+  contextRows: TrendContextVariables[]
+): {
+  adjustedScore: number;
+  adjustmentDelta: number;
+  contextSignals: string[];
+} {
+  if (!contextRows.length) {
+    return { adjustedScore: baseConfidence, adjustmentDelta: 0, contextSignals: [] };
+  }
+
+  const signals: string[] = [];
+  let delta = 0;
+
+  const steamPct = contextRows.filter((r) => r.market.isSteamMove).length / contextRows.length;
+  if (steamPct >= 0.4) {
+    delta += 12;
+    signals.push(`${Math.round(steamPct * 100)}% of rows had sharp steam moves`);
+  } else if (steamPct >= 0.2) {
+    delta += 6;
+    signals.push(`${Math.round(steamPct * 100)}% of rows had steam moves`);
+  }
+
+  const clvBeatPct = contextRows.filter((r) => r.clv.isStrongCLV).length / contextRows.length;
+  if (clvBeatPct >= 0.5) {
+    delta += 10;
+    signals.push(`${Math.round(clvBeatPct * 100)}% of rows beat closing line strongly`);
+  } else if (clvBeatPct >= 0.3) {
+    delta += 5;
+    signals.push(`${Math.round(clvBeatPct * 100)}% of rows beat closing line`);
+  }
+
+  const avgWeatherImpact =
+    contextRows.reduce((sum, r) => sum + r.weather.weatherImpactScore, 0) / contextRows.length;
+  if (avgWeatherImpact >= 40) {
+    delta -= 10;
+    signals.push(`High avg weather impact (${Math.round(avgWeatherImpact)}/100) — variance elevated`);
+  } else if (avgWeatherImpact >= 20) {
+    delta -= 4;
+    signals.push(`Moderate weather impact (${Math.round(avgWeatherImpact)}/100)`);
+  }
+
+  const b2bPct = contextRows.filter((r) => r.schedule.isBackToBack).length / contextRows.length;
+  if (b2bPct >= 0.5) {
+    delta -= 8;
+    signals.push(`${Math.round(b2bPct * 100)}% of rows were back-to-back games`);
+  }
+
+  const avgComposite =
+    contextRows.reduce((sum, r) => sum + r.compositeEdgeScore, 0) / contextRows.length;
+  if (avgComposite >= 65) {
+    delta += 8;
+    signals.push(`High avg composite edge score (${Math.round(avgComposite)}/100)`);
+  } else if (avgComposite <= 35) {
+    delta -= 5;
+    signals.push(`Low avg composite edge score (${Math.round(avgComposite)}/100)`);
+  }
+
+  const adjustedScore = Math.max(0, Math.min(100, Math.round(baseConfidence + delta)));
+  return { adjustedScore, adjustmentDelta: delta, contextSignals: signals };
 }

@@ -2,6 +2,12 @@ import { prisma } from "@/lib/db/prisma";
 import { americanToImplied, stripVig } from "@/lib/odds";
 import type { LeagueKey, SportCode, TrendFilters } from "@/lib/types/domain";
 import { buildMatchupHref } from "@/lib/utils/matchups";
+import {
+  buildTrendContextVariables,
+  type TrendContextVariables,
+  summarizeContextForDisplay
+} from "./context-variables";
+import { computeContextAdjustedConfidence } from "./statisticalValidator";
 
 const CACHE_TTL_MS = 60 * 60 * 1000;
 
@@ -45,10 +51,28 @@ export type TrendEngineResult = {
   pushes: number;
   streak: string | null;
   confidence: TrendConfidence;
+  /** Context-adjusted confidence score 0-100 */
+  adjustedConfidenceScore: number | null;
+  /** Delta applied by context adjustment */
+  contextAdjustmentDelta: number | null;
+  /** Human-readable signals that drove the adjustment */
+  contextSignals: string[];
   warning: string | null;
   dateRange: string;
   contextLabel: string;
   todayMatches: TodayTrendMatch[];
+  /** Aggregated context variables across all enriched rows */
+  contextSummary: {
+    steamMovePct: number;
+    clvBeatPct: number;
+    backToBackPct: number;
+    avgWeatherImpact: number;
+    avgCompositeEdgeScore: number;
+    topSignals: string[];
+    weatherNote: string | null;
+    scheduleNote: string | null;
+    marketNote: string | null;
+  } | null;
   extra?: Record<string, unknown>;
 };
 
@@ -63,6 +87,7 @@ type HistoricalMarketRow = {
   eventId: string;
   eventExternalId: string | null;
   eventLabel: string;
+  startTime: Date | null;
   marketType: string;
   marketLabel: string;
   selection: string;
@@ -88,6 +113,8 @@ type HistoricalMarketRow = {
     winnerCompetitorId: string | null;
     participantResultsJson: unknown;
   } | null;
+  /** Enriched context variables — populated after fetchHistoricalMarkets */
+  context: TrendContextVariables | null;
 };
 
 type RecentFormRow = {
@@ -436,6 +463,7 @@ async function fetchHistoricalMarkets(filters: TrendFilters): Promise<Historical
             orderBy: { sortOrder: "asc" },
             include: { competitor: { select: { name: true } } }
           },
+          // startTime needed for situational context (day of week, primetime, late season)
           eventResult: {
             select: {
               coverResult: true,
@@ -470,6 +498,7 @@ async function fetchHistoricalMarkets(filters: TrendFilters): Promise<Historical
     .map((row) => {
       const openingSnapshot = row.snapshots[0] ?? null;
       const closingSnapshot = row.snapshots[row.snapshots.length - 1] ?? null;
+      // startTime is selected via the event include above
       const siblingProbabilities = row.event.markets
         .filter(
           (market) =>
@@ -482,12 +511,30 @@ async function fetchHistoricalMarkets(filters: TrendFilters): Promise<Historical
           oddsAmerican: market.oddsAmerican
         }));
 
+      const openingLine = row.openingLine ?? openingSnapshot?.line ?? row.line ?? null;
+      const closingLine = row.closingLine ?? closingSnapshot?.line ?? row.line ?? null;
+      const openingOdds = row.openingOdds ?? openingSnapshot?.oddsAmerican ?? row.oddsAmerican;
+      const closingOdds = row.closingOdds ?? closingSnapshot?.oddsAmerican ?? row.oddsAmerican;
+
+      const context = buildTrendContextVariables({
+        side: row.side,
+        sport: row.event.league.sport,
+        leagueKey: row.event.league.key,
+        startTime: row.event.startTime ?? null,
+        openingLine,
+        closingLine,
+        openingOdds,
+        closingOdds,
+        offeredOdds: row.oddsAmerican
+      });
+
       return {
         leagueKey: row.event.league.key as LeagueKey,
         sport: row.event.league.sport,
         eventId: row.eventId,
         eventExternalId: row.event.externalEventId,
         eventLabel: row.event.name,
+        startTime: row.event.startTime ?? null,
         marketType: row.marketType,
         marketLabel: row.marketLabel,
         selection: row.selection,
@@ -495,15 +542,16 @@ async function fetchHistoricalMarkets(filters: TrendFilters): Promise<Historical
         sportsbookName: row.sportsbook?.name ?? "Unknown book",
         selectionCompetitorId: row.selectionCompetitor?.id ?? row.selectionCompetitorId ?? null,
         participantNames: row.event.participants.map((participant) => participant.competitor.name),
-        openingLine: row.openingLine ?? openingSnapshot?.line ?? row.line ?? null,
-        closingLine: row.closingLine ?? closingSnapshot?.line ?? row.line ?? null,
-        openingOdds: row.openingOdds ?? openingSnapshot?.oddsAmerican ?? row.oddsAmerican,
-        closingOdds: row.closingOdds ?? closingSnapshot?.oddsAmerican ?? row.oddsAmerican,
+        openingLine,
+        closingLine,
+        openingOdds,
+        closingOdds,
         line: row.line,
         oddsAmerican: row.oddsAmerican,
         impliedProbability: row.impliedProbability,
         siblingProbabilities,
-        result: row.event.eventResult
+        result: row.event.eventResult,
+        context
       } satisfies HistoricalMarketRow;
     })
     .filter((row) =>
@@ -595,23 +643,91 @@ async function getTodayMatchingGames(filters: TrendFilters): Promise<TodayTrendM
     }));
 }
 
+// ---------------------------------------------------------------------------
+// Aggregate context variables across a set of enriched rows
+// ---------------------------------------------------------------------------
+function buildContextSummary(
+  contextRows: TrendContextVariables[]
+): TrendEngineResult["contextSummary"] {
+  if (!contextRows.length) return null;
+
+  const n = contextRows.length;
+  const steamMovePct = Math.round((contextRows.filter((r) => r.market.isSteamMove).length / n) * 100);
+  const clvBeatPct = Math.round((contextRows.filter((r) => r.clv.beatClosingLine).length / n) * 100);
+  const backToBackPct = Math.round((contextRows.filter((r) => r.schedule.isBackToBack).length / n) * 100);
+  const avgWeatherImpact = Math.round(
+    contextRows.reduce((sum, r) => sum + r.weather.weatherImpactScore, 0) / n
+  );
+  const avgCompositeEdgeScore = Math.round(
+    contextRows.reduce((sum, r) => sum + r.compositeEdgeScore, 0) / n
+  );
+
+  // Pick the most representative row for display signals
+  const bestRow = [...contextRows].sort((a, b) => b.compositeEdgeScore - a.compositeEdgeScore)[0];
+  const display = bestRow ? summarizeContextForDisplay(bestRow) : null;
+
+  // Aggregate top signals across all rows (frequency-weighted)
+  const signalCounts = new Map<string, number>();
+  for (const row of contextRows) {
+    for (const signal of row.topSignals) {
+      signalCounts.set(signal, (signalCounts.get(signal) ?? 0) + 1);
+    }
+  }
+  const topSignals = Array.from(signalCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([label]) => label);
+
+  return {
+    steamMovePct,
+    clvBeatPct,
+    backToBackPct,
+    avgWeatherImpact,
+    avgCompositeEdgeScore,
+    topSignals,
+    weatherNote: display?.weatherNote ?? null,
+    scheduleNote: display?.scheduleNote ?? null,
+    marketNote: display?.marketNote ?? null
+  };
+}
+
 async function buildTrendResult(
   scope: string,
   filters: TrendFilters,
   title: string,
-  builder: () => Promise<Omit<TrendEngineResult, "id" | "title" | "confidence" | "warning" | "dateRange" | "contextLabel" | "todayMatches">>
+  builder: () => Promise<
+    Omit<TrendEngineResult, "id" | "title" | "confidence" | "adjustedConfidenceScore" | "contextAdjustmentDelta" | "contextSignals" | "warning" | "dateRange" | "contextLabel" | "todayMatches" | "contextSummary"> & {
+      contextRows?: TrendContextVariables[];
+    }
+  >
 ): Promise<CachedValue<TrendEngineResult>> {
   return withTrendCache(scope, filters, async () => {
     const base = await builder();
+    const contextRows = base.contextRows ?? [];
+    const baseConfidence = getConfidence(base.sampleSize);
+    const baseScore =
+      baseConfidence === "strong" ? 85
+      : baseConfidence === "moderate" ? 65
+      : baseConfidence === "weak" ? 40
+      : 15;
+    const contextAdj = computeContextAdjustedConfidence(baseScore, contextRows);
+    const contextSummary = buildContextSummary(contextRows);
+
+    const { contextRows: _dropped, ...baseWithoutContextRows } = base;
+
     return {
       id: scope,
       title,
-      ...base,
-      confidence: getConfidence(base.sampleSize),
+      ...baseWithoutContextRows,
+      confidence: baseConfidence,
+      adjustedConfidenceScore: contextRows.length ? contextAdj.adjustedScore : null,
+      contextAdjustmentDelta: contextRows.length ? contextAdj.adjustmentDelta : null,
+      contextSignals: contextAdj.contextSignals,
       warning: getWarning(base.sampleSize),
       dateRange: formatDateRange(filters),
       contextLabel: buildContextLabel(filters, title),
-      todayMatches: await getTodayMatchingGames(filters)
+      todayMatches: await getTodayMatchingGames(filters),
+      contextSummary
     };
   });
 }
@@ -631,10 +747,14 @@ function emptyTrend(id: string, title: string, filters: TrendFilters, warning: s
       pushes: 0,
       streak: null,
       confidence: "insufficient",
+      adjustedConfidenceScore: null,
+      contextAdjustmentDelta: null,
+      contextSignals: [],
       warning,
       dateRange: formatDateRange(filters),
       contextLabel: buildContextLabel(filters, title),
-      todayMatches: []
+      todayMatches: [],
+      contextSummary: null
     }
   };
 }
@@ -650,7 +770,7 @@ export async function getATSTrend(rawFilters?: EngineFilter | null): Promise<Cac
         graded.map((entry) => entry.outcome),
         graded.map((entry) => entry.row.closingOdds ?? entry.row.oddsAmerican)
       );
-      return stats;
+      return { ...stats, contextRows: graded.map((e) => e.row.context).filter((c): c is TrendContextVariables => c !== null) };
     });
   } catch {
     return emptyTrend("ats", "ATS trend", filters, "ATS trend is unavailable because stored spread history could not be read.");
@@ -672,7 +792,7 @@ export async function getOUTrend(rawFilters?: EngineFilter | null): Promise<Cach
         graded.map((entry) => entry.outcome),
         graded.map((entry) => entry.row.closingOdds ?? entry.row.oddsAmerican)
       );
-      return stats;
+      return { ...stats, contextRows: graded.map((e) => e.row.context).filter((c): c is TrendContextVariables => c !== null) };
     });
   } catch {
     return emptyTrend("ou", "O/U trend", filters, "O/U trend is unavailable because stored totals history could not be read.");
@@ -694,7 +814,7 @@ export async function getFavoriteROI(rawFilters?: EngineFilter | null): Promise<
         graded.map((entry) => entry.outcome),
         graded.map((entry) => entry.row.closingOdds ?? entry.row.oddsAmerican)
       );
-      return stats;
+      return { ...stats, contextRows: graded.map((e) => e.row.context).filter((c): c is TrendContextVariables => c !== null) };
     });
   } catch {
     return emptyTrend("favorite-roi", "Favorite ROI", filters, "Favorite ROI is unavailable because matched moneyline rows could not be read.");
@@ -716,7 +836,7 @@ export async function getUnderdogROI(rawFilters?: EngineFilter | null): Promise<
         graded.map((entry) => entry.outcome),
         graded.map((entry) => entry.row.closingOdds ?? entry.row.oddsAmerican)
       );
-      return stats;
+      return { ...stats, contextRows: graded.map((e) => e.row.context).filter((c): c is TrendContextVariables => c !== null) };
     });
   } catch {
     return emptyTrend("underdog-roi", "Underdog ROI", filters, "Underdog ROI is unavailable because matched moneyline rows could not be read.");
