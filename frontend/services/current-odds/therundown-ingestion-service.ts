@@ -3,6 +3,7 @@ import type { LeagueKey } from "@/lib/types/domain";
 import { upsertOddsIngestPayload } from "@/services/market-data/market-data-service";
 import { currentMarketStateJob } from "@/services/jobs/current-market-state-job";
 import { lineMovementJob } from "@/services/jobs/line-movement-job";
+import { getLeagueForSportKey } from "@/services/odds/live-reference";
 
 import type {
   CurrentOddsBookOutcome,
@@ -112,7 +113,13 @@ export async function ingestTheRundownCurrentOdds(args?: {
   let marketIngestions = 0;
 
   for (const sport of sports) {
-    const leagueKey = sport.key as LeagueKey;
+    const leagueKey =
+      (getLeagueForSportKey(sport.key) ??
+        (SUPPORTED_LEAGUES.has(sport.title as LeagueKey) ? (sport.title as LeagueKey) : null)) as LeagueKey | null;
+
+    if (!leagueKey || !SUPPORTED_LEAGUES.has(leagueKey)) {
+      continue;
+    }
 
     for (const game of sport.games) {
       const lines = game.bookmakers

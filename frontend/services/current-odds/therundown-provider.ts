@@ -36,6 +36,14 @@ const THERUNDOWN_PROVIDER_TIMEOUT_MS = 8_000;
 const THERUNDOWN_BOARD_CACHE_TTL_MS = 5 * 60_000;
 // Shorter TTL for league-scoped UI board fetches (prevents quota burn on navigation).
 const THERUNDOWN_LEAGUE_CACHE_TTL_MS = 60_000;
+const THERUNDOWN_LEAGUE_SPORT_KEYS: Partial<Record<LeagueKey, string>> = {
+  NBA: "basketball_nba",
+  NCAAB: "basketball_ncaab",
+  MLB: "baseball_mlb",
+  NHL: "icehockey_nhl",
+  NFL: "americanfootball_nfl",
+  NCAAF: "americanfootball_ncaaf"
+};
 const THERUNDOWN_SPORT_IDS: Record<Exclude<LeagueKey, "UFC" | "BOXING">, number> = {
   NCAAF: 1,
   NFL: 2,
@@ -124,6 +132,10 @@ function formatDateKey(date: Date) {
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const day = `${date.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function getSportKeyForLeague(leagueKey: LeagueKey) {
+  return THERUNDOWN_LEAGUE_SPORT_KEYS[leagueKey] ?? leagueKey.toLowerCase();
 }
 
 async function fetchTheRundownJson<T>(path: string, params: Record<string, string>) {
@@ -443,7 +455,7 @@ async function fetchLeagueBoard(leagueKey: LeagueKey, dateKey: string) {
   }
 
   return {
-    key: leagueKey,
+    key: getSportKeyForLeague(leagueKey),
     title: leagueKey,
     short_title: leagueKey,
     game_count: games.length,
@@ -501,7 +513,7 @@ async function fetchLeagueBoardFast(args: {
   }
 
   return {
-    key: args.leagueKey,
+    key: getSportKeyForLeague(args.leagueKey),
     title: args.leagueKey,
     short_title: args.leagueKey,
     game_count: games.length,
