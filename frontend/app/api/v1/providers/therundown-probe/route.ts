@@ -73,6 +73,8 @@ export async function GET() {
     const lines = Array.isArray(participant0?.lines) ? (participant0?.lines as unknown[]) : [];
     const line0 = (lines[0] ?? null) as Record<string, unknown> | null;
     const prices = line0 && typeof line0.prices === "object" && line0.prices ? (line0.prices as Record<string, unknown>) : null;
+    const priceKey = prices ? Object.keys(prices)[0] ?? null : null;
+    const price0 = priceKey && prices ? (prices[priceKey] as Record<string, unknown> | null) : null;
 
     return NextResponse.json({
       ok: response.ok,
@@ -99,6 +101,12 @@ export async function GET() {
       line0Value: typeof line0?.value === "string" ? line0.value : null,
       priceKeyCount: prices ? Object.keys(prices).length : null,
       priceKeySample: prices ? Object.keys(prices).slice(0, 6) : null,
+      price0Keys: price0 ? Object.keys(price0).slice(0, 30) : null,
+      price0Preview: price0
+        ? Object.fromEntries(
+            Object.entries(price0).slice(0, 8).map(([k, v]) => [k, typeof v === "number" || typeof v === "string" ? v : typeof v])
+          )
+        : null,
       bodyPreview: raw.slice(0, 500)
     });
   } catch (error) {
