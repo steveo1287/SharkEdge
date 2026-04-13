@@ -267,3 +267,54 @@ textarea {
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* -----------------------------------------------------------------------
+   Tailwind v3 JIT opacity-variant safety net
+   These classes use non-standard opacity values (e.g. /8, /12) that
+   Tailwind v3 does not always generate. Defining them explicitly ensures
+   backgrounds, borders, and hover states render correctly everywhere.
+   ----------------------------------------------------------------------- */
+
+/* Background opacity variants */
+.bg-sky-500\/8    { background-color: rgba(14, 165, 233, 0.08); }
+.bg-sky-500\/10   { background-color: rgba(14, 165, 233, 0.10); }
+.bg-sky-500\/12   { background-color: rgba(14, 165, 233, 0.12); }
+.bg-sky-400\/8    { background-color: rgba(56, 189, 248, 0.08); }
+.bg-emerald-500\/8  { background-color: rgba(16, 185, 129, 0.08); }
+.bg-emerald-500\/10 { background-color: rgba(16, 185, 129, 0.10); }
+.bg-emerald-400\/8  { background-color: rgba(52, 211, 153, 0.08); }
+.bg-emerald-400\/10 { background-color: rgba(52, 211, 153, 0.10); }
+.bg-amber-400\/8  { background-color: rgba(251, 191, 36, 0.08); }
+.bg-amber-400\/10 { background-color: rgba(251, 191, 36, 0.10); }
+.bg-amber-300\/5  { background-color: rgba(252, 211, 77, 0.05); }
+.bg-rose-500\/8   { background-color: rgba(244, 63, 94, 0.08); }
+.bg-rose-500\/10  { background-color: rgba(244, 63, 94, 0.10); }
+.bg-rose-400\/8   { background-color: rgba(251, 113, 133, 0.08); }
+
+/* Border opacity variants */
+.border-sky-400\/15  { border-color: rgba(56, 189, 248, 0.15); }
+.border-sky-400\/20  { border-color: rgba(56, 189, 248, 0.20); }
+.border-sky-400\/25  { border-color: rgba(56, 189, 248, 0.25); }
+.border-sky-400\/30  { border-color: rgba(56, 189, 248, 0.30); }
+.border-sky-400\/35  { border-color: rgba(56, 189, 248, 0.35); }
+.border-emerald-400\/15 { border-color: rgba(52, 211, 153, 0.15); }
+.border-emerald-400\/20 { border-color: rgba(52, 211, 153, 0.20); }
+.border-emerald-400\/30 { border-color: rgba(52, 211, 153, 0.30); }
+.border-amber-300\/20 { border-color: rgba(252, 211, 77, 0.20); }
+.border-amber-300\/25 { border-color: rgba(252, 211, 77, 0.25); }
+.border-amber-300\/30 { border-color: rgba(252, 211, 77, 0.30); }
+.border-rose-400\/20  { border-color: rgba(251, 113, 133, 0.20); }
+.border-rose-400\/30  { border-color: rgba(251, 113, 133, 0.30); }
+.border-white\/6   { border-color: rgba(255, 255, 255, 0.06); }
+.border-white\/8   { border-color: rgba(255, 255, 255, 0.08); }
+.border-white\/10  { border-color: rgba(255, 255, 255, 0.10); }
+.border-white\/12  { border-color: rgba(255, 255, 255, 0.12); }
+
+/* Hover variants */
+.hover\:border-sky-400\/25:hover { border-color: rgba(56, 189, 248, 0.25); }
+.hover\:border-sky-400\/20:hover { border-color: rgba(56, 189, 248, 0.20); }
+.hover\:border-white\/12:hover   { border-color: rgba(255, 255, 255, 0.12); }
+.hover\:bg-sky-500\/10:hover     { background-color: rgba(14, 165, 233, 0.10); }
+.hover\:bg-white\/\[0\.03\]:hover { background-color: rgba(255, 255, 255, 0.03); }
+.hover\:bg-white\/\[0\.04\]:hover { background-color: rgba(255, 255, 255, 0.04); }
+
