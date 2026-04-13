@@ -21,6 +21,7 @@ from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException
+from sharkedge_analytics import build_game_edge_block, enrich_props_with_ev
 
 load_dotenv(Path(__file__).with_name(".env"))
 
@@ -51,7 +52,7 @@ SPORTS = [
         "title": "MLB",
         "short_title": "MLB",
         "odds_harvester_sport": "baseball",
-        "odds_harvester_leagues": "usa-mlb",
+        "odds_harvester_leagues": "mlb",
         "odds_harvester_markets": "moneyline,over/under",
     },
     {
@@ -1163,7 +1164,7 @@ def normalize_game(game: dict[str, Any]) -> dict[str, Any]:
     away_team = game.get("away_team")
     home_team = game.get("home_team")
 
-    return {
+    normalized_game = {
         "id": game.get("id"),
         "commence_time": game.get("commence_time"),
         "home_team": home_team,
@@ -1188,6 +1189,15 @@ def normalize_game(game: dict[str, Any]) -> dict[str, Any]:
             ),
         },
     }
+
+    try:
+        normalized_game["edge_analytics"] = build_game_edge_block(normalized_game)
+    except Exception:
+        # Preserve the existing live-odds payload if analytics sees an unexpected
+        # bookmaker or market shape at runtime.
+        pass
+
+    return normalized_game
 
 
 def collect_unique_bookmakers(sports: list[dict[str, Any]]) -> int:
@@ -2780,7 +2790,22 @@ def build_props_from_event_payload(
             prop.get("line") or 0,
         )
     )
-    return props
+    try:
+        enriched_props = enrich_props_with_ev(props)
+        enriched_props.sort(
+            key=lambda prop: (
+                prop.get("commence_time") or "",
+                prop.get("player_name") or "",
+                market_order.get(prop.get("market_key"), 999),
+                prop.get("bookmaker_title") or "",
+                0 if prop.get("side") == "OVER" else 1,
+                prop.get("line") or 0,
+            )
+        )
+        return enriched_props
+    except Exception:
+        # Keep the legacy prop payload available even if EV enrichment fails.
+        return props
 
 
 def fetch_game_props(
