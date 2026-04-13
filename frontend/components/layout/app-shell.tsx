@@ -17,12 +17,10 @@ export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname() ?? "";
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Close nav on route change
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
 
-  // Lock body scroll when nav is open
   useEffect(() => {
     if (!mobileOpen) return;
     const prev = document.body.style.overflow;
@@ -36,20 +34,19 @@ export function AppShell({ children }: AppShellProps) {
   }, [mobileOpen]);
 
   return (
-    <div className="min-h-screen">
+    <div className="app-shell-grid min-h-screen">
+
       {/* ── MOBILE (< xl) ── */}
       <div className="xl:hidden">
         {/* Slide-in nav overlay */}
         {mobileOpen && (
           <div className="fixed inset-0 z-50 flex">
-            {/* Backdrop */}
             <button
               aria-label="Close navigation"
               className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm"
               onClick={() => setMobileOpen(false)}
               type="button"
             />
-            {/* Drawer */}
             <div className="relative z-10 h-full w-72 overflow-hidden">
               <Sidebar
                 mobile
@@ -78,39 +75,42 @@ export function AppShell({ children }: AppShellProps) {
             </svg>
           </button>
 
-          {/* Logo in mobile top bar */}
           <BrandMark compact />
 
-          {/* Live pill */}
           <div className="rounded-full border border-emerald-400/20 bg-emerald-500/8 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-400">
             Live
           </div>
         </div>
 
-        {/* Page content */}
-        <main className="min-h-screen px-4 pb-28 pt-4">
-          {children}
-        </main>
-
-        {/* Bottom nav */}
-        <div className="fixed inset-x-0 bottom-0 z-40 px-4 pb-[calc(env(safe-area-inset-bottom,0px)+10px)]">
-          <MobileBottomNav />
+        {/* Mobile page content */}
+        <div className="mobile-shell mx-auto flex min-h-screen w-full max-w-[430px] flex-col">
+          <div className="flex-1 px-4 pb-28 pt-4">
+            <main className="mobile-page-shell">{children}</main>
+          </div>
+          <div className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-[430px] px-4 pb-[calc(env(safe-area-inset-bottom,0px)+10px)]">
+            <MobileBottomNav />
+          </div>
         </div>
       </div>
 
       {/* ── DESKTOP (xl+) ── */}
-      <div className="hidden xl:flex xl:min-h-screen">
-        {/* Fixed sidebar */}
-        <aside className="sticky top-0 h-screen w-72 shrink-0 border-r border-white/6">
-          <Sidebar pathname={pathname} />
-        </aside>
+      <div className="mx-auto hidden w-full max-w-[1820px] px-4 py-4 xl:block">
+        <div className="workspace-frame grid min-h-[calc(100vh-2rem)] w-full xl:grid-cols-[288px_minmax(0,1fr)]">
 
-        {/* Main content area */}
-        <div className="flex min-h-screen flex-1 flex-col overflow-hidden">
-          <Header pathname={pathname} />
-          <main className="flex-1 p-6">{children}</main>
+          {/* Sidebar */}
+          <aside className="hidden min-h-full border-r border-white/6 xl:block">
+            <Sidebar pathname={pathname} />
+          </aside>
+
+          {/* Main */}
+          <div className="workspace-main flex min-h-[calc(100vh-2rem)] flex-col">
+            <Header pathname={pathname} />
+            <main className="page-shell flex-1">{children}</main>
+          </div>
+
         </div>
       </div>
+
     </div>
   );
 }
