@@ -454,6 +454,7 @@ async function fetchLeagueBoard(leagueKey: LeagueKey, dateKey: string) {
 type TheRundownLeagueCacheEntry = {
   generatedAtMs: number;
   sport: CurrentOddsSport | null;
+  ttlMs: number;
 };
 
 declare global {
@@ -536,7 +537,7 @@ export async function fetchTheRundownLeaguesBoard(args: {
 
   for (const leagueKey of leagues) {
     const cached = cache.get(leagueKey);
-    if (cached && Date.now() - cached.generatedAtMs < cacheTtlMs) {
+    if (cached && Date.now() - cached.generatedAtMs < cached.ttlMs) {
       if (cached.sport) {
         sports.push(cached.sport);
       }
@@ -552,7 +553,13 @@ export async function fetchTheRundownLeaguesBoard(args: {
       }
     }
 
-    cache.set(leagueKey, { generatedAtMs: Date.now(), sport });
+    // Don't get "stuck" serving a null cached value for a full minute if the first call was a transient miss.
+    // Null results get a much shorter TTL to encourage quick recovery without hammering the API.
+    cache.set(leagueKey, {
+      generatedAtMs: Date.now(),
+      sport,
+      ttlMs: sport ? cacheTtlMs : 10_000
+    });
     if (sport) {
       sports.push(sport);
     }
