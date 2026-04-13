@@ -64,13 +64,29 @@ export async function GET() {
       parsed = null;
     }
 
+    const events = Array.isArray(parsed?.events) ? parsed?.events : [];
+    const event0 = (events[0] ?? null) as Record<string, unknown> | null;
+    const markets = Array.isArray(event0?.markets) ? (event0?.markets as unknown[]) : [];
+    const market0 = (markets[0] ?? null) as Record<string, unknown> | null;
+
     return NextResponse.json({
       ok: response.ok,
       status: response.status,
       statusText: response.statusText,
       envKey: maskKey(key),
       requestUrl: url.toString().replace(key, "***"),
-      eventCount: Array.isArray(parsed?.events) ? parsed.events.length : null,
+      eventCount: events.length,
+      event0Keys: event0 ? Object.keys(event0).slice(0, 30) : null,
+      event0HasTeams: Array.isArray(event0?.teams) ? (event0?.teams as unknown[]).length : null,
+      event0HasMarkets: markets.length,
+      market0Keys: market0 ? Object.keys(market0).slice(0, 30) : null,
+      market0Name: typeof market0?.name === "string" ? market0.name : null,
+      market0Id:
+        typeof market0?.market_id === "number"
+          ? market0.market_id
+          : typeof market0?.marketId === "number"
+            ? market0.marketId
+            : null,
       bodyPreview: raw.slice(0, 500)
     });
   } catch (error) {
