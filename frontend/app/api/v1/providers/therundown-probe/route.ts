@@ -68,6 +68,11 @@ export async function GET() {
     const event0 = (events[0] ?? null) as Record<string, unknown> | null;
     const markets = Array.isArray(event0?.markets) ? (event0?.markets as unknown[]) : [];
     const market0 = (markets[0] ?? null) as Record<string, unknown> | null;
+    const participants = Array.isArray(market0?.participants) ? (market0?.participants as unknown[]) : [];
+    const participant0 = (participants[0] ?? null) as Record<string, unknown> | null;
+    const lines = Array.isArray(participant0?.lines) ? (participant0?.lines as unknown[]) : [];
+    const line0 = (lines[0] ?? null) as Record<string, unknown> | null;
+    const prices = line0 && typeof line0.prices === "object" && line0.prices ? (line0.prices as Record<string, unknown>) : null;
 
     return NextResponse.json({
       ok: response.ok,
@@ -87,6 +92,13 @@ export async function GET() {
           : typeof market0?.marketId === "number"
             ? market0.marketId
             : null,
+      market0Participants: participants.length,
+      participant0Keys: participant0 ? Object.keys(participant0).slice(0, 30) : null,
+      participant0Lines: lines.length,
+      line0Keys: line0 ? Object.keys(line0).slice(0, 30) : null,
+      line0Value: typeof line0?.value === "string" ? line0.value : null,
+      priceKeyCount: prices ? Object.keys(prices).length : null,
+      priceKeySample: prices ? Object.keys(prices).slice(0, 6) : null,
       bodyPreview: raw.slice(0, 500)
     });
   } catch (error) {
