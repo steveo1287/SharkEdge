@@ -58,6 +58,7 @@ type TheRundownParticipant = {
 };
 
 type TheRundownMarket = {
+  market_id?: number;
   name: string;
   period_id: number;
   participants?: TheRundownParticipant[];
@@ -181,17 +182,34 @@ function parsePrice(value: unknown) {
 }
 
 function normalizeMarketName(name: string) {
-  const normalized = name.toLowerCase();
-  if (normalized === "moneyline") {
-    return "moneyline";
-  }
-  if (normalized === "handicap") {
+  const normalized = name.toLowerCase().trim();
+
+  // TheRundown uses stable market_ids (1/2/3) for core markets, but the `name`
+  // can vary by sport or API revision ("handicap" vs "spread", "total" vs "totals").
+  if (normalized === "moneyline") return "moneyline";
+
+  if (
+    normalized === "handicap" ||
+    normalized === "spread" ||
+    normalized === "point spread" ||
+    normalized === "point_spread"
+  ) {
     return "spread";
   }
-  if (normalized === "totals") {
+
+  if (normalized === "total" || normalized === "totals" || normalized === "over/under") {
     return "total";
   }
+
   return null;
+}
+
+function normalizeMarketType(market: TheRundownMarket) {
+  // Prefer the numeric identifier when present.
+  if (market.market_id === 1) return "moneyline";
+  if (market.market_id === 2) return "spread";
+  if (market.market_id === 3) return "total";
+  return normalizeMarketName(market.name);
 }
 
 function buildBookKey(affiliateId: string) {
@@ -307,7 +325,7 @@ function buildGame(event: TheRundownEvent, affiliateIds: string[]) {
       continue;
     }
 
-    const marketType = normalizeMarketName(market.name);
+    const marketType = normalizeMarketType(market);
     if (!marketType) {
       continue;
     }
