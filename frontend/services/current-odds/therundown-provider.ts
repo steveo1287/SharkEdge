@@ -321,7 +321,9 @@ function buildGame(event: TheRundownEvent, affiliateIds: string[]) {
   const bookmakers = new Map<string, CurrentOddsBookmaker>();
 
   for (const market of event.markets ?? []) {
-    if (market.period_id !== 0) {
+    // TheRundown commonly uses period_id 0 for full game, but some feeds label full game as 1.
+    // Accept both so we don't silently drop all markets and render an empty board.
+    if (market.period_id !== 0 && market.period_id !== 1) {
       continue;
     }
 
