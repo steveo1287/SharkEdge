@@ -1,4 +1,4 @@
-name: Mirror GitLab -> GitHub
+name: Mirror GitLab -> GitHub (True Mirror)
 
 on:
   workflow_dispatch: {}
@@ -14,15 +14,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  mirror-main:
+  mirror-all:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Mirror main branch from GitLab
+      - name: Mirror all refs from GitLab (branches + tags)
         env:
           GITLAB_REPO: "https://gitlab.com/steveo1287-group/SharkEdge.git"
           GH_MIRROR_TOKEN: "${{ secrets.GH_MIRROR_TOKEN }}"
@@ -34,18 +29,9 @@ jobs:
             exit 1
           fi
 
-          git config user.name "gitlab-mirror-bot"
-          git config user.email "mirror@users.noreply.github.com"
+          # Bare mirror clone, then mirror-push all refs.
+          git clone --mirror "${GITLAB_REPO}" mirror.git
+          cd mirror.git
 
-          # Fetch GitLab main + tags.
-          git remote add gitlab "${GITLAB_REPO}" 2>/dev/null || git remote set-url gitlab "${GITLAB_REPO}"
-          git fetch gitlab --prune --tags
-
-          # Force-sync GitHub main to GitLab main.
-          git push "https://x-access-token:${GH_MIRROR_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            "+refs/remotes/gitlab/main:refs/heads/main"
-
-          # Keep tags in sync (force updates if rewritten).
-          git push "https://x-access-token:${GH_MIRROR_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            --force --tags
-
+          git remote set-url --push origin "https://x-access-token:${GH_MIRROR_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --mirror
