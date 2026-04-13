@@ -526,7 +526,7 @@ export async function fetchTheRundownLeaguesBoard(args: {
 
   const cache = getLeagueCache();
   const cacheTtlMs = args.cacheTtlMs ?? THERUNDOWN_LEAGUE_CACHE_TTL_MS;
-  const timeoutMs = args.timeoutMs ?? 3_000;
+  const timeoutMs = args.timeoutMs ?? 6_000;
   const dateKeys = [
     formatDateKey(new Date()),
     formatDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000))

@@ -123,7 +123,7 @@ async function fetchLiveBoardResponse() {
     backendCurrentOddsProvider.fetchBoard(),
     fetchTheRundownLeaguesBoard({
       leagues: DEFAULT_LIVE_ODDS_LEAGUES,
-      timeoutMs: 2_750,
+      timeoutMs: 5_500,
       cacheTtlMs: 60_000
     })
   ]);
@@ -561,7 +561,7 @@ export async function getLiveBoardPageData(filters: BoardFilters): Promise<Board
       backendCurrentOddsProvider.fetchBoard(),
       fetchTheRundownLeaguesBoard({
         leagues: leaguesForOdds,
-        timeoutMs: 2_750,
+        timeoutMs: 5_500,
         cacheTtlMs: 60_000
       })
     ]);

@@ -277,7 +277,7 @@ export async function probeTheRundownBoardProvider(args?: { leagues?: LeagueKey[
 
   const payload = await fetchTheRundownLeaguesBoard({
     leagues: args?.leagues?.length ? args.leagues : DEFAULT_LEAGUES,
-    timeoutMs: 2_750,
+    timeoutMs: 8_000,
     cacheTtlMs: 60_000
   });
   if (!payload) {
