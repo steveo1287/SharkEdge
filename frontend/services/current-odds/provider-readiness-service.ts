@@ -7,7 +7,7 @@ import type { BookFeedProvider } from "./book-feed-provider-types";
 import { backendCurrentOddsProvider } from "./backend-provider";
 import { getCurrentOddsBackendBaseUrl } from "./backend-url";
 import type { CurrentOddsBoardResponse } from "./provider-types";
-import { therundownCurrentOddsProvider } from "./therundown-provider";
+import { fetchTheRundownLeaguesBoard, therundownCurrentOddsProvider } from "./therundown-provider";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -248,9 +248,14 @@ export async function probeBackendBoardProvider(): Promise<BoardProviderReadines
   };
 }
 
-export async function probeTheRundownBoardProvider(): Promise<BoardProviderReadiness> {
+export async function probeTheRundownBoardProvider(args?: { leagues?: LeagueKey[] }): Promise<BoardProviderReadiness> {
   const checkedAt = new Date().toISOString();
-  const hasApiKey = Boolean(process.env.THERUNDOWN_API_KEY?.trim());
+  const hasApiKey = Boolean(
+    process.env.THERUNDOWN_API_KEY?.trim() ||
+      process.env.THERUNDOWN_KEY?.trim() ||
+      process.env.THE_RUNDOWN_API_KEY?.trim() ||
+      process.env.THE_RUNDOWN_KEY?.trim()
+  );
 
   if (!hasApiKey) {
     return {
@@ -270,7 +275,11 @@ export async function probeTheRundownBoardProvider(): Promise<BoardProviderReadi
     };
   }
 
-  const payload = await therundownCurrentOddsProvider.fetchBoard();
+  const payload = await fetchTheRundownLeaguesBoard({
+    leagues: args?.leagues?.length ? args.leagues : DEFAULT_LEAGUES,
+    timeoutMs: 2_750,
+    cacheTtlMs: 60_000
+  });
   if (!payload) {
     return {
       providerKey: therundownCurrentOddsProvider.key,
@@ -481,7 +490,7 @@ export async function getLiveOddsReadinessReport(args?: { leagues?: LeagueKey[] 
   const leagues = args?.leagues?.length ? args.leagues : DEFAULT_LEAGUES;
   const [backend, theRundown, bookFeeds] = await Promise.all([
     probeBackendBoardProvider(),
-    probeTheRundownBoardProvider(),
+    probeTheRundownBoardProvider({ leagues }),
     Promise.all(getBookFeedProviders().map((provider) => probeBookFeedProvider(provider, leagues)))
   ]);
 
