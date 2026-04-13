@@ -1,0 +1,51 @@
+name: Mirror GitLab -> GitHub
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Runs roughly every 15 minutes (GitHub schedules are best-effort).
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gitlab-mirror-main
+  cancel-in-progress: true
+
+jobs:
+  mirror-main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mirror main branch from GitLab
+        env:
+          GITLAB_REPO: "https://gitlab.com/steveo1287-group/SharkEdge.git"
+          GH_MIRROR_TOKEN: "${{ secrets.GH_MIRROR_TOKEN }}"
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_MIRROR_TOKEN}" ]; then
+            echo "Missing GH_MIRROR_TOKEN secret. Add a GitHub token with repo contents write access."
+            exit 1
+          fi
+
+          git config user.name "gitlab-mirror-bot"
+          git config user.email "mirror@users.noreply.github.com"
+
+          # Fetch GitLab main + tags.
+          git remote add gitlab "${GITLAB_REPO}" 2>/dev/null || git remote set-url gitlab "${GITLAB_REPO}"
+          git fetch gitlab --prune --tags
+
+          # Force-sync GitHub main to GitLab main.
+          git push "https://x-access-token:${GH_MIRROR_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "+refs/remotes/gitlab/main:refs/heads/main"
+
+          # Keep tags in sync (force updates if rewritten).
+          git push "https://x-access-token:${GH_MIRROR_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            --force --tags
+
