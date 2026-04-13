@@ -539,6 +539,7 @@ export type BoardMarketView = {
 
 export type GameCardView = {
   id: string;
+  externalEventId: string;
   leagueKey: LeagueKey;
   awayTeam: TeamRecord;
   homeTeam: TeamRecord;

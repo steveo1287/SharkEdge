@@ -1,5 +1,6 @@
 import type {
   OpportunityBankrollSettings,
+  OpportunityRankingView,
   OpportunityView
 } from "@/lib/types/opportunity";
 import { buildDefaultBankrollSettings } from "@/services/account/user-service";
@@ -280,6 +281,8 @@ function makeOpportunity(
     trapFlags: overrides.trapFlags ?? [],
     whyItShows: [],
     whatCouldKillIt: [],
+    triggerSummary: "Test trigger summary.",
+    killSummary: "Test kill summary.",
     reasonSummary: "Test opportunity.",
     personalizationAdjustments: [],
     sourceHealth: {
@@ -593,8 +596,12 @@ function testRankingPrioritizesCapitalOverPosture() {
       marketPathQualityScore: 74,
       portfolioFitScore: 82,
       actionModifier: 2,
+      expectedClvScore: 70,
+      fragilityScore: 22,
+      trendReliabilityScore: 64,
+      recommendationTier: "PRIME",
       notes: ["Capital efficiency drives this rank."]
-    }
+    } satisfies OpportunityRankingView
   };
   const cleanerButWeaker = {
     ...makeOpportunity("cleaner", {
@@ -613,8 +620,12 @@ function testRankingPrioritizesCapitalOverPosture() {
       marketPathQualityScore: 58,
       portfolioFitScore: 78,
       actionModifier: 4,
+      expectedClvScore: 54,
+      fragilityScore: 38,
+      trendReliabilityScore: 52,
+      recommendationTier: "WATCH",
       notes: ["Posture is clean but capital efficiency is weaker."]
-    }
+    } satisfies OpportunityRankingView
   };
 
   const ranked = rankOpportunities([cleanerButWeaker, stronger]);

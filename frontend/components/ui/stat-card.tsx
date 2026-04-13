@@ -11,14 +11,14 @@ type StatCardProps = {
 
 export function StatCard({ label, value, note, accent }: StatCardProps) {
   return (
-    <Card className="p-5">
+    <Card className="surface-panel p-4 md:p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{label}</div>
-          <div className="mt-3 font-display text-3xl font-semibold tracking-tight text-white">
+          <div className="font-mono text-[0.66rem] font-semibold uppercase tracking-[0.22em] text-slate-500">{label}</div>
+          <div className="mt-3 font-display text-[1.85rem] font-semibold tracking-[-0.04em] text-white md:text-[2.15rem]">
             {value}
           </div>
-          {note ? <div className="mt-2 text-sm text-slate-400">{note}</div> : null}
+          {note ? <div className="mt-2 text-sm leading-6 text-slate-400">{note}</div> : null}
         </div>
         {accent}
       </div>

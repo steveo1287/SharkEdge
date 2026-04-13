@@ -148,7 +148,7 @@ export async function getArbitrageOpportunities(args: {
         awayBook: awayBook.name,
         homeOddsAmerican: bestHome.oddsAmerican,
         awayOddsAmerican: bestAway.oddsAmerican,
-        detailHref: buildMatchupHref(args.league, game.id),
+        detailHref: buildMatchupHref(args.league, game.externalEventId),
         source: "internal_catalog" as const,
         note: `Best split price is ${homeBook.name} on ${homeTeam.abbreviation} and ${awayBook.name} on ${awayTeam.abbreviation}.`
       } satisfies ArbitrageOpportunityView;

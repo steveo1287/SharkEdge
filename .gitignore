@@ -8,4 +8,18 @@
 **/*.tsbuildinfo
 
 .vercel
-# pipeline test commit – SharkEdge setup complete
+
+# Local agent/tool state (never commit)
+.clawhub/
+.openclaw/
+
+# Local logs / temp artifacts
+**/*.log
+**/*.out
+frontend/tmp-*.png
+frontend/tmp-preview-shots/
+frontend/.tsc.out
+frontend/.typecheck.out
+frontend/tsc-errors.txt
+frontend/dev-server.err.log
+frontend/dev-server.out.log

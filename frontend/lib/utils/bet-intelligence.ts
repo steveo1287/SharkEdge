@@ -14,6 +14,7 @@ import {
   kellySize,
   stripVig
 } from "@/lib/odds/index";
+import { resolveMatchupHref } from "@/lib/utils/entity-routing";
 import { LEAGUE_SPORT_MAP } from "@/lib/utils/ledger";
 
 function toUrlSafeBase64(value: string) {
@@ -328,14 +329,19 @@ export function buildBoardBetIntent(
   const market = game[marketType];
   const marketSelection = getBoardSelection(game, marketType, market);
   const eventLabel = `${game.awayTeam.name} @ ${game.homeTeam.name}`;
+  const matchupHref = resolveMatchupHref({
+    leagueKey: game.leagueKey,
+    externalEventId: game.externalEventId,
+    fallbackHref: game.detailHref ?? null
+  });
 
   return {
     betType: "STRAIGHT",
     sport: LEAGUE_SPORT_MAP[game.leagueKey as SupportedLeagueKey],
     league: game.leagueKey as SupportedLeagueKey,
     eventLabel,
-    externalEventId: game.id,
-    matchupHref: game.detailHref ?? `/game/${game.id}`,
+    externalEventId: game.externalEventId,
+    matchupHref,
     sportsbookName: market.bestBook,
     source: "MANUAL",
     isLive: game.status === "LIVE",
@@ -347,8 +353,8 @@ export function buildBoardBetIntent(
       sourcePath,
       sourceItemId: `${game.id}:${marketType}`,
       eventLabel,
-      matchupHref: game.detailHref ?? `/game/${game.id}`,
-      externalEventId: game.id,
+      matchupHref,
+      externalEventId: game.externalEventId,
       sportsbookName: market.bestBook,
       supportStatus: "LIVE",
       marketDeltaAmerican: null,
@@ -360,7 +366,7 @@ export function buildBoardBetIntent(
     },
     legs: [
       {
-        externalEventId: game.id,
+        externalEventId: game.externalEventId,
         sourceItemId: `${game.id}:${marketType}`,
         sportsbookName: market.bestBook,
         marketType,
@@ -376,8 +382,8 @@ export function buildBoardBetIntent(
           sourcePath,
           sourceItemId: `${game.id}:${marketType}`,
           eventLabel,
-          matchupHref: game.detailHref ?? `/game/${game.id}`,
-          externalEventId: game.id,
+          matchupHref,
+          externalEventId: game.externalEventId,
           sportsbookName: market.bestBook,
           supportStatus: "LIVE",
           edgeScore: game.edgeScore.score,
@@ -397,6 +403,11 @@ export function buildPropBetIntent(
 ): BetIntent {
   const confidenceTier = getConfidenceTierFromEdge(prop.edgeScore.score);
   const eventLabel = prop.gameLabel ?? `${prop.team.name} vs ${prop.opponent.name}`;
+  const matchupHref = resolveMatchupHref({
+    leagueKey: prop.leagueKey,
+    externalEventId: prop.gameId,
+    fallbackHref: prop.gameHref ?? null
+  });
 
   return {
     betType: "STRAIGHT",
@@ -404,7 +415,7 @@ export function buildPropBetIntent(
     league: prop.leagueKey as SupportedLeagueKey,
     eventLabel,
     externalEventId: prop.gameId,
-    matchupHref: prop.gameHref ?? `/game/${prop.gameId}`,
+    matchupHref,
     sportsbookKey: prop.sportsbook.key,
     sportsbookName: prop.bestAvailableSportsbookName ?? prop.sportsbook.name,
     source: "MANUAL",
@@ -422,7 +433,7 @@ export function buildPropBetIntent(
       sourcePath,
       sourceItemId: prop.id,
       eventLabel,
-      matchupHref: prop.gameHref ?? `/game/${prop.gameId}`,
+      matchupHref,
       externalEventId: prop.gameId,
       sportsbookKey: prop.sportsbook.key,
       sportsbookName: prop.bestAvailableSportsbookName ?? prop.sportsbook.name,
@@ -459,7 +470,7 @@ export function buildPropBetIntent(
           sourcePath,
           sourceItemId: prop.id,
           eventLabel,
-          matchupHref: prop.gameHref ?? `/game/${prop.gameId}`,
+          matchupHref,
           externalEventId: prop.gameId,
           sportsbookKey: prop.sportsbook.key,
           sportsbookName: prop.bestAvailableSportsbookName ?? prop.sportsbook.name,

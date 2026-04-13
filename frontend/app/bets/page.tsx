@@ -7,6 +7,7 @@ import { SectionTitle } from "@/components/ui/section-title";
 import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
 import { getPublishedTrendCards } from "@/lib/trends/publisher";
 import type { LeagueKey, PropCardView, TrendFilters } from "@/lib/types/domain";
+import { resolveMatchupHref } from "@/lib/utils/entity-routing";
 import { getBetTrackerData, parseBetFilters } from "@/services/bets/bets-service";
 import { getArbitrageOpportunities } from "@/services/odds/arbitrage-service";
 import { getBoardPageData } from "@/services/odds/board-service";
@@ -293,7 +294,17 @@ export default async function BetsPage({ searchParams }: PageProps) {
           <div className="mt-2 text-sm text-slate-400">Positive-price upset shots in the active scope.</div>
           <div className="mt-4 grid gap-3">
             {upsetLooks.map((game) => (
-              <Link key={game.id} href={game.detailHref ?? `/game/${game.id}`} className="rounded-[1.3rem] border border-white/8 bg-slate-950/70 px-4 py-4 transition hover:border-orange-400/20">
+              <Link
+                key={game.id}
+                href={
+                  resolveMatchupHref({
+                    leagueKey: game.leagueKey,
+                    externalEventId: game.externalEventId,
+                    fallbackHref: game.detailHref ?? null
+                  }) ?? "/board"
+                }
+                className="rounded-[1.3rem] border border-white/8 bg-slate-950/70 px-4 py-4 transition hover:border-orange-400/20"
+              >
                 <div className="flex items-center justify-between gap-3">
                   <div className="font-semibold text-white">{game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}</div>
                   <Badge tone="brand">{game.edgeScore.label}</Badge>

@@ -81,7 +81,7 @@ export function getLeagueRecord(leagueKey: LeagueKey): LeagueRecord {
       id: `support_${leagueKey.toLowerCase()}`,
       key: leagueKey,
       name: leagueKey,
-      sport: "BASKETBALL"
+      sport: "OTHER"
     }
   );
 }

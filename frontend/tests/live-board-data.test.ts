@@ -6,6 +6,7 @@ import { selectBoardGamesByStatus } from "@/services/odds/live-board-data";
 function createGame(id: string, status: GameCardView["status"]): GameCardView {
   return {
     id,
+    externalEventId: id,
     leagueKey: "NBA",
     awayTeam: {
       id: `${id}-away`,

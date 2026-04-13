@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { BetActionButton } from "@/components/bets/bet-action-button";
+import { MarketSparkline } from "@/components/charts/market-sparkline";
 import { DataTable } from "@/components/ui/data-table";
 import {
   getOpportunityScoreBand,
@@ -10,6 +11,7 @@ import {
 import type { PropCardView } from "@/lib/types/domain";
 import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
 import { buildPropBetIntent, buildWagerMathView } from "@/lib/utils/bet-intelligence";
+import { resolveMatchupHref } from "@/lib/utils/entity-routing";
 import { buildPropOpportunity } from "@/services/opportunities/opportunity-service";
 
 type PropsTableProps = {
@@ -22,6 +24,16 @@ function renderValueFlag(flag: PropCardView["valueFlag"]) {
   }
 
   return flag.replace(/_/g, " ");
+}
+
+function buildPropSparkline(prop: PropCardView) {
+  return [
+    prop.lineMovement,
+    prop.bestAvailableOddsAmerican,
+    prop.averageOddsAmerican,
+    prop.marketDeltaAmerican,
+    prop.evProfile?.fairLineGap
+  ].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 }
 
 export function PropsTable({ props }: PropsTableProps) {
@@ -45,10 +57,10 @@ export function PropsTable({ props }: PropsTableProps) {
           return (
             <div key={`${prop.id}-player`}>
               <div className="font-medium text-white">{prop.player.name}</div>
-              <div className="text-xs text-slate-500">
+              <div className="concept-meta mt-1">
                 {prop.teamResolved ? prop.team.abbreviation : "Team mapping pending"}
               </div>
-              <div className="mt-1 text-xs text-sky-300">
+              <div className="mt-2 text-xs text-sky-300">
                 {scoreBand.label} {opportunity.opportunityScore} | {opportunity.actionState.replace(/_/g, " ")}
               </div>
             </div>
@@ -150,7 +162,19 @@ export function PropsTable({ props }: PropsTableProps) {
           </div>
         </div>,
         <div key={`${prop.id}-actions`} className="flex gap-2">
-          <Link href={prop.gameHref ?? `/game/${prop.gameId}`} className="text-sky-300">
+          <div className="hidden min-w-[88px] items-center justify-end lg:flex">
+            <MarketSparkline values={buildPropSparkline(prop)} compact />
+          </div>
+          <Link
+            href={
+              resolveMatchupHref({
+                leagueKey: prop.leagueKey,
+                externalEventId: prop.gameId,
+                fallbackHref: prop.gameHref ?? null
+              }) ?? "/props"
+            }
+            className="concept-chip concept-chip-muted"
+          >
             Game
           </Link>
           <BetActionButton intent={buildPropBetIntent(prop, "props", "/props")} className="px-3 py-1.5 text-xs">

@@ -1,12 +1,15 @@
 import { Prisma } from "@prisma/client";
 
 import type { BetIntent } from "@/lib/types/bet-intelligence";
+import type { ChangeIntelligenceView } from "@/lib/types/change-intelligence";
+import type { DecisionView } from "@/lib/types/decision";
 import type {
   AlertNotificationView,
   AlertRuleConfig,
   AlertRuleView,
   AlertsPageData,
-  ProductSummaryView
+  ProductSummaryView,
+  WatchlistItemView
 } from "@/lib/types/product";
 import { alertRuleCreateSchema } from "@/lib/validation/product";
 import { prisma } from "@/lib/db/prisma";
@@ -25,6 +28,23 @@ import {
   getCurrentLineDelta,
   getWatchlistItemById
 } from "@/services/watchlist/watchlist-service";
+import {
+  attachPrioritization,
+  rankAttentionQueue
+} from "@/services/decision/attention-queue";
+import {
+  isChangeIntelligenceView,
+  shouldAlertForChange
+} from "@/services/decision/change-intelligence";
+import {
+  buildDecisionFromOpportunitySnapshot,
+  isDecisionView
+} from "@/services/decision/decision-engine";
+import { buildDecisionMemorySync } from "@/services/decision/decision-memory-sync";
+import {
+  getDecisionMemoryFromEvaluationStateJson,
+  writeAlertRuleDecisionMemory
+} from "@/services/decision/decision-memory-repository";
 import { getPerformanceDashboard } from "@/services/bets/bets-service";
 import {
   isOpportunitySnapshot
@@ -101,12 +121,79 @@ function mapRuleConfig(raw: Prisma.JsonValue): AlertRuleConfig {
 }
 
 function getOpportunityPostureNote(item: Awaited<ReturnType<typeof getWatchlistItemById>>) {
-  const opportunity = item?.opportunitySnapshot;
-  if (!opportunity) {
+  const decision = item?.decision;
+  if (!decision) {
     return null;
   }
 
-  return `Current posture: ${opportunity.actionState.replace(/_/g, " ")} at score ${opportunity.opportunityScore}.`;
+  const explanation = decision.explanationFragments[0];
+  const recommendation = decision.recommendation.toUpperCase();
+  const priority = decision.priority.toUpperCase();
+  return explanation
+    ? `Current decision: ${recommendation} (${priority}). ${explanation}`
+    : `Current decision: ${recommendation} (${priority}).`;
+}
+
+function shouldSuppressDecisionAlert(
+  type: AlertRuleConfig["type"],
+  decision: DecisionView | null,
+  change: ChangeIntelligenceView | null
+) {
+  if (!decision) {
+    return false;
+  }
+
+  if (type === "STARTING_SOON" || type === "AVAILABILITY_RETURNED") {
+    return false;
+  }
+
+  return !decision.alert.eligible || !shouldAlertForChange(change);
+}
+
+function buildDecisionDedupeKey(
+  ruleId: string,
+  category: string,
+  change: ChangeIntelligenceView | null,
+  qualifier?: string | number | null
+) {
+  const suffix = change?.stableChangeSignature ?? "no-change";
+  return [ruleId, category, qualifier ?? "base", suffix].join(":");
+}
+
+function buildAlertRuleMemoryExtras(
+  current: WatchlistItemView["current"]
+) {
+  return {
+    available: current.available,
+    oddsAmerican: current.oddsAmerican,
+    line: current.line,
+    sportsbookName: current.sportsbookName,
+    eventStatus: current.eventStatus,
+    startTime: current.startTime
+  };
+}
+
+async function syncAlertRuleSemanticMemory(args: {
+  row: AlertRuleRow;
+  current: WatchlistItemView["current"];
+  decision: DecisionView | null;
+  recordedAt: Date;
+}) {
+  const syncResult = buildDecisionMemorySync({
+    previousMemory: getDecisionMemoryFromEvaluationStateJson(args.row.evaluationStateJson),
+    decision: args.decision,
+    recordedAt: args.recordedAt.toISOString()
+  });
+
+  await writeAlertRuleDecisionMemory({
+    alertRuleId: args.row.id,
+    currentEvaluationStateJson: args.row.evaluationStateJson,
+    memory: syncResult.nextMemory,
+    extras: buildAlertRuleMemoryExtras(args.current),
+    lastEvaluatedAt: args.recordedAt
+  });
+
+  return syncResult.nextMemory;
 }
 
 function mapAlertRule(row: AlertRuleRow): AlertRuleView {
@@ -130,10 +217,21 @@ function mapAlertRule(row: AlertRuleRow): AlertRuleView {
 
 async function mapNotification(row: NotificationRow): Promise<AlertNotificationView> {
   const context = toRecord(row.contextJson);
-  const snapshotFromContext = isOpportunitySnapshot(context?.opportunitySnapshot)
-    ? (context?.opportunitySnapshot as OpportunitySnapshotView)
+  const snapshotCandidate = context?.opportunitySnapshot;
+  const snapshotFromContext = isOpportunitySnapshot(snapshotCandidate)
+    ? snapshotCandidate
     : null;
-  return {
+  const decisionCandidate = context?.decision;
+  const decisionFromContext = isDecisionView(decisionCandidate)
+    ? decisionCandidate
+    : snapshotFromContext
+      ? buildDecisionFromOpportunitySnapshot(snapshotFromContext)
+      : null;
+  const changeCandidate = context?.changeIntelligence;
+  const changeFromContext = isChangeIntelligenceView(changeCandidate)
+    ? changeCandidate
+    : null;
+  return attachPrioritization({
     id: row.id,
     alertRuleId: row.alertRuleId ?? null,
     watchlistItemId: row.watchlistItemId ?? null,
@@ -148,8 +246,10 @@ async function mapNotification(row: NotificationRow): Promise<AlertNotificationV
     eventLabel: row.watchlistItem?.eventLabel ?? null,
     selection: row.watchlistItem?.selection ?? null,
     betIntent: toIntent(row.watchlistItem?.intentJson ?? null),
-    opportunitySnapshot: snapshotFromContext
-  };
+    opportunitySnapshot: snapshotFromContext,
+    decision: decisionFromContext,
+    changeIntelligence: changeFromContext
+  });
 }
 
 async function emitNotification(args: {
@@ -163,6 +263,8 @@ async function emitNotification(args: {
   dedupeKey: string;
   context: Record<string, unknown>;
   opportunitySnapshot?: OpportunitySnapshotView | null;
+  decision?: DecisionView | null;
+  changeIntelligence?: ChangeIntelligenceView | null;
 }) {
   await prisma.alertNotification.create({
     data: {
@@ -177,7 +279,9 @@ async function emitNotification(args: {
       dedupeKey: args.dedupeKey,
       contextJson: toJsonInput({
         ...args.context,
-        opportunitySnapshot: args.opportunitySnapshot ?? null
+        opportunitySnapshot: args.opportunitySnapshot ?? null,
+        decision: args.decision ?? null,
+        changeIntelligence: args.changeIntelligence ?? null
       })
     }
   }).catch((error: unknown) => {
@@ -251,27 +355,18 @@ async function evaluateSingleRule(row: AlertRuleRow) {
   }
   const postureNote = getOpportunityPostureNote(item);
   const opportunitySnapshot = item.opportunitySnapshot;
-
+  const decision = item.decision;
   const current = item.current;
   const now = Date.now();
-  const stateUpdate = {
-    lastEvaluatedAt: new Date(),
-    evaluationStateJson: toJsonInput({
-      available: current.available,
-      oddsAmerican: current.oddsAmerican,
-      line: current.line,
-      sportsbookName: current.sportsbookName,
-      eventStatus: current.eventStatus,
-      startTime: current.startTime
-    })
-  };
-
-  await prisma.alertRule.update({
-    where: {
-      id: row.id
-    },
-    data: stateUpdate
+  const recordedAt = new Date();
+  const previousEvaluationState = toRecord(row.evaluationStateJson);
+  const nextMemory = await syncAlertRuleSemanticMemory({
+    row,
+    current,
+    decision,
+    recordedAt
   });
+  const changeIntelligence = nextMemory.latestChange;
 
   if (!current.available && config.type !== "AVAILABILITY_RETURNED") {
     return;
@@ -282,6 +377,10 @@ async function evaluateSingleRule(row: AlertRuleRow) {
 
   if (config.type === "LINE_MOVEMENT_THRESHOLD" || config.type === "PROP_LINE_CHANGED") {
     if (typeof lineDelta === "number" && Math.abs(lineDelta) >= config.threshold) {
+      if (shouldSuppressDecisionAlert(config.type, decision, changeIntelligence)) {
+        return;
+      }
+
       await emitNotification({
         alertRuleId: row.id,
         watchlistItemId: row.watchlistItemId,
@@ -290,12 +389,19 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         severity: config.type === "PROP_LINE_CHANGED" ? "PREMIUM" : "ACTION",
         sourcePath: item.intent.matchupHref ?? item.sourcePath,
         sourcePage: item.sourcePage,
-        dedupeKey: `${row.id}:line:${current.line ?? "na"}`,
+        dedupeKey: buildDecisionDedupeKey(
+          row.id,
+          "line-threshold",
+          changeIntelligence,
+          lineDelta > 0 ? "up" : "down"
+        ),
         context: {
           savedLine: item.line,
           currentLine: current.line
         },
-        opportunitySnapshot
+        opportunitySnapshot,
+        decision,
+        changeIntelligence
       });
 
       await prisma.alertRule.update({
@@ -313,6 +419,10 @@ async function evaluateSingleRule(row: AlertRuleRow) {
 
   if (config.type === "EV_THRESHOLD_REACHED") {
     if (typeof current.expectedValuePct === "number" && current.expectedValuePct >= config.thresholdPct) {
+      if (shouldSuppressDecisionAlert(config.type, decision, changeIntelligence)) {
+        return;
+      }
+
       await emitNotification({
         alertRuleId: row.id,
         watchlistItemId: row.watchlistItemId,
@@ -321,11 +431,13 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         severity: "PREMIUM",
         sourcePath: item.intent.matchupHref ?? item.sourcePath,
         sourcePage: item.sourcePage,
-        dedupeKey: `${row.id}:ev:${current.expectedValuePct.toFixed(2)}`,
+        dedupeKey: buildDecisionDedupeKey(row.id, "ev-threshold", changeIntelligence),
         context: {
           expectedValuePct: current.expectedValuePct
         },
-        opportunitySnapshot
+        opportunitySnapshot,
+        decision,
+        changeIntelligence
       });
 
       await prisma.alertRule.update({
@@ -343,6 +455,10 @@ async function evaluateSingleRule(row: AlertRuleRow) {
 
   if (config.type === "BEST_BOOK_CHANGED") {
     if (savedSportsbook && current.sportsbookName && current.sportsbookName !== savedSportsbook) {
+      if (shouldSuppressDecisionAlert(config.type, decision, changeIntelligence)) {
+        return;
+      }
+
       await emitNotification({
         alertRuleId: row.id,
         watchlistItemId: row.watchlistItemId,
@@ -351,12 +467,14 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         severity: "PREMIUM",
         sourcePath: item.intent.matchupHref ?? item.sourcePath,
         sourcePage: item.sourcePage,
-        dedupeKey: `${row.id}:book:${current.sportsbookName}`,
+        dedupeKey: buildDecisionDedupeKey(row.id, "best-book", changeIntelligence, current.sportsbookName),
         context: {
           previousBook: savedSportsbook,
           currentBook: current.sportsbookName
         },
-        opportunitySnapshot
+        opportunitySnapshot,
+        decision,
+        changeIntelligence
       });
 
       await prisma.alertRule.update({
@@ -389,11 +507,18 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         severity: "ACTION",
         sourcePath: item.intent.matchupHref ?? item.sourcePath,
         sourcePage: item.sourcePage,
-        dedupeKey: `${row.id}:start:${current.startTime}:${config.minutesBefore}`,
+        dedupeKey: buildDecisionDedupeKey(
+          row.id,
+          "start-window",
+          changeIntelligence,
+          `${current.startTime}:${config.minutesBefore}`
+        ),
         context: {
           startTime: current.startTime
         },
-        opportunitySnapshot
+        opportunitySnapshot,
+        decision,
+        changeIntelligence
       });
 
       await prisma.alertRule.update({
@@ -410,8 +535,7 @@ async function evaluateSingleRule(row: AlertRuleRow) {
   }
 
   if (config.type === "AVAILABILITY_RETURNED") {
-    const previous = row.evaluationStateJson as Record<string, unknown> | null;
-    const previouslyAvailable = Boolean(previous?.available);
+    const previouslyAvailable = Boolean(previousEvaluationState?.available);
 
     if (current.available && !previouslyAvailable) {
       await emitNotification({
@@ -422,11 +546,18 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         severity: "ACTION",
         sourcePath: item.intent.matchupHref ?? item.sourcePath,
         sourcePage: item.sourcePage,
-        dedupeKey: `${row.id}:available:${current.sportsbookName ?? "market"}`,
+        dedupeKey: buildDecisionDedupeKey(
+          row.id,
+          "availability",
+          changeIntelligence,
+          current.sportsbookName ?? "market"
+        ),
         context: {
           sportsbookName: current.sportsbookName
         },
-        opportunitySnapshot
+        opportunitySnapshot,
+        decision,
+        changeIntelligence
       });
 
       await prisma.alertRule.update({
@@ -456,6 +587,10 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         : current.line === config.targetLine;
 
     if (crossed) {
+      if (shouldSuppressDecisionAlert(config.type, decision, changeIntelligence)) {
+        return;
+      }
+
       await emitNotification({
         alertRuleId: row.id,
         watchlistItemId: row.watchlistItemId,
@@ -464,12 +599,19 @@ async function evaluateSingleRule(row: AlertRuleRow) {
         severity: "ACTION",
         sourcePath: item.intent.matchupHref ?? item.sourcePath,
         sourcePage: item.sourcePage,
-        dedupeKey: `${row.id}:target:${current.line}`,
+        dedupeKey: buildDecisionDedupeKey(
+          row.id,
+          "target-crossed",
+          changeIntelligence,
+          config.targetLine
+        ),
         context: {
           targetLine: config.targetLine,
           currentLine: current.line
         },
-        opportunitySnapshot
+        opportunitySnapshot,
+        decision,
+        changeIntelligence
       });
 
       await prisma.alertRule.update({
@@ -602,9 +744,17 @@ export async function getAlertsPageData(): Promise<AlertsPageData> {
       })
     ]);
 
+    const mappedNotifications = rankAttentionQueue(
+      await Promise.all(notifications.map(mapNotification)),
+      {
+        getSecondarySortValue: (item) =>
+          (item.readAt ? 0 : 1) * 10_000_000_000_000 + Date.parse(item.createdAt)
+      }
+    );
+
     return {
       setup: null,
-      notifications: await Promise.all(notifications.map(mapNotification)),
+      notifications: mappedNotifications,
       rules: rules.map(mapAlertRule),
       unreadCount: notifications.filter((item) => item.readAt === null).length,
       activeRuleCount: rules.filter((item) => item.status === "ACTIVE").length,

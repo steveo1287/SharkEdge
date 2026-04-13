@@ -159,7 +159,7 @@ export function isOutdoorSport(sport: string, leagueKey?: string) {
 // ---------------------------------------------------------------------------
 // Weather impact scoring
 // ---------------------------------------------------------------------------
-export function computeWeatherImpactScore(ctx: Omit<WeatherContext, "weatherImpactScore" | "applicable">) {
+export function computeWeatherImpactScore(ctx: Omit<WeatherContext, "weatherImpactScore">) {
   if (!ctx.applicable) return 0;
   let score = 0;
   // Wind
