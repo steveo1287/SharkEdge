@@ -22,7 +22,9 @@ if (!global.sharkedgeProviderReadinessEnvLoaded) {
 const BACKEND_PROVIDER_TIMEOUT_MS = 2_500;
 const SOFT_STALE_MINUTES = 15;
 const HARD_STALE_MINUTES = 45;
-const DEFAULT_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
+// Default readiness keeps to the leagues we actively surface for live odds on the board.
+// Other leagues still show up via scoreboard support, and their odds fetch can be probed explicitly via ?leagues=...
+const DEFAULT_LEAGUES: LeagueKey[] = ["NBA", "MLB"];
 
 type ReadinessState = "READY" | "DEGRADED" | "NOT_CONFIGURED" | "ERROR";
 
