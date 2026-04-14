@@ -1,136 +1,57 @@
-import type { LedgerBetResult, LedgerBetView, PerformanceBreakdownRow } from "@/lib/types/ledger";
+import assert from "node:assert/strict";
 
-function getBetProfit(result: LedgerBetResult, riskAmount: number, toWin: number, payout: number | null) {
-  if (result === "WIN") {
-    return Number(toWin.toFixed(2));
+import { buildLeagueStoryPackage } from "@/services/content/story-writer-service";
+
+async function run(name: string, fn: () => Promise<void> | void) {
+  try {
+    await fn();
+    console.log(`PASS ${name}`);
+  } catch (error) {
+    console.error(`FAIL ${name}`);
+    throw error;
   }
-
-  if (result === "LOSS") {
-    return Number((-riskAmount).toFixed(2));
-  }
-
-  if (result === "CASHED_OUT") {
-    return Number(((payout ?? riskAmount) - riskAmount).toFixed(2));
-  }
-
-  return 0;
 }
 
-export function calculateLedgerRecord(results: LedgerBetResult[]) {
-  const wins = results.filter((result) => result === "WIN").length;
-  const losses = results.filter((result) => result === "LOSS").length;
-  const pushes = results.filter((result) => result === "PUSH").length;
+async function main() {
+  await run("box score recaps produce a real story package", async () => {
+    const story = await buildLeagueStoryPackage({
+      league: "MLB",
+      title: "White Sox beat Marlins in a low-scoring finish",
+      summary: "Chicago scratched out enough late offense to close the series opener.",
+      category: "Recap",
+      eventLabel: "Chicago White Sox @ Miami Marlins",
+      supportingFacts: ["Series opener", "Late offense", "Bullpen held the lead"],
+      boxscore: {
+        awayTeam: "Chicago White Sox",
+        homeTeam: "Miami Marlins",
+        awayScore: 4,
+        homeScore: 2
+      }
+    });
 
-  return {
-    wins,
-    losses,
-    pushes
-  };
+    assert.equal(story.eyebrow, "MLB recap");
+    assert.equal(story.sections.length, 3);
+    assert.ok(story.boxscoreSummary?.includes("4-2"));
+    assert.ok(story.bettingImpact.includes("price") || story.bettingImpact.includes("spread"));
+  });
+
+  await run("availability stories still render betting context without a box score", async () => {
+    const story = await buildLeagueStoryPackage({
+      league: "NBA",
+      title: "Jayson Tatum questionable for tonight",
+      summary: "Boston will carry major usage questions into the final injury report.",
+      category: "Injury report",
+      supportingFacts: ["Usage swing", "Rotation impact"]
+    });
+
+    assert.equal(story.eyebrow, "NBA availability watch");
+    assert.equal(story.sections.length, 3);
+    assert.equal(story.boxscoreSummary, null);
+    assert.ok(story.takeaways[0]?.includes("availability"));
+  });
 }
 
-export function calculateLedgerWinRate(results: LedgerBetResult[]) {
-  const { wins, losses, pushes } = calculateLedgerRecord(results);
-  const graded = wins + losses + pushes;
-  if (!graded) {
-    return 0;
-  }
-
-  return Number(((wins / graded) * 100).toFixed(1));
-}
-
-export function calculateLedgerNetUnits<T extends Pick<LedgerBetView, "result" | "riskAmount" | "toWin" | "payout">>(
-  bets: T[]
-) {
-  return Number(
-    bets
-      .reduce(
-        (total, bet) => total + getBetProfit(bet.result, bet.riskAmount, bet.toWin, bet.payout),
-        0
-      )
-      .toFixed(2)
-  );
-}
-
-export function calculateLedgerRoi<T extends Pick<LedgerBetView, "result" | "riskAmount" | "toWin" | "payout">>(
-  bets: T[]
-) {
-  const settled = bets.filter((bet) => bet.result !== "OPEN");
-  const risked = settled.reduce((total, bet) => total + bet.riskAmount, 0);
-  if (!risked) {
-    return 0;
-  }
-
-  const profit = calculateLedgerNetUnits(settled);
-  return Number(((profit / risked) * 100).toFixed(1));
-}
-
-export function calculateLedgerAverageOdds<T extends Pick<LedgerBetView, "oddsAmerican">>(bets: T[]) {
-  if (!bets.length) {
-    return 0;
-  }
-
-  return Math.round(bets.reduce((total, bet) => total + bet.oddsAmerican, 0) / bets.length);
-}
-
-export function calculateLedgerAverageStake<T extends Pick<LedgerBetView, "riskAmount">>(bets: T[]) {
-  if (!bets.length) {
-    return 0;
-  }
-
-  return Number((bets.reduce((total, bet) => total + bet.riskAmount, 0) / bets.length).toFixed(2));
-}
-
-export function calculateAverageClv<T extends Pick<LedgerBetView, "clvPercentage">>(bets: T[]) {
-  const tracked = bets.filter((bet) => typeof bet.clvPercentage === "number");
-  if (!tracked.length) {
-    return null;
-  }
-
-  return Number(
-    (
-      tracked.reduce((total, bet) => total + (bet.clvPercentage ?? 0), 0) / tracked.length
-    ).toFixed(2)
-  );
-}
-
-export function buildBreakdownRows<T extends Pick<LedgerBetView, "result" | "riskAmount" | "toWin" | "payout" | "clvPercentage">>(
-  bets: T[],
-  getLabel: (bet: T) => string
-): PerformanceBreakdownRow[] {
-  const buckets = new Map<string, T[]>();
-
-  for (const bet of bets) {
-    const label = getLabel(bet);
-    buckets.set(label, [...(buckets.get(label) ?? []), bet]);
-  }
-
-  return Array.from(buckets.entries())
-    .map(([label, bucket]) => {
-      const settled = bucket.filter((bet) => bet.result !== "OPEN");
-      const results = settled.map((bet) => bet.result);
-      const record = calculateLedgerRecord(results);
-      const winRate = calculateLedgerWinRate(results);
-        const units = calculateLedgerNetUnits(settled);
-      const risked = settled.reduce((total, bet) => total + bet.riskAmount, 0);
-      const roi = risked ? Number(((units / risked) * 100).toFixed(1)) : 0;
-      const avgStake = bucket.length
-        ? Number((bucket.reduce((total, bet) => total + bet.riskAmount, 0) / bucket.length).toFixed(2))
-        : 0;
-
-      return {
-        label,
-        bets: bucket.length,
-        winRate,
-        roi,
-        units,
-        avgStake,
-        clv: calculateAverageClv(bucket)
-      };
-    })
-    .sort((left, right) => right.units - left.units || right.bets - left.bets || left.label.localeCompare(right.label));
-}
-
-export function formatRecordString(results: LedgerBetResult[]) {
-  const { wins, losses, pushes } = calculateLedgerRecord(results);
-  return `${wins}-${losses}-${pushes}`;
-}
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
