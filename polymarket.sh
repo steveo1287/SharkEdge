@@ -1,6 +1,7 @@
 {
-  "ownerId": "kn7fb27fhq09tpgsy2eyzk37an80y5wa",
+  "version": 1,
+  "registry": "https://clawhub.ai",
   "slug": "frontend-dev",
-  "version": "0.1.1",
-  "publishedAt": 1770803826510
+  "installedVersion": "0.1.1",
+  "installedAt": 1774795147189
 }

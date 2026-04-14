@@ -1,7 +1,7 @@
 {
   "version": 1,
   "registry": "https://clawhub.ai",
-  "slug": "shadcn-ui",
+  "slug": "debug-pro",
   "installedVersion": "1.0.0",
-  "installedAt": 1774794375270
+  "installedAt": 1774794331388
 }

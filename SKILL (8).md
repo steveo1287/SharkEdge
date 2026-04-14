@@ -1,111 +1,67 @@
-# UI Development Skill
+---
+name: TypeScript
+slug: typescript
+version: 1.0.2
+description: Write type-safe TypeScript with proper narrowing, inference patterns, and strict mode best practices.
+---
 
-An OpenClaw skill for generating production-ready Next.js 14+ projects with TypeScript, shadcn/ui, and API integration.
+## When to Use
 
-**GitHub Repository:** https://github.com/wing8169/openclaw-frontend-dev
+User needs TypeScript expertise — from basic typing to advanced generics. Agent handles type narrowing, inference, discriminated unions, and strict mode patterns.
 
-## Features
+## Quick Reference
 
-- 🚀 Next.js 14+ App Router with TypeScript
-- 🎨 shadcn/ui component library (recommended)
-- 📡 API integration with axios + React Query
-- 🏗️ Industrial-standard folder structure
-- 🎯 Feature-based component organization
-- 🔒 Type-safe with TypeScript
-- 📱 Mobile-first responsive design
-- ⚡ Optional visual review with Chromium
-- 🌐 Optional live preview with Nginx
+| Topic | File |
+|-------|------|
+| Generic patterns | `generics.md` |
+| Utility types | `utility-types.md` |
+| Declaration files | `declarations.md` |
+| Migration from JS | `migration.md` |
 
-## Tech Stack
+## Stop Using `any`
 
-**Core:**
-- Next.js 14+ (App Router)
-- TypeScript
-- Tailwind CSS v3
-- shadcn/ui
-- ESLint + Prettier
+- `unknown` forces you to narrow before use — `any` silently breaks type safety
+- API responses: type them or use `unknown`, never `any`
+- When you don't know the type, that's `unknown`, not `any`
 
-**API Integration:**
-- axios (HTTP client)
-- @tanstack/react-query (data fetching, caching)
+## Narrowing Failures
 
-**Optional:**
-- Zustand (state management)
-- Zod (validation)
-- next-auth (authentication)
-- Prisma (database ORM)
+- `filter(Boolean)` doesn't narrow — use `.filter((x): x is T => Boolean(x))`
+- `Object.keys(obj)` returns `string[]`, not `keyof typeof obj` — intentional, objects can have extra keys
+- `Array.isArray()` narrows to `any[]` — may need assertion for element type
+- `in` operator narrows but only if property is in exactly one branch of union
 
-## Installation
+## Literal Type Traps
 
-1. Copy `ui-development.skill` to your OpenClaw skills directory
-2. Or load the skill folder directly
+- `let x = "hello"` is `string` — use `const` or `as const` for literal type
+- Object properties widen: `{ status: "ok" }` has `status: string` — use `as const` or type annotation
+- Function return types widen — annotate explicitly for literal returns
 
-## Requirements
+## Inference Limits
 
-**Required:**
-- Node.js 18+
-- npm/yarn/pnpm
-- Git
+- Callbacks lose inference in some array methods — annotate parameter when TS guesses wrong
+- Generic functions need usage to infer — `fn<T>()` can't infer, pass a value or annotate
+- Nested generics often fail — break into steps with explicit types
 
-**Optional:**
-- Chromium (for auto-revision with visual review)
-- Nginx (for live preview server)
+## Discriminated Unions
 
-## Project Structure
+- Add a literal `type` or `kind` field to each variant — enables exhaustive switch
+- Exhaustive check: `default: const _never: never = x` — compile error if case missed
+- Don't mix discriminated with optional properties — breaks narrowing
 
-The skill generates a comprehensive Next.js project with:
+## `satisfies` vs Type Annotation
 
-- Route groups for logical organization (`(auth)`, `(dashboard)`)
-- Feature-based component architecture
-- Server Actions support
-- Config files for site metadata and navigation
-- Type-safe API hooks with React Query
-- shadcn/ui components integration
+- `const x: Type = val` widens to Type — loses literal info
+- `const x = val satisfies Type` keeps literal, checks compatibility — prefer for config objects
 
-## Usage
+## Strict Null Handling
 
-The skill triggers when you ask to:
-- Build/create/develop a Next.js application
-- Scaffold a web app or full-stack project
-- Add features or integrate APIs to existing projects
+- Optional chaining `?.` returns `undefined`, not `null` — matters for APIs expecting `null`
+- `??` only catches `null`/`undefined` — `||` catches all falsy including `0` and `""`
+- Non-null `!` should be last resort — prefer narrowing or early return
 
-## Workflow
+## Module Boundaries
 
-1. **Project Setup** - Initialize Next.js project
-2. **Create Directory Structure** - Set up industrial folder structure
-3. **Install Dependencies** - Core packages + shadcn/ui
-4. **Configure Base Files** - API client, React Query, providers
-5. **Generate Features** - Build pages and components
-6. **Build UI** - Use shadcn/ui components
-7. **Visual Review** - Screenshot analysis (optional)
-8. **Environment Setup** - .env configuration
-9. **Scripts & Documentation** - README and package.json
-10. **Export & Deploy** - Zip project and deployment guidance
-
-## Design Principles
-
-- Mobile-first responsive design
-- WCAG AA accessibility standards
-- Consistent spacing and typography
-- shadcn/ui for accessible, customizable components
-- TypeScript strict mode
-- Performance optimization (Image component, lazy loading)
-
-## Deployment Options
-
-- **Vercel** (recommended)
-- **Netlify**
-- **Docker**
-- **Self-hosted** (systemd + nginx)
-
-## License
-
-MIT
-
-## Author
-
-Created for OpenClaw by ClawBit 🦀
-
-## Version
-
-1.0.0 (2026-02-11)
+- `import type` for type-only imports — stripped at runtime, avoids bundler issues
+- Re-exporting types: `export type { X }` — prevents accidental runtime dependency
+- `.d.ts` augmentation: use `declare module` with exact module path

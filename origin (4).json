@@ -1,6 +1,7 @@
 {
-  "ownerId": "kn748g49ccv1rsj08vhpyw42a1802zkx",
-  "slug": "debug-pro",
-  "version": "1.0.0",
-  "publishedAt": 1769625005426
+  "version": 1,
+  "registry": "https://clawhub.ai",
+  "slug": "sportsbet-advisor",
+  "installedVersion": "1.0.1",
+  "installedAt": 1774794616264
 }
