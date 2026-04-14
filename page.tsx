@@ -1,172 +1,148 @@
-import Link from "next/link";
-
-import { LeaguePulseRail } from "@/components/intelligence/league-pulse-rail";
-import { LiveTrendRadar } from "@/components/trends/live-trend-radar";
-import {
-  getPublishedTrendFeed,
-  type PublishedTrendCard,
-  type PublishedTrendSection
-} from "@/lib/trends/publisher";
-import type { TrendFilters } from "@/lib/types/domain";
-import { trendFiltersSchema } from "@/lib/validation/filters";
-import { getBoardCommandData } from "@/services/board/board-command-service";
+import { ScoreStrip } from "@/components/intelligence/score-strip";
+import { StorylineStack } from "@/components/intelligence/storyline-stack";
+import { TeamSpotlightCard } from "@/components/intelligence/team-spotlight-card";
+import { SectionTitle } from "@/components/ui/section-title";
+import type { LeagueKey, LeagueSnapshotView, PropCardView } from "@/lib/types/domain";
+import { getBoardPageData, parseBoardFilters } from "@/services/odds/board-service";
+import { getPropsExplorerData } from "@/services/odds/props-service";
 import { getLeagueSnapshots } from "@/services/stats/stats-service";
 
 export const dynamic = "force-dynamic";
 
-type PageProps = {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+type TeamSpotlightRow = {
+  team: PropCardView["team"];
+  leagueKey: LeagueKey;
+  propCount: number;
+  verifiedGames: number;
+  bestEv: number | null;
+  record: string | null;
+  streak: string | null;
+  rank: number | null;
+  recentSummary: string[];
 };
 
-type SafeTrendFeed = {
-  featured: PublishedTrendCard[];
-  sections: PublishedTrendSection[];
-  meta?: {
-    activeSystems?: number;
-    count?: number;
-    sampleWarning?: string | null;
-  };
-};
+function buildSnapshotIndexes(snapshots: LeagueSnapshotView[]) {
+  const standingMap = new Map<string, { rank: number; record: string; streak: string }>();
+  const recentMap = new Map<string, string[]>();
 
-function readValue(searchParams: Record<string, string | string[] | undefined>, key: keyof TrendFilters) {
-  const value = searchParams[key];
-  return Array.isArray(value) ? value[0] : value;
-}
+  for (const snapshot of snapshots) {
+    for (const standing of snapshot.standings) {
+      standingMap.set(`${snapshot.league.key}:${standing.team.id}`, {
+        rank: standing.rank,
+        record: standing.record,
+        streak: standing.streak
+      });
+    }
 
-function buildFilters(searchParams: Record<string, string | string[] | undefined>) {
-  try {
-    return trendFiltersSchema.parse({
-      sport: readValue(searchParams, "sport"),
-      league: readValue(searchParams, "league"),
-      market: readValue(searchParams, "market"),
-      sportsbook: readValue(searchParams, "sportsbook"),
-      side: readValue(searchParams, "side"),
-      subject: readValue(searchParams, "subject"),
-      team: readValue(searchParams, "team"),
-      player: readValue(searchParams, "player"),
-      fighter: readValue(searchParams, "fighter"),
-      opponent: readValue(searchParams, "opponent"),
-      window: readValue(searchParams, "window"),
-      sample: readValue(searchParams, "sample")
-    });
-  } catch {
-    return trendFiltersSchema.parse({});
+    for (const game of snapshot.previousGames) {
+      const awayWon = game.awayScore > game.homeScore;
+      const homeWon = game.homeScore > game.awayScore;
+
+      recentMap.set(`${snapshot.league.key}:${game.awayTeam.id}`, [
+        ...(recentMap.get(`${snapshot.league.key}:${game.awayTeam.id}`) ?? []),
+        `${awayWon ? "W" : "L"} ${game.awayScore}-${game.homeScore} vs ${game.homeTeam.abbreviation}`
+      ]);
+      recentMap.set(`${snapshot.league.key}:${game.homeTeam.id}`, [
+        ...(recentMap.get(`${snapshot.league.key}:${game.homeTeam.id}`) ?? []),
+        `${homeWon ? "W" : "L"} ${game.homeScore}-${game.awayScore} vs ${game.awayTeam.abbreviation}`
+      ]);
+    }
   }
+
+  return { standingMap, recentMap };
 }
 
-async function getSafeTrendFeed(filters: TrendFilters): Promise<SafeTrendFeed> {
-  try {
-    const feed = await getPublishedTrendFeed(filters);
-    return {
-      featured: Array.isArray(feed?.featured) ? feed.featured.slice(0, 6) : [],
-      sections: Array.isArray(feed?.sections) ? feed.sections.filter((section) => section.cards.length).slice(0, 6) : [],
-      meta: feed?.meta
-    };
-  } catch {
-    return { featured: [], sections: [] };
+function buildRows(props: PropCardView[], verifiedGames: Map<string, number>, snapshots: LeagueSnapshotView[]) {
+  const grouped = new Map<string, PropCardView[]>();
+  const { standingMap, recentMap } = buildSnapshotIndexes(snapshots);
+
+  for (const prop of props) {
+    const key = `${prop.leagueKey}:${prop.team.id}`;
+    grouped.set(key, [...(grouped.get(key) ?? []), prop]);
   }
+
+  return Array.from(grouped.entries())
+    .map(([key, rows]) => {
+      const best = [...rows].sort((a, b) => (b.expectedValuePct ?? -999) - (a.expectedValuePct ?? -999))[0];
+      const standing = standingMap.get(key);
+      return {
+        team: best.team,
+        leagueKey: best.leagueKey,
+        propCount: rows.length,
+        verifiedGames: verifiedGames.get(best.team.id) ?? 0,
+        bestEv: best.expectedValuePct ?? null,
+        record: standing?.record ?? null,
+        streak: standing?.streak ?? null,
+        rank: standing?.rank ?? null,
+        recentSummary: recentMap.get(key) ?? []
+      } satisfies TeamSpotlightRow;
+    })
+    .sort((a, b) => {
+      const rankDelta = (a.rank ?? 999) - (b.rank ?? 999);
+      if (rankDelta !== 0) return rankDelta;
+      return (b.bestEv ?? -999) - (a.bestEv ?? -999);
+    })
+    .slice(0, 18);
 }
 
-export default async function TrendsPage({ searchParams }: PageProps) {
-  const resolvedSearch = (await searchParams) ?? {};
-  const filters = buildFilters(resolvedSearch);
-  const [feed, board, snapshots] = await Promise.all([
-    getSafeTrendFeed(filters),
-    getBoardCommandData({ league: filters.league, date: "today" }),
-    getLeagueSnapshots(filters.league)
+export default async function TeamsPage() {
+  const [boardData, propsData, snapshots] = await Promise.all([
+    getBoardPageData(
+      parseBoardFilters({ league: "ALL", date: "today", sportsbook: "best", market: "all", status: "all" })
+    ),
+    getPropsExplorerData({
+      league: "ALL",
+      marketType: "ALL",
+      team: "all",
+      player: "all",
+      sportsbook: "all",
+      valueFlag: "all",
+      sortBy: "edge_score"
+    }),
+    getLeagueSnapshots("ALL")
   ]);
 
+  const verifiedGames = new Map<string, number>();
+  for (const game of boardData.games.filter((game) => game.bestBookCount > 0)) {
+    verifiedGames.set(game.awayTeam.id, (verifiedGames.get(game.awayTeam.id) ?? 0) + 1);
+    verifiedGames.set(game.homeTeam.id, (verifiedGames.get(game.homeTeam.id) ?? 0) + 1);
+  }
+
+  const rows = buildRows(propsData.props, verifiedGames, snapshots);
+
   return (
-    <div className="grid gap-6 xl:gap-8">
-      <section className="surface-panel-strong p-5 md:p-7">
-        <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr] xl:items-end">
-          <div>
-            <div className="text-[0.68rem] uppercase tracking-[0.26em] text-sky-200">Trend command</div>
-            <h1 className="mt-3 text-[2rem] font-semibold tracking-tight text-white md:text-[3rem] md:leading-[1.02]">
-              Trends should sit next to prices, not in a dead-end library.
-            </h1>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
-              This page is built to feel like a sharp desk: live slate context on one side, filtered historical conviction on the other, with enough explanation to trust the card.
-            </p>
+    <div className="grid gap-8">
+      <section className="surface-panel-strong px-6 py-6 xl:px-8 xl:py-8">
+        <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr] xl:items-end">
+          <div className="grid gap-4">
+            <div className="section-kicker">Team intelligence</div>
+            <div className="max-w-4xl font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">
+              Team pages should feel alive: standings, recent results, prop pressure, and where to enter the board next.
+            </div>
+            <div className="max-w-3xl text-base leading-8 text-slate-300">
+              This pass turns the team hub into a routing surface for real decisions instead of a static list of names.
+            </div>
           </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="metric-tile">
-              <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Featured</div>
-              <div className="mt-2 text-3xl font-semibold text-white">{feed.featured.length}</div>
-            </div>
-            <div className="metric-tile">
-              <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Active systems</div>
-              <div className="mt-2 text-3xl font-semibold text-white">{feed.meta?.activeSystems ?? 0}</div>
-            </div>
-            <div className="metric-tile">
-              <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Live games</div>
-              <div className="mt-2 text-3xl font-semibold text-white">{board.verifiedGames.length}</div>
-            </div>
+          <div className="rounded-[1.55rem] border border-white/8 bg-[#09131f]/85 p-5 text-sm leading-6 text-slate-300">
+            {rows.length} teams surfaced across standings, verified board presence, and current prop opportunity.
           </div>
         </div>
       </section>
 
-      <LeaguePulseRail snapshots={snapshots} />
+      <ScoreStrip snapshots={snapshots} />
 
-      <section className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)] xl:items-start">
-        <aside className="grid gap-4 xl:sticky xl:top-6">
-          <LiveTrendRadar featured={feed.featured} verifiedGames={board.verifiedGames} />
-        </aside>
-
-        <div className="grid gap-4">
-          {feed.sections.length ? feed.sections.map((section) => (
-            <section key={section.category} className="surface-panel p-4 md:p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Section</div>
-                  <h2 className="mt-1 text-2xl font-semibold text-white">{section.category}</h2>
-                </div>
-                <Link href="/board" className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-200 transition hover:border-sky-400/20">
-                  Open board
-                </Link>
-              </div>
-
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                {section.cards.map((card) => (
-                  <article key={card.id} className="rounded-[1.35rem] border border-white/8 bg-slate-950/45 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">{card.leagueLabel} · {card.marketLabel}</div>
-                      <div className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-200">{card.confidence}</div>
-                    </div>
-                    <h3 className="mt-3 text-lg font-semibold text-white">{card.title}</h3>
-                    <p className="mt-2 text-sm leading-6 text-slate-300">{card.description}</p>
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-300">
-                      <span className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1">{card.record}</span>
-                      <span className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1">ROI {typeof card.roi === "number" ? `${card.roi.toFixed(1)}%` : "—"}</span>
-                      <span className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1">Hit {typeof card.hitRate === "number" ? `${card.hitRate.toFixed(0)}%` : "—"}</span>
-                      <span className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1">Sample {card.sampleSize}</span>
-                    </div>
-                    <div className="mt-4 grid gap-2">
-                      {card.whyNow.slice(0, 3).map((reason) => (
-                        <div key={reason} className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2 text-sm leading-6 text-slate-300">
-                          {reason}
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex flex-wrap gap-2">
-                        {card.intelligenceTags.slice(0, 3).map((tag) => (
-                          <span key={tag} className="rounded-full border border-sky-400/15 bg-sky-400/10 px-2.5 py-1 text-[0.68rem] text-sky-100">{tag}</span>
-                        ))}
-                      </div>
-                      <Link href={card.href} className="text-sm font-semibold text-sky-300 transition hover:text-sky-200">Open trend →</Link>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-          )) : (
-            <section className="surface-panel p-5 text-sm leading-7 text-slate-300">
-              No trend cards survived the current filters. Keep the live board open and widen the league or sample window.
-            </section>
-          )}
+      <section className="grid gap-4">
+        <SectionTitle
+          eyebrow="Open first"
+          title="Teams worth dropping into right now"
+          description="The better this page gets, the less it feels like a dead index and the more it feels like a team intelligence desk."
+        />
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {rows.map((row) => <TeamSpotlightCard key={`${row.leagueKey}-${row.team.id}`} {...row} />)}
         </div>
       </section>
+
+      <StorylineStack snapshots={snapshots} title="News threads affecting team context" />
     </div>
   );
 }
