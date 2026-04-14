@@ -1,41 +1,33 @@
-import type { Config } from "tailwindcss";
+import type { Metadata } from "next";
 
-const config: Config = {
-  content: [
-    "./app/**/*.{ts,tsx}",
-    "./components/**/*.{ts,tsx}",
-    "./lib/**/*.{ts,tsx}",
-    "./services/**/*.{ts,tsx}",
-    "./types/**/*.{ts,tsx}"
-  ],
-  theme: {
-    extend: {
-      colors: {
-        ink: "#050a14",
-        surface: "#0d1626",
-        panel: "#111c2f",
-        line: "#1c2b44",
-        brand: "#3796ff",
-        brandMuted: "#18335f",
-        premium: "#c6a55b",
-        success: "#24c78d",
-        danger: "#e05b66",
-        muted: "#8ca0c1"
-      },
-      boxShadow: {
-        panel: "0 18px 40px rgba(0, 0, 0, 0.28)"
-      },
-      fontFamily: {
-        display: ["var(--font-display)", "Space Grotesk", "system-ui", "sans-serif"],
-        body: ["var(--font-body)", "IBM Plex Sans", "system-ui", "sans-serif"],
-        mono: ["var(--font-mono)", "IBM Plex Mono", "monospace"]
-      },
-      backgroundImage: {
-        grid: "linear-gradient(rgba(56, 86, 140, 0.14) 1px, transparent 1px), linear-gradient(90deg, rgba(56, 86, 140, 0.14) 1px, transparent 1px)"
-      }
-    }
-  },
-  plugins: []
+export const metadata: Metadata = {
+  title: "Sim Workbench",
+  description: "Monte Carlo simulation workbench — game totals, spreads, and player props",
 };
 
-export default config;
+export const dynamic = "force-dynamic";
+
+export default function SimPage() {
+  return (
+    <div className="grid gap-6">
+      <div>
+        <div className="eyebrow-blue">Model Deck</div>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight text-white xl:text-3xl">
+          Simulation Workbench
+        </h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+          Monte Carlo engine · 10,000 simulations per run. Work the book mesh against the model across game markets and player props.
+        </p>
+      </div>
+      <SimWorkbenchClient />
+    </div>
+  );
+}
+
+// ── CLIENT ISLAND ────────────────────────────────────────────────────────────
+// We isolate the fully interactive workbench into its own client component so
+// the outer page stays a server component (metadata, SEO, etc).
+// The actual game/event sim (SimulationIntelligencePanel) lives at /game/[id].
+// This standalone page is a general-purpose workbench with no event context.
+
+import { SimWorkbenchClient } from "./_client";

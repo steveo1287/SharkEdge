@@ -1,29 +1,18 @@
-import { NextResponse } from "next/server";
+export function Sparkline({ data, color = '#44a4ff', width = 88, height = 28 }: { data: number[]; color?: string; width?: number; height?: number }) {
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  const points = data
+    .map((v, i) => {
+      const x = (i / Math.max(1, data.length - 1)) * width;
+      const y = height - ((v - min) / range) * (height - 6) - 3;
+      return `${x},${y}`;
+    })
+    .join(' ');
 
-import { getAlertSummary } from "@/services/alerts/alerts-service";
-
-function getStatusCode(error: unknown) {
-  const message = error instanceof Error ? error.message : "";
-
-  if (/database|prisma|migration/i.test(message)) {
-    return 503;
-  }
-
-  return 400;
-}
-
-export async function GET() {
-  try {
-    const summary = await getAlertSummary();
-    return NextResponse.json(summary);
-  } catch (error) {
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to load product summary."
-      },
-      {
-        status: getStatusCode(error)
-      }
-    );
-  }
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }
