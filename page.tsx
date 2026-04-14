@@ -1,252 +1,172 @@
 import Link from "next/link";
 
-import { EdgeScoreBadge } from "@/components/intelligence/edge-score-badges";
+import { LeaguePulseRail } from "@/components/intelligence/league-pulse-rail";
+import { LiveTrendRadar } from "@/components/trends/live-trend-radar";
 import {
-  getOpportunityScoreBand,
-  OpportunityBadgeRow,
-  OpportunityScoreBadge,
-  TrapWarning
-} from "@/components/intelligence/opportunity-badges";
-import {
-  getCoverageTone,
-  getProviderHealthTone
-} from "@/components/intelligence/provider-status-badges";
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
-import { EmptyState } from "@/components/ui/empty-state";
-import { SectionTitle } from "@/components/ui/section-title";
-import type { PropCardView } from "@/lib/types/domain";
-import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
-import { buildPropOpportunity } from "@/services/opportunities/opportunity-service";
+  getPublishedTrendFeed,
+  type PublishedTrendCard,
+  type PublishedTrendSection
+} from "@/lib/trends/publisher";
+import type { TrendFilters } from "@/lib/types/domain";
+import { trendFiltersSchema } from "@/lib/validation/filters";
+import { getBoardCommandData } from "@/services/board/board-command-service";
+import { getLeagueSnapshots } from "@/services/stats/stats-service";
 
-export { getCoverageTone, getProviderHealthTone };
+export const dynamic = "force-dynamic";
 
-function getPropPriorityScore(prop: PropCardView) {
-  return buildPropOpportunity(prop).opportunityScore;
+type PageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+type SafeTrendFeed = {
+  featured: PublishedTrendCard[];
+  sections: PublishedTrendSection[];
+  meta?: {
+    activeSystems?: number;
+    count?: number;
+    sampleWarning?: string | null;
+  };
+};
+
+function readValue(searchParams: Record<string, string | string[] | undefined>, key: keyof TrendFilters) {
+  const value = searchParams[key];
+  return Array.isArray(value) ? value[0] : value;
 }
 
-export function sortPropsByPriority(props: PropCardView[]) {
-  return [...props].sort((left, right) => getPropPriorityScore(right) - getPropPriorityScore(left));
+function buildFilters(searchParams: Record<string, string | string[] | undefined>) {
+  try {
+    return trendFiltersSchema.parse({
+      sport: readValue(searchParams, "sport"),
+      league: readValue(searchParams, "league"),
+      market: readValue(searchParams, "market"),
+      sportsbook: readValue(searchParams, "sportsbook"),
+      side: readValue(searchParams, "side"),
+      subject: readValue(searchParams, "subject"),
+      team: readValue(searchParams, "team"),
+      player: readValue(searchParams, "player"),
+      fighter: readValue(searchParams, "fighter"),
+      opponent: readValue(searchParams, "opponent"),
+      window: readValue(searchParams, "window"),
+      sample: readValue(searchParams, "sample")
+    });
+  } catch {
+    return trendFiltersSchema.parse({});
+  }
 }
 
-function FeaturedPropCard({ prop }: { prop: PropCardView }) {
-  const matchupHref = prop.gameHref ?? `/game/${prop.gameId}`;
-  const opportunity = buildPropOpportunity(prop);
-  const scoreBand = getOpportunityScoreBand(opportunity.opportunityScore);
-  const fairLine =
-    typeof prop.fairPrice?.fairOddsAmerican === "number"
-      ? `${prop.fairPrice.fairOddsAmerican > 0 ? "+" : ""}${prop.fairPrice.fairOddsAmerican}`
-      : "N/A";
-  const reason =
-    opportunity.reasonSummary ??
-    prop.reasons?.[0]?.detail ??
-    prop.analyticsSummary?.reason ??
-    prop.supportNote;
+async function getSafeTrendFeed(filters: TrendFilters): Promise<SafeTrendFeed> {
+  try {
+    const feed = await getPublishedTrendFeed(filters);
+    return {
+      featured: Array.isArray(feed?.featured) ? feed.featured.slice(0, 6) : [],
+      sections: Array.isArray(feed?.sections) ? feed.sections.filter((section) => section.cards.length).slice(0, 6) : [],
+      meta: feed?.meta
+    };
+  } catch {
+    return { featured: [], sections: [] };
+  }
+}
+
+export default async function TrendsPage({ searchParams }: PageProps) {
+  const resolvedSearch = (await searchParams) ?? {};
+  const filters = buildFilters(resolvedSearch);
+  const [feed, board, snapshots] = await Promise.all([
+    getSafeTrendFeed(filters),
+    getBoardCommandData({ league: filters.league, date: "today" }),
+    getLeagueSnapshots(filters.league)
+  ]);
 
   return (
-    <Card className="surface-panel p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-            {prop.leagueKey} | {prop.bestAvailableSportsbookName ?? prop.sportsbook.name}
+    <div className="grid gap-6 xl:gap-8">
+      <section className="surface-panel-strong p-5 md:p-7">
+        <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr] xl:items-end">
+          <div>
+            <div className="text-[0.68rem] uppercase tracking-[0.26em] text-sky-200">Trend command</div>
+            <h1 className="mt-3 text-[2rem] font-semibold tracking-tight text-white md:text-[3rem] md:leading-[1.02]">
+              Trends should sit next to prices, not in a dead-end library.
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
+              This page is built to feel like a sharp desk: live slate context on one side, filtered historical conviction on the other, with enough explanation to trust the card.
+            </p>
           </div>
-          <div className="mt-3 text-2xl font-semibold text-white">{prop.player.name}</div>
-          <div className="mt-2 text-sm text-slate-400">
-            {formatMarketType(prop.marketType)} {prop.side} {prop.line}
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <OpportunityScoreBadge score={opportunity.opportunityScore} />
-          {prop.fairPrice ? (
-            <Badge tone="muted">{prop.fairPrice.pricingMethod.replace(/_/g, " ")}</Badge>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Best price</div>
-          <div className="mt-2 text-base font-semibold text-white">
-            {formatAmericanOdds(prop.bestAvailableOddsAmerican ?? prop.oddsAmerican)}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            {prop.bestAvailableSportsbookName ?? prop.sportsbook.name}
-          </div>
-        </div>
-        <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">EV</div>
-          <div className="mt-2 text-base font-semibold text-emerald-300">
-            {typeof prop.expectedValuePct === "number"
-              ? `${prop.expectedValuePct > 0 ? "+" : ""}${prop.expectedValuePct.toFixed(2)}%`
-              : "N/A"}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            Books {prop.sportsbookCount ?? 1} | {opportunity.actionState.replace(/_/g, " ").toLowerCase()}
-          </div>
-        </div>
-        <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Fair line</div>
-          <div className="mt-2 text-base font-semibold text-white">{fairLine}</div>
-          <div className="mt-1 text-xs text-slate-500">
-            Gap{" "}
-            {typeof prop.evProfile?.fairLineGap === "number"
-              ? `${prop.evProfile.fairLineGap > 0 ? "+" : ""}${prop.evProfile.fairLineGap}`
-              : "N/A"}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
-        {reason ??
-          "This prop stays visible because the current price, market shape, or matchup context still makes it worth opening."}
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        <OpportunityBadgeRow opportunity={opportunity} />
-      </div>
-
-      <TrapWarning
-        opportunity={opportunity}
-        className="mt-4 rounded-[1.15rem] border border-rose-400/20 bg-rose-500/8 px-4 py-3 text-sm leading-6 text-rose-100"
-      />
-
-      <div className="mt-4 flex flex-wrap gap-3">
-        <Link
-          href={matchupHref}
-          className="rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300"
-        >
-          Open matchup
-        </Link>
-        <Link
-          href="#prop-board"
-          className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-medium text-slate-200"
-        >
-          Compare board
-        </Link>
-      </div>
-    </Card>
-  );
-}
-
-function WatchlistPropCard({ prop }: { prop: PropCardView }) {
-  const opportunity = buildPropOpportunity(prop);
-
-  return (
-    <Card className="surface-panel p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-            {prop.leagueKey} | {prop.bestAvailableSportsbookName ?? prop.sportsbook.name}
-          </div>
-          <div className="mt-2 text-xl font-semibold text-white">{prop.player.name}</div>
-          <div className="mt-2 text-sm text-slate-400">
-            {formatMarketType(prop.marketType)} {prop.side} {prop.line}
-          </div>
-        </div>
-        <EdgeScoreBadge label={prop.edgeScore.label} />
-      </div>
-      <div className="mt-4 text-sm leading-6 text-slate-300">
-        {opportunity.reasonSummary ??
-          prop.reasons?.[0]?.detail ??
-          prop.analyticsSummary?.reason ??
-          prop.supportNote ??
-          "Keep this one on the desk until the price or context clarifies."}
-      </div>
-      <div className="mt-4">
-        <OpportunityBadgeRow opportunity={opportunity} />
-      </div>
-      <TrapWarning opportunity={opportunity} />
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
-        <div className="text-slate-400">
-          {formatAmericanOdds(prop.bestAvailableOddsAmerican ?? prop.oddsAmerican)}
-          {" | "}
-          {typeof prop.expectedValuePct === "number"
-            ? `EV ${prop.expectedValuePct > 0 ? "+" : ""}${prop.expectedValuePct.toFixed(2)}%`
-            : "EV unavailable"}
-        </div>
-        <Link
-          href={prop.gameHref ?? `/game/${prop.gameId}`}
-          className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200"
-        >
-          Open matchup
-        </Link>
-      </div>
-    </Card>
-  );
-}
-
-export function PropsDeskSections({
-  featuredProps,
-  watchlistProps
-}: {
-  featuredProps: PropCardView[];
-  watchlistProps: PropCardView[];
-}) {
-  return (
-    <>
-      <section id="open-now" className="grid gap-4">
-        <SectionTitle
-          eyebrow="Prop desk"
-          title={featuredProps.length ? "Best prop entries on the desk" : "No prop entry deserves top billing yet"}
-          description={
-            featuredProps.length
-              ? "These rows have the cleanest path into price, context, and execution."
-              : "SharkEdge keeps the top desk quiet when the current market does not justify conviction."
-          }
-        />
-
-        <div className="grid gap-4 xl:grid-cols-3">
-          {featuredProps.length ? (
-            featuredProps.map((prop) => <FeaturedPropCard key={prop.id} prop={prop} />)
-          ) : (
-            <div className="xl:col-span-3">
-              <EmptyState
-                eyebrow="Open now"
-                title="No prop has earned top billing in this scope"
-                description="The prop desk stays quiet when the current numbers are thin or unconvincing. Widen the scope, check the watchlist desk, or move back to the board for stronger game-level entries."
-                action={
-                  <div className="flex flex-wrap justify-center gap-3">
-                    <Link
-                      href="/board"
-                      className="rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-sky-200"
-                    >
-                      Open board
-                    </Link>
-                    <a
-                      href="#watchlist"
-                      className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200"
-                    >
-                      Open watchlist desk
-                    </a>
-                  </div>
-                }
-              />
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="metric-tile">
+              <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Featured</div>
+              <div className="mt-2 text-3xl font-semibold text-white">{feed.featured.length}</div>
             </div>
-          )}
+            <div className="metric-tile">
+              <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Active systems</div>
+              <div className="mt-2 text-3xl font-semibold text-white">{feed.meta?.activeSystems ?? 0}</div>
+            </div>
+            <div className="metric-tile">
+              <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Live games</div>
+              <div className="mt-2 text-3xl font-semibold text-white">{board.verifiedGames.length}</div>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section id="watchlist" className="grid gap-4">
-        <SectionTitle
-          eyebrow="Watchlist desk"
-          title="Props still worth monitoring"
-          description="These rows still matter. They just should not lead over cleaner entries."
-        />
+      <LeaguePulseRail snapshots={snapshots} />
 
-        <div className="grid gap-4 xl:grid-cols-2">
-          {watchlistProps.length ? (
-            watchlistProps.map((prop) => <WatchlistPropCard key={prop.id} prop={prop} />)
-          ) : (
-            <div className="xl:col-span-2">
-              <EmptyState
-                eyebrow="Watchlist desk"
-                title="The prop slate is already concentrated up top"
-                description="Nothing else is close enough to the top desk right now, so this secondary lane stays quiet instead of padding the page with weaker rows."
-              />
-            </div>
+      <section className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)] xl:items-start">
+        <aside className="grid gap-4 xl:sticky xl:top-6">
+          <LiveTrendRadar featured={feed.featured} verifiedGames={board.verifiedGames} />
+        </aside>
+
+        <div className="grid gap-4">
+          {feed.sections.length ? feed.sections.map((section) => (
+            <section key={section.category} className="surface-panel p-4 md:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">Section</div>
+                  <h2 className="mt-1 text-2xl font-semibold text-white">{section.category}</h2>
+                </div>
+                <Link href="/board" className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-200 transition hover:border-sky-400/20">
+                  Open board
+                </Link>
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                {section.cards.map((card) => (
+                  <article key={card.id} className="rounded-[1.35rem] border border-white/8 bg-slate-950/45 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[0.68rem] uppercase tracking-[0.22em] text-slate-500">{card.leagueLabel} · {card.marketLabel}</div>
+                      <div className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-200">{card.confidence}</div>
+                    </div>
+                    <h3 className="mt-3 text-lg font-semibold text-white">{card.title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">{card.description}</p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-300">
+                      <span className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1">{card.record}</span>
+                      <span className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1">ROI {typeof card.roi === "number" ? `${card.roi.toFixed(1)}%` : "—"}</span>
+                      <span className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1">Hit {typeof card.hitRate === "number" ? `${card.hitRate.toFixed(0)}%` : "—"}</span>
+                      <span className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1">Sample {card.sampleSize}</span>
+                    </div>
+                    <div className="mt-4 grid gap-2">
+                      {card.whyNow.slice(0, 3).map((reason) => (
+                        <div key={reason} className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2 text-sm leading-6 text-slate-300">
+                          {reason}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex flex-wrap gap-2">
+                        {card.intelligenceTags.slice(0, 3).map((tag) => (
+                          <span key={tag} className="rounded-full border border-sky-400/15 bg-sky-400/10 px-2.5 py-1 text-[0.68rem] text-sky-100">{tag}</span>
+                        ))}
+                      </div>
+                      <Link href={card.href} className="text-sm font-semibold text-sky-300 transition hover:text-sky-200">Open trend →</Link>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )) : (
+            <section className="surface-panel p-5 text-sm leading-7 text-slate-300">
+              No trend cards survived the current filters. Keep the live board open and widen the league or sample window.
+            </section>
           )}
         </div>
       </section>
-    </>
+    </div>
   );
 }
