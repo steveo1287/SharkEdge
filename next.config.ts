@@ -1,37 +1,16 @@
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/sharkedge"
-NEXT_PUBLIC_SITE_URL="https://app.sharkedge.com"
-SHARKEDGE_BACKEND_URL="http://127.0.0.1:8000"
-SHARKEDGE_DRAFTKINGS_FEED_URL="http://127.0.0.1:8000/api/book-feeds/draftkings"
-SHARKEDGE_FANDUEL_FEED_URL="http://127.0.0.1:8000/api/book-feeds/fanduel"
-THERUNDOWN_API_KEY=""
-THERUNDOWN_BASE_URL="https://therundown.io/api/v2"
-THERUNDOWN_AFFILIATE_IDS=""
-INTERNAL_API_KEY=""
-UPSTASH_REDIS_REST_URL=""
-UPSTASH_REDIS_REST_TOKEN=""
-ODDS_API_KEY=""
-NCAA_API_BASE_URL="https://ncaa-api.henrygd.me"
-UFC_STATS_API_BASE_URL="https://ufcapi.aristotle.me"
-POLL_INTERVAL_SECONDS="60"
-MAX_EVENTS_PER_SPORT="20"
-SPORTS_TO_SCRAPE="basketball,baseball,hockey,american-football,ufc,boxing"
-SPORTS_FILTERS="baseball:MLB,american-football:NFL|NCAAF,basketball:NBA|NCAAB,hockey:NHL"
-HEADLESS="true"
-PROXY_URL=""
-NEXT_PUBLIC_SHARKEDGE_PREMIUM_ANALYTICS="0"
-DISCORD_BOT_TOKEN=""
-OPENCLAW_DISCORD_ALLOWED_CHANNELS=""
-OPENCLAW_DISCORD_ALLOWED_USERS=""
-OPENCLAW_DISCORD_PREFIX="!claw"
-OPENCLAW_DISCORD_AGENT="main"
-OPENCLAW_DISCORD_CWD="C:\\Users\\krist\\OneDrive\\Documents\\New project\\repo"
+import type { NextConfig } from "next";
 
-# Startup guard: refuse to boot the frontend normally if the rescue path is dead.
-# Set to true only when you intentionally want to work in a degraded state.
-SHARKEDGE_ALLOW_DEGRADED_BOOT=false
-# Optional rescue guard tuning
-# SHARKEDGE_RESCUE_LEAGUES=NBA,MLB
-# SHARKEDGE_RESCUE_REFRESH=auto
-# SHARKEDGE_RESCUE_TIMEOUT_SECONDS=75
-# SHARKEDGE_RESCUE_INTERVAL_SECONDS=5
-# SHARKEDGE_RESCUE_SCRAPE=false
+const nextConfig: NextConfig = {
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "r2.thesportsdb.com" },
+      { protocol: "https", hostname: "a.espncdn.com" },
+      { protocol: "https", hostname: "*.espncdn.com" },
+      { protocol: "https", hostname: "secure.gravatar.com" }
+    ]
+  },
+  reactStrictMode: true,
+  serverExternalPackages: ["@prisma/client", "prisma"]
+};
+
+export default nextConfig;
