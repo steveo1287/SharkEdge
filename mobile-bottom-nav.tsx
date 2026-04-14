@@ -1,141 +1,96 @@
-import type { ReactNode } from "react";
+"use client";
 
-import { ProviderHealthBadge } from "@/components/intelligence/provider-status-badges";
-import { Card } from "@/components/ui/card";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
-export function DiagnosticMetaStrip({
-  items,
-  className = "flex flex-wrap gap-2 text-[0.66rem] uppercase tracking-[0.18em] text-slate-500"
-}: {
-  items: Array<string | null | undefined>;
-  className?: string;
-}) {
-  const visibleItems = items.filter((item): item is string => Boolean(item));
+import { cn } from "@/lib/utils/cn";
 
-  if (!visibleItems.length) {
-    return null;
+const NAV_ITEMS = [
+  { href: "/", label: "Home", icon: "home" },
+  { href: "/games", label: "Games", icon: "games" },
+  { href: "/board", label: "Board", icon: "board", featured: true },
+  { href: "/trends", label: "Trends", icon: "trend" },
+  { href: "/bets", label: "Bets", icon: "ledger" }
+] as const;
+
+function Icon({ type, active }: { type: (typeof NAV_ITEMS)[number]["icon"]; active: boolean }) {
+  const stroke = active ? "#0b1015" : "#7f93a8";
+  const className = "h-[18px] w-[18px]";
+
+  if (type === "home") {
+    return (
+      <svg viewBox="0 0 24 24" className={className} fill="none">
+        <path d="M4 11.5L12 5l8 6.5V19a1 1 0 01-1 1h-4.5v-5h-5v5H5a1 1 0 01-1-1v-7.5z" stroke={stroke} strokeWidth="1.8" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+
+  if (type === "board") {
+    return (
+      <svg viewBox="0 0 24 24" className={className} fill="none">
+        <rect x="3.5" y="4.5" width="17" height="15" rx="3" stroke={stroke} strokeWidth="1.8" />
+        <path d="M8 9h8M8 13h8M8 17h4" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (type === "games") {
+    return (
+      <svg viewBox="0 0 24 24" className={className} fill="none">
+        <rect x="4" y="5" width="16" height="14" rx="3" stroke={stroke} strokeWidth="1.8" />
+        <path d="M8 9h8M8 13h8M8 17h5" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (type === "trend") {
+    return (
+      <svg viewBox="0 0 24 24" className={className} fill="none">
+        <path d="M4 16l5-5 3 3 7-8" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M18 6h1.5V7.5" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
   }
 
   return (
-    <div className={className}>
-      {visibleItems.map((item) => (
-        <span key={item}>{item}</span>
-      ))}
-    </div>
+    <svg viewBox="0 0 24 24" className={className} fill="none">
+      <path d="M5 18l2-10 5 4 5-7 2 13" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
-export function ProviderHealthSummaryPanel({
-  title = "Provider health",
-  state,
-  label,
-  summary,
-  badges,
-  asOfLabel,
-  metaItems
-}: {
-  title?: string;
-  state: string;
-  label: string;
-  summary: string;
-  badges?: ReactNode[];
-  asOfLabel?: string | null;
-  metaItems?: Array<string | null | undefined>;
-}) {
-  const extraBadges = (badges ?? []).filter(Boolean);
+export function MobileBottomNav() {
+  const pathname = usePathname();
 
   return (
-    <Card className="surface-panel p-5">
-      <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-        {title}
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <ProviderHealthBadge state={state} label={label} />
-        {extraBadges}
-      </div>
-      <div className="mt-4 text-sm leading-7 text-slate-300">{summary}</div>
-      {asOfLabel ? (
-        <div className="mt-3 text-xs uppercase tracking-[0.18em] text-slate-500">
-          {asOfLabel}
-        </div>
-      ) : null}
-      {metaItems?.length ? (
-        <div className="mt-3">
-          <DiagnosticMetaStrip items={metaItems} />
-        </div>
-      ) : null}
-    </Card>
-  );
-}
+    <nav className="mobile-bottom-nav xl:hidden">
+      <ul className="grid grid-cols-5 gap-2">
+        {NAV_ITEMS.map((item) => {
+          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          const featured = Boolean(item.featured);
 
-export function DiagnosticNotesPanel({
-  title = "Desk notes",
-  notes,
-  emptyMessage
-}: {
-  title?: string;
-  notes: string[];
-  emptyMessage: string;
-}) {
-  return (
-    <Card className="surface-panel p-5">
-      <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-        {title}
-      </div>
-      <div className="mt-4 grid gap-3">
-        {notes.length ? (
-          notes.map((note) => (
-            <div
-              key={note}
-              className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300"
-            >
-              {note}
-            </div>
-          ))
-        ) : (
-          <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-400">
-            {emptyMessage}
-          </div>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-export function RawProviderDetailsDisclosure({
-  title = "Raw provider details",
-  items
-}: {
-  title?: string;
-  items: Array<{ label: string; value: string | null | undefined; breakMode?: "words" | "all" }>;
-}) {
-  const visibleItems = items.filter((item) => Boolean(item.value));
-
-  if (!visibleItems.length) {
-    return null;
-  }
-
-  return (
-    <details className="rounded-[1.1rem] border border-white/8 bg-slate-950/50 px-4 py-3">
-      <summary className="cursor-pointer text-xs uppercase tracking-[0.18em] text-slate-500">
-        {title}
-      </summary>
-      <div className="mt-3 grid gap-3 text-xs leading-6 text-slate-400">
-        {visibleItems.map((item) => (
-          <div key={item.label} className="grid gap-1">
-            <div className="uppercase tracking-[0.18em] text-slate-500">{item.label}</div>
-            <div
-              className={
-                item.breakMode === "all"
-                  ? "break-all overflow-hidden whitespace-pre-wrap"
-                  : "break-words overflow-hidden whitespace-pre-wrap"
-              }
-            >
-              {item.value}
-            </div>
-          </div>
-        ))}
-      </div>
-    </details>
+          return (
+            <li key={item.href}>
+              <Link
+                href={item.href}
+                className={cn(
+                  "flex h-full min-h-[64px] flex-col items-center justify-center gap-1 rounded-[18px] px-2 py-2 transition",
+                  featured
+                    ? active
+                      ? "bg-gradient-to-b from-[#64e8ff] to-[#18bfff] text-[#081118] shadow-[0_12px_28px_rgba(24,191,255,0.28)]"
+                      : "bg-[#0e1823] text-white ring-1 ring-inset ring-white/8"
+                    : active
+                      ? "bg-white/[0.06] text-white"
+                      : "text-slate-500 hover:bg-white/[0.03] hover:text-slate-200"
+                )}
+              >
+                <Icon type={item.icon} active={featured ? active : active} />
+                <span className={cn("text-[10px] font-semibold tracking-[0.08em]", featured ? "uppercase" : "")}>{item.label}</span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
   );
 }

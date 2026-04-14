@@ -1,30 +1,37 @@
-# SharkEdge Build Pass 3
+# SharkEdge hard reset pack
 
-This pack goes deeper on product flow and immersion instead of only surface polish.
+This pack is a replacement pass, not an incremental polish pass.
 
-## Files included
+## Replaced files
 - `frontend/app/page.tsx`
-- `frontend/app/games/page.tsx`
-- `frontend/app/teams/page.tsx`
-- `frontend/app/players/page.tsx`
-- `frontend/components/intelligence/score-strip.tsx`
-- `frontend/components/intelligence/slate-command-hero.tsx`
-- `frontend/components/intelligence/storyline-stack.tsx`
-- `frontend/components/intelligence/team-spotlight-card.tsx`
-- `frontend/components/intelligence/player-spotlight-card.tsx`
-- `frontend/lib/utils/team-branding.ts`
+- `frontend/app/board/page.tsx`
+- `frontend/app/game/[id]/page.tsx`
+- `frontend/app/globals.css`
+- `frontend/components/layout/app-shell.tsx`
+- `frontend/components/mobile/mobile-bottom-nav.tsx`
+- `frontend/components/board/live-edge-board-card.tsx`
 
-## What this pass improves
-- stronger homepage command center
-- deeper games desk
-- better team and player discovery surfaces
-- score strip for immersion and navigation
-- team branding helper with logo fallbacks
-- storylines attached to the live slate
+## What changed
+- stronger visual hierarchy
+- less dashboard symmetry
+- more aggressive board cards
+- harder shell frame and mobile nav
+- home/board/game pages pushed toward one connected betting terminal
+- preserved current service/data wiring where possible so this is still grounded in the existing repo
 
-## Install
-1. unzip into the repo root
-2. keep the earlier weather typing fix applied
-3. run `npm run build`
-4. fix any compile issues from older repo debt
-5. push to branch and deploy
+## Apply order
+1. keep the earlier weather typing fix applied
+2. extract this pack into the repo root
+3. run:
+   - `npm install`
+   - `npm run build`
+4. fix the first compiler error, then continue iterating from there
+
+## Intent
+This pass is aimed at:
+- conviction
+- density
+- identity
+- better product flow
+
+It is deliberately more forceful than the earlier passes.
