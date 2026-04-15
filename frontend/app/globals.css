@@ -107,7 +107,7 @@ textarea {
 }
 
 .page-shell {
-  @apply mx-auto grid w-full max-w-[1560px] gap-8 px-4 pb-20 pt-6 md:px-6 xl:px-8;
+  @apply mx-auto grid w-full max-w-[1600px] gap-8 px-4 pb-20 pt-6 md:px-6 xl:px-8;
 }
 
 .surface-panel {
@@ -130,6 +130,24 @@ textarea {
   @apply rounded-[1.3rem];
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(9, 19, 31, 0.7);
+}
+
+.hero-shell {
+  border-radius: 1.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(circle at top right, rgba(68, 164, 255, 0.12), transparent 32%),
+    radial-gradient(circle at bottom left, rgba(209, 172, 99, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(10, 20, 33, 0.98), rgba(7, 13, 23, 0.96));
+  box-shadow: 0 24px 80px rgba(2, 6, 23, 0.35);
+}
+
+.glass-tile {
+  border-radius: 1.2rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 1rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .metric-tile {
@@ -218,22 +236,14 @@ textarea {
   color: #f8fbff;
 }
 
-.mobile-trend-card {
+.mobile-trend-card,
+.mobile-board-card {
   display: block;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(180deg, rgba(18, 20, 24, 0.95), rgba(17, 18, 21, 0.98));
-  border-radius: 1.4rem;
+  border-radius: 1.3rem;
   padding: 0.95rem;
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.26);
-}
-
-.mobile-board-card {
-  display: block;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: linear-gradient(180deg, rgba(9, 14, 22, 0.96), rgba(7, 11, 18, 0.99));
-  border-radius: 1.15rem;
-  padding: 1rem;
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
 }
 
 .mobile-odds-tile {
@@ -268,14 +278,6 @@ textarea {
   display: none;
 }
 
-/* -----------------------------------------------------------------------
-   Tailwind v3 JIT opacity-variant safety net
-   These classes use non-standard opacity values (e.g. /8, /12) that
-   Tailwind v3 does not always generate. Defining them explicitly ensures
-   backgrounds, borders, and hover states render correctly everywhere.
-   ----------------------------------------------------------------------- */
-
-/* Background opacity variants */
 .bg-sky-500\/8    { background-color: rgba(14, 165, 233, 0.08); }
 .bg-sky-500\/10   { background-color: rgba(14, 165, 233, 0.10); }
 .bg-sky-500\/12   { background-color: rgba(14, 165, 233, 0.12); }
@@ -291,7 +293,6 @@ textarea {
 .bg-rose-500\/10  { background-color: rgba(244, 63, 94, 0.10); }
 .bg-rose-400\/8   { background-color: rgba(251, 113, 133, 0.08); }
 
-/* Border opacity variants */
 .border-sky-400\/15  { border-color: rgba(56, 189, 248, 0.15); }
 .border-sky-400\/20  { border-color: rgba(56, 189, 248, 0.20); }
 .border-sky-400\/25  { border-color: rgba(56, 189, 248, 0.25); }
@@ -310,11 +311,9 @@ textarea {
 .border-white\/10  { border-color: rgba(255, 255, 255, 0.10); }
 .border-white\/12  { border-color: rgba(255, 255, 255, 0.12); }
 
-/* Hover variants */
 .hover\:border-sky-400\/25:hover { border-color: rgba(56, 189, 248, 0.25); }
 .hover\:border-sky-400\/20:hover { border-color: rgba(56, 189, 248, 0.20); }
 .hover\:border-white\/12:hover   { border-color: rgba(255, 255, 255, 0.12); }
 .hover\:bg-sky-500\/10:hover     { background-color: rgba(14, 165, 233, 0.10); }
 .hover\:bg-white\/\[0\.03\]:hover { background-color: rgba(255, 255, 255, 0.03); }
 .hover\:bg-white\/\[0\.04\]:hover { background-color: rgba(255, 255, 255, 0.04); }
-
