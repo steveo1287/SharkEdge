@@ -1,0 +1,13 @@
+diff --git a/frontend/lib/trends/context-variables.ts b/frontend/lib/trends/context-variables.ts
+index eebd605..FIXTYPE 100644
+--- a/frontend/lib/trends/context-variables.ts
++++ b/frontend/lib/trends/context-variables.ts
+@@ -159,7 +159,7 @@ export function isOutdoorSport(sport: string, leagueKey?: string) {
+ // ---------------------------------------------------------------------------
+ // Weather impact scoring
+ // ---------------------------------------------------------------------------
+-export function computeWeatherImpactScore(ctx: Omit<WeatherContext, "weatherImpactScore" | "applicable">) {
++export function computeWeatherImpactScore(ctx: Omit<WeatherContext, "weatherImpactScore">) {
+   if (!ctx.applicable) return 0;
+   let score = 0;
+   // Wind
