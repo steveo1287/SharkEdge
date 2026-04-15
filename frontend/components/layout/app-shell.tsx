@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 
-import { BrandMark } from "./brand-mark";
 import { Header } from "./header";
 import { Sidebar } from "./sidebar";
 import { MobileBottomNav } from "@/components/mobile/mobile-bottom-nav";
@@ -17,84 +16,101 @@ export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname() ?? "";
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [pathname]);
+  useEffect(() => { setMobileOpen(false); }, [pathname]);
 
   useEffect(() => {
     if (!mobileOpen) return;
-    const previousOverflow = document.body.style.overflow;
+    const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMobileOpen(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileOpen(false); };
+    window.addEventListener("keydown", onKey);
     return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
     };
   }, [mobileOpen]);
 
   return (
-    <div className="app-shell-grid min-h-screen">
+    <>
+      {/* ── DESKTOP ─────────────────────────────────────────────────────── */}
+      <div className="hidden xl:flex xl:min-h-screen xl:w-full">
+        {/* Fixed sidebar */}
+        <aside className="h-screen w-[220px] shrink-0 sticky top-0 border-r border-zinc-800/60">
+          <Sidebar pathname={pathname} />
+        </aside>
+
+        {/* Main area */}
+        <div className="flex flex-1 min-w-0 flex-col">
+          <Header pathname={pathname} />
+          <main className="flex-1">
+            <div className="page-shell">
+              {children}
+            </div>
+          </main>
+        </div>
+      </div>
+
+      {/* ── MOBILE ──────────────────────────────────────────────────────── */}
       <div className="xl:hidden">
-        {mobileOpen ? (
+        {/* Mobile slide-over nav */}
+        {mobileOpen && (
           <div className="fixed inset-0 z-50 flex">
             <button
               aria-label="Close navigation"
-              className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
               onClick={() => setMobileOpen(false)}
               type="button"
             />
-            <div className="relative z-10 h-full w-[82vw] max-w-[320px] overflow-hidden">
+            <div className="relative z-10 h-full overflow-hidden">
               <Sidebar mobile pathname={pathname} onNavigate={() => setMobileOpen(false)} />
             </div>
           </div>
-        ) : null}
+        )}
 
-        <div className="sticky top-0 z-40 border-b border-white/8 bg-[#06101b]/95 px-4 py-3 backdrop-blur-xl">
-          <div className="flex items-center justify-between gap-3">
+        {/* Mobile top bar */}
+        <div className="sticky top-0 z-40 border-b border-zinc-800/60 bg-[#0f1014]/95 backdrop-blur-xl">
+          <div className="flex items-center justify-between px-4 py-3">
             <button
               type="button"
               aria-label="Open navigation"
               onClick={() => setMobileOpen(true)}
-              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-slate-300 transition hover:border-sky-400/25 hover:text-white"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700/50 bg-zinc-800/50 text-zinc-400"
             >
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none">
                 <path d="M4 7h16M4 12h12M4 17h9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
               </svg>
             </button>
 
-            <BrandMark compact />
+            {/* Logo */}
+            <div className="font-display text-[0.95rem] font-semibold text-white">
+              Shark<span className="text-blue-400">Edge</span>
+            </div>
 
-            <div className="rounded-full border border-emerald-400/20 bg-emerald-500/8 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-400">
-              Live
+            {/* Live badge */}
+            <div className="flex items-center gap-1.5 rounded-full border border-green-500/20 bg-green-500/8 px-2.5 py-1">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-60" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-green-500" />
+              </span>
+              <span className="text-[0.6rem] font-semibold uppercase tracking-[0.15em] text-green-400">Live</span>
             </div>
           </div>
         </div>
 
-        <div className="mobile-shell mx-auto flex min-h-screen w-full max-w-[430px] flex-col">
-          <div className="flex-1 px-4 pb-28 pt-4">
+        {/* Mobile content */}
+        <div className="mx-auto w-full max-w-[430px]">
+          <div className="min-h-screen px-3 pb-28 pt-4">
             <main className="mobile-page-shell">{children}</main>
           </div>
-          <div className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-[430px] px-4 pb-[calc(env(safe-area-inset-bottom,0px)+10px)]">
+        </div>
+
+        {/* Mobile bottom nav */}
+        <div className="fixed inset-x-0 bottom-0 z-40">
+          <div className="mx-auto w-full max-w-[430px]">
             <MobileBottomNav />
           </div>
         </div>
       </div>
-
-      <div className="mx-auto hidden w-full max-w-[1840px] px-4 py-4 xl:block">
-        <div className="workspace-frame grid min-h-[calc(100vh-2rem)] w-full xl:grid-cols-[290px_minmax(0,1fr)]">
-          <aside className="hidden min-h-full border-r border-white/6 xl:block">
-            <Sidebar pathname={pathname} />
-          </aside>
-
-          <div className="workspace-main flex min-h-[calc(100vh-2rem)] flex-col">
-            <Header pathname={pathname} />
-            <main className="page-shell flex-1">{children}</main>
-          </div>
-        </div>
-      </div>
-    </div>
+    </>
   );
 }
