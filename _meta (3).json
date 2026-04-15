@@ -1,7 +1,0 @@
-{
-  "version": 1,
-  "registry": "https://clawhub.ai",
-  "slug": "debug-pro",
-  "installedVersion": "1.0.0",
-  "installedAt": 1774794331388
-}
