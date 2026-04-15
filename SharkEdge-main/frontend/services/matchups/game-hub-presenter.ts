@@ -1,19 +1,11 @@
 import { formatAmericanOdds } from "@/lib/formatters/odds";
 import type { OpportunityView } from "@/lib/types/opportunity";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
-import { getOpportunityBookLeadershipResolver } from "@/services/opportunities/opportunity-book-leadership";
-import { getOpportunityCloseDestinationResolver } from "@/services/opportunities/opportunity-close-destination";
-import { getOpportunityMarketPathResolver } from "@/services/opportunities/opportunity-market-path";
-import { getOpportunityPortfolioAllocator } from "@/services/opportunities/opportunity-portfolio";
-import { getOpportunityReasonCalibrationResolver } from "@/services/opportunities/opportunity-reason-calibration";
-import { getOpportunityTimingReplayResolver } from "@/services/opportunities/opportunity-timing-review";
-import { getOpportunityTruthCalibrationResolver } from "@/services/opportunities/opportunity-truth-calibration";
 import {
   buildBetSignalOpportunity,
   buildPropOpportunity,
   rankOpportunities
 } from "@/services/opportunities/opportunity-service";
-import { applyOpportunitySurfacing } from "@/services/opportunities/opportunity-surfacing";
 import { buildOpportunityTrendIntelligence } from "@/services/trends/opportunity-trend-intelligence";
 
 type MatchupDetail = NonNullable<Awaited<ReturnType<typeof getMatchupDetail>>>;
@@ -124,78 +116,19 @@ function enrichOpportunity(opportunity: OpportunityView, routeId: string): Oppor
   } satisfies OpportunityView;
 }
 
-async function buildOpportunityDeck(detail: MatchupDetail) {
-  const [
-    truthCalibrationResolver,
-    marketPathResolver,
-    bookLeadershipResolver,
-    closeDestinationResolver,
-    reasonCalibrationResolver,
-    timingReplayResolver,
-    portfolioAllocator
-  ] = await Promise.all([
-    getOpportunityTruthCalibrationResolver({
-      league: detail.league.key
-    }),
-    getOpportunityMarketPathResolver({
-      league: detail.league.key
-    }),
-    getOpportunityBookLeadershipResolver({
-      league: detail.league.key
-    }),
-    getOpportunityCloseDestinationResolver({
-      league: detail.league.key
-    }),
-    getOpportunityReasonCalibrationResolver({
-      league: detail.league.key
-    }),
-    getOpportunityTimingReplayResolver({
-      league: detail.league.key
-    }),
-    getOpportunityPortfolioAllocator()
-  ]);
-
+function buildOpportunityDeck(detail: MatchupDetail) {
   const signalOpportunities = detail.betSignals.map((signal) =>
-    buildBetSignalOpportunity(
-      signal,
-      detail.league.key,
-      detail.providerHealth,
-      null,
-      truthCalibrationResolver,
-      marketPathResolver,
-      bookLeadershipResolver,
-      closeDestinationResolver,
-      reasonCalibrationResolver,
-      timingReplayResolver
-    )
+    buildBetSignalOpportunity(signal, detail.league.key, detail.providerHealth)
   );
 
-  const propOpportunities = detail.props.slice(0, 8).map((prop) =>
-    buildPropOpportunity(
-      prop,
-      detail.providerHealth,
-      null,
-      truthCalibrationResolver,
-      marketPathResolver,
-      bookLeadershipResolver,
-      closeDestinationResolver,
-      reasonCalibrationResolver,
-      timingReplayResolver
-    )
+  const propOpportunities = detail.props.slice(0, 6).map((prop) =>
+    buildPropOpportunity(prop, detail.providerHealth)
   );
 
-  const allocatedOpportunities = portfolioAllocator.apply(
-    [...signalOpportunities, ...propOpportunities].map((opportunity) => ({
-      ...opportunity,
-      eventId: detail.routeId
-    }))
-  );
-
-  return rankOpportunities(
-    allocatedOpportunities
-      .map((opportunity) => applyOpportunitySurfacing(opportunity, "matchup_for_you"))
-      .map((opportunity) => enrichOpportunity(opportunity, detail.routeId))
-  );
+  return rankOpportunities<OpportunityView>([
+    ...signalOpportunities,
+    ...propOpportunities
+  ]).map((opportunity) => enrichOpportunity(opportunity, detail.routeId));
 }
 
 function buildMarketSupport(opportunities: OpportunityView[]) {
@@ -348,12 +281,9 @@ function buildDecisionModule(headline: OpportunityView | null): MatchupDecisionM
   };
 }
 
-export async function buildGameHubPresentation(detail: MatchupDetail): Promise<GameHubPresentation> {
-  const opportunityDeck = await buildOpportunityDeck(detail);
-  const surfaced = opportunityDeck.filter(
-    (opportunity) => opportunity.surfacing?.status === "SURFACED"
-  );
-  const forYou = (surfaced.length ? surfaced : opportunityDeck).slice(0, 4);
+export function buildGameHubPresentation(detail: MatchupDetail): GameHubPresentation {
+  const opportunityDeck = buildOpportunityDeck(detail);
+  const forYou = opportunityDeck.slice(0, 4);
   const headline = forYou[0] ?? null;
   const postureLabel = headline
     ? formatGameHubAction(headline.actionState)

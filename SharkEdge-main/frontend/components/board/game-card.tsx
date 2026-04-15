@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { formatGameDateTime } from "@/lib/formatters/date";
 import { formatAmericanOdds } from "@/lib/formatters/odds";
 import type { GameCardView } from "@/lib/types/domain";
+import { getTeamLogoUrl } from "@/lib/utils/entity-routing";
 import { buildGameMarketOpportunity } from "@/services/opportunities/opportunity-service";
 
 function getStatusTone(status: GameCardView["status"]) {
@@ -87,6 +88,8 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
   const scoreBand = getOpportunityScoreBand(focusOpportunity.opportunityScore);
   const trapLine = getOpportunityTrapLine(focusOpportunity);
   const movement = focusView.movement;
+  const awayLogo = getTeamLogoUrl(game.leagueKey, game.awayTeam);
+  const homeLogo = getTeamLogoUrl(game.leagueKey, game.homeTeam);
 
   const focusReason =
     focusOpportunity.reasonSummary ??
@@ -100,46 +103,55 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
     <Card className="surface-panel p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            {game.leagueKey} | {formatGameDateTime(game.startTime)}
+          <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.2em] text-slate-500">
+            <span>{game.leagueKey}</span>
+            <span>•</span>
+            <span>{formatGameDateTime(game.startTime)}</span>
+            <span>•</span>
+            <span>{game.bestBookCount} books</span>
           </div>
 
           <div className="mt-4 grid gap-4">
-            <div className="flex items-center gap-3">
-              <TeamBadge
-                name={game.awayTeam.name}
-                abbreviation={game.awayTeam.abbreviation}
-                size="md"
-              />
-              <div className="min-w-0">
-                <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">
-                  Away
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="flex items-center gap-3 rounded-[1.15rem] border border-white/8 bg-slate-950/50 px-4 py-3">
+                <TeamBadge
+                  name={game.awayTeam.name}
+                  abbreviation={game.awayTeam.abbreviation}
+                  logoUrl={awayLogo}
+                  size="md"
+                  tone="away"
+                />
+                <div className="min-w-0">
+                  <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">
+                    Away
+                  </div>
+                  <div className="truncate text-lg font-semibold text-white">
+                    {game.awayTeam.name}
+                  </div>
                 </div>
-                <div className="truncate text-lg font-semibold text-white">
-                  {game.awayTeam.name}
+              </div>
+
+              <div className="flex items-center gap-3 rounded-[1.15rem] border border-white/8 bg-slate-950/50 px-4 py-3">
+                <TeamBadge
+                  name={game.homeTeam.name}
+                  abbreviation={game.homeTeam.abbreviation}
+                  logoUrl={homeLogo}
+                  size="md"
+                  tone="home"
+                />
+                <div className="min-w-0">
+                  <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">
+                    Home
+                  </div>
+                  <div className="truncate text-lg font-semibold text-white">
+                    {game.homeTeam.name}
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <TeamBadge
-                name={game.homeTeam.name}
-                abbreviation={game.homeTeam.abbreviation}
-                size="md"
-              />
-              <div className="min-w-0">
-                <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">
-                  Home
-                </div>
-                <div className="truncate text-lg font-semibold text-white">
-                  {game.homeTeam.name}
-                </div>
-              </div>
-            </div>
-
-            <div className="text-sm leading-6 text-slate-300">
-              Lead with <span className="font-medium text-white">{formatFocusLabel(focus)}</span>:{" "}
-              {focusReason}
+            <div className="rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">
+              Lead with <span className="font-medium text-white">{formatFocusLabel(focus)}</span>: {focusReason}
             </div>
           </div>
         </div>
@@ -169,8 +181,7 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
             {formatMarketLine(game.spread.label)}
           </div>
           <div className="mt-2 text-sm text-slate-400">
-            {game.spread.bestBook !== "Unavailable" ? formatMarketLine(game.spread.bestBook) : "-"}{" "}
-            | {formatOddsValue(game.spread.bestOdds)}
+            {game.spread.bestBook !== "Unavailable" ? formatMarketLine(game.spread.bestBook) : "-"} | {formatOddsValue(game.spread.bestOdds)}
           </div>
         </div>
 
@@ -193,8 +204,7 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
             {formatMarketLine(game.total.label)}
           </div>
           <div className="mt-2 text-sm text-slate-400">
-            {game.total.bestBook !== "Unavailable" ? formatMarketLine(game.total.bestBook) : "-"}{" "}
-            | {formatOddsValue(game.total.bestOdds)}
+            {game.total.bestBook !== "Unavailable" ? formatMarketLine(game.total.bestBook) : "-"} | {formatOddsValue(game.total.bestOdds)}
           </div>
         </div>
       </div>

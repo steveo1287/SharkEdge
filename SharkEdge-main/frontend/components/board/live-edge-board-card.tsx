@@ -1,7 +1,9 @@
 import Link from "next/link";
 
 import { SharkScoreRing } from "@/components/branding/shark-score-ring";
+import { TeamBadge } from "@/components/identity/team-badge";
 import type { BoardMarketView, GameCardView } from "@/lib/types/domain";
+import { getTeamLogoUrl } from "@/lib/utils/entity-routing";
 import { cn } from "@/lib/utils/cn";
 
 function formatStartTime(value: string) {
@@ -43,10 +45,10 @@ function getPrimaryBook(game: GameCardView) {
 
 function MarketColumn({ label, market }: { label: string; market: BoardMarketView }) {
   return (
-    <div className="rounded-[14px] border border-white/8 bg-white/[0.03] px-3 py-2.5">
+    <div className="rounded-[16px] border border-white/8 bg-white/[0.03] px-3 py-3">
       <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">
         <span>{label}</span>
-        <span>{market.bestBook}</span>
+        <span className="truncate">{market.bestBook}</span>
       </div>
       <div className="mt-2 text-sm font-semibold tracking-tight text-white">{market.lineLabel}</div>
       <div className="mt-1 text-[10px] uppercase tracking-[0.14em] text-sky-300">{formatMovementValue(market.movement)}</div>
@@ -69,6 +71,8 @@ export function LiveEdgeBoardCard({
 }) {
   const leadMover = getLeadMover(game);
   const primaryBook = getPrimaryBook(game);
+  const awayLogo = getTeamLogoUrl(game.leagueKey, game.awayTeam);
+  const homeLogo = getTeamLogoUrl(game.leagueKey, game.homeTeam);
 
   return (
     <div
@@ -79,27 +83,56 @@ export function LiveEdgeBoardCard({
           : "hover:border-sky-400/18 hover:bg-[#0e1725]"
       )}
     >
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr),minmax(0,1.6fr),auto] xl:items-center">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+        <div className="flex flex-wrap items-center gap-2">
+          <span>{game.leagueKey}</span>
+          <span>•</span>
+          <span>{game.status}</span>
+          <span>•</span>
+          <span>{formatStartTime(game.startTime)}</span>
+        </div>
+        <div className="rounded-full border border-white/8 bg-white/[0.03] px-2.5 py-1 text-slate-300">
+          {primaryBook}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.15fr),minmax(0,1.45fr),auto] xl:items-center">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            <span>{game.leagueKey}</span>
-            <span>•</span>
-            <span>{game.status}</span>
-            <span>•</span>
-            <span>{formatStartTime(game.startTime)}</span>
-          </div>
-          <div className="mt-3 flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="text-[1.05rem] font-semibold tracking-tight text-white">
+          <div className="flex items-start gap-3">
+            <div className="flex items-center gap-2">
+              <TeamBadge
+                name={game.awayTeam.name}
+                abbreviation={game.awayTeam.abbreviation}
+                logoUrl={awayLogo}
+                size="md"
+                tone="away"
+              />
+              <TeamBadge
+                name={game.homeTeam.name}
+                abbreviation={game.homeTeam.abbreviation}
+                logoUrl={homeLogo}
+                size="md"
+                tone="home"
+              />
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <div className="text-[1.02rem] font-semibold tracking-tight text-white sm:text-[1.08rem]">
                 {game.awayTeam.abbreviation} <span className="text-slate-500">@</span> {game.homeTeam.abbreviation}
               </div>
               <div className="mt-1 truncate text-sm text-slate-400">{game.venue}</div>
+              <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.16em]">
+                <div className="rounded-full border border-sky-400/20 bg-sky-500/10 px-2.5 py-1 text-sky-300">
+                  {leadMover.label} {formatMovementValue(leadMover.movement)}
+                </div>
+                <div className="rounded-full border border-white/8 px-2.5 py-1 text-slate-300">
+                  {game.edgeScore.label}
+                </div>
+                <div className="rounded-full border border-white/8 px-2.5 py-1 text-slate-400">
+                  {game.bestBookCount} books
+                </div>
+              </div>
             </div>
-            <SharkScoreRing
-              score={game.edgeScore.score}
-              size="sm"
-              tone={game.edgeScore.score >= 65 ? "success" : game.edgeScore.score >= 45 ? "warning" : "brand"}
-            />
           </div>
         </div>
 
@@ -109,18 +142,14 @@ export function LiveEdgeBoardCard({
           <MarketColumn label="Total" market={game.total} />
         </div>
 
-        <div className="grid gap-2 xl:justify-items-end">
-          <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.16em] text-slate-400 xl:justify-end">
-            <div className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5 text-slate-200">{primaryBook}</div>
-            <div className="rounded-full border border-white/8 px-3 py-1.5">{game.bestBookCount} books</div>
-          </div>
-          <div className="rounded-full border border-sky-400/20 bg-sky-500/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-300">
-            {leadMover.label} {formatMovementValue(leadMover.movement)}
-          </div>
+        <div className="grid gap-3 xl:justify-items-end">
+          <SharkScoreRing
+            score={game.edgeScore.score}
+            size="sm"
+            tone={game.edgeScore.score >= 65 ? "success" : game.edgeScore.score >= 45 ? "warning" : "brand"}
+          />
+
           <div className="flex gap-2 xl:justify-end">
-            <div className="rounded-full border border-white/8 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
-              {game.edgeScore.label}
-            </div>
             <Link
               href={inspectHref ?? game.detailHref ?? `/game/${game.id}`}
               className={cn(

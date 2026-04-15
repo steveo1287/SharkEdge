@@ -318,3 +318,40 @@ textarea {
 .hover\:bg-white\/\[0\.03\]:hover { background-color: rgba(255, 255, 255, 0.03); }
 .hover\:bg-white\/\[0\.04\]:hover { background-color: rgba(255, 255, 255, 0.04); }
 
+
+
+.edge-panel {
+  border: 1px solid rgba(255,255,255,0.07);
+  background: linear-gradient(180deg, rgba(10,12,18,0.94), rgba(8,10,16,0.98));
+  box-shadow: 0 18px 48px rgba(0,0,0,0.24);
+  backdrop-filter: blur(18px);
+}
+
+.edge-panel-soft {
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.025);
+  backdrop-filter: blur(14px);
+}
+
+.edge-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+}
+
+.edge-scroll {
+  scrollbar-color: rgba(110, 130, 160, 0.55) transparent;
+}
+
+.edge-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.edge-scroll::-webkit-scrollbar-thumb {
+  background: rgba(110, 130, 160, 0.55);
+  border-radius: 999px;
+}
+
+.metric-glow {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 16px 36px rgba(0,0,0,0.18);
+}

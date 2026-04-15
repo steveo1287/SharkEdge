@@ -9,118 +9,124 @@ export type LeagueNavItem = NavItem & {
   leagueKey: string;
 };
 
-export const LEAGUE_NAV_ITEMS: LeagueNavItem[] = [
-  {
-    href: "/leagues/nba",
-    label: "NBA",
-    leagueKey: "NBA",
-    description: "League hub for scoreboard, standings, featured edges, and matchup routing."
-  },
-  {
-    href: "/leagues/ncaab",
-    label: "NCAAB",
-    leagueKey: "NCAAB",
-    description: "College basketball board, trends, and one-league command center."
-  },
-  {
-    href: "/leagues/mlb",
-    label: "MLB",
-    leagueKey: "MLB",
-    description: "Baseball hub with standings, recent form, props, and game intelligence."
-  },
-  {
-    href: "/leagues/nhl",
-    label: "NHL",
-    leagueKey: "NHL",
-    description: "Hockey scoreboard, market context, and team-level research flow."
-  },
-  {
-    href: "/leagues/nfl",
-    label: "NFL",
-    leagueKey: "NFL",
-    description: "Pro football league desk with matchup routing and trend support."
-  },
-  {
-    href: "/leagues/ncaaf",
-    label: "NCAAF",
-    leagueKey: "NCAAF",
-    description: "College football league desk for slate, context, and best bets."
-  },
-  {
-    href: "/leagues/ufc",
-    label: "UFC",
-    leagueKey: "UFC",
-    description: "Fight-week market hub with active cards, props, and research routing."
-  },
-  {
-    href: "/leagues/boxing",
-    label: "Boxing",
-    leagueKey: "BOXING",
-    description: "Fight market desk for cards, stories, and betting-native context."
-  }
-];
-
 export const MAIN_NAV_ITEMS: NavItem[] = [
-  {
-    href: "/",
-    label: "Home",
-    description: "Today's command center for the market, the matchup, and the next best move."
-  },
   {
     href: "/board",
     label: "Board",
-    description: "The live board with verified books, pricing truth, and movement worth reacting to."
+    description: "Ranked edge board with pricing, support, and execution context."
   },
   {
     href: "/games",
     label: "Games",
-    description: "Open the slate, orient by matchup, and route straight into game detail."
+    description: "Slate and event detail built around market conviction."
   },
   {
     href: "/trends",
     label: "Trends",
-    description: "Historical systems, validation warnings, and active matches."
+    description: "Historical evidence scored against the live board."
+  },
+  {
+    href: "/bets",
+    label: "Portfolio",
+    shortLabel: "Portfolio",
+    description: "Open exposure, pending opportunities, CLV, and grading."
+  },
+  {
+    href: "/alerts",
+    label: "Alerts",
+    description: "Movement, price, and setup notifications."
   }
 ];
 
 export const RESEARCH_NAV_ITEMS: NavItem[] = [
   {
+    href: "/props",
+    label: "Props",
+    description: "Player and specialty market research."
+  },
+  {
     href: "/players",
     label: "Players",
-    description: "Deep player research, rolling form, and prop-pressure context."
+    description: "Player-level role, workload, and form context."
   },
   {
     href: "/teams",
     label: "Teams",
-    description: "Team-level form, matchup context, and league-entry research."
-  },
-  {
-    href: "/performance",
-    label: "Performance",
-    description: "Review CLV, units, hit rate, and what is actually working."
-  },
-  {
-    href: "/content",
-    label: "Content",
-    description: "Original coverage, recaps, and betting-native explainers."
+    description: "Team-level matchup, pace, form, and scheduling context."
   }
 ];
 
 export const SECONDARY_NAV_ITEMS: NavItem[] = [
   {
-    href: "/bets",
-    label: "Bets",
-    description: "Track your card, open exposure, and best-bet workflow."
-  },
-  {
-    href: "/alerts",
-    label: "Alerts",
-    description: "Price, movement, and trend notifications."
+    href: "/performance",
+    label: "Performance",
+    description: "Results, CLV, and leak review."
   },
   {
     href: "/watchlist",
     label: "Watchlist",
-    description: "Saved books, props, teams, trends, and alerts."
+    description: "Saved games, markets, and ideas."
+  },
+  {
+    href: "/providers",
+    label: "Providers",
+    description: "Feed readiness and source diagnostics."
+  },
+  {
+    href: "/settings",
+    label: "Settings",
+    description: "Preferences and system configuration."
+  }
+];
+
+export const LEAGUE_NAV_ITEMS: LeagueNavItem[] = [
+  {
+    href: "/games?league=NBA",
+    label: "NBA",
+    leagueKey: "NBA",
+    description: "NBA slate and market flow."
+  },
+  {
+    href: "/games?league=MLB",
+    label: "MLB",
+    leagueKey: "MLB",
+    description: "MLB slate and market flow."
+  },
+  {
+    href: "/games?league=NHL",
+    label: "NHL",
+    leagueKey: "NHL",
+    description: "NHL slate and market flow."
+  },
+  {
+    href: "/games?league=NFL",
+    label: "NFL",
+    leagueKey: "NFL",
+    description: "NFL slate and market flow."
+  },
+  {
+    href: "/games?league=NCAAB",
+    label: "NCAAB",
+    leagueKey: "NCAAB",
+    description: "College basketball slate and market flow."
+  },
+  {
+    href: "/games?league=NCAAF",
+    label: "NCAAF",
+    leagueKey: "NCAAF",
+    description: "College football slate and market flow."
+  },
+  {
+    href: "/games?league=UFC",
+    label: "UFC",
+    leagueKey: "UFC",
+    description: "Fight card flow and market context."
+  },
+  {
+    href: "/games?league=BOXING",
+    label: "Boxing",
+    leagueKey: "BOXING",
+    description: "Fight card flow and market context."
   }
 ];
 
@@ -135,13 +141,25 @@ const LEAGUE_DISPLAY_NAMES: Record<string, string> = {
   BOXING: "Boxing"
 };
 
-function getLeagueKeyFromPath(pathname: string) {
-  if (!pathname.startsWith("/leagues/")) {
-    return null;
+function matchesPath(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+export function isActivePath(pathname: string, href: string) {
+  if (href.includes("?")) {
+    const [base] = href.split("?");
+    return pathname === base || pathname.startsWith(`${base}/`);
   }
 
-  const segment = pathname.split("/")[2];
-  return segment ? segment.toUpperCase() : null;
+  if (href === "/bets") {
+    return matchesPath(pathname, "/bets");
+  }
+
+  if (href === "/games") {
+    return matchesPath(pathname, "/games") || matchesPath(pathname, "/game");
+  }
+
+  return matchesPath(pathname, href);
 }
 
 export function getLeagueDisplayName(leagueKey: string | null | undefined) {
@@ -152,124 +170,93 @@ export function getLeagueDisplayName(leagueKey: string | null | undefined) {
   return LEAGUE_DISPLAY_NAMES[leagueKey.toUpperCase()] ?? leagueKey.toUpperCase();
 }
 
-export function isActivePath(pathname: string, href: string) {
-  if (href === "/") {
-    return pathname === "/";
-  }
-
-  if (href === "/teams" && (pathname.startsWith("/leagues/") || pathname.startsWith("/team/"))) {
-    return true;
-  }
-
-  if (href === "/games" && pathname.startsWith("/game/")) {
-    return true;
-  }
-
-  if (href === "/content" && pathname.startsWith("/stories/")) {
-    return true;
-  }
-
-  if (href.startsWith("/leagues/")) {
-    return pathname === href || pathname.startsWith(`${href}/`);
-  }
-
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
-
 export function getRouteMeta(pathname: string) {
-  const leagueKey = getLeagueKeyFromPath(pathname);
-
-  if (leagueKey) {
-    const leagueName = getLeagueDisplayName(leagueKey);
-
-    return {
-      eyebrow: `${leagueName} League Hub`,
-      title: leagueName,
-      subtitle:
-        "League board, recent form, and direct routing into the slate."
-    };
-  }
-
   const routes = [
     {
-      match: (value: string) => value === "/",
-      eyebrow: "Command Center",
-      title: "SharkEdge",
-      subtitle: "Live markets, matchup context, and the next move."
-    },
-    {
-      match: (value: string) => isActivePath(value, "/board"),
-      eyebrow: "Market Board",
+      match: (value: string) => value === "/" || isActivePath(value, "/board"),
+      eyebrow: "Live Edge Board",
       title: "Board",
-      subtitle: "Verified pricing, movement, and clean market reads."
+      subtitle: "Rank live and upcoming opportunities by edge, support, and execution quality."
     },
     {
-      match: (value: string) => isActivePath(value, "/games") || value.startsWith("/game/"),
-      eyebrow: "Games",
+      match: (value: string) => isActivePath(value, "/games"),
+      eyebrow: "Slate View",
       title: "Games",
-      subtitle: "Open the slate and route straight into matchup detail."
+      subtitle: "Move from game context into market conviction without losing the board state."
     },
     {
-      match: (value: string) => isActivePath(value, "/props"),
-      eyebrow: "Prop Lab",
-      title: "Player Markets",
-      subtitle: "Price, role, movement, and context in one research flow."
-    },
-    {
-      match: (value: string) => isActivePath(value, "/players"),
-      eyebrow: "Players",
-      title: "Workload Radar",
-      subtitle: "Find the names driving the strongest current prop and market pressure."
-    },
-    {
-      match: (value: string) => isActivePath(value, "/teams"),
-      eyebrow: "Teams",
-      title: "Team Context",
-      subtitle: "Schedule spot, recent form, and board pressure without the fluff."
+      match: (value: string) => value.startsWith("/game/"),
+      eyebrow: "Market Detail",
+      title: "Event Hub",
+      subtitle: "Scoreboard, pricing, simulation, trends, and execution in one surface."
     },
     {
       match: (value: string) => isActivePath(value, "/trends"),
-      eyebrow: "Trends Engine",
+      eyebrow: "Evidence Engine",
       title: "Trends",
-      subtitle: "Historical systems, active matches, and validation signals."
-    },
-    {
-      match: (value: string) => isActivePath(value, "/content") || value.startsWith("/stories/"),
-      eyebrow: "Content",
-      title: "Original Coverage",
-      subtitle: "News, recaps, and betting relevance written for research, not empty traffic."
-    },
-    {
-      match: (value: string) => isActivePath(value, "/watchlist"),
-      eyebrow: "Watchlist",
-      title: "Saved Edges",
-      subtitle: "Track what matters and let SharkEdge tell you when it changes."
+      subtitle: "Historical systems weighted by current market relevance rather than vanity records."
     },
     {
       match: (value: string) => isActivePath(value, "/bets"),
-      eyebrow: "Bet Tracker",
-      title: "Bets",
-      subtitle: "Your card, prices, and outcomes in one ledger."
-    },
-    {
-      match: (value: string) => isActivePath(value, "/performance"),
-      eyebrow: "Performance",
-      title: "What's Working",
-      subtitle: "CLV, units, and leaks with no fake confidence."
+      eyebrow: "Portfolio",
+      title: "Portfolio",
+      subtitle: "Track open exposure, pending ideas, graded bets, CLV, and discipline."
     },
     {
       match: (value: string) => isActivePath(value, "/alerts"),
-      eyebrow: "Alerts",
+      eyebrow: "Automation",
       title: "Alerts",
-      subtitle: "Movement and threshold alerts worth reacting to."
+      subtitle: "Stay on changes that matter instead of watching every board tick."
+    },
+    {
+      match: (value: string) => isActivePath(value, "/performance"),
+      eyebrow: "Review",
+      title: "Performance",
+      subtitle: "Measure what actually works using EV, CLV, and market quality."
+    },
+    {
+      match: (value: string) => isActivePath(value, "/props"),
+      eyebrow: "Research",
+      title: "Props",
+      subtitle: "Specialty market pricing and player-level opportunity work."
+    },
+    {
+      match: (value: string) => isActivePath(value, "/watchlist"),
+      eyebrow: "Saved",
+      title: "Watchlist",
+      subtitle: "Hold the setups worth revisiting when the market moves."
+    },
+    {
+      match: (value: string) => isActivePath(value, "/providers"),
+      eyebrow: "Infrastructure",
+      title: "Providers",
+      subtitle: "Feed freshness, readiness, and source stability."
+    },
+    {
+      match: (value: string) => isActivePath(value, "/settings"),
+      eyebrow: "System",
+      title: "Settings",
+      subtitle: "Control preferences and workflow defaults."
+    },
+    {
+      match: (value: string) => isActivePath(value, "/players"),
+      eyebrow: "Research",
+      title: "Players",
+      subtitle: "Player-level form, role, and prop pressure."
+    },
+    {
+      match: (value: string) => isActivePath(value, "/teams"),
+      eyebrow: "Research",
+      title: "Teams",
+      subtitle: "Team-level context, matchup environment, and schedule pressure."
     }
   ];
 
   return (
     routes.find((route) => route.match(pathname)) ?? {
       eyebrow: "SharkEdge",
-      title: "Sports Intelligence",
-      subtitle: "Research the board, the matchup, and the market in one place."
+      title: "Command",
+      subtitle: "Market intelligence and execution surfaces."
     }
   );
 }

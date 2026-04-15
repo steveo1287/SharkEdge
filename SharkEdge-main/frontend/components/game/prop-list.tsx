@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { OpportunityStateBadge } from "@/app/game/[id]/_components/game-hub-primitives";
 import { BetActionButton } from "@/components/bets/bet-action-button";
+import { IdentityTile } from "@/components/media/identity-tile";
 import {
   getOpportunityTrapLine,
   OpportunityBadgeRow
@@ -19,6 +20,7 @@ import {
   buildPropBetIntent,
   getEdgeToneFromBand
 } from "@/lib/utils/bet-intelligence";
+import { getPlayerHeadshotUrl, getTeamLogoUrl } from "@/lib/utils/entity-routing";
 import { buildPropOpportunity } from "@/services/opportunities/opportunity-service";
 
 type PropListProps = {
@@ -54,6 +56,9 @@ function FeaturedPropCard({ prop }: { prop: PropCardView }) {
   const matchupHref = prop.gameHref ?? `/game/${prop.gameId}`;
   const opportunity = buildPropOpportunity(prop);
   const trapLine = getOpportunityTrapLine(opportunity);
+  const playerHeadshot = getPlayerHeadshotUrl(prop.leagueKey, prop.player);
+  const teamLogo = getTeamLogoUrl(prop.leagueKey, prop.team);
+  const opponentLogo = getTeamLogoUrl(prop.leagueKey, prop.opponent);
 
   const fairLineDisplay =
     typeof prop.fairPrice?.fairOddsAmerican === "number"
@@ -66,19 +71,47 @@ function FeaturedPropCard({ prop }: { prop: PropCardView }) {
       : "N/A";
 
   return (
-    <Card id={`prop-${prop.id}`} className="surface-panel p-4 sm:p-5">
+    <Card className="surface-panel p-4 sm:p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
-            {prop.leagueKey} |{" "}
-            {prop.gameLabel ??
-              `${prop.team.abbreviation} vs ${prop.opponent.abbreviation}`}
-          </div>
-          <div className="mt-2 text-xl font-semibold text-white sm:text-2xl">
-            {prop.player.name}
-          </div>
-          <div className="mt-2 text-sm text-slate-400">
-            {formatMarketType(prop.marketType)} {prop.side} {prop.line}
+        <div className="min-w-0 flex items-start gap-3">
+          <IdentityTile
+            label={prop.player.name}
+            shortLabel={prop.player.name.slice(0, 2).toUpperCase()}
+            imageUrl={playerHeadshot}
+            size="md"
+            subtle
+          />
+          <div className="min-w-0">
+            <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+              {prop.leagueKey} | {prop.gameLabel ?? `${prop.team.abbreviation} vs ${prop.opponent.abbreviation}`}
+            </div>
+            <div className="mt-2 text-xl font-semibold text-white sm:text-2xl">
+              {prop.player.name}
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-400">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5">
+                <IdentityTile
+                  label={prop.team.name}
+                  shortLabel={prop.team.abbreviation}
+                  imageUrl={teamLogo}
+                  size="sm"
+                  subtle
+                />
+                <span>{prop.team.abbreviation}</span>
+                <span className="text-slate-600">vs</span>
+                <IdentityTile
+                  label={prop.opponent.name}
+                  shortLabel={prop.opponent.abbreviation}
+                  imageUrl={opponentLogo}
+                  size="sm"
+                  subtle
+                />
+                <span>{prop.opponent.abbreviation}</span>
+              </div>
+            </div>
+            <div className="mt-2 text-sm text-slate-400">
+              {formatMarketType(prop.marketType)} {prop.side} {prop.line}
+            </div>
           </div>
         </div>
 
@@ -256,26 +289,33 @@ export function PropList({ props, support }: PropListProps) {
             {restProps.map(({ prop, opportunity }) => {
               const matchupHref = prop.gameHref ?? `/game/${prop.gameId}`;
               const trapLine = getOpportunityTrapLine(opportunity);
+              const playerHeadshot = getPlayerHeadshotUrl(prop.leagueKey, prop.player);
 
               return (
                 <div
-                  id={`prop-${prop.id}`}
                   key={prop.id}
                   className="flex flex-col gap-4 rounded-[1.15rem] border border-white/8 bg-slate-950/60 px-4 py-4 lg:flex-row lg:items-center lg:justify-between"
                 >
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-white">
-                      {prop.player.name}
-                    </div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      {formatMarketType(prop.marketType)} {prop.side} {prop.line} |{" "}
-                      {formatAmericanOdds(
-                        prop.bestAvailableOddsAmerican ?? prop.oddsAmerican
-                      )}
-                    </div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      {prop.bestAvailableSportsbookName ?? prop.sportsbook.name} |{" "}
-                      {trapLine ?? opportunity.reasonSummary}
+                  <div className="min-w-0 flex items-center gap-3">
+                    <IdentityTile
+                      label={prop.player.name}
+                      shortLabel={prop.player.name.slice(0, 2).toUpperCase()}
+                      imageUrl={playerHeadshot}
+                      size="sm"
+                      subtle
+                    />
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-white">
+                        {prop.player.name}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {formatMarketType(prop.marketType)} {prop.side} {prop.line} | {formatAmericanOdds(
+                          prop.bestAvailableOddsAmerican ?? prop.oddsAmerican
+                        )}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {prop.bestAvailableSportsbookName ?? prop.sportsbook.name} | {trapLine ?? opportunity.reasonSummary}
+                      </div>
                     </div>
                   </div>
 

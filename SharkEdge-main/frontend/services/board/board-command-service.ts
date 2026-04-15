@@ -1,9 +1,5 @@
 import type { BoardSportSectionView, GameCardView, LeagueKey } from "@/lib/types/domain";
-import type { OpportunityView } from "@/lib/types/opportunity";
-import {
-  buildGameMarketOpportunity,
-  rankOpportunities
-} from "@/services/opportunities/opportunity-service";
+import { buildGameMarketOpportunity } from "@/services/opportunities/opportunity-service";
 
 export type BoardLeagueScope = LeagueKey | "ALL";
 export type BoardDateScope = "today" | "tomorrow" | "upcoming";
@@ -85,43 +81,44 @@ function isVerifiedGame(game: GameCardView) {
   return hasOdds || hasMarketLabels;
 }
 
-function buildScopedOpportunities(game: GameCardView, marketScope: BoardMarketScope) {
-  const marketKeys = marketScope === "all" ? MARKET_KEYS : [marketScope];
+function getGameMarketPriority(game: GameCardView, marketKey: BoardMarketKey) {
+  const market = game[marketKey];
+  const rankScore = market.evProfile?.rankScore ?? 0;
+  const confidenceScore = market.confidenceScore ?? 0;
+  const movementBonus = Math.min(
+    12,
+    Math.abs(market.movement) * (marketKey === "moneyline" ? 0.35 : 2.5)
+  );
+  const qualityBonus = market.marketTruth?.qualityScore ?? 0;
+  const bestPriceBonus = market.marketIntelligence?.bestPriceFlag ? 8 : 0;
 
-  return rankOpportunities<OpportunityView>(
-    marketKeys.map((marketType) => buildGameMarketOpportunity(game, marketType))
+  return rankScore + confidenceScore * 0.45 + qualityBonus * 0.2 + movementBonus + bestPriceBonus;
+}
+
+function getLeadMarket(game: GameCardView) {
+  return [...MARKET_KEYS].sort(
+    (left, right) => getGameMarketPriority(game, right) - getGameMarketPriority(game, left)
+  )[0];
+}
+
+function getLeadScore(game: GameCardView) {
+  return Math.max(
+    buildGameMarketOpportunity(game, "spread").opportunityScore,
+    buildGameMarketOpportunity(game, "moneyline").opportunityScore,
+    buildGameMarketOpportunity(game, "total").opportunityScore
   );
 }
 
-function getLeadOpportunity(game: GameCardView, marketScope: BoardMarketScope) {
-  return buildScopedOpportunities(game, marketScope)[0] ?? null;
-}
-
-function getLeadMarket(game: GameCardView, marketScope: BoardMarketScope) {
-  const leadOpportunity = getLeadOpportunity(game, marketScope);
-  if (!leadOpportunity) {
-    return marketScope === "all" ? "moneyline" : marketScope;
-  }
-
-  return leadOpportunity.marketType === "spread" ||
-    leadOpportunity.marketType === "moneyline" ||
-    leadOpportunity.marketType === "total"
-    ? leadOpportunity.marketType
-    : "moneyline";
-}
-
-function getLeadScore(game: GameCardView, marketScope: BoardMarketScope) {
-  const leadOpportunity = getLeadOpportunity(game, marketScope);
-  if (!leadOpportunity) {
-    return 0;
-  }
-
-  return leadOpportunity.ranking?.compositeScore ?? leadOpportunity.opportunityScore;
-}
-
 function getMovementScore(game: GameCardView, marketScope: BoardMarketScope) {
-  const leadMarket = marketScope === "all" ? getLeadMarket(game, marketScope) : marketScope;
-  return Math.abs(game[leadMarket].movement);
+  if (marketScope !== "all") {
+    return Math.abs(game[marketScope].movement);
+  }
+
+  return Math.max(
+    Math.abs(game.spread.movement),
+    Math.abs(game.moneyline.movement),
+    Math.abs(game.total.movement)
+  );
 }
 
 function getStartTimestamp(game: GameCardView) {
@@ -149,7 +146,7 @@ function sortVerifiedGames(games: GameCardView[], sortScope: BoardSortScope, mar
       }
     }
 
-    return getLeadScore(right, marketScope) - getLeadScore(left, marketScope);
+    return getLeadScore(right) - getLeadScore(left);
   });
 }
 
@@ -180,8 +177,8 @@ function buildLeagueSections(sections: BoardSportSectionView[]) {
 function buildMarketMovers(games: GameCardView[], marketScope: BoardMarketScope) {
   return [...games]
     .sort((left, right) => {
-      const leftLeadMarket = getLeadMarket(left, marketScope);
-      const rightLeadMarket = getLeadMarket(right, marketScope);
+      const leftLeadMarket = marketScope === "all" ? getLeadMarket(left) : marketScope;
+      const rightLeadMarket = marketScope === "all" ? getLeadMarket(right) : marketScope;
 
       const leftMovement = Math.abs(left[leftLeadMarket].movement);
       const rightMovement = Math.abs(right[rightLeadMarket].movement);
@@ -190,7 +187,7 @@ function buildMarketMovers(games: GameCardView[], marketScope: BoardMarketScope)
         return rightMovement - leftMovement;
       }
 
-      return getLeadScore(right, marketScope) - getLeadScore(left, marketScope);
+      return getLeadScore(right) - getLeadScore(left);
     })
     .slice(0, 6);
 }

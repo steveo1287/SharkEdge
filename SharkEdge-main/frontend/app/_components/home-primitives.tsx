@@ -2,11 +2,12 @@ import Link from "next/link";
 
 import { EdgeScoreBadge } from "@/components/intelligence/edge-score-badges";
 import { TrendSignalPanel } from "@/components/intelligence/trend-signal-panel";
+import { TeamBadge } from "@/components/identity/team-badge";
 import { Badge } from "@/components/ui/badge";
 import { getProviderHealthTone } from "@/components/intelligence/provider-status-badges";
 import type { GameCardView, LeagueKey, LeagueSnapshotView, TrendCardView } from "@/lib/types/domain";
 import { formatAmericanOdds } from "@/lib/formatters/odds";
-import { resolveMatchupHref } from "@/lib/utils/entity-routing";
+import { getTeamLogoUrl, resolveMatchupHref } from "@/lib/utils/entity-routing";
 import { buildInternalStoryHref } from "@/lib/utils/stories";
 
 function buildStoryHref(
@@ -119,6 +120,8 @@ export { getProviderHealthTone };
 export function MovementCard({ game }: { game: GameCardView }) {
   const dominantMove = getDominantMove(game);
   const severity = getMovementSeverity(game);
+  const awayLogo = getTeamLogoUrl(game.leagueKey, game.awayTeam);
+  const homeLogo = getTeamLogoUrl(game.leagueKey, game.homeTeam);
 
   return (
     <Link
@@ -126,12 +129,33 @@ export function MovementCard({ game }: { game: GameCardView }) {
       className="group rounded-[1.35rem] border border-white/8 bg-[#0a1422]/90 p-4 transition hover:border-sky-400/25 hover:bg-white/[0.03]"
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
             {game.leagueKey}
           </div>
-          <div className="mt-2 text-lg font-semibold text-white">
-            {game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}
+          <div className="mt-3 flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <TeamBadge
+                name={game.awayTeam.name}
+                abbreviation={game.awayTeam.abbreviation}
+                logoUrl={awayLogo}
+                size="sm"
+                tone="away"
+              />
+              <TeamBadge
+                name={game.homeTeam.name}
+                abbreviation={game.homeTeam.abbreviation}
+                logoUrl={homeLogo}
+                size="sm"
+                tone="home"
+              />
+            </div>
+            <div className="min-w-0">
+              <div className="text-lg font-semibold text-white">
+                {game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}
+              </div>
+              <div className="truncate text-sm text-slate-400">{game.venue}</div>
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap justify-end gap-2">

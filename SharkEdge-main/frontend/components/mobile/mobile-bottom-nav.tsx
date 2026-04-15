@@ -6,15 +6,15 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 
 const NAV_ITEMS = [
-  { href: "/", label: "Home", icon: "bolt" },
   { href: "/board", label: "Board", icon: "board" },
   { href: "/games", label: "Games", icon: "games" },
   { href: "/trends", label: "Trends", icon: "trend" },
-  { href: "/bets", label: "Bets", icon: "ledger" }
+  { href: "/bets", label: "Portfolio", icon: "ledger" },
+  { href: "/alerts", label: "Alerts", icon: "bolt" }
 ] as const;
 
 function Icon({ type, active }: { type: (typeof NAV_ITEMS)[number]["icon"]; active: boolean }) {
-  const stroke = active ? "#188cff" : "#778395";
+  const stroke = active ? "#86f6ff" : "#718096";
   const className = "h-[18px] w-[18px]";
 
   if (type === "bolt") {
@@ -60,25 +60,27 @@ function Icon({ type, active }: { type: (typeof NAV_ITEMS)[number]["icon"]; acti
 }
 
 export function MobileBottomNav() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
 
   return (
     <nav className="mobile-bottom-nav xl:hidden">
       <ul className="grid grid-cols-5 gap-1">
         {NAV_ITEMS.map((item) => {
-          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
           return (
             <li key={item.href}>
               <Link
                 href={item.href}
                 className={cn(
-                  "flex flex-col items-center justify-center gap-1 rounded-[18px] px-2 py-2 transition",
-                  active ? "bg-[#151e2d] text-[#188cff]" : "text-slate-500 hover:bg-white/[0.03] hover:text-slate-200"
+                  "flex min-h-[62px] flex-col items-center justify-center gap-1 rounded-[18px] px-2 py-2 transition",
+                  active
+                    ? "bg-cyan-400/[0.10] text-cyan-100"
+                    : "text-slate-500 hover:bg-white/[0.03] hover:text-slate-200"
                 )}
               >
                 <Icon type={item.icon} active={active} />
-                <span className="text-[10px] font-semibold tracking-[0.06em]">{item.label}</span>
+                <span className="text-[10px] font-semibold tracking-[0.04em]">{item.label}</span>
               </Link>
             </li>
           );

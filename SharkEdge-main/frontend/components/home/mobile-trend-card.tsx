@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 
 import type { PublishedTrendCard } from "@/lib/trends/publisher";
 import { cn } from "@/lib/utils/cn";
@@ -25,12 +25,14 @@ function formatPct(value: number | null) {
 }
 
 export function MobileTrendCard({ card, featured = false }: MobileTrendCardProps) {
+  const whyNow = card.whyNow[0] ?? card.railReason ?? "Trend is active on today's board.";
+
   return (
     <Link
       href={card.href}
       className={cn(
-        "mobile-trend-card",
-        featured ? "min-w-[248px] max-w-[248px]" : "min-w-[218px] max-w-[218px]"
+        "mobile-trend-card border-white/10 bg-[radial-gradient(circle_at_top,rgba(45,211,111,0.08),transparent_34%),linear-gradient(180deg,rgba(18,20,24,0.96),rgba(12,14,18,0.99))]",
+        featured ? "min-w-[260px] max-w-[260px]" : "min-w-[228px] max-w-[228px]"
       )}
     >
       <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">
@@ -46,7 +48,11 @@ export function MobileTrendCard({ card, featured = false }: MobileTrendCardProps
         {card.title}
       </div>
 
-      <div className="mt-4 text-[2.25rem] font-black leading-none text-[#2dd36f]">
+      <div className="mt-3 rounded-[1rem] border border-white/8 bg-white/[0.03] px-3 py-2.5 text-[11px] leading-5 text-slate-300">
+        {whyNow}
+      </div>
+
+      <div className="mt-4 text-[2.2rem] font-black leading-none text-[#2dd36f]">
         {card.primaryMetricLabel === "RECORD" ? card.record : card.primaryMetricValue}
       </div>
       <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-slate-500">
@@ -81,4 +87,3 @@ export function MobileTrendCard({ card, featured = false }: MobileTrendCardProps
     </Link>
   );
 }
-
