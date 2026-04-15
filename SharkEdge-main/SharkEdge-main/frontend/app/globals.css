@@ -1,0 +1,357 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --brand-ink: #04070d;
+  --brand-abyss: #07111c;
+  --brand-panel: #0d1828;
+  --brand-panel-strong: #0a1320;
+  --brand-line: #1a2a40;
+  --brand-blue: #44a4ff;
+  --brand-blue-deep: #18355f;
+  --brand-gold: #d1ac63;
+  --brand-text: #f2f7ff;
+  --brand-muted: #90a3c0;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Space Grotesk", "Aptos", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", "Consolas", monospace;
+}
+
+html {
+  min-height: 100%;
+  background:
+    radial-gradient(circle at 15% 0%, rgba(68, 164, 255, 0.14), transparent 24%),
+    radial-gradient(circle at 100% 10%, rgba(209, 172, 99, 0.08), transparent 22%),
+    linear-gradient(180deg, #03070d 0%, #07111b 42%, #09131e 100%);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  color: var(--brand-text);
+  font-family: var(--font-body), system-ui, sans-serif;
+  overflow-x: hidden;
+  background:
+    linear-gradient(rgba(56, 86, 140, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 86, 140, 0.08) 1px, transparent 1px),
+    radial-gradient(circle at top, rgba(68, 164, 255, 0.08), transparent 28%),
+    linear-gradient(180deg, #03070d 0%, #07111b 42%, #09131e 100%);
+  background-size: 44px 44px, 44px 44px, auto, auto;
+  background-position: center top, center top, center top, center top;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(68, 164, 255, 0.28);
+  color: #f8fbff;
+}
+
+.app-shell-grid {
+  background:
+    radial-gradient(circle at top, rgba(68, 164, 255, 0.04), transparent 26%),
+    radial-gradient(circle at bottom right, rgba(209, 172, 99, 0.04), transparent 20%);
+}
+
+.workspace-frame {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(7, 17, 28, 0.92);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(24px);
+}
+
+@media (min-width: 1280px) {
+  .workspace-frame {
+    border-radius: 2rem;
+  }
+}
+
+.workspace-frame::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.025), transparent 14%),
+    radial-gradient(circle at top right, rgba(68,164,255,0.09), transparent 22%);
+}
+
+.workspace-main {
+  @apply relative min-w-0 flex-1;
+}
+
+.panel {
+  @apply rounded-[1.45rem];
+  border: 1px solid rgba(28, 43, 68, 0.8);
+  background: rgba(17, 28, 47, 0.9);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(12px);
+}
+
+.page-shell {
+  @apply mx-auto grid w-full max-w-[1560px] gap-8 px-4 pb-20 pt-6 md:px-6 xl:px-8;
+}
+
+.surface-panel {
+  @apply rounded-[1.45rem];
+  border: 1px solid rgba(28, 43, 68, 0.8);
+  background: rgba(11, 21, 36, 0.88);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(12px);
+}
+
+.surface-panel-strong {
+  @apply rounded-[1.7rem];
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 19, 31, 0.92);
+  box-shadow: 0 20px 70px rgba(2, 6, 23, 0.36);
+  backdrop-filter: blur(12px);
+}
+
+.surface-panel-muted {
+  @apply rounded-[1.3rem];
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 19, 31, 0.7);
+}
+
+.metric-tile {
+  @apply rounded-[1.25rem] px-4 py-4;
+  border: 1px solid rgba(28, 43, 68, 0.7);
+  background: rgba(2, 6, 23, 0.65);
+}
+
+.section-kicker {
+  @apply text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-sky-300;
+}
+
+.terminal-rule {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(68, 164, 255, 0.4), transparent);
+}
+
+.data-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.85rem;
+}
+
+.table-scroll {
+  scrollbar-color: #1f3355 transparent;
+}
+
+.table-scroll::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+
+.table-scroll::-webkit-scrollbar-thumb {
+  background: #1f3355;
+  border-radius: 999px;
+}
+
+.mobile-shell {
+  background:
+    radial-gradient(circle at top, rgba(24, 140, 255, 0.12), transparent 28%),
+    linear-gradient(180deg, #101010 0%, #0d1016 40%, #090d13 100%);
+}
+
+.mobile-page-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.mobile-surface {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(10, 15, 24, 0.88), rgba(8, 12, 20, 0.94));
+  border-radius: 1.2rem;
+  padding: 1rem;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(12px);
+}
+
+.mobile-hero {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    radial-gradient(circle at top right, rgba(24, 140, 255, 0.1), transparent 30%),
+    linear-gradient(180deg, rgba(12, 18, 29, 0.96), rgba(8, 12, 20, 0.99));
+  border-radius: 1.45rem;
+  padding: 1rem;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
+}
+
+.mobile-bottom-nav {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(9, 14, 22, 0.96);
+  border-radius: 1.2rem;
+  padding: 0.45rem;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(18px);
+}
+
+.mobile-icon-button {
+  display: inline-flex;
+  height: 2.5rem;
+  width: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #f8fbff;
+}
+
+.mobile-trend-card {
+  display: block;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(18, 20, 24, 0.95), rgba(17, 18, 21, 0.98));
+  border-radius: 1.4rem;
+  padding: 0.95rem;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.26);
+}
+
+.mobile-board-card {
+  display: block;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: linear-gradient(180deg, rgba(9, 14, 22, 0.96), rgba(7, 11, 18, 0.99));
+  border-radius: 1.15rem;
+  padding: 1rem;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+}
+
+.mobile-odds-tile {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 1.15rem;
+  padding: 0.85rem;
+  min-height: 6.75rem;
+}
+
+.mobile-scroll-row {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.15rem;
+}
+
+.mobile-section-eyebrow,
+.mobile-eyebrow {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+  color: #7d899e;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* -----------------------------------------------------------------------
+   Tailwind v3 JIT opacity-variant safety net
+   These classes use non-standard opacity values (e.g. /8, /12) that
+   Tailwind v3 does not always generate. Defining them explicitly ensures
+   backgrounds, borders, and hover states render correctly everywhere.
+   ----------------------------------------------------------------------- */
+
+/* Background opacity variants */
+.bg-sky-500\/8    { background-color: rgba(14, 165, 233, 0.08); }
+.bg-sky-500\/10   { background-color: rgba(14, 165, 233, 0.10); }
+.bg-sky-500\/12   { background-color: rgba(14, 165, 233, 0.12); }
+.bg-sky-400\/8    { background-color: rgba(56, 189, 248, 0.08); }
+.bg-emerald-500\/8  { background-color: rgba(16, 185, 129, 0.08); }
+.bg-emerald-500\/10 { background-color: rgba(16, 185, 129, 0.10); }
+.bg-emerald-400\/8  { background-color: rgba(52, 211, 153, 0.08); }
+.bg-emerald-400\/10 { background-color: rgba(52, 211, 153, 0.10); }
+.bg-amber-400\/8  { background-color: rgba(251, 191, 36, 0.08); }
+.bg-amber-400\/10 { background-color: rgba(251, 191, 36, 0.10); }
+.bg-amber-300\/5  { background-color: rgba(252, 211, 77, 0.05); }
+.bg-rose-500\/8   { background-color: rgba(244, 63, 94, 0.08); }
+.bg-rose-500\/10  { background-color: rgba(244, 63, 94, 0.10); }
+.bg-rose-400\/8   { background-color: rgba(251, 113, 133, 0.08); }
+
+/* Border opacity variants */
+.border-sky-400\/15  { border-color: rgba(56, 189, 248, 0.15); }
+.border-sky-400\/20  { border-color: rgba(56, 189, 248, 0.20); }
+.border-sky-400\/25  { border-color: rgba(56, 189, 248, 0.25); }
+.border-sky-400\/30  { border-color: rgba(56, 189, 248, 0.30); }
+.border-sky-400\/35  { border-color: rgba(56, 189, 248, 0.35); }
+.border-emerald-400\/15 { border-color: rgba(52, 211, 153, 0.15); }
+.border-emerald-400\/20 { border-color: rgba(52, 211, 153, 0.20); }
+.border-emerald-400\/30 { border-color: rgba(52, 211, 153, 0.30); }
+.border-amber-300\/20 { border-color: rgba(252, 211, 77, 0.20); }
+.border-amber-300\/25 { border-color: rgba(252, 211, 77, 0.25); }
+.border-amber-300\/30 { border-color: rgba(252, 211, 77, 0.30); }
+.border-rose-400\/20  { border-color: rgba(251, 113, 133, 0.20); }
+.border-rose-400\/30  { border-color: rgba(251, 113, 133, 0.30); }
+.border-white\/6   { border-color: rgba(255, 255, 255, 0.06); }
+.border-white\/8   { border-color: rgba(255, 255, 255, 0.08); }
+.border-white\/10  { border-color: rgba(255, 255, 255, 0.10); }
+.border-white\/12  { border-color: rgba(255, 255, 255, 0.12); }
+
+/* Hover variants */
+.hover\:border-sky-400\/25:hover { border-color: rgba(56, 189, 248, 0.25); }
+.hover\:border-sky-400\/20:hover { border-color: rgba(56, 189, 248, 0.20); }
+.hover\:border-white\/12:hover   { border-color: rgba(255, 255, 255, 0.12); }
+.hover\:bg-sky-500\/10:hover     { background-color: rgba(14, 165, 233, 0.10); }
+.hover\:bg-white\/\[0\.03\]:hover { background-color: rgba(255, 255, 255, 0.03); }
+.hover\:bg-white\/\[0\.04\]:hover { background-color: rgba(255, 255, 255, 0.04); }
+
+
+
+.edge-panel {
+  border: 1px solid rgba(255,255,255,0.07);
+  background: linear-gradient(180deg, rgba(10,12,18,0.94), rgba(8,10,16,0.98));
+  box-shadow: 0 18px 48px rgba(0,0,0,0.24);
+  backdrop-filter: blur(18px);
+}
+
+.edge-panel-soft {
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.025);
+  backdrop-filter: blur(14px);
+}
+
+.edge-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+}
+
+.edge-scroll {
+  scrollbar-color: rgba(110, 130, 160, 0.55) transparent;
+}
+
+.edge-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.edge-scroll::-webkit-scrollbar-thumb {
+  background: rgba(110, 130, 160, 0.55);
+  border-radius: 999px;
+}
+
+.metric-glow {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 16px 36px rgba(0,0,0,0.18);
+}

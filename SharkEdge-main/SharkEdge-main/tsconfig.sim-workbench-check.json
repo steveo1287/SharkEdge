@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": [],
+    "jsx": "preserve"
+  },
+  "include": [
+    "components/event/simulation-intelligence-panel.tsx",
+    "components/event/simulation-workbench.tsx",
+    "components/ui/badge.tsx",
+    "components/ui/card.tsx",
+    "lib/utils/cn.ts",
+    "types/sanity-react.d.ts"
+  ]
+}

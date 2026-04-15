@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "skipLibCheck": true,
+    "strict": false,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "files": [
+    "services/trends/feed-native-context.ts",
+    "services/trends/opportunity-trend-intelligence.ts",
+    "services/opportunities/opportunity-decision-policy.ts",
+    "lib/types/opportunity.ts"
+  ]
+}
