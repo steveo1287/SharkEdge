@@ -1,0 +1,10 @@
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/.next
+**/.npm-cache
+**/.npm-cache-build
+
+.vercel
+# pipeline test commit – SharkEdge setup complete
