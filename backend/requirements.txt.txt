@@ -1,0 +1,7 @@
+ fastapi
+uvicorn
+python-dotenv
+oddsharvester
+requests
+selenium
+playwright
