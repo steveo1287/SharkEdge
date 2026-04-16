@@ -9,6 +9,10 @@ import { applyFactorBucketPenalty, extractDegradedFactorBuckets, qualifiesWinner
 import { listRecentCalibrationSummaries } from "@/services/calibration/calibration-summary-store";
 import { buildAdvancedStatContext } from "@/services/modeling/advanced-stat-context-service";
 import { buildMlbEliteSimSnapshot } from "@/services/modeling/mlb-elite-sim-service";
+import { buildMlbIntelligenceEnvelope } from "@/services/modeling/mlb-intelligence-envelope-service";
+import { applyMlbDecisionGate, buildMlbDecisionGate } from "@/services/modeling/mlb-conformal-gating-service";
+import { buildMlbCalibratedOutcomeMath } from "@/services/modeling/mlb-outcome-math-service";
+import { buildMlbPrimaryDecisionScore } from "@/services/modeling/mlb-decision-score-service";
 
 export async function getBoardApi(
   leagueKey?: string,
@@ -187,6 +191,10 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
       eventId: signal.eventId
     });
     const mlbEliteSnapshot = String(signal.event.league.key) === "MLB" ? await buildMlbEliteSimSnapshot(signal.eventId) : null;
+    const mlbEnvelope = String(signal.event.league.key) === "MLB" ? await buildMlbIntelligenceEnvelope(signal.eventId) : null;
+    const mlbDecisionGate = mlbEnvelope ? buildMlbDecisionGate(mlbEnvelope) : null;
+    const mlbOutcomeMath = String(signal.event.league.key) === "MLB" ? await buildMlbCalibratedOutcomeMath(signal.eventId) : null;
+    const mlbPrimaryDecision = mlbOutcomeMath && mlbDecisionGate ? buildMlbPrimaryDecisionScore(mlbOutcomeMath, mlbDecisionGate) : null;
     const factorBucket = String((decomposition.contributions ?? [])
       .slice()
       .sort((left, right) => Math.abs(Number(right.value ?? 0)) - Math.abs(Number(left.value ?? 0)))[0]?.key ?? "");
@@ -232,7 +240,7 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
       adjustedEdgeScore: adjusted.adjustedEdgeScore,
       xfactorImpactOnEdgeScore: adjusted.xfactorImpact,
       rankSignal: adjusted.rankSignal,
-      adjustedRankSignal: penalty.adjustedRankSignal,
+      adjustedRankSignal: mlbPrimaryDecision ? Number((penalty.adjustedRankSignal + mlbPrimaryDecision.primaryScore / 100).toFixed(4)) : (mlbDecisionGate ? applyMlbDecisionGate(penalty.adjustedRankSignal, mlbDecisionGate) : penalty.adjustedRankSignal),
       flags: signal.flagsJson,
       expiresAt: signal.expiresAt?.toISOString() ?? null,
       whyItGradesWell: {
@@ -244,6 +252,10 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
       advancedStats,
       topAdvancedStatDrivers: advancedStats.topDrivers,
       mlbEliteSnapshot,
+      mlbEnvelope,
+      mlbDecisionGate,
+      mlbOutcomeMath,
+      mlbPrimaryDecision,
       scoringBlend: {
         baseEdgeScore: signal.edgeScore,
         adjustedEdgeScore: adjusted.adjustedEdgeScore,
@@ -269,6 +281,10 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
         advancedStats: payload.advancedStats,
         topAdvancedStatDrivers: payload.topAdvancedStatDrivers,
         mlbEliteSnapshot: payload.mlbEliteSnapshot,
+        mlbEnvelope: payload.mlbEnvelope,
+        mlbDecisionGate: payload.mlbDecisionGate,
+        mlbOutcomeMath: payload.mlbOutcomeMath,
+        mlbPrimaryDecision: payload.mlbPrimaryDecision,
         decomposition: payload.decomposition,
         scenarios: payload.scenarios
       }
