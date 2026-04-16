@@ -13,13 +13,13 @@ const buildDir = path.join(projectRoot, ".next");
 
 // Resolve the Next.js binary by checking cwd/node_modules first, then
 // walking up one level to support npm workspace setups where packages are
-// hoisted to the workspace root (e.g. frontend/ inside a monorepo root).
+// hoisted to the workspace root (e.g. frontend/ lives inside a monorepo).
 function resolveNextBin(root) {
   const local = path.join(root, "node_modules", "next", "dist", "bin", "next");
   if (existsSync(local)) return local;
   const parent = path.join(root, "..", "node_modules", "next", "dist", "bin", "next");
   if (existsSync(parent)) return parent;
-  return local; // fall back to local path so the error message is useful
+  return local; // fallback so the error message stays useful
 }
 
 const nextBin = resolveNextBin(projectRoot);
