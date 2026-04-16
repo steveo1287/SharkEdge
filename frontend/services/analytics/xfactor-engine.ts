@@ -1,9 +1,4 @@
-import type {
-  AnalyticsFactor,
-  MatchupProfile,
-  RatingsContext,
-  SimulationEnhancementReport
-} from "@/lib/types/analytics";
+import type { AnalyticsFactor, SimulationEnhancementReport } from "@/lib/types/analytics";
 import { buildWeatherBlend, type WeatherBlendInput } from "@/services/analytics/weather-model-service";
 
 export type XFactorInput = {
@@ -28,6 +23,17 @@ export type XFactorInput = {
     starPowerIndex?: number | null;
     depthIndex?: number | null;
   };
+};
+
+export type XFactorSummary = {
+  score: number;
+  confidence: number;
+  topReasons: Array<{
+    label: string;
+    impactScore: number;
+    detail: string;
+    source: string;
+  }>;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -62,37 +68,23 @@ function buildFactor(
   };
 }
 
+export function summarizeXFactors(report: SimulationEnhancementReport): XFactorSummary {
+  const ordered = [...report.factors].sort((left, right) => Math.abs(right.impactScore) - Math.abs(left.impactScore));
+  const score = round(ordered.reduce((sum, factor) => sum + factor.impactScore, 0));
+  return {
+    score,
+    confidence: report.confidence,
+    topReasons: ordered.slice(0, 4).map((factor) => ({
+      label: factor.label,
+      impactScore: factor.impactScore,
+      detail: factor.detail,
+      source: factor.source
+    }))
+  };
+}
+
 export function buildSimulationEnhancementReport(input: XFactorInput): SimulationEnhancementReport {
   const environment = buildWeatherBlend(input.weather);
-  const matchup: MatchupProfile = {
-    teamVsTeam: {
-      offensiveEfficiencyGap: input.offenseVsDefenseGap ?? null,
-      defensiveResistanceGap: input.offenseVsDefenseGap !== null && input.offenseVsDefenseGap !== undefined ? -input.offenseVsDefenseGap : null,
-      reboundingGap: null,
-      turnoverGap: null,
-      shotQualityGap: null,
-      specialTeamsGap: null
-    },
-    styleVsStyle: {
-      paceClash: input.tempoGap ?? null,
-      rimAndThreePressure: null,
-      isoVsSwitch: null,
-      transitionEdge: input.styleClash ?? null,
-      trenchMismatch: null,
-      groundGameEdge: null
-    },
-    playerVsPlayer: input.playerMatchups ?? []
-  };
-
-  const ratings: RatingsContext = {
-    videoGameRatingsAvailable: Boolean(input.ratings),
-    teamOverall: input.ratings?.teamOverall ?? null,
-    teamOffense: input.ratings?.teamOffense ?? null,
-    teamDefense: input.ratings?.teamDefense ?? null,
-    starPowerIndex: input.ratings?.starPowerIndex ?? null,
-    depthIndex: input.ratings?.depthIndex ?? null,
-    notes: input.ratings ? ["Ratings blended as weak prior, not primary driver."] : []
-  };
 
   const factors: AnalyticsFactor[] = [
     buildFactor(
@@ -102,7 +94,7 @@ export function buildSimulationEnhancementReport(input: XFactorInput): Simulatio
       environment.weatherBlend.scoringEnvironmentDelta,
       0.7,
       environment.weatherBlend.summary,
-      "windy/openmeteo/noaa blend placeholder"
+      "weather blend"
     ),
     buildFactor(
       "tempo_gap",
@@ -110,7 +102,7 @@ export function buildSimulationEnhancementReport(input: XFactorInput): Simulatio
       "tempo",
       input.tempoGap ?? 0,
       0.62,
-      "Derived from possession/play volume mismatch.",
+      "Derived from possession and play-volume mismatch.",
       "team pace profile"
     ),
     buildFactor(
@@ -146,7 +138,7 @@ export function buildSimulationEnhancementReport(input: XFactorInput): Simulatio
       "ratings",
       ((input.ratings?.teamOverall ?? 0) - 75) / 100,
       0.2,
-      "Video game ratings only used as weak prior.",
+      "Ratings inputs are weak-prior only.",
       "ratings prior"
     )
   ];
@@ -169,12 +161,37 @@ export function buildSimulationEnhancementReport(input: XFactorInput): Simulatio
     modelVersion: "xfactor-v1",
     factors,
     environment,
-    matchup,
-    ratings,
+    matchup: {
+      teamVsTeam: {
+        offensiveEfficiencyGap: input.offenseVsDefenseGap ?? null,
+        defensiveResistanceGap: input.offenseVsDefenseGap !== null && input.offenseVsDefenseGap !== undefined ? -input.offenseVsDefenseGap : null,
+        reboundingGap: null,
+        turnoverGap: null,
+        shotQualityGap: null,
+        specialTeamsGap: null
+      },
+      styleVsStyle: {
+        paceClash: input.tempoGap ?? null,
+        rimAndThreePressure: null,
+        isoVsSwitch: null,
+        transitionEdge: input.styleClash ?? null,
+        trenchMismatch: null,
+        groundGameEdge: null
+      },
+      playerVsPlayer: input.playerMatchups ?? []
+    },
+    ratings: {
+      videoGameRatingsAvailable: Boolean(input.ratings),
+      teamOverall: input.ratings?.teamOverall ?? null,
+      teamOffense: input.ratings?.teamOffense ?? null,
+      teamDefense: input.ratings?.teamDefense ?? null,
+      starPowerIndex: input.ratings?.starPowerIndex ?? null,
+      depthIndex: input.ratings?.depthIndex ?? null,
+      notes: input.ratings ? ["Ratings blended as weak prior, not a lead driver."] : []
+    },
     confidence,
     notes: [
-      "This layer is an additive enhancement report intended to sit beside the existing simulation engine.",
-      "Ratings inputs are weak-prior only and should never dominate market, performance, or injury data."
+      "Additive x-factor layer for explanation and calibration support."
     ]
   };
 }

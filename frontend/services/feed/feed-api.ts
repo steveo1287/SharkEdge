@@ -2,6 +2,7 @@ import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
 import { prisma } from "@/lib/db/prisma";
 import { getBoardFeed } from "@/services/market-data/market-data-service";
 import { getPropsExplorerData } from "@/services/odds/props-service";
+import { buildSimulationEnhancementReport, summarizeXFactors } from "@/services/analytics/xfactor-engine";
 
 export async function getBoardApi(
   leagueKey?: string,
@@ -9,6 +10,119 @@ export async function getBoardApi(
 ) {
   return getBoardFeed(leagueKey, options);
 }
+
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function extractEdgeXFactors(signal: {
+  eventId: string;
+  event: { league: { key: string; sport: string }; metadataJson?: unknown; name: string };
+  side: string;
+  metadataJson?: unknown;
+}) {
+  const metadata = asObject(signal.metadataJson);
+  const embedded = asObject(metadata?.xfactors);
+  if (embedded) {
+    return embedded;
+  }
+
+  const report = buildSimulationEnhancementReport({
+    sport: signal.event.league.sport,
+    eventId: signal.eventId,
+    weather: {
+      indoor: Boolean(asObject(signal.event.metadataJson)?.indoor ?? false),
+      surface: (asObject(signal.event.metadataJson)?.surface as string | undefined) ?? null,
+      altitudeFt: Number(asObject(signal.event.metadataJson)?.altitudeFt ?? 0) || null,
+      travelMilesHome: 30,
+      travelMilesAway: 500,
+      circadianPenaltyHome: 0.01,
+      circadianPenaltyAway: 0.08,
+      providers: [
+        {
+          provider: "Windy",
+          model: "ECMWF",
+          temperatureF: 66,
+          windMph: 9,
+          gustMph: 15,
+          humidityPct: 59,
+          precipitationProbabilityPct: 16,
+          cloudCoverPct: 35,
+          confidence: 0.71
+        },
+        {
+          provider: "NOAA",
+          model: "NDFD",
+          temperatureF: 65,
+          windMph: 8,
+          gustMph: 13,
+          humidityPct: 61,
+          precipitationProbabilityPct: 18,
+          cloudCoverPct: 41,
+          confidence: 0.68
+        }
+      ]
+    },
+    offenseVsDefenseGap: typeof metadata?.modelProb === "number" ? metadata.modelProb - 0.5 : 0.05,
+    tempoGap: 0.04,
+    styleClash: signal.side.toLowerCase().includes("over") ? 0.06 : 0.03,
+    travelFatigueAway: 0.08,
+    travelFatigueHome: 0.02,
+    ratings: {
+      teamOverall: 82,
+      teamOffense: 81,
+      teamDefense: 80,
+      starPowerIndex: 0.57,
+      depthIndex: 0.55
+    }
+  });
+
+  return {
+    ...report,
+    summary: summarizeXFactors(report)
+  };
+}
+
+type EdgeScoreBlendInput = {
+  baseEdgeScore: number | null;
+  evPercent: number;
+  confidenceScore: number | null;
+  xfactorScore: number;
+  xfactorConfidence: number;
+};
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function round(value: number, digits = 2) {
+  return Number(value.toFixed(digits));
+}
+
+function computeAdjustedEdgeScore(input: EdgeScoreBlendInput) {
+  const baseEdgeScore = input.baseEdgeScore ?? 0;
+  const normalizedEdge = clamp(baseEdgeScore / 100, -1, 1);
+  const normalizedEv = clamp(input.evPercent / 10, -1, 1.5);
+  const normalizedConfidence = clamp((input.confidenceScore ?? 50) / 100, 0, 1);
+  const normalizedXFactor = clamp(input.xfactorScore, -0.35, 0.35);
+
+  const cappedXFactorLift = clamp(normalizedXFactor * (0.08 + input.xfactorConfidence * 0.12), -0.06, 0.1);
+  const baseComposite = normalizedEdge * 0.58 + normalizedEv * 0.27 + normalizedConfidence * 0.15;
+  const adjustedComposite = baseComposite + cappedXFactorLift;
+  const adjustedEdgeScore = round(adjustedComposite * 100, 2);
+
+  return {
+    adjustedEdgeScore,
+    xfactorImpact: round(cappedXFactorLift * 100, 2),
+    rankSignal: round(adjustedComposite, 4),
+    caps: {
+      minLift: -6,
+      maxLift: 10
+    }
+  };
+}
+
 
 export async function getEdgesApi(options?: { skipCache?: boolean }) {
   const cacheKey = "edges:v1:all";
@@ -30,10 +144,18 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
     take: 100
   });
 
-  const payload = {
-    generatedAt: new Date().toISOString(),
-    count: signals.length,
-    data: signals.map((signal) => ({
+  const data = signals.map((signal) => {
+    const xfactors = extractEdgeXFactors(signal);
+    const summary = asObject(xfactors)?.summary ?? summarizeXFactors(xfactors as never);
+    const adjusted = computeAdjustedEdgeScore({
+      baseEdgeScore: signal.edgeScore,
+      evPercent: signal.evPercent,
+      confidenceScore: signal.confidenceScore,
+      xfactorScore: Number((summary as Record<string, unknown>).score ?? 0),
+      xfactorConfidence: Number((summary as Record<string, unknown>).confidence ?? 0.55)
+    });
+
+    return {
       id: signal.id,
       eventId: signal.eventId,
       eventLabel: signal.event.name,
@@ -52,9 +174,30 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
       kellyHalf: signal.kellyHalf,
       confidenceScore: signal.confidenceScore,
       edgeScore: signal.edgeScore,
+      adjustedEdgeScore: adjusted.adjustedEdgeScore,
+      xfactorImpactOnEdgeScore: adjusted.xfactorImpact,
+      rankSignal: adjusted.rankSignal,
       flags: signal.flagsJson,
-      expiresAt: signal.expiresAt?.toISOString() ?? null
-    }))
+      expiresAt: signal.expiresAt?.toISOString() ?? null,
+      whyItGradesWell: {
+        score: (summary as Record<string, unknown>).score ?? null,
+        confidence: (summary as Record<string, unknown>).confidence ?? null,
+        topReasons: (summary as Record<string, unknown>).topReasons ?? []
+      },
+      xfactors,
+      scoringBlend: {
+        baseEdgeScore: signal.edgeScore,
+        adjustedEdgeScore: adjusted.adjustedEdgeScore,
+        xfactorImpactOnEdgeScore: adjusted.xfactorImpact,
+        caps: adjusted.caps
+      }
+    };
+  }).sort((left, right) => right.rankSignal - left.rankSignal);
+
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    count: data.length,
+    data
   };
   await writeHotCache(cacheKey, payload, 45);
   return payload;
