@@ -54,6 +54,7 @@ import {
 } from "@/services/opportunities/opportunity-reason-calibration";
 import { buildOpportunityRanking } from "@/services/opportunities/opportunity-ranking";
 import { buildOpportunityScore } from "@/services/opportunities/opportunity-scoring";
+import { buildOpportunityProbabilityFusion } from "@/services/opportunities/opportunity-probability-fusion";
 import { buildPositionSizingGuidance } from "@/services/opportunities/opportunity-sizing";
 import { applyOpportunitySurfacing } from "@/services/opportunities/opportunity-surfacing";
 import { buildOpportunityTiming } from "@/services/opportunities/opportunity-timing";
@@ -350,6 +351,8 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     marketPathScoreDelta: 0,
     closeDestinationScoreDelta: 0,
     executionCapacityScoreDelta: 0,
+    posteriorEdgePct: null,
+    uncertaintyPenalty: null,
     trapFlags,
     personalizationDelta
   });
@@ -470,6 +473,8 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     marketPathScoreDelta: marketMicrostructure.scoreDelta,
     closeDestinationScoreDelta: closeDestination.scoreDelta,
     executionCapacityScoreDelta: executionCapacity.rankingDelta,
+    posteriorEdgePct: null,
+    uncertaintyPenalty: null,
     trapFlags,
     personalizationDelta
   });
@@ -551,6 +556,19 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     confidenceTier: preReasonConfidenceTier,
     reasonLanes: reasonCalibration.reasonLanes
   });
+  const probabilityFusion = buildOpportunityProbabilityFusion({
+    fairPriceAmerican: args.fairPriceAmerican,
+    marketProbability: args.consensusImpliedProbability,
+    expectedValuePct: args.expectedValuePct,
+    reasons: args.reasons,
+    trapFlags,
+    confidenceScore: args.confidenceScore,
+    marketEfficiency,
+    truthCalibrationScoreDelta: truthCalibration.scoreDelta,
+    reasonCalibrationScoreDelta: reasonCalibration.scoreDelta,
+    marketPathScoreDelta: marketMicrostructure.scoreDelta
+  });
+
   const scoring = buildOpportunityScore({
     expectedValuePct: args.expectedValuePct,
     fairLineGap: args.fairLineGap,
@@ -570,6 +588,8 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     marketPathScoreDelta: marketMicrostructure.scoreDelta,
     closeDestinationScoreDelta: closeDestination.scoreDelta,
     executionCapacityScoreDelta: executionCapacity.rankingDelta,
+    posteriorEdgePct: probabilityFusion.posteriorEdgePct,
+    uncertaintyPenalty: probabilityFusion.confidencePenalty,
     trapFlags,
     personalizationDelta
   });
@@ -692,6 +712,7 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     lineMovement: round(args.lineMovement),
     marketPath: args.marketPath ?? null,
     marketEfficiency,
+    probabilityFusion,
     reasonLanes: reasonCalibration.reasonLanes,
     sourceQuality: calibratedSourceQuality,
     edgeDecay,

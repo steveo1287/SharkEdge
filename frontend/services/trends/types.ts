@@ -107,6 +107,12 @@ export type ActiveTrendSignal = {
   currentOdds: number;
   fairOdds: number | null;
   edgePct: number | null;
+  posteriorProbability?: number | null;
+  marketProbability?: number | null;
+  trendLiftPct?: number | null;
+  uncertaintyScore?: number | null;
+  reliabilityScore?: number | null;
+  supportScore?: number | null;
   timingState: TimingState;
   confidenceTier: ConfidenceTier;
   reasons: string[];

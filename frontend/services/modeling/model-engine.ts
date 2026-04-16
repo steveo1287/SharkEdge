@@ -1,11 +1,7 @@
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
-import { buildMlbEventProjection, buildMlbPlayerPropProjections, applyMlbRunEnvironmentAdjustment } from "@/services/modeling/mlb-game-sim-service";
-import { buildMlbEliteSimSnapshot } from "@/services/modeling/mlb-elite-sim-service";
-import { buildSimulationEnhancementReport, summarizeXFactors } from "@/services/analytics/xfactor-engine";
-import { buildScenarioSet, buildSimulationDecomposition } from "@/services/modeling/simulation-decomposition";
-import { buildAdvancedStatContext } from "@/services/modeling/advanced-stat-context-service";
+import { buildMlbEventProjection, buildMlbPlayerPropProjections } from "@/services/modeling/mlb-game-sim-service";
 
 function getNumericStat(stats: Prisma.JsonValue, keys: string[]) {
   if (!stats || typeof stats !== "object" || Array.isArray(stats)) {
@@ -40,43 +36,6 @@ function standardDeviation(values: number[]) {
     values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
     Math.max(1, values.length - 1);
   return Math.sqrt(variance);
-}
-
-
-function estimateTravelFatigue(homeVenue: string | null | undefined, awayVenue: string | null | undefined) {
-  const home = (homeVenue ?? "").toLowerCase();
-  const away = (awayVenue ?? "").toLowerCase();
-  if (!home || !away) {
-    return 0.04;
-  }
-  return home === away ? 0.02 : 0.1;
-}
-
-function buildDefaultWeatherProviders() {
-  return [
-    {
-      provider: "Windy",
-      model: "ECMWF",
-      temperatureF: 68,
-      windMph: 10,
-      gustMph: 16,
-      humidityPct: 55,
-      precipitationProbabilityPct: 18,
-      cloudCoverPct: 42,
-      confidence: 0.72
-    },
-    {
-      provider: "NOAA",
-      model: "NDFD",
-      temperatureF: 67,
-      windMph: 9,
-      gustMph: 14,
-      humidityPct: 57,
-      precipitationProbabilityPct: 20,
-      cloudCoverPct: 45,
-      confidence: 0.69
-    }
-  ];
 }
 
 function buildSportFeatureSet(sportKey: string) {
@@ -233,77 +192,9 @@ export async function buildEventProjectionFromHistory(eventId: string) {
   const projectedSpreadHome = projectedHomeScore - projectedAwayScore;
   const winProbHome = 1 / (1 + Math.exp(-projectedSpreadHome / Math.max(1, pace / 10)));
 
-  const xfactorReport = buildSimulationEnhancementReport({
-    sport: event.league.sport,
-    eventId: event.id,
-    weather: {
-      indoor: event.metadataJson && typeof event.metadataJson === "object" && !Array.isArray(event.metadataJson)
-        ? Boolean((event.metadataJson as Record<string, unknown>).indoor ?? false)
-        : false,
-      surface:
-        event.metadataJson && typeof event.metadataJson === "object" && !Array.isArray(event.metadataJson)
-          ? ((event.metadataJson as Record<string, unknown>).surface as string | undefined) ?? null
-          : null,
-      altitudeFt:
-        event.metadataJson && typeof event.metadataJson === "object" && !Array.isArray(event.metadataJson)
-          ? Number((event.metadataJson as Record<string, unknown>).altitudeFt ?? 0) || null
-          : null,
-      travelMilesHome: 25,
-      travelMilesAway: 450,
-      circadianPenaltyHome: 0.01,
-      circadianPenaltyAway: estimateTravelFatigue(homeTeam.name, awayTeam.name),
-      providers: buildDefaultWeatherProviders()
-    },
-    offenseVsDefenseGap: (homeOffense - awayDefense) / Math.max(1, pace * 2),
-    tempoGap: (pace - 100) / 100,
-    styleClash: (projectedSpreadHome / Math.max(1, projectedTotal)) * 2,
-    travelFatigueAway: estimateTravelFatigue(homeTeam.name, awayTeam.name),
-    travelFatigueHome: 0.02,
-    ratings: {
-      teamOverall: 82,
-      teamOffense: 81,
-      teamDefense: 80,
-      starPowerIndex: 0.58,
-      depthIndex: 0.54
-    }
-  });
-  const xfactorSummary = summarizeXFactors(xfactorReport);
-  let mlbEnvironment = null;
-  let mlbEliteSnapshot = null;
-  if (event.league.key === "MLB" || event.league.sport === "MLB" || event.league.sport === "BASEBALL") {
-    mlbEnvironment = await applyMlbRunEnvironmentAdjustment(event.id, projectedTotal);
-    projectedTotal = mlbEnvironment.adjustedTotal;
-    mlbEliteSnapshot = await buildMlbEliteSimSnapshot(event.id);
-    projectedTotal = mlbEliteSnapshot.normalizedTotal;
-  }
-
-  const advancedStats = await buildAdvancedStatContext({
-    sport: event.league.key,
-    eventId: event.id
-  });
-  const scenarios = buildScenarioSet({
-    projectedHomeScore,
-    projectedAwayScore,
-    projectedTotal,
-    projectedSpreadHome,
-    winProbHome
-  });
-  const decomposition = buildSimulationDecomposition({
-    baseRatingEdge: projectedSpreadHome / Math.max(1, projectedTotal),
-    marketAnchorEffect: (winProbHome - 0.5) * 0.18,
-    weatherEffect: xfactorReport.environment.weatherBlend.scoringEnvironmentDelta * 0.4,
-    travelEffect: -(estimateTravelFatigue(homeTeam.name, awayTeam.name) * 0.22),
-    styleEffect: (xFactorStyleEffect => xFactorStyleEffect)(xfactorReport.factors.find((factor) => factor.key === "style_clash")?.impactScore ?? 0),
-    playerAvailabilityEffect: 0.015,
-    residualModelEffect: (winProbHome - 0.5) * 0.06,
-    uncertaintyPenalty: Math.max(0.04, 1 - xfactorSummary.confidence),
-    confidence: xfactorSummary.confidence,
-    scenarios
-  });
-
   return {
     modelKey: `team-efficiency-${event.league.key.toLowerCase()}`,
-    modelVersion: "v3",
+    modelVersion: "v1",
     eventId: event.id,
     projectedHomeScore,
     projectedAwayScore,
@@ -314,14 +205,7 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     metadata: {
       sport: event.league.sport,
       league: event.league.key,
-      pace,
-      xfactors: xfactorReport,
-      xfactorSummary,
-      decomposition,
-      scenarios,
-      advancedStats,
-      mlbEnvironment,
-      mlbEliteSnapshot
+      pace
     }
   };
 }

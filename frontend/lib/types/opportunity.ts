@@ -63,6 +63,32 @@ export type OpportunityEvidence = {
   detail: string;
 };
 
+export type OpportunityProbabilityEvidenceLane = {
+  lane: "model_prior" | "market_baseline" | "trend_context" | "truth_calibration";
+  label: string;
+  direction: "POSITIVE" | "NEGATIVE" | "NEUTRAL";
+  magnitude: number;
+  reliability: number;
+  uncertainty: number;
+  note: string;
+};
+
+export type OpportunityProbabilityFusionView = {
+  status: "APPLIED" | "SKIPPED_NO_MODEL";
+  rawModelProbability: number | null;
+  marketProbability: number | null;
+  posteriorProbability: number | null;
+  posteriorFairOddsAmerican: number | null;
+  posteriorEdgePct: number | null;
+  trendLiftPct: number;
+  uncertaintyScore: number;
+  confidencePenalty: number;
+  modelWeight: number;
+  marketWeight: number;
+  evidenceLanes: OpportunityProbabilityEvidenceLane[];
+  summary: string;
+};
+
 export type OpportunityPersonalizationAdjustment = {
   kind: "league" | "market" | "sportsbook" | "timing";
   delta: number;
@@ -690,6 +716,7 @@ export type OpportunityView = {
   lineMovement: number | null;
   marketPath: MarketPathView | null;
   marketEfficiency: MarketEfficiencyClass;
+  probabilityFusion: OpportunityProbabilityFusionView;
   reasonLanes: OpportunityReasonLaneView[];
   sourceQuality: OpportunitySourceQuality;
   edgeDecay: OpportunityEdgeDecayView;
