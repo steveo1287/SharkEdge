@@ -6,6 +6,8 @@ import { buildMlbDecisionGate } from "@/services/modeling/mlb-conformal-gating-s
 import { buildMlbCalibratedOutcomeMath } from "@/services/modeling/mlb-outcome-math-service";
 import { buildMlbPrimaryDecisionScore } from "@/services/modeling/mlb-decision-score-service";
 import { buildMlbPromotionDecision } from "@/services/modeling/mlb-promotion-orchestrator";
+import { buildDecisionFusion } from "@/services/decision/decision-fusion-service";
+import { calibrateDecisionFusion } from "@/services/decision/decision-fusion-calibration-service";
 import { getActiveCalibrationAlerts } from "@/services/calibration/calibration-actionability-service";
 import { getLatestDailyCalibrationSummary } from "@/services/calibration/daily-calibration-summary-service";
 
@@ -39,6 +41,20 @@ export async function GET() {
         })
       : null;
 
+    const rawDecisionFusion = topGame ? buildDecisionFusion({
+      eventId: topGame.eventId,
+      marketType: String(topGame.marketType ?? "moneyline"),
+      league: String(topGame.league ?? "MLB"),
+      simScore: Number(promotionDecision?.finalPromotionScore ?? primaryDecision?.primaryScore ?? 0),
+      rawTrendScore: Number(topGame?.whyItGradesWell?.score ?? 0) * 10,
+      marketScore: Number(topGame?.noVigProb ?? 0.5) * 10,
+      calibrationScore: Number(topGame?.whyItGradesWell?.confidence ?? 0.55) * 10,
+      uncertaintyPenalty: Number(envelope?.uncertaintyPenalty ?? 0.06),
+      weatherDelta: Number(topGame?.mlbEliteSnapshot?.parkWeatherDelta ?? 0),
+      volatility: Number(topGame?.mlbEliteSnapshot?.bullpenFatigueDelta ?? 0)
+    }) : null;
+    const decisionFusion = rawDecisionFusion ? calibrateDecisionFusion(rawDecisionFusion) : null;
+
     return NextResponse.json({
       ok: true,
       game: topGame,
@@ -47,6 +63,7 @@ export async function GET() {
       outcomeMath,
       primaryDecision,
       promotionDecision,
+      decisionFusion,
       modelHealth: {
         overall: summary?.report?.overall ?? null,
         alerts

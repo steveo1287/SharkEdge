@@ -6,6 +6,7 @@ import { MlbDecisionGatePanel } from "@/components/intelligence/mlb-decision-gat
 import { MlbOutcomeMathPanel } from "@/components/intelligence/mlb-outcome-math-panel";
 import { MlbPrimaryDecisionPanel } from "@/components/intelligence/mlb-primary-decision-panel";
 import { MlbPromotionDecisionPanel } from "@/components/intelligence/mlb-promotion-decision-panel";
+import { DecisionFusionPanel } from "@/components/intelligence/decision-fusion-panel";
 
 type AlertItem = {
   title: string;
@@ -33,6 +34,7 @@ type MlbCompleteIntelligenceViewProps = {
   outcomeMath?: any;
   primaryDecision?: any;
   promotionDecision?: any;
+  decisionFusion?: any;
 };
 
 export function MlbCompleteIntelligenceView({
@@ -42,7 +44,8 @@ export function MlbCompleteIntelligenceView({
   gate,
   outcomeMath,
   primaryDecision,
-  promotionDecision
+  promotionDecision,
+  decisionFusion
 }: MlbCompleteIntelligenceViewProps) {
   if (!game) {
     return null;
@@ -81,6 +84,7 @@ export function MlbCompleteIntelligenceView({
       <MlbOutcomeMathPanel outcome={outcomeMath ?? null} />
       <MlbPrimaryDecisionPanel decision={primaryDecision ?? null} />
       <MlbPromotionDecisionPanel decision={promotionDecision ?? null} />
+      <DecisionFusionPanel fusion={decisionFusion ?? null} />
       <ModelHealthPanel
         overall={modelHealth?.overall ?? null}
         alerts={modelHealth?.alerts ?? []}

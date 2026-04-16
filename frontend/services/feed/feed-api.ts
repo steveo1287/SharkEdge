@@ -15,6 +15,7 @@ import { buildMlbCalibratedOutcomeMath } from "@/services/modeling/mlb-outcome-m
 import { buildMlbPrimaryDecisionScore } from "@/services/modeling/mlb-decision-score-service";
 import { buildMlbPromotionDecision } from "@/services/modeling/mlb-promotion-orchestrator";
 import { buildDecisionFusion } from "@/services/decision/decision-fusion-service";
+import { calibrateDecisionFusion } from "@/services/decision/decision-fusion-calibration-service";
 
 export async function getBoardApi(
   leagueKey?: string,
@@ -211,7 +212,7 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
           trendConfirmationScore: 0.05
         })
       : null;
-    const decisionFusion = buildDecisionFusion({
+    const rawDecisionFusion = buildDecisionFusion({
       eventId: signal.eventId,
       marketType: String(signal.marketType),
       league: String(signal.event.league.key),
@@ -223,6 +224,8 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
       weatherDelta: Number(mlbEliteSnapshot?.parkWeatherDelta ?? 0),
       volatility: Number(mlbEliteSnapshot?.bullpenFatigueDelta ?? 0)
     });
+
+    const decisionFusion = calibrateDecisionFusion(rawDecisionFusion);
 
     const factorBucket = String((decomposition.contributions ?? [])
       .slice()
@@ -269,7 +272,7 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
       adjustedEdgeScore: adjusted.adjustedEdgeScore,
       xfactorImpactOnEdgeScore: adjusted.xfactorImpact,
       rankSignal: adjusted.rankSignal,
-      adjustedRankSignal: Number((penalty.adjustedRankSignal + decisionFusion.fusedScore / 100).toFixed(4)),
+      adjustedRankSignal: Number((penalty.adjustedRankSignal + decisionFusion.calibratedFusedScore / 100).toFixed(4)),
       flags: signal.flagsJson,
       expiresAt: signal.expiresAt?.toISOString() ?? null,
       whyItGradesWell: {
@@ -326,7 +329,7 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
     });
 
     return payload;
-  })).then((items) => items.sort((left, right) => ((right.decisionFusion?.fusedScore ?? -999) - (left.decisionFusion?.fusedScore ?? -999)) || (right.adjustedRankSignal - left.adjustedRankSignal)));
+  })).then((items) => items.sort((left, right) => ((right.decisionFusion?.calibratedFusedScore ?? -999) - (left.decisionFusion?.calibratedFusedScore ?? -999)) || (right.adjustedRankSignal - left.adjustedRankSignal)));
 
   const payload = {
     generatedAt: new Date().toISOString(),

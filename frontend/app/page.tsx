@@ -388,7 +388,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
       <MlbEliteExplainer snapshot={(home.verifiedGames[0] as never)?.mlbEliteSnapshot ?? null} />
 
-      <MlbCompleteIntelligenceView game={mlbComplete.game} modelHealth={mlbComplete.modelHealth} envelope={mlbComplete.envelope} gate={mlbComplete.gate} outcomeMath={mlbComplete.outcomeMath} primaryDecision={mlbComplete.primaryDecision} promotionDecision={mlbComplete.promotionDecision} />
+      <MlbCompleteIntelligenceView game={mlbComplete.game} modelHealth={mlbComplete.modelHealth} envelope={mlbComplete.envelope} gate={mlbComplete.gate} outcomeMath={mlbComplete.outcomeMath} primaryDecision={mlbComplete.primaryDecision} promotionDecision={mlbComplete.promotionDecision} decisionFusion={mlbComplete.decisionFusion} />
 
       {trendFeed.featured.length ? (
         <section className="grid gap-4">
