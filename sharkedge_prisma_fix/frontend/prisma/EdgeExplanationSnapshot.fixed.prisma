@@ -1,0 +1,29 @@
+model EdgeExplanationSnapshot {
+  id                   String   @id @default(cuid())
+  edgeSignalId         String
+  eventId              String
+  marketType           String
+  sportbookName        String?
+  modelVersion         String?
+  modelProb            Float
+  closingProb          Float?
+  realizedOutcome      Float?
+  confidenceScore      Float?
+  baseEdgeScore        Float?
+  adjustedEdgeScore    Float?
+  rankSignal           Float?
+  clvPercent           Float?
+  decompositionJson    Json
+  xfactorsJson         Json?
+  whyItGradesWellJson  Json?
+  createdAt            DateTime @default(now())
+  resolvedAt           DateTime?
+
+  edgeSignal           EdgeSignal @relation(fields: [edgeSignalId], references: [id], onDelete: Cascade)
+  event                Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([edgeSignalId, createdAt])
+  @@index([eventId, createdAt])
+  @@index([resolvedAt])
+  @@map("edge_explanation_snapshots")
+}
