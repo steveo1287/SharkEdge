@@ -8,6 +8,7 @@ import { persistEdgeExplanation } from "@/services/feed/edge-explanation-store";
 import { applyFactorBucketPenalty, extractDegradedFactorBuckets, qualifiesWinnerMarket } from "@/services/calibration/calibration-actionability-service";
 import { listRecentCalibrationSummaries } from "@/services/calibration/calibration-summary-store";
 import { buildAdvancedStatContext } from "@/services/modeling/advanced-stat-context-service";
+import { buildMlbEliteSimSnapshot } from "@/services/modeling/mlb-elite-sim-service";
 
 export async function getBoardApi(
   leagueKey?: string,
@@ -181,13 +182,21 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
       })
     });
 
-    const advancedStats = buildAdvancedStatContext({
+    const advancedStats = await buildAdvancedStatContext({
       sport: String(signal.event.league.key),
       eventId: signal.eventId
     });
+    const mlbEliteSnapshot = String(signal.event.league.key) === "MLB" ? await buildMlbEliteSimSnapshot(signal.eventId) : null;
     const factorBucket = String((decomposition.contributions ?? [])
       .slice()
       .sort((left, right) => Math.abs(Number(right.value ?? 0)) - Math.abs(Number(left.value ?? 0)))[0]?.key ?? "");
+    let mlbEliteLift = 0;
+    if (mlbEliteSnapshot) {
+      mlbEliteLift = Math.max(-0.03, Math.min(0.05, ((mlbEliteSnapshot.parkWeatherDelta ?? 0) * 0.12) - ((mlbEliteSnapshot.bullpenFatigueDelta ?? 0) * 0.08)));
+      adjusted.rankSignal = Number((adjusted.rankSignal + mlbEliteLift).toFixed(4));
+      adjusted.adjustedEdgeScore = Number((adjusted.adjustedEdgeScore + mlbEliteLift * 100).toFixed(2));
+    }
+
     const penalty = applyFactorBucketPenalty({
       rankSignal: adjusted.rankSignal,
       adjustedEdgeScore: adjusted.adjustedEdgeScore,
@@ -234,12 +243,14 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
       xfactors,
       advancedStats,
       topAdvancedStatDrivers: advancedStats.topDrivers,
+      mlbEliteSnapshot,
       scoringBlend: {
         baseEdgeScore: signal.edgeScore,
         adjustedEdgeScore: adjusted.adjustedEdgeScore,
         xfactorImpactOnEdgeScore: adjusted.xfactorImpact,
         caps: adjusted.caps,
-        degradedFactorBucketPenalty: penalty.downWeight
+        degradedFactorBucketPenalty: penalty.downWeight,
+        mlbEliteLift
       },
       qualification: {
         isWinnerMarketQualified: winnerQualified,
@@ -257,6 +268,7 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
         xfactors: payload.xfactors,
         advancedStats: payload.advancedStats,
         topAdvancedStatDrivers: payload.topAdvancedStatDrivers,
+        mlbEliteSnapshot: payload.mlbEliteSnapshot,
         decomposition: payload.decomposition,
         scenarios: payload.scenarios
       }

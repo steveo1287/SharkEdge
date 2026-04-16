@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
 import { buildMlbEventProjection, buildMlbPlayerPropProjections, applyMlbRunEnvironmentAdjustment } from "@/services/modeling/mlb-game-sim-service";
+import { buildMlbEliteSimSnapshot } from "@/services/modeling/mlb-elite-sim-service";
 import { buildSimulationEnhancementReport, summarizeXFactors } from "@/services/analytics/xfactor-engine";
 import { buildScenarioSet, buildSimulationDecomposition } from "@/services/modeling/simulation-decomposition";
 import { buildAdvancedStatContext } from "@/services/modeling/advanced-stat-context-service";
@@ -268,9 +269,12 @@ export async function buildEventProjectionFromHistory(eventId: string) {
   });
   const xfactorSummary = summarizeXFactors(xfactorReport);
   let mlbEnvironment = null;
+  let mlbEliteSnapshot = null;
   if (event.league.key === "MLB" || event.league.sport === "MLB" || event.league.sport === "BASEBALL") {
     mlbEnvironment = await applyMlbRunEnvironmentAdjustment(event.id, projectedTotal);
     projectedTotal = mlbEnvironment.adjustedTotal;
+    mlbEliteSnapshot = await buildMlbEliteSimSnapshot(event.id);
+    projectedTotal = mlbEliteSnapshot.normalizedTotal;
   }
 
   const advancedStats = await buildAdvancedStatContext({
@@ -316,7 +320,8 @@ export async function buildEventProjectionFromHistory(eventId: string) {
       decomposition,
       scenarios,
       advancedStats,
-      mlbEnvironment
+      mlbEnvironment,
+      mlbEliteSnapshot
     }
   };
 }

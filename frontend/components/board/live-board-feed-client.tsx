@@ -2,9 +2,8 @@
 
 import { useMemo, useState } from "react";
 
-import { EdgeStatusTags } from "@/components/board/edge-status-tags";
 import { HighConvictionToggle } from "@/components/board/high-conviction-toggle";
-import { LiveEdgeBoardCard } from "@/components/board/live-edge-board-card";
+import { LiveEdgeBoardCardShell } from "@/components/board/live-edge-board-card-shell";
 
 type BoardFeedGame = {
   id: string;
@@ -64,24 +63,9 @@ export function LiveBoardFeedClient({ games }: { games: BoardFeedGame[] }) {
       </div>
 
       <div className="grid gap-4">
-        {visibleGames.map((game) => {
-          const dimmed = (game.scoringBlend?.degradedFactorBucketPenalty ?? 0) > 0;
-
-          return (
-            <div
-              key={game.id}
-              className={`grid gap-2 transition ${
-                dimmed ? "opacity-60 saturate-75" : "opacity-100"
-              }`}
-            >
-              <EdgeStatusTags
-                isWinnerMarketQualified={game.qualification?.isWinnerMarketQualified}
-                degradedFactorBucketPenalty={game.scoringBlend?.degradedFactorBucketPenalty}
-              />
-              <LiveEdgeBoardCard game={game as never} />
-            </div>
-          );
-        })}
+        {visibleGames.map((game) => (
+          <LiveEdgeBoardCardShell key={game.id} game={game as never} />
+        ))}
 
         {!visibleGames.length ? (
           <div className="rounded-[24px] border border-white/10 bg-white/[0.03] p-5 text-sm text-slate-400">

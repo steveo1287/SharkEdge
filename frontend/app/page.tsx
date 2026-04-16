@@ -13,6 +13,8 @@ import { OpportunitySpotlightCard } from "@/components/intelligence/opportunity-
 import { DiagnosticMetaStrip } from "@/components/intelligence/provider-diagnostic-shells";
 import { ModelHealthPanel } from "@/components/intelligence/model-health-panel";
 import { AdvancedStatDriverList } from "@/components/intelligence/advanced-stat-driver-list";
+import { MlbEliteSnapshotPanel } from "@/components/intelligence/mlb-elite-snapshot-panel";
+import { MlbEliteExplainer } from "@/components/intelligence/mlb-elite-explainer";
 import { HorizontalEventRail } from "@/components/mobile/horizontal-event-rail";
 import { SectionTabs } from "@/components/mobile/section-tabs";
 import { Badge } from "@/components/ui/badge";
@@ -360,6 +362,10 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       <ModelHealthPanel overall={modelHealth.overall} alerts={modelHealth.alerts} qualifiedWinnerTarget={0.7} />
 
       <AdvancedStatDriverList drivers={(home.verifiedGames[0] as never)?.topAdvancedStatDrivers ?? []} />
+
+      <MlbEliteSnapshotPanel snapshot={(home.verifiedGames[0] as never)?.mlbEliteSnapshot ?? null} />
+
+      <MlbEliteExplainer snapshot={(home.verifiedGames[0] as never)?.mlbEliteSnapshot ?? null} />
 
       {trendFeed.featured.length ? (
         <section className="grid gap-4">
