@@ -362,6 +362,7 @@ model Event {
   playerProjections PlayerProjection[]
   edgeSignals    EdgeSignal[]
   lineMovements  LineMovement[]
+  explanationSnapshots EdgeExplanationSnapshot[]
   savedTrendMatches SavedTrendMatch[]
   discoveredTrendActivations DiscoveredTrendActivation[]
   bets           Bet[]
@@ -1338,6 +1339,7 @@ model EdgeSignal {
   player              Player?    @relation(fields: [playerId], references: [id], onDelete: SetNull)
   sportsbook          Sportsbook @relation(fields: [sportsbookId], references: [id], onDelete: Cascade)
   modelRun            ModelRun?  @relation(fields: [modelRunId], references: [id], onDelete: SetNull)
+  explanationSnapshots EdgeExplanationSnapshot[]
 
   @@index([isActive, createdAt])
   @@index([edgeScore, evPercent])
@@ -1345,6 +1347,35 @@ model EdgeSignal {
   @@index([selectionCompetitorId, createdAt])
   @@index([playerId, createdAt])
   @@map("edge_signals")
+}
+
+model EdgeExplanationSnapshot {
+  id                   String   @id @default(cuid())
+  edgeSignalId         String
+  eventId              String
+  marketType           String
+  sportbookName        String?
+  modelVersion         String?
+  modelProb            Float
+  closingProb          Float?
+  realizedOutcome      Float?
+  confidenceScore      Float?
+  baseEdgeScore        Float?
+  adjustedEdgeScore    Float?
+  rankSignal           Float?
+  clvPercent           Float?
+  decompositionJson    Json
+  xfactorsJson         Json?
+  whyItGradesWellJson  Json?
+  createdAt            DateTime @default(now())
+  resolvedAt           DateTime?
+
+  edgeSignal           EdgeSignal @relation(fields: [edgeSignalId], references: [id], onDelete: Cascade)
+
+  @@index([edgeSignalId, createdAt])
+  @@index([eventId, createdAt])
+  @@index([resolvedAt])
+  @@map("edge_explanation_snapshots")
 }
 
 model LineMovement {
@@ -1392,4 +1423,21 @@ model AlertSubscription {
 
   @@index([userId, isActive])
   @@map("alert_subscriptions")
+}
+
+
+model CalibrationSummary {
+  id                  String   @id @default(cuid())
+  summaryDate         DateTime
+  scope               String
+  sport               String?
+  marketType          String?
+  modelVersion        String?
+  thresholdConfigJson Json
+  metricsJson         Json
+  flagsJson           Json
+  createdAt           DateTime @default(now())
+
+  @@unique([summaryDate, scope, sport, marketType, modelVersion])
+  @@map("calibration_summaries")
 }

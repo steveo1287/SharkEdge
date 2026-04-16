@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { buildMlbEventProjection, buildMlbPlayerPropProjections } from "@/services/modeling/mlb-game-sim-service";
 import { buildSimulationEnhancementReport, summarizeXFactors } from "@/services/analytics/xfactor-engine";
 import { buildScenarioSet, buildSimulationDecomposition } from "@/services/modeling/simulation-decomposition";
+import { buildAdvancedStatContext } from "@/services/modeling/advanced-stat-context-service";
 
 function getNumericStat(stats: Prisma.JsonValue, keys: string[]) {
   if (!stats || typeof stats !== "object" || Array.isArray(stats)) {
@@ -266,6 +267,10 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     }
   });
   const xfactorSummary = summarizeXFactors(xfactorReport);
+  const advancedStats = buildAdvancedStatContext({
+    sport: event.league.key,
+    eventId: event.id
+  });
   const scenarios = buildScenarioSet({
     projectedHomeScore,
     projectedAwayScore,
@@ -303,7 +308,8 @@ export async function buildEventProjectionFromHistory(eventId: string) {
       xfactors: xfactorReport,
       xfactorSummary,
       decomposition,
-      scenarios
+      scenarios,
+      advancedStats
     }
   };
 }

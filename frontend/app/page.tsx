@@ -6,10 +6,13 @@ import {
   ResearchRail
 } from "@/app/_components/home-primitives";
 import { LiveEdgeBoardCard } from "@/components/board/live-edge-board-card";
+import { LiveBoardFeedClient } from "@/components/board/live-board-feed-client";
 import { SharkLogoLockup } from "@/components/branding/shark-logo-lockup";
 import { MobileTrendCard } from "@/components/home/mobile-trend-card";
 import { OpportunitySpotlightCard } from "@/components/intelligence/opportunity-spotlight-card";
 import { DiagnosticMetaStrip } from "@/components/intelligence/provider-diagnostic-shells";
+import { ModelHealthPanel } from "@/components/intelligence/model-health-panel";
+import { AdvancedStatDriverList } from "@/components/intelligence/advanced-stat-driver-list";
 import { HorizontalEventRail } from "@/components/mobile/horizontal-event-rail";
 import { SectionTabs } from "@/components/mobile/section-tabs";
 import { Badge } from "@/components/ui/badge";
@@ -90,6 +93,26 @@ function isValidTrendSection(section: unknown): section is PublishedTrendSection
   return typeof value.category === "string" && Array.isArray(value.cards);
 }
 
+
+async function getModelHealthSurface() {
+  try {
+    const [dailyResponse, alertsResponse] = await Promise.all([
+      fetch(`${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/api/v1/calibration/daily`, { cache: "no-store" }).then((response) => response.json()).catch(() => null),
+      fetch(`${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/api/v1/calibration/alerts`, { cache: "no-store" }).then((response) => response.json()).catch(() => null)
+    ]);
+
+    return {
+      overall: dailyResponse?.summary?.report?.overall ?? null,
+      alerts: Array.isArray(alertsResponse?.data) ? alertsResponse.data : []
+    };
+  } catch {
+    return {
+      overall: null,
+      alerts: []
+    };
+  }
+}
+
 async function getSafeTrendFeed(league: string): Promise<SafeTrendFeed> {
   try {
     const safeLeague = normalizeTrendLeague(league);
@@ -125,6 +148,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const resolvedSearch = (await searchParams) ?? {};
   const home = await getHomeCommandData(resolvedSearch);
   const trendFeed = await getSafeTrendFeed(home.focusedLeague);
+  const modelHealth = await getModelHealthSurface();
 
   const railItems = home.verifiedGames.slice(0, 8).map((game, index) => ({
     id: game.id,
@@ -332,6 +356,10 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </div>
         </div>
       </section>
+
+      <ModelHealthPanel overall={modelHealth.overall} alerts={modelHealth.alerts} qualifiedWinnerTarget={0.7} />
+
+      <AdvancedStatDriverList drivers={(home.verifiedGames[0] as never)?.topAdvancedStatDrivers ?? []} />
 
       {trendFeed.featured.length ? (
         <section className="grid gap-4">

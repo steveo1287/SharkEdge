@@ -5,6 +5,9 @@ import { getPropsExplorerData } from "@/services/odds/props-service";
 import { buildSimulationEnhancementReport, summarizeXFactors } from "@/services/analytics/xfactor-engine";
 import { buildScenarioSet, buildSimulationDecomposition } from "@/services/modeling/simulation-decomposition";
 import { persistEdgeExplanation } from "@/services/feed/edge-explanation-store";
+import { applyFactorBucketPenalty, extractDegradedFactorBuckets, qualifiesWinnerMarket } from "@/services/calibration/calibration-actionability-service";
+import { listRecentCalibrationSummaries } from "@/services/calibration/calibration-summary-store";
+import { buildAdvancedStatContext } from "@/services/modeling/advanced-stat-context-service";
 
 export async function getBoardApi(
   leagueKey?: string,
@@ -135,6 +138,9 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
     }
   }
 
+  const recentSummaries = await listRecentCalibrationSummaries(200);
+  const degradedFactorBuckets = extractDegradedFactorBuckets(recentSummaries);
+
   const signals = await prisma.edgeSignal.findMany({
     where: { isActive: true },
     include: {
@@ -175,6 +181,26 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
       })
     });
 
+    const advancedStats = buildAdvancedStatContext({
+      sport: String(signal.event.league.key),
+      eventId: signal.eventId
+    });
+    const factorBucket = String((decomposition.contributions ?? [])
+      .slice()
+      .sort((left, right) => Math.abs(Number(right.value ?? 0)) - Math.abs(Number(left.value ?? 0)))[0]?.key ?? "");
+    const penalty = applyFactorBucketPenalty({
+      rankSignal: adjusted.rankSignal,
+      adjustedEdgeScore: adjusted.adjustedEdgeScore,
+      factorBucket: factorBucket || null,
+      degradedFactorBuckets
+    });
+    const winnerQualified = qualifiesWinnerMarket({
+      marketType: String(signal.marketType),
+      modelProb: Number(signal.modelProb ?? 0.5),
+      confidenceScore: signal.confidenceScore,
+      adjustedEdgeScore: adjusted.adjustedEdgeScore
+    });
+
     const payload = {
       id: signal.id,
       eventId: signal.eventId,
@@ -197,6 +223,7 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
       adjustedEdgeScore: adjusted.adjustedEdgeScore,
       xfactorImpactOnEdgeScore: adjusted.xfactorImpact,
       rankSignal: adjusted.rankSignal,
+      adjustedRankSignal: penalty.adjustedRankSignal,
       flags: signal.flagsJson,
       expiresAt: signal.expiresAt?.toISOString() ?? null,
       whyItGradesWell: {
@@ -205,11 +232,18 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
         topReasons: (summary as Record<string, unknown>).topReasons ?? []
       },
       xfactors,
+      advancedStats,
+      topAdvancedStatDrivers: advancedStats.topDrivers,
       scoringBlend: {
         baseEdgeScore: signal.edgeScore,
         adjustedEdgeScore: adjusted.adjustedEdgeScore,
         xfactorImpactOnEdgeScore: adjusted.xfactorImpact,
-        caps: adjusted.caps
+        caps: adjusted.caps,
+        degradedFactorBucketPenalty: penalty.downWeight
+      },
+      qualification: {
+        isWinnerMarketQualified: winnerQualified,
+        targetWinnerAccuracy: 0.7
       },
       decomposition,
       scenarios: decomposition.scenarios
@@ -221,13 +255,15 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
         rankSignal: adjusted.rankSignal,
         whyItGradesWell: payload.whyItGradesWell,
         xfactors: payload.xfactors,
+        advancedStats: payload.advancedStats,
+        topAdvancedStatDrivers: payload.topAdvancedStatDrivers,
         decomposition: payload.decomposition,
         scenarios: payload.scenarios
       }
     });
 
     return payload;
-  })).then((items) => items.sort((left, right) => right.rankSignal - left.rankSignal));
+  })).then((items) => items.sort((left, right) => right.adjustedRankSignal - left.adjustedRankSignal));
 
   const payload = {
     generatedAt: new Date().toISOString(),

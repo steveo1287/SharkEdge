@@ -9,6 +9,14 @@ export const config: VercelConfig = {
     {
       path: "/api/cron/calibration",
       schedule: "5 6 * * *"
+    },
+    {
+      path: "/api/cron/calibration/ops",
+      schedule: "35 6 * * *"
+    },
+    {
+      path: "/api/cron/calibration/ops",
+      schedule: "*/20 * * * *"
     }
   ]
 };
