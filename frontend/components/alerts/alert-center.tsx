@@ -6,14 +6,9 @@ import Link from "next/link";
 
 import { BetActionButton } from "@/components/bets/bet-action-button";
 import {
-  ChangeBadge,
-  getChangeExplanation
-} from "@/components/intelligence/change-intelligence";
-import {
   getOpportunityTrapLine,
   OpportunityBadgeRow
 } from "@/components/intelligence/opportunity-badges";
-import { PrioritizationBadge } from "@/components/intelligence/prioritization";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -128,7 +123,7 @@ export function AlertCenter({
 
   return (
     <div className="grid gap-6">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Unread" value={`${unreadCount}`} />
         <StatCard label="Active Rules" value={`${activeRuleCount}`} />
         <StatCard label="Delivery" value={inAppOnly ? "In-app only" : "Mixed"} note="No fake push/email states" />
@@ -160,16 +155,16 @@ export function AlertCenter({
             const trapLine = notification.opportunitySnapshot ? getOpportunityTrapLine(notification.opportunitySnapshot) : null;
 
             return (
-            <Card key={notification.id} className="surface-panel p-4 md:p-5">
+            <Card key={notification.id} className="p-5">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <div className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
                     {new Date(notification.createdAt).toLocaleString("en-US", {
                       dateStyle: "short",
                       timeStyle: "short"
                     })}
                   </div>
-                  <div className="mt-2 font-display text-[1.7rem] font-semibold tracking-[-0.04em] text-white">
+                  <div className="mt-2 font-display text-2xl font-semibold text-white">
                     {notification.title}
                   </div>
                   <div className="mt-2 text-sm leading-7 text-slate-400">{notification.body}</div>
@@ -177,8 +172,6 @@ export function AlertCenter({
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge tone={getSeverityTone(notification.severity)}>{notification.severity}</Badge>
                   {notification.readAt ? <Badge tone="muted">Read</Badge> : <Badge tone="brand">Unread</Badge>}
-                  <PrioritizationBadge prioritization={notification.prioritization} />
-                  <ChangeBadge change={notification.changeIntelligence} />
                 </div>
               </div>
 
@@ -186,11 +179,11 @@ export function AlertCenter({
                 <div className="text-sm text-slate-400">
                   {[notification.eventLabel, notification.selection].filter(Boolean).join(" | ")}
                 </div>
-                <div className="flex w-full flex-wrap gap-3 md:w-auto">
+                <div className="flex flex-wrap gap-3">
                   {notification.sourcePath ? (
                     <Link
                       href={notification.sourcePath}
-                      className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300 max-sm:w-full max-sm:text-center"
+                      className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300"
                     >
                       Open source
                     </Link>
@@ -203,7 +196,7 @@ export function AlertCenter({
                       type="button"
                       disabled={isPending}
                       onClick={() => patchNotification(notification.id, { read: true })}
-                      className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300 max-sm:w-full"
+                      className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300"
                     >
                       Mark read
                     </button>
@@ -212,7 +205,7 @@ export function AlertCenter({
                     type="button"
                     disabled={isPending}
                     onClick={() => patchNotification(notification.id, { dismiss: true })}
-                    className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300 max-sm:w-full"
+                    className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300"
                   >
                     Dismiss
                   </button>
@@ -221,7 +214,7 @@ export function AlertCenter({
                       type="button"
                       disabled={isPending}
                       onClick={() => patchRule(notification.alertRuleId!, { mute: true })}
-                      className="rounded-2xl border border-amber-300/30 bg-amber-400/10 px-4 py-2 text-sm text-amber-200 max-sm:w-full"
+                      className="rounded-2xl border border-amber-300/30 bg-amber-400/10 px-4 py-2 text-sm text-amber-200"
                     >
                       Mute similar
                     </button>
@@ -233,10 +226,7 @@ export function AlertCenter({
                 <div className="mt-4 grid gap-3 md:grid-cols-[auto_1fr_1fr] md:items-start">
                   <OpportunityBadgeRow opportunity={notification.opportunitySnapshot} />
                   <div className="rounded-2xl border border-line bg-slate-950/65 px-4 py-3 text-sm leading-6 text-slate-300">
-                    <span className="text-slate-500">What changed:</span>{" "}
-                    {getChangeExplanation(notification.changeIntelligence) ??
-                      notification.opportunitySnapshot.triggerSummary ??
-                      notification.opportunitySnapshot.reasonSummary}
+                    <span className="text-slate-500">Why now:</span> {notification.opportunitySnapshot.triggerSummary ?? notification.opportunitySnapshot.reasonSummary}
                     <div className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">
                       {formatSnapshotFreshness(
                         notification.opportunitySnapshot.providerFreshnessMinutes,
@@ -264,11 +254,11 @@ export function AlertCenter({
       <section className="grid gap-4 xl:grid-cols-2">
         {rules.length ? (
           rules.map((rule) => (
-            <Card key={rule.id} className="surface-panel p-4 md:p-5">
+            <Card key={rule.id} className="p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">{rule.league}</div>
-                  <div className="mt-2 font-display text-[1.7rem] font-semibold tracking-[-0.04em] text-white">{rule.name}</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{rule.league}</div>
+                  <div className="mt-2 font-display text-2xl font-semibold text-white">{rule.name}</div>
                   <div className="mt-2 text-sm text-slate-400">
                     {[rule.marketLabel, rule.selection].filter(Boolean).join(" | ")}
                   </div>
@@ -290,7 +280,7 @@ export function AlertCenter({
                     type="button"
                     disabled={isPending}
                     onClick={() => patchRule(rule.id, { mute: true })}
-                    className="rounded-2xl border border-amber-300/30 bg-amber-400/10 px-4 py-2 text-sm text-amber-200 max-sm:w-full"
+                    className="rounded-2xl border border-amber-300/30 bg-amber-400/10 px-4 py-2 text-sm text-amber-200"
                   >
                     Mute
                   </button>
@@ -299,7 +289,7 @@ export function AlertCenter({
                     type="button"
                     disabled={isPending}
                     onClick={() => patchRule(rule.id, { status: "ACTIVE" })}
-                    className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300 max-sm:w-full"
+                    className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300"
                   >
                     Reactivate
                   </button>
@@ -308,7 +298,7 @@ export function AlertCenter({
                   type="button"
                   disabled={isPending}
                   onClick={() => patchRule(rule.id, { status: "INACTIVE" })}
-                  className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300 max-sm:w-full"
+                  className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300"
                 >
                   Disable
                 </button>

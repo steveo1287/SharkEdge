@@ -5,52 +5,32 @@ const config: Config = {
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
     "./lib/**/*.{ts,tsx}",
-    "./services/**/*.{ts,tsx}",
-    "./types/**/*.{ts,tsx}"
+    "./services/**/*.{ts,tsx}"
   ],
   theme: {
     extend: {
       colors: {
-        // Core surfaces — matches CSS variables
-        ink:     "#09090b",
-        surface: "#0f1014",
-        panel:   "#131518",
-        raised:  "#17191d",
-        overlay: "#1c1e23",
-
-        // Legacy compatibility
-        line:      "#27272a",
-        brand:     "#3b82f6",
-        brandMuted:"#1e3a5f",
-        premium:   "#c8993e",
-        success:   "#22c55e",
-        danger:    "#ef4444",
-        muted:     "#71717a"
-      },
-      fontFamily: {
-        display: ["var(--font-display)", "Space Grotesk", "system-ui", "sans-serif"],
-        body:    ["var(--font-body)", "IBM Plex Sans", "system-ui", "sans-serif"],
-        mono:    ["var(--font-mono)", "IBM Plex Mono", "monospace"]
+        ink: "#050a14",
+        surface: "#0d1626",
+        panel: "#111c2f",
+        line: "#1c2b44",
+        brand: "#3796ff",
+        brandMuted: "#18335f",
+        premium: "#c6a55b",
+        success: "#24c78d",
+        danger: "#e05b66",
+        muted: "#8ca0c1"
       },
       boxShadow: {
-        panel:  "0 1px 3px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.2)",
-        card:   "0 1px 2px rgba(0,0,0,0.4)",
-        "blue-glow": "0 0 20px rgba(59,130,246,0.15)"
+        panel: "0 18px 40px rgba(0, 0, 0, 0.28)"
       },
-      borderRadius: {
-        sm:  "6px",
-        md:  "10px",
-        lg:  "14px",
-        xl:  "20px",
-        "2xl": "24px"
+      fontFamily: {
+        display: ["var(--font-display)"],
+        body: ["var(--font-body)"],
+        mono: ["var(--font-mono)"]
       },
-      animation: {
-        "fade-in":   "fadeIn 0.2s ease-out",
-        "slide-up":  "slideUp 0.25s ease-out"
-      },
-      keyframes: {
-        fadeIn:  { "0%": { opacity: "0" }, "100%": { opacity: "1" } },
-        slideUp: { "0%": { opacity: "0", transform: "translateY(8px)" }, "100%": { opacity: "1", transform: "translateY(0)" } }
+      backgroundImage: {
+        grid: "linear-gradient(rgba(56, 86, 140, 0.14) 1px, transparent 1px), linear-gradient(90deg, rgba(56, 86, 140, 0.14) 1px, transparent 1px)"
       }
     }
   },

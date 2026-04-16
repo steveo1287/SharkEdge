@@ -339,10 +339,6 @@ function makeOpportunity(overrides: Partial<OpportunityView> = {}): OpportunityV
       marketPathQualityScore: 84,
       portfolioFitScore: 90,
       actionModifier: 4,
-      expectedClvScore: 72,
-      fragilityScore: 28,
-      trendReliabilityScore: 64,
-      recommendationTier: "PRIME",
       notes: ["Capital efficiency and stale-copy urgency drive rank."]
     },
     surfacing: {
@@ -351,9 +347,7 @@ function makeOpportunity(overrides: Partial<OpportunityView> = {}): OpportunityV
       surfacedBecause: "Trusted stale-copy path still exists.",
       cautionReasons: []
     },
-    ...overrides,
-    triggerSummary: overrides.triggerSummary ?? "Trusted stale-copy path is still open.",
-    killSummary: overrides.killSummary ?? "If the lagging book copies, the edge is gone."
+    ...overrides
   };
 }
 

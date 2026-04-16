@@ -10,19 +10,7 @@ const tempRoot = path.join(
   `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 );
 const buildDir = path.join(projectRoot, ".next");
-
-// Resolve the Next.js binary by checking cwd/node_modules first, then
-// walking up one level to support npm workspace setups where packages are
-// hoisted to the workspace root (e.g. frontend/ lives inside a monorepo).
-function resolveNextBin(root) {
-  const local = path.join(root, "node_modules", "next", "dist", "bin", "next");
-  if (existsSync(local)) return local;
-  const parent = path.join(root, "..", "node_modules", "next", "dist", "bin", "next");
-  if (existsSync(parent)) return parent;
-  return local; // fallback so the error message stays useful
-}
-
-const nextBin = resolveNextBin(projectRoot);
+const nextBin = path.join(projectRoot, "node_modules", "next", "dist", "bin", "next");
 
 function clean(dir) {
   try {

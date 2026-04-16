@@ -4,7 +4,6 @@ import { spawnSync } from "node:child_process";
 
 const projectRoot = process.cwd();
 const nextTypesDir = path.join(projectRoot, ".next", "types");
-const tscBin = path.join(projectRoot, "node_modules", "typescript", "bin", "tsc");
 
 function run(command, args) {
   const result = spawnSync(command, args, {
@@ -23,6 +22,14 @@ if (!existsSync(nextTypesDir)) {
   run(process.execPath, [path.join(projectRoot, "scripts", "build-local-safe.mjs")]);
 }
 
-// Run TypeScript directly via Node. This avoids Windows `.cmd` spawn issues (no shell)
-// and behaves consistently in local + CI/Vercel environments.
-run(process.execPath, [tscBin, "--noEmit", "--pretty", "false"]);
+if (process.platform === "win32") {
+  run(process.execPath, [
+    path.join(projectRoot, "node_modules", "typescript", "bin", "tsc"),
+    "--noEmit",
+    "--pretty",
+    "false"
+  ]);
+} else {
+  const tscBin = path.join(projectRoot, "node_modules", ".bin", "tsc");
+  run(tscBin, ["--noEmit", "--pretty", "false"]);
+}

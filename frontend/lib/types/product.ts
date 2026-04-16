@@ -1,8 +1,5 @@
 import type { BetIntent, PremiumGateKey } from "@/lib/types/bet-intelligence";
-import type { ChangeIntelligenceView } from "@/lib/types/change-intelligence";
-import type { DecisionView } from "@/lib/types/decision";
 import type { OpportunitySnapshotView } from "@/lib/types/opportunity";
-import type { PrioritizationView } from "@/lib/types/prioritization";
 import type {
   BoardSupportStatus,
   GameStatus,
@@ -121,9 +118,6 @@ export type WatchlistItemView = {
   };
   alertCount: number;
   opportunitySnapshot: OpportunitySnapshotView | null;
-  decision: DecisionView | null;
-  changeIntelligence: ChangeIntelligenceView | null;
-  prioritization: PrioritizationView;
 };
 
 export type WatchlistFilters = {
@@ -208,9 +202,6 @@ export type AlertNotificationView = {
   selection: string | null;
   betIntent: BetIntent | null;
   opportunitySnapshot: OpportunitySnapshotView | null;
-  decision: DecisionView | null;
-  changeIntelligence: ChangeIntelligenceView | null;
-  prioritization: PrioritizationView;
 };
 
 export type AlertsPageData = {

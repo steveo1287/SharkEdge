@@ -6,7 +6,6 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import type { BoardSportSectionView } from "@/lib/types/domain";
 import { formatGameDateTime } from "@/lib/formatters/date";
-import { resolveMatchupHref } from "@/lib/utils/entity-routing";
 
 import { GameCard } from "./game-card";
 
@@ -128,13 +127,7 @@ export function SportSection({ section, focusMarket }: SportSectionProps) {
                   "Score and matchup detail are live here even though a full book-by-book board row is not available yet."}
               </div>
               <Link
-                href={
-                  resolveMatchupHref({
-                    leagueKey: section.leagueKey,
-                    externalEventId: event.id,
-                    fallbackHref: event.detailHref ?? null
-                  }) ?? "/games"
-                }
+                href={event.detailHref ?? `/game/${event.id}`}
                 className="inline-flex w-full items-center justify-center rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 py-3 text-sm font-medium text-sky-300 sm:w-fit"
               >
                 Open matchup

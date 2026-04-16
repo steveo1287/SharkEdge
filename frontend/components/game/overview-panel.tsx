@@ -14,7 +14,6 @@ import { buildBetSignalOpportunity } from "@/services/opportunities/opportunity-
 
 type OverviewPanelProps = {
   detail: MatchupDetailView;
-  sourcePath?: string;
 };
 
 function getSupportTone(status: MatchupDetailView["supportStatus"]) {
@@ -50,13 +49,11 @@ function MiniMetric({ label, value, note }: MiniMetricProps) {
 function SignalCard({
   detail,
   signal,
-  featured = false,
-  sourcePath
+  featured = false
 }: {
   detail: MatchupDetailView;
   signal: MatchupDetailView["betSignals"][number];
   featured?: boolean;
-  sourcePath: string;
 }) {
   const displayEvPct =
     typeof signal.expectedValuePct === "number"
@@ -139,12 +136,12 @@ function SignalCard({
 
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <BetActionButton
-          intent={buildSignalBetIntent(signal, detail.league.key, sourcePath)}
+          intent={buildSignalBetIntent(signal, detail.league.key, `/game/${detail.routeId}`)}
         >
           Add to slip
         </BetActionButton>
         <BetActionButton
-          intent={buildSignalBetIntent(signal, detail.league.key, sourcePath)}
+          intent={buildSignalBetIntent(signal, detail.league.key, `/game/${detail.routeId}`)}
           mode="log"
         >
           Log now
@@ -154,7 +151,7 @@ function SignalCard({
   );
 }
 
-export function OverviewPanel({ detail, sourcePath = `/game/${detail.routeId}` }: OverviewPanelProps) {
+export function OverviewPanel({ detail }: OverviewPanelProps) {
   const featuredSignals = detail.betSignals.slice(0, 2);
   const additionalSignals = detail.betSignals.slice(2, 6);
 
@@ -198,7 +195,6 @@ export function OverviewPanel({ detail, sourcePath = `/game/${detail.routeId}` }
                   detail={detail}
                   signal={signal}
                   featured={index === 0}
-                  sourcePath={sourcePath}
                 />
               ))}
             </div>

@@ -807,14 +807,10 @@ function buildStoredTrendCard(
       pushes: 0,
       streak: null,
       confidence: sampleSize >= 100 ? "strong" : sampleSize >= 30 ? "moderate" : "weak",
-      adjustedConfidenceScore: null,
-      contextAdjustmentDelta: null,
-      contextSignals: [],
       warning: null,
       dateRange: "Stored historical run",
       contextLabel: run.savedTrend.name,
       todayMatches: [],
-      contextSummary: null,
       extra: {
         savedTrendId: run.savedTrend.id
       }
@@ -1435,17 +1431,13 @@ function buildDiscoveredTrendCard(system: DiscoveredTrendView): PublishedTrendCa
       pushes: system.pushes,
       streak: ranking.activeCount > 0 ? `A${ranking.activeCount}` : null,
       confidence: formatDiscoveredConfidence(system.validationScore ?? system.score),
-      adjustedConfidenceScore: null,
-      contextAdjustmentDelta: null,
-      contextSignals: [],
       warning:
         ranking.activeCount === 0
           ? "Historical edge only until the board lines up again."
           : null,
       dateRange: "Discovered system",
       contextLabel: `${system.league} | ${system.marketType}`,
-      todayMatches: activeMatches,
-      contextSummary: null
+      todayMatches: activeMatches
     },
     leagueLabel: system.league,
     marketLabel: system.marketType.replace(/_/g, " "),

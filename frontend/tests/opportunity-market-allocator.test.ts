@@ -319,8 +319,6 @@ function makeOpportunity(overrides: Partial<OpportunityView> = {}): OpportunityV
     trapFlags: [],
     whyItShows: [],
     whatCouldKillIt: [],
-    triggerSummary: "Test trigger summary.",
-    killSummary: "Test kill summary.",
     reasonSummary: "Test.",
     personalizationAdjustments: [],
     sourceHealth: {

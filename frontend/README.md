@@ -64,33 +64,6 @@ npm run dev
 npm test
 ```
 
-
-## Rescue Runtime Power Move
-
-Use one command to force a refresh of the free ingest path, poll backend ingest status, verify the DraftKings and FanDuel feed endpoints, and fail if the NBA/MLB board still comes back empty.
-
-```bash
-npm run rescue:power
-```
-
-Useful variants:
-
-```bash
-npm run rescue:power -- --refresh=skip
-npm run rescue:power -- --scrape=true
-npm run rescue:power -- --leagues=NBA,MLB --timeoutSeconds=90
-```
-
-What it checks:
-
-- `/api/ingest/odds/status`
-- `/api/book-feeds/draftkings`
-- `/api/book-feeds/fanduel`
-- `/api/odds/board?league=NBA`
-- `/api/odds/board?league=MLB`
-
-It exits non-zero when the board still has zero verified requested-league games, so you can use it as the repo-level smoke command for this rescue pass.
-
 ## Environment Variables
 
 - `DATABASE_URL`
@@ -141,20 +114,3 @@ It exits non-zero when the board still has zero verified requested-league games,
 - closing-line snapshots from live books
 - fighter and team history query engine
 - auth and user-owned ledgers
-
-
-## Guarded startup
-
-The default frontend boot path now refuses to start in a fake-green state. Before `npm run dev`, `npm run dev:turbopack`, or `npm start` launch Next.js, SharkEdge runs the rescue power check and exits non-zero if the live board path is still dead.
-
-To intentionally work without a healthy backend/feed path, set:
-
-```bash
-SHARKEDGE_ALLOW_DEGRADED_BOOT=true
-```
-
-You can also bypass the guard one time with:
-
-```bash
-npm run dev -- --skip-guard
-```

@@ -1,32 +1,17 @@
 import { Prisma } from "@prisma/client";
 
 import type { BetIntent } from "@/lib/types/bet-intelligence";
-import type { ChangeIntelligenceView } from "@/lib/types/change-intelligence";
-import type { DecisionMemoryRecord } from "@/lib/types/decision-memory";
-import type { DecisionView } from "@/lib/types/decision";
 import type { GameStatus, MarketType } from "@/lib/types/domain";
-import type { OpportunitySnapshotView } from "@/lib/types/opportunity";
 import type {
   ProductSummaryView,
   WatchlistFilters,
   WatchlistItemView,
   WatchlistPageData
 } from "@/lib/types/product";
-import { getScopedEventExternalIdCandidates } from "@/lib/utils/entity-routing";
 import { watchlistFiltersSchema } from "@/lib/validation/product";
 import { prisma } from "@/lib/db/prisma";
 import { getPropById } from "@/services/odds/props-service";
 import { getMatchupDetail } from "@/services/matchups/matchup-service";
-import {
-  attachPrioritization,
-  rankAttentionQueue
-} from "@/services/decision/attention-queue";
-import { buildDecisionFromOpportunitySnapshot } from "@/services/decision/decision-engine";
-import { buildDecisionMemorySync } from "@/services/decision/decision-memory-sync";
-import {
-  getDecisionMemoryFromContextJson,
-  writeWatchlistDecisionMemory
-} from "@/services/decision/decision-memory-repository";
 import { buildOpportunitySnapshot } from "@/services/opportunities/opportunity-snapshot";
 import {
   buildBetSignalOpportunity,
@@ -56,29 +41,6 @@ type WatchlistRow = Prisma.WatchlistItemGetPayload<{
 type WatchlistResolutionContext = {
   detailByRouteId: Map<string, Promise<Awaited<ReturnType<typeof getMatchupDetail>>>>;
   propBySourceId: Map<string, Promise<Awaited<ReturnType<typeof getPropById>>>>;
-};
-
-type WatchlistCurrentState = WatchlistItemView["current"] & {
-  opportunitySnapshot: OpportunitySnapshotView | null;
-  decision: DecisionView | null;
-};
-
-type WatchlistSemanticState = {
-  decision: DecisionView | null;
-  changeIntelligence: ChangeIntelligenceView | null;
-  nextMemory: DecisionMemoryRecord;
-  needsSync: boolean;
-};
-
-type WatchlistMemoryUpdate = {
-  watchlistItemId: string;
-  currentContextJson: Prisma.JsonValue | null;
-  memory: DecisionMemoryRecord;
-};
-
-type MappedWatchlistItemResult = {
-  item: WatchlistItemView;
-  memoryUpdate: WatchlistMemoryUpdate | null;
 };
 
 function toJsonInput(value: unknown) {
@@ -198,44 +160,11 @@ function getCachedProp(
   return request;
 }
 
-function buildWatchlistSemanticState(
-  row: WatchlistRow,
-  decision: DecisionView | null
-) {
-  const syncResult = buildDecisionMemorySync({
-    previousMemory: getDecisionMemoryFromContextJson(row.contextJson),
-    decision
-  });
-
-  return {
-    decision,
-    changeIntelligence: syncResult.nextMemory.latestChange,
-    nextMemory: syncResult.nextMemory,
-    needsSync: syncResult.changed
-  } satisfies WatchlistSemanticState;
-}
-
-async function syncWatchlistDecisionMemory(updates: WatchlistMemoryUpdate[]) {
-  if (!updates.length) {
-    return;
-  }
-
-  await Promise.all(
-    updates.map((update) =>
-      writeWatchlistDecisionMemory({
-        watchlistItemId: update.watchlistItemId,
-        currentContextJson: update.currentContextJson,
-        memory: update.memory
-      })
-    )
-  );
-}
-
 async function resolveCurrentState(
   row: WatchlistRow,
   intent: BetIntent | null,
   context: WatchlistResolutionContext
-): Promise<WatchlistCurrentState> {
+) {
   const base = {
     available: false,
     stale: true,
@@ -249,7 +178,6 @@ async function resolveCurrentState(
     expectedValuePct: null as number | null,
     bestBookChanged: false,
     opportunitySnapshot: null,
-    decision: null,
     note:
       row.supportNote ??
       "Current market lookup is unavailable right now, so SharkEdge is preserving the saved ticket context only."
@@ -263,7 +191,6 @@ async function resolveCurrentState(
     const prop = await getCachedProp(context, sourceItemId);
     if (prop) {
       const opportunity = buildPropOpportunity(prop, detail?.providerHealth ?? null);
-      const opportunitySnapshot = buildOpportunitySnapshot(opportunity);
       return {
         available: true,
         stale: detail ? isStale(detail.lastUpdatedAt) : prop.source !== "live",
@@ -278,8 +205,7 @@ async function resolveCurrentState(
         bestBookChanged:
           Boolean(row.sportsbookName) &&
           (prop.bestAvailableSportsbookName ?? prop.sportsbook.name) !== row.sportsbookName,
-        opportunitySnapshot,
-        decision: opportunitySnapshot ? buildDecisionFromOpportunitySnapshot(opportunitySnapshot) : null,
+        opportunitySnapshot: buildOpportunitySnapshot(opportunity),
         note: prop.supportNote ?? row.supportNote ?? "Live prop snapshot resolved from the current odds mesh."
       };
     }
@@ -301,7 +227,6 @@ async function resolveCurrentState(
         row.league as WatchlistItemView["league"],
         detail.providerHealth
       );
-      const opportunitySnapshot = buildOpportunitySnapshot(opportunity);
       return {
         available: true,
         stale: isStale(detail.lastUpdatedAt),
@@ -316,8 +241,7 @@ async function resolveCurrentState(
         bestBookChanged:
           Boolean(row.sportsbookName) &&
           (signal.sportsbookName ?? null) !== row.sportsbookName,
-        opportunitySnapshot,
-        decision: opportunitySnapshot ? buildDecisionFromOpportunitySnapshot(opportunitySnapshot) : null,
+        opportunitySnapshot: buildOpportunitySnapshot(opportunity),
         note: signal.supportNote ?? detail.supportNote
       };
     }
@@ -347,9 +271,7 @@ async function resolveLinkedEventId(intent: BetIntent) {
 
   const event = await prisma.event.findFirst({
     where: {
-      externalEventId: {
-        in: getScopedEventExternalIdCandidates(intent.league, intent.externalEventId)
-      },
+      externalEventId: intent.externalEventId,
       league: {
         key: intent.league
       }
@@ -441,53 +363,41 @@ export async function createWatchlistItem(intent: BetIntent) {
 async function mapWatchlistItem(
   row: WatchlistRow,
   context: WatchlistResolutionContext
-): Promise<MappedWatchlistItemResult | null> {
+): Promise<WatchlistItemView | null> {
   const intent = toIntent(row.intentJson);
   if (!intent) {
     return null;
   }
 
   const currentState = await resolveCurrentState(row, intent, context);
-  const { opportunitySnapshot, decision, ...current } = currentState;
-  const semanticState = buildWatchlistSemanticState(row, decision);
+  const { opportunitySnapshot, ...current } = currentState;
 
   return {
-    item: attachPrioritization({
-      id: row.id,
-      savedAt: row.createdAt.toISOString(),
-      archivedAt: row.archivedAt?.toISOString() ?? null,
-      sport: row.sport,
-      league: row.league as WatchlistItemView["league"],
-      eventId: row.eventId,
-      eventExternalId: row.eventExternalId ?? null,
-      eventLabel: row.eventLabel,
-      marketType: row.marketType as WatchlistItemView["marketType"],
-      marketLabel: row.marketLabel,
-      selection: row.selection,
-      side: row.side ?? null,
-      line: row.line ?? null,
-      oddsAmerican: row.oddsAmerican,
-      sportsbookName: row.sportsbookName ?? row.sportsbook?.name ?? null,
-      sourcePage: row.sourcePage,
-      sourcePath: row.sourcePath,
-      supportStatus: (row.supportStatus as WatchlistItemView["supportStatus"]) ?? null,
-      supportNote: row.supportNote ?? null,
-      isLive: row.isLive,
-      status: row.status as WatchlistItemView["status"],
-      intent,
-      current,
-      alertCount: row.alertRules.length,
-      opportunitySnapshot,
-      decision: semanticState.decision,
-      changeIntelligence: semanticState.changeIntelligence
-    }),
-    memoryUpdate: semanticState.needsSync
-      ? {
-          watchlistItemId: row.id,
-          currentContextJson: row.contextJson,
-          memory: semanticState.nextMemory
-        }
-      : null
+    id: row.id,
+    savedAt: row.createdAt.toISOString(),
+    archivedAt: row.archivedAt?.toISOString() ?? null,
+    sport: row.sport,
+    league: row.league as WatchlistItemView["league"],
+    eventId: row.eventId,
+    eventExternalId: row.eventExternalId ?? null,
+    eventLabel: row.eventLabel,
+    marketType: row.marketType as WatchlistItemView["marketType"],
+    marketLabel: row.marketLabel,
+    selection: row.selection,
+    side: row.side ?? null,
+    line: row.line ?? null,
+    oddsAmerican: row.oddsAmerican,
+    sportsbookName: row.sportsbookName ?? row.sportsbook?.name ?? null,
+    sourcePage: row.sourcePage,
+    sourcePath: row.sourcePath,
+    supportStatus: (row.supportStatus as WatchlistItemView["supportStatus"]) ?? null,
+    supportNote: row.supportNote ?? null,
+    isLive: row.isLive,
+    status: row.status as WatchlistItemView["status"],
+    intent,
+    current,
+    alertCount: row.alertRules.length,
+    opportunitySnapshot
   };
 }
 
@@ -523,21 +433,22 @@ export async function getWatchlistPageData(
     ]);
 
     const resolutionContext = createWatchlistResolutionContext();
-    const mappedResults = (
+    const mapped = (
       await Promise.all(rows.map((row) => mapWatchlistItem(row, resolutionContext)))
-    ).filter(Boolean) as MappedWatchlistItemResult[];
-    await syncWatchlistDecisionMemory(
-      mappedResults
-        .map((result) => result.memoryUpdate)
-        .filter((update): update is WatchlistMemoryUpdate => Boolean(update))
-    );
-    const mapped = mappedResults.map((result) => result.item);
+    ).filter(Boolean) as WatchlistItemView[];
     const filtered =
       filters.liveStatus === "all"
         ? mapped
         : mapped.filter((item) => toWatchStatus(item.current.eventStatus) === filters.liveStatus);
-    const ranked = rankAttentionQueue(filtered, {
-      getSecondarySortValue: (item) => Date.parse(item.savedAt)
+    const ranked = [...filtered].sort((left, right) => {
+      const scoreDelta =
+        (right.opportunitySnapshot?.opportunityScore ?? -1) -
+        (left.opportunitySnapshot?.opportunityScore ?? -1);
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+
+      return right.savedAt.localeCompare(left.savedAt);
     });
 
     return {
@@ -659,16 +570,7 @@ export async function getWatchlistItemById(id: string) {
   }
 
   const resolutionContext = createWatchlistResolutionContext();
-  const mapped = await mapWatchlistItem(row, resolutionContext);
-  if (!mapped) {
-    return null;
-  }
-
-  if (mapped.memoryUpdate) {
-    await syncWatchlistDecisionMemory([mapped.memoryUpdate]);
-  }
-
-  return mapped.item;
+  return mapWatchlistItem(row, resolutionContext);
 }
 
 export function getCurrentLineDelta(item: WatchlistItemView) {

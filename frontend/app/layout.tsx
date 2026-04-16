@@ -1,32 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { IBM_Plex_Sans, IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { brandKit } from "@/lib/brand/brand-kit";
 
 import "./globals.css";
-
-const fontBody = IBM_Plex_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-body",
-  display: "swap"
-});
-
-const fontDisplay = Space_Grotesk({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-display",
-  display: "swap"
-});
-
-const fontMono = IBM_Plex_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  variable: "--font-mono",
-  display: "swap"
-});
 
 function getSiteUrl() {
   const configured =
@@ -79,10 +57,7 @@ export default function RootLayout({
   children: ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${fontBody.variable} ${fontDisplay.variable} ${fontMono.variable}`}
-    >
+    <html lang="en">
       <body>
         <AppShell>{children}</AppShell>
       </body>

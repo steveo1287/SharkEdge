@@ -7,7 +7,7 @@ import type { BookFeedProvider } from "./book-feed-provider-types";
 import { backendCurrentOddsProvider } from "./backend-provider";
 import { getCurrentOddsBackendBaseUrl } from "./backend-url";
 import type { CurrentOddsBoardResponse } from "./provider-types";
-import { fetchTheRundownLeaguesBoard, therundownCurrentOddsProvider } from "./therundown-provider";
+import { therundownCurrentOddsProvider } from "./therundown-provider";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -22,9 +22,7 @@ if (!global.sharkedgeProviderReadinessEnvLoaded) {
 const BACKEND_PROVIDER_TIMEOUT_MS = 2_500;
 const SOFT_STALE_MINUTES = 15;
 const HARD_STALE_MINUTES = 45;
-// Default readiness keeps to the leagues we actively surface for live odds on the board.
-// Other leagues still show up via scoreboard support, and their odds fetch can be probed explicitly via ?leagues=...
-const DEFAULT_LEAGUES: LeagueKey[] = ["NBA", "MLB"];
+const DEFAULT_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
 
 type ReadinessState = "READY" | "DEGRADED" | "NOT_CONFIGURED" | "ERROR";
 
@@ -250,14 +248,9 @@ export async function probeBackendBoardProvider(): Promise<BoardProviderReadines
   };
 }
 
-export async function probeTheRundownBoardProvider(args?: { leagues?: LeagueKey[] }): Promise<BoardProviderReadiness> {
+export async function probeTheRundownBoardProvider(): Promise<BoardProviderReadiness> {
   const checkedAt = new Date().toISOString();
-  const hasApiKey = Boolean(
-    process.env.THERUNDOWN_API_KEY?.trim() ||
-      process.env.THERUNDOWN_KEY?.trim() ||
-      process.env.THE_RUNDOWN_API_KEY?.trim() ||
-      process.env.THE_RUNDOWN_KEY?.trim()
-  );
+  const hasApiKey = Boolean(process.env.THERUNDOWN_API_KEY?.trim());
 
   if (!hasApiKey) {
     return {
@@ -277,11 +270,7 @@ export async function probeTheRundownBoardProvider(args?: { leagues?: LeagueKey[
     };
   }
 
-  const payload = await fetchTheRundownLeaguesBoard({
-    leagues: args?.leagues?.length ? args.leagues : DEFAULT_LEAGUES,
-    timeoutMs: 8_000,
-    cacheTtlMs: 60_000
-  });
+  const payload = await therundownCurrentOddsProvider.fetchBoard();
   if (!payload) {
     return {
       providerKey: therundownCurrentOddsProvider.key,
@@ -385,21 +374,21 @@ export function selectPreferredBoardProvider(
 }
 
 function getBookFeedConfigured(providerKey: string) {
-  return Boolean(getBookFeedSourceUrl(providerKey));
+  if (providerKey === "draftkings") {
+    return Boolean(process.env.SHARKEDGE_DRAFTKINGS_FEED_URL?.trim());
+  }
+  if (providerKey === "fanduel") {
+    return Boolean(process.env.SHARKEDGE_FANDUEL_FEED_URL?.trim());
+  }
+  return false;
 }
 
 function getBookFeedSourceUrl(providerKey: string) {
   if (providerKey === "draftkings") {
-    return (
-      process.env.SHARKEDGE_DRAFTKINGS_FEED_URL?.trim() ||
-      `${getBackendBaseUrl().replace(/\/$/, "")}/api/book-feeds/draftkings`
-    );
+    return process.env.SHARKEDGE_DRAFTKINGS_FEED_URL?.trim() || null;
   }
   if (providerKey === "fanduel") {
-    return (
-      process.env.SHARKEDGE_FANDUEL_FEED_URL?.trim() ||
-      `${getBackendBaseUrl().replace(/\/$/, "")}/api/book-feeds/fanduel`
-    );
+    return process.env.SHARKEDGE_FANDUEL_FEED_URL?.trim() || null;
   }
   return null;
 }
@@ -422,7 +411,7 @@ async function probeBookFeedProvider(
       checkedAt,
       warnings: [`${provider.label} is scaffolded but not configured with a feed URL.`],
       reason: `Set ${provider.key === "draftkings" ? "SHARKEDGE_DRAFTKINGS_FEED_URL" : "SHARKEDGE_FANDUEL_FEED_URL"} to enable this worker-only feed.`,
-      sourceUrl: getBookFeedSourceUrl(provider.key),
+      sourceUrl: null,
       lastAttemptAt: isoFromMs(stateSnapshot.lastAttemptAt),
       lastSuccessAt: isoFromMs(stateSnapshot.lastSuccessAt),
       nextAllowedAt: isoFromMs(stateSnapshot.nextAllowedAt),
@@ -451,7 +440,7 @@ async function probeBookFeedProvider(
       state = "DEGRADED";
       warnings.push("Feed recovered, but prior failures are still on the books.");
     }
-    reason = result.sourceUrl ?? getBookFeedSourceUrl(provider.key);
+    reason = result.sourceUrl ?? null;
   }
 
   return {
@@ -492,7 +481,7 @@ export async function getLiveOddsReadinessReport(args?: { leagues?: LeagueKey[] 
   const leagues = args?.leagues?.length ? args.leagues : DEFAULT_LEAGUES;
   const [backend, theRundown, bookFeeds] = await Promise.all([
     probeBackendBoardProvider(),
-    probeTheRundownBoardProvider({ leagues }),
+    probeTheRundownBoardProvider(),
     Promise.all(getBookFeedProviders().map((provider) => probeBookFeedProvider(provider, leagues)))
   ]);
 
@@ -563,9 +552,7 @@ function summarizeBooks(values: string[]) {
 function buildBoardEntry(provider: BoardProviderReadiness): ProviderReadinessEntry {
   const booksIncluded =
     provider.providerKey === backendCurrentOddsProvider.key
-      ? provider.providerMode === "book_feeds"
-        ? ["draftkings", "fanduel"]
-        : uniqueBooks((process.env.ODDS_API_BOOKMAKERS?.trim() || "draftkings,fanduel,betmgm").split(","))
+      ? uniqueBooks((process.env.ODDS_API_BOOKMAKERS?.trim() || "draftkings,fanduel,betmgm").split(","))
       : [];
 
   return {

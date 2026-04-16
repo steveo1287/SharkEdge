@@ -6,11 +6,8 @@ import {
   buildPropOpportunity,
   rankOpportunities
 } from "@/services/opportunities/opportunity-service";
-import { buildOpportunityTrendIntelligence } from "@/services/trends/opportunity-trend-intelligence";
 
 type MatchupDetail = NonNullable<Awaited<ReturnType<typeof getMatchupDetail>>>;
-
-type MarketSupportKey = "spread" | "moneyline" | "total";
 
 export type MatchupDecisionTargetView =
   | {
@@ -48,7 +45,6 @@ export type GameHubPresentation = {
   postureLabel: string;
   contextNotes: string[];
   decisionModule: MatchupDecisionModuleView;
-  marketSupport: Record<MarketSupportKey, OpportunityView | null>;
 };
 
 function formatGameHubAction(actionState: OpportunityView["actionState"]) {
@@ -104,19 +100,7 @@ function formatMovementLabel(value: number | null) {
   return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
 }
 
-function enrichOpportunity(opportunity: OpportunityView, routeId: string): OpportunityView {
-  const baseOpportunity = {
-    ...opportunity,
-    eventId: routeId
-  } satisfies OpportunityView;
-
-  return {
-    ...baseOpportunity,
-    trendIntelligence: buildOpportunityTrendIntelligence(baseOpportunity)
-  } satisfies OpportunityView;
-}
-
-function buildOpportunityDeck(detail: MatchupDetail) {
+function buildForYouOpportunities(detail: MatchupDetail) {
   const signalOpportunities = detail.betSignals.map((signal) =>
     buildBetSignalOpportunity(signal, detail.league.key, detail.providerHealth)
   );
@@ -128,31 +112,12 @@ function buildOpportunityDeck(detail: MatchupDetail) {
   return rankOpportunities<OpportunityView>([
     ...signalOpportunities,
     ...propOpportunities
-  ]).map((opportunity) => enrichOpportunity(opportunity, detail.routeId));
-}
-
-function buildMarketSupport(opportunities: OpportunityView[]) {
-  const support: Record<MarketSupportKey, OpportunityView | null> = {
-    spread: null,
-    moneyline: null,
-    total: null
-  };
-
-  for (const opportunity of opportunities) {
-    if (opportunity.marketType === "spread" && !support.spread) {
-      support.spread = opportunity;
-    }
-
-    if (opportunity.marketType === "moneyline" && !support.moneyline) {
-      support.moneyline = opportunity;
-    }
-
-    if (opportunity.marketType === "total" && !support.total) {
-      support.total = opportunity;
-    }
-  }
-
-  return support;
+  ])
+    .map((opportunity) => ({
+      ...opportunity,
+      eventId: detail.routeId
+    }))
+    .slice(0, 4);
 }
 
 function getMarketTargetType(
@@ -195,15 +160,9 @@ function buildDecisionTarget(
     return null;
   }
 
-  const query = new URLSearchParams();
-  query.set("market", marketType);
-  if (headline.sportsbookName) {
-    query.set("book", headline.sportsbookName);
-  }
-
   return {
     kind: "market",
-    href: `?${query.toString()}#market-target`,
+    href: headline.sportsbookName ? "#market-target" : "#markets",
     label: headline.sportsbookName
       ? `Jump to ${headline.sportsbookName}`
       : "Jump to target market",
@@ -282,8 +241,7 @@ function buildDecisionModule(headline: OpportunityView | null): MatchupDecisionM
 }
 
 export function buildGameHubPresentation(detail: MatchupDetail): GameHubPresentation {
-  const opportunityDeck = buildOpportunityDeck(detail);
-  const forYou = opportunityDeck.slice(0, 4);
+  const forYou = buildForYouOpportunities(detail);
   const headline = forYou[0] ?? null;
   const postureLabel = headline
     ? formatGameHubAction(headline.actionState)
@@ -301,7 +259,6 @@ export function buildGameHubPresentation(detail: MatchupDetail): GameHubPresenta
     headline,
     postureLabel,
     contextNotes,
-    decisionModule: buildDecisionModule(headline),
-    marketSupport: buildMarketSupport(opportunityDeck)
+    decisionModule: buildDecisionModule(headline)
   };
 }

@@ -1,12 +1,9 @@
 import type { LeagueKey } from "@/lib/types/domain";
 
 import type { BookFeedProvider } from "../book-feed-provider-types";
-import { getCurrentOddsBackendBaseUrl } from "../backend-url";
 
 const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
-const DRAFTKINGS_FEED_URL =
-  process.env.SHARKEDGE_DRAFTKINGS_FEED_URL?.trim() ??
-  `${getCurrentOddsBackendBaseUrl()}/api/book-feeds/draftkings`;
+const DRAFTKINGS_FEED_URL = process.env.SHARKEDGE_DRAFTKINGS_FEED_URL?.trim() ?? "";
 
 function buildDraftKingsFeedUrl(leagues: LeagueKey[]) {
   const url = new URL(DRAFTKINGS_FEED_URL);
@@ -42,11 +39,23 @@ export const draftKingsBookFeedProvider: BookFeedProvider = {
     live: []
   },
   describe() {
-    return process.env.SHARKEDGE_DRAFTKINGS_FEED_URL?.trim()
+    return DRAFTKINGS_FEED_URL
       ? "Worker-only DraftKings feed adapter. Uses an externally configured feed endpoint and never runs in page requests."
-      : "Worker-only DraftKings feed adapter. Defaults to the backend /api/book-feeds/draftkings endpoint so the worker can ingest the same live board source even before a direct DraftKings source URL is configured.";
+      : "Worker-only DraftKings feed scaffold. No request-path scraping, no page fetches, and no live integration is enabled until a verified stable feed contract is configured in-repo.";
   },
   async fetchFeed(args) {
+    if (!DRAFTKINGS_FEED_URL) {
+      return {
+        ok: false,
+        providerKey: "draftkings",
+        sportsbookKey: "draftkings",
+        fetchedAt: new Date().toISOString(),
+        status: "NOT_CONFIGURED",
+        reason: "Set SHARKEDGE_DRAFTKINGS_FEED_URL to enable the worker-only DraftKings feed adapter.",
+        errorCode: "BOOK_FEED_NOT_CONFIGURED"
+      };
+    }
+
     const url = buildDraftKingsFeedUrl(args.leagues ?? []);
 
     try {

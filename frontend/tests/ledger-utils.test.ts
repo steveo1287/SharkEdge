@@ -224,14 +224,10 @@ run("deterministic trend publisher categorizes real trends without paid AI", () 
     pushes: 0,
     streak: "W5",
     confidence: "moderate",
-    adjustedConfidenceScore: null,
-    contextAdjustmentDelta: null,
-    contextSignals: [],
     warning: null,
     dateRange: "Last 365 days",
     contextLabel: "Favorite ROI | NBA",
     todayMatches: [],
-    contextSummary: null,
     extra: {}
   });
 
@@ -252,14 +248,10 @@ run("published trend cards use deterministic titles and descriptions", () => {
       pushes: 0,
       streak: "W3",
       confidence: "weak",
-      adjustedConfidenceScore: null,
-      contextAdjustmentDelta: null,
-      contextSignals: [],
       warning: null,
       dateRange: "Last 90 days",
       contextLabel: "ATS trend | NBA | subject: Boston Celtics",
       todayMatches: [],
-      contextSummary: null,
       extra: {}
     },
     {

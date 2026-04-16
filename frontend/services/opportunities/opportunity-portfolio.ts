@@ -17,13 +17,7 @@ import {
   getOpportunityExecutionResolver,
   type OpportunityExecutionResolver
 } from "@/services/opportunities/opportunity-execution";
-import { decideOpportunity } from "@/services/opportunities/opportunity-decision-policy";
-import { assessBookContext } from "@/services/market-intelligence/book-context";
-import { buildOpportunityThesisClusters, buildThesisFingerprint } from "@/services/portfolio/thesis-clustering";
-import { assessDistributionPricing } from "@/services/pricing/distribution-pricing";
 import { buildOpportunityRanking } from "@/services/opportunities/opportunity-ranking";
-import { buildOpportunityTrendIntelligence } from "@/services/trends/opportunity-trend-intelligence";
-import { buildWeatherSourcePlan } from "@/services/weather/weather-source-planner";
 
 type PortfolioPosition = {
   id: string;
@@ -145,10 +139,6 @@ function getPortfolioRiskMessages(reasonCodes: OpportunitySizingReasonCode[]) {
         return "Same-market exposure cap is limiting the stake.";
       case "BETTER_CAPITAL_USE_EXISTS":
         return "Better capital use is live elsewhere on the board.";
-      case "THESIS_CLUSTER_DUPLICATE":
-        return "A stronger version of the same thesis is already represented.";
-      case "THESIS_CLUSTER_CORRELATED":
-        return "Another position already covers most of this underlying story.";
       default:
         return null;
     }
@@ -436,104 +426,6 @@ function clonePosition(opportunity: OpportunityView): PortfolioPosition {
   };
 }
 
-
-function enrichOpportunityIntelligence(opportunity: OpportunityView): OpportunityView {
-  const weatherSourcePlan = buildWeatherSourcePlan(opportunity);
-  const trendIntelligence = buildOpportunityTrendIntelligence({
-    ...opportunity,
-    weatherSourcePlan
-  });
-  const enrichedOpportunity = {
-    ...opportunity,
-    trendIntelligence,
-    weatherSourcePlan
-  } satisfies OpportunityView;
-  const ranking = buildOpportunityRanking(enrichedOpportunity);
-
-  const bookContext = assessBookContext({
-    book: enrichedOpportunity.sportsbookKey ?? enrichedOpportunity.sportsbookName ?? null,
-    marketPathScore: ranking.marketPathQualityScore,
-    expectedClvScore: ranking.expectedClvScore,
-    lineMovementScore:
-      enrichedOpportunity.lineMovement !== null && Number.isFinite(enrichedOpportunity.lineMovement)
-        ? clamp(50 + Math.abs(enrichedOpportunity.lineMovement) * 5, 0, 100)
-        : 50,
-    liquidityScore: clamp(
-      35 +
-        enrichedOpportunity.bookCount * 8 -
-        (enrichedOpportunity.marketDisagreementScore !== null
-          ? enrichedOpportunity.marketDisagreementScore * 15
-          : 0),
-      0,
-      100
-    ),
-    timeToStartMinutes: null
-  });
-
-  const pricing = assessDistributionPricing({
-    marketType: opportunity.marketType,
-    line:
-      typeof enrichedOpportunity.displayLine === "number"
-        ? enrichedOpportunity.displayLine
-        : typeof enrichedOpportunity.displayLine === "string"
-          ? Number.parseFloat(enrichedOpportunity.displayLine)
-          : null,
-    projectionMean:
-      enrichedOpportunity.fairPriceAmerican !== null && enrichedOpportunity.displayOddsAmerican !== null
-        ? (enrichedOpportunity.fairPriceAmerican - enrichedOpportunity.displayOddsAmerican) / 20
-        : enrichedOpportunity.expectedValuePct ?? null,
-    projectionMedian: enrichedOpportunity.expectedValuePct ?? null,
-    standardDeviation:
-      enrichedOpportunity.marketDisagreementScore !== null
-        ? Math.max(1, enrichedOpportunity.marketDisagreementScore * 1.4)
-        : null,
-    offeredOddsAmerican: enrichedOpportunity.displayOddsAmerican
-  });
-
-  const decision = decideOpportunity({
-    score: ranking.compositeScore,
-    expectedClvScore: ranking.expectedClvScore,
-    fragilityScore: ranking.fragilityScore,
-    trendReliabilityScore: ranking.trendReliabilityScore,
-    marketPathScore: ranking.marketPathQualityScore,
-    capitalEfficiencyScore: ranking.capitalEfficiencyScore,
-    book: enrichedOpportunity.sportsbookKey ?? enrichedOpportunity.sportsbookName ?? null,
-    lineMovementScore:
-      opportunity.lineMovement !== null && Number.isFinite(opportunity.lineMovement)
-        ? clamp(50 + Math.abs(opportunity.lineMovement) * 5, 0, 100)
-        : 50,
-    liquidityScore: clamp(
-      35 +
-        opportunity.bookCount * 8 -
-        (opportunity.marketDisagreementScore !== null
-          ? opportunity.marketDisagreementScore * 15
-          : 0),
-      0,
-      100
-    ),
-    executionQualityScore: bookContext.executionQualityScore
-  } as any);
-
-  return {
-    ...enrichedOpportunity,
-    ranking,
-    decisionAction: decision.action,
-    stakeTier: decision.stakeTier,
-    decisionRationale: Array.from(new Set([...(decision.rationale ?? []), ...(trendIntelligence.topAngle ? [trendIntelligence.topAngle] : [])])),
-    marketRegime: bookContext.regime,
-    staleLineProbability: bookContext.staleLineProbability,
-    bookSoftnessScore: bookContext.softnessScore,
-    executionQualityScore: bookContext.executionQualityScore,
-    fairOddsAmerican: pricing.fairOddsAmerican,
-    fairProbability: pricing.fairProbability,
-    modelEdgePercent: pricing.edgePercent,
-    pushProbability: pricing.pushProbability,
-    confidenceBandLow: pricing.confidenceBandLow,
-    confidenceBandHigh: pricing.confidenceBandHigh,
-    pricingModel: pricing.pricingModel
-  };
-}
-
 export function createOpportunityPortfolioAllocator(args?: {
   bankrollSettings?: OpportunityBankrollSettings | null;
   openPositions?: PortfolioPosition[];
@@ -546,168 +438,119 @@ export function createOpportunityPortfolioAllocator(args?: {
   return {
     bankrollSettings,
     apply(opportunities) {
-  const thesisClusters = buildOpportunityThesisClusters(opportunities);
-  const openThesisFingerprints = openPositions
-    .map((position) =>
-      buildThesisFingerprint({
-        eventId: position.eventId,
-        marketType: position.marketType,
-        selectionLabel: position.selection
-      })
-    )
-    .filter((value): value is NonNullable<typeof value> => value !== null);
+      const preliminaries = opportunities.map((opportunity) =>
+        applyBaseExposureAdjustments({
+          opportunity,
+          openPositions,
+          bankrollSettings,
+          executionResolver
+        })
+      );
 
-  const preliminaries = opportunities.map((opportunity) => {
-    const base = applyBaseExposureAdjustments({
-      opportunity,
-      openPositions,
-      bankrollSettings,
-      executionResolver
-    });
+      const sorted = [...preliminaries].sort((left, right) => right.priorityScore - left.priorityScore);
+      let remainingBudget = Math.max(
+        0,
+        bankrollSettings.bankroll * bankrollSettings.maxOpenExposurePct -
+          openPositions.reduce((sum, position) => sum + position.riskAmount, 0)
+      );
+      const simulatedOpenPositions = [...openPositions];
+      const finalById = new Map<string, OpportunityView>();
 
-    return {
-      ...base,
-      opportunity: {
-        ...base.opportunity,
-        thesisCluster: thesisClusters.get(base.opportunity.id) ?? null
+      for (let index = 0; index < sorted.length; index += 1) {
+        const { opportunity, priorityScore } = sorted[index];
+        const topPriority = sorted[0]?.priorityScore ?? priorityScore;
+        const sameEventAllocated = simulatedOpenPositions.some(
+          (position) =>
+            position.eventId &&
+            position.eventId === opportunity.eventId &&
+            position.id !== opportunity.id
+        );
+
+        let competitionPenalty = 1;
+        if (!isActionable(opportunity)) {
+          competitionPenalty = 0;
+        } else {
+          const priorityGap = topPriority - priorityScore;
+          competitionPenalty = clamp(1 - priorityGap / 120, 0.55, 1);
+          if (sameEventAllocated) {
+            competitionPenalty = Math.min(competitionPenalty, 0.68);
+          }
+          if (index >= 3) {
+            competitionPenalty = Math.min(competitionPenalty, 0.82);
+          }
+        }
+
+        let recommendedStake = round(
+          Math.max(0, opportunity.sizing.exposureAdjustedStake * competitionPenalty)
+        );
+        const reasonCodes = [...opportunity.sizing.reasonCodes];
+
+        if (competitionPenalty < 1 && isActionable(opportunity)) {
+          reasonCodes.push("BETTER_CAPITAL_USE_EXISTS");
+        }
+
+        if (recommendedStake > remainingBudget) {
+          recommendedStake = round(Math.max(0, remainingBudget));
+          if (recommendedStake < opportunity.sizing.exposureAdjustedStake) {
+            reasonCodes.push("PORTFOLIO_BANKROLL_CAP");
+          }
+        }
+
+        const minStake = Math.max(bankrollSettings.unitSize * 0.1, bankrollSettings.bankroll * 0.001);
+        if (!isActionable(opportunity) || recommendedStake < minStake) {
+          recommendedStake = 0;
+        }
+
+        const includeInPortfolio = recommendedStake > 0;
+        const normalizedReasonCodes = normalizePortfolioInclusion(
+          Array.from(new Set(reasonCodes)),
+          includeInPortfolio
+        );
+
+        const updatedSizing = updateSizing(opportunity.sizing, {
+          competitionPenalty: round(competitionPenalty, 4),
+          competitionAdjustedStake: round(
+            Math.max(0, opportunity.sizing.exposureAdjustedStake * competitionPenalty)
+          ),
+          recommendedStake,
+          includeInPortfolio,
+          capitalPriorityScore: priorityScore,
+          availableBankroll: round(remainingBudget),
+          reasonCodes: normalizedReasonCodes,
+          riskFlags: Array.from(
+            new Set([
+              ...opportunity.sizing.riskFlags,
+              ...getPortfolioRiskMessages(normalizedReasonCodes),
+              ...(competitionPenalty < 1 && isActionable(opportunity)
+                ? ["Better capital use is live elsewhere on the board."]
+                : [])
+            ])
+          )
+        });
+
+        const updatedOpportunity = {
+          ...opportunity,
+          sizing: updatedSizing
+        } as OpportunityView;
+        const ranking = buildOpportunityRanking(updatedOpportunity);
+        finalById.set(updatedOpportunity.id, {
+          ...updatedOpportunity,
+          ranking
+        });
+
+        if (recommendedStake > 0) {
+          remainingBudget = Math.max(0, remainingBudget - recommendedStake);
+          simulatedOpenPositions.push(
+            clonePosition({
+              ...updatedOpportunity,
+              ranking
+            })
+          );
+        }
       }
-    };
-  });
 
-  const sorted = [...preliminaries].sort((left, right) => right.priorityScore - left.priorityScore);
-  let remainingBudget = Math.max(
-    0,
-    bankrollSettings.bankroll * bankrollSettings.maxOpenExposurePct -
-      openPositions.reduce((sum, position) => sum + position.riskAmount, 0)
-  );
-  const simulatedOpenPositions = [...openPositions];
-  const allocatedClusterKeys = new Set(openThesisFingerprints.map((item) => item.clusterKey));
-  const allocatedCorrelationGroups = new Set(
-    openThesisFingerprints.map((item) => item.correlationGroup)
-  );
-  const finalById = new Map<string, OpportunityView>();
-
-  for (let index = 0; index < sorted.length; index += 1) {
-    const { opportunity, priorityScore } = sorted[index];
-    const topPriority = sorted[0]?.priorityScore ?? priorityScore;
-    const sameEventAllocated = simulatedOpenPositions.some(
-      (position) =>
-        position.eventId &&
-        position.eventId === opportunity.eventId &&
-        position.id !== opportunity.id
-    );
-
-    let competitionPenalty = 1;
-    if (!isActionable(opportunity)) {
-      competitionPenalty = 0;
-    } else {
-      const priorityGap = topPriority - priorityScore;
-      competitionPenalty = clamp(1 - priorityGap / 120, 0.55, 1);
-      if (sameEventAllocated) {
-        competitionPenalty = Math.min(competitionPenalty, 0.68);
-      }
-      if (index >= 3) {
-        competitionPenalty = Math.min(competitionPenalty, 0.82);
-      }
+      return opportunities.map((opportunity) => finalById.get(opportunity.id) ?? opportunity);
     }
-
-    const reasonCodes = [...opportunity.sizing.reasonCodes];
-    const thesisRiskNotes: string[] = [];
-    const thesisCluster = opportunity.thesisCluster ?? null;
-
-    if (thesisCluster) {
-      if (allocatedClusterKeys.has(thesisCluster.clusterKey)) {
-        competitionPenalty = 0;
-        reasonCodes.push("THESIS_CLUSTER_DUPLICATE");
-        thesisRiskNotes.push("An existing position already captures this exact thesis cluster.");
-      } else if (allocatedCorrelationGroups.has(thesisCluster.correlationGroup)) {
-        competitionPenalty = Math.min(competitionPenalty, 0.58);
-        reasonCodes.push("THESIS_CLUSTER_CORRELATED");
-        thesisRiskNotes.push("A correlated thesis is already active in this event.");
-      } else if (thesisCluster.duplicateCount > 1 && !thesisCluster.isPrimary) {
-        competitionPenalty = Math.min(competitionPenalty, 0.76);
-        reasonCodes.push("THESIS_CLUSTER_DUPLICATE");
-        thesisRiskNotes.push("A stronger version of this same thesis is already on the board.");
-      }
-    }
-
-    let recommendedStake = round(
-      Math.max(0, opportunity.sizing.exposureAdjustedStake * competitionPenalty)
-    );
-
-    if (competitionPenalty < 1 && isActionable(opportunity)) {
-      reasonCodes.push("BETTER_CAPITAL_USE_EXISTS");
-    }
-
-    if (recommendedStake > remainingBudget) {
-      recommendedStake = round(Math.max(0, remainingBudget));
-      if (recommendedStake < opportunity.sizing.exposureAdjustedStake) {
-        reasonCodes.push("PORTFOLIO_BANKROLL_CAP");
-      }
-    }
-
-    const minStake = Math.max(
-      bankrollSettings.unitSize * 0.1,
-      bankrollSettings.bankroll * 0.001
-    );
-    if (!isActionable(opportunity) || recommendedStake < minStake) {
-      recommendedStake = 0;
-    }
-
-    const includeInPortfolio = recommendedStake > 0;
-    const normalizedReasonCodes = normalizePortfolioInclusion(
-      Array.from(new Set(reasonCodes)),
-      includeInPortfolio
-    );
-
-    const updatedSizing = updateSizing(opportunity.sizing, {
-      competitionPenalty: round(competitionPenalty, 4),
-      competitionAdjustedStake: round(
-        Math.max(0, opportunity.sizing.exposureAdjustedStake * competitionPenalty)
-      ),
-      recommendedStake,
-      includeInPortfolio,
-      capitalPriorityScore: priorityScore,
-      availableBankroll: round(remainingBudget),
-      reasonCodes: normalizedReasonCodes,
-      riskFlags: Array.from(
-        new Set([
-          ...opportunity.sizing.riskFlags,
-          ...getPortfolioRiskMessages(normalizedReasonCodes),
-          ...thesisRiskNotes,
-          ...(competitionPenalty < 1 && isActionable(opportunity)
-            ? ["Better capital use is live elsewhere on the board."]
-            : [])
-        ])
-      )
-    });
-
-    const updatedOpportunity = {
-      ...opportunity,
-      sizing: updatedSizing
-    } as OpportunityView;
-
-    const ranking = buildOpportunityRanking(updatedOpportunity);
-    const intelligenceReady = enrichOpportunityIntelligence({
-      ...updatedOpportunity,
-      ranking
-    });
-
-    finalById.set(updatedOpportunity.id, intelligenceReady);
-
-    if (recommendedStake > 0) {
-      remainingBudget = Math.max(0, remainingBudget - recommendedStake);
-      simulatedOpenPositions.push(clonePosition(intelligenceReady));
-
-      if (intelligenceReady.thesisCluster) {
-        allocatedClusterKeys.add(intelligenceReady.thesisCluster.clusterKey);
-        allocatedCorrelationGroups.add(intelligenceReady.thesisCluster.correlationGroup);
-      }
-    }
-  }
-
-  return opportunities.map((opportunity) => finalById.get(opportunity.id) ?? opportunity);
-}
   };
 }
 

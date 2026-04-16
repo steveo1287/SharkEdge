@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { getProviderHealthTone } from "@/components/intelligence/provider-status-badges";
 import type { GameCardView, LeagueKey, LeagueSnapshotView, TrendCardView } from "@/lib/types/domain";
 import { formatAmericanOdds } from "@/lib/formatters/odds";
-import { resolveMatchupHref } from "@/lib/utils/entity-routing";
 import { buildInternalStoryHref } from "@/lib/utils/stories";
 
 function buildStoryHref(
@@ -33,13 +32,7 @@ function buildStoryHref(
 }
 
 function getGameHref(game: GameCardView) {
-  return (
-    resolveMatchupHref({
-      leagueKey: game.leagueKey,
-      externalEventId: game.externalEventId,
-      fallbackHref: game.detailHref ?? null
-    }) ?? "/board"
-  );
+  return game.detailHref || `/game/${game.id}`;
 }
 
 function formatSignedNumber(value: number, digits = 1) {

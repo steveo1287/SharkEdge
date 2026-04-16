@@ -1,5 +1,3 @@
-import { buildMlbSourceNativeContext } from "@/services/modeling/mlb-source-native-context";
-
 type TeamRole = "HOME" | "AWAY";
 
 type TeamStatRow = {
@@ -750,70 +748,23 @@ export async function buildMlbPlayerPropProjections(eventId: string): Promise<Ml
     participantContext: awayContextRow
   });
 
-  const sourceNativeContext = buildMlbSourceNativeContext({
-    event: {
-      name: resolved.event.name,
-      startTime: resolved.event.startTime,
-      venue: resolved.event.venue ?? null
-    },
-    homeTeam: resolved.homeTeam,
-    awayTeam: resolved.awayTeam,
-    allPlayers: resolved.pitchers,
-    homeStarter: home.starter
-      ? {
-          playerId: home.starter.playerId,
-          name: home.starter.name,
-          sampleSize: home.starter.sampleSize,
-          expectedOuts: home.starter.expectedOuts
-        }
-      : null,
-    awayStarter: away.starter
-      ? {
-          playerId: away.starter.playerId,
-          name: away.starter.name,
-          sampleSize: away.starter.sampleSize,
-          expectedOuts: away.starter.expectedOuts
-        }
-      : null,
-    parkFactor: getParkFactor(resolved.event.venue ?? null)
-  });
-
   const projections: MlbPlayerPropProjection[] = [];
-  for (const [pitchingTeam, opposingTeam, pitchingSource, opposingSource] of [
-    [home, away, sourceNativeContext.home, sourceNativeContext.away],
-    [away, home, sourceNativeContext.away, sourceNativeContext.home]
-  ] as Array<[TeamRunContext, TeamRunContext, typeof sourceNativeContext.home, typeof sourceNativeContext.away]>) {
+  for (const [pitchingTeam, opposingTeam] of [
+    [home, away],
+    [away, home]
+  ] as Array<[TeamRunContext, TeamRunContext]>) {
     if (!pitchingTeam.starter) {
       continue;
     }
 
-    const lineupPressureFactor = clamp(
-      1 +
-        ((opposingSource.lineupStrength - 50) * -0.0024) +
-        ((pitchingSource.starterConfidence - 50) * 0.0016) +
-        ((pitchingSource.bullpenFreshness - 50) * 0.0006),
-      0.9,
-      1.1
-    );
-    const contactAdjustment = clamp(
-      1 + ((50 - opposingSource.lineupContactScore) * 0.0038),
-      0.9,
-      1.1
-    );
-
     const outsMean = clamp(
-      pitchingTeam.starter.expectedOuts *
-        clamp(1.02 - (opposingTeam.offenseFactor - 1) * 0.18, 0.88, 1.08) *
-        lineupPressureFactor,
+      pitchingTeam.starter.expectedOuts * clamp(1.02 - (opposingTeam.offenseFactor - 1) * 0.18, 0.88, 1.08),
       9,
       24
     );
     const inningsMean = outsMean / 3;
     const strikeoutsMean = clamp(
-      inningsMean *
-        (pitchingTeam.starter.strikeoutsPer9 / 9) *
-        opposingTeam.strikeoutSusceptibility *
-        contactAdjustment,
+      inningsMean * (pitchingTeam.starter.strikeoutsPer9 / 9) * opposingTeam.strikeoutSusceptibility,
       1.8,
       12.5
     );
@@ -822,7 +773,7 @@ export async function buildMlbPlayerPropProjections(eventId: string): Promise<Ml
 
     projections.push({
       modelKey: "mlb-game-state-sim",
-      modelVersion: "v2-source-native",
+      modelVersion: "v1",
       eventId: resolved.event.id,
       playerId: pitchingTeam.starter.playerId,
       statKey: "player_pitcher_outs",
@@ -834,17 +785,12 @@ export async function buildMlbPlayerPropProjections(eventId: string): Promise<Ml
         starterName: pitchingTeam.starter.name,
         opponentTeamId: opposingTeam.teamId,
         opponentTeamName: opposingTeam.teamName,
-        sampleSize: pitchingTeam.starter.sampleSize,
-        sourceCoverageScore: sourceNativeContext.sourceCoverageScore,
-        opponentLineupStrength: opposingSource.lineupStrength,
-        opponentLineupContactScore: opposingSource.lineupContactScore,
-        bullpenFreshness: pitchingSource.bullpenFreshness,
-        venueBaselineRunFactor: sourceNativeContext.venue.baselineRunFactor
+        sampleSize: pitchingTeam.starter.sampleSize
       }
     });
     projections.push({
       modelKey: "mlb-game-state-sim",
-      modelVersion: "v2-source-native",
+      modelVersion: "v1",
       eventId: resolved.event.id,
       playerId: pitchingTeam.starter.playerId,
       statKey: "player_pitcher_strikeouts",
@@ -858,11 +804,7 @@ export async function buildMlbPlayerPropProjections(eventId: string): Promise<Ml
         opponentTeamName: opposingTeam.teamName,
         strikeoutSusceptibility: round(opposingTeam.strikeoutSusceptibility, 3),
         projectedOuts: round(outsMean, 3),
-        sampleSize: pitchingTeam.starter.sampleSize,
-        sourceCoverageScore: sourceNativeContext.sourceCoverageScore,
-        opponentLineupStrength: opposingSource.lineupStrength,
-        opponentLineupContactScore: opposingSource.lineupContactScore,
-        venueBaselineRunFactor: sourceNativeContext.venue.baselineRunFactor
+        sampleSize: pitchingTeam.starter.sampleSize
       }
     });
   }
@@ -896,53 +838,16 @@ export async function buildMlbEventProjection(eventId: string) {
 
   const venue = resolved.event.venue ?? null;
   const parkFactor = getParkFactor(venue);
-  const sourceNativeContext = buildMlbSourceNativeContext({
-    event: {
-      name: resolved.event.name,
-      startTime: resolved.event.startTime,
-      venue
-    },
-    homeTeam: resolved.homeTeam,
-    awayTeam: resolved.awayTeam,
-    allPlayers: resolved.pitchers,
-    homeStarter: home.starter
-      ? {
-          playerId: home.starter.playerId,
-          name: home.starter.name,
-          sampleSize: home.starter.sampleSize,
-          expectedOuts: home.starter.expectedOuts
-        }
-      : null,
-    awayStarter: away.starter
-      ? {
-          playerId: away.starter.playerId,
-          name: away.starter.name,
-          sampleSize: away.starter.sampleSize,
-          expectedOuts: away.starter.expectedOuts
-        }
-      : null,
-    parkFactor
-  });
-
   const weather = {
-    available: sourceNativeContext.venue.weatherExposure !== "INDOOR",
-    runFactor: sourceNativeContext.venue.baselineRunFactor,
-    note:
-      sourceNativeContext.venue.weatherExposure === "INDOOR"
-        ? "Indoor or protected venue context keeps weather mostly muted."
-        : `Venue-aware run environment baseline ${sourceNativeContext.venue.baselineRunFactor.toFixed(3)} at ${sourceNativeContext.venue.venueName ?? venue ?? "venue"}; live forecast still needs game-day joins.`
+    available: false,
+    runFactor: 1,
+    note: "Weather feed is not wired into the repo yet, so MLB simulation stays neutral instead of faking certainty."
   };
 
   const simulation = simulateMlbGame({
     home: {
       teamName: home.teamName,
-      offenseFactor: clamp(
-        home.offenseFactor *
-          (1 + (sourceNativeContext.home.lineupStrength - 50) * 0.0025) *
-          (1 + (sourceNativeContext.away.bullpenFreshness < 45 ? 0.015 : 0)),
-        0.72,
-        1.45
-      ),
+      offenseFactor: home.offenseFactor,
       homeFieldEdge: 1.035,
       starter: {
         expectedOuts: home.starter?.expectedOuts ?? 15,
@@ -957,13 +862,7 @@ export async function buildMlbEventProjection(eventId: string) {
     },
     away: {
       teamName: away.teamName,
-      offenseFactor: clamp(
-        away.offenseFactor *
-          (1 + (sourceNativeContext.away.lineupStrength - 50) * 0.0025) *
-          (1 + (sourceNativeContext.home.bullpenFreshness < 45 ? 0.015 : 0)),
-        0.72,
-        1.45
-      ),
+      offenseFactor: away.offenseFactor,
       homeFieldEdge: 0.97,
       starter: {
         expectedOuts: away.starter?.expectedOuts ?? 15,
@@ -986,7 +885,7 @@ export async function buildMlbEventProjection(eventId: string) {
 
   return {
     modelKey: "mlb-game-state-sim",
-    modelVersion: "v2-source-native",
+    modelVersion: "v1",
     eventId: resolved.event.id,
     projectedHomeScore: simulation.projectedHomeRuns,
     projectedAwayScore: simulation.projectedAwayRuns,
@@ -998,7 +897,7 @@ export async function buildMlbEventProjection(eventId: string) {
       sport: resolved.event.league.sport,
       league: resolved.event.league.key,
       engine: "mlb-game-state-sim",
-      engineVersion: "v2-source-native",
+      engineVersion: "v1",
       venue,
       runEnvironment: {
         parkFactor: round(parkFactor, 3),
@@ -1056,7 +955,6 @@ export async function buildMlbEventProjection(eventId: string) {
           factor: round(away.bullpenFactor, 3)
         }
       },
-      mlbSourceNativeContext: sourceNativeContext,
       fullGame: {
         projectedHomeRuns: simulation.projectedHomeRuns,
         projectedAwayRuns: simulation.projectedAwayRuns,

@@ -3,7 +3,6 @@
 import { BetActionButton } from "@/components/bets/bet-action-button";
 import type { GameCardView } from "@/lib/types/domain";
 import { buildBoardBetIntent } from "@/lib/utils/bet-intelligence";
-import { resolveMatchupHref } from "@/lib/utils/entity-routing";
 
 type GameCardActionsProps = {
   game: GameCardView;
@@ -14,23 +13,18 @@ export function GameCardActions({
   game,
   market = "moneyline"
 }: GameCardActionsProps) {
-  const matchupHref =
-    resolveMatchupHref({
-      leagueKey: game.leagueKey,
-      externalEventId: game.externalEventId,
-      fallbackHref: game.detailHref ?? null
-    }) ?? "/board";
+  const selection = game[market];
 
   return (
     <>
       <BetActionButton
-        intent={buildBoardBetIntent(game, market, matchupHref)}
+        intent={buildBoardBetIntent(game, market, game.detailHref ?? `/game/${game.id}`)}
       >
         Add to slip
       </BetActionButton>
       <BetActionButton
         mode="log"
-        intent={buildBoardBetIntent(game, market, matchupHref)}
+        intent={buildBoardBetIntent(game, market, game.detailHref ?? `/game/${game.id}`)}
       >
         Log bet
       </BetActionButton>

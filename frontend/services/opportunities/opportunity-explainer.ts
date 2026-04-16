@@ -491,14 +491,9 @@ export function buildOpportunityExplanation(args: {
     .filter((item): item is string => Boolean(item))
     .join(". ");
 
-  const triggerSummary = whyItShows.slice(0, 2).map((item) => shorten(item, 72)).join(" • ");
-  const killSummary = whatCouldKillIt.slice(0, 2).map((item) => shorten(item, 72)).join(" • ");
-
   return {
     whyItShows: whyItShows.slice(0, 3).map((item) => shorten(item, 88)),
     whatCouldKillIt: whatCouldKillIt.slice(0, 3).map((item) => shorten(item, 92)),
-    triggerSummary,
-    killSummary,
     reasonSummary: `${summary}.`
   };
 }

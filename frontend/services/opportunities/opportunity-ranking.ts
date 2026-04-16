@@ -2,10 +2,7 @@ import type {
   OpportunityActionState,
   OpportunityRankingView,
   OpportunityView
-} from "@/lib/types/opportunity"
-import { decideOpportunity } from "@/services/opportunities/opportunity-decision-policy"
-import { assessBookContext } from "@/services/market-intelligence/book-context"
-import { assessDistributionPricing } from "@/services/pricing/distribution-pricing";
+} from "@/lib/types/opportunity";
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -140,105 +137,6 @@ function getEdgeQualityScore(opportunity: OpportunityView) {
   return round(clamp(score, 0, 100));
 }
 
-function getExpectedClvScore(opportunity: OpportunityView) {
-  const destinationBias =
-    opportunity.closeDestination.label === "DECAY"
-      ? 14
-      : opportunity.closeDestination.label === "HOLD"
-        ? 5
-        : opportunity.closeDestination.label === "IMPROVE"
-          ? -10
-          : -4;
-
-  const microstructureBias =
-    opportunity.marketMicrostructure.status === "APPLIED"
-      ? opportunity.marketMicrostructure.repricingLikelihood * 0.42 +
-        opportunity.marketMicrostructure.urgencyScore * 0.24 +
-        (opportunity.marketMicrostructure.regime === "STALE_COPY" ? 10 : 0)
-      : 0;
-
-  const score =
-    34 +
-    microstructureBias +
-    destinationBias +
-    opportunity.truthCalibration.timingDelta * 2.2 +
-    opportunity.reasonCalibration.timingDelta * 1.7 +
-    (opportunity.timingReplay.status === "APPLIED"
-      ? opportunity.timingReplay.timingDelta * 1.8
-      : 0) -
-    opportunity.trapFlags.length * 3;
-
-  return round(clamp(score, 0, 100));
-}
-
-function getFragilityScore(opportunity: OpportunityView) {
-  const freshnessPenalty =
-    typeof opportunity.providerFreshnessMinutes === "number"
-      ? Math.min(opportunity.providerFreshnessMinutes, 60) * 0.55
-      : 18;
-  const disagreementPenalty = (opportunity.marketDisagreementScore ?? 0) * 95;
-  const trapPenalty = opportunity.trapFlags.length * 11;
-  const sourcePenalty = (100 - opportunity.sourceQuality.score) * 0.34;
-  const efficiencyPenalty =
-    opportunity.marketEfficiency === "THIN_SPECIALTY"
-      ? 16
-      : opportunity.marketEfficiency === "FRAGMENTED_PROP"
-        ? 11
-        : opportunity.marketEfficiency === "LOW_EFFICIENCY"
-          ? 7
-          : 0;
-  const score = freshnessPenalty + disagreementPenalty + trapPenalty + sourcePenalty + efficiencyPenalty;
-  return round(clamp(score, 0, 100));
-}
-
-function getTrendReliabilityScore(opportunity: OpportunityView) {
-  const calibrationLift =
-    (opportunity.truthCalibration.status === "APPLIED" ? 8 : 0) +
-    (opportunity.reasonCalibration.status === "APPLIED" ? 10 : 0) +
-    (opportunity.timingReplay.status === "APPLIED" ? 8 : 0);
-  const trapPenalty = opportunity.trapFlags.includes("LOW_CONFIDENCE_FAIR_PRICE") ? 14 : 0;
-  const disagreementPenalty = (opportunity.marketDisagreementScore ?? 0) * 70;
-
-  const trendIntelligenceLift = opportunity.trendIntelligence
-    ? opportunity.trendIntelligence.reliabilityScore * 0.26 +
-      opportunity.trendIntelligence.sourceCoverageScore * 0.14 +
-      opportunity.trendIntelligence.supportiveLensCount * 3 -
-      opportunity.trendIntelligence.contraryLensCount * 5 -
-      opportunity.trendIntelligence.pendingLensCount * 1.5
-    : 0;
-
-  const score =
-    opportunity.sourceQuality.score * 0.44 +
-    opportunity.opportunityScore * 0.14 +
-    calibrationLift +
-    trendIntelligenceLift -
-    disagreementPenalty -
-    trapPenalty;
-
-  return round(clamp(score, 0, 100));
-}
-
-function getRecommendationTier(args: {
-  compositeScore: number;
-  fragilityScore: number;
-  expectedClvScore: number;
-  actionState: OpportunityActionState;
-}) {
-  if (args.actionState === "PASS" || args.compositeScore < 45) {
-    return "PASS" as const;
-  }
-
-  if (args.actionState === "WATCH" || args.fragilityScore >= 68) {
-    return "WATCH" as const;
-  }
-
-  if (args.actionState === "BET_NOW" && args.compositeScore >= 78 && args.expectedClvScore >= 62) {
-    return "PRIME" as const;
-  }
-
-  return "ACTIONABLE" as const;
-}
-
 function buildRankingNotes(args: {
   capitalEfficiencyScore: number;
   edgeQualityScore: number;
@@ -248,26 +146,18 @@ function buildRankingNotes(args: {
   marketPathQualityScore: number;
   portfolioFitScore: number;
   actionModifier: number;
-  expectedClvScore: number;
-  fragilityScore: number;
-  trendReliabilityScore: number;
-  recommendationTier: "PRIME" | "ACTIONABLE" | "WATCH" | "PASS";
-  trendIntelligenceSummary?: string | null;
 }) {
   const capitalLeader = args.capitalEfficiencyScore >= args.edgeQualityScore;
   const notes = [
     capitalLeader
       ? `Rank leans on capital efficiency ${args.capitalEfficiencyScore} over posture.`
       : `Rank leans on edge quality ${args.edgeQualityScore} with capital efficiency ${args.capitalEfficiencyScore}.`,
-    `Expected CLV quality is ${args.expectedClvScore} while fragility prints ${args.fragilityScore}.`,
-    `Trend reliability contributes ${args.trendReliabilityScore}; recommendation tier is ${args.recommendationTier.toLowerCase()}.`,
-    args.trendIntelligenceSummary ? `Trend intelligence: ${args.trendIntelligenceSummary}` : null,
     `Destination quality contributes ${args.destinationQualityScore}, execution capacity ${args.executionCapacityScore}, and execution quality ${args.executionQualityScore}.`,
     `Market-path quality contributes ${args.marketPathQualityScore} and portfolio fit sits at ${args.portfolioFitScore}.`,
     `Portfolio fit is ${args.portfolioFitScore} and posture only adds ${args.actionModifier >= 0 ? "+" : ""}${args.actionModifier}.`
   ];
 
-  return notes.filter((note): note is string => Boolean(note));
+  return notes;
 }
 
 export function buildOpportunityRanking(opportunity: OpportunityView): OpportunityRankingView {
@@ -280,34 +170,20 @@ export function buildOpportunityRanking(opportunity: OpportunityView): Opportuni
   const portfolioFitScore = getPortfolioFitScore(opportunity);
   const actionModifier = getActionModifier(opportunity.actionState);
 
-  const expectedClvScore = getExpectedClvScore(opportunity);
-  const fragilityScore = getFragilityScore(opportunity);
-  const trendReliabilityScore = getTrendReliabilityScore(opportunity);
-
   const compositeScore = round(
     clamp(
-      capitalEfficiencyScore * 0.22 +
-        edgeQualityScore * 0.2 +
-        destinationQualityScore * 0.11 +
-        executionQualityScore * 0.08 +
-        executionCapacityScore * 0.1 +
-        marketPathQualityScore * 0.1 +
+      capitalEfficiencyScore * 0.26 +
+        edgeQualityScore * 0.22 +
+        destinationQualityScore * 0.14 +
+        executionQualityScore * 0.1 +
+        executionCapacityScore * 0.12 +
+        marketPathQualityScore * 0.09 +
         portfolioFitScore * 0.07 +
-        expectedClvScore * 0.16 +
-        trendReliabilityScore * 0.08 -
-        fragilityScore * 0.12 +
         actionModifier,
       0,
       100
     )
   );
-
-  const recommendationTier = getRecommendationTier({
-    compositeScore,
-    fragilityScore,
-    expectedClvScore,
-    actionState: opportunity.actionState
-  });
 
   return {
     compositeScore,
@@ -319,10 +195,6 @@ export function buildOpportunityRanking(opportunity: OpportunityView): Opportuni
     marketPathQualityScore,
     portfolioFitScore,
     actionModifier,
-    expectedClvScore,
-    fragilityScore,
-    trendReliabilityScore,
-    recommendationTier,
     notes: buildRankingNotes({
       capitalEfficiencyScore,
       edgeQualityScore,
@@ -331,12 +203,7 @@ export function buildOpportunityRanking(opportunity: OpportunityView): Opportuni
       executionCapacityScore,
       marketPathQualityScore,
       portfolioFitScore,
-      actionModifier,
-      expectedClvScore,
-      fragilityScore,
-      trendReliabilityScore,
-      recommendationTier,
-      trendIntelligenceSummary: opportunity.trendIntelligence?.summary ?? null
+      actionModifier
     })
   };
 }

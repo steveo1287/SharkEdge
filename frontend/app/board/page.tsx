@@ -1,14 +1,11 @@
-import type { LeagueSnapshotView } from "@/lib/types/domain";
-import type { GameCardView } from "@/lib/types/domain";
-import { buildGameWorkflowHref, resolveGameWorkflowTarget } from "@/lib/utils/workflow-hrefs";
+import Link from "next/link";
+
+import { LiveEdgeBoardCard } from "@/components/board/live-edge-board-card";
+import { HorizontalEventRail } from "@/components/mobile/horizontal-event-rail";
+import { MobileTopBar } from "@/components/mobile/mobile-top-bar";
+import { SectionTabs } from "@/components/mobile/section-tabs";
 import { getBoardCommandData } from "@/services/board/board-command-service";
-import {
-  getProviderReadinessView,
-  type ProviderReadinessView
-} from "@/services/current-odds/provider-readiness-service";
-import { buildGameMarketOpportunity } from "@/services/opportunities/opportunity-service";
-import { getLeagueSnapshots } from "@/services/stats/stats-service";
-import { BoardCommandCenter } from "@/components/board/board-command-center";
+import { getProviderReadinessView } from "@/services/current-odds/provider-readiness-service";
 
 export const dynamic = "force-dynamic";
 
@@ -16,76 +13,14 @@ type BoardPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-type QueryState = {
-  league: "ALL" | "NBA" | "MLB";
-  market: "all" | "moneyline" | "spread" | "total";
-  sort: "edge" | "movement" | "start";
-  focus?: string | null;
-};
+type SafeProviderReadiness = Awaited<ReturnType<typeof getProviderReadinessView>> | null;
 
-async function getSafeProviderReadiness(): Promise<ProviderReadinessView | null> {
+async function getSafeProviderReadiness(): Promise<SafeProviderReadiness> {
   try {
-    return await getProviderReadinessView({ leagues: ["NBA", "MLB"] });
+    return await getProviderReadinessView();
   } catch {
     return null;
   }
-}
-
-async function getSafeSnapshots(league: "ALL" | "NBA" | "MLB"): Promise<LeagueSnapshotView[]> {
-  try {
-    return await getLeagueSnapshots(league);
-  } catch {
-    return [];
-  }
-}
-
-function buildBoardHref(state: QueryState) {
-  const params = new URLSearchParams();
-
-  if (state.league !== "ALL") params.set("league", state.league);
-  if (state.market !== "all") params.set("market", state.market);
-  if (state.sort !== "edge") params.set("sort", state.sort);
-  if (state.focus) params.set("focus", state.focus);
-
-  const query = params.toString();
-  return query ? `/board?${query}` : "/board";
-}
-
-function buildLeagueHref(league: "ALL" | "NBA" | "MLB", state: QueryState) {
-  return buildBoardHref({ ...state, league, focus: null });
-}
-
-function formatMovementValue(movement: number) {
-  const absolute = Math.abs(movement);
-  if (!absolute) return "Flat";
-  return `${movement > 0 ? "↑" : "↓"} ${absolute >= 10 ? absolute.toFixed(0) : absolute.toFixed(1)}`;
-}
-
-function getLeagueVerifiedCount(games: GameCardView[], league: "NBA" | "MLB") {
-  return games.filter((game) => game.leagueKey === league).length;
-}
-
-function getSelectedGameLabel(game: GameCardView | null) {
-  if (!game) return null;
-  return `${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`;
-}
-
-function getWorkflowLabel(game: GameCardView, market: "moneyline" | "spread" | "total") {
-  const marketLabel = market === "moneyline" ? "Moneyline" : market === "spread" ? "Spread" : "Total";
-  const bookLabel = game[market].bestBook && game[market].bestBook !== "No book" ? game[market].bestBook : game.selectedBook?.name ?? null;
-  return bookLabel ? `${marketLabel} @ ${bookLabel}` : marketLabel;
-}
-
-function buildMovementSeries(games: GameCardView[]) {
-  const values = games.slice(0, 10).map((game) => {
-    return Math.max(
-      Math.abs(game.moneyline.movement),
-      Math.abs(game.spread.movement),
-      Math.abs(game.total.movement)
-    );
-  });
-
-  return values.length ? values : [0, 0, 0, 0];
 }
 
 export default async function BoardPage({ searchParams }: BoardPageProps) {
@@ -96,150 +31,148 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
     getSafeProviderReadiness()
   ]);
 
-  const queryState: QueryState = {
-    league: board.selectedLeague === "ALL" || board.selectedLeague === "NBA" || board.selectedLeague === "MLB" ? board.selectedLeague : "ALL",
-    market: board.selectedMarket,
-    sort: board.selectedSort,
-    focus: board.focusedGame?.id ?? null
-  };
-
-  const snapshots = await getSafeSnapshots(queryState.league);
-  const uniqueBooks = Array.from(
-    new Set(
-      board.verifiedGames
-        .flatMap((game) => [
-          game.selectedBook?.name,
-          game.moneyline.bestBook,
-          game.spread.bestBook,
-          game.total.bestBook
-        ])
-        .filter((value): value is string => Boolean(value && value !== "No book"))
-    )
-  );
-
-  const movers = board.movers.slice(0, 4);
-  const boardStatusCopy = board.verifiedGames.length
-    ? `${board.verifiedGames.length} verified rows are live across moneyline, spread, and total.`
-    : board.boardData.liveMessage ?? board.boardData.sourceNote ?? "No verified market rows are available right now.";
-
-  const focusedMarkets = board.focusedGame
-    ? [
-        {
-          key: "moneyline" as const,
-          label: "Moneyline",
-          lineLabel: board.focusedGame.moneyline.lineLabel,
-          movementLabel: `Move ${formatMovementValue(board.focusedGame.moneyline.movement)}`,
-          opportunity: buildGameMarketOpportunity(board.focusedGame, "moneyline")
-        },
-        {
-          key: "spread" as const,
-          label: "Spread",
-          lineLabel: board.focusedGame.spread.lineLabel,
-          movementLabel: `Move ${formatMovementValue(board.focusedGame.spread.movement)}`,
-          opportunity: buildGameMarketOpportunity(board.focusedGame, "spread")
-        },
-        {
-          key: "total" as const,
-          label: "Total",
-          lineLabel: board.focusedGame.total.lineLabel,
-          movementLabel: `Move ${formatMovementValue(board.focusedGame.total.movement)}`,
-          opportunity: buildGameMarketOpportunity(board.focusedGame, "total")
-        }
-      ]
-    : [];
-
-  const marketItems = [
-    { label: "All", market: "all" as const },
-    { label: "Moneyline", market: "moneyline" as const },
-    { label: "Spread", market: "spread" as const },
-    { label: "Total", market: "total" as const }
-  ].map((item) => ({
-    label: item.label,
-    href: buildBoardHref({ ...queryState, market: item.market, focus: board.focusedGame?.id ?? null }),
-    active: board.selectedMarket === item.market
-  }));
-
-  const sortItems = [
-    { label: "Edge", sort: "edge" as const },
-    { label: "Movement", sort: "movement" as const },
-    { label: "Start", sort: "start" as const }
-  ].map((item) => ({
-    label: item.label,
-    href: buildBoardHref({ ...queryState, sort: item.sort, focus: board.focusedGame?.id ?? null }),
-    active: board.selectedSort === item.sort
-  }));
-
-  const sortHrefMap = {
-    edge: sortItems.find((item) => item.label === "Edge")?.href ?? buildBoardHref({ ...queryState, sort: "edge" }),
-    movement: sortItems.find((item) => item.label === "Movement")?.href ?? buildBoardHref({ ...queryState, sort: "movement" }),
-    start: sortItems.find((item) => item.label === "Start")?.href ?? buildBoardHref({ ...queryState, sort: "start" })
-  } satisfies Record<"edge" | "movement" | "start", string>;
-
-  const tableRows = board.verifiedGames.slice(0, 24).map((game) => {
-    const workflowTarget = resolveGameWorkflowTarget(game, board.selectedMarket);
-    return {
-      game,
-      selected: game.id === board.focusedGame?.id,
-      inspectHref: buildBoardHref({ ...queryState, focus: game.id }),
-      gameHref: buildGameWorkflowHref(game.detailHref ?? `/game/${game.id}`, queryState, workflowTarget),
-      workflowLabel: getWorkflowLabel(game, workflowTarget.market)
-    };
-  });
-
-  const focusedWorkflowTarget = board.focusedGame
-    ? resolveGameWorkflowTarget(board.focusedGame, board.selectedMarket)
-    : null;
-  const focusedGameHref = board.focusedGame && focusedWorkflowTarget
-    ? buildGameWorkflowHref(board.focusedGame.detailHref ?? `/game/${board.focusedGame.id}`, queryState, focusedWorkflowTarget)
-    : null;
-  const focusedWorkflowLabel = board.focusedGame && focusedWorkflowTarget
-    ? getWorkflowLabel(board.focusedGame, focusedWorkflowTarget.market)
-    : null;
-
-  const leagueTabs = [
-    {
-      label: "ALL",
-      href: buildLeagueHref("ALL", queryState),
-      active: board.selectedLeague === "ALL",
-      count: board.verifiedGames.length || null
-    },
-    {
-      label: "NBA",
-      href: buildLeagueHref("NBA", queryState),
-      active: board.selectedLeague === "NBA",
-      count: getLeagueVerifiedCount(board.verifiedGames, "NBA") || null
-    },
-    {
-      label: "MLB",
-      href: buildLeagueHref("MLB", queryState),
-      active: board.selectedLeague === "MLB",
-      count: getLeagueVerifiedCount(board.verifiedGames, "MLB") || null
-    }
-  ];
+  const railItems = board.verifiedGames.length
+    ? board.verifiedGames.slice(0, 8).map((game, index) => ({
+        id: game.id,
+        label: `${game.awayTeam.abbreviation} ${game.homeTeam.abbreviation}`,
+        note: new Date(game.startTime).toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit"
+        }),
+        href: game.detailHref ?? `/game/${game.id}`,
+        active: index === 0
+      }))
+    : board.scoreboardItems.slice(0, 8).map(({ item }, index) => ({
+        id: item.id,
+        label: item.label,
+        note:
+          item.scoreboard ??
+          item.stateDetail ??
+          new Date(item.startTime).toLocaleTimeString("en-US", {
+            hour: "numeric",
+            minute: "2-digit"
+          }),
+        href: item.detailHref ?? null,
+        active: index === 0
+      }));
 
   return (
-    <BoardCommandCenter
-      readiness={readiness}
-      boardStatusCopy={boardStatusCopy}
-      queryState={queryState}
-      leagueTabs={leagueTabs}
-      marketItems={marketItems}
-      sortItems={sortItems}
-      sortHrefMap={sortHrefMap}
-      selectedMarket={board.selectedMarket}
-      selectedSort={board.selectedSort}
-      selectedGameLabel={getSelectedGameLabel(board.focusedGame)}
-      verifiedCount={board.verifiedGames.length}
-      moverCount={board.movers.length}
-      uniqueBooks={uniqueBooks}
-      movers={movers}
-      movementSeries={buildMovementSeries(board.verifiedGames)}
-      tableRows={tableRows}
-      focusedGame={board.focusedGame}
-      focusedMarkets={focusedMarkets}
-      focusedGameHref={focusedGameHref}
-      focusedWorkflowLabel={focusedWorkflowLabel}
-      snapshots={snapshots}
-    />
+    <div className="grid gap-4">
+      <MobileTopBar title="LiveEdgeBoard" subtitle="SharkEdge" />
+
+      <section className="mobile-surface !pb-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="rounded-full border border-white/8 bg-[#0c1320] px-3 py-1 text-[11px] font-semibold tracking-[0.18em] text-slate-300">
+            SHARKEDGE
+          </div>
+          <div className="rounded-full border border-[#2dd36f]/20 bg-[#2dd36f]/10 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#2dd36f]">
+            {board.boardData.source}
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <SectionTabs
+            items={[
+              { label: "ALL", active: board.selectedLeague === "ALL" },
+              { label: "NBA" },
+              { label: "MLB" },
+              { label: "NHL" }
+            ]}
+          />
+        </div>
+
+        <div className="mt-4 grid grid-cols-5 gap-2 text-center text-[11px] uppercase tracking-[0.14em] text-slate-500">
+          {["All Tiers", "Tier A", "Tier B", "Tier C", "Tier D"].map((item) => (
+            <div
+              key={item}
+              className="rounded-[14px] border border-white/8 bg-white/[0.03] px-2 py-3"
+            >
+              {item}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.14em] text-slate-400">
+          {["Shark", "+EV", "Time", "+EV only", "Kalshi"].map((item, index) => (
+            <div
+              key={item}
+              className={
+                index === 0
+                  ? "rounded-full bg-white px-3 py-1 text-slate-950"
+                  : "rounded-full border border-white/8 px-3 py-1"
+              }
+            >
+              {item}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {readiness ? (
+        <section className="mobile-surface">
+          <div className="text-sm leading-6 text-slate-300">{readiness.summary}</div>
+          <div className="mt-3 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+            {readiness.generatedAt
+              ? `Updated ${new Date(readiness.generatedAt).toLocaleTimeString("en-US", {
+                  hour: "numeric",
+                  minute: "2-digit"
+                })}`
+              : "Provider status pending"}
+          </div>
+        </section>
+      ) : null}
+
+      {railItems.length ? <HorizontalEventRail items={railItems} /> : null}
+
+      <section className="grid gap-3">
+        {board.verifiedGames.slice(0, 8).map((game) => (
+          <LiveEdgeBoardCard key={game.id} game={game} />
+        ))}
+
+        {!board.verifiedGames.length && board.scoreboardItems.length ? (
+          <div className="mobile-surface">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="text-[1.05rem] font-semibold text-white">Live scores</div>
+              <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Odds fallback</div>
+            </div>
+            <div className="grid gap-3">
+              {board.scoreboardItems.slice(0, 8).map(({ section, item }) => (
+                <Link
+                  key={`${section.leagueKey}-${item.id}`}
+                  href={item.detailHref ?? "/games"}
+                  className="rounded-[20px] border border-white/[0.08] bg-white/[0.03] px-4 py-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                        {section.leagueKey} - {item.status}
+                      </div>
+                      <div className="mt-1 text-[0.98rem] font-semibold text-white">{item.label}</div>
+                      <div className="mt-2 text-sm text-slate-400">
+                        {item.scoreboard ?? item.stateDetail ?? "Score feed connected, odds temporarily unavailable."}
+                      </div>
+                    </div>
+                    <div className="text-right text-[11px] text-slate-500">
+                      {new Date(item.startTime).toLocaleTimeString("en-US", {
+                        hour: "numeric",
+                        minute: "2-digit"
+                      })}
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {!board.verifiedGames.length ? (
+          <div className="mobile-surface text-sm leading-6 text-slate-400">
+            {board.boardData.liveMessage ??
+              board.boardData.sourceNote ??
+              "No verified board rows are available right now."}
+          </div>
+        ) : null}
+      </section>
+    </div>
   );
 }

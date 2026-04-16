@@ -6,14 +6,9 @@ import Link from "next/link";
 
 import { BetActionButton } from "@/components/bets/bet-action-button";
 import {
-  ChangeBadge,
-  getChangeExplanation
-} from "@/components/intelligence/change-intelligence";
-import {
   getOpportunityTrapLine,
   OpportunityBadgeRow
 } from "@/components/intelligence/opportunity-badges";
-import { PrioritizationBadge } from "@/components/intelligence/prioritization";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -93,16 +88,16 @@ function WatchlistItemCard({
   const trapLine = item.opportunitySnapshot ? getOpportunityTrapLine(item.opportunitySnapshot) : null;
 
   return (
-    <Card className="surface-panel p-4 md:p-5">
+    <Card className="p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
+          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
             {item.league} | saved {new Date(item.savedAt).toLocaleString("en-US", {
               dateStyle: "short",
               timeStyle: "short"
             })}
           </div>
-          <div className="mt-2 font-display text-[1.7rem] font-semibold tracking-[-0.04em] text-white">
+          <div className="mt-2 font-display text-2xl font-semibold text-white">
             {item.selection}
           </div>
           <div className="mt-2 text-sm text-slate-400">{item.eventLabel}</div>
@@ -113,12 +108,10 @@ function WatchlistItemCard({
             {item.supportStatus ?? "PARTIAL"}
           </Badge>
           <Badge tone="premium">{item.alertCount} alert{item.alertCount === 1 ? "" : "s"}</Badge>
-          <PrioritizationBadge prioritization={item.prioritization} />
-          <ChangeBadge change={item.changeIntelligence} />
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
         <div className="rounded-2xl border border-line bg-slate-950/65 p-4">
           <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Saved</div>
           <div className="mt-2 text-lg font-medium text-white">
@@ -164,11 +157,6 @@ function WatchlistItemCard({
 
       {item.opportunitySnapshot ? (
         <>
-          {getChangeExplanation(item.changeIntelligence) ? (
-            <div className="mt-4 rounded-2xl border border-line bg-slate-950/55 px-4 py-3 text-sm text-slate-300">
-              <span className="text-slate-500">What changed:</span> {getChangeExplanation(item.changeIntelligence)}
-            </div>
-          ) : null}
           <div className="mt-4">
             <OpportunityBadgeRow opportunity={item.opportunitySnapshot} />
           </div>
@@ -195,11 +183,11 @@ function WatchlistItemCard({
       ) : null}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex w-full flex-wrap gap-3 md:w-auto">
+        <div className="flex flex-wrap gap-3">
           {item.intent.matchupHref ? (
             <Link
               href={item.intent.matchupHref}
-              className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300 max-sm:w-full max-sm:text-center"
+              className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300"
             >
               Open matchup
             </Link>
@@ -209,13 +197,13 @@ function WatchlistItemCard({
             Log now
           </BetActionButton>
         </div>
-        <div className="flex w-full flex-wrap gap-3 md:w-auto">
+        <div className="flex flex-wrap gap-3">
           {item.status === "ACTIVE" ? (
             <button
               type="button"
               disabled={isPending}
               onClick={() => onArchive(item.id)}
-              className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300 max-sm:w-full"
+              className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300"
             >
               Archive
             </button>
@@ -224,7 +212,7 @@ function WatchlistItemCard({
               type="button"
               disabled={isPending}
               onClick={() => onRestore(item.id)}
-              className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300 max-sm:w-full"
+              className="rounded-2xl border border-line px-4 py-2 text-sm text-slate-300"
             >
               Restore
             </button>
@@ -233,14 +221,14 @@ function WatchlistItemCard({
             type="button"
             disabled={isPending}
             onClick={() => onDelete(item.id)}
-            className="rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-sm text-rose-200 max-sm:w-full"
+            className="rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-sm text-rose-200"
           >
             Remove
           </button>
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 rounded-3xl border border-line bg-slate-950/55 p-4 lg:grid-cols-[1fr_220px_auto]">
+      <div className="mt-4 grid gap-3 rounded-3xl border border-line bg-slate-950/55 p-4 md:grid-cols-[1fr_220px_auto]">
         <div>
           <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Create alert</div>
           <div className="mt-2 text-sm text-slate-400">
@@ -343,7 +331,7 @@ export function WatchlistWorkspace({
 
   return (
     <div className="grid gap-6">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Saved Plays" value={`${summary.total}`} />
         <StatCard label="Live Watches" value={`${summary.live}`} />
         <StatCard label="Upcoming" value={`${summary.upcoming}`} />
