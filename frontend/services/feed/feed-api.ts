@@ -301,6 +301,8 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
       },
       decomposition,
       scenarios: decomposition.scenarios
+    };
+
     await persistEdgeExplanation({
       signalId: signal.id,
       metadataJson: {
