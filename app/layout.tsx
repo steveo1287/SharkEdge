@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { IBM_Plex_Sans, IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
+import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { brandKit } from "@/lib/brand/brand-kit";
 
 import "./globals.css";
 
-const fontBody = IBM_Plex_Sans({
+const fontBody = Inter({
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-body",
   display: "swap"
 });
@@ -21,9 +21,9 @@ const fontDisplay = Space_Grotesk({
   display: "swap"
 });
 
-const fontMono = IBM_Plex_Mono({
+const fontMono = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["400", "500"],
+  weight: ["400", "500", "600"],
   variable: "--font-mono",
   display: "swap"
 });
@@ -81,6 +81,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      data-theme="terminal"
       className={`${fontBody.variable} ${fontDisplay.variable} ${fontMono.variable}`}
     >
       <body>
