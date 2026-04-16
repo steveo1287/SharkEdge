@@ -13,6 +13,8 @@ import { buildMlbIntelligenceEnvelope } from "@/services/modeling/mlb-intelligen
 import { applyMlbDecisionGate, buildMlbDecisionGate } from "@/services/modeling/mlb-conformal-gating-service";
 import { buildMlbCalibratedOutcomeMath } from "@/services/modeling/mlb-outcome-math-service";
 import { buildMlbPrimaryDecisionScore } from "@/services/modeling/mlb-decision-score-service";
+import { buildMlbPromotionDecision } from "@/services/modeling/mlb-promotion-orchestrator";
+import { buildDecisionFusion } from "@/services/decision/decision-fusion-service";
 
 export async function getBoardApi(
   leagueKey?: string,
@@ -195,6 +197,33 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
     const mlbDecisionGate = mlbEnvelope ? buildMlbDecisionGate(mlbEnvelope) : null;
     const mlbOutcomeMath = String(signal.event.league.key) === "MLB" ? await buildMlbCalibratedOutcomeMath(signal.eventId) : null;
     const mlbPrimaryDecision = mlbOutcomeMath && mlbDecisionGate ? buildMlbPrimaryDecisionScore(mlbOutcomeMath, mlbDecisionGate) : null;
+    const mlbPromotionDecision = mlbOutcomeMath && mlbDecisionGate && mlbEnvelope && mlbPrimaryDecision
+      ? buildMlbPromotionDecision({
+          outcomeMath: mlbOutcomeMath,
+          gate: mlbDecisionGate,
+          envelope: mlbEnvelope,
+          primaryDecision: mlbPrimaryDecision,
+          marketImpliedProb: 0.5,
+          lineupCertainty: 0.74,
+          starterCertainty: 0.86,
+          bullpenCertainty: 0.68,
+          weatherCertainty: 0.71,
+          trendConfirmationScore: 0.05
+        })
+      : null;
+    const decisionFusion = buildDecisionFusion({
+      eventId: signal.eventId,
+      marketType: String(signal.marketType),
+      league: String(signal.event.league.key),
+      simScore: Number(mlbPromotionDecision?.finalPromotionScore ?? mlbPrimaryDecision?.primaryScore ?? signal.edgeScore ?? 0),
+      rawTrendScore: Number((summary as Record<string, unknown>).score ?? 0) * 10,
+      marketScore: Number(signal.noVigProb ?? 0.5) * 10,
+      calibrationScore: Number((summary as Record<string, unknown>).confidence ?? 0.55) * 10,
+      uncertaintyPenalty: Number(mlbEnvelope?.uncertaintyPenalty ?? 0.06),
+      weatherDelta: Number(mlbEliteSnapshot?.parkWeatherDelta ?? 0),
+      volatility: Number(mlbEliteSnapshot?.bullpenFatigueDelta ?? 0)
+    });
+
     const factorBucket = String((decomposition.contributions ?? [])
       .slice()
       .sort((left, right) => Math.abs(Number(right.value ?? 0)) - Math.abs(Number(left.value ?? 0)))[0]?.key ?? "");
@@ -240,7 +269,7 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
       adjustedEdgeScore: adjusted.adjustedEdgeScore,
       xfactorImpactOnEdgeScore: adjusted.xfactorImpact,
       rankSignal: adjusted.rankSignal,
-      adjustedRankSignal: mlbPrimaryDecision ? Number((penalty.adjustedRankSignal + mlbPrimaryDecision.primaryScore / 100).toFixed(4)) : (mlbDecisionGate ? applyMlbDecisionGate(penalty.adjustedRankSignal, mlbDecisionGate) : penalty.adjustedRankSignal),
+      adjustedRankSignal: Number((penalty.adjustedRankSignal + decisionFusion.fusedScore / 100).toFixed(4)),
       flags: signal.flagsJson,
       expiresAt: signal.expiresAt?.toISOString() ?? null,
       whyItGradesWell: {
@@ -256,6 +285,8 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
       mlbDecisionGate,
       mlbOutcomeMath,
       mlbPrimaryDecision,
+      mlbPromotionDecision,
+      decisionFusion,
       scoringBlend: {
         baseEdgeScore: signal.edgeScore,
         adjustedEdgeScore: adjusted.adjustedEdgeScore,
@@ -285,13 +316,15 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
         mlbDecisionGate: payload.mlbDecisionGate,
         mlbOutcomeMath: payload.mlbOutcomeMath,
         mlbPrimaryDecision: payload.mlbPrimaryDecision,
+        mlbPromotionDecision: payload.mlbPromotionDecision,
+        decisionFusion: payload.decisionFusion,
         decomposition: payload.decomposition,
         scenarios: payload.scenarios
       }
     });
 
     return payload;
-  })).then((items) => items.sort((left, right) => right.adjustedRankSignal - left.adjustedRankSignal));
+  })).then((items) => items.sort((left, right) => ((right.decisionFusion?.fusedScore ?? -999) - (left.decisionFusion?.fusedScore ?? -999)) || (right.adjustedRankSignal - left.adjustedRankSignal)));
 
   const payload = {
     generatedAt: new Date().toISOString(),

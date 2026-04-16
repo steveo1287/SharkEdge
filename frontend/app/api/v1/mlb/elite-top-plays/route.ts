@@ -6,7 +6,7 @@ export async function GET() {
   try {
     const payload = await getEdgesApi();
     const mlbPlays = (payload.data ?? [])
-      .filter((item: any) => item.league === "MLB" && item.mlbEliteSnapshot)
+      .filter((item: any) => item.league === "MLB" && item.mlbEliteSnapshot && item.decisionFusion?.fusedTier !== "pass" && item.mlbPromotionDecision?.tier !== "pass" && item.mlbPromotionDecision?.isSuppressed !== true)
       .sort((left: any, right: any) => (right.adjustedRankSignal ?? 0) - (left.adjustedRankSignal ?? 0))
       .slice(0, 10);
 

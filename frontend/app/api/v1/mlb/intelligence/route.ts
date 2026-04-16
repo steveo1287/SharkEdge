@@ -5,6 +5,7 @@ import { buildMlbIntelligenceEnvelope } from "@/services/modeling/mlb-intelligen
 import { buildMlbDecisionGate } from "@/services/modeling/mlb-conformal-gating-service";
 import { buildMlbCalibratedOutcomeMath } from "@/services/modeling/mlb-outcome-math-service";
 import { buildMlbPrimaryDecisionScore } from "@/services/modeling/mlb-decision-score-service";
+import { buildMlbPromotionDecision } from "@/services/modeling/mlb-promotion-orchestrator";
 import { getActiveCalibrationAlerts } from "@/services/calibration/calibration-actionability-service";
 import { getLatestDailyCalibrationSummary } from "@/services/calibration/daily-calibration-summary-service";
 
@@ -23,6 +24,20 @@ export async function GET() {
     const gate = envelope ? buildMlbDecisionGate(envelope) : null;
     const outcomeMath = topGame ? await buildMlbCalibratedOutcomeMath(topGame.eventId) : null;
     const primaryDecision = outcomeMath && gate ? buildMlbPrimaryDecisionScore(outcomeMath, gate) : null;
+    const promotionDecision = outcomeMath && gate && envelope && primaryDecision
+      ? buildMlbPromotionDecision({
+          outcomeMath,
+          gate,
+          envelope,
+          primaryDecision,
+          marketImpliedProb: 0.5,
+          lineupCertainty: 0.74,
+          starterCertainty: 0.86,
+          bullpenCertainty: 0.68,
+          weatherCertainty: 0.71,
+          trendConfirmationScore: 0.05
+        })
+      : null;
 
     return NextResponse.json({
       ok: true,
@@ -31,6 +46,7 @@ export async function GET() {
       gate,
       outcomeMath,
       primaryDecision,
+      promotionDecision,
       modelHealth: {
         overall: summary?.report?.overall ?? null,
         alerts
