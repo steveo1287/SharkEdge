@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db/prisma";
 import { getBoardFeed } from "@/services/market-data/market-data-service";
 import { getPropsExplorerData } from "@/services/odds/props-service";
 import { buildSimulationEnhancementReport, summarizeXFactors } from "@/services/analytics/xfactor-engine";
+import { buildScenarioSet, buildSimulationDecomposition } from "@/services/modeling/simulation-decomposition";
+import { persistEdgeExplanation } from "@/services/feed/edge-explanation-store";
 
 export async function getBoardApi(
   leagueKey?: string,
@@ -144,7 +146,7 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
     take: 100
   });
 
-  const data = signals.map((signal) => {
+  const data = await Promise.all(signals.map(async (signal) => {
     const xfactors = extractEdgeXFactors(signal);
     const summary = asObject(xfactors)?.summary ?? summarizeXFactors(xfactors as never);
     const adjusted = computeAdjustedEdgeScore({
@@ -154,8 +156,26 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
       xfactorScore: Number((summary as Record<string, unknown>).score ?? 0),
       xfactorConfidence: Number((summary as Record<string, unknown>).confidence ?? 0.55)
     });
+    const decomposition = buildSimulationDecomposition({
+      baseRatingEdge: Number(signal.edgeScore ?? 0) / 100,
+      marketAnchorEffect: (Number(signal.noVigProb ?? 0.5) - 0.5) * 0.2,
+      weatherEffect: Number(((asObject(asObject(xfactors)?.environment)?.weatherBlend as Record<string, unknown> | undefined)?.scoringEnvironmentDelta ?? 0)) * 0.25,
+      travelEffect: -0.018,
+      styleEffect: Number((summary as Record<string, unknown>).score ?? 0) * 0.18,
+      playerAvailabilityEffect: 0.012,
+      residualModelEffect: Number(signal.evPercent ?? 0) / 100 * 0.12,
+      uncertaintyPenalty: Math.max(0.04, 1 - Number((summary as Record<string, unknown>).confidence ?? 0.6)),
+      confidence: Number((summary as Record<string, unknown>).confidence ?? 0.6),
+      scenarios: buildScenarioSet({
+        projectedHomeScore: 24,
+        projectedAwayScore: 21,
+        projectedTotal: 45,
+        projectedSpreadHome: 3,
+        winProbHome: Number(signal.modelProb ?? 0.5)
+      })
+    });
 
-    return {
+    const payload = {
       id: signal.id,
       eventId: signal.eventId,
       eventLabel: signal.event.name,
@@ -190,9 +210,24 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
         adjustedEdgeScore: adjusted.adjustedEdgeScore,
         xfactorImpactOnEdgeScore: adjusted.xfactorImpact,
         caps: adjusted.caps
+      },
+      decomposition,
+      scenarios: decomposition.scenarios
+    await persistEdgeExplanation({
+      signalId: signal.id,
+      metadataJson: {
+        adjustedEdgeScore: adjusted.adjustedEdgeScore,
+        xfactorImpactOnEdgeScore: adjusted.xfactorImpact,
+        rankSignal: adjusted.rankSignal,
+        whyItGradesWell: payload.whyItGradesWell,
+        xfactors: payload.xfactors,
+        decomposition: payload.decomposition,
+        scenarios: payload.scenarios
       }
-    };
-  }).sort((left, right) => right.rankSignal - left.rankSignal);
+    });
+
+    return payload;
+  })).then((items) => items.sort((left, right) => right.rankSignal - left.rankSignal));
 
   const payload = {
     generatedAt: new Date().toISOString(),

@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { buildMlbEventProjection, buildMlbPlayerPropProjections } from "@/services/modeling/mlb-game-sim-service";
 import { buildSimulationEnhancementReport, summarizeXFactors } from "@/services/analytics/xfactor-engine";
+import { buildScenarioSet, buildSimulationDecomposition } from "@/services/modeling/simulation-decomposition";
 
 function getNumericStat(stats: Prisma.JsonValue, keys: string[]) {
   if (!stats || typeof stats !== "object" || Array.isArray(stats)) {
@@ -265,10 +266,29 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     }
   });
   const xfactorSummary = summarizeXFactors(xfactorReport);
+  const scenarios = buildScenarioSet({
+    projectedHomeScore,
+    projectedAwayScore,
+    projectedTotal,
+    projectedSpreadHome,
+    winProbHome
+  });
+  const decomposition = buildSimulationDecomposition({
+    baseRatingEdge: projectedSpreadHome / Math.max(1, projectedTotal),
+    marketAnchorEffect: (winProbHome - 0.5) * 0.18,
+    weatherEffect: xfactorReport.environment.weatherBlend.scoringEnvironmentDelta * 0.4,
+    travelEffect: -(estimateTravelFatigue(homeTeam.name, awayTeam.name) * 0.22),
+    styleEffect: (xFactorStyleEffect => xFactorStyleEffect)(xfactorReport.factors.find((factor) => factor.key === "style_clash")?.impactScore ?? 0),
+    playerAvailabilityEffect: 0.015,
+    residualModelEffect: (winProbHome - 0.5) * 0.06,
+    uncertaintyPenalty: Math.max(0.04, 1 - xfactorSummary.confidence),
+    confidence: xfactorSummary.confidence,
+    scenarios
+  });
 
   return {
     modelKey: `team-efficiency-${event.league.key.toLowerCase()}`,
-    modelVersion: "v2",
+    modelVersion: "v3",
     eventId: event.id,
     projectedHomeScore,
     projectedAwayScore,
@@ -281,7 +301,9 @@ export async function buildEventProjectionFromHistory(eventId: string) {
       league: event.league.key,
       pace,
       xfactors: xfactorReport,
-      xfactorSummary
+      xfactorSummary,
+      decomposition,
+      scenarios
     }
   };
 }
