@@ -7,20 +7,30 @@ type BadgeProps = {
   tone?: "neutral" | "brand" | "premium" | "success" | "danger" | "muted";
 };
 
+/**
+ * Badge — sharp (2px radius), uppercase, microlabel-sized, hairline-outlined.
+ * No pills. Distinct systems:
+ *   - brand = aqua          (primary signal, sparingly)
+ *   - premium = bone        (warm premium thread)
+ *   - success = mint        (positive delta)
+ *   - danger = crimson      (negative/hot)
+ *   - muted = bone @ low    (de-emphasized metadata)
+ *   - neutral = plain       (default)
+ */
 const toneClasses: Record<NonNullable<BadgeProps["tone"]>, string> = {
-  neutral: "border-line bg-slate-900 text-slate-200",
-  brand: "border-sky-400/30 bg-sky-500/10 text-sky-300",
-  premium: "border-amber-300/30 bg-amber-400/10 text-amber-200",
-  success: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
-  danger: "border-rose-400/30 bg-rose-500/10 text-rose-300",
-  muted: "border-line/70 bg-slate-900/70 text-slate-400"
+  neutral: "border-bone/[0.12] bg-panel text-text-primary",
+  brand:   "border-aqua/25 bg-aqua/10 text-aqua",
+  premium: "border-bone/25 bg-bone/[0.08] text-bone",
+  success: "border-[rgba(74,227,181,0.28)] bg-[rgba(74,227,181,0.10)] text-mint",
+  danger:  "border-[rgba(255,77,94,0.28)] bg-[rgba(255,77,94,0.10)] text-crimson",
+  muted:   "border-bone/[0.08] bg-transparent text-bone/55"
 };
 
 export function Badge({ children, tone = "neutral" }: BadgeProps) {
   return (
     <span
       className={cn(
-        "inline-flex min-h-8 max-w-full items-center rounded-full border px-2.5 py-1 text-center text-[11px] font-semibold uppercase leading-none tracking-[0.12em] sm:text-xs sm:tracking-[0.18em]",
+        "inline-flex max-w-full items-center rounded-sm border px-1.5 py-0.5 text-center text-[10.5px] font-semibold uppercase leading-none tracking-[0.08em]",
         toneClasses[tone]
       )}
     >
