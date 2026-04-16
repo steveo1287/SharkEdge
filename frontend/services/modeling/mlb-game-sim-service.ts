@@ -1,3 +1,4 @@
+import { buildMlbAdvancedGameContext } from "@/services/modeling/adapters/mlb-game-context-service";
 type TeamRole = "HOME" | "AWAY";
 
 type TeamStatRow = {
@@ -970,5 +971,18 @@ export async function buildMlbEventProjection(eventId: string) {
       firstFive: simulation.firstFive,
       diagnostics: simulation.diagnostics
     }
+  };
+}
+
+
+export async function applyMlbRunEnvironmentAdjustment(eventId: string, baseProjectedTotal: number) {
+  const context = await buildMlbAdvancedGameContext(eventId);
+  const bullpenDelta = ((context.homeBullpen.quality - context.homeBullpen.fatigue) + (context.awayBullpen.quality - context.awayBullpen.fatigue)) / 2;
+  const adjustedTotal = baseProjectedTotal * (1 + context.parkWeather.runEnvironmentDelta * 0.35 - bullpenDelta * 0.08);
+  return {
+    adjustedTotal: Number(adjustedTotal.toFixed(2)),
+    runEnvironmentDelta: context.parkWeather.runEnvironmentDelta,
+    bullpenDelta: Number(bullpenDelta.toFixed(4)),
+    context
   };
 }

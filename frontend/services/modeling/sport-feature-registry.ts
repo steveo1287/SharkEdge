@@ -5,7 +5,10 @@ export const sportFeatureRegistry: Record<string, SportFeatureDefinition[]> = {
     { key: "woba", label: "wOBA", category: "efficiency", description: "Run-value weighted offensive quality.", weight: 0.95, sourceHint: "Statcast/Fangraphs style batting data" },
     { key: "xwoba", label: "xwOBA", category: "expected_value", description: "Expected weighted on-base quality.", weight: 0.98, sourceHint: "Statcast expected outcome data" },
     { key: "fip", label: "FIP", category: "efficiency", description: "Pitcher outcomes independent of fielding.", weight: 0.9, sourceHint: "Pitching advanced stats" },
-    { key: "barrel_rate", label: "Barrel %", category: "matchup", description: "Rate of elite quality contact.", weight: 0.82, sourceHint: "Batted-ball quality data" }
+    { key: "barrel_rate", label: "Barrel %", category: "matchup", description: "Rate of elite quality contact.", weight: 0.82, sourceHint: "Batted-ball quality data" },
+    { key: "park_factor", label: "Park factor", category: "environment", description: "Venue run-scoring environment.", weight: 0.74, sourceHint: "Park-factor model" },
+    { key: "run_environment_delta", label: "Run environment delta", category: "environment", description: "Weather and park adjusted run environment.", weight: 0.81, sourceHint: "Park/weather context" },
+    { key: "bullpen_quality", label: "Bullpen quality", category: "volatility", description: "Late-game pitching stability.", weight: 0.79, sourceHint: "Bullpen usage and quality model" }
   ],
   NFL: [
     { key: "epa_per_play", label: "EPA/Play", category: "expected_value", description: "Expected points impact per play.", weight: 0.99, sourceHint: "Play-by-play model" },
