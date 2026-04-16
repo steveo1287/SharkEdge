@@ -88,30 +88,30 @@ function StatBar({ label, value, sub, href, tone = "default" }: {
   tone?: "default" | "green" | "blue" | "amber";
 }) {
   const valueClass = {
-    default: "text-white",
-    green: "text-green-400",
-    blue: "text-blue-400",
-    amber: "text-amber-400"
+    default: "text-text-primary",
+    green:   "text-mint",
+    blue:    "text-aqua",
+    amber:   "text-bone"
   }[tone];
 
   const inner = (
-    <div className="flex flex-col gap-0.5">
-      <div className="text-[0.62rem] font-medium uppercase tracking-[0.12em] text-zinc-500">{label}</div>
-      <div className={`font-mono text-xl font-semibold leading-none ${valueClass}`}>{value}</div>
-      {sub && <div className="text-[0.65rem] text-zinc-600">{sub}</div>}
+    <div className="flex flex-col gap-1">
+      <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">{label}</div>
+      <div className={`display-number text-[22px] leading-none ${valueClass}`}>{value}</div>
+      {sub && <div className="text-[11px] text-bone/50">{sub}</div>}
     </div>
   );
 
   if (href) {
     return (
-      <Link href={href} className="group block rounded-lg border border-zinc-800/70 bg-zinc-900/50 px-4 py-3 transition hover:border-zinc-700/70 hover:bg-zinc-800/50">
+      <Link href={href} className="focusable group block rounded-md border border-bone/[0.08] bg-surface px-4 py-3 transition-colors hover:border-bone/[0.14]">
         {inner}
       </Link>
     );
   }
 
   return (
-    <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/50 px-4 py-3">
+    <div className="rounded-md border border-bone/[0.08] bg-surface px-4 py-3">
       {inner}
     </div>
   );
@@ -127,18 +127,18 @@ function QuickAction({ href, label, icon, description }: {
   return (
     <Link
       href={href}
-      className="group flex items-start gap-3 rounded-xl border border-zinc-800/70 bg-zinc-900/40 p-4 transition hover:border-blue-500/25 hover:bg-blue-500/5"
+      className="focusable group flex items-start gap-3 rounded-md border border-bone/[0.08] bg-surface p-4 transition-colors hover:border-aqua/25 hover:bg-aqua/[0.03]"
     >
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-700/50 bg-zinc-800 text-zinc-400 transition group-hover:border-blue-500/30 group-hover:text-blue-400">
+      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-bone/[0.10] bg-panel text-bone/60 transition-colors group-hover:border-aqua/30 group-hover:text-aqua">
         <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" dangerouslySetInnerHTML={{ __html: icon }} />
       </div>
       <div>
-        <div className="text-[0.8125rem] font-semibold text-white">{label}</div>
-        <div className="mt-0.5 text-[0.72rem] leading-snug text-zinc-500">{description}</div>
+        <div className="text-[13px] font-semibold text-text-primary">{label}</div>
+        <div className="mt-1 text-[11.5px] leading-snug text-bone/55">{description}</div>
       </div>
-      <div className="ml-auto mt-0.5 text-zinc-700 transition group-hover:text-zinc-400">
+      <div className="ml-auto mt-0.5 text-bone/30 transition-colors group-hover:text-aqua">
         <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none">
-          <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </div>
     </Link>
@@ -155,19 +155,29 @@ function MovementRow({ label, league, direction, from, to, note }: {
   note?: string;
 }) {
   return (
-    <div className="flex items-center gap-3 py-3 border-b border-zinc-800/50 last:border-0">
-      <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs ${direction === "up" ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
-        {direction === "up" ? "↑" : "↓"}
+    <div className="flex items-center gap-3 border-b border-bone/[0.06] py-2.5 last:border-0">
+      <div
+        className={`flex h-5 w-5 shrink-0 items-center justify-center text-[11px] font-semibold ${
+          direction === "up" ? "text-mint" : "text-crimson"
+        }`}
+      >
+        {direction === "up" ? "▲" : "▼"}
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-[0.8rem] font-medium text-white truncate">{label}</div>
-        {note && <div className="text-[0.68rem] text-zinc-500">{note}</div>}
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[13px] font-medium text-text-primary">{label}</div>
+        {note && <div className="mt-0.5 text-[11px] text-bone/50">{note}</div>}
       </div>
       <div className="shrink-0 text-right">
-        <div className="font-mono text-[0.75rem] text-zinc-400 line-through">{from}</div>
-        <div className={`font-mono text-[0.8rem] font-semibold ${direction === "up" ? "text-green-400" : "text-red-400"}`}>{to}</div>
+        <div className="font-mono text-[11px] text-bone/40 line-through tabular-nums">{from}</div>
+        <div
+          className={`font-mono text-[12.5px] font-semibold tabular-nums ${
+            direction === "up" ? "text-mint" : "text-crimson"
+          }`}
+        >
+          {to}
+        </div>
       </div>
-      <div className="shrink-0 rounded-md border border-zinc-800 px-1.5 py-0.5 text-[0.6rem] font-semibold uppercase text-zinc-500">
+      <div className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.10em] text-bone/50">
         {league}
       </div>
     </div>
@@ -187,13 +197,16 @@ function SectionHeader({
   hrefLabel?: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className="flex items-end justify-between gap-4">
       <div>
-        <div className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-blue-500">{eyebrow}</div>
-        <h2 className="mt-0.5 font-display text-base font-semibold text-white">{title}</h2>
+        <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">{eyebrow}</div>
+        <h2 className="mt-1 font-display text-[17px] font-semibold tracking-[-0.01em] text-text-primary">{title}</h2>
       </div>
       {href && (
-        <Link href={href} className="shrink-0 text-[0.72rem] font-medium text-zinc-500 transition hover:text-zinc-300">
+        <Link
+          href={href}
+          className="shrink-0 text-[11.5px] font-medium uppercase tracking-[0.08em] text-bone/50 transition-colors hover:text-aqua"
+        >
           {hrefLabel} →
         </Link>
       )}
@@ -228,15 +241,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         <div className="mobile-surface">
           <div className="mb-3 flex items-center justify-between">
             <div>
-              <div className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-zinc-600">Command Center</div>
-              <h1 className="mt-0.5 font-display text-xl font-semibold text-white">Today's Market</h1>
+              <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">The Desk</div>
+              <h1 className="mt-1 font-display text-[20px] font-semibold tracking-[-0.01em] text-text-primary">Today's Market</h1>
             </div>
-            <div className="flex items-center gap-1.5 rounded-full border border-green-500/20 bg-green-500/8 px-2.5 py-1">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-60" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-green-500" />
-              </span>
-              <span className="text-[0.6rem] font-semibold uppercase tracking-[0.12em] text-green-400">Live</span>
+            <div className="flex items-center gap-1.5 rounded-sm border border-bone/[0.10] bg-surface px-2 py-1">
+              <span className="live-dot" />
+              <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/80">Live</span>
             </div>
           </div>
 
@@ -292,33 +302,33 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           />
         </div>
 
-        {/* League filter strip */}
+        {/* League filter strip — segmented control, sharp squared chips */}
         <div className="mb-4 flex items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-zinc-600">Filter</span>
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="mr-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/45">League</span>
             {HOME_LEAGUE_ITEMS.map((league) => (
               <Link
                 key={league.key}
                 href={`/?league=${league.key}&date=${home.selectedDate}`}
                 className={
                   home.selectedLeague === league.key
-                    ? "rounded-md border border-blue-500/30 bg-blue-500/12 px-2.5 py-1 text-[0.72rem] font-semibold text-blue-300"
-                    : "rounded-md border border-zinc-800 bg-transparent px-2.5 py-1 text-[0.72rem] font-medium text-zinc-500 transition hover:border-zinc-700 hover:text-zinc-300"
+                    ? "rounded-sm border border-aqua/40 bg-aqua/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-aqua"
+                    : "rounded-sm border border-bone/[0.08] bg-transparent px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-bone/55 transition-colors hover:border-bone/[0.14] hover:text-bone/90"
                 }
               >
                 {league.label}
               </Link>
             ))}
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             {HOME_DESK_DATES.map((date) => (
               <Link
                 key={date.key}
                 href={`/?league=${home.selectedLeague}&date=${date.key}`}
                 className={
                   home.selectedDate === date.key
-                    ? "rounded-md border border-zinc-600 bg-zinc-800 px-2.5 py-1 text-[0.72rem] font-semibold text-white"
-                    : "rounded-md border border-zinc-800 px-2.5 py-1 text-[0.72rem] font-medium text-zinc-600 transition hover:border-zinc-700 hover:text-zinc-400"
+                    ? "rounded-sm border border-bone/30 bg-bone/[0.08] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-primary"
+                    : "rounded-sm border border-bone/[0.06] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-bone/45 transition-colors hover:border-bone/[0.14] hover:text-bone/80"
                 }
               >
                 {date.label}
@@ -353,10 +363,10 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                   />
                 ))
               ) : (
-                <div className="col-span-2 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-6 text-center">
-                  <div className="text-[0.75rem] font-medium text-zinc-500">No edges cleared the threshold right now</div>
-                  <div className="mt-2 text-[0.68rem] text-zinc-700">The engine refuses to force picks. Check back as lines move.</div>
-                  <Link href="/board" className="mt-4 inline-block rounded-lg bg-zinc-800 px-4 py-2 text-[0.75rem] font-medium text-zinc-300 transition hover:bg-zinc-700">
+                <div className="col-span-2 rounded-lg border border-bone/[0.08] bg-surface p-8 text-center">
+                  <div className="text-[13px] font-medium text-text-primary">No edges cleared the threshold right now</div>
+                  <div className="mt-2 text-[12px] text-bone/50">The engine refuses to force picks. Check back as lines move.</div>
+                  <Link href="/board" className="mt-5 inline-block rounded-md border border-bone/[0.12] bg-panel px-4 py-2 text-[12px] font-medium uppercase tracking-[0.08em] text-bone/80 transition-colors hover:border-aqua/40 hover:text-aqua">
                     Browse the board →
                   </Link>
                 </div>
@@ -379,10 +389,10 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 ))}
               </div>
               {home.verifiedGames.length > 6 && (
-                <Link href="/games" className="mt-3 flex items-center justify-center gap-2 rounded-lg border border-zinc-800/70 py-2.5 text-[0.75rem] font-medium text-zinc-500 transition hover:border-zinc-700 hover:text-zinc-300">
-                  +{home.verifiedGames.length - 6} more games on the slate
+                <Link href="/games" className="mt-3 flex items-center justify-center gap-2 rounded-md border border-bone/[0.08] py-2.5 text-[12px] font-medium uppercase tracking-[0.08em] text-bone/55 transition-colors hover:border-aqua/30 hover:text-aqua">
+                  +{home.verifiedGames.length - 6} more on the slate
                   <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none">
-                    <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                    <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
                   </svg>
                 </Link>
               )}
@@ -414,9 +424,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             />
             <div className="mt-3 grid gap-3 xl:grid-cols-2">
               {/* Bet now */}
-              <div className="rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-4">
-                <div className="mb-3 text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-green-500">
-                  Bet Now Windows
+              <div className="rounded-lg border border-bone/[0.08] bg-surface p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="live-dot" />
+                  <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-mint">
+                    Bet Now Windows
+                  </span>
                 </div>
                 <div className="grid gap-2">
                   {home.decisionWindows.length > 0 ? (
@@ -424,17 +437,17 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                       <Link
                         key={`${opp.id}-window`}
                         href={`/game/${opp.eventId}`}
-                        className="group rounded-lg border border-zinc-800/60 bg-zinc-900/60 p-3 transition hover:border-green-500/25 hover:bg-green-500/5"
+                        className="focusable group rounded-md border border-bone/[0.06] bg-panel p-3 transition-colors hover:border-mint/30"
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <div className="text-[0.8rem] font-medium text-white">{opp.selectionLabel}</div>
-                          <span className="rounded border border-zinc-700 px-1.5 py-0.5 text-[0.6rem] font-semibold text-zinc-500">{opp.league}</span>
+                          <div className="text-[13px] font-medium text-text-primary">{opp.selectionLabel}</div>
+                          <span className="rounded-sm border border-bone/[0.10] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/60">{opp.league}</span>
                         </div>
-                        <div className="mt-1.5 text-[0.72rem] leading-snug text-zinc-400">{opp.reasonSummary}</div>
+                        <div className="mt-1.5 text-[11.5px] leading-snug text-bone/55">{opp.reasonSummary}</div>
                       </Link>
                     ))
                   ) : (
-                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/60 p-3 text-[0.72rem] text-zinc-600">
+                    <div className="rounded-md border border-bone/[0.06] bg-panel p-3 text-[11.5px] text-bone/45">
                       No immediate bet-now windows right now.
                     </div>
                   )}
@@ -442,8 +455,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               </div>
 
               {/* Traps */}
-              <div className="rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-4">
-                <div className="mb-3 text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-red-500">
+              <div className="rounded-lg border border-bone/[0.08] bg-surface p-4">
+                <div className="mb-3 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-crimson">
                   Trap Desk
                 </div>
                 <div className="grid gap-2">
@@ -451,16 +464,16 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                     home.traps.slice(0, 3).map((opp) => (
                       <div
                         key={`${opp.id}-trap`}
-                        className="rounded-lg border border-red-500/15 bg-red-500/5 p-3"
+                        className="focusable rounded-md border border-[rgba(255,77,94,0.18)] bg-[rgba(255,77,94,0.04)] p-3"
                       >
-                        <div className="text-[0.8rem] font-medium text-white">{opp.selectionLabel}</div>
-                        <div className="mt-1.5 text-[0.72rem] leading-snug text-red-300/80">
+                        <div className="text-[13px] font-medium text-text-primary">{opp.selectionLabel}</div>
+                        <div className="mt-1.5 text-[11.5px] leading-snug text-[rgba(255,77,94,0.80)]">
                           {opp.whatCouldKillIt?.[0] ?? opp.reasonSummary}
                         </div>
                       </div>
                     ))
                   ) : (
-                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/60 p-3 text-[0.72rem] text-zinc-600">
+                    <div className="rounded-md border border-bone/[0.06] bg-panel p-3 text-[11.5px] text-bone/45">
                       No trap flags are dominating the desk.
                     </div>
                   )}
@@ -474,22 +487,19 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         <div className="hidden xl:grid xl:gap-5 xl:content-start">
 
           {/* Live Watch Feed */}
-          <div className="rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-4">
+          <div className="rounded-lg border border-bone/[0.08] bg-surface p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div>
-                <div className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-zinc-600">Live Watch</div>
-                <div className="mt-0.5 text-[0.875rem] font-semibold text-white">Line Movement</div>
+                <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">Live Watch</div>
+                <div className="mt-1 text-[14px] font-semibold text-text-primary">Line Movement</div>
               </div>
               {home.liveDeskAvailable ? (
                 <div className="flex items-center gap-1.5">
-                  <span className="relative flex h-1.5 w-1.5">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-60" />
-                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-green-500" />
-                  </span>
-                  <span className="text-[0.6rem] font-semibold text-green-500">Live</span>
+                  <span className="live-dot" />
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/80">Live</span>
                 </div>
               ) : (
-                <span className="text-[0.6rem] font-semibold text-zinc-600">Static</span>
+                <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/40">Static</span>
               )}
             </div>
 
@@ -510,14 +520,14 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                   </Link>
                 ))}
                 {home.movementGames.length > 5 && (
-                  <Link href="/board?sort=movement" className="mt-2 block text-center text-[0.68rem] text-zinc-600 transition hover:text-zinc-400">
+                  <Link href="/board?sort=movement" className="mt-2 block text-center text-[11px] font-semibold uppercase tracking-[0.08em] text-bone/45 transition-colors hover:text-aqua">
                     +{home.movementGames.length - 5} more →
                   </Link>
                 )}
               </div>
             ) : (
-              <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-4 text-center">
-                <div className="text-[0.72rem] text-zinc-600">
+              <div className="rounded-md border border-bone/[0.06] bg-panel p-4 text-center">
+                <div className="text-[11.5px] text-bone/45">
                   {home.liveDeskMessage ?? "No qualified movement right now."}
                 </div>
               </div>
@@ -526,7 +536,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
           {/* Quick Access */}
           <div>
-            <div className="mb-3 text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-zinc-600">Quick Access</div>
+            <div className="mb-3 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">Quick Access</div>
             <div className="grid gap-2">
               <QuickAction
                 href="/board"
@@ -556,9 +566,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </div>
 
           {/* Provider Health */}
-          <div className="rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-4">
+          <div className="rounded-lg border border-bone/[0.08] bg-surface p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
-              <div className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-zinc-600">Data Health</div>
+              <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">Data Health</div>
               <Badge tone={getProviderHealthTone(home.deskStatusState)}>{home.deskStatusLabel}</Badge>
             </div>
             <DiagnosticMetaStrip
@@ -571,38 +581,38 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                   : null
               ]}
             />
-            <div className="mt-3 text-[0.7rem] leading-relaxed text-zinc-600">
+            <div className="mt-3 text-[11.5px] leading-[1.5] text-bone/50">
               {home.deskSourceNote}
             </div>
-            <Link href="/providers" className="mt-3 block text-[0.68rem] font-medium text-blue-500 transition hover:text-blue-400">
-              View provider detail →
+            <Link href="/providers" className="mt-3 block text-[11px] font-semibold uppercase tracking-[0.08em] text-aqua transition-colors hover:text-aqua-hot">
+              Provider detail →
             </Link>
           </div>
 
           {/* Additional trend sections */}
           {trendFeed.sections.slice(0, 1).map((section) => (
-            <div key={section.category} className="rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-4">
+            <div key={section.category} className="rounded-lg border border-bone/[0.08] bg-surface p-4">
               <div className="mb-3">
-                <div className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-blue-500">Trend Rail</div>
-                <div className="mt-0.5 text-[0.875rem] font-semibold text-white">{section.category}</div>
+                <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">Trend Rail</div>
+                <div className="mt-1 text-[14px] font-semibold text-text-primary">{section.category}</div>
               </div>
               <div className="grid gap-2">
                 {section.cards.slice(0, 3).map((card) => (
                   <Link
                     key={card.id}
                     href={card.href}
-                    className="group rounded-lg border border-zinc-800/60 bg-zinc-900/60 p-3 transition hover:border-blue-500/20 hover:bg-blue-500/5"
+                    className="focusable group rounded-md border border-bone/[0.06] bg-panel p-3 transition-colors hover:border-aqua/25"
                   >
-                    <div className="text-[0.78rem] font-medium text-white leading-snug">{card.title}</div>
-                    <div className="mt-1 flex items-center gap-2">
-                      <span className="font-mono text-[0.68rem] text-green-400">{card.record}</span>
-                      <span className="text-zinc-700">·</span>
-                      <span className="text-[0.68rem] text-zinc-500">{card.leagueLabel}</span>
+                    <div className="text-[12.5px] font-medium leading-snug text-text-primary">{card.title}</div>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <span className="font-mono text-[11px] font-semibold tabular-nums text-mint">{card.record}</span>
+                      <span className="text-bone/20">·</span>
+                      <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">{card.leagueLabel}</span>
                     </div>
                   </Link>
                 ))}
               </div>
-              <Link href="/trends" className="mt-3 block text-[0.68rem] font-medium text-zinc-600 transition hover:text-zinc-400">
+              <Link href="/trends" className="mt-3 block text-[11px] font-semibold uppercase tracking-[0.08em] text-bone/50 transition-colors hover:text-aqua">
                 More trends →
               </Link>
             </div>
@@ -614,7 +624,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       <div className="xl:hidden">
         {home.topActionables.length > 0 && (
           <section className="grid gap-3">
-            <div className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-blue-500">Top Edges</div>
+            <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">Top Edges</div>
             {home.topActionables.slice(0, 2).map((opp) => (
               <OpportunitySpotlightCard
                 key={opp.id}
@@ -628,7 +638,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
         {trendFeed.featured.length > 0 && (
           <section className="grid gap-3">
-            <div className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-blue-500">Active Signals</div>
+            <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">Active Signals</div>
             <div className="mobile-scroll-row hide-scrollbar">
               {trendFeed.featured.map((card) => (
                 <MobileTrendCard key={card.id} card={card} featured={false} />
