@@ -150,10 +150,11 @@ function MovementRow({ label, league, direction, from, to, note }: {
   label: string;
   league: string;
   direction: "up" | "down";
-  from: string;
+  from?: string;
   to: string;
   note?: string;
 }) {
+  const hasFrom = typeof from === "string" && from.length > 0 && from !== "—";
   return (
     <div className="flex items-center gap-3 border-b border-bone/[0.06] py-2.5 last:border-0">
       <div
@@ -168,7 +169,9 @@ function MovementRow({ label, league, direction, from, to, note }: {
         {note && <div className="mt-0.5 text-[11px] text-bone/50">{note}</div>}
       </div>
       <div className="shrink-0 text-right">
-        <div className="font-mono text-[11px] text-bone/40 line-through tabular-nums">{from}</div>
+        {hasFrom ? (
+          <div className="font-mono text-[11px] text-bone/40 line-through tabular-nums">{from}</div>
+        ) : null}
         <div
           className={`font-mono text-[12.5px] font-semibold tabular-nums ${
             direction === "up" ? "text-mint" : "text-crimson"
@@ -513,7 +516,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                       direction={
                         (game.spread?.movement ?? game.moneyline?.movement ?? 0) >= 0 ? "up" : "down"
                       }
-                      from="—"
                       to={game.spread?.lineLabel ?? game.moneyline?.lineLabel ?? "—"}
                       note={game.spread?.movement ? `Spread moved ${Math.abs(game.spread.movement).toFixed(1)}` : undefined}
                     />
