@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
 import { buildUfcSourceProfile } from "@/services/modeling/ufc-source-profile";
+import { buildUfcSourceConsensus, type StoredCombatSourceProfile } from "@/services/modeling/ufc-source-consensus";
 import { resolveCombatCompetitorIdentity, type CombatCompetitorCandidate } from "@/services/modeling/ufc-identity-resolution";
 
 export type RawCombatSourceProfile = {
@@ -59,6 +60,19 @@ function mergeMetadata(base: Prisma.JsonValue | null, updates: Record<string, un
     ...record,
     ...updates
   } as Prisma.InputJsonValue;
+}
+
+
+function readStoredSourceProfiles(metadata: Record<string, unknown> | null | undefined) {
+  const list = metadata?.combatSourceProfiles;
+  if (Array.isArray(list)) {
+    return list.filter((entry): entry is StoredCombatSourceProfile => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry) && typeof (entry as { source?: unknown }).source === "string" && typeof (entry as { profile?: unknown }).profile === "object");
+  }
+  const single = metadata?.combatSourceProfile;
+  if (single && typeof single === "object" && !Array.isArray(single) && typeof (single as { source?: unknown }).source === "string" && typeof (single as { profile?: unknown }).profile === "object") {
+    return [single as StoredCombatSourceProfile];
+  }
+  return [] as StoredCombatSourceProfile[];
 }
 
 function mergeAliases(existing: Record<string, unknown> | null | undefined, incoming: string[]) {
@@ -151,17 +165,26 @@ export async function importCombatSourceProfiles(rawProfiles: RawCombatSourcePro
       ? (competitor.metadataJson as Record<string, unknown>)
       : null;
 
+    const storedProfile = {
+      source: normalized.source,
+      sourceUrl: normalized.sourceUrl,
+      importedAt: new Date().toISOString(),
+      resolutionScore: resolution.resolutionScore,
+      matchedBy: resolution.matchedBy,
+      profile: normalized.metadata
+    } satisfies StoredCombatSourceProfile;
+    const historicalProfiles = readStoredSourceProfiles(competitorMeta)
+      .filter((entry) => !(entry.source === storedProfile.source && JSON.stringify(entry.profile) === JSON.stringify(storedProfile.profile)))
+      .slice(-9);
+    const combatSourceProfiles = [...historicalProfiles, storedProfile];
+    const sourceConsensus = buildUfcSourceConsensus(combatSourceProfiles);
+
     const metadataPatch = {
-      ...normalized.metadata,
+      ...sourceConsensus.consensusFields,
       aliases: mergeAliases(competitorMeta, normalized.aliases),
-      combatSourceProfile: {
-        source: normalized.source,
-        sourceUrl: normalized.sourceUrl,
-        importedAt: new Date().toISOString(),
-        resolutionScore: resolution.resolutionScore,
-        matchedBy: resolution.matchedBy,
-        profile: normalized.metadata
-      },
+      combatSourceProfile: storedProfile,
+      combatSourceProfiles,
+      combatSourceConsensus: sourceConsensus,
       nickname: normalized.nickname ?? competitorMeta?.nickname ?? null
     };
 

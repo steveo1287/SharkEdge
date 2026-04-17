@@ -269,3 +269,104 @@ What this pass enables:
 Limits of this ninth pass:
 - this is a source-profile importer contract, not a live web crawler; it expects JSON payloads or future upstream fetchers to supply the raw source profiles
 - identity resolution is heuristic and strong, but not yet a full graph DB with persistent cross-source identity nodes
+
+Tenth upgrade: UFC Source Consensus + Fighter Dossier Pass
+
+Core upgrades:
+- Added `frontend/services/modeling/ufc-source-consensus.ts`
+  - merges multiple imported source profiles into a weighted consensus view
+  - computes source confidence and consensus fields across source payloads
+- Updated `frontend/services/modeling/ufc-source-ingest-service.ts`
+  - now preserves historical `combatSourceProfiles`
+  - builds and stores `combatSourceConsensus`
+  - keeps latest import while also maintaining multi-source history
+- Added `frontend/services/modeling/ufc-fighter-dossier-service.ts`
+  - assembles a product-ready UFC fighter dossier from identity data, source consensus, opponent graph, intelligence profile, best wins, and bad losses
+  - supports dossier refresh/persistence for UFC competitors
+- Added worker:
+  - `frontend/scripts/worker-ufc-dossiers.ts`
+- Added Netlify API function:
+  - `frontend/netlify/functions/ufc-fighter-dossier.mts`
+  - path: `/api/ufc/fighter-dossier`
+- Added tests:
+  - `frontend/tests/ufc-source-consensus.test.ts`
+- Added package scripts:
+  - `worker:ufc-dossiers`
+
+What this pass enables:
+- a real UFC profile surface instead of raw metadata blobs
+- multi-source source-history with weighted consensus
+- API access for a fighter dossier card/page in the UI
+- persisted dossiers that can be refreshed for many UFC fighters at once
+
+Limits of this tenth pass:
+- the dossier API currently keys on `competitorId`; it is not yet a full public search/index route
+- source collection is still dependent on imported source payloads rather than live crawlers/parsers
+
+Eleventh upgrade: UFC Rankings + Division + Event Context Pass
+
+Core upgrades:
+- Added `frontend/services/modeling/ufc-division-catalog.ts`
+  - canonical UFC division catalog with stable keys and alias normalization
+- Added `frontend/services/modeling/ufc-rankings-service.ts`
+  - normalizes ranking snapshots
+  - resolves ranked fighters onto UFC competitors
+  - persists division, ranking, and champion status onto fighter metadata
+- Added `frontend/services/modeling/ufc-event-context-service.ts`
+  - builds UFC event context from event metadata + fighter rank/champion state
+  - marks title fights, ranked fights, and dossier readiness per fighter
+  - supports persistence of `ufcEventContext` onto UFC events
+- Added workers:
+  - `frontend/scripts/worker-ufc-rankings.ts`
+  - `frontend/scripts/worker-ufc-event-context.ts`
+- Added Netlify API function:
+  - `frontend/netlify/functions/ufc-event-context.mts`
+  - path: `/api/ufc/event-context`
+- Added tests:
+  - `frontend/tests/ufc-division-catalog.test.ts`
+  - `frontend/tests/ufc-rankings-service.test.ts`
+  - `frontend/tests/ufc-event-context.test.ts`
+- Added package scripts:
+  - `worker:ufc-rankings`
+  - `worker:ufc-event-context`
+
+What this pass enables:
+- reliable division normalization
+- stable fighter ranking/champion metadata
+- event cards/context that know the division, whether it is a title fight, and which fighters are ranked/champions
+- a backend shape the UI can trust for rankings, divisions, champions, and UFC events without brittle string matching
+
+Limits of this eleventh pass:
+- ranking ingestion still expects a supplied ranking snapshot rather than a live rankings fetcher
+- event context uses current fighter metadata and event metadata, so missing or stale division data still needs refresh discipline
+
+Twelfth upgrade: UFC League Hub UI Pass
+
+Core upgrades:
+- Added `frontend/services/modeling/ufc-hub-service.ts`
+  - gathers division rankings/champions and upcoming UFC event context into one UI-ready payload
+- Added UFC UI components:
+  - `frontend/components/ufc/ufc-rank-badge.tsx`
+  - `frontend/components/ufc/ufc-league-desk.tsx`
+- Added UFC fighter dossier page:
+  - `frontend/app/ufc/fighters/[competitorId]/page.tsx`
+- Added UFC route convenience page:
+  - `frontend/app/ufc/page.tsx` redirecting to `/leagues/ufc`
+- Updated `frontend/app/leagues/[league]/page.tsx`
+  - UFC now renders a dedicated UFC league desk instead of the generic league layout
+- UFC league desk now shows:
+  - division sections
+  - champion badges
+  - ranked contenders
+  - upcoming UFC events
+  - title-fight / ranked-fight context
+  - dossier links for fighters
+
+What this pass enables:
+- a visible UFC product surface for rankings, champions, divisions, events, and dossier routing
+- one reliable UFC league page built off the normalized ranking/event-context layers from prior passes
+- a direct UFC dossier route users can open from rankings and event cards
+
+Limits of this twelfth pass:
+- this is still a server-rendered first UI layer, not a polished full compare/search workflow yet
+- empty states are still dependent on rankings/event metadata being populated by the ranking/event workers

@@ -5,6 +5,7 @@ import { LeagueBadge } from "@/components/identity/league-badge";
 import { LeagueSnapshot } from "@/components/board/league-snapshot";
 import { MarketMoversPanel } from "@/components/board/market-movers-panel";
 import { VerifiedBoardGrid } from "@/components/board/verified-board-grid";
+import { UfcLeagueDesk } from "@/components/ufc/ufc-league-desk";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SectionTitle } from "@/components/ui/section-title";
@@ -132,6 +133,10 @@ export default async function LeagueCenterPage({ params }: PageProps) {
     market: "all",
     status: "all"
   });
+
+  if (leagueKey === "UFC") {
+    return <UfcLeagueDesk />;
+  }
 
   const [boardData, propsData, trendCards, snapshots] = await Promise.all([
     getBoardPageData(boardFilters),
