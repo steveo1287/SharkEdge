@@ -40,6 +40,14 @@ const THERUNDOWN_SPORT_IDS: Record<Exclude<LeagueKey, "UFC" | "BOXING">, number>
   NCAAB: 5,
   NHL: 6
 };
+const THERUNDOWN_SPORT_KEYS: Record<Exclude<LeagueKey, "UFC" | "BOXING">, string> = {
+  NBA: "basketball_nba",
+  NCAAB: "basketball_ncaab",
+  MLB: "baseball_mlb",
+  NHL: "icehockey_nhl",
+  NFL: "americanfootball_nfl",
+  NCAAF: "americanfootball_ncaaf"
+};
 
 type TheRundownPrice = {
   price: number;
@@ -81,6 +89,19 @@ type BookOutcomeEntry = {
   point: number | null;
 };
 
+type FetchTheRundownLeaguesBoardOptions = {
+  leagues?: LeagueKey[];
+  cacheTtlMs?: number;
+  timeoutMs?: number;
+};
+
+type CachedLeagueBoard = {
+  expiresAt: number;
+  payload: CurrentOddsBoardResponse | null;
+};
+
+const therundownLeagueBoardCache = new Map<string, CachedLeagueBoard>();
+
 function getApiKey() {
   const value = process.env.THERUNDOWN_API_KEY?.trim();
   return value?.length ? value : null;
@@ -99,7 +120,11 @@ function formatDateKey(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-async function fetchTheRundownJson<T>(path: string, params: Record<string, string>) {
+async function fetchTheRundownJson<T>(
+  path: string,
+  params: Record<string, string>,
+  timeoutMs = THERUNDOWN_PROVIDER_TIMEOUT_MS
+) {
   const apiKey = getApiKey();
   if (!apiKey) {
     return null;
@@ -117,7 +142,7 @@ async function fetchTheRundownJson<T>(path: string, params: Record<string, strin
 
     const response = await fetch(url.toString(), {
       cache: "no-store",
-      signal: AbortSignal.timeout(THERUNDOWN_PROVIDER_TIMEOUT_MS)
+      signal: AbortSignal.timeout(timeoutMs)
     });
 
     if (!response.ok) {
@@ -291,7 +316,11 @@ function buildGame(event: TheRundownEvent, affiliateIds: string[]) {
   } satisfies CurrentOddsGame;
 }
 
-async function fetchLeagueBoard(leagueKey: LeagueKey, dateKey: string) {
+async function fetchLeagueBoard(
+  leagueKey: LeagueKey,
+  dateKey: string,
+  timeoutMs = THERUNDOWN_PROVIDER_TIMEOUT_MS
+) {
   const sportId = THERUNDOWN_SPORT_IDS[leagueKey as keyof typeof THERUNDOWN_SPORT_IDS];
   if (!sportId) {
     return null;
@@ -305,7 +334,8 @@ async function fetchLeagueBoard(leagueKey: LeagueKey, dateKey: string) {
       offset: THERUNDOWN_OFFSET_MINUTES,
       main_line: "true",
       ...(affiliateIds.length ? { affiliate_ids: affiliateIds.join(",") } : {})
-    }
+    },
+    timeoutMs
   );
 
   const games = (response?.events ?? [])
@@ -317,12 +347,88 @@ async function fetchLeagueBoard(leagueKey: LeagueKey, dateKey: string) {
   }
 
   return {
-    key: leagueKey,
+    key: THERUNDOWN_SPORT_KEYS[leagueKey as keyof typeof THERUNDOWN_SPORT_KEYS] ?? leagueKey,
     title: leagueKey,
     short_title: leagueKey,
     game_count: games.length,
     games
   } satisfies CurrentOddsSport;
+}
+
+function mergeSportsByKey(sports: CurrentOddsSport[]) {
+  const byKey = new Map<string, CurrentOddsSport>();
+
+  for (const sport of sports) {
+    const existing = byKey.get(sport.key);
+    if (!existing) {
+      byKey.set(sport.key, {
+        ...sport,
+        games: [...sport.games],
+        game_count: sport.games.length
+      });
+      continue;
+    }
+
+    existing.games.push(...sport.games);
+    existing.game_count = existing.games.length;
+  }
+
+  return Array.from(byKey.values());
+}
+
+export async function fetchTheRundownLeaguesBoard(
+  options: FetchTheRundownLeaguesBoardOptions = {}
+): Promise<CurrentOddsBoardResponse | null> {
+  if (!getApiKey()) {
+    return null;
+  }
+
+  const supportedLeagues = (options.leagues?.filter((league) =>
+    THERUNDOWN_SUPPORTED_LEAGUES.includes(league)
+  ) ?? THERUNDOWN_SUPPORTED_LEAGUES) as LeagueKey[];
+  if (!supportedLeagues.length) {
+    return null;
+  }
+
+  const timeoutMs = options.timeoutMs ?? THERUNDOWN_PROVIDER_TIMEOUT_MS;
+  const cacheTtlMs = Math.max(0, options.cacheTtlMs ?? 30_000);
+  const cacheKey = supportedLeagues.join(",");
+  const now = Date.now();
+  const cached = therundownLeagueBoardCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.payload;
+  }
+
+  const today = formatDateKey(new Date());
+  const tomorrow = formatDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  const rawSports = (
+    await Promise.all(
+      supportedLeagues.flatMap((leagueKey) => [
+        fetchLeagueBoard(leagueKey, today, timeoutMs),
+        fetchLeagueBoard(leagueKey, tomorrow, timeoutMs)
+      ])
+    )
+  ).filter(Boolean) as CurrentOddsSport[];
+  const sports = mergeSportsByKey(rawSports);
+
+  const payload: CurrentOddsBoardResponse | null = sports.length
+    ? {
+        configured: true,
+        generated_at: new Date().toISOString(),
+        provider: "therundown",
+        provider_mode: "therundown",
+        bookmakers: getAffiliateIds().join(","),
+        errors: [],
+        sports
+      }
+    : null;
+
+  therundownLeagueBoardCache.set(cacheKey, {
+    expiresAt: now + cacheTtlMs,
+    payload
+  });
+
+  return payload;
 }
 
 export const therundownCurrentOddsProvider: CurrentOddsProvider = {
@@ -332,33 +438,10 @@ export const therundownCurrentOddsProvider: CurrentOddsProvider = {
     return THERUNDOWN_SUPPORTED_LEAGUES.includes(leagueKey);
   },
   async fetchBoard() {
-    if (!getApiKey()) {
-      return null;
-    }
-
-    const today = formatDateKey(new Date());
-    const tomorrow = formatDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
-    const sports = (
-      await Promise.all(
-        THERUNDOWN_SUPPORTED_LEAGUES.flatMap((leagueKey) => [
-          fetchLeagueBoard(leagueKey, today),
-          fetchLeagueBoard(leagueKey, tomorrow)
-        ])
-      )
-    ).filter(Boolean) as CurrentOddsSport[];
-
-    if (!sports.length) {
-      return null;
-    }
-
-    return {
-      configured: true,
-      generated_at: new Date().toISOString(),
-      provider: "therundown",
-      provider_mode: "therundown",
-      bookmakers: getAffiliateIds().join(","),
-      errors: [],
-      sports
-    } satisfies CurrentOddsBoardResponse;
+    return fetchTheRundownLeaguesBoard({
+      leagues: THERUNDOWN_SUPPORTED_LEAGUES,
+      timeoutMs: THERUNDOWN_PROVIDER_TIMEOUT_MS,
+      cacheTtlMs: 30_000
+    });
   }
 };

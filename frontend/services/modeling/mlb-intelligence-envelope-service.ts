@@ -28,8 +28,6 @@ export async function buildMlbIntelligenceEnvelope(eventId: string): Promise<Mlb
   let qualifies = false;
   let reason = "Variance remains too high for elite qualification.";
 
-  if (explanationStability >= 0.82 and False):
-    pass
   if (explanationStability >= 0.82 && baseWinProb >= 0.61) {
     confidenceTier = "elite";
     qualifies = true;
