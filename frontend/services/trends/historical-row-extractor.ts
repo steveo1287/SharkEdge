@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
+import { buildFightHistoryFeatureView } from "@/services/modeling/fight-history-warehouse";
+import { buildWeatherFeatureView } from "@/services/modeling/weather-snapshot-warehouse";
 import { profitUnitsForAmericanOdds } from "./metrics";
 import type { HistoricalBetOpportunity } from "./types";
 
@@ -54,6 +56,19 @@ function getTeamContext(contexts: any[], competitorId: string | null | undefined
 
 function getSeason(startTime: Date) {
   return startTime.getUTCFullYear();
+}
+
+function coerceNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(/[^0-9.+-]/g, ""));
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
 }
 
 function getMarketOutcome(args: {
@@ -141,7 +156,53 @@ function buildHistoricalRow(args: {
     awayCompetitorId: awayParticipant?.competitorId ?? null,
     line: args.line
   });
-  const context = getTeamContext(args.event.participantContexts, args.side === "home" ? homeParticipant?.competitorId : args.side === "away" ? awayParticipant?.competitorId : null);
+  const subjectParticipant =
+    args.side === "home" ? homeParticipant : args.side === "away" ? awayParticipant : null;
+  const opponentParticipant =
+    args.side === "home" ? awayParticipant : args.side === "away" ? homeParticipant : null;
+  const context = getTeamContext(args.event.participantContexts, subjectParticipant?.competitorId ?? null);
+  const weatherFeature = buildWeatherFeatureView({
+    sportKey: args.event.league?.key ?? "OTHER",
+    venueName: args.event.venue ?? null,
+    metadataJson: args.event.metadataJson ?? null
+  });
+  const eventMetadata =
+    args.event.metadataJson && typeof args.event.metadataJson === "object" && !Array.isArray(args.event.metadataJson)
+      ? (args.event.metadataJson as Record<string, unknown>)
+      : null;
+  const fightFeatures =
+    (args.event.league?.key === "UFC" || args.event.league?.key === "BOXING") && subjectParticipant && opponentParticipant
+      ? buildFightHistoryFeatureView({
+          sportKey: args.event.league.key,
+          rounds: coerceNumber(eventMetadata?.rounds) ?? (args.event.league.key === "UFC" ? 3 : 10),
+          fighter: {
+            record: subjectParticipant.record ?? null,
+            recentWinRate: context?.recentWinRate ?? null,
+            recentMargin: context?.recentMargin ?? null,
+            metadata: {
+              ...(subjectParticipant.competitor?.metadataJson && typeof subjectParticipant.competitor.metadataJson === "object" && !Array.isArray(subjectParticipant.competitor.metadataJson)
+                ? subjectParticipant.competitor.metadataJson
+                : {}),
+              ...(subjectParticipant.metadataJson && typeof subjectParticipant.metadataJson === "object" && !Array.isArray(subjectParticipant.metadataJson)
+                ? subjectParticipant.metadataJson
+                : {})
+            }
+          },
+          opponent: {
+            record: opponentParticipant.record ?? null,
+            recentWinRate: getTeamContext(args.event.participantContexts, opponentParticipant.competitorId)?.recentWinRate ?? null,
+            recentMargin: getTeamContext(args.event.participantContexts, opponentParticipant.competitorId)?.recentMargin ?? null,
+            metadata: {
+              ...(opponentParticipant.competitor?.metadataJson && typeof opponentParticipant.competitor.metadataJson === "object" && !Array.isArray(opponentParticipant.competitor.metadataJson)
+                ? opponentParticipant.competitor.metadataJson
+                : {}),
+              ...(opponentParticipant.metadataJson && typeof opponentParticipant.metadataJson === "object" && !Array.isArray(opponentParticipant.metadataJson)
+                ? opponentParticipant.metadataJson
+                : {})
+            }
+          }
+        })
+      : null;
 
   return {
     rowId: `${args.event.id}:${args.marketType}:${args.side}`,
@@ -172,11 +233,25 @@ function buildHistoricalRow(args: {
     isBackToBack: context?.isBackToBack ?? null,
     recentWinRate: context?.recentWinRate ?? null,
     recentMargin: context?.recentMargin ?? null,
+    weatherBucket: weatherFeature.weatherBucket,
+    altitudeBucket: weatherFeature.altitudeBucket,
+    fighterQualityBucket: fightFeatures?.fighterQualityBucket ?? null,
+    opponentQualityBucket: fightFeatures?.opponentQualityBucket ?? null,
+    finishPressureBucket: fightFeatures?.finishPressureBucket ?? null,
+    durabilityEdgeBucket: fightFeatures?.durabilityEdgeBucket ?? null,
+    styleConflictBucket: fightFeatures?.styleConflictBucket ?? null,
     lineBucket: getLineBucket(args.line),
     totalBucket: getTotalBucket(args.marketType === "total" ? args.line : null),
     metadata: {
       eventName: args.event.name,
-      venue: args.event.venue ?? null
+      venue: args.event.venue ?? null,
+      weather: {
+        bucket: weatherFeature.weatherBucket,
+        altitudeBucket: weatherFeature.altitudeBucket,
+        source: weatherFeature.adjustment.source,
+        note: weatherFeature.adjustment.note
+      },
+      fight: fightFeatures
     }
   } satisfies HistoricalBetOpportunity;
 }

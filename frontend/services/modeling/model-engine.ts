@@ -1,7 +1,11 @@
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
+import { buildFightHistoryFeatureView } from "@/services/modeling/fight-history-warehouse";
+import { buildFightProjection } from "@/services/modeling/fight-projection-core";
 import { buildMlbEventProjection, buildMlbPlayerPropProjections } from "@/services/modeling/mlb-game-sim-service";
+import { buildGenericEventProjection, buildWeightedAverage } from "@/services/modeling/team-projection-core";
+import { resolveWeatherAdjustment, type WeatherSnapshotInput } from "@/services/modeling/weather-context";
 
 function getNumericStat(stats: Prisma.JsonValue, keys: string[]) {
   if (!stats || typeof stats !== "object" || Array.isArray(stats)) {
@@ -36,6 +40,60 @@ function standardDeviation(values: number[]) {
     values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
     Math.max(1, values.length - 1);
   return Math.sqrt(variance);
+}
+
+
+function asRecord(value: Prisma.JsonValue | null | undefined) {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function coerceNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(/[^0-9.+-]/g, ""));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function buildEventWeatherSnapshot(event: {
+  metadataJson: Prisma.JsonValue | null;
+}) : WeatherSnapshotInput | null {
+  const metadata = asRecord(event.metadataJson);
+  if (!metadata) {
+    return null;
+  }
+  const weatherRecord = asRecord((metadata.weather ?? null) as Prisma.JsonValue | null) ?? metadata;
+  const windMph = coerceNumber(weatherRecord.windMph ?? weatherRecord.wind_speed_mph ?? weatherRecord.wind);
+  const tempF = coerceNumber(weatherRecord.tempF ?? weatherRecord.temperatureF ?? weatherRecord.temp);
+  const precipitationProbability = coerceNumber(
+    weatherRecord.precipitationProbability ?? weatherRecord.precipProbability ?? weatherRecord.rainChance
+  );
+  const humidity = coerceNumber(weatherRecord.humidity ?? weatherRecord.humidityPct);
+  const altitudeFeet = coerceNumber(weatherRecord.altitudeFeet ?? weatherRecord.altitude);
+  const roofStatus = typeof weatherRecord.roofStatus === "string" ? weatherRecord.roofStatus : typeof metadata.roofStatus === "string" ? metadata.roofStatus : null;
+  const source = typeof weatherRecord.source === "string" ? weatherRecord.source : typeof metadata.weatherSource === "string" ? metadata.weatherSource : null;
+  const indoorOverride =
+    typeof weatherRecord.indoorOverride === "boolean"
+      ? weatherRecord.indoorOverride
+      : typeof metadata.isIndoor === "boolean"
+        ? metadata.isIndoor
+        : null;
+
+  if ([windMph, tempF, precipitationProbability, humidity, altitudeFeet].every((value) => value === null) && !roofStatus && !source && indoorOverride === null) {
+    return null;
+  }
+
+  return {
+    source,
+    tempF,
+    windMph,
+    precipitationProbability,
+    humidity,
+    altitudeFeet,
+    roofStatus,
+    indoorOverride
+  };
 }
 
 function buildSportFeatureSet(sportKey: string) {
@@ -108,6 +166,7 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     where: { id: eventId },
     include: {
       league: true,
+      participantContexts: true,
       participants: {
         include: {
           competitor: {
@@ -138,6 +197,97 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     }
   }
 
+  if (event.league.key === "UFC" || event.league.key === "BOXING" || event.eventType === "COMBAT_HEAD_TO_HEAD") {
+    const fighterA =
+      event.participants.find((participant) => participant.role === "COMPETITOR_A") ?? event.participants[0] ?? null;
+    const fighterB =
+      event.participants.find((participant) => participant.role === "COMPETITOR_B") ?? event.participants[1] ?? null;
+
+    if (!fighterA || !fighterB) {
+      return null;
+    }
+
+    const fighterAContext = event.participantContexts.find((row) => row.competitorId === fighterA.competitorId) ?? null;
+    const fighterBContext = event.participantContexts.find((row) => row.competitorId === fighterB.competitorId) ?? null;
+    const eventMetadata = asRecord(event.metadataJson);
+    const rounds = coerceNumber(eventMetadata?.rounds) ?? (event.league.key === "UFC" ? 3 : 10);
+    const fighterAMetadata = {
+      ...(asRecord(fighterA.competitor.metadataJson) ?? {}),
+      ...(asRecord(fighterA.metadataJson) ?? {}),
+      ...(asRecord(fighterAContext?.metadataJson) ?? {})
+    };
+    const fighterBMetadata = {
+      ...(asRecord(fighterB.competitor.metadataJson) ?? {}),
+      ...(asRecord(fighterB.metadataJson) ?? {}),
+      ...(asRecord(fighterBContext?.metadataJson) ?? {})
+    };
+
+    const fightProjection = buildFightProjection({
+      sportKey: event.league.key as "UFC" | "BOXING",
+      rounds,
+      fighterA: {
+        name: fighterA.competitor.name,
+        record: fighterA.record,
+        recentWinRate: fighterAContext?.recentWinRate ?? null,
+        recentMargin: fighterAContext?.recentMargin ?? null,
+        daysRest: fighterAContext?.daysRest ?? null,
+        metadata: fighterAMetadata
+      },
+      fighterB: {
+        name: fighterB.competitor.name,
+        record: fighterB.record,
+        recentWinRate: fighterBContext?.recentWinRate ?? null,
+        recentMargin: fighterBContext?.recentMargin ?? null,
+        daysRest: fighterBContext?.daysRest ?? null,
+        metadata: fighterBMetadata
+      }
+    });
+
+    const fightFeatureBuckets = buildFightHistoryFeatureView({
+      sportKey: event.league.key as "UFC" | "BOXING",
+      rounds,
+      fighter: {
+        record: fighterA.record,
+        recentWinRate: fighterAContext?.recentWinRate ?? null,
+        recentMargin: fighterAContext?.recentMargin ?? null,
+        metadata: fighterAMetadata
+      },
+      opponent: {
+        record: fighterB.record,
+        recentWinRate: fighterBContext?.recentWinRate ?? null,
+        recentMargin: fighterBContext?.recentMargin ?? null,
+        metadata: fighterBMetadata
+      }
+    });
+
+    return {
+      modelKey: `fight-projection-${event.league.key.toLowerCase()}`,
+      modelVersion: "v4",
+      eventId: event.id,
+      projectedHomeScore: fightProjection.projectedHomeScore,
+      projectedAwayScore: fightProjection.projectedAwayScore,
+      projectedTotal: fightProjection.projectedTotal,
+      projectedSpreadHome: fightProjection.projectedSpreadHome,
+      winProbHome: fightProjection.winProbHome,
+      winProbAway: fightProjection.winProbAway,
+      metadata: {
+        sport: event.league.sport,
+        league: event.league.key,
+        rounds,
+        titleFight: Boolean(eventMetadata?.titleFight),
+        confidenceLabel: fightProjection.metadata.confidenceLabel,
+        confidenceScore: fightProjection.metadata.confidenceScore,
+        uncertaintyScore: fightProjection.metadata.uncertaintyScore,
+        confidencePenalty: fightProjection.metadata.confidencePenalty,
+        paceScore: fightProjection.metadata.paceScore,
+        methodProbabilities: fightProjection.metadata.methodProbabilities,
+        finishRoundExpectation: fightProjection.metadata.finishRoundExpectation,
+        diagnostics: fightProjection.metadata.diagnostics,
+        featureBuckets: fightFeatureBuckets
+      }
+    };
+  }
+
   const features = buildSportFeatureSet(event.league.key);
   const awayTeam =
     event.participants.find((participant) => participant.role === "AWAY")?.competitor.team ??
@@ -152,60 +302,65 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     return null;
   }
 
-  const homeOffense =
-    average(
-      homeTeam.teamGameStats
-        .map((row) => getNumericStat(row.statsJson, features.offense))
-        .filter((value): value is number => value !== null)
-    ) ?? 0;
-  const awayOffense =
-    average(
-      awayTeam.teamGameStats
-        .map((row) => getNumericStat(row.statsJson, features.offense))
-        .filter((value): value is number => value !== null)
-    ) ?? 0;
-  const homeDefense =
-    average(
-      homeTeam.teamGameStats
-        .map((row) => getNumericStat(row.statsJson, features.defense))
-        .filter((value): value is number => value !== null)
-    ) ?? 0;
-  const awayDefense =
-    average(
-      awayTeam.teamGameStats
-        .map((row) => getNumericStat(row.statsJson, features.defense))
-        .filter((value): value is number => value !== null)
-    ) ?? 0;
-  const pace =
-    average([
-      ...homeTeam.teamGameStats
-        .map((row) => getNumericStat(row.statsJson, features.pace))
-        .filter((value): value is number => value !== null),
-      ...awayTeam.teamGameStats
-        .map((row) => getNumericStat(row.statsJson, features.pace))
-        .filter((value): value is number => value !== null)
-    ]) ?? 1;
+  const homeOffense = homeTeam.teamGameStats
+    .map((row) => getNumericStat(row.statsJson, features.offense))
+    .filter((value): value is number => value !== null);
+  const awayOffense = awayTeam.teamGameStats
+    .map((row) => getNumericStat(row.statsJson, features.offense))
+    .filter((value): value is number => value !== null);
+  const homeDefense = homeTeam.teamGameStats
+    .map((row) => getNumericStat(row.statsJson, features.defense))
+    .filter((value): value is number => value !== null);
+  const awayDefense = awayTeam.teamGameStats
+    .map((row) => getNumericStat(row.statsJson, features.defense))
+    .filter((value): value is number => value !== null);
+  const paceSamples = [
+    ...homeTeam.teamGameStats
+      .map((row) => getNumericStat(row.statsJson, features.pace))
+      .filter((value): value is number => value !== null),
+    ...awayTeam.teamGameStats
+      .map((row) => getNumericStat(row.statsJson, features.pace))
+      .filter((value): value is number => value !== null)
+  ];
 
-  const projectedHomeScore = (homeOffense + awayDefense) / 2;
-  const projectedAwayScore = (awayOffense + homeDefense) / 2;
-  const projectedTotal = projectedHomeScore + projectedAwayScore;
-  const projectedSpreadHome = projectedHomeScore - projectedAwayScore;
-  const winProbHome = 1 / (1 + Math.exp(-projectedSpreadHome / Math.max(1, pace / 10)));
+  const weather = resolveWeatherAdjustment({
+    sportKey: event.league.key,
+    venueName: event.venue ?? null,
+    weather: buildEventWeatherSnapshot(event)
+  });
+
+  const projection = buildGenericEventProjection({
+    sportKey: event.league.key,
+    homeOffense,
+    awayOffense,
+    homeDefense,
+    awayDefense,
+    paceSamples,
+    weather
+  });
 
   return {
     modelKey: `team-efficiency-${event.league.key.toLowerCase()}`,
-    modelVersion: "v1",
+    modelVersion: "v4",
     eventId: event.id,
-    projectedHomeScore,
-    projectedAwayScore,
-    projectedTotal,
-    projectedSpreadHome,
-    winProbHome,
-    winProbAway: 1 - winProbHome,
+    projectedHomeScore: projection.projectedHomeScore,
+    projectedAwayScore: projection.projectedAwayScore,
+    projectedTotal: projection.projectedTotal,
+    projectedSpreadHome: projection.projectedSpreadHome,
+    winProbHome: projection.winProbHome,
+    winProbAway: projection.winProbAway,
     metadata: {
       sport: event.league.sport,
       league: event.league.key,
-      pace
+      confidenceLabel: projection.metadata.confidenceLabel,
+      confidenceScore: projection.metadata.confidenceScore,
+      uncertaintyScore: projection.metadata.uncertaintyScore,
+      confidencePenalty: projection.metadata.confidencePenalty,
+      paceFactor: projection.metadata.paceFactor,
+      scoreStdDev: projection.metadata.scoreStdDev,
+      projectionBand: projection.metadata.projectionBand,
+      summaries: projection.metadata.summaries,
+      weather: projection.metadata.weather
     }
   };
 }
@@ -262,7 +417,7 @@ export async function buildPlayerPropProjectionsForEvent(eventId: string) {
         const values = player.playerGameStats
           .map((row) => getNumericStat(row.statsJson, keys))
           .filter((value): value is number => value !== null);
-        const meanValue = average(values);
+        const meanValue = buildWeightedAverage(values) ?? average(values);
         if (meanValue === null) {
           return null;
         }
@@ -270,7 +425,7 @@ export async function buildPlayerPropProjectionsForEvent(eventId: string) {
         const stdDev = standardDeviation(values) ?? 0;
         return {
           modelKey: `player-props-${event.league.key.toLowerCase()}`,
-          modelVersion: "v1",
+          modelVersion: "v4",
           eventId: event.id,
           playerId: player.id,
           statKey: marketType === "other" ? keys[0] : marketType,
@@ -281,7 +436,10 @@ export async function buildPlayerPropProjectionsForEvent(eventId: string) {
           hitProbUnder: {},
           metadata: {
             sampleSize: values.length,
-            source: "recent_game_history"
+            source: "recent_game_history",
+            weightedMean: meanValue,
+            recentMedian: sorted[Math.floor(sorted.length / 2)] ?? meanValue,
+            volatility: stdDev
           }
         };
       })

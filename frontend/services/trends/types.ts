@@ -33,6 +33,13 @@ export type HistoricalBetOpportunity = {
   isBackToBack: boolean | null;
   recentWinRate: number | null;
   recentMargin: number | null;
+  weatherBucket?: string | null;
+  altitudeBucket?: string | null;
+  fighterQualityBucket?: string | null;
+  opponentQualityBucket?: string | null;
+  finishPressureBucket?: string | null;
+  durabilityEdgeBucket?: string | null;
+  styleConflictBucket?: string | null;
   lineBucket: string | null;
   totalBucket: string | null;
   metadata: Record<string, unknown>;
