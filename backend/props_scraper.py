@@ -44,11 +44,17 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 SHARKEDGE_INGEST_URL = os.getenv("SHARKEDGE_INGEST_URL", "http://localhost:3000/api/internal/ingest/odds").strip()
 SHARKEDGE_API_KEY = os.getenv("SHARKEDGE_API_KEY", "").strip()
-ODDS_API_KEY = os.getenv("ODDS_API_KEY", "").strip()
+
+# Support multiple API keys for higher quota (500 req/month each = 2500/month with 5 keys)
+ODDS_API_KEYS_RAW = os.getenv("ODDS_API_KEYS", "").strip()
+ODDS_API_KEY = os.getenv("ODDS_API_KEY", "").strip()  # Fallback to single key
+ODDS_API_KEYS = [k.strip() for k in ODDS_API_KEYS_RAW.split(",") if k.strip()] if ODDS_API_KEYS_RAW else ([ODDS_API_KEY] if ODDS_API_KEY else [])
+
 ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 PROXY_URL = os.getenv("PROXY_URL", "").strip() or None
 POLL_INTERVAL_SECONDS = int(os.getenv("PROPS_POLL_INTERVAL_SECONDS", "300"))
 RUN_ONCE = os.getenv("RUN_ONCE", "false").lower() in {"1", "true", "yes"}
+_API_KEY_INDEX = 0  # Track which key to use
 
 # Flashscore DS hosts — rotate to spread load
 DS_HOSTS = ["1.ds.flashscore.com", "2.ds.flashscore.com", "3.ds.flashscore.com"]
@@ -100,6 +106,20 @@ ESPN_SPORT_PATHS: dict[str, str] = {
 # ---------------------------------------------------------------------------
 def _random_ua() -> str:
     return random.choice(USER_AGENTS)
+
+
+def _get_next_api_key() -> str:
+    """Rotate through multiple API keys to maximize quota.
+
+    With 5 free accounts at 500 requests/month each, total quota = 2500/month.
+    Rotation prevents hitting single-key limits too early.
+    """
+    global _API_KEY_INDEX
+    if not ODDS_API_KEYS:
+        return ""
+    key = ODDS_API_KEYS[_API_KEY_INDEX % len(ODDS_API_KEYS)]
+    _API_KEY_INDEX += 1
+    return key
 
 
 def _fetch_json(url: str, headers: dict[str, str] | None = None, timeout: int = 15) -> Any:
@@ -197,14 +217,15 @@ def _espn_upcoming_player_projections(sport_key: str) -> list[dict[str, Any]]:
 # Source 2: The Odds API (legitimate API, rate-limited, uses your key)
 # ---------------------------------------------------------------------------
 def _odds_api_props(sport_key: str, event_id: str, markets: list[str]) -> list[dict[str, Any]]:
-    if not ODDS_API_KEY:
+    api_key = _get_next_api_key()
+    if not api_key:
         return []
     # Batch markets to minimize API calls (max 4 per request on free tier)
     batches = [markets[i:i+4] for i in range(0, len(markets), 4)]
     all_props: list[dict[str, Any]] = []
     for batch in batches:
         params = urlencode({
-            "apiKey": ODDS_API_KEY,
+            "apiKey": api_key,
             "regions": "us",
             "markets": ",".join(batch),
             "oddsFormat": "american",
@@ -237,9 +258,10 @@ def _odds_api_props(sport_key: str, event_id: str, markets: list[str]) -> list[d
 
 
 def _odds_api_events(sport_key: str) -> list[dict[str, Any]]:
-    if not ODDS_API_KEY:
+    api_key = _get_next_api_key()
+    if not api_key:
         return []
-    params = urlencode({"apiKey": ODDS_API_KEY, "dateFormat": "iso"})
+    params = urlencode({"apiKey": api_key, "dateFormat": "iso"})
     url = f"{ODDS_API_BASE}/sports/{sport_key}/events?{params}"
     data = _fetch_json(url)
     if not isinstance(data, list):
