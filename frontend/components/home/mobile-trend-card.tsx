@@ -40,7 +40,14 @@ function edgeToneClass(edgeBand: string | null | undefined) {
 }
 
 export function MobileTrendCard({ card, featured = false }: MobileTrendCardProps) {
-  const liveMatch = (card.todayMatches?.[0] ?? null) as
+  const liveMatch = ({
+    edgePct: card.liveEdgePct ?? ((card.todayMatches?.[0] as any)?.edgePct ?? null),
+    currentOdds: (card.todayMatches?.[0] as any)?.currentOdds ?? null,
+    fairOdds: card.liveFairOdds ?? ((card.todayMatches?.[0] as any)?.fairOdds ?? null),
+    playableOdds: card.livePlayableOdds ?? ((card.todayMatches?.[0] as any)?.playableOdds ?? null),
+    edgeBand: card.liveEdgeBand ?? ((card.todayMatches?.[0] as any)?.edgeBand ?? null),
+    flags: card.liveFlags?.length ? card.liveFlags : ((card.todayMatches?.[0] as any)?.flags ?? null)
+  } ?? null) as
     | {
         edgePct?: number | null;
         currentOdds?: number | null;

@@ -50,6 +50,12 @@ export type PublishedTrendCard = {
   primaryMetricLabel: "PROFIT" | "RECORD" | "STREAK" | "WIN %" | "EDGE";
   primaryMetricValue: string;
   rankingScore: number;
+  liveEdgePct?: number | null;
+  liveFairOdds?: number | null;
+  livePlayableOdds?: number | null;
+  liveEdgeBand?: "elite" | "strong" | "watch" | "pass" | null;
+  liveFlags?: string[];
+  liveTimingState?: string | null;
   whyNow: string[];
   intelligenceTags: string[];
   overlooked: boolean;
@@ -1175,6 +1181,29 @@ function getEdgeBand(value: number | null | undefined) {
   return "pass";
 }
 
+function getTimingPriority(value: string | null | undefined) {
+  if (value === "PEAK") return 4;
+  if (value === "BUILDING") return 3;
+  if (value === "EARLY") return 2;
+  if (value === "LATE") return 1;
+  return 0;
+}
+
+function pickBestLiveMatch(matches: Array<Record<string, unknown>>) {
+  if (!matches.length) {
+    return null;
+  }
+
+  return [...matches].sort((left, right) => {
+    const edgeDelta = (Number(right.edgePct ?? -999) || -999) - (Number(left.edgePct ?? -999) || -999);
+    if (edgeDelta !== 0) {
+      return edgeDelta;
+    }
+
+    return getTimingPriority(String(right.timingState ?? "")) - getTimingPriority(String(left.timingState ?? ""));
+  })[0];
+}
+
 function average(values: number[]) {
   if (!values.length) {
     return null;
@@ -1368,6 +1397,10 @@ function buildDiscoveredWhyNow(
   if (typeof ranking.maxEdge === "number" && ranking.maxEdge > 0) {
     reasons.push(`${formatEdgePct(ranking.maxEdge)} best edge`);
   }
+  const live = pickBestLiveMatch(system.activations.filter((activation: any) => activation.isActive));
+  if (live && typeof live.currentOdds === "number" && typeof live.fairOdds === "number") {
+    reasons.push(`${formatAmericanOdds(live.currentOdds)} now vs ${formatAmericanOdds(live.fairOdds)} fair`);
+  }
   if (typeof system.beatCloseRate === "number" && system.beatCloseRate >= 55) {
     reasons.push(`${system.beatCloseRate.toFixed(0)}% beat close`);
   }
@@ -1441,6 +1474,8 @@ function buildDiscoveredTrendCard(system: DiscoveredTrendView): PublishedTrendCa
       ].filter(Boolean)
     }));
 
+  const bestLiveMatch = pickBestLiveMatch(activeMatches as Array<Record<string, unknown>>);
+
   return {
     id: `discovered-${system.id}`,
     title: system.name,
@@ -1484,6 +1519,12 @@ function buildDiscoveredTrendCard(system: DiscoveredTrendView): PublishedTrendCa
     primaryMetricLabel: primaryMetric.primaryMetricLabel,
     primaryMetricValue: primaryMetric.primaryMetricValue,
     rankingScore: ranking.total,
+    liveEdgePct: typeof bestLiveMatch?.edgePct === "number" ? bestLiveMatch.edgePct : null,
+    liveFairOdds: typeof bestLiveMatch?.fairOdds === "number" ? bestLiveMatch.fairOdds : null,
+    livePlayableOdds: typeof bestLiveMatch?.playableOdds === "number" ? bestLiveMatch.playableOdds : null,
+    liveEdgeBand: typeof bestLiveMatch?.edgeBand === "string" ? (bestLiveMatch.edgeBand as PublishedTrendCard["liveEdgeBand"]) : null,
+    liveFlags: Array.isArray(bestLiveMatch?.flags) ? (bestLiveMatch.flags as string[]) : [],
+    liveTimingState: typeof bestLiveMatch?.timingState === "string" ? bestLiveMatch.timingState : null,
     whyNow: buildDiscoveredWhyNow(system, ranking),
     intelligenceTags: buildDiscoveredTags(system, category),
     overlooked: false,
@@ -1516,19 +1557,32 @@ async function getDiscoveredTrendFeed(filters?: Partial<TrendFilters> | null) {
     "Ready Next",
     "Historical Library"
   ];
-  const sections = categories
-    .map((category: PublishedTrendCategory) => ({
-      category,
-      cards: filteredCards
-        .filter((card: PublishedTrendCard) => card.category === category)
-        .slice(0, category === "Historical Library" ? 8 : 6)
-    }))
-    .filter((section: PublishedTrendSection) => section.cards.length > 0);
+  const liveNowCards = filteredCards
+    .filter((card: PublishedTrendCard) => card.category === "Live Now")
+    .sort((left, right) => {
+      const edgeDelta = (right.liveEdgePct ?? -999) - (left.liveEdgePct ?? -999);
+      if (edgeDelta !== 0) return edgeDelta;
+      return right.rankingScore - left.rankingScore;
+    });
+  const readyNextCards = filteredCards
+    .filter((card: PublishedTrendCard) => card.category === "Ready Next")
+    .sort((left, right) => {
+      const edgeDelta = (right.liveEdgePct ?? -999) - (left.liveEdgePct ?? -999);
+      if (edgeDelta !== 0) return edgeDelta;
+      return right.rankingScore - left.rankingScore;
+    });
+  const historicalCards = filteredCards
+    .filter((card: PublishedTrendCard) => card.category === "Historical Library")
+    .sort((left, right) => right.rankingScore - left.rankingScore);
+
+  const sections = [
+    { category: "Live Now" as PublishedTrendCategory, cards: liveNowCards.slice(0, 6) },
+    { category: "Ready Next" as PublishedTrendCategory, cards: readyNextCards.slice(0, 6) },
+    { category: "Historical Library" as PublishedTrendCategory, cards: historicalCards.slice(0, 8) }
+  ].filter((section: PublishedTrendSection) => section.cards.length > 0);
 
   const featured =
-    sections.find((section) => section.category === "Live Now")?.cards ??
-    sections.find((section) => section.category === "Ready Next")?.cards ??
-    filteredCards.slice(0, 4);
+    (liveNowCards.length ? liveNowCards : readyNextCards.length ? readyNextCards : historicalCards).slice(0, 4);
 
   return {
     sections,

@@ -150,6 +150,10 @@ export default async function TrendsPage({ searchParams }: PageProps) {
     typeof feed.meta?.activeSystems === "number"
       ? feed.meta.activeSystems
       : cards.filter((card) => card.todayMatches.length > 0).length;
+  const livePricedCards = cards.filter((card) => typeof card.liveEdgePct === "number");
+  const bestLiveEdge = livePricedCards.length
+    ? Math.max(...livePricedCards.map((card) => card.liveEdgePct ?? -999))
+    : null;
 
   return (
     <div className="grid gap-4">
@@ -168,7 +172,13 @@ export default async function TrendsPage({ searchParams }: PageProps) {
             {filters.league === "ALL" ? "All leagues" : filters.league}
           </div>
           <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
-            {activeSystems} active - {cards.length} tracked
+            {activeSystems} active · {cards.length} tracked
+          </div>
+          <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
+            {livePricedCards.length} priced now
+          </div>
+          <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-white">
+            {typeof bestLiveEdge === "number" ? `${bestLiveEdge > 0 ? "+" : ""}${bestLiveEdge.toFixed(1)}% best edge` : "No priced edge"}
           </div>
         </div>
 
