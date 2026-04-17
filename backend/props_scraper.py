@@ -100,6 +100,24 @@ ESPN_SPORT_PATHS: dict[str, str] = {
     "basketball_ncaab": "basketball/mens-college-basketball",
 }
 
+# Bookmaker confidence scoring - used for props quality ranking
+BOOKMAKER_CONFIDENCE: dict[str, str] = {
+    # Tier 1: Major US sportsbooks (high confidence)
+    "draftkings": "high",
+    "fanduel": "high",
+    "betmgm": "high",
+    "caesars": "high",
+    "betrivers": "high",
+    "pointsbetaus": "high",
+    # Tier 2: Established books (medium confidence)
+    "unibet": "medium",
+    "draftkings_int": "medium",
+    "bet365": "medium",
+    "betfair": "medium",
+    "pinnacle": "medium",
+    # Tier 3: Regional/niche (low confidence - less reliable for props)
+}
+
 
 # ---------------------------------------------------------------------------
 # HTTP helpers — no Selenium, pure urllib with proxy + UA rotation
@@ -120,6 +138,15 @@ def _get_next_api_key() -> str:
     key = ODDS_API_KEYS[_API_KEY_INDEX % len(ODDS_API_KEYS)]
     _API_KEY_INDEX += 1
     return key
+
+
+def _get_bookmaker_confidence(book_key: str) -> str:
+    """Get confidence level for a bookmaker (high/medium/low).
+
+    Used to prioritize props - high confidence books are prioritized in scoring.
+    """
+    normalized = book_key.lower() if book_key else ""
+    return BOOKMAKER_CONFIDENCE.get(normalized, "low")
 
 
 def _fetch_json(url: str, headers: dict[str, str] | None = None, timeout: int = 15) -> Any:
@@ -236,9 +263,16 @@ def _odds_api_props(sport_key: str, event_id: str, markets: list[str]) -> list[d
         if not data or not isinstance(data.get("bookmakers"), list):
             _jitter(0.5, 1.0)
             continue
+
+        # Enhanced: collect props from ALL bookmakers with confidence scoring
         for bookmaker in data["bookmakers"]:
             book_key = bookmaker.get("key") or bookmaker.get("title", "unknown")
             book_title = bookmaker.get("title") or book_key
+            book_confidence = _get_bookmaker_confidence(book_key)
+
+            # Skip very low-confidence niche books only if we have better options
+            # (keep them if they're the only source for a prop market)
+
             for market in bookmaker.get("markets") or []:
                 market_key = market.get("key")
                 for outcome in market.get("outcomes") or []:
@@ -247,6 +281,7 @@ def _odds_api_props(sport_key: str, event_id: str, markets: list[str]) -> list[d
                         "eventId": event_id,
                         "bookKey": book_key,
                         "bookTitle": book_title,
+                        "bookConfidence": book_confidence,  # NEW: confidence level
                         "marketKey": market_key,
                         "playerName": outcome.get("description") or outcome.get("name"),
                         "side": outcome.get("name"),  # Over / Under
@@ -314,6 +349,7 @@ def _normalize_prop_to_ingest(
     book_key: str,
     book_title: str,
     event_key: str,
+    book_confidence: str | None = None,
 ) -> dict[str, Any] | None:
     if not player_name or line is None or odds_american is None:
         return None
@@ -342,6 +378,7 @@ def _normalize_prop_to_ingest(
         "sourceMeta": {
             "provider": "props_scraper",
             "bookKey": book_key,
+            "bookConfidence": book_confidence or "unknown",
             "marketKey": market_key,
         },
     }
@@ -415,6 +452,7 @@ def _scrape_sport_props(sport_key: str) -> int:
                 book_key=prop.get("bookKey") or "unknown",
                 book_title=prop.get("bookTitle") or "Unknown Book",
                 event_key=event_key,
+                book_confidence=prop.get("bookConfidence"),
             )
             if payload and _post_to_sharkedge(payload):
                 ingested += 1
