@@ -109,8 +109,10 @@ export class DefaultPublishedMlbTrendFeedService implements PublishedMlbTrendFee
           return right.sampleSize - left.sampleSize;
         }
 
-        if (right.hitRate !== left.hitRate) {
-          return right.hitRate - left.hitRate;
+        const rightHitRate = right.hitRate ?? -1;
+        const leftHitRate = left.hitRate ?? -1;
+        if (rightHitRate !== leftHitRate) {
+          return rightHitRate - leftHitRate;
         }
 
         return right.todayMatches.length - left.todayMatches.length;

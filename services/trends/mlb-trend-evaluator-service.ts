@@ -204,8 +204,8 @@ function getConfidenceLabel(sampleSize: number, roiCoverage: number) {
   return "LOW" as const;
 }
 
-function getStabilityLabel(sampleSize: number, hitRate: number, roiCoverage: number) {
-  const edgeDistance = Math.abs(hitRate - 50);
+function getStabilityLabel(sampleSize: number, hitRate: number | null, roiCoverage: number) {
+  const edgeDistance = hitRate !== null ? Math.abs(hitRate - 50) : 0;
   if (sampleSize >= 100 && edgeDistance >= 5 && roiCoverage >= 0.6) {
     return "STRONG" as const;
   }
@@ -285,7 +285,7 @@ export function buildMlbTrendSummary(
     return total + getProfitUnits(entry.price!);
   }, 0);
 
-  const hitRate = sampleSize > 0 ? Number(((wins / sampleSize) * 100).toFixed(1)) : 0;
+  const hitRate = sampleSize > 0 ? Number(((wins / sampleSize) * 100).toFixed(1)) : null;
   const roi =
     pricedRows >= 10 && roiCoverage >= 0.6
       ? Number(((units / pricedRows) * 100).toFixed(1))

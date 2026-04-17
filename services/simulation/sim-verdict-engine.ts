@@ -282,8 +282,8 @@ export function buildSpreadVerdict(
   // Positive delta = sim thinks home covers more than market says
   const side: VerdictSide = delta !== null && delta > 0.5 ? "HOME" : delta !== null && delta < -0.5 ? "AWAY" : "NONE";
   const edgeScore = Math.min(100, Math.round(50 + absDelta * 12));
-  const ev = homeSpreadOdds !== null && side !== "NONE"
-    ? calculateEV(side === "HOME" ? 0.52 + absDelta * 0.04 : 0.52 + absDelta * 0.04, homeSpreadOdds)
+  const ev = homeSpreadOdds !== null && side === "HOME"
+    ? calculateEV(0.52 + absDelta * 0.04, homeSpreadOdds)
     : null;
   const rating = absDelta >= 3 ? ratingFromEdge(edgeScore, ev) : absDelta >= 1.5 ? "LEAN" : "NEUTRAL";
   const { trapFlag, trapReason } = detectTrap(rating, delta, sim.drivers);
@@ -324,8 +324,8 @@ export function buildTotalVerdict(
   const p90 = sim.distribution.p90Total;
   const marketInRange = marketTotal !== null && marketTotal >= p10 && marketTotal <= p90;
   const edgeScore = Math.min(100, Math.round(50 + absDelta * 10));
-  const ev = overOdds !== null && side !== "NONE"
-    ? calculateEV(side === "OVER" ? 0.52 + absDelta * 0.03 : 0.52 + absDelta * 0.03, overOdds)
+  const ev = overOdds !== null && side === "OVER"
+    ? calculateEV(0.52 + absDelta * 0.03, overOdds)
     : null;
   const rating = absDelta >= 4 ? ratingFromEdge(edgeScore, ev) : absDelta >= 2 ? "LEAN" : "NEUTRAL";
   const { trapFlag, trapReason } = detectTrap(rating, delta, sim.drivers);

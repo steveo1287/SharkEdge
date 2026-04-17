@@ -66,7 +66,7 @@ export type MlbTrendEvaluationSummary = {
   pushes: number;
   skips: number;
   sampleSize: number;
-  hitRate: number;
+  hitRate: number | null;
   roi: number | null;
   record: string;
   confidenceLabel: "LOW" | "MEDIUM" | "HIGH";
@@ -98,7 +98,7 @@ export type PublishedMlbTrendCard = {
   pushes: number;
   sampleSize: number;
   record: string;
-  hitRate: number;
+  hitRate: number | null;
   roi: number | null;
 
   confidenceLabel: "LOW" | "MEDIUM" | "HIGH";
