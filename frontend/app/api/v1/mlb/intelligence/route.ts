@@ -13,13 +13,16 @@ import { getLatestDailyCalibrationSummary } from "@/services/calibration/daily-c
 
 export async function GET() {
   try {
-    const [edges, alerts, summary] = await Promise.all([
+    const [edgesRaw, alerts, summaryRaw] = await Promise.all([
       getEdgesApi(),
       getActiveCalibrationAlerts(50),
       getLatestDailyCalibrationSummary()
     ]);
+    const edges = edgesRaw as { data?: unknown[] };
+    const summary = summaryRaw as { report?: { overall?: unknown } } | null;
 
-    const mlbGames = (edges.data ?? []).filter((item: any) => item.league === "MLB" && item.mlbEliteSnapshot);
+    const mlbRows = Array.isArray(edges.data) ? edges.data : [];
+    const mlbGames = mlbRows.filter((item: any) => item.league === "MLB" && item.mlbEliteSnapshot);
     const topGame = mlbGames.sort((left: any, right: any) => (right.adjustedRankSignal ?? 0) - (left.adjustedRankSignal ?? 0))[0] ?? null;
 
     const envelope = topGame ? await buildMlbIntelligenceEnvelope(topGame.eventId) : null;
