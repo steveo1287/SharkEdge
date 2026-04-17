@@ -9,7 +9,7 @@
     "build": "node scripts/build-local-safe.mjs",
     "typecheck": "node scripts/typecheck-safe.mjs",
     "start": "next start",
-    "test": "tsx tests/ledger-utils.test.ts && tsx tests/live-board-data.test.ts && tsx tests/book-feed-normalization.test.ts && tsx tests/weather-context.test.ts && tsx tests/weather-snapshot-warehouse.test.ts && tsx tests/venue-weather-enrichment-service.test.ts && tsx tests/model-input-bundle-service.test.ts && tsx tests/intelligence-orchestrator.test.ts && tsx tests/fighter-history-service.test.ts && tsx tests/fight-history-warehouse.test.ts && tsx tests/ufc-identity-resolution.test.ts && tsx tests/ufc-source-ingest-service.test.ts && tsx tests/ufc-source-consensus.test.ts && tsx tests/ufc-division-catalog.test.ts && tsx tests/ufc-rankings-service.test.ts && tsx tests/ufc-event-context.test.ts && tsx tests/ufc-source-profile.test.ts && tsx tests/ufc-opponent-graph.test.ts && tsx tests/ufc-fighter-intelligence.test.ts && tsx tests/fight-projection-core.test.ts && tsx tests/team-projection-core.test.ts && tsx tests/trend-posterior.test.ts && tsx tests/opportunity-probability-fusion.test.ts && tsx tests/opportunity-engine.test.ts && tsx tests/opportunity-truth-calibration.test.ts && tsx tests/market-path-engine.test.ts && tsx tests/opportunity-portfolio.test.ts && tsx tests/opportunity-decision-replay.test.ts && tsx tests/opportunity-evidence-balance.test.ts && tsx tests/mlb-game-sim-service.test.ts && tsx tests/provider-readiness.test.ts && tsx tests/provider-readiness-banner.test.ts && tsx tests/discovered-trend-route-contract.test.ts",
+    "test": "tsx tests/ledger-utils.test.ts && tsx tests/live-board-data.test.ts && tsx tests/book-feed-normalization.test.ts && tsx tests/opportunity-engine.test.ts && tsx tests/opportunity-truth-calibration.test.ts && tsx tests/market-path-engine.test.ts && tsx tests/opportunity-portfolio.test.ts && tsx tests/opportunity-decision-replay.test.ts && tsx tests/opportunity-evidence-balance.test.ts && tsx tests/mlb-game-sim-service.test.ts && tsx tests/provider-readiness.test.ts && tsx tests/provider-readiness-banner.test.ts && tsx tests/discovered-trend-route-contract.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
@@ -30,9 +30,6 @@
     "worker:therundown": "tsx scripts/worker-therundown-refresh.ts",
     "worker:therundown-stream": "tsx scripts/worker-therundown-stream.ts",
     "worker:trends": "tsx scripts/worker-trends.ts",
-    "worker:weather-snapshots": "tsx scripts/worker-weather-snapshots.ts",
-    "worker:combat-profiles": "tsx scripts/worker-combat-profiles.ts",
-    "worker:intelligence-orchestrator": "tsx scripts/worker-intelligence-orchestrator.ts",
     "providers:readiness": "tsx scripts/provider-readiness.ts",
     "openclaw:discord": "tsx scripts/openclaw-discord-bot.ts",
     "cache:refresh": "tsx scripts/cache-refresh.ts",
@@ -41,12 +38,7 @@
     "historical:catalog": "tsx scripts/backfill-historical-catalog.ts",
     "historical:bootstrap": "tsx scripts/bootstrap-historical-database.ts",
     "historical:free": "tsx scripts/worker-free-historical.ts",
-    "historical:refresh": "tsx scripts/worker-historical-refresh.ts",
-    "worker:ufc-intelligence": "tsx scripts/worker-ufc-intelligence.ts",
-    "worker:ufc-source-import": "tsx scripts/worker-ufc-source-import.ts",
-    "worker:ufc-dossiers": "tsx scripts/worker-ufc-dossiers.ts",
-    "worker:ufc-rankings": "tsx scripts/worker-ufc-rankings.ts",
-    "worker:ufc-event-context": "tsx scripts/worker-ufc-event-context.ts"
+    "historical:refresh": "tsx scripts/worker-historical-refresh.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.7.0",
@@ -67,7 +59,6 @@
     "prisma": "^6.7.0",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.3",
-    "typescript": "^5.8.2",
-    "@netlify/functions": "^2.8.3"
+    "typescript": "^5.8.2"
   }
 }

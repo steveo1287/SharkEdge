@@ -1,5 +1,3 @@
-import { calibrateProbabilityAgainstMarket } from "@/services/modeling/probability-calibration";
-
 type TeamRole = "HOME" | "AWAY";
 
 type TeamStatRow = {
@@ -82,10 +80,6 @@ export type MlbSimulationInput = {
     runFactor: number;
     note: string;
   };
-  market?: {
-    homeImpliedProb?: number | null;
-    awayImpliedProb?: number | null;
-  };
   samples?: number;
   seed?: number;
 };
@@ -120,18 +114,6 @@ export type MlbSimulationSummary = {
     weatherFactor: number;
     deterministicSeed: number;
     samples: number;
-  };
-  calibration: {
-    rawWinProbHome: number;
-    rawWinProbAway: number;
-    marketWinProbHome: number | null;
-    marketWinProbAway: number | null;
-    calibratedWinProbHome: number;
-    calibratedWinProbAway: number;
-    modelWeight: number;
-    marketWeight: number;
-    uncertaintyScore: number;
-    confidencePenalty: number;
   };
 };
 
@@ -590,30 +572,13 @@ export function simulateMlbGame(input: MlbSimulationInput): MlbSimulationSummary
   const projectedAwayF5 = average(firstFiveAway);
   const projectedTotalF5 = average(firstFiveTotals);
 
-  const rawWinProbHome = round(homeWins / samples, 4);
-  const rawWinProbAway = round(awayWins / samples, 4);
-  const uncertaintyScore = clamp(
-    (input.weather.available ? 18 : 32) +
-      (samples < 1800 ? 10 : 4) +
-      (Math.min(input.home.starter.expectedOuts, input.away.starter.expectedOuts) < 13 ? 8 : 0),
-    8,
-    84
-  );
-  const calibratedWin = calibrateProbabilityAgainstMarket({
-    modelProbability: rawWinProbHome,
-    marketProbability: input.market?.homeImpliedProb ?? null,
-    sampleSize: samples,
-    sourceConfidence: input.weather.available ? 0.74 : 0.66,
-    uncertaintyScore
-  });
-
   return {
     projectedHomeRuns: round(projectedHomeRuns, 3),
     projectedAwayRuns: round(projectedAwayRuns, 3),
     projectedTotalRuns: round(projectedTotalRuns, 3),
     projectedSpreadHome: round(projectedHomeRuns - projectedAwayRuns, 3),
-    winProbHome: calibratedWin.posteriorProbability ?? rawWinProbHome,
-    winProbAway: round(1 - (calibratedWin.posteriorProbability ?? rawWinProbHome), 4),
+    winProbHome: round(homeWins / samples, 4),
+    winProbAway: round(awayWins / samples, 4),
     firstFive: {
       projectedHomeRuns: round(projectedHomeF5, 3),
       projectedAwayRuns: round(projectedAwayF5, 3),
@@ -637,18 +602,6 @@ export function simulateMlbGame(input: MlbSimulationInput): MlbSimulationSummary
       weatherFactor: round(input.weather.runFactor, 3),
       deterministicSeed: seed,
       samples
-    },
-    calibration: {
-      rawWinProbHome,
-      rawWinProbAway,
-      marketWinProbHome: input.market?.homeImpliedProb ?? null,
-      marketWinProbAway: input.market?.awayImpliedProb ?? null,
-      calibratedWinProbHome: calibratedWin.posteriorProbability ?? rawWinProbHome,
-      calibratedWinProbAway: round(1 - (calibratedWin.posteriorProbability ?? rawWinProbHome), 4),
-      modelWeight: calibratedWin.modelWeight,
-      marketWeight: calibratedWin.marketWeight,
-      uncertaintyScore: calibratedWin.uncertaintyScore,
-      confidencePenalty: calibratedWin.confidencePenalty
     }
   };
 }
@@ -1009,7 +962,6 @@ export async function buildMlbEventProjection(eventId: string) {
         projectedSpreadHome: simulation.projectedSpreadHome,
         winProbHome: simulation.winProbHome,
         winProbAway: simulation.winProbAway,
-        calibration: simulation.calibration,
         totalStdDev: simulation.distribution.totalStdDev,
         homeRunsStdDev: simulation.distribution.homeRunsStdDev,
         awayRunsStdDev: simulation.distribution.awayRunsStdDev,

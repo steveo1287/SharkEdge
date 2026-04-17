@@ -1,4 +1,14 @@
-export type SupportedDiscoveryMarket = "moneyline" | "spread" | "total";
+export type SupportedDiscoveryMarket =
+  | "moneyline"
+  | "spread"
+  | "total"
+  | "player_points"
+  | "player_rebounds"
+  | "player_assists"
+  | "player_threes"
+  | "player_pitcher_outs"
+  | "player_pitcher_strikeouts";
+
 export type SupportedDiscoverySide = "home" | "away" | "over" | "under";
 export type ConditionOperator = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "between" | "is_true" | "is_false";
 export type ConfidenceTier = "A" | "B" | "C";
@@ -15,6 +25,12 @@ export type HistoricalBetOpportunity = {
   side: SupportedDiscoverySide;
   teamName: string | null;
   opponentName: string | null;
+  playerId: string | null;
+  playerName: string | null;
+  propStatValue: number | null;
+  projectionMean: number | null;
+  projectionStdDev: number | null;
+  projectionDelta: number | null;
   homeTeam: string | null;
   awayTeam: string | null;
   homeAway: "home" | "away" | null;
@@ -33,13 +49,6 @@ export type HistoricalBetOpportunity = {
   isBackToBack: boolean | null;
   recentWinRate: number | null;
   recentMargin: number | null;
-  weatherBucket?: string | null;
-  altitudeBucket?: string | null;
-  fighterQualityBucket?: string | null;
-  opponentQualityBucket?: string | null;
-  finishPressureBucket?: string | null;
-  durabilityEdgeBucket?: string | null;
-  styleConflictBucket?: string | null;
   lineBucket: string | null;
   totalBucket: string | null;
   metadata: Record<string, unknown>;
@@ -113,15 +122,14 @@ export type ActiveTrendSignal = {
   currentLine: number | null;
   currentOdds: number;
   fairOdds: number | null;
+  playableOdds: number | null;
+  trueProbability: number | null;
+  marketProbability: number | null;
   edgePct: number | null;
-  posteriorProbability?: number | null;
-  marketProbability?: number | null;
-  trendLiftPct?: number | null;
-  uncertaintyScore?: number | null;
-  reliabilityScore?: number | null;
-  supportScore?: number | null;
+  edgeBand: "elite" | "strong" | "watch" | "pass";
   timingState: TimingState;
   confidenceTier: ConfidenceTier;
   reasons: string[];
+  flags: string[];
   eventLabel: string;
 };

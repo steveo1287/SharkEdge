@@ -684,23 +684,8 @@ export async function ingestEventProjection(input: EventProjectionPayload) {
     }
   });
 
-  return prisma.eventProjection.upsert({
-    where: {
-      modelRunId_eventId: {
-        modelRunId: modelRun.id,
-        eventId: input.eventId
-      }
-    },
-    update: {
-      projectedHomeScore: input.projectedHomeScore,
-      projectedAwayScore: input.projectedAwayScore,
-      projectedTotal: input.projectedTotal,
-      projectedSpreadHome: input.projectedSpreadHome,
-      winProbHome: input.winProbHome,
-      winProbAway: input.winProbAway,
-      metadataJson: input.metadata ? (input.metadata as Prisma.InputJsonValue) : Prisma.JsonNull
-    },
-    create: {
+  return prisma.eventProjection.create({
+    data: {
       modelRunId: modelRun.id,
       eventId: input.eventId,
       projectedHomeScore: input.projectedHomeScore,
@@ -723,15 +708,6 @@ export async function ingestPlayerProjection(input: PlayerProjectionPayload) {
       modelName: input.modelKey,
       version: input.modelVersion,
       status: "ACTIVE"
-    }
-  });
-
-  await prisma.playerProjection.deleteMany({
-    where: {
-      modelRunId: modelRun.id,
-      eventId: input.eventId,
-      playerId: input.playerId,
-      statKey: input.statKey
     }
   });
 

@@ -47,40 +47,10 @@ export const trendFeatureRegistry: FeatureDefinition[] = [
     buckets: [0.35, 0.45, 0.55, 0.65]
   },
   {
-    field: "weatherBucket",
-    group: "weather",
-    type: "categorical",
-    allowedValues: ["indoor", "outdoor_unknown", "neutral_outdoor", "windy", "wet", "cold", "hot"]
-  },
-  {
-    field: "altitudeBucket",
-    group: "altitude",
-    type: "categorical",
-    allowedValues: ["sea_level", "elevated", "high_altitude"]
-  },
-  {
-    field: "fighterQualityBucket",
-    group: "combat_quality",
-    type: "categorical",
-    allowedValues: ["elite", "strong", "solid", "volatile"]
-  },
-  {
-    field: "finishPressureBucket",
-    group: "combat_finish",
-    type: "categorical",
-    allowedValues: ["high_finish", "balanced", "decision_heavy"]
-  },
-  {
-    field: "durabilityEdgeBucket",
-    group: "combat_durability",
-    type: "categorical",
-    allowedValues: ["fighter_durable_edge", "opponent_durable_edge", "durability_neutral"]
-  },
-  {
-    field: "styleConflictBucket",
-    group: "combat_style",
-    type: "categorical",
-    allowedValues: ["style_clash", "style_neutral"]
+    field: "projectionDelta",
+    group: "projection_edge",
+    type: "bucketed_numeric",
+    buckets: [-2, -1, -0.5, 0, 0.5, 1, 2]
   },
   {
     field: "teamName",
@@ -90,6 +60,16 @@ export const trendFeatureRegistry: FeatureDefinition[] = [
   {
     field: "opponentName",
     group: "opponent",
+    type: "categorical"
+  },
+  {
+    field: "playerName",
+    group: "player",
+    type: "categorical"
+  },
+  {
+    field: "marketType",
+    group: "market_type",
     type: "categorical"
   }
 ];

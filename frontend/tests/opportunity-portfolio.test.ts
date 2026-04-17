@@ -377,21 +377,6 @@ function makeOpportunity(
       reasonCodes: ["TIMING_REPLAY_NEUTRAL"],
       notes: []
     },
-    probabilityFusion: {
-      status: "APPLIED",
-      rawModelProbability: 0.56,
-      marketProbability: 0.54,
-      posteriorProbability: 0.565,
-      posteriorFairOddsAmerican: -130,
-      posteriorEdgePct: 2.5,
-      trendLiftPct: 1.2,
-      uncertaintyScore: 28,
-      confidencePenalty: 3,
-      modelWeight: 0.58,
-      marketWeight: 0.42,
-      evidenceLanes: [],
-      summary: "Test probability fusion."
-    },
     truthClassification: null
   };
 }

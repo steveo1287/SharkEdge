@@ -22,8 +22,6 @@ type BuildOpportunityScoreArgs = {
   marketPathScoreDelta?: number;
   closeDestinationScoreDelta?: number;
   executionCapacityScoreDelta?: number;
-  posteriorEdgePct?: number | null;
-  uncertaintyPenalty?: number | null;
   trapFlags: OpportunityTrapFlag[];
   personalizationDelta: number;
 };
@@ -64,12 +62,8 @@ function trapPenalty(flag: OpportunityTrapFlag) {
 function buildPriceEdgeScore(args: BuildOpportunityScoreArgs) {
   const fairGapScore = clamp((args.fairLineGap ?? 0) * 0.42, 0, 14);
   const edgeScoreBoost = clamp((args.edgeScore - 50) * 0.16, 0, 12);
-  const posteriorBoost =
-    typeof args.posteriorEdgePct === "number"
-      ? clamp(Math.max(args.posteriorEdgePct, 0) * 1.45, 0, 10)
-      : 0;
 
-  return clamp(fairGapScore + edgeScoreBoost + posteriorBoost, 0, 28);
+  return clamp(fairGapScore + edgeScoreBoost, 0, 26);
 }
 
 function buildExpectedValueScore(args: BuildOpportunityScoreArgs) {
@@ -167,9 +161,7 @@ function buildMarketEfficiencyScore(args: BuildOpportunityScoreArgs) {
 }
 
 function buildDecayPenalty(args: BuildOpportunityScoreArgs) {
-  const basePenalty = clamp((args.edgeDecayPenalty ?? 0) * 0.55, 0, 24);
-  const uncertaintyPenalty = clamp(args.uncertaintyPenalty ?? 0, 0, 12);
-  return clamp(basePenalty + uncertaintyPenalty, 0, 28);
+  return clamp((args.edgeDecayPenalty ?? 0) * 0.55, 0, 24);
 }
 
 export function buildOpportunityScore(

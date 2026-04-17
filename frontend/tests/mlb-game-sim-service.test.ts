@@ -43,10 +43,6 @@ const summary = simulateMlbGame({
     runFactor: 1.03,
     note: "mild wind out"
   },
-  market: {
-    homeImpliedProb: 0.56,
-    awayImpliedProb: 0.44
-  },
   seed: 42,
   samples: 1200
 });
@@ -71,9 +67,3 @@ assert.equal((pricing?.underProb ?? 0) > 0, true);
 assert.equal(Math.abs((pricing?.overProb ?? 0) + (pricing?.underProb ?? 0) + (pricing?.pushProb ?? 0) - 1) < 0.025, true);
 
 console.log("mlb-game-sim-service.test.ts passed");
-
-
-assert.equal(summary.calibration.calibratedWinProbHome > 0, true);
-assert.equal(summary.calibration.modelWeight > 0, true);
-assert.equal(summary.calibration.marketWeight > 0, true);
-assert.equal(summary.calibration.confidencePenalty >= 0, true);
