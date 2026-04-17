@@ -58,6 +58,37 @@ function formatUnits(value: number | null | undefined) {
     : "--";
 }
 
+function formatAmericanOdds(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "--";
+  }
+
+  return value > 0 ? `+${value}` : `${value}`;
+}
+
+function derivePlayableOdds(fairOdds: number | null | undefined) {
+  if (typeof fairOdds !== "number" || !Number.isFinite(fairOdds)) {
+    return null;
+  }
+
+  return fairOdds < 0 ? fairOdds + 10 : fairOdds - 10;
+}
+
+function getEdgeBand(edgePct: number | null | undefined) {
+  if (typeof edgePct !== "number") return "pass";
+  if (edgePct >= 5) return "elite";
+  if (edgePct >= 3) return "strong";
+  if (edgePct >= 1.5) return "watch";
+  return "pass";
+}
+
+function edgeBandClass(edgeBand: string) {
+  if (edgeBand === "elite") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
+  if (edgeBand === "strong") return "border-sky-400/25 bg-sky-400/10 text-sky-200";
+  if (edgeBand === "watch") return "border-amber-300/25 bg-amber-300/10 text-amber-200";
+  return "border-white/8 text-slate-400";
+}
+
 function formatRecord(
   wins: number | null | undefined,
   losses: number | null | undefined,
@@ -514,45 +545,102 @@ export default async function TrendDetailPage({ params, searchParams }: PageProp
               )}. Average CLV ${formatPercent(discovered.avgClv)}.`
             : published?.description}
         </div>
+        {discovered?.activations?.some((item: any) => item.isActive) ? (
+          <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
+            {(() => {
+              const live = discovered.activations.find((item: any) => item.isActive) ?? null;
+              const playableOdds = derivePlayableOdds(live?.fairOdds ?? null);
+              return [
+                { label: "Current", value: formatAmericanOdds(live?.currentOdds ?? null) },
+                { label: "Fair", value: formatAmericanOdds(live?.fairOdds ?? null) },
+                { label: "Playable", value: formatAmericanOdds(playableOdds) }
+              ].map((item) => (
+                <div key={item.label} className="rounded-[16px] bg-white/[0.03] p-3">
+                  <div className="text-[11px] uppercase tracking-[0.14em] text-slate-500">{item.label}</div>
+                  <div className="mt-2 text-[1.05rem] font-semibold text-white">{item.value}</div>
+                </div>
+              ));
+            })()}
+          </div>
+        ) : null}
       </section>
 
       {activationMatches.length ? (
         <section className="mobile-surface">
           <div className="mb-3 text-[1.1rem] font-semibold text-white">Active games</div>
           <div className="grid gap-3">
-            {activationMatches.map((match: any, index: number) => (
-              <Link
-                key={match.id ?? match.eventId ?? `${index}`}
-                href={match.href ?? (match.event?.id ? `/game/${match.event.id}` : "/games")}
-                className="rounded-[18px] bg-white/[0.03] px-4 py-3"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-[1rem] font-semibold text-white">
-                      {match.eventLabel ??
-                        match.matchup ??
-                        match.event?.name ??
-                        "Upcoming game"}
+            {activationMatches.map((match: any, index: number) => {
+              const edgeBand = getEdgeBand(match.edgePct ?? null);
+              const playableOdds = match.playableOdds ?? derivePlayableOdds(match.fairOdds ?? null);
+              const flags = Array.isArray(match.flags)
+                ? match.flags
+                : Array.isArray(match.reasonsJson)
+                  ? match.reasonsJson.slice(0, 2)
+                  : [];
+
+              return (
+                <Link
+                  key={match.id ?? match.eventId ?? `${index}`}
+                  href={match.href ?? (match.event?.id ? `/game/${match.event.id}` : "/games")}
+                  className="rounded-[18px] bg-white/[0.03] px-4 py-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-[1rem] font-semibold text-white">
+                        {match.eventLabel ??
+                          match.matchup ??
+                          match.event?.name ??
+                          "Upcoming game"}
+                      </div>
+                      <div className="mt-1 text-sm text-slate-500">
+                        {match.eventStartTime
+                          ? new Date(match.eventStartTime).toLocaleString("en-US", {
+                              month: "numeric",
+                              day: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit"
+                            })
+                          : match.startTime ?? "Scheduled"}
+                      </div>
                     </div>
-                    <div className="mt-1 text-sm text-slate-500">
-                      {match.eventStartTime
-                        ? new Date(match.eventStartTime).toLocaleString("en-US", {
-                            month: "numeric",
-                            day: "numeric",
-                            hour: "numeric",
-                            minute: "2-digit"
-                          })
-                        : match.startTime ?? "Scheduled"}
+                    <div className="text-right">
+                      <div className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] ${edgeBandClass(edgeBand)}`}>
+                        {typeof match.edgePct === "number"
+                          ? `${match.edgePct > 0 ? "+" : ""}${match.edgePct.toFixed(1)}%`
+                          : match.tag ?? "Live"}
+                      </div>
                     </div>
                   </div>
-                  <div className="text-right text-sm text-[#2dd36f]">
-                    {typeof match.edgePct === "number"
-                      ? `${match.edgePct.toFixed(1)}% edge`
-                      : match.tag ?? "Live"}
-                  </div>
-                </div>
-              </Link>
-            ))}
+
+                  {(typeof match.currentOdds === "number" || typeof match.fairOdds === "number") ? (
+                    <div className="mt-3 grid grid-cols-3 gap-3 rounded-[16px] border border-white/8 bg-black/20 p-3 text-sm">
+                      <div>
+                        <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Current</div>
+                        <div className="mt-1 font-semibold text-white">{formatAmericanOdds(match.currentOdds ?? null)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Fair</div>
+                        <div className="mt-1 font-semibold text-white">{formatAmericanOdds(match.fairOdds ?? null)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Playable</div>
+                        <div className="mt-1 font-semibold text-white">{formatAmericanOdds(playableOdds)}</div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {flags.length ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {flags.slice(0, 3).map((flag: string) => (
+                        <span key={flag} className="rounded-full border border-white/8 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-300">
+                          {flag}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </Link>
+              );
+            })}
           </div>
         </section>
       ) : null}

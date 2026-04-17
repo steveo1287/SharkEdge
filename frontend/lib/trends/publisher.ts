@@ -1147,6 +1147,34 @@ function formatEdgePct(value: number | null | undefined) {
   return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
+function formatAmericanOdds(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "--";
+  }
+
+  return value > 0 ? `+${value}` : `${value}`;
+}
+
+function derivePlayableOdds(fairOdds: number | null | undefined) {
+  if (typeof fairOdds !== "number" || !Number.isFinite(fairOdds)) {
+    return null;
+  }
+
+  if (fairOdds < 0) {
+    return fairOdds + 10;
+  }
+
+  return fairOdds - 10;
+}
+
+function getEdgeBand(value: number | null | undefined) {
+  if (typeof value !== "number") return "pass";
+  if (value >= 5) return "elite";
+  if (value >= 3) return "strong";
+  if (value >= 1.5) return "watch";
+  return "pass";
+}
+
 function average(values: number[]) {
   if (!values.length) {
     return null;
@@ -1375,7 +1403,8 @@ function buildDiscoveredDescription(
   const roi = typeof system.roi === "number" ? `${system.roi > 0 ? "+" : ""}${system.roi.toFixed(1)}% ROI` : null;
 
   if (category === "Live Now") {
-    return `${record}${roi ? `, ${roi}` : ""}. ${ranking.activeCount} active matchup${ranking.activeCount === 1 ? "" : "s"} are currently validating this system.`;
+    const liveEdge = typeof ranking.maxEdge === "number" ? ` Best live edge ${formatEdgePct(ranking.maxEdge)}.` : "";
+    return `${record}${roi ? `, ${roi}` : ""}. ${ranking.activeCount} active matchup${ranking.activeCount === 1 ? "" : "s"} are currently validating this system.${liveEdge}`;
   }
 
   if (category === "Ready Next") {
@@ -1398,7 +1427,18 @@ function buildDiscoveredTrendCard(system: DiscoveredTrendView): PublishedTrendCa
       sport: system.sport as SportCode,
       startTime: activation.eventStartTime,
       tag: "Matches this trend" as const,
-      href: activation.event?.id ? `/game/${activation.event.id}` : "/games"
+      href: activation.event?.id ? `/game/${activation.event.id}` : "/games",
+      edgePct: activation.edgePct,
+      currentOdds: activation.currentOdds,
+      fairOdds: activation.fairOdds,
+      playableOdds: derivePlayableOdds(activation.fairOdds),
+      edgeBand: getEdgeBand(activation.edgePct),
+      timingState: activation.timingState,
+      flags: [
+        getEdgeBand(activation.edgePct) !== "pass" ? `${getEdgeBand(activation.edgePct)} edge` : null,
+        typeof activation.fairOdds === "number" ? `fair ${formatAmericanOdds(activation.fairOdds)}` : null,
+        activation.timingState ? String(activation.timingState).toLowerCase() : null
+      ].filter(Boolean)
     }));
 
   return {

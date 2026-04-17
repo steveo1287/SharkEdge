@@ -24,7 +24,33 @@ function formatPct(value: number | null) {
   return `${value.toFixed(1)}%`;
 }
 
+function formatAmericanOdds(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "--";
+  }
+
+  return value > 0 ? `+${value}` : `${value}`;
+}
+
+function edgeToneClass(edgeBand: string | null | undefined) {
+  if (edgeBand === "elite") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
+  if (edgeBand === "strong") return "border-sky-400/25 bg-sky-400/10 text-sky-200";
+  if (edgeBand === "watch") return "border-amber-300/25 bg-amber-300/10 text-amber-200";
+  return "border-white/8 text-slate-400";
+}
+
 export function MobileTrendCard({ card, featured = false }: MobileTrendCardProps) {
+  const liveMatch = (card.todayMatches?.[0] ?? null) as
+    | {
+        edgePct?: number | null;
+        currentOdds?: number | null;
+        fairOdds?: number | null;
+        playableOdds?: number | null;
+        edgeBand?: string | null;
+        flags?: string[] | null;
+      }
+    | null;
+
   return (
     <Link
       href={card.href}
@@ -46,11 +72,21 @@ export function MobileTrendCard({ card, featured = false }: MobileTrendCardProps
         {card.title}
       </div>
 
-      <div className="mt-4 text-[2.25rem] font-black leading-none text-[#2dd36f]">
-        {card.primaryMetricLabel === "RECORD" ? card.record : card.primaryMetricValue}
-      </div>
-      <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-slate-500">
-        {card.primaryMetricLabel === "RECORD" ? "Record" : card.primaryMetricLabel}
+      <div className="mt-4 flex items-end justify-between gap-3">
+        <div>
+          <div className="text-[2.25rem] font-black leading-none text-[#2dd36f]">
+            {card.primaryMetricLabel === "RECORD" ? card.record : card.primaryMetricValue}
+          </div>
+          <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+            {card.primaryMetricLabel === "RECORD" ? "Record" : card.primaryMetricLabel}
+          </div>
+        </div>
+        {typeof liveMatch?.edgePct === "number" ? (
+          <div className={cn("rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.14em]", edgeToneClass(liveMatch.edgeBand))}>
+            {liveMatch.edgePct > 0 ? "+" : ""}
+            {liveMatch.edgePct.toFixed(1)}% edge
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-4 grid grid-cols-3 gap-2 border-t border-white/6 pt-3">
@@ -68,17 +104,41 @@ export function MobileTrendCard({ card, featured = false }: MobileTrendCardProps
         </div>
       </div>
 
+      {liveMatch ? (
+        <div className="mt-4 rounded-[16px] border border-white/8 bg-white/[0.03] px-3 py-2.5 text-[11px]">
+          <div className="grid grid-cols-3 gap-2 text-slate-300">
+            <div>
+              <div className="uppercase tracking-[0.14em] text-slate-500">Current</div>
+              <div className="mt-1 font-semibold text-white">{formatAmericanOdds(liveMatch.currentOdds)}</div>
+            </div>
+            <div>
+              <div className="uppercase tracking-[0.14em] text-slate-500">Fair</div>
+              <div className="mt-1 font-semibold text-white">{formatAmericanOdds(liveMatch.fairOdds)}</div>
+            </div>
+            <div>
+              <div className="uppercase tracking-[0.14em] text-slate-500">Playable</div>
+              <div className="mt-1 font-semibold text-white">{formatAmericanOdds(liveMatch.playableOdds)}</div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-4 space-y-2 text-[11px]">
         <div className="flex items-center gap-2 text-[#2dd36f]">
           <span className="h-1.5 w-1.5 rounded-full bg-[#2dd36f]" />
           <span>Active on {card.todayMatches.length || 1} game</span>
         </div>
-        <div className="flex items-center gap-2 text-[#ff9b3f]">
-          <span className="text-[12px]">HOT</span>
-          <span>{Math.max(card.todayMatches.length, 1)} tailing today</span>
+        <div className="flex flex-wrap gap-2 text-slate-400">
+          {(liveMatch?.flags ?? []).slice(0, 2).map((flag) => (
+            <span key={flag} className="rounded-full border border-white/8 px-2 py-0.5">
+              {flag}
+            </span>
+          ))}
+          {!liveMatch?.flags?.length ? (
+            <span className="text-[#ff9b3f]">{Math.max(card.todayMatches.length, 1)} tailing today</span>
+          ) : null}
         </div>
       </div>
     </Link>
   );
 }
-
