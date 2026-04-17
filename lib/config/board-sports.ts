@@ -97,11 +97,11 @@ const SPORT_NOTES: Record<
       "Dedicated MMA event source active. Combat odds and round-state coverage are still partial."
   },
   BOXING: {
-    note: "Boxing is product-visible with provider scaffolds, but live event and odds adapters are not complete yet.",
+    note: "Boxing is product-visible with live event context and partial odds coverage through the shared backend path.",
     detail:
-      "Boxing now stays visible across the product with honest coming-soon states instead of disappearing behind fake empty live boards.",
+      "Boxing stays visible with honest partial support states and shared backend odds routing, while full matchup/stat depth is still in progress.",
     scoreboardDetail:
-      "Boxing provider is scaffold-only today. No real live matchup or odds feed is connected yet."
+      "Boxing event context is live and odds are requested through the shared backend path when available."
   }
 };
 

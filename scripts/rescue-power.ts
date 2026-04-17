@@ -9,7 +9,16 @@ import { getBooleanArg, getNumberArg, getStringArg, logStep, parseArgs } from ".
 
 loadEnvConfig(process.cwd());
 
-const DEFAULT_LEAGUES: LeagueKey[] = ["NBA", "MLB"];
+const DEFAULT_LEAGUES: LeagueKey[] = [
+  "NBA",
+  "NCAAB",
+  "MLB",
+  "NHL",
+  "NFL",
+  "NCAAF",
+  "UFC",
+  "BOXING"
+];
 const ALLOWED_LEAGUES = new Set<LeagueKey>(["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]);
 const LEAGUE_TO_SPORT_KEY: Partial<Record<LeagueKey, string>> = {
   NBA: "basketball_nba",
@@ -17,7 +26,9 @@ const LEAGUE_TO_SPORT_KEY: Partial<Record<LeagueKey, string>> = {
   MLB: "baseball_mlb",
   NHL: "icehockey_nhl",
   NFL: "americanfootball_nfl",
-  NCAAF: "americanfootball_ncaaf"
+  NCAAF: "americanfootball_ncaaf",
+  UFC: "mma_ufc",
+  BOXING: "boxing"
 };
 
 type JsonResult<T> =

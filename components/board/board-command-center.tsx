@@ -9,6 +9,7 @@ import { MobileTopBar } from "@/components/mobile/mobile-top-bar";
 import { SectionTabs } from "@/components/mobile/section-tabs";
 import { MiniHistoryChart } from "@/components/charts/mini-history-chart";
 import type { GameCardView, LeagueSnapshotView } from "@/lib/types/domain";
+import type { BoardLeagueScope } from "@/services/board/board-command-service";
 import type { ProviderReadinessView } from "@/services/current-odds/provider-readiness-service";
 import { getTeamLogoUrl } from "@/lib/utils/team-branding";
 
@@ -44,7 +45,7 @@ type BoardCommandCenterProps = {
   readiness: ProviderReadinessView | null;
   boardStatusCopy: string;
   queryState: {
-    league: "ALL" | "NBA" | "MLB";
+    league: BoardLeagueScope;
   };
   leagueTabs: Array<{ label: string; href: string; active: boolean; count?: number | null }>;
   marketItems: Array<{ label: string; href: string; active: boolean }>;

@@ -1,7 +1,11 @@
 import type { LeagueSnapshotView } from "@/lib/types/domain";
-import type { GameCardView } from "@/lib/types/domain";
+import type { GameCardView, LeagueKey } from "@/lib/types/domain";
 import { buildGameWorkflowHref, resolveGameWorkflowTarget } from "@/lib/utils/workflow-hrefs";
-import { getBoardCommandData } from "@/services/board/board-command-service";
+import {
+  BOARD_LEAGUE_ITEMS,
+  getBoardCommandData,
+  type BoardLeagueScope
+} from "@/services/board/board-command-service";
 import {
   getProviderReadinessView,
   type ProviderReadinessView
@@ -17,7 +21,7 @@ type BoardPageProps = {
 };
 
 type QueryState = {
-  league: "ALL" | "NBA" | "MLB";
+  league: BoardLeagueScope;
   market: "all" | "moneyline" | "spread" | "total";
   sort: "edge" | "movement" | "start";
   focus?: string | null;
@@ -25,13 +29,15 @@ type QueryState = {
 
 async function getSafeProviderReadiness(): Promise<ProviderReadinessView | null> {
   try {
-    return await getProviderReadinessView({ leagues: ["NBA", "MLB"] });
+    return await getProviderReadinessView({
+      leagues: ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]
+    });
   } catch {
     return null;
   }
 }
 
-async function getSafeSnapshots(league: "ALL" | "NBA" | "MLB"): Promise<LeagueSnapshotView[]> {
+async function getSafeSnapshots(league: BoardLeagueScope): Promise<LeagueSnapshotView[]> {
   try {
     return await getLeagueSnapshots(league);
   } catch {
@@ -51,7 +57,7 @@ function buildBoardHref(state: QueryState) {
   return query ? `/board?${query}` : "/board";
 }
 
-function buildLeagueHref(league: "ALL" | "NBA" | "MLB", state: QueryState) {
+function buildLeagueHref(league: BoardLeagueScope, state: QueryState) {
   return buildBoardHref({ ...state, league, focus: null });
 }
 
@@ -61,7 +67,7 @@ function formatMovementValue(movement: number) {
   return `${movement > 0 ? "↑" : "↓"} ${absolute >= 10 ? absolute.toFixed(0) : absolute.toFixed(1)}`;
 }
 
-function getLeagueVerifiedCount(games: GameCardView[], league: "NBA" | "MLB") {
+function getLeagueVerifiedCount(games: GameCardView[], league: LeagueKey) {
   return games.filter((game) => game.leagueKey === league).length;
 }
 
@@ -97,7 +103,7 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
   ]);
 
   const queryState: QueryState = {
-    league: board.selectedLeague === "ALL" || board.selectedLeague === "NBA" || board.selectedLeague === "MLB" ? board.selectedLeague : "ALL",
+    league: board.selectedLeague,
     market: board.selectedMarket,
     sort: board.selectedSort,
     focus: board.focusedGame?.id ?? null
@@ -196,26 +202,19 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
     ? getWorkflowLabel(board.focusedGame, focusedWorkflowTarget.market)
     : null;
 
-  const leagueTabs = [
-    {
-      label: "ALL",
-      href: buildLeagueHref("ALL", queryState),
-      active: board.selectedLeague === "ALL",
-      count: board.verifiedGames.length || null
-    },
-    {
-      label: "NBA",
-      href: buildLeagueHref("NBA", queryState),
-      active: board.selectedLeague === "NBA",
-      count: getLeagueVerifiedCount(board.verifiedGames, "NBA") || null
-    },
-    {
-      label: "MLB",
-      href: buildLeagueHref("MLB", queryState),
-      active: board.selectedLeague === "MLB",
-      count: getLeagueVerifiedCount(board.verifiedGames, "MLB") || null
-    }
-  ];
+  const leagueTabs = BOARD_LEAGUE_ITEMS.map((league) => {
+    const count =
+      league === "ALL"
+        ? board.verifiedGames.length || null
+        : getLeagueVerifiedCount(board.verifiedGames, league) || null;
+
+    return {
+      label: league,
+      href: buildLeagueHref(league, queryState),
+      active: board.selectedLeague === league,
+      count
+    };
+  });
 
   return (
     <BoardCommandCenter

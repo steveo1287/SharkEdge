@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 
-const DEFAULT_LEAGUES = ['NBA', 'MLB'];
+const DEFAULT_LEAGUES = ['NBA', 'NCAAB', 'MLB', 'NHL', 'NFL', 'NCAAF', 'UFC', 'BOXING'];
 const ALLOWED_LEAGUES = new Set(['NBA', 'NCAAB', 'MLB', 'NHL', 'NFL', 'NCAAF', 'UFC', 'BOXING']);
 const LEAGUE_TO_SPORT_KEY = {
   NBA: 'basketball_nba',
@@ -10,7 +10,9 @@ const LEAGUE_TO_SPORT_KEY = {
   MLB: 'baseball_mlb',
   NHL: 'icehockey_nhl',
   NFL: 'americanfootball_nfl',
-  NCAAF: 'americanfootball_ncaaf'
+  NCAAF: 'americanfootball_ncaaf',
+  UFC: 'mma_ufc',
+  BOXING: 'boxing'
 };
 
 function loadEnvFile(filePath) {

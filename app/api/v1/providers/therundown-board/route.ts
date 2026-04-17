@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import type { LeagueKey } from "@/lib/types/domain";
 import { fetchTheRundownLeaguesBoard } from "@/services/current-odds/therundown-provider";
 
-const DEFAULT_LEAGUES: LeagueKey[] = ["MLB", "NBA"];
+const DEFAULT_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
 
 function isLeagueKey(value: string | null): value is LeagueKey {
   if (!value) return false;

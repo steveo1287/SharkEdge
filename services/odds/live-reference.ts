@@ -2,12 +2,26 @@ import { BOARD_SPORTS } from "@/lib/config/board-sports";
 import type { LeagueKey, LeagueRecord, PlayerRecord, SportsbookRecord, TeamRecord } from "@/lib/types/domain";
 
 export const LIVE_SPORT_TO_LEAGUE: Record<string, LeagueKey | null> = {
+  nba: "NBA",
+  ncaab: "NCAAB",
+  mlb: "MLB",
+  nhl: "NHL",
+  nfl: "NFL",
+  ncaaf: "NCAAF",
+  ufc: "UFC",
+  boxing: "BOXING",
   basketball_nba: "NBA",
   basketball_ncaab: "NCAAB",
   baseball_mlb: "MLB",
   icehockey_nhl: "NHL",
   americanfootball_nfl: "NFL",
-  americanfootball_ncaaf: "NCAAF"
+  americanfootball_ncaaf: "NCAAF",
+  mma_ufc: "UFC",
+  mma_mixed_martial_arts: "UFC",
+  mma: "UFC",
+  combat_ufc: "UFC",
+  boxing_boxing: "BOXING",
+  combat_boxing: "BOXING"
 };
 
 export const LIVE_PROP_SPORT_KEYS: Partial<Record<LeagueKey, string>> = {
@@ -72,7 +86,8 @@ export function deriveAbbreviation(teamName: string) {
 }
 
 export function getLeagueForSportKey(sportKey: string): LeagueKey | null {
-  return LIVE_SPORT_TO_LEAGUE[sportKey] ?? null;
+  const normalized = sportKey.trim().toLowerCase();
+  return LIVE_SPORT_TO_LEAGUE[normalized] ?? LIVE_SPORT_TO_LEAGUE[sportKey] ?? null;
 }
 
 export function getLeagueRecord(leagueKey: LeagueKey): LeagueRecord {

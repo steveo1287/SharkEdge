@@ -1,9 +1,9 @@
-import type { GameCardView } from "@/lib/types/domain";
+import type { GameCardView, LeagueKey } from "@/lib/types/domain";
 import { buildGameMarketOpportunity } from "@/services/opportunities/opportunity-service";
 
 export type WorkflowMarketFocus = "all" | "moneyline" | "spread" | "total";
 export type WorkflowTargetMarket = Exclude<WorkflowMarketFocus, "all">;
-export type WorkflowBoardLeague = "ALL" | "NBA" | "MLB";
+export type WorkflowBoardLeague = "ALL" | LeagueKey;
 export type WorkflowBoardSort = "edge" | "movement" | "start";
 
 export type WorkflowBoardState = {
