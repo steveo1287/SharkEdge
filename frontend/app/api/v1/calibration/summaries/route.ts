@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       ok: true,
       count: items.length,
-      data: items.map((item) => ({
+      data: items.map((item: (typeof items)[number]) => ({
         id: item.id,
         summaryDate: item.summaryDate.toISOString(),
         scope: item.scope,
