@@ -1,7 +1,11 @@
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
+import { buildCombatProfileFromRows, fetchCombatHistoryRowsForCompetitor } from "@/services/modeling/fighter-history-service";
 import { buildFightHistoryFeatureView } from "@/services/modeling/fight-history-warehouse";
+import { buildUfcFighterIntelligenceProfile } from "@/services/modeling/ufc-fighter-intelligence";
+import { buildUfcCommonOpponentView, buildUfcOpponentGraphSnapshot } from "@/services/modeling/ufc-opponent-graph";
+import { buildUfcSourceProfile } from "@/services/modeling/ufc-source-profile";
 import { buildFightProjection } from "@/services/modeling/fight-projection-core";
 import { buildMlbEventProjection, buildMlbPlayerPropProjections } from "@/services/modeling/mlb-game-sim-service";
 import { buildGenericEventProjection, buildWeightedAverage } from "@/services/modeling/team-projection-core";
@@ -211,15 +215,62 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     const fighterBContext = event.participantContexts.find((row) => row.competitorId === fighterB.competitorId) ?? null;
     const eventMetadata = asRecord(event.metadataJson);
     const rounds = coerceNumber(eventMetadata?.rounds) ?? (event.league.key === "UFC" ? 3 : 10);
-    const fighterAMetadata = {
+    const baseFighterAMetadata = {
       ...(asRecord(fighterA.competitor.metadataJson) ?? {}),
       ...(asRecord(fighterA.metadataJson) ?? {}),
       ...(asRecord(fighterAContext?.metadataJson) ?? {})
     };
-    const fighterBMetadata = {
+    const baseFighterBMetadata = {
       ...(asRecord(fighterB.competitor.metadataJson) ?? {}),
       ...(asRecord(fighterB.metadataJson) ?? {}),
       ...(asRecord(fighterBContext?.metadataJson) ?? {})
+    };
+    const rowsA = await fetchCombatHistoryRowsForCompetitor(fighterA.competitorId, event.id);
+    const rowsB = await fetchCombatHistoryRowsForCompetitor(fighterB.competitorId, event.id);
+    const liveCombatProfileA = buildCombatProfileFromRows(rowsA);
+    const liveCombatProfileB = buildCombatProfileFromRows(rowsB);
+    const liveUfcProfileA =
+      event.league.key === "UFC"
+        ? buildUfcFighterIntelligenceProfile({
+            record: fighterA.record,
+            recentWinRate: fighterAContext?.recentWinRate ?? null,
+            recentMargin: fighterAContext?.recentMargin ?? null,
+            metadata: baseFighterAMetadata,
+            combatProfile: liveCombatProfileA,
+            historyRows: rowsA
+          })
+        : null;
+    const liveUfcProfileB =
+      event.league.key === "UFC"
+        ? buildUfcFighterIntelligenceProfile({
+            record: fighterB.record,
+            recentWinRate: fighterBContext?.recentWinRate ?? null,
+            recentMargin: fighterBContext?.recentMargin ?? null,
+            metadata: baseFighterBMetadata,
+            combatProfile: liveCombatProfileB,
+            historyRows: rowsB
+          })
+        : null;
+    const liveOpponentGraphA = event.league.key === "UFC" ? buildUfcOpponentGraphSnapshot(rowsA) : null;
+    const liveOpponentGraphB = event.league.key === "UFC" ? buildUfcOpponentGraphSnapshot(rowsB) : null;
+    const liveSourceProfileA = event.league.key === "UFC" ? buildUfcSourceProfile(baseFighterAMetadata) : null;
+    const liveSourceProfileB = event.league.key === "UFC" ? buildUfcSourceProfile(baseFighterBMetadata) : null;
+    const commonOpponentView = event.league.key === "UFC" ? buildUfcCommonOpponentView(rowsA, rowsB) : null;
+    const fighterAMetadata = {
+      ...baseFighterAMetadata,
+      ...liveCombatProfileA,
+      ...(liveUfcProfileA ?? {}),
+      ...(liveOpponentGraphA ? { opponentGraphScore: liveOpponentGraphA.graphQualityScore, oppositionTier: liveOpponentGraphA.oppositionTier } : {}),
+      ...(liveSourceProfileA ? { sourceCompletenessScore: liveSourceProfileA.sourceCompletenessScore } : {}),
+      ...(commonOpponentView ? { ufcCommonOpponentEdgeScore: commonOpponentView.fighterAEdgeScore, commonOpponentCount: commonOpponentView.commonOpponentCount } : {})
+    };
+    const fighterBMetadata = {
+      ...baseFighterBMetadata,
+      ...liveCombatProfileB,
+      ...(liveUfcProfileB ?? {}),
+      ...(liveOpponentGraphB ? { opponentGraphScore: liveOpponentGraphB.graphQualityScore, oppositionTier: liveOpponentGraphB.oppositionTier } : {}),
+      ...(liveSourceProfileB ? { sourceCompletenessScore: liveSourceProfileB.sourceCompletenessScore } : {}),
+      ...(commonOpponentView ? { ufcCommonOpponentEdgeScore: commonOpponentView.fighterBEdgeScore, commonOpponentCount: commonOpponentView.commonOpponentCount } : {})
     };
 
     const fightProjection = buildFightProjection({
@@ -283,7 +334,11 @@ export async function buildEventProjectionFromHistory(eventId: string) {
         methodProbabilities: fightProjection.metadata.methodProbabilities,
         finishRoundExpectation: fightProjection.metadata.finishRoundExpectation,
         diagnostics: fightProjection.metadata.diagnostics,
-        featureBuckets: fightFeatureBuckets
+        featureBuckets: fightFeatureBuckets,
+        liveCombatProfiles: {
+          fighterA: liveCombatProfileA,
+          fighterB: liveCombatProfileB
+        }
       }
     };
   }

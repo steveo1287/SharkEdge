@@ -12,9 +12,15 @@ const ufcProjection = buildFightProjection({
     recentMargin: 3.2,
     daysRest: 140,
     metadata: {
-      sigStrikeDiff: 2.8,
-      controlScore: 8.7,
-      finishRate: 0.54,
+      strikingEfficiencyScore: 7.8,
+      grapplingControlScore: 8.7,
+      antiWrestlingScore: 8.2,
+      strengthOfScheduleScore: 7.9,
+      winQualityScore: 8.1,
+      fraudCheckScore: 7.7,
+      campQualityScore: 8.9,
+      pedigreeScore: 7.8,
+      finishingPressureScore: 7.5,
       reachInches: 70,
       age: 33
     }
@@ -26,9 +32,15 @@ const ufcProjection = buildFightProjection({
     recentMargin: 1.1,
     daysRest: 112,
     metadata: {
-      sigStrikeDiff: 1.4,
-      controlScore: 7.2,
-      finishRate: 0.37,
+      strikingEfficiencyScore: 7.0,
+      grapplingControlScore: 7.2,
+      antiWrestlingScore: 6.9,
+      strengthOfScheduleScore: 7.1,
+      winQualityScore: 7.2,
+      fraudCheckScore: 7.0,
+      campQualityScore: 7.4,
+      pedigreeScore: 7.1,
+      finishingPressureScore: 6.7,
       reachInches: 72,
       age: 29
     }
@@ -38,6 +50,7 @@ const ufcProjection = buildFightProjection({
 assert.equal(ufcProjection.winProbHome > 0.5, true);
 assert.equal(ufcProjection.metadata.methodProbabilities.finish > 0, true);
 assert.equal(ufcProjection.metadata.finishRoundExpectation <= 5, true);
+assert.equal(ufcProjection.metadata.diagnostics.fighterAQualityScore > ufcProjection.metadata.diagnostics.fighterBQualityScore, true);
 
 const boxingProjection = buildFightProjection({
   sportKey: "BOXING",

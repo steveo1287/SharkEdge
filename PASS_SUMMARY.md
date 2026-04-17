@@ -80,3 +80,192 @@ Limits of this fourth pass:
 - Weather buckets still depend on event metadata carrying a snapshot; there is no live Windy pull worker yet
 - Combat buckets are now reusable and trendable, but still need richer historical fight-stat ingestion for top-end round/method accuracy
 - This is the warehouse/scaffolding layer, not the final live ingestion layer
+
+Fifth upgrade: Production Intelligence Worker Pass
+
+Core upgrades:
+- Added `frontend/services/weather/venue-weather-enrichment-service.ts`
+  - resolves venue coordinates from metadata or known venue map
+  - supports Windy-template and NWS fetch paths for live weather snapshots
+  - merges normalized weather snapshots into event metadata
+  - refreshes upcoming outdoor-event weather in a worker-friendly loop
+- Added `frontend/services/modeling/fighter-history-service.ts`
+  - builds reusable combat profiles from prior finished fights
+  - derives historical win rate, finish/decision mix, opponent quality, activity, durability, power, and control scores
+  - can refresh and persist combat profiles into `event_participant_context.metadataJson`
+- Added worker scripts:
+  - `frontend/scripts/worker-weather-snapshots.ts`
+  - `frontend/scripts/worker-combat-profiles.ts`
+- Updated `frontend/services/modeling/model-engine.ts` so UFC/boxing projections now consume live-built combat profiles, not just static metadata/record strings
+- Added tests:
+  - `frontend/tests/fighter-history-service.test.ts`
+  - `frontend/tests/venue-weather-enrichment-service.test.ts`
+- Added package scripts:
+  - `worker:weather-snapshots`
+  - `worker:combat-profiles`
+
+Limits of this fifth pass:
+- Windy integration is template/endpoint driven; it still needs the real production endpoint or key configured in env
+- Venue geocoding currently prefers metadata and falls back to a starter venue map, not a full venue database yet
+- Combat history is now real and reusable, but still limited by the depth/quality of historical fight results stored in the DB
+
+Sixth upgrade: Persistence + Orchestration Layer Pass
+
+Core upgrades:
+- Added `frontend/services/intelligence/model-input-bundle-service.ts`
+  - builds a stable event-level model input bundle
+  - computes a deterministic `bundleHash` from real inputs only, excluding generation timestamp so stale checks do not false-trigger forever
+- Added `frontend/services/intelligence/event-intelligence-snapshot-service.ts`
+  - persists per-event orchestration state including stale flags, refresh actions, bundle hash, and latest projection summary
+- Added `frontend/services/intelligence/intelligence-orchestrator.ts`
+  - orders refresh flow as weather -> combat profiles -> bundle rebuild -> projection rerun -> snapshot persistence
+  - adds stale-data guards for weather, combat profiles, and projections
+  - persists both `modelInputBundle` and `intelligenceSnapshot` into `event.metadataJson`
+- Updated `frontend/services/market-data/market-data-service.ts`
+  - made event projection ingest idempotent via upsert on `(modelRunId, eventId)`
+  - added duplicate suppression on player projection reruns
+- Updated `frontend/services/modeling/fighter-history-service.ts`
+  - now stamps `combatProfileGeneratedAt` so orchestration can reason about profile freshness
+- Added worker entrypoint:
+  - `frontend/scripts/worker-intelligence-orchestrator.ts`
+- Added Netlify runtime entrypoints:
+  - `frontend/netlify/functions/intelligence-orchestrator-scheduled.mts`
+  - `frontend/netlify/functions/intelligence-refresh-background.mts`
+- Added tests:
+  - `frontend/tests/model-input-bundle-service.test.ts`
+  - `frontend/tests/intelligence-orchestrator.test.ts`
+- Updated package scripts:
+  - `worker:intelligence-orchestrator`
+
+What this pass enables:
+- scheduled workers on a real cadence
+- ordered refreshes instead of ad hoc recomputation
+- stale-data guards for weather, combat profiles, and projections
+- event-level intelligence snapshots persisted alongside event metadata
+- cached model input bundles with deterministic bundle hashing
+- projection reruns after upstream weather/profile refreshes without uncontrolled duplicate state
+
+Limits of this sixth pass:
+- scheduling is wired for Netlify and worker scripts, but production cadence tuning still needs live deploy observation
+- latest projection selection still relies on current projection/model-run ordering, not a purpose-built projection snapshot table
+- bundle persistence lives in event metadata for speed; a dedicated intelligence snapshot table is still a future scale upgrade
+
+Seventh upgrade: UFC Fighter Intelligence Pass
+
+Core upgrades:
+- Added `frontend/services/modeling/ufc-fighter-intelligence.ts`
+  - builds a richer UFC fighter profile from fight history, opponent quality, efficiency stats, pedigree, camp quality, training partners, physicality, and capped public-perception/video-game inputs
+  - derives scores for:
+    - strength of schedule
+    - win quality
+    - fraud-check / schedule softness
+    - striking efficiency
+    - striking defense
+    - grappling control
+    - anti-wrestling
+    - submission threat
+    - finishing pressure
+    - round winning
+    - durability trend
+    - pedigree
+    - camp quality
+    - training partner quality
+    - composite UFC fighter quality
+  - emits scouting flags and a style archetype
+- Updated `frontend/services/modeling/fighter-history-service.ts`
+  - added `fetchCombatHistoryRowsForCompetitor(...)`
+  - added `buildUfcFighterIntelligenceForCompetitor(...)`
+  - upgraded `refreshCombatParticipantProfiles(...)` to persist `ufcIntelligenceProfile` and `ufcIntelligenceGeneratedAt` for UFC participants
+  - added optional league filtering so UFC-specific refresh jobs can run cleanly
+- Updated `frontend/services/modeling/model-engine.ts`
+  - UFC projection path now merges live-built UFC fighter intelligence into projection metadata before running the fight model
+- Rebuilt `frontend/services/modeling/fight-projection-core.ts`
+  - fight projections now weigh opponent-adjusted quality, control-vs-anti-wrestling matchup, pedigree, camp quality, round-winning ability, and durability trend in addition to older record/form signals
+  - upgraded diagnostics to expose quality and matchup edges
+- Added `frontend/scripts/worker-ufc-intelligence.ts`
+  - UFC-only intelligence refresh worker entrypoint
+- Added tests:
+  - `frontend/tests/ufc-fighter-intelligence.test.ts`
+  - updated `frontend/tests/fight-projection-core.test.ts`
+- Added package script:
+  - `worker:ufc-intelligence`
+
+What this pass enables:
+- fighter profiles based on who they fought, how they fought, and how legit the opposition was
+- camp / training-partner context as additive signal instead of narrative fluff
+- amateur/pedigree inputs for lower-sample or prospect fighters
+- stronger UFC-specific matchup logic inside the fight projection engine
+- a cleaner path toward future UI fighter intelligence cards and UFC-specific betting surfaces
+
+Limits of this seventh pass:
+- amateur/camp/training metadata still depends on having source fields available in competitor/event metadata; this does not yet add a live third-party ingest crawler
+- opponent quality is still derived from currently available fight history/records, not a dedicated long-horizon normalized opponent graph table
+- video-game/public-perception inputs are deliberately capped and should stay secondary
+
+Eighth upgrade: UFC Opponent Graph + Source Normalization Pass
+
+Core upgrades:
+- Added `frontend/services/modeling/ufc-source-profile.ts`
+  - normalizes fighter-source metadata for camp, training partners, amateur record, wrestling level, BJJ level, kickboxing/boxing record, stance, age, reach, and height
+  - computes a `sourceCompletenessScore` and pedigree tags so the model can reason about how complete/credible a fighter profile is
+- Added `frontend/services/modeling/ufc-opponent-graph.ts`
+  - builds a normalized opponent graph snapshot from tracked fight history
+  - computes average opponent quality, best-win quality, weak-win count, bad-loss count, elite-opponent count, opposition tier, graph quality score, and consistency score
+  - adds common-opponent comparison support between two fighters
+- Updated `frontend/services/modeling/fighter-history-service.ts`
+  - UFC participant refresh now persists:
+    - `ufcOpponentGraph`
+    - `ufcOpponentGraphGeneratedAt`
+    - `ufcSourceProfile`
+    - `ufcSourceProfileGeneratedAt`
+  - this happens alongside existing `combatProfile` and `ufcIntelligenceProfile`
+- Updated `frontend/services/modeling/model-engine.ts`
+  - live UFC projection metadata now carries:
+    - opponent graph score / opposition tier
+    - source completeness score
+    - common-opponent edge
+- Updated `frontend/services/modeling/fight-projection-core.ts`
+  - the UFC fight model now also considers:
+    - opponent graph edge
+    - source completeness edge
+    - common-opponent edge
+- Added tests:
+  - `frontend/tests/ufc-source-profile.test.ts`
+  - `frontend/tests/ufc-opponent-graph.test.ts`
+
+What this pass enables:
+- fighter profiles that know not just raw history, but how strong the opponent web actually is
+- common-opponent comparison as a reusable UFC feature lane
+- source quality awareness so low-information fighter profiles can be treated with more caution
+- a cleaner foundation for future UI cards showing best wins, weak wins, bad losses, camp pedigree, and source completeness
+
+Limits of this eighth pass:
+- this is still built from available stored metadata/history, not a full external fighter-source crawler
+- opponent graph is normalized and reusable, but not yet a dedicated DB graph table with long-horizon snapshots and cross-promotion linking
+
+Ninth upgrade: UFC Source Import + Identity Resolution Pass
+
+Core upgrades:
+- Added `frontend/services/modeling/ufc-identity-resolution.ts`
+  - scores and resolves incoming fighter-source profiles against existing combat competitors using name, alias, nickname, record, age, reach, and height signals
+- Added `frontend/services/modeling/ufc-source-ingest-service.ts`
+  - normalizes raw external/source fighter payloads into SharkEdge-readable metadata
+  - imports source profiles onto competitor metadata so camps, aliases, amateur history, and partner data become live model inputs immediately after ingest
+- Added `frontend/scripts/worker-ufc-source-import.ts`
+  - imports JSON source-profile files into competitor metadata through the identity resolver
+- Updated model-readiness indirectly by storing imported fields into the same metadata keys already consumed by the UFC model path
+- Added tests:
+  - `frontend/tests/ufc-identity-resolution.test.ts`
+  - `frontend/tests/ufc-source-ingest-service.test.ts`
+- Added package script:
+  - `worker:ufc-source-import`
+
+What this pass enables:
+- ingesting external fighter dossiers instead of hand-editing competitor metadata
+- resolving alternate names / aliases / nickname cases into the right fighter identity
+- hydrating camp, amateur, pedigree, and partner data into the UFC model path automatically
+- a real bridge from outside scouting sources into SharkEdge’s internal fighter engine
+
+Limits of this ninth pass:
+- this is a source-profile importer contract, not a live web crawler; it expects JSON payloads or future upstream fetchers to supply the raw source profiles
+- identity resolution is heuristic and strong, but not yet a full graph DB with persistent cross-source identity nodes
