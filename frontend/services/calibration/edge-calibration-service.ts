@@ -1,7 +1,6 @@
 import { buildSegmentedCalibrationReport } from "@/services/calibration/edge-calibration-report";
 
 type SnapshotResult = {
-  ok: boolean;
   scanned: number;
   created: number;
   skipped: number;
@@ -16,7 +15,6 @@ type SnapshotResult = {
  */
 export async function snapshotActiveEdgeExplanations(): Promise<SnapshotResult> {
   return {
-    ok: true,
     scanned: 0,
     created: 0,
     skipped: 0,
