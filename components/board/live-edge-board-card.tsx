@@ -43,13 +43,13 @@ function getPrimaryBook(game: GameCardView) {
 
 function MarketColumn({ label, market }: { label: string; market: BoardMarketView }) {
   return (
-    <div className="rounded-[14px] border border-white/8 bg-white/[0.03] px-3 py-2.5">
-      <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+    <div className="rounded-md border border-bone/[0.08] bg-surface px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">
         <span>{label}</span>
-        <span>{market.bestBook}</span>
+        <span className="text-bone/75">{market.bestBook}</span>
       </div>
-      <div className="mt-2 text-sm font-semibold tracking-tight text-white">{market.lineLabel}</div>
-      <div className="mt-1 text-[10px] uppercase tracking-[0.14em] text-sky-300">{formatMovementValue(market.movement)}</div>
+      <div className="mt-2 font-mono text-[13px] font-semibold tabular-nums text-text-primary">{market.lineLabel}</div>
+      <div className="mt-1 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] tabular-nums text-aqua">{formatMovementValue(market.movement)}</div>
     </div>
   );
 }
@@ -73,27 +73,27 @@ export function LiveEdgeBoardCard({
   return (
     <div
       className={cn(
-        "mobile-board-card transition",
+        "focusable panel p-4 transition-colors",
         selected
-          ? "border-sky-400/28 bg-[#0d1726] shadow-[0_16px_34px_rgba(8,145,255,0.12)]"
-          : "hover:border-sky-400/18 hover:bg-[#0e1725]"
+          ? "border-aqua/30 bg-aqua/[0.04]"
+          : "hover:border-bone/[0.14] hover:bg-raised/60"
       )}
     >
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr),minmax(0,1.6fr),auto] xl:items-center">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+          <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">
             <span>{game.leagueKey}</span>
-            <span>•</span>
+            <span className="text-bone/25">·</span>
             <span>{game.status}</span>
-            <span>•</span>
-            <span>{formatStartTime(game.startTime)}</span>
+            <span className="text-bone/25">·</span>
+            <span className="font-mono tabular-nums">{formatStartTime(game.startTime)}</span>
           </div>
           <div className="mt-3 flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <div className="text-[1.05rem] font-semibold tracking-tight text-white">
-                {game.awayTeam.abbreviation} <span className="text-slate-500">@</span> {game.homeTeam.abbreviation}
+              <div className="font-display text-[17px] font-semibold tracking-[-0.01em] text-text-primary">
+                {game.awayTeam.abbreviation} <span className="text-bone/35">@</span> {game.homeTeam.abbreviation}
               </div>
-              <div className="mt-1 truncate text-sm text-slate-400">{game.venue}</div>
+              <div className="mt-1 truncate text-[12.5px] text-bone/55">{game.venue}</div>
             </div>
             <SharkScoreRing
               score={game.edgeScore.score}
@@ -110,31 +110,31 @@ export function LiveEdgeBoardCard({
         </div>
 
         <div className="grid gap-2 xl:justify-items-end">
-          <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.16em] text-slate-400 xl:justify-end">
-            <div className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5 text-slate-200">{primaryBook}</div>
-            <div className="rounded-full border border-white/8 px-3 py-1.5">{game.bestBookCount} books</div>
+          <div className="flex flex-wrap gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] xl:justify-end">
+            <div className="rounded-sm border border-bone/[0.10] bg-surface px-2 py-1 text-bone/85">{primaryBook}</div>
+            <div className="rounded-sm border border-bone/[0.08] bg-surface px-2 py-1 text-bone/65">{game.bestBookCount} books</div>
           </div>
-          <div className="rounded-full border border-sky-400/20 bg-sky-500/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-300">
-            {leadMover.label} {formatMovementValue(leadMover.movement)}
+          <div className="rounded-sm border border-aqua/25 bg-aqua/[0.08] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-aqua">
+            {leadMover.label} <span className="font-mono tabular-nums">{formatMovementValue(leadMover.movement)}</span>
           </div>
-          <div className="flex gap-2 xl:justify-end">
-            <div className="rounded-full border border-white/8 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+          <div className="flex flex-wrap gap-1.5 xl:justify-end">
+            <div className="rounded-sm border border-bone/[0.10] bg-surface px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/75">
               {game.edgeScore.label}
             </div>
             <Link
               href={inspectHref ?? game.detailHref ?? `/game/${game.id}`}
               className={cn(
-                "rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition",
+                "rounded-sm border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors",
                 selected
-                  ? "border-sky-300/50 bg-sky-500/16 text-sky-100"
-                  : "border-white/10 bg-white/[0.03] text-white hover:border-sky-400/25 hover:bg-sky-500/10"
+                  ? "border-aqua/40 bg-aqua/10 text-aqua"
+                  : "border-bone/[0.12] bg-surface text-text-primary hover:border-aqua/30 hover:bg-aqua/[0.05] hover:text-aqua"
               )}
             >
               {selected ? "Inspecting" : "Inspect"}
             </Link>
             <Link
               href={gameHref ?? game.detailHref ?? `/game/${game.id}`}
-              className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-200 transition hover:border-white/18 hover:bg-white/[0.06]"
+              className="rounded-sm border border-bone/[0.10] bg-surface px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/75 transition-colors hover:border-bone/[0.20] hover:text-text-primary"
             >
               {workflowLabel ? `Open ${workflowLabel}` : "Game page"}
             </Link>
