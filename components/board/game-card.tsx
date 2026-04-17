@@ -97,11 +97,11 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
   const reasonTags = focusView.reasons?.slice(0, 1) ?? [];
 
   return (
-    <Card className="surface-panel p-5">
+    <Card className="p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-            {game.leagueKey} | {formatGameDateTime(game.startTime)}
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">
+            {game.leagueKey} <span className="text-bone/25">·</span> <span className="font-mono tabular-nums">{formatGameDateTime(game.startTime)}</span>
           </div>
 
           <div className="mt-4 grid gap-4">
@@ -112,10 +112,10 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
                 size="md"
               />
               <div className="min-w-0">
-                <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">
                   Away
                 </div>
-                <div className="truncate text-lg font-semibold text-white">
+                <div className="truncate font-display text-[17px] font-semibold tracking-[-0.01em] text-text-primary">
                   {game.awayTeam.name}
                 </div>
               </div>
@@ -128,17 +128,17 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
                 size="md"
               />
               <div className="min-w-0">
-                <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-500">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">
                   Home
                 </div>
-                <div className="truncate text-lg font-semibold text-white">
+                <div className="truncate font-display text-[17px] font-semibold tracking-[-0.01em] text-text-primary">
                   {game.homeTeam.name}
                 </div>
               </div>
             </div>
 
-            <div className="text-sm leading-6 text-slate-300">
-              Lead with <span className="font-medium text-white">{formatFocusLabel(focus)}</span>:{" "}
+            <div className="text-[13px] leading-[1.55] text-bone/70">
+              Lead with <span className="font-medium text-text-primary">{formatFocusLabel(focus)}</span>:{" "}
               {focusReason}
             </div>
           </div>
@@ -149,52 +149,57 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
           <Badge tone={scoreBand.tone}>
             {scoreBand.label} {focusOpportunity.opportunityScore}
           </Badge>
-          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">
             {movement === 0
               ? "No move"
-              : `${movement > 0 ? "+" : ""}${movement.toFixed(1)} ${
-                  focus === "moneyline" ? "c" : "pts"
-                }`}
+              : (
+                <span className="font-mono tabular-nums text-aqua">
+                  {`${movement > 0 ? "+" : ""}${movement.toFixed(1)} ${
+                    focus === "moneyline" ? "c" : "pts"
+                  }`}
+                </span>
+              )}
           </div>
-          <div className="text-xs uppercase tracking-[0.18em] text-slate-400">
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/50">
             {focusOpportunity.timingState.replace(/_/g, " ")}
           </div>
         </div>
       </div>
 
       <div className="mt-5 grid gap-3 md:grid-cols-3">
-        <div className="rounded-[1.2rem] border border-line bg-slate-950/70 p-4">
-          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Spread</div>
-          <div className="mt-3 font-display text-xl font-semibold text-white">
+        <div className="rounded-md border border-bone/[0.08] bg-surface p-4">
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">Spread</div>
+          <div className="mt-3 font-display text-[19px] font-semibold tracking-[-0.01em] text-text-primary">
             {formatMarketLine(game.spread.label)}
           </div>
-          <div className="mt-2 text-sm text-slate-400">
-            {game.spread.bestBook !== "Unavailable" ? formatMarketLine(game.spread.bestBook) : "-"}{" "}
-            | {formatOddsValue(game.spread.bestOdds)}
+          <div className="mt-2 font-mono text-[12.5px] tabular-nums text-bone/65">
+            <span className="text-bone/50">{game.spread.bestBook !== "Unavailable" ? formatMarketLine(game.spread.bestBook) : "-"}</span>
+            <span className="mx-1.5 text-bone/25">·</span>
+            <span className="text-text-primary">{formatOddsValue(game.spread.bestOdds)}</span>
           </div>
         </div>
 
-        <div className="rounded-[1.2rem] border border-line bg-slate-950/70 p-4">
-          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Moneyline</div>
-          <div className="mt-3 font-display text-xl font-semibold text-white">
+        <div className="rounded-md border border-bone/[0.08] bg-surface p-4">
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">Moneyline</div>
+          <div className="mt-3 font-display text-[19px] font-semibold tracking-[-0.01em] text-text-primary">
             {formatMarketLine(game.moneyline.label)}
           </div>
-          <div className="mt-2 text-sm text-slate-400">
-            {game.moneyline.bestBook !== "Unavailable"
-              ? formatMarketLine(game.moneyline.bestBook)
-              : "-"}{" "}
-            | {formatOddsValue(game.moneyline.bestOdds)}
+          <div className="mt-2 font-mono text-[12.5px] tabular-nums text-bone/65">
+            <span className="text-bone/50">{game.moneyline.bestBook !== "Unavailable" ? formatMarketLine(game.moneyline.bestBook) : "-"}</span>
+            <span className="mx-1.5 text-bone/25">·</span>
+            <span className="text-text-primary">{formatOddsValue(game.moneyline.bestOdds)}</span>
           </div>
         </div>
 
-        <div className="rounded-[1.2rem] border border-line bg-slate-950/70 p-4">
-          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Total</div>
-          <div className="mt-3 font-display text-xl font-semibold text-white">
+        <div className="rounded-md border border-bone/[0.08] bg-surface p-4">
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">Total</div>
+          <div className="mt-3 font-display text-[19px] font-semibold tracking-[-0.01em] text-text-primary">
             {formatMarketLine(game.total.label)}
           </div>
-          <div className="mt-2 text-sm text-slate-400">
-            {game.total.bestBook !== "Unavailable" ? formatMarketLine(game.total.bestBook) : "-"}{" "}
-            | {formatOddsValue(game.total.bestOdds)}
+          <div className="mt-2 font-mono text-[12.5px] tabular-nums text-bone/65">
+            <span className="text-bone/50">{game.total.bestBook !== "Unavailable" ? formatMarketLine(game.total.bestBook) : "-"}</span>
+            <span className="mx-1.5 text-bone/25">·</span>
+            <span className="text-text-primary">{formatOddsValue(game.total.bestOdds)}</span>
           </div>
         </div>
       </div>
@@ -214,19 +219,20 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
       </div>
 
       {trapLine ? (
-        <div className="mt-4 rounded-[1.1rem] border border-rose-400/20 bg-rose-500/8 px-4 py-3 text-sm leading-6 text-rose-100">
-          <span className="text-rose-200/75">Trap line:</span> {trapLine}
+        <div className="mt-4 rounded-md border border-crimson/25 bg-crimson/[0.06] px-4 py-3 text-[13px] leading-[1.55] text-crimson">
+          <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-crimson/75">Trap line</span>
+          <div className="mt-1 text-bone/85">{trapLine}</div>
         </div>
       ) : null}
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm text-slate-400">
+        <div className="text-[12.5px] text-bone/55">
           {focusOpportunity.sportsbookName
-            ? `${focusOpportunity.sportsbookName} | ${focusOpportunity.actionState
+            ? `${focusOpportunity.sportsbookName} · ${focusOpportunity.actionState
                 .replace(/_/g, " ")
                 .toLowerCase()}`
             : focusView.fairPrice
-              ? `${focusView.fairPrice.pricingMethod.replace(/_/g, " ")} | confidence ${
+              ? `${focusView.fairPrice.pricingMethod.replace(/_/g, " ")} · confidence ${
                   focusView.fairPrice.pricingConfidenceScore
                 }`
               : game.selectedBook
@@ -238,7 +244,7 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
           {actions}
           <Link
             href={game.detailHref ?? `/game/${game.id}`}
-            className="rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300"
+            className="rounded-sm border border-aqua/30 bg-aqua/[0.08] px-4 py-2 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-aqua transition-colors hover:border-aqua/50 hover:bg-aqua/[0.14]"
           >
             Open matchup
           </Link>
