@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-import { OpportunityStateBadge } from "@/app/game/[id]/_components/game-hub-primitives";
 import { BetActionButton } from "@/components/bets/bet-action-button";
 import {
   getOpportunityTrapLine,
@@ -279,10 +278,19 @@ export function PropList({ props, support }: PropListProps) {
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    <OpportunityStateBadge
-                      actionState={opportunity.actionState}
-                      label={opportunity.actionState.replace(/_/g, " ")}
-                    />
+                    <Badge
+                      tone={
+                        opportunity.actionState === "BET_NOW"
+                          ? "success"
+                          : opportunity.actionState === "WAIT"
+                            ? "premium"
+                            : opportunity.actionState === "WATCH"
+                              ? "brand"
+                              : "muted"
+                      }
+                    >
+                      {opportunity.actionState.replace(/_/g, " ")}
+                    </Badge>
                     <Badge tone={trapLine ? "danger" : "muted"}>
                       {opportunity.opportunityScore}
                     </Badge>

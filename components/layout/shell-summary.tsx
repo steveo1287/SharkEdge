@@ -21,10 +21,7 @@ export function ShellSummary() {
     fetch("/api/product/summary", { cache: "no-store" })
       .then((response) => response.json())
       .then((payload) => {
-        if (!active || payload.error) {
-          return;
-        }
-
+        if (!active || payload.error) return;
         setSummary(payload as SummaryState);
       })
       .catch(() => {});
@@ -35,27 +32,36 @@ export function ShellSummary() {
   }, []);
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="flex items-center gap-3">
       <Link
         href="/watchlist"
-        className="inline-flex items-center gap-2 rounded-2xl border border-line bg-slate-900/80 px-4 py-2 text-sm font-medium text-white"
+        className="group flex items-center gap-2 rounded-md border border-bone/[0.08] bg-surface px-3 py-1.5 transition-colors hover:border-bone/[0.14]"
       >
-        Watchlist
-        <span className="rounded-full border border-amber-300/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200">
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.10em] text-bone/55 group-hover:text-bone/80">
+          Watchlist
+        </span>
+        <span className="font-mono text-[12px] font-semibold tabular-nums text-text-primary">
           {summary?.watchlistCount ?? 0}
         </span>
       </Link>
+
       <Link
         href="/alerts"
-        className="inline-flex items-center gap-2 rounded-2xl border border-line bg-slate-900/80 px-4 py-2 text-sm font-medium text-white"
+        className="group flex items-center gap-2 rounded-md border border-bone/[0.08] bg-surface px-3 py-1.5 transition-colors hover:border-aqua/40"
       >
-        Alerts
-        <span className="rounded-full border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-xs text-sky-300">
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.10em] text-bone/55 group-hover:text-aqua">
+          Alerts
+        </span>
+        <span className="font-mono text-[12px] font-semibold tabular-nums text-aqua">
           {summary?.unreadAlertCount ?? 0}
         </span>
       </Link>
-      <div className="rounded-full border border-line px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-300">
-        {summary?.plan.statusLabel ?? "Free"}
+
+      <div className="flex items-center gap-2 rounded-md border border-bone/[0.10] bg-surface px-3 py-1.5">
+        <span className="live-dot" />
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.10em] text-bone/75">
+          {summary?.plan.statusLabel ?? "Live"}
+        </span>
       </div>
     </div>
   );

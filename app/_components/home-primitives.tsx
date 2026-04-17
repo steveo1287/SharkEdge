@@ -123,61 +123,52 @@ export function MovementCard({ game }: { game: GameCardView }) {
   return (
     <Link
       href={getGameHref(game)}
-      className="group rounded-[1.35rem] border border-white/8 bg-[#0a1422]/90 p-4 transition hover:border-sky-400/25 hover:bg-white/[0.03]"
+      className="focusable group block rounded-lg border border-bone/[0.08] bg-surface p-4 transition-colors hover:border-aqua/25 hover:bg-panel"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">
             {game.leagueKey}
           </div>
-          <div className="mt-2 text-lg font-semibold text-white">
-            {game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}
+          <div className="mt-2 font-display text-[18px] font-semibold tracking-[-0.01em] text-text-primary">
+            {game.awayTeam.abbreviation} <span className="text-bone/40">@</span> {game.homeTeam.abbreviation}
           </div>
         </div>
-        <div className="flex flex-wrap justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-1.5">
           <Badge tone={severity.tone}>{severity.label}</Badge>
           <EdgeScoreBadge label={game.edgeScore.label} />
         </div>
       </div>
 
-      <div className="mt-4 rounded-[1rem] border border-white/8 bg-slate-950/60 px-4 py-3">
+      <div className="mt-4 rounded-md border border-bone/[0.06] bg-panel px-3 py-2.5">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
-            Lead move
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">
+            Lead Move
           </div>
-          <div className="text-sm font-semibold text-white">
+          <div className="text-[12.5px] font-semibold text-text-primary">
             {dominantMove.market}
           </div>
         </div>
-        <div className="mt-2 text-sm font-medium text-sky-300">
+        <div className="mt-1.5 font-mono text-[13px] font-medium tabular-nums text-aqua">
           {dominantMove.value}
         </div>
-        <div className="mt-2 text-sm leading-6 text-slate-400">
+        <div className="mt-2 text-[12px] leading-[1.5] text-bone/55">
           {severity.note}
         </div>
       </div>
 
-      <div className="mt-4 grid gap-2 text-sm text-slate-300">
+      <div className="mt-3 grid gap-1.5 font-mono text-[12.5px] tabular-nums text-bone/75">
         <div className="flex items-center justify-between gap-3">
-          <span>Spread</span>
-          <span>
-            {game.spread.label} | {formatSignedNumber(game.spread.movement)}
-          </span>
+          <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] not-italic text-bone/50">Spread</span>
+          <span>{game.spread.label} <span className="text-bone/30">·</span> {formatSignedNumber(game.spread.movement)}</span>
         </div>
         <div className="flex items-center justify-between gap-3">
-          <span>Total</span>
-          <span>
-            {game.total.label} | {formatSignedNumber(game.total.movement)}
-          </span>
+          <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] not-italic text-bone/50">Total</span>
+          <span>{game.total.label} <span className="text-bone/30">·</span> {formatSignedNumber(game.total.movement)}</span>
         </div>
         <div className="flex items-center justify-between gap-3">
-          <span>Moneyline</span>
-          <span>
-            {formatAmericanOdds(game.moneyline.bestOdds)} | {formatSignedNumber(
-              game.moneyline.movement,
-              0
-            )}
-          </span>
+          <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] not-italic text-bone/50">Moneyline</span>
+          <span>{formatAmericanOdds(game.moneyline.bestOdds)} <span className="text-bone/30">·</span> {formatSignedNumber(game.moneyline.movement, 0)}</span>
         </div>
       </div>
     </Link>
@@ -196,32 +187,35 @@ export function StoryCard({
   return (
     <Link
       href={buildStoryHref(focusedLeague, story)}
-      className="group overflow-hidden rounded-[1.45rem] border border-white/8 bg-[#0a1422]/90 transition hover:border-sky-400/25 hover:bg-white/[0.03]"
+      className="focusable group block overflow-hidden rounded-lg border border-bone/[0.08] bg-surface transition-colors hover:border-aqua/25"
     >
       {story.imageUrl ? (
         <div
-          className={featured ? "aspect-[16/9] overflow-hidden" : "aspect-[16/8] overflow-hidden"}
+          className={`relative ${featured ? "aspect-[16/9]" : "aspect-[16/8]"} overflow-hidden`}
         >
           <img
             src={story.imageUrl}
             alt={story.title}
-            className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+            className="h-full w-full object-cover grayscale-[15%] transition duration-300 group-hover:grayscale-0 group-hover:scale-[1.02]"
           />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-surface via-surface/20 to-transparent" />
         </div>
       ) : null}
-      <div className="grid gap-3 p-5">
+      <div className="grid gap-2 p-5">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">
             {story.category ?? `${focusedLeague} desk`}
           </div>
           {story.eventLabel ? (
-            <div className="text-[0.66rem] uppercase tracking-[0.18em] text-sky-300">
+            <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">
               {story.eventLabel}
             </div>
           ) : null}
         </div>
-        <div className="text-xl font-semibold leading-tight text-white">{story.title}</div>
-        <div className="text-sm leading-6 text-slate-400">
+        <div className="font-display text-[19px] font-semibold leading-[1.2] tracking-[-0.01em] text-text-primary">
+          {story.title}
+        </div>
+        <div className="text-[13px] leading-[1.55] text-bone/60">
           {story.summary ?? "Open the internal story for betting relevance and market context."}
         </div>
       </div>
@@ -266,15 +260,22 @@ export function ResearchRail({
   ];
 
   return (
-    <div className="grid gap-3">
+    <div className="grid gap-2">
       {links.map((link) => (
         <Link
           key={link.href}
           href={link.href}
-          className="rounded-[1.35rem] border border-white/8 bg-[#0a1422]/88 p-4 transition hover:border-sky-400/25 hover:bg-white/[0.03]"
+          className="focusable group rounded-lg border border-bone/[0.08] bg-surface p-4 transition-colors hover:border-aqua/25 hover:bg-panel"
         >
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-white">{link.title}</div>
-          <div className="mt-2 text-sm leading-6 text-slate-400">{link.detail}</div>
+          <div className="flex items-center justify-between">
+            <div className="text-[11.5px] font-semibold uppercase tracking-[0.10em] text-text-primary">{link.title}</div>
+            <div className="text-bone/30 transition-colors group-hover:text-aqua">
+              <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none">
+                <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+          </div>
+          <div className="mt-1.5 text-[12.5px] leading-[1.5] text-bone/55">{link.detail}</div>
         </Link>
       ))}
     </div>

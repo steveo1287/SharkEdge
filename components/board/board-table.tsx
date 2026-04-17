@@ -129,15 +129,15 @@ function SortableHeader({
     <Link
       href={href}
       className={cn(
-        "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] transition",
+        "inline-flex items-center gap-2 rounded-sm border px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] transition-colors",
         align === "right" ? "justify-end" : "justify-start",
         active
-          ? "border-sky-400/35 bg-sky-500/12 text-sky-200"
-          : "border-transparent text-slate-500 hover:border-white/10 hover:bg-white/[0.03] hover:text-slate-200"
+          ? "border-aqua/35 bg-aqua/10 text-aqua"
+          : "border-transparent text-bone/50 hover:border-bone/[0.12] hover:text-bone/85"
       )}
     >
       {label}
-      {active ? <span className="text-sky-300">•</span> : null}
+      {active ? <span className="text-aqua">•</span> : null}
     </Link>
   );
 }
@@ -154,18 +154,18 @@ function MarketCell({
   return (
     <div
       className={cn(
-        "grid gap-1 rounded-[14px] border px-3 py-2.5",
-        emphasized ? "border-sky-400/18 bg-sky-500/[0.05]" : "border-white/8 bg-white/[0.02]"
+        "grid gap-1 rounded-md border px-3 py-2.5",
+        emphasized ? "border-aqua/20 bg-aqua/[0.05]" : "border-bone/[0.08] bg-surface"
       )}
     >
-      <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+      <div className="flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">
         <span>{label}</span>
         <span className="truncate text-right">{market.bestBook}</span>
       </div>
-      <div className="text-sm font-semibold tracking-tight text-white">{market.lineLabel || "Market pending"}</div>
-      <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.14em]">
-        <span className="text-slate-400">{getBenchmarkLabel(market)}</span>
-        <span className={cn(emphasized ? "text-sky-300" : "text-slate-300")}>{formatMovementValue(market.movement)}</span>
+      <div className="font-mono text-[14px] font-semibold tabular-nums text-text-primary">{market.lineLabel || "Market pending"}</div>
+      <div className="flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.08em]">
+        <span className="text-bone/55">{getBenchmarkLabel(market)}</span>
+        <span className={cn("font-mono tabular-nums", emphasized ? "text-aqua" : "text-bone/70")}>{formatMovementValue(market.movement)}</span>
       </div>
     </div>
   );
@@ -183,18 +183,18 @@ function MovementSpark({ game, selectedMarket }: { game: GameCardView; selectedM
       {cells.map((cell) => {
         const active = selectedMarket === "all" || selectedMarket === cell.key;
         return (
-          <div key={cell.key} className="grid grid-cols-[32px,1fr,54px] items-center gap-2 text-[10px] uppercase tracking-[0.16em]">
-            <span className={cn("font-semibold", active ? "text-slate-200" : "text-slate-500")}>{cell.label}</span>
-            <div className="h-1.5 rounded-full bg-white/[0.06]">
+          <div key={cell.key} className="grid grid-cols-[32px,1fr,54px] items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em]">
+            <span className={cn(active ? "text-bone/85" : "text-bone/45")}>{cell.label}</span>
+            <div className="h-[2px] bg-bone/[0.08]">
               <div
                 className={cn(
-                  "h-full rounded-full transition-all",
-                  active ? "bg-sky-300" : "bg-slate-500/60"
+                  "h-full transition-all",
+                  active ? "bg-aqua" : "bg-bone/30"
                 )}
                 style={{ width: `${getMovementIntensity(cell.market, cell.key)}%` }}
               />
             </div>
-            <span className={cn("text-right", active ? "text-sky-300" : "text-slate-400")}>{formatMovementValue(cell.market.movement)}</span>
+            <span className={cn("text-right font-mono tabular-nums", active ? "text-aqua" : "text-bone/55")}>{formatMovementValue(cell.market.movement)}</span>
           </div>
         );
       })}
@@ -205,33 +205,33 @@ function MovementSpark({ game, selectedMarket }: { game: GameCardView; selectedM
 export function BoardTable({ rows, selectedMarket, selectedSort, sortHrefs }: BoardTableProps) {
   if (!rows.length) {
     return (
-      <div className="mobile-surface hidden xl:block">
-        <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Board table</div>
-        <div className="mt-2 text-[1rem] font-semibold text-white">No verified rows are available.</div>
+      <div className="panel hidden p-6 xl:block">
+        <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">Board table</div>
+        <div className="mt-2 font-display text-[17px] font-semibold text-text-primary">No verified rows are available.</div>
       </div>
     );
   }
 
   return (
-    <section className="mobile-surface hidden !p-0 xl:block">
+    <section className="panel hidden overflow-hidden !p-0 xl:block">
       <div className="overflow-x-auto">
         <table className="min-w-[1240px] w-full border-collapse text-left">
-          <thead className="sticky top-0 z-10 bg-[#08111d]/96 backdrop-blur">
-            <tr className="border-b border-white/8 text-[10px] uppercase tracking-[0.18em] text-slate-500">
-              <th className="px-4 py-3 font-semibold">#</th>
-              <th className="px-3 py-3 font-semibold">
-                <SortableHeader label="Game / start" href={sortHrefs.start} active={selectedSort === "start"} />
+          <thead className="sticky top-0 z-10 bg-panel/95 backdrop-blur">
+            <tr className="border-b border-bone/[0.10] text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">
+              <th className="px-4 py-3">#</th>
+              <th className="px-3 py-3">
+                <SortableHeader label="Game / Start" href={sortHrefs.start} active={selectedSort === "start"} />
               </th>
-              <th className="px-3 py-3 font-semibold">Moneyline</th>
-              <th className="px-3 py-3 font-semibold">Spread</th>
-              <th className="px-3 py-3 font-semibold">Total</th>
-              <th className="px-3 py-3 font-semibold">
+              <th className="px-3 py-3">Moneyline</th>
+              <th className="px-3 py-3">Spread</th>
+              <th className="px-3 py-3">Total</th>
+              <th className="px-3 py-3">
                 <SortableHeader label="Edge" href={sortHrefs.edge} active={selectedSort === "edge"} />
               </th>
-              <th className="px-3 py-3 font-semibold">
+              <th className="px-3 py-3">
                 <SortableHeader label="Move" href={sortHrefs.movement} active={selectedSort === "movement"} />
               </th>
-              <th className="px-4 py-3 font-semibold text-right">Action</th>
+              <th className="px-4 py-3 text-right">Action</th>
             </tr>
           </thead>
 
@@ -244,12 +244,13 @@ export function BoardTable({ rows, selectedMarket, selectedSort, sortHrefs }: Bo
                 <tr
                   key={game.id}
                   className={cn(
-                    "border-b border-white/6 align-top transition",
-                    selected ? "bg-sky-500/[0.06]" : "hover:bg-white/[0.025]"
+                    "focusable border-b border-bone/[0.05] align-top transition-colors",
+                    selected ? "bg-aqua/[0.04]" : "hover:bg-raised/60"
                   )}
+                  data-active={selected ? "true" : undefined}
                 >
                   <td className="px-4 py-4 align-top">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/8 bg-white/[0.03] text-xs font-semibold text-slate-200">
+                    <div className="flex h-7 w-7 items-center justify-center border border-bone/[0.10] bg-surface font-mono text-[11px] font-semibold tabular-nums text-bone/75">
                       {index + 1}
                     </div>
                   </td>
@@ -257,21 +258,23 @@ export function BoardTable({ rows, selectedMarket, selectedSort, sortHrefs }: Bo
                   <td className="px-3 py-4 align-top">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                        <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">
                           <span>{game.leagueKey}</span>
-                          <span>•</span>
+                          <span className="text-bone/25">·</span>
                           <span>{game.status}</span>
-                          <span>•</span>
-                          <span>{formatStartTime(game.startTime)}</span>
+                          <span className="text-bone/25">·</span>
+                          <span className="font-mono tabular-nums">{formatStartTime(game.startTime)}</span>
                         </div>
-                        <div className="mt-2 text-[1rem] font-semibold tracking-tight text-white">
-                          {game.awayTeam.abbreviation} <span className="text-slate-500">@</span> {game.homeTeam.abbreviation}
+                        <div className="mt-2 font-display text-[17px] font-semibold tracking-[-0.01em] text-text-primary">
+                          {game.awayTeam.abbreviation} <span className="text-bone/35">@</span> {game.homeTeam.abbreviation}
                         </div>
-                        <div className="mt-1 text-sm text-slate-400">{game.venue || "Venue pending"}</div>
-                        <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.16em] text-slate-400">
-                          <div className="rounded-full border border-white/8 px-3 py-1.5 text-slate-200">{primaryBook}</div>
-                          <div className="rounded-full border border-white/8 px-3 py-1.5">{game.bestBookCount} books</div>
-                          <div className="rounded-full border border-white/8 px-3 py-1.5">{leadMover.label} {formatMovementValue(leadMover.movement)}</div>
+                        <div className="mt-1 text-[12.5px] text-bone/55">{game.venue || "Venue pending"}</div>
+                        <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">
+                          <div className="rounded-sm border border-bone/[0.10] px-2 py-1 text-bone/85">{primaryBook}</div>
+                          <div className="rounded-sm border border-bone/[0.08] px-2 py-1">{game.bestBookCount} books</div>
+                          <div className="rounded-sm border border-bone/[0.08] px-2 py-1">
+                            {leadMover.label} <span className="font-mono tabular-nums">{formatMovementValue(leadMover.movement)}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -288,11 +291,11 @@ export function BoardTable({ rows, selectedMarket, selectedSort, sortHrefs }: Bo
                   </td>
 
                   <td className="px-3 py-4 align-top">
-                    <div className="grid gap-3 rounded-[14px] border border-white/8 bg-white/[0.02] px-3 py-3">
+                    <div className="grid gap-3 rounded-md border border-bone/[0.08] bg-surface px-3 py-3">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">SharkEdge score</div>
-                          <div className="mt-2 text-sm font-semibold text-white">{game.edgeScore.label}</div>
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">SharkEdge score</div>
+                          <div className="mt-2 font-display text-[13px] font-semibold text-text-primary">{game.edgeScore.label}</div>
                         </div>
                         <SharkScoreRing
                           score={game.edgeScore.score}
@@ -300,7 +303,7 @@ export function BoardTable({ rows, selectedMarket, selectedSort, sortHrefs }: Bo
                           tone={game.edgeScore.score >= 65 ? "success" : game.edgeScore.score >= 45 ? "warning" : "brand"}
                         />
                       </div>
-                      <div className="grid gap-1 text-[10px] uppercase tracking-[0.16em] text-slate-400">
+                      <div className="grid gap-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">
                         <div>{getDisagreementLabel(game.moneyline)}</div>
                         <div>{getDisagreementLabel(game.spread)}</div>
                         <div>{getDisagreementLabel(game.total)}</div>
@@ -309,10 +312,12 @@ export function BoardTable({ rows, selectedMarket, selectedSort, sortHrefs }: Bo
                   </td>
 
                   <td className="px-3 py-4 align-top">
-                    <div className="grid gap-3 rounded-[14px] border border-white/8 bg-white/[0.02] px-3 py-3">
+                    <div className="grid gap-3 rounded-md border border-bone/[0.08] bg-surface px-3 py-3">
                       <div>
-                        <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Movement map</div>
-                        <div className="mt-2 text-sm font-semibold text-white">{leadMover.label} leads the board</div>
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">Movement map</div>
+                        <div className="mt-2 font-display text-[13px] font-semibold text-text-primary">
+                          <span className="text-aqua">{leadMover.label}</span> leads the board
+                        </div>
                       </div>
                       <MovementSpark game={game} selectedMarket={selectedMarket} />
                     </div>
@@ -323,17 +328,17 @@ export function BoardTable({ rows, selectedMarket, selectedSort, sortHrefs }: Bo
                       <Link
                         href={inspectHref}
                         className={cn(
-                          "rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition",
+                          "rounded-sm border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors",
                           selected
-                            ? "border-sky-300/50 bg-sky-500/16 text-sky-100"
-                            : "border-white/10 bg-white/[0.03] text-white hover:border-sky-400/25 hover:bg-sky-500/10"
+                            ? "border-aqua/40 bg-aqua/10 text-aqua"
+                            : "border-bone/[0.12] bg-surface text-text-primary hover:border-aqua/30 hover:bg-aqua/[0.05] hover:text-aqua"
                         )}
                       >
                         {selected ? "Inspecting" : "Inspect"}
                       </Link>
                       <Link
                         href={gameHref}
-                        className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-200 transition hover:border-white/18 hover:bg-white/[0.06]"
+                        className="rounded-sm border border-bone/[0.10] bg-surface px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/75 transition-colors hover:border-bone/[0.20] hover:text-text-primary"
                       >
                         {workflowLabel ? `Open ${workflowLabel}` : "Game page"}
                       </Link>

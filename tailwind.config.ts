@@ -1,5 +1,11 @@
 import type { Config } from "tailwindcss";
 
+/**
+ * SharkEdge — The Terminal
+ * Premium dark-mode sports trading aesthetic.
+ * Locked palette: ink layers + bone hairlines + aqua accent + mint/crimson signals.
+ * Do not introduce additional hues without a design review.
+ */
 const config: Config = {
   content: [
     "./app/**/*.{ts,tsx}",
@@ -11,46 +17,78 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Core surfaces — matches CSS variables
-        ink:     "#09090b",
-        surface: "#0f1014",
-        panel:   "#131518",
-        raised:  "#17191d",
-        overlay: "#1c1e23",
+        // ── The ink stack (five surface layers) ───────────────────────────
+        abyss:    "#04050A",
+        ink:      "#06070A",
+        surface:  "#0C0E12",
+        panel:    "#131620",
+        raised:   "#1A1E29",
+        overlay:  "#22283A",
 
-        // Legacy compatibility
-        line:      "#27272a",
-        brand:     "#3b82f6",
-        brandMuted:"#1e3a5f",
-        premium:   "#c8993e",
-        success:   "#22c55e",
-        danger:    "#ef4444",
-        muted:     "#71717a"
+        // ── Hairline / bone (warm border + microlabel color) ──────────────
+        bone:     "#E8DCC4",
+
+        // ── Accent: aqua (cool) ───────────────────────────────────────────
+        aqua:     "#22D3EE",
+        "aqua-hot": "#00E5FF",
+        "aqua-dim": "#0E7490",
+
+        // ── Signal colors ─────────────────────────────────────────────────
+        mint:     "#4AE3B5",
+        crimson:  "#FF4D5E",
+        signal:   "#FF3EA5",
+
+        // ── Text ──────────────────────────────────────────────────────────
+        "text-primary": "#F4F5F7",
+        "text-muted":   "#8A8F9E",
+        "text-dim":     "#4A4F5C",
+
+        // ── Legacy token aliases (remapped to the new palette) ────────────
+        // Keeps existing components/classes rendering without breaking.
+        line:       "rgba(232, 220, 196, 0.08)",
+        brand:      "#22D3EE",
+        brandMuted: "#0E7490",
+        premium:    "#E8DCC4",
+        success:    "#4AE3B5",
+        danger:     "#FF4D5E",
+        muted:      "#8A8F9E"
       },
       fontFamily: {
         display: ["var(--font-display)", "Space Grotesk", "system-ui", "sans-serif"],
-        body:    ["var(--font-body)", "IBM Plex Sans", "system-ui", "sans-serif"],
-        mono:    ["var(--font-mono)", "IBM Plex Mono", "monospace"]
+        body:    ["var(--font-body)", "Inter", "system-ui", "sans-serif"],
+        mono:    ["var(--font-mono)", "JetBrains Mono", "ui-monospace", "monospace"]
       },
+      // No drop shadows. Premium elevation comes from the 5-layer surface stack.
       boxShadow: {
-        panel:  "0 1px 3px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.2)",
-        card:   "0 1px 2px rgba(0,0,0,0.4)",
-        "blue-glow": "0 0 20px rgba(59,130,246,0.15)"
+        panel: "none",
+        card:  "none",
+        "blue-glow": "none",
+        "aqua-glow": "0 0 0 1px rgba(34, 211, 238, 0.35), 0 0 24px rgba(34, 211, 238, 0.15)"
       },
       borderRadius: {
-        sm:  "6px",
-        md:  "10px",
-        lg:  "14px",
-        xl:  "20px",
-        "2xl": "24px"
+        sm:  "2px",
+        md:  "6px",
+        lg:  "10px",
+        xl:  "14px",
+        "2xl": "14px"
       },
       animation: {
-        "fade-in":   "fadeIn 0.2s ease-out",
-        "slide-up":  "slideUp 0.25s ease-out"
+        "fade-in":   "fadeIn 0.14s cubic-bezier(0.2,0,0,1)",
+        "slide-up":  "slideUp 0.18s cubic-bezier(0.2,0,0,1)",
+        "breathe":   "breathe 1.8s ease-in-out infinite",
+        "digit-flip": "digitFlip 0.28s cubic-bezier(0.2,0,0,1)"
       },
       keyframes: {
         fadeIn:  { "0%": { opacity: "0" }, "100%": { opacity: "1" } },
-        slideUp: { "0%": { opacity: "0", transform: "translateY(8px)" }, "100%": { opacity: "1", transform: "translateY(0)" } }
+        slideUp: { "0%": { opacity: "0", transform: "translateY(6px)" }, "100%": { opacity: "1", transform: "translateY(0)" } },
+        breathe: {
+          "0%,100%": { opacity: "1", boxShadow: "0 0 0 0 rgba(34,211,238,0.35)" },
+          "50%":     { opacity: "0.65", boxShadow: "0 0 0 6px rgba(34,211,238,0)" }
+        },
+        digitFlip: {
+          "0%":   { transform: "translateY(-8%)", opacity: "0" },
+          "100%": { transform: "translateY(0)",   opacity: "1" }
+        }
       }
     }
   },

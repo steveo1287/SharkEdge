@@ -8,21 +8,25 @@ type DataTableProps = {
   compact?: boolean;
 };
 
+/**
+ * DataTable — Bloomberg-ish. No zebra stripes. Hairline group separators.
+ * Sticky header with frosted backdrop. Tabular mono implied by .num on cell content.
+ */
 export function DataTable({
   columns,
   rows,
   compact = false
 }: DataTableProps) {
   return (
-    <Card className="surface-panel overflow-hidden">
+    <Card className="overflow-hidden">
       <div className="table-scroll overflow-x-auto">
         <table className="min-w-[640px] w-full text-left">
-          <thead className="border-b border-line/80 bg-slate-950/45">
-            <tr>
+          <thead>
+            <tr className="border-b border-bone/[0.10]">
               {columns.map((column) => (
                 <th
                   key={column}
-                  className="px-3 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 sm:px-4 sm:text-[11px] sm:tracking-[0.18em]"
+                  className="sticky top-0 z-[1] bg-panel/95 px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55 backdrop-blur-sm"
                 >
                   {column}
                 </th>
@@ -34,15 +38,15 @@ export function DataTable({
             {rows.map((row, index) => (
               <tr
                 key={index}
-                className="border-b border-line/50 align-top last:border-b-0"
+                className="focusable group border-b border-bone/[0.04] align-middle transition-colors last:border-b-0 hover:bg-raised/60"
               >
                 {row.map((cell, cellIndex) => (
                   <td
                     key={`${index}-${cellIndex}`}
                     className={
                       compact
-                        ? "px-3 py-3 text-sm text-slate-300 sm:px-4"
-                        : "px-3 py-3.5 text-sm text-slate-300 sm:px-4"
+                        ? "px-4 py-2.5 text-[13px] text-text-primary"
+                        : "px-4 py-3 text-[13px] text-text-primary"
                     }
                   >
                     <div className="min-w-0">{cell}</div>
