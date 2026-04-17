@@ -5,6 +5,7 @@
 **/.next
 **/.npm-cache
 **/.npm-cache-build
+**/tsconfig.tsbuildinfo
 
 .vercel
 # pipeline test commit – SharkEdge setup complete
