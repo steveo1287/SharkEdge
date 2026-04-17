@@ -513,7 +513,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                       direction={
                         (game.spread?.movement ?? game.moneyline?.movement ?? 0) >= 0 ? "up" : "down"
                       }
-                      from={game.spread?.openLabel ?? game.moneyline?.openLabel ?? "—"}
+                      from="—"
                       to={game.spread?.lineLabel ?? game.moneyline?.lineLabel ?? "—"}
                       note={game.spread?.movement ? `Spread moved ${Math.abs(game.spread.movement).toFixed(1)}` : undefined}
                     />
