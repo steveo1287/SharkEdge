@@ -23,11 +23,14 @@ export async function GET() {
 
     const mlbRows = Array.isArray(edges.data) ? edges.data : [];
     const mlbGames = mlbRows.filter((item: any) => item.league === "MLB" && item.mlbEliteSnapshot);
-    const topGame = mlbGames.sort((left: any, right: any) => (right.adjustedRankSignal ?? 0) - (left.adjustedRankSignal ?? 0))[0] ?? null;
+    const topGame: any =
+      mlbGames.sort((left: any, right: any) => (right.adjustedRankSignal ?? 0) - (left.adjustedRankSignal ?? 0))[0] ??
+      null;
+    const topGameEventId = typeof topGame?.eventId === "string" ? topGame.eventId : null;
 
-    const envelope = topGame ? await buildMlbIntelligenceEnvelope(topGame.eventId) : null;
+    const envelope = topGameEventId ? await buildMlbIntelligenceEnvelope(topGameEventId) : null;
     const gate = envelope ? buildMlbDecisionGate(envelope) : null;
-    const outcomeMath = topGame ? await buildMlbCalibratedOutcomeMath(topGame.eventId) : null;
+    const outcomeMath = topGameEventId ? await buildMlbCalibratedOutcomeMath(topGameEventId) : null;
     const primaryDecision = outcomeMath && gate ? buildMlbPrimaryDecisionScore(outcomeMath, gate) : null;
     const promotionDecision = outcomeMath && gate && envelope && primaryDecision
       ? buildMlbPromotionDecision({
@@ -44,8 +47,8 @@ export async function GET() {
         })
       : null;
 
-    const rawDecisionFusion = topGame ? buildDecisionFusion({
-      eventId: topGame.eventId,
+    const rawDecisionFusion = topGameEventId ? buildDecisionFusion({
+      eventId: topGameEventId,
       marketType: String(topGame.marketType ?? "moneyline"),
       league: String(topGame.league ?? "MLB"),
       simScore: Number(promotionDecision?.finalPromotionScore ?? primaryDecision?.primaryScore ?? 0),
