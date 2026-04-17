@@ -48,21 +48,21 @@ export function TrendCommandCenter({
 
   return (
     <div className="grid gap-5">
-      <section className="hero-shell overflow-hidden px-5 py-5 lg:px-6 lg:py-6">
+      <section className="panel overflow-hidden px-5 py-5 lg:px-6 lg:py-6">
         <MobileTopBar title="Trends" subtitle="Odds-linked intelligence" compact />
 
         <div className="mt-5 grid gap-5 xl:grid-cols-[1.08fr,.92fr] xl:items-end">
           <div>
-            <div className="section-kicker">Trend command</div>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white lg:text-4xl">
-              Trends should live next to odds, movement, league context, and what is on today’s desk.
+            <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">Trend command</div>
+            <h1 className="mt-3 font-display text-[28px] font-semibold tracking-[-0.02em] text-text-primary lg:text-[34px]">
+              Trends live next to odds, movement, and today&rsquo;s desk &mdash; never in isolation.
             </h1>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-              This page makes trends usable. Cards are grouped by actionable context, the board count is visible, and the same experience now carries standings, score history, and league storylines instead of dead-end trend tiles.
+            <p className="mt-3 max-w-3xl text-[13.5px] leading-[1.65] text-bone/65">
+              Cards are grouped by actionable context, the board count is visible, and the same surface carries standings, score history, and league storylines instead of dead-end trend tiles.
             </p>
-            <div className="mt-4 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.16em] text-slate-400">
+            <div className="mt-4 flex flex-wrap gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/70">
               {summarizeFilters(filters).map((item) => (
-                <div key={item} className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5">
+                <div key={item} className="rounded-sm border border-bone/[0.10] bg-surface px-2.5 py-1">
                   {item}
                 </div>
               ))}
@@ -70,26 +70,26 @@ export function TrendCommandCenter({
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="glass-tile">
-              <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Active</div>
-              <div className="mt-2 text-2xl font-semibold text-white">{activeSystems}</div>
-              <div className="mt-1 text-xs text-slate-500">systems on desk</div>
+            <div className="rounded-md border border-bone/[0.08] bg-surface p-4">
+              <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">Active</div>
+              <div className="mt-2 font-mono text-[28px] font-semibold tabular-nums text-text-primary">{activeSystems}</div>
+              <div className="mt-1 text-[11.5px] text-bone/55">systems on desk</div>
             </div>
-            <div className="glass-tile">
-              <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Cards</div>
-              <div className="mt-2 text-2xl font-semibold text-white">{allCards.length}</div>
-              <div className="mt-1 text-xs text-slate-500">surfaced cards</div>
+            <div className="rounded-md border border-bone/[0.08] bg-surface p-4">
+              <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">Cards</div>
+              <div className="mt-2 font-mono text-[28px] font-semibold tabular-nums text-text-primary">{allCards.length}</div>
+              <div className="mt-1 text-[11.5px] text-bone/55">surfaced cards</div>
             </div>
-            <div className="glass-tile">
-              <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Board</div>
-              <div className="mt-2 text-2xl font-semibold text-white">{boardGameCount}</div>
-              <div className="mt-1 text-xs text-slate-500">verified board rows</div>
+            <div className="rounded-md border border-bone/[0.08] bg-surface p-4">
+              <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">Board</div>
+              <div className="mt-2 font-mono text-[28px] font-semibold tabular-nums text-aqua">{boardGameCount}</div>
+              <div className="mt-1 text-[11.5px] text-bone/55">verified board rows</div>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="surface-panel-strong px-4 py-4 lg:px-5">
+      <section className="panel px-4 py-4 lg:px-5">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <SectionTabs
             items={[
@@ -98,64 +98,68 @@ export function TrendCommandCenter({
               { label: "Board", href: "/board", active: false, count: boardGameCount || null }
             ]}
           />
-          <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.16em] text-slate-400">
-            <div className="rounded-full border border-white/8 px-3 py-1.5">Trends + odds</div>
-            <div className="rounded-full border border-white/8 px-3 py-1.5">No fake confidence</div>
-            <div className="rounded-full border border-white/8 px-3 py-1.5">League context attached</div>
+          <div className="flex flex-wrap gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/65">
+            <div className="rounded-sm border border-bone/[0.10] bg-surface px-2.5 py-1">Trends + odds</div>
+            <div className="rounded-sm border border-bone/[0.10] bg-surface px-2.5 py-1">No fake confidence</div>
+            <div className="rounded-sm border border-bone/[0.10] bg-surface px-2.5 py-1">League context attached</div>
           </div>
         </div>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.12fr,.88fr]">
-        <div className="surface-panel-strong px-5 py-5 lg:px-6">
+        <div className="panel px-5 py-5 lg:px-6">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="section-kicker">Featured trend rail</div>
-              <div className="mt-2 text-2xl font-semibold tracking-tight text-white">Best cards on the desk</div>
+              <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">Featured trend rail</div>
+              <div className="mt-2 font-display text-[22px] font-semibold tracking-[-0.01em] text-text-primary">Best cards on the desk</div>
             </div>
-            <div className="rounded-full border border-white/8 px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-slate-400">
-              {featured.length || allCards.length} cards
+            <div className="rounded-sm border border-bone/[0.10] bg-surface px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/70">
+              <span className="font-mono tabular-nums">{featured.length || allCards.length}</span> cards
             </div>
           </div>
 
           <div className="mt-4 grid gap-3">
             {(featured.length ? featured : allCards.slice(0, 6)).map((card) => (
-              <Link key={card.id} href={card.href} className="rounded-[1.2rem] border border-white/8 bg-white/[0.03] p-4 transition hover:border-sky-400/25 hover:bg-sky-500/[0.04]">
+              <Link
+                key={card.id}
+                href={card.href}
+                className="focusable rounded-md border border-bone/[0.08] bg-surface p-4 transition-colors hover:border-aqua/25 hover:bg-panel"
+              >
                 <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                      {card.category} · {card.leagueLabel} · {card.marketLabel}
+                  <div className="min-w-0">
+                    <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">
+                      {card.category} <span className="text-bone/25">·</span> {card.leagueLabel} <span className="text-bone/25">·</span> {card.marketLabel}
                     </div>
-                    <div className="mt-2 text-lg font-semibold tracking-tight text-white">{card.title}</div>
-                    <div className="mt-2 text-sm leading-6 text-slate-400">{card.description}</div>
+                    <div className="mt-2 font-display text-[17px] font-semibold tracking-[-0.01em] text-text-primary">{card.title}</div>
+                    <div className="mt-2 text-[12.5px] leading-[1.55] text-bone/60">{card.description}</div>
                   </div>
-                  <div className="rounded-full border border-sky-400/20 bg-sky-500/[0.08] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-sky-200">
+                  <div className="rounded-sm border border-aqua/25 bg-aqua/[0.08] px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">
                     {card.confidence}
                   </div>
                 </div>
 
                 <div className="mt-4 grid gap-2 md:grid-cols-4">
-                  <div className="rounded-[1rem] border border-white/8 bg-slate-950/35 px-3 py-3">
-                    <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Record</div>
-                    <div className="mt-1 text-sm font-semibold text-white">{card.record}</div>
+                  <div className="rounded-md border border-bone/[0.08] bg-panel px-3 py-2.5">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">Record</div>
+                    <div className="mt-1 font-mono text-[13px] font-semibold tabular-nums text-text-primary">{card.record}</div>
                   </div>
-                  <div className="rounded-[1rem] border border-white/8 bg-slate-950/35 px-3 py-3">
-                    <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Hit rate</div>
-                    <div className="mt-1 text-sm font-semibold text-white">{formatPercent(card.hitRate)}</div>
+                  <div className="rounded-md border border-bone/[0.08] bg-panel px-3 py-2.5">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">Hit rate</div>
+                    <div className="mt-1 font-mono text-[13px] font-semibold tabular-nums text-mint">{formatPercent(card.hitRate)}</div>
                   </div>
-                  <div className="rounded-[1rem] border border-white/8 bg-slate-950/35 px-3 py-3">
-                    <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">ROI</div>
-                    <div className="mt-1 text-sm font-semibold text-white">{formatPercent(card.roi)}</div>
+                  <div className="rounded-md border border-bone/[0.08] bg-panel px-3 py-2.5">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">ROI</div>
+                    <div className="mt-1 font-mono text-[13px] font-semibold tabular-nums text-aqua">{formatPercent(card.roi)}</div>
                   </div>
-                  <div className="rounded-[1rem] border border-white/8 bg-slate-950/35 px-3 py-3">
-                    <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Sample</div>
-                    <div className="mt-1 text-sm font-semibold text-white">{card.sampleSize}</div>
+                  <div className="rounded-md border border-bone/[0.08] bg-panel px-3 py-2.5">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">Sample</div>
+                    <div className="mt-1 font-mono text-[13px] font-semibold tabular-nums text-text-primary">{card.sampleSize}</div>
                   </div>
                 </div>
 
-                <div className="mt-4 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.14em] text-slate-400">
+                <div className="mt-4 flex flex-wrap gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/65">
                   {card.intelligenceTags.slice(0, 4).map((tag) => (
-                    <div key={`${card.id}-${tag}`} className="rounded-full border border-white/8 px-3 py-1.5">
+                    <div key={`${card.id}-${tag}`} className="rounded-sm border border-bone/[0.10] px-2 py-1">
                       {tag}
                     </div>
                   ))}
@@ -165,20 +169,22 @@ export function TrendCommandCenter({
           </div>
         </div>
 
-        <aside className="surface-panel-strong px-5 py-5 xl:sticky xl:top-[7rem]">
-          <div className="section-kicker">Pulse graph</div>
-          <div className="mt-2 text-xl font-semibold tracking-tight text-white">Trend quality tape</div>
+        <aside className="panel px-5 py-5 xl:sticky xl:top-[7rem]">
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">Pulse graph</div>
+          <div className="mt-2 font-display text-[19px] font-semibold tracking-[-0.01em] text-text-primary">Trend quality tape</div>
           <div className="mt-3 h-20 w-full">
             <MiniHistoryChart values={trendSeries} height={82} />
           </div>
-          <div className="mt-4 grid gap-3">
+          <div className="mt-4 grid gap-2">
             {sections.slice(0, 5).map((section) => (
-              <div key={section.category} className="rounded-[1rem] border border-white/8 bg-white/[0.03] px-4 py-3">
+              <div key={section.category} className="rounded-md border border-bone/[0.08] bg-surface px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-semibold text-white">{section.category}</div>
-                  <div className="text-xs text-slate-500">{section.cards.length} cards</div>
+                  <div className="text-[11.5px] font-semibold uppercase tracking-[0.10em] text-text-primary">{section.category}</div>
+                  <div className="font-mono text-[10.5px] tabular-nums text-bone/55">
+                    {section.cards.length} cards
+                  </div>
                 </div>
-                <div className="mt-2 text-xs leading-5 text-slate-400">
+                <div className="mt-1.5 text-[12px] leading-[1.5] text-bone/55">
                   {section.cards[0]?.railReason ?? "Section ready."}
                 </div>
               </div>
@@ -187,26 +193,30 @@ export function TrendCommandCenter({
         </aside>
       </section>
 
-      <section className="surface-panel-strong px-5 py-5 lg:px-6">
-        <div className="section-kicker">Section grid</div>
-        <div className="mt-2 text-2xl font-semibold tracking-tight text-white">Browse the full trend deck</div>
+      <section className="panel px-5 py-5 lg:px-6">
+        <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">Section grid</div>
+        <div className="mt-2 font-display text-[22px] font-semibold tracking-[-0.01em] text-text-primary">Browse the full trend deck</div>
         <div className="mt-4 grid gap-4 xl:grid-cols-2">
           {sections.map((section) => (
-            <article key={section.category} className="rounded-[1.25rem] border border-white/8 bg-white/[0.03] p-4">
+            <article key={section.category} className="rounded-md border border-bone/[0.08] bg-surface p-4">
               <div className="flex items-center justify-between gap-3">
-                <div className="text-lg font-semibold text-white">{section.category}</div>
-                <div className="rounded-full border border-white/8 px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] text-slate-400">
+                <div className="font-display text-[16px] font-semibold tracking-[-0.01em] text-text-primary">{section.category}</div>
+                <div className="rounded-sm border border-bone/[0.10] bg-panel px-2 py-0.5 font-mono text-[10.5px] font-semibold tabular-nums text-bone/75">
                   {section.cards.length}
                 </div>
               </div>
-              <div className="mt-4 grid gap-3">
+              <div className="mt-4 grid gap-2">
                 {section.cards.slice(0, 4).map((card) => (
-                  <Link key={card.id} href={card.href} className="rounded-[1rem] border border-white/8 bg-slate-950/35 px-4 py-3 transition hover:border-sky-400/25 hover:bg-sky-500/[0.04]">
+                  <Link
+                    key={card.id}
+                    href={card.href}
+                    className="focusable rounded-md border border-bone/[0.08] bg-panel px-4 py-3 transition-colors hover:border-aqua/25 hover:bg-raised"
+                  >
                     <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-semibold text-white">{card.title}</div>
-                      <div className="text-xs text-sky-300">{card.primaryMetricValue}</div>
+                      <div className="text-[13px] font-semibold text-text-primary">{card.title}</div>
+                      <div className="font-mono text-[12px] tabular-nums text-aqua">{card.primaryMetricValue}</div>
                     </div>
-                    <div className="mt-1 text-xs text-slate-500">{card.railReason}</div>
+                    <div className="mt-1 text-[11.5px] leading-[1.5] text-bone/55">{card.railReason}</div>
                   </Link>
                 ))}
               </div>
