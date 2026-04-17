@@ -312,8 +312,8 @@ function getBetRoi(rows: SettledTrendBet[]) {
 
 function resolveSummary(event: any) {
   const participants = event.participants.map((participant: any) => ({
-    competitorId: participant.competitor.id,
-    name: participant.competitor.name,
+    competitorId: participant.competitor?.id ?? null,
+    name: participant.competitor?.name ?? null,
     role: participant.role,
     score:
       typeof participant.score === "string" && participant.score.trim()
@@ -627,9 +627,9 @@ export async function getTrendQueryResult(
           selection: market.selection,
           side: market.side,
           sportsbookName: market.sportsbook?.name ?? "Historical feed",
-          participantNames: market.event.participants.map(
-            (participant: any) => participant.competitor.name
-          ),
+          participantNames: market.event.participants
+            .map((participant: any) => participant.competitor?.name)
+            .filter((name: unknown): name is string => typeof name === "string"),
           openingLine: opening?.line ?? market.line,
           closingLine: closing?.line ?? market.line,
           openingOddsAmerican: opening?.oddsAmerican ?? market.oddsAmerican,
@@ -675,7 +675,9 @@ export async function getTrendQueryResult(
             eventLabel: bet.event?.name ?? null,
             eventExternalId: bet.event?.externalEventId ?? null,
             participantNames:
-              bet.event?.participants.map((participant: any) => participant.competitor.name) ?? []
+              bet.event?.participants
+                .map((participant: any) => participant.competitor?.name)
+                .filter((name: unknown): name is string => typeof name === "string") ?? []
           }) satisfies SettledTrendBet
       )
       .filter((bet) => matchesFilters(filters, bet))
@@ -689,10 +691,12 @@ export async function getTrendQueryResult(
           league: event.league.key as LeagueKey,
           sport: event.league.sport as SportCode,
           eventExternalId: event.externalEventId,
-          participantNames: event.participants.map((participant: any) => participant.competitor.name),
+          participantNames: event.participants
+            .map((participant: any) => participant.competitor?.name)
+            .filter((name: unknown): name is string => typeof name === "string"),
           participants: event.participants.map((participant: any) => ({
-            competitorId: participant.competitor.id,
-            name: participant.competitor.name
+            competitorId: participant.competitor?.id ?? null,
+            name: participant.competitor?.name ?? null
           })),
           winnerCompetitorId: summary.winnerCompetitorId,
           margin: summary.margin,
