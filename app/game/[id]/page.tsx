@@ -34,14 +34,16 @@ function getStatusBadgeTone(status: string) {
 async function getGameDetails(gameId: string) {
   try {
     const boardData = await withTimeoutFallback(
-      async () => {
+      (async () => {
         const data = await getBoardPageData(
           parseBoardFilters({ league: "ALL", date: "today", status: "all" })
         );
         return data.games.find((g) => g.id === gameId) ?? null;
-      },
-      null,
-      2000
+      })(),
+      {
+        timeoutMs: 2000,
+        fallback: null
+      }
     );
 
     return boardData;
@@ -53,9 +55,11 @@ async function getGameDetails(gameId: string) {
 async function getSimulation(gameId: string) {
   try {
     const sim = await withTimeoutFallback(
-      async () => buildEventSimulationView(gameId),
-      null,
-      3000
+      buildEventSimulationView(gameId),
+      {
+        timeoutMs: 3000,
+        fallback: null
+      }
     );
     return sim;
   } catch {
