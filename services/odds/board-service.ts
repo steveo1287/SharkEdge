@@ -73,9 +73,27 @@ async function getMockBoardPageData(filters: BoardFilters): Promise<BoardPageDat
   };
 }
 
+type PersistedBoardFeed = {
+  generatedAt: string;
+  events: Array<{
+    id: string;
+    eventKey: string | null;
+    league: string;
+    name: string;
+    startTime: string;
+    status: string;
+    participants: Array<{
+      role: string;
+      competitor: string;
+    }>;
+    markets: any[];
+    topSignals: any[];
+  }>;
+};
+
 async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPageData | null> {
   const leagueKey = filters.league === "ALL" ? undefined : filters.league;
-  const board = await getBoardFeed(leagueKey);
+  const board = (await getBoardFeed(leagueKey)) as PersistedBoardFeed;
 
   const grouped = new Map<string, any[]>();
   for (const event of board.events) {
