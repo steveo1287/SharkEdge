@@ -129,8 +129,6 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
             id: `away:${event.id}`,
             leagueId: section.leagueKey,
             name: away,
-            city: null,
-            nickname: null,
             abbreviation: away.slice(0, 3).toUpperCase(),
             externalIds: {}
           },
@@ -138,8 +136,6 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
             id: `home:${event.id}`,
             leagueId: section.leagueKey,
             name: home,
-            city: null,
-            nickname: null,
             abbreviation: home.slice(0, 3).toUpperCase(),
             externalIds: {}
           },
@@ -148,6 +144,16 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
           venue: "Live market state",
           selectedBook: null,
           bestBookCount: 1,
+          moneyline: {
+            label: "Moneyline",
+            lineLabel: "Moneyline",
+            bestBook: "Best available",
+            bestOdds:
+              moneylineState?.bestAwayOddsAmerican ??
+              moneylineState?.bestHomeOddsAmerican ??
+              0,
+            movement: 0
+          },
           spread: {
             label: "Spread",
             lineLabel:
@@ -158,16 +164,6 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
             bestOdds:
               spreadState?.bestAwayOddsAmerican ??
               spreadState?.bestHomeOddsAmerican ??
-              0,
-            movement: 0
-          },
-          moneyline: {
-            label: "Moneyline",
-            lineLabel: "Moneyline",
-            bestBook: "Best available",
-            bestOdds:
-              moneylineState?.bestAwayOddsAmerican ??
-              moneylineState?.bestHomeOddsAmerican ??
               0,
             movement: 0
           },
@@ -184,7 +180,10 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
               0,
             movement: 0
           },
-          edgeScore: 0,
+          edgeScore: {
+            score: 0,
+            label: "Pass"
+          },
           detailHref: `/game/${event.id}`
         };
       })
