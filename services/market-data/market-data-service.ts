@@ -210,14 +210,17 @@ function buildLegacySelections(payload: IngestPayload, line: IngestPayload["line
 
 async function resolveTeamByName(leagueId: string, name: string) {
   const normalized = normalizeToken(name);
-  const tokens = normalized.split("_").filter(Boolean);
+  const normalizedParts = normalized.split("_").filter(Boolean);
+
   const teams = await prisma.team.findMany({
     where: { leagueId },
     include: { aliases: true }
   });
 
-  // Try exact match first
-  const exact = teams.find((team) => {
+  let bestTeam: (typeof teams)[number] | null = null;
+  let bestScore = -1;
+
+  for (const team of teams) {
     const candidates = [
       team.name,
       team.city,
@@ -229,35 +232,29 @@ async function resolveTeamByName(leagueId: string, name: string) {
     ]
       .filter((value): value is string => Boolean(value))
       .map((value) => normalizeToken(value));
-    return candidates.includes(normalized);
-  });
-  if (exact) return exact;
 
-  // Try mascot (last token) matching
-  const mascot = tokens[tokens.length - 1];
-  if (mascot) {
-    const byMascot = teams.find((team) => {
-      const candidates = [team.nickname, team.name, ...team.aliases.map((a) => a.alias)]
-        .filter((value): value is string => Boolean(value))
-        .map((value) => normalizeToken(value));
-      return candidates.some((c) => c.endsWith(mascot) || c.includes(`_${mascot}`));
-    });
-    if (byMascot) return byMascot;
+    for (const candidate of candidates) {
+      let score = -1;
+      const candidateParts = candidate.split("_").filter(Boolean);
+      const candidateLast = candidateParts[candidateParts.length - 1];
+      const normalizedLast = normalizedParts[normalizedParts.length - 1];
+
+      if (candidate === normalized) score = 100;
+      else if (candidateLast && normalizedLast && candidateLast === normalizedLast) score = 80;
+      else if (candidate.includes(normalized) || normalized.includes(candidate)) score = 60;
+      else {
+        const shared = normalizedParts.filter((part) => candidateParts.includes(part)).length;
+        if (shared > 0) score = shared * 10;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestTeam = team;
+      }
+    }
   }
 
-  // Try substring inclusion matching
-  return teams.find((team) => {
-    const candidates = [
-      team.name,
-      team.city,
-      team.nickname,
-      team.abbreviation,
-      ...team.aliases.map((alias) => alias.alias)
-    ]
-      .filter((value): value is string => Boolean(value))
-      .map((value) => normalizeToken(value));
-    return candidates.some((c) => c.includes(normalized) || normalized.includes(c));
-  }) ?? null;
+  return bestScore >= 50 ? bestTeam : null;
 }
 
 async function ensureTeamCompetitor(args: {
@@ -804,6 +801,20 @@ export async function getBoardFeed(
           bestUnderBook: true
         } as any
       },
+      eventMarkets: {
+        where: {
+          updatedAt: {
+            gte: new Date(Date.now() - 1000 * 60 * 60 * 6)
+          }
+        },
+        include: {
+          sportsbook: true,
+          selectionCompetitor: true,
+          player: true
+        } as any,
+        orderBy: { updatedAt: "desc" },
+        take: 50
+      },
       edgeSignals: {
         where: { isActive: true },
         include: {
@@ -831,7 +842,7 @@ export async function getBoardFeed(
         role: participant.role,
         competitor: participant.competitor.name
       })),
-      markets: event.currentMarketStates,
+      markets: event.currentMarketStates.length > 0 ? event.currentMarketStates : event.eventMarkets,
       topSignals: event.edgeSignals
     }))
   };

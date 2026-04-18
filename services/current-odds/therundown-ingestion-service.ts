@@ -31,32 +31,46 @@ function normalizeName(value: string) {
     .replace(/\s+/g, " ");
 }
 
-function buildNameCandidates(name: string) {
+function buildNameParts(name: string) {
   const normalized = normalizeName(name);
-  const tokens = normalized.split(" ").filter(Boolean);
+  const parts = normalized.split(" ").filter(Boolean);
   return {
     full: normalized,
-    mascot: tokens[tokens.length - 1] ?? "",
-    city: tokens[0] ?? ""
+    first: parts[0] ?? "",
+    last: parts[parts.length - 1] ?? "",
+    parts
   };
 }
 
+function outcomeMatchScore(targetName: string, outcomeName: string) {
+  const target = buildNameParts(targetName);
+  const outcome = buildNameParts(outcomeName);
+
+  if (!target.full || !outcome.full) return -1;
+  if (target.full === outcome.full) return 100;
+  if (target.last && outcome.last && target.last === outcome.last) return 80;
+  if (target.first && outcome.first && target.first === outcome.first) return 60;
+  if (outcome.full.includes(target.full) || target.full.includes(outcome.full)) return 50;
+
+  const shared = target.parts.filter((part) => outcome.parts.includes(part)).length;
+  if (shared > 0) return shared * 10;
+
+  return -1;
+}
+
 function findOutcome(outcomes: CurrentOddsBookOutcome[], name: string) {
-  const target = buildNameCandidates(name);
+  let best: CurrentOddsBookOutcome | null = null;
+  let bestScore = -1;
 
-  const exact = outcomes.find((outcome) => normalizeName(outcome.name) === target.full);
-  if (exact) return exact;
+  for (const outcome of outcomes) {
+    const score = outcomeMatchScore(name, outcome.name);
+    if (score > bestScore) {
+      best = outcome;
+      bestScore = score;
+    }
+  }
 
-  return outcomes.find((outcome) => {
-    const candidate = buildNameCandidates(outcome.name);
-    if (target.mascot && (candidate.full.endsWith(target.mascot) || target.full.endsWith(candidate.mascot))) {
-      return true;
-    }
-    if (target.city && candidate.full.includes(target.city)) {
-      return true;
-    }
-    return false;
-  }) ?? null;
+  return bestScore >= 50 ? best : null;
 }
 
 function toEventKey(leagueKey: LeagueKey, game: CurrentOddsGame) {
