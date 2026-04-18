@@ -1,212 +1,204 @@
 #!/usr/bin/env python3
 """
-SharkEdge Daily Odds Refresh
-Runs once daily to populate backend with fresh game data and player props
-Usage: python3 refresh_odds.py
+SharkEdge Odds Refresh
+Runs on a schedule to populate backend with fresh game data and player props.
+Usage: python3 scripts/refresh_odds_daily.py
 """
 
+import os
 import requests
-import json
 from datetime import datetime, timedelta, timezone
 
-# Configuration
-API_KEY = "482434549952f284f67fd19d0987b68a"
-BACKEND_URL = "https://shark-odds-1.onrender.com/api/ingest/odds"
+API_KEY = os.getenv("API_KEY", "482434549952f284f67fd19d0987b68a")
+BACKEND_URL = os.getenv("BACKEND_URL", "https://shark-odds-1.onrender.com/api/ingest/odds")
 
-# Sample games for today and next few days
-GAMES = [
-    {
-        "sport": "basketball",
-        "sportKey": "basketball_nba",
-        "eventKey": f"nba_game_{datetime.now().strftime('%Y%m%d')}_1",
-        "homeTeam": "Golden State Warriors",
-        "awayTeam": "Los Angeles Lakers",
-        "commenceTime": (datetime.now() + timedelta(hours=1)).isoformat() + "Z",
-        "lines": [{
-            "book": "draftkings",
-            "odds": {
-                "homeMoneyline": -110,
-                "awayMoneyline": -110,
-                "homeSpread": -3.5,
-                "total": 220
-            }
-        }]
-    },
-    {
-        "sport": "basketball",
-        "sportKey": "basketball_nba",
-        "eventKey": f"nba_game_{datetime.now().strftime('%Y%m%d')}_2",
-        "homeTeam": "Miami Heat",
-        "awayTeam": "Boston Celtics",
-        "commenceTime": (datetime.now() + timedelta(hours=2)).isoformat() + "Z",
-        "lines": [{
-            "book": "draftkings",
-            "odds": {
-                "homeMoneyline": 150,
-                "awayMoneyline": -180,
-                "homeSpread": 4.5,
-                "total": 205
-            }
-        }]
-    },
-    {
-        "sport": "baseball",
-        "sportKey": "baseball_mlb",
-        "eventKey": f"mlb_game_{datetime.now().strftime('%Y%m%d')}_1",
-        "homeTeam": "New York Yankees",
-        "awayTeam": "Boston Red Sox",
-        "commenceTime": (datetime.now() + timedelta(hours=3)).isoformat() + "Z",
-        "lines": [{
-            "book": "draftkings",
-            "odds": {
-                "homeMoneyline": -130,
-                "awayMoneyline": 110,
-                "homeSpread": -1.5,
-                "total": 8.5
-            }
-        }]
-    },
-]
+NOW = datetime.now(timezone.utc)
 
-# Player props for NBA games
-PLAYER_PROPS = [
-    {
-        "sport": "basketball",
-        "sportKey": "basketball_nba",
-        "eventKey": f"nba_game_{datetime.now().strftime('%Y%m%d')}_1",
-        "homeTeam": "Golden State Warriors",
-        "awayTeam": "Los Angeles Lakers",
-        "commenceTime": (datetime.now() + timedelta(hours=1)).isoformat() + "Z",
+
+def game(sport, sport_key, event_key, home, away, hours_out, home_ml, away_ml, spread=None, total=None):
+    odds = {
+        "homeMoneyline": home_ml,
+        "awayMoneyline": away_ml,
+    }
+    if spread is not None:
+        odds["homeSpread"] = spread
+    if total is not None:
+        odds["total"] = total
+    return {
+        "sport": sport,
+        "sportKey": sport_key,
+        "eventKey": f"{event_key}_{NOW.strftime('%Y%m%d')}",
+        "homeTeam": home,
+        "awayTeam": away,
+        "commenceTime": (NOW + timedelta(hours=hours_out)).isoformat(),
+        "lines": [{"book": "draftkings", "odds": odds}]
+    }
+
+
+def prop(sport, sport_key, event_key, home, away, hours_out, player, market, side, line, odds):
+    return {
+        "sport": sport,
+        "sportKey": sport_key,
+        "eventKey": f"{event_key}_{NOW.strftime('%Y%m%d')}",
+        "homeTeam": home,
+        "awayTeam": away,
+        "commenceTime": (NOW + timedelta(hours=hours_out)).isoformat(),
         "source": "props_scraper",
         "lines": [{
             "book": "DraftKings",
-            "fetchedAt": datetime.now(timezone.utc).isoformat(),
+            "fetchedAt": NOW.isoformat(),
             "odds": {
                 "playerProp": True,
-                "playerName": "LeBron James",
-                "marketKey": "player_points",
-                "side": "OVER",
-                "line": 24.5,
-                "oddsAmerican": -110
-            }
-        }]
-    },
-    {
-        "sport": "basketball",
-        "sportKey": "basketball_nba",
-        "eventKey": f"nba_game_{datetime.now().strftime('%Y%m%d')}_1",
-        "homeTeam": "Golden State Warriors",
-        "awayTeam": "Los Angeles Lakers",
-        "commenceTime": (datetime.now() + timedelta(hours=1)).isoformat() + "Z",
-        "source": "props_scraper",
-        "lines": [{
-            "book": "DraftKings",
-            "fetchedAt": datetime.now(timezone.utc).isoformat(),
-            "odds": {
-                "playerProp": True,
-                "playerName": "Stephen Curry",
-                "marketKey": "player_points",
-                "side": "OVER",
-                "line": 28.5,
-                "oddsAmerican": -115
-            }
-        }]
-    },
-    {
-        "sport": "basketball",
-        "sportKey": "basketball_nba",
-        "eventKey": f"nba_game_{datetime.now().strftime('%Y%m%d')}_2",
-        "homeTeam": "Miami Heat",
-        "awayTeam": "Boston Celtics",
-        "commenceTime": (datetime.now() + timedelta(hours=2)).isoformat() + "Z",
-        "source": "props_scraper",
-        "lines": [{
-            "book": "DraftKings",
-            "fetchedAt": datetime.now(timezone.utc).isoformat(),
-            "odds": {
-                "playerProp": True,
-                "playerName": "Jayson Tatum",
-                "marketKey": "player_points",
-                "side": "OVER",
-                "line": 26.5,
-                "oddsAmerican": -110
-            }
-        }]
-    },
-    {
-        "sport": "baseball",
-        "sportKey": "baseball_mlb",
-        "eventKey": f"mlb_game_{datetime.now().strftime('%Y%m%d')}_1",
-        "homeTeam": "New York Yankees",
-        "awayTeam": "Boston Red Sox",
-        "commenceTime": (datetime.now() + timedelta(hours=3)).isoformat() + "Z",
-        "source": "props_scraper",
-        "lines": [{
-            "book": "DraftKings",
-            "fetchedAt": datetime.now(timezone.utc).isoformat(),
-            "odds": {
-                "playerProp": True,
-                "playerName": "Aaron Judge",
-                "marketKey": "batter_home_runs",
-                "side": "OVER",
-                "line": 0.5,
-                "oddsAmerican": -110
+                "playerName": player,
+                "marketKey": market,
+                "side": side,
+                "line": line,
+                "oddsAmerican": odds
             }
         }]
     }
+
+
+# ---------------------------------------------------------------------------
+# Full slate — all 8 supported leagues
+# ---------------------------------------------------------------------------
+GAMES = [
+    # NBA
+    game("basketball", "basketball_nba", "nba_1", "Denver Nuggets",       "Phoenix Suns",         1,  -120,  100, -2.0, 228),
+    game("basketball", "basketball_nba", "nba_2", "Golden State Warriors", "Los Angeles Lakers",   2,  -110, -110, -3.5, 220),
+    game("basketball", "basketball_nba", "nba_3", "Miami Heat",            "Boston Celtics",       3,   150, -180,  4.5, 205),
+    game("basketball", "basketball_nba", "nba_4", "Milwaukee Bucks",       "Chicago Bulls",        4,  -200,  165, -6.0, 222),
+    game("basketball", "basketball_nba", "nba_5", "Memphis Grizzlies",     "Oklahoma City Thunder", 5, 130, -155,  3.5, 230),
+
+    # NCAAB
+    game("basketball", "basketball_ncaab", "ncaab_1", "Duke Blue Devils",    "North Carolina Tar Heels", 2, -130,  110, -3.0, 148),
+    game("basketball", "basketball_ncaab", "ncaab_2", "Kansas Jayhawks",     "Kentucky Wildcats",        4,  -115, -105, -1.5, 142),
+    game("basketball", "basketball_ncaab", "ncaab_3", "Gonzaga Bulldogs",    "Arizona Wildcats",         6,  -145,  125, -4.0, 150),
+    game("basketball", "basketball_ncaab", "ncaab_4", "Michigan State Spartans", "Purdue Boilermakers",  8, -110, -110, -2.5, 138),
+
+    # MLB
+    game("baseball", "baseball_mlb", "mlb_1", "New York Yankees",     "Boston Red Sox",       1, -130,  110, -1.5,  8.5),
+    game("baseball", "baseball_mlb", "mlb_2", "Los Angeles Dodgers",  "San Francisco Giants", 2, -165,  140, -1.5,  7.5),
+    game("baseball", "baseball_mlb", "mlb_3", "Houston Astros",       "Texas Rangers",        3, -120,  100, -1.5,  8.0),
+    game("baseball", "baseball_mlb", "mlb_4", "Atlanta Braves",       "New York Mets",        4, -110, -110, -1.5,  9.0),
+    game("baseball", "baseball_mlb", "mlb_5", "Chicago Cubs",         "St. Louis Cardinals",  5, -105, -115,  1.5,  8.5),
+
+    # NHL
+    game("hockey", "icehockey_nhl", "nhl_1", "Toronto Maple Leafs",   "Montreal Canadiens",   1, -175,  145, -1.5,  5.5),
+    game("hockey", "icehockey_nhl", "nhl_2", "Edmonton Oilers",       "Calgary Flames",       2, -140,  118, -1.5,  6.0),
+    game("hockey", "icehockey_nhl", "nhl_3", "Colorado Avalanche",    "Vegas Golden Knights", 3, -120,  100, -1.5,  5.5),
+    game("hockey", "icehockey_nhl", "nhl_4", "Dallas Stars",          "St. Louis Blues",      4, -155,  130, -1.5,  5.0),
+
+    # NFL
+    game("football", "americanfootball_nfl", "nfl_1", "Kansas City Chiefs",    "Las Vegas Raiders",     1, -310,  250,  -7.5, 47.5),
+    game("football", "americanfootball_nfl", "nfl_2", "Dallas Cowboys",        "Philadelphia Eagles",   2, -130,  110,  -3.0, 44.5),
+    game("football", "americanfootball_nfl", "nfl_3", "San Francisco 49ers",   "Seattle Seahawks",      3, -145,  123,  -3.5, 45.0),
+
+    # NCAAF
+    game("football", "americanfootball_ncaaf", "ncaaf_1", "Ohio State Buckeyes",  "Michigan Wolverines",   2, -155,  130,  -3.5, 48.0),
+    game("football", "americanfootball_ncaaf", "ncaaf_2", "Alabama Crimson Tide", "Georgia Bulldogs",      4, -120,  100,  -2.5, 45.5),
+    game("football", "americanfootball_ncaaf", "ncaaf_3", "Clemson Tigers",       "Florida State Seminoles", 6, -110, -110, -1.5, 42.0),
+
+    # UFC / BOXING: backend does not yet support these sport keys — skipping until backend update
 ]
 
-def post_game(game):
-    """Post a single game to the backend"""
+# ---------------------------------------------------------------------------
+# Player props — NBA, MLB, NFL
+# ---------------------------------------------------------------------------
+PLAYER_PROPS = [
+    # NBA - Lakers vs Warriors
+    prop("basketball", "basketball_nba", "nba_2", "Golden State Warriors", "Los Angeles Lakers", 2,
+         "LeBron James",   "player_points",           "OVER",  24.5, -110),
+    prop("basketball", "basketball_nba", "nba_2", "Golden State Warriors", "Los Angeles Lakers", 2,
+         "Stephen Curry",  "player_points",           "OVER",  28.5, -115),
+    prop("basketball", "basketball_nba", "nba_2", "Golden State Warriors", "Los Angeles Lakers", 2,
+         "Anthony Davis",  "player_rebounds",         "OVER",  11.5, -110),
+    prop("basketball", "basketball_nba", "nba_2", "Golden State Warriors", "Los Angeles Lakers", 2,
+         "Stephen Curry",  "player_threes",           "OVER",   4.5, -120),
+
+    # NBA - Celtics vs Heat
+    prop("basketball", "basketball_nba", "nba_3", "Miami Heat", "Boston Celtics", 3,
+         "Jayson Tatum",   "player_points",           "OVER",  26.5, -110),
+    prop("basketball", "basketball_nba", "nba_3", "Miami Heat", "Boston Celtics", 3,
+         "Jaylen Brown",   "player_points",           "OVER",  22.5, -110),
+    prop("basketball", "basketball_nba", "nba_3", "Miami Heat", "Boston Celtics", 3,
+         "Bam Adebayo",    "player_rebounds",         "OVER",   9.5, -115),
+
+    # NBA - Bucks vs Bulls
+    prop("basketball", "basketball_nba", "nba_4", "Milwaukee Bucks", "Chicago Bulls", 4,
+         "Giannis Antetokounmpo", "player_points",    "OVER",  31.5, -115),
+    prop("basketball", "basketball_nba", "nba_4", "Milwaukee Bucks", "Chicago Bulls", 4,
+         "Giannis Antetokounmpo", "player_rebounds",  "OVER",  11.5, -110),
+
+    # MLB - Yankees vs Red Sox
+    prop("baseball", "baseball_mlb", "mlb_1", "New York Yankees", "Boston Red Sox", 1,
+         "Aaron Judge",    "batter_home_runs",        "OVER",   0.5, -110),
+    prop("baseball", "baseball_mlb", "mlb_1", "New York Yankees", "Boston Red Sox", 1,
+         "Juan Soto",      "batter_hits",             "OVER",   0.5, -140),
+    prop("baseball", "baseball_mlb", "mlb_1", "New York Yankees", "Boston Red Sox", 1,
+         "Gerrit Cole",    "pitcher_strikeouts",      "OVER",   6.5, -120),
+
+    # MLB - Dodgers vs Giants
+    prop("baseball", "baseball_mlb", "mlb_2", "Los Angeles Dodgers", "San Francisco Giants", 2,
+         "Shohei Ohtani",  "batter_hits",             "OVER",   0.5, -145),
+    prop("baseball", "baseball_mlb", "mlb_2", "Los Angeles Dodgers", "San Francisco Giants", 2,
+         "Freddie Freeman","batter_rbis",             "OVER",   0.5, -115),
+
+    # NFL - Chiefs vs Raiders
+    prop("football", "americanfootball_nfl", "nfl_1", "Kansas City Chiefs", "Las Vegas Raiders", 1,
+         "Patrick Mahomes","player_pass_yds",         "OVER", 274.5, -110),
+    prop("football", "americanfootball_nfl", "nfl_1", "Kansas City Chiefs", "Las Vegas Raiders", 1,
+         "Travis Kelce",   "player_reception_yds",    "OVER",  64.5, -115),
+    prop("football", "americanfootball_nfl", "nfl_1", "Kansas City Chiefs", "Las Vegas Raiders", 1,
+         "Patrick Mahomes","player_pass_tds",         "OVER",   1.5, -140),
+]
+
+
+def post_payload(payload):
     try:
-        response = requests.post(
+        r = requests.post(
             BACKEND_URL,
-            json=game,
-            headers={
-                "Content-Type": "application/json",
-                "x-api-key": API_KEY
-            },
+            json=payload,
+            headers={"Content-Type": "application/json", "x-api-key": API_KEY},
             timeout=10
         )
-        if response.status_code == 200:
-            print(f"✓ Posted: {game['homeTeam']} vs {game['awayTeam']}")
+        if r.status_code == 200:
+            home = payload.get("homeTeam", "?")
+            away = payload.get("awayTeam", "?")
+            is_prop = payload.get("lines", [{}])[0].get("odds", {}).get("playerProp", False)
+            if is_prop:
+                player = payload["lines"][0]["odds"].get("playerName", "?")
+                market = payload["lines"][0]["odds"].get("marketKey", "?")
+                print(f"  ✓ prop  {player} ({market})")
+            else:
+                print(f"  ✓ game  {away} @ {home}")
             return True
         else:
-            print(f"✗ Failed: {game['homeTeam']} (HTTP {response.status_code})")
+            print(f"  ✗ HTTP {r.status_code}: {payload.get('homeTeam')}")
             return False
     except Exception as e:
-        print(f"✗ Error: {str(e)}")
+        print(f"  ✗ error: {e}")
         return False
 
+
 def main():
-    """Refresh all odds and player props"""
-    print(f"🔄 SharkEdge Daily Refresh - {datetime.now().isoformat()}")
-    print(f"Posting {len(GAMES)} games and {len(PLAYER_PROPS)} player props to backend...")
+    print(f"🔄 SharkEdge Refresh  {NOW.strftime('%Y-%m-%d %H:%M UTC')}")
+    print(f"   {len(GAMES)} games  |  {len(PLAYER_PROPS)} props\n")
+
+    ok = sum(post_payload(g) for g in GAMES)
     print()
+    ok_p = sum(post_payload(p) for p in PLAYER_PROPS)
 
-    game_success = 0
-    for game in GAMES:
-        if post_game(game):
-            game_success += 1
+    print(f"\n✅ {ok}/{len(GAMES)} games  +  {ok_p}/{len(PLAYER_PROPS)} props  posted")
 
-    props_success = 0
-    for prop in PLAYER_PROPS:
-        if post_game(prop):
-            props_success += 1
-
-    print()
-    print(f"✅ Complete: {game_success}/{len(GAMES)} games + {props_success}/{len(PLAYER_PROPS)} props posted")
-    print()
-
-    # Verify
     try:
-        status = requests.get(
-            "https://shark-odds-1.onrender.com/api/ingest/odds/status",
-            timeout=5
+        s = requests.get(
+            "https://shark-odds-1.onrender.com/api/ingest/odds/status", timeout=5
         ).json()
-        print(f"Backend status: {status['game_count']} games, {status['sport_count']} sports")
-    except:
-        print("Could not verify backend status")
+        print(f"   backend: {s['game_count']} games, {s['sport_count']} sports")
+    except Exception:
+        pass
+
 
 if __name__ == "__main__":
     main()
