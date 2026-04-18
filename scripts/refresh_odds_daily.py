@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
 SharkEdge Daily Odds Refresh
-Runs once daily to populate backend with fresh game data
+Runs once daily to populate backend with fresh game data and player props
 Usage: python3 refresh_odds.py
 """
 
 import requests
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Configuration
 API_KEY = "482434549952f284f67fd19d0987b68a"
@@ -68,6 +68,94 @@ GAMES = [
     },
 ]
 
+# Player props for NBA games
+PLAYER_PROPS = [
+    {
+        "sport": "basketball",
+        "sportKey": "basketball_nba",
+        "eventKey": f"nba_game_{datetime.now().strftime('%Y%m%d')}_1",
+        "homeTeam": "Golden State Warriors",
+        "awayTeam": "Los Angeles Lakers",
+        "commenceTime": (datetime.now() + timedelta(hours=1)).isoformat() + "Z",
+        "source": "props_scraper",
+        "lines": [{
+            "book": "DraftKings",
+            "fetchedAt": datetime.now(timezone.utc).isoformat(),
+            "odds": {
+                "playerProp": True,
+                "playerName": "LeBron James",
+                "marketKey": "player_points",
+                "side": "OVER",
+                "line": 24.5,
+                "oddsAmerican": -110
+            }
+        }]
+    },
+    {
+        "sport": "basketball",
+        "sportKey": "basketball_nba",
+        "eventKey": f"nba_game_{datetime.now().strftime('%Y%m%d')}_1",
+        "homeTeam": "Golden State Warriors",
+        "awayTeam": "Los Angeles Lakers",
+        "commenceTime": (datetime.now() + timedelta(hours=1)).isoformat() + "Z",
+        "source": "props_scraper",
+        "lines": [{
+            "book": "DraftKings",
+            "fetchedAt": datetime.now(timezone.utc).isoformat(),
+            "odds": {
+                "playerProp": True,
+                "playerName": "Stephen Curry",
+                "marketKey": "player_points",
+                "side": "OVER",
+                "line": 28.5,
+                "oddsAmerican": -115
+            }
+        }]
+    },
+    {
+        "sport": "basketball",
+        "sportKey": "basketball_nba",
+        "eventKey": f"nba_game_{datetime.now().strftime('%Y%m%d')}_2",
+        "homeTeam": "Miami Heat",
+        "awayTeam": "Boston Celtics",
+        "commenceTime": (datetime.now() + timedelta(hours=2)).isoformat() + "Z",
+        "source": "props_scraper",
+        "lines": [{
+            "book": "DraftKings",
+            "fetchedAt": datetime.now(timezone.utc).isoformat(),
+            "odds": {
+                "playerProp": True,
+                "playerName": "Jayson Tatum",
+                "marketKey": "player_points",
+                "side": "OVER",
+                "line": 26.5,
+                "oddsAmerican": -110
+            }
+        }]
+    },
+    {
+        "sport": "baseball",
+        "sportKey": "baseball_mlb",
+        "eventKey": f"mlb_game_{datetime.now().strftime('%Y%m%d')}_1",
+        "homeTeam": "New York Yankees",
+        "awayTeam": "Boston Red Sox",
+        "commenceTime": (datetime.now() + timedelta(hours=3)).isoformat() + "Z",
+        "source": "props_scraper",
+        "lines": [{
+            "book": "DraftKings",
+            "fetchedAt": datetime.now(timezone.utc).isoformat(),
+            "odds": {
+                "playerProp": True,
+                "playerName": "Aaron Judge",
+                "marketKey": "batter_home_runs",
+                "side": "OVER",
+                "line": 0.5,
+                "oddsAmerican": -110
+            }
+        }]
+    }
+]
+
 def post_game(game):
     """Post a single game to the backend"""
     try:
@@ -91,18 +179,23 @@ def post_game(game):
         return False
 
 def main():
-    """Refresh all odds"""
+    """Refresh all odds and player props"""
     print(f"🔄 SharkEdge Daily Refresh - {datetime.now().isoformat()}")
-    print(f"Posting {len(GAMES)} games to backend...")
+    print(f"Posting {len(GAMES)} games and {len(PLAYER_PROPS)} player props to backend...")
     print()
 
-    success = 0
+    game_success = 0
     for game in GAMES:
         if post_game(game):
-            success += 1
+            game_success += 1
+
+    props_success = 0
+    for prop in PLAYER_PROPS:
+        if post_game(prop):
+            props_success += 1
 
     print()
-    print(f"✅ Complete: {success}/{len(GAMES)} games posted")
+    print(f"✅ Complete: {game_success}/{len(GAMES)} games + {props_success}/{len(PLAYER_PROPS)} props posted")
     print()
 
     # Verify
