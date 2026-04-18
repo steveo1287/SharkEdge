@@ -126,30 +126,28 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
           externalEventId: event.eventKey ?? event.id,
           leagueKey: section.leagueKey,
           awayTeam: {
-            id: away,
+            id: `away:${event.id}`,
+            leagueId: section.leagueKey,
             name: away,
-            abbreviation: away.slice(0, 3).toUpperCase()
+            city: null,
+            nickname: null,
+            abbreviation: away.slice(0, 3).toUpperCase(),
+            externalIds: {}
           },
           homeTeam: {
-            id: home,
+            id: `home:${event.id}`,
+            leagueId: section.leagueKey,
             name: home,
-            abbreviation: home.slice(0, 3).toUpperCase()
+            city: null,
+            nickname: null,
+            abbreviation: home.slice(0, 3).toUpperCase(),
+            externalIds: {}
           },
           startTime: event.startTime,
           status: event.status,
           venue: "Live market state",
           selectedBook: null,
           bestBookCount: 1,
-          moneyline: {
-            label: "Moneyline",
-            lineLabel: "Moneyline",
-            bestBook: "Best available",
-            bestOdds:
-              moneylineState?.bestAwayOddsAmerican ??
-              moneylineState?.bestHomeOddsAmerican ??
-              0,
-            movement: 0
-          },
           spread: {
             label: "Spread",
             lineLabel:
@@ -160,6 +158,16 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
             bestOdds:
               spreadState?.bestAwayOddsAmerican ??
               spreadState?.bestHomeOddsAmerican ??
+              0,
+            movement: 0
+          },
+          moneyline: {
+            label: "Moneyline",
+            lineLabel: "Moneyline",
+            bestBook: "Best available",
+            bestOdds:
+              moneylineState?.bestAwayOddsAmerican ??
+              moneylineState?.bestHomeOddsAmerican ??
               0,
             movement: 0
           },
