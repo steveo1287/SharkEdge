@@ -3,6 +3,8 @@ import { getBoardPageData, parseBoardFilters } from "@/services/odds/board-servi
 
 export const dynamic = "force-dynamic";
 
+// Production: 2026-04-18T14:00:00Z - LIVE BOARD REDESIGN
+
 type BoardPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
