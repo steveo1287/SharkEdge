@@ -1,12 +1,14 @@
 import Link from "next/link";
 
 import { GameCard } from "@/components/board/game-card";
+import { SimulationIntelligencePanel } from "@/components/event/simulation-intelligence-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { withTimeoutFallback } from "@/lib/utils/async";
 import type { GameCardView, LeagueSnapshotView } from "@/lib/types/domain";
+import { buildEventSimulationView } from "@/services/simulation/simulation-view-service";
 
 export const dynamic = "force-dynamic";
 
@@ -118,6 +120,10 @@ export default async function GamesPage() {
     .filter((game) => !verifiedGames.some((entry) => entry.id === game.id))
     .slice(0, 8);
 
+  const topGameSimulation = openNowGames[0]
+    ? await buildEventSimulationView(openNowGames[0].id).catch(() => null)
+    : null;
+
   return (
     <div className="grid gap-8">
       <section className="surface-panel-strong px-6 py-6 xl:px-8 xl:py-8">
@@ -216,6 +222,10 @@ export default async function GamesPage() {
               : "When the board is thin, SharkEdge stays honest instead of pretending every matchup is ready."
           }
         />
+
+        {topGameSimulation && openNowGames[0] && (
+          <SimulationIntelligencePanel simulation={topGameSimulation} />
+        )}
 
         <div className="grid gap-4 xl:grid-cols-2">
           {openNowGames.length ? (
