@@ -87,14 +87,14 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         </div>
 
-        <div className="mx-auto w-full max-w-[430px]">
-          <div className="min-h-screen px-3 pb-28 pt-4">
+        <div className="mx-auto w-full">
+          <div className="min-h-screen px-4 pb-28 pt-4 sm:max-w-none">
             <main className="mobile-page-shell">{children}</main>
           </div>
         </div>
 
         <div className="fixed inset-x-0 bottom-0 z-40">
-          <div className="mx-auto w-full max-w-[430px]">
+          <div className="mx-auto w-full">
             <MobileBottomNav />
           </div>
         </div>

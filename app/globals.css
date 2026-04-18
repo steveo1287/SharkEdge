@@ -106,6 +106,16 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   position: relative;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@supports (padding: max(0px)) {
+  body {
+    padding-left: max(0px, env(safe-area-inset-left));
+    padding-right: max(0px, env(safe-area-inset-right));
+  }
 }
 
 /* Film-grain overlay (3%) — the premium texture signature */
@@ -206,6 +216,13 @@ body::before {
   gap: 24px;
 }
 
+@media (max-width: 640px) {
+  .page-shell {
+    padding: 16px 16px 120px;
+    gap: 16px;
+  }
+}
+
 /* ─── TYPOGRAPHY ──────────────────────────────────────────────────────── */
 .label-xs {
   font-size: 10.5px;
@@ -260,6 +277,7 @@ body::before {
   justify-content: center;
   gap: 0.5rem;
   padding: 0.5rem 1.125rem;
+  min-height: 44px;
   background: var(--aqua);
   color: #06070A;
   font-size: 12.5px;
@@ -272,6 +290,12 @@ body::before {
 }
 .btn-primary:hover  { background: var(--aqua-hot); }
 .btn-primary:active { transform: translateY(1px); }
+
+@media (max-width: 640px) {
+  .btn-primary {
+    width: 100%;
+  }
+}
 
 .btn-secondary {
   display: inline-flex;
@@ -482,6 +506,7 @@ select.text-input:focus {
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   padding: 1rem;
+  overflow-x: hidden;
 }
 
 .mobile-hero {
@@ -494,7 +519,20 @@ select.text-input:focus {
 }
 
 .mobile-page-shell { display: grid; gap: 0.875rem; }
-.mobile-scroll-row { display: flex; gap: 0.75rem; overflow-x: auto; padding-bottom: 0.25rem; }
+.mobile-scroll-row {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.25rem;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Improve scrolling performance */
+.mobile-scroll-row > * {
+  flex-shrink: 0;
+}
 
 .mobile-section-eyebrow, .mobile-eyebrow {
   font-size: 10.5px;
@@ -510,9 +548,14 @@ select.text-input:focus {
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   padding: 0.875rem;
-  min-width: 220px;
-  max-width: 260px;
-  transition: border-color var(--dur) var(--ease);
+  min-width: 200px;
+  max-width: 280px;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+  -webkit-user-select: none;
+  user-select: none;
+}
+.mobile-trend-card:active, .mobile-board-card:active {
+  background: var(--surface);
 }
 .mobile-trend-card:hover, .mobile-board-card:hover { border-color: var(--line-strong); }
 
@@ -525,15 +568,21 @@ select.text-input:focus {
 }
 
 .mobile-bottom-nav {
-  background: rgba(6, 7, 10, 0.92);
+  background: rgba(6, 7, 10, 0.96);
   border-top: 1px solid var(--line);
   padding: 0.5rem 0;
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+  min-height: 64px;
+  display: flex;
+  align-items: center;
   backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
 
 .mobile-icon-button {
   display: inline-flex;
+  min-height: 44px;
+  min-width: 44px;
   height: 2.25rem;
   width: 2.25rem;
   align-items: center;
@@ -543,8 +592,11 @@ select.text-input:focus {
   background: var(--overlay);
   color: var(--text-primary);
   transition: border-color var(--dur) var(--ease);
+  -webkit-user-select: none;
+  user-select: none;
 }
 .mobile-icon-button:hover { border-color: var(--aqua); color: var(--aqua); }
+.mobile-icon-button:active { transform: scale(0.95); }
 
 /* ─── OPACITY UTILITY SHIMS (sky/emerald/rose/amber) ──────────────────── */
 /* These are consumed across feature components; remapped to the new palette

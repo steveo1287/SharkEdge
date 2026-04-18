@@ -60,6 +60,7 @@ export const metadata: Metadata = {
   applicationName: brandKit.name,
   description: brandKit.description,
   keywords: [...brandKit.keywords],
+  viewport: "width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5",
   openGraph: {
     title: brandKit.name,
     description: brandKit.description,
