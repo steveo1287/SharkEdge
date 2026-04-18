@@ -5,16 +5,7 @@ import { getCurrentOddsBackendBaseUrl } from "./backend-url";
 
 const LIVE_BACKEND_URL = getCurrentOddsBackendBaseUrl();
 
-const SUPPORTED_LEAGUES: LeagueKey[] = [
-  "NBA",
-  "NCAAB",
-  "MLB",
-  "NHL",
-  "NFL",
-  "NCAAF",
-  "UFC",
-  "BOXING"
-];
+const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
 const BACKEND_PROVIDER_TIMEOUT_MS = 2_500;
 
 async function fetchBackendJson<T>(path: string) {

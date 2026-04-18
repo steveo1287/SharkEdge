@@ -1862,7 +1862,6 @@ async function getEspnBoardPageData(
 
       return {
         id: game.oddsEventId ?? game.id ?? "",
-        externalEventId: game.id ?? game.oddsEventId ?? "",
         leagueKey,
         awayTeam,
         homeTeam,
@@ -1980,7 +1979,6 @@ async function getBackendBoardPageData(
 
       return {
         id: game.id,
-        externalEventId: game.id,
         leagueKey,
         awayTeam,
         homeTeam,

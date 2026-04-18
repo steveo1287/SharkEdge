@@ -3,8 +3,7 @@ import { boardFiltersSchema } from "@/lib/validation/filters";
 import { buildProviderHealth } from "@/services/providers/provider-health";
 import { withTimeoutFallback } from "@/lib/utils/async";
 
-// League-scoped odds fetch is cached, but allow a slightly longer first-hit window on cold lambdas.
-const LIVE_BOARD_TIMEOUT_MS = 6_500;
+const LIVE_BOARD_TIMEOUT_MS = 3_500;
 
 export function parseBoardFilters(searchParams: Record<string, string | string[] | undefined>) {
   return boardFiltersSchema.parse({

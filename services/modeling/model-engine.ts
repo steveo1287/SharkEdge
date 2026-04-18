@@ -53,23 +53,18 @@ function getCurrentMarketAnchor(
     marketType: string;
     period: string;
     consensusLineValue: number | null;
-    bestHomeOddsAmerican?: number | null;
-    bestAwayOddsAmerican?: number | null;
-    bestOverOddsAmerican?: number | null;
-    bestUnderOddsAmerican?: number | null;
   }>
 ) {
-  const totalState = states.find((s) => s.marketType === "total" && s.period === "full_game");
-  const spreadState = states.find((s) => s.marketType === "spread" && s.period === "full_game");
-  const moneylineState = states.find((s) => s.marketType === "moneyline" && s.period === "full_game");
+  const fullGameTotal = states.find(
+    (state) => state.marketType === "total" && state.period === "full_game"
+  )?.consensusLineValue ?? null;
+  const fullGameSpread = states.find(
+    (state) => state.marketType === "spread" && state.period === "full_game"
+  )?.consensusLineValue ?? null;
 
   return {
-    total: totalState?.consensusLineValue ?? null,
-    spreadHome: spreadState?.consensusLineValue ?? null,
-    homeMoneylineOdds: moneylineState?.bestHomeOddsAmerican ?? null,
-    awayMoneylineOdds: moneylineState?.bestAwayOddsAmerican ?? null,
-    overOdds: totalState?.bestOverOddsAmerican ?? null,
-    homeSpreadOdds: spreadState?.bestHomeOddsAmerican ?? null,
+    total: fullGameTotal,
+    spreadHome: fullGameSpread
   };
 }
 
@@ -254,11 +249,7 @@ export async function buildEventProjectionFromHistory(eventId: string) {
         select: {
           marketType: true,
           period: true,
-          consensusLineValue: true,
-          bestHomeOddsAmerican: true,
-          bestAwayOddsAmerican: true,
-          bestOverOddsAmerican: true,
-          bestUnderOddsAmerican: true,
+          consensusLineValue: true
         }
       },
       participants: {

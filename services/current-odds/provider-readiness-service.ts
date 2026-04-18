@@ -7,7 +7,7 @@ import type { BookFeedProvider } from "./book-feed-provider-types";
 import { backendCurrentOddsProvider } from "./backend-provider";
 import { getCurrentOddsBackendBaseUrl } from "./backend-url";
 import type { CurrentOddsBoardResponse } from "./provider-types";
-import { fetchTheRundownLeaguesBoard, therundownCurrentOddsProvider } from "./therundown-provider";
+import { therundownCurrentOddsProvider } from "./therundown-provider";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -22,16 +22,7 @@ if (!global.sharkedgeProviderReadinessEnvLoaded) {
 const BACKEND_PROVIDER_TIMEOUT_MS = 2_500;
 const SOFT_STALE_MINUTES = 15;
 const HARD_STALE_MINUTES = 45;
-const DEFAULT_LEAGUES: LeagueKey[] = [
-  "NBA",
-  "NCAAB",
-  "MLB",
-  "NHL",
-  "NFL",
-  "NCAAF",
-  "UFC",
-  "BOXING"
-];
+const DEFAULT_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
 
 type ReadinessState = "READY" | "DEGRADED" | "NOT_CONFIGURED" | "ERROR";
 
@@ -257,14 +248,9 @@ export async function probeBackendBoardProvider(): Promise<BoardProviderReadines
   };
 }
 
-export async function probeTheRundownBoardProvider(args?: { leagues?: LeagueKey[] }): Promise<BoardProviderReadiness> {
+export async function probeTheRundownBoardProvider(): Promise<BoardProviderReadiness> {
   const checkedAt = new Date().toISOString();
-  const hasApiKey = Boolean(
-    process.env.THERUNDOWN_API_KEY?.trim() ||
-      process.env.THERUNDOWN_KEY?.trim() ||
-      process.env.THE_RUNDOWN_API_KEY?.trim() ||
-      process.env.THE_RUNDOWN_KEY?.trim()
-  );
+  const hasApiKey = Boolean(process.env.THERUNDOWN_API_KEY?.trim());
 
   if (!hasApiKey) {
     return {
@@ -284,11 +270,7 @@ export async function probeTheRundownBoardProvider(args?: { leagues?: LeagueKey[
     };
   }
 
-  const payload = await fetchTheRundownLeaguesBoard({
-    leagues: args?.leagues?.length ? args.leagues : DEFAULT_LEAGUES,
-    timeoutMs: 8_000,
-    cacheTtlMs: 60_000
-  });
+  const payload = await therundownCurrentOddsProvider.fetchBoard();
   if (!payload) {
     return {
       providerKey: therundownCurrentOddsProvider.key,
@@ -499,7 +481,7 @@ export async function getLiveOddsReadinessReport(args?: { leagues?: LeagueKey[] 
   const leagues = args?.leagues?.length ? args.leagues : DEFAULT_LEAGUES;
   const [backend, theRundown, bookFeeds] = await Promise.all([
     probeBackendBoardProvider(),
-    probeTheRundownBoardProvider({ leagues }),
+    probeTheRundownBoardProvider(),
     Promise.all(getBookFeedProviders().map((provider) => probeBookFeedProvider(provider, leagues)))
   ]);
 

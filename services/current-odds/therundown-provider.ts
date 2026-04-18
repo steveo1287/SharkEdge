@@ -34,16 +34,6 @@ const THERUNDOWN_SUPPORTED_LEAGUES: LeagueKey[] = [
 const THERUNDOWN_PROVIDER_TIMEOUT_MS = 8_000;
 // 5 minutes: safe for free-tier TheRundown — stops hammering the API on every page load
 const THERUNDOWN_BOARD_CACHE_TTL_MS = 5 * 60_000;
-// Shorter TTL for league-scoped UI board fetches (prevents quota burn on navigation).
-const THERUNDOWN_LEAGUE_CACHE_TTL_MS = 60_000;
-const THERUNDOWN_LEAGUE_SPORT_KEYS: Partial<Record<LeagueKey, string>> = {
-  NBA: "basketball_nba",
-  NCAAB: "basketball_ncaab",
-  MLB: "baseball_mlb",
-  NHL: "icehockey_nhl",
-  NFL: "americanfootball_nfl",
-  NCAAF: "americanfootball_ncaaf"
-};
 const THERUNDOWN_SPORT_IDS: Record<Exclude<LeagueKey, "UFC" | "BOXING">, number> = {
   NCAAF: 1,
   NFL: 2,
@@ -68,7 +58,6 @@ type TheRundownParticipant = {
 };
 
 type TheRundownMarket = {
-  market_id?: number;
   name: string;
   period_id: number;
   participants?: TheRundownParticipant[];
@@ -134,10 +123,6 @@ function formatDateKey(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function getSportKeyForLeague(leagueKey: LeagueKey) {
-  return THERUNDOWN_LEAGUE_SPORT_KEYS[leagueKey] ?? leagueKey.toLowerCase();
-}
-
 async function fetchTheRundownJson<T>(path: string, params: Record<string, string>) {
   const apiKey = getApiKey();
   if (!apiKey) {
@@ -173,45 +158,6 @@ async function fetchTheRundownJson<T>(path: string, params: Record<string, strin
   }
 }
 
-async function fetchTheRundownJsonWithTimeout<T>(args: {
-  path: string;
-  params: Record<string, string>;
-  timeoutMs: number;
-}) {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    return null;
-  }
-
-  try {
-    const url = new URL(`${THERUNDOWN_BASE_URL}${args.path}`);
-    url.searchParams.set("key", apiKey);
-
-    for (const [key, value] of Object.entries(args.params)) {
-      if (value) {
-        url.searchParams.set(key, value);
-      }
-    }
-
-    const response = await fetch(url.toString(), {
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-        "X-TheRundown-Key": apiKey
-      },
-      signal: AbortSignal.timeout(args.timeoutMs)
-    });
-
-    if (!response.ok) {
-      return null;
-    }
-
-    return (await response.json()) as T;
-  } catch {
-    return null;
-  }
-}
-
 function parsePoint(value?: string) {
   if (!value) {
     return null;
@@ -235,34 +181,17 @@ function parsePrice(value: unknown) {
 }
 
 function normalizeMarketName(name: string) {
-  const normalized = name.toLowerCase().trim();
-
-  // TheRundown uses stable market_ids (1/2/3) for core markets, but the `name`
-  // can vary by sport or API revision ("handicap" vs "spread", "total" vs "totals").
-  if (normalized === "moneyline") return "moneyline";
-
-  if (
-    normalized === "handicap" ||
-    normalized === "spread" ||
-    normalized === "point spread" ||
-    normalized === "point_spread"
-  ) {
+  const normalized = name.toLowerCase();
+  if (normalized === "moneyline") {
+    return "moneyline";
+  }
+  if (normalized === "handicap") {
     return "spread";
   }
-
-  if (normalized === "total" || normalized === "totals" || normalized === "over/under") {
+  if (normalized === "totals") {
     return "total";
   }
-
   return null;
-}
-
-function normalizeMarketType(market: TheRundownMarket) {
-  // Prefer the numeric identifier when present.
-  if (market.market_id === 1) return "moneyline";
-  if (market.market_id === 2) return "spread";
-  if (market.market_id === 3) return "total";
-  return normalizeMarketName(market.name);
 }
 
 function buildBookKey(affiliateId: string) {
@@ -374,13 +303,11 @@ function buildGame(event: TheRundownEvent, affiliateIds: string[]) {
   const bookmakers = new Map<string, CurrentOddsBookmaker>();
 
   for (const market of event.markets ?? []) {
-    // TheRundown commonly uses period_id 0 for full game, but some feeds label full game as 1.
-    // Accept both so we don't silently drop all markets and render an empty board.
-    if (market.period_id !== 0 && market.period_id !== 1) {
+    if (market.period_id !== 0) {
       continue;
     }
 
-    const marketType = normalizeMarketType(market);
+    const marketType = normalizeMarketName(market.name);
     if (!marketType) {
       continue;
     }
@@ -455,141 +382,12 @@ async function fetchLeagueBoard(leagueKey: LeagueKey, dateKey: string) {
   }
 
   return {
-    key: getSportKeyForLeague(leagueKey),
+    key: leagueKey,
     title: leagueKey,
     short_title: leagueKey,
     game_count: games.length,
     games
   } satisfies CurrentOddsSport;
-}
-
-type TheRundownLeagueCacheEntry = {
-  generatedAtMs: number;
-  sport: CurrentOddsSport | null;
-  ttlMs: number;
-};
-
-declare global {
-  // eslint-disable-next-line no-var
-  var sharkedgeTheRundownLeagueCache: Map<string, TheRundownLeagueCacheEntry> | undefined;
-}
-
-function getLeagueCache() {
-  if (!global.sharkedgeTheRundownLeagueCache) {
-    global.sharkedgeTheRundownLeagueCache = new Map();
-  }
-  return global.sharkedgeTheRundownLeagueCache;
-}
-
-async function fetchLeagueBoardFast(args: {
-  leagueKey: LeagueKey;
-  dateKey: string;
-  timeoutMs: number;
-}) {
-  const sportId = THERUNDOWN_SPORT_IDS[args.leagueKey as keyof typeof THERUNDOWN_SPORT_IDS];
-  if (!sportId) {
-    return null;
-  }
-
-  const affiliateIds = getAffiliateIds();
-  const response = await fetchTheRundownJsonWithTimeout<TheRundownEventsResponse>({
-    path: `/sports/${sportId}/events/${args.dateKey}`,
-    params: {
-      market_ids: THERUNDOWN_MARKET_IDS,
-      offset: THERUNDOWN_OFFSET_MINUTES,
-      main_line: "true",
-      ...(affiliateIds.length ? { affiliate_ids: affiliateIds.join(",") } : {})
-    },
-    timeoutMs: args.timeoutMs
-  });
-
-  const events = Array.isArray(response?.events) ? response.events : [];
-  const games = events
-    .map((event) => buildGame(event, affiliateIds))
-    .filter(Boolean) as CurrentOddsGame[];
-
-  if (!games.length) {
-    return null;
-  }
-
-  return {
-    key: getSportKeyForLeague(args.leagueKey),
-    title: args.leagueKey,
-    short_title: args.leagueKey,
-    game_count: games.length,
-    games
-  } satisfies CurrentOddsSport;
-}
-
-export async function fetchTheRundownLeaguesBoard(args: {
-  leagues: LeagueKey[];
-  timeoutMs?: number;
-  cacheTtlMs?: number;
-}): Promise<CurrentOddsBoardResponse | null> {
-  if (!getApiKey()) {
-    return null;
-  }
-
-  const leagues = Array.from(new Set(args.leagues)).filter((leagueKey) =>
-    THERUNDOWN_SUPPORTED_LEAGUES.includes(leagueKey)
-  );
-  if (!leagues.length) {
-    return null;
-  }
-
-  const cache = getLeagueCache();
-  const cacheTtlMs = args.cacheTtlMs ?? THERUNDOWN_LEAGUE_CACHE_TTL_MS;
-  const timeoutMs = args.timeoutMs ?? 6_000;
-  const dateKeys = [
-    formatDateKey(new Date()),
-    formatDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000))
-  ];
-
-  const sports: CurrentOddsSport[] = [];
-
-  for (const leagueKey of leagues) {
-    const cached = cache.get(leagueKey);
-    if (cached && Date.now() - cached.generatedAtMs < cached.ttlMs) {
-      if (cached.sport) {
-        sports.push(cached.sport);
-      }
-      continue;
-    }
-
-    let sport: CurrentOddsSport | null = null;
-    // Try today then tomorrow. Keep it sequential per league to be gentle on free-tier rate limits.
-    for (const dateKey of dateKeys) {
-      sport = await fetchLeagueBoardFast({ leagueKey, dateKey, timeoutMs });
-      if (sport) {
-        break;
-      }
-    }
-
-    // Don't get "stuck" serving a null cached value for a full minute if the first call was a transient miss.
-    // Null results get a much shorter TTL to encourage quick recovery without hammering the API.
-    cache.set(leagueKey, {
-      generatedAtMs: Date.now(),
-      sport,
-      ttlMs: sport ? cacheTtlMs : 10_000
-    });
-    if (sport) {
-      sports.push(sport);
-    }
-  }
-
-  if (!sports.length) {
-    return null;
-  }
-
-  return {
-    configured: true,
-    generated_at: new Date().toISOString(),
-    provider: "therundown",
-    provider_mode: "therundown_league_cache",
-    bookmakers: getAffiliateIds().join(","),
-    errors: [],
-    sports
-  } satisfies CurrentOddsBoardResponse;
 }
 
 async function fetchEmergencyBoardFallback() {

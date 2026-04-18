@@ -483,7 +483,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     status: "PARTIAL",
     scoreProviders: [ufcEventProvider],
     matchupProviders: [ufcMatchupStatsProvider],
-    currentOddsProviders: [backendCurrentOddsProvider],
+    currentOddsProviders: [],
     bookFeedProviders: [],
     historicalProviders: [],
     propsStatus: "PARTIAL",
@@ -514,14 +514,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
           note: "Useful no-cost source for round-by-round historical UFC and Pride stats."
         }
       ],
-      currentOdds: [
-        {
-          name: "SharkEdge odds backend",
-          stage: "ACTIVE",
-          url: "https://github.com/steveo1287/shark-odds",
-          note: "Combat odds are now requested through the same live board backend path."
-        }
-      ],
+      currentOdds: [],
       historical: [
         {
           name: "OddsHarvester",
@@ -534,10 +527,10 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   },
   BOXING: {
     leagueKey: "BOXING",
-    status: "PARTIAL",
+    status: "COMING_SOON",
     scoreProviders: [boxingEventProvider],
     matchupProviders: [boxingMatchupStatsProvider],
-    currentOddsProviders: [backendCurrentOddsProvider],
+    currentOddsProviders: [],
     bookFeedProviders: [],
     historicalProviders: [],
     propsStatus: "COMING_SOON",
@@ -555,14 +548,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
           note: "Useful conceptually, but the repo warns that reliability is currently poor."
         }
       ],
-      currentOdds: [
-        {
-          name: "SharkEdge odds backend",
-          stage: "ACTIVE",
-          url: "https://github.com/steveo1287/shark-odds",
-          note: "Boxing odds are routed through the live backend when coverage is available."
-        }
-      ],
+      currentOdds: [],
       historical: [
         {
           name: "OddsHarvester",

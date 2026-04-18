@@ -11,7 +11,7 @@ import { calculateEdgeScore } from "@/lib/utils/edge-score";
 import { americanToImpliedProbability } from "@/lib/utils/odds";
 import { buildMatchupHref } from "@/lib/utils/matchups";
 import { backendCurrentOddsProvider } from "@/services/current-odds/backend-provider";
-import { fetchTheRundownLeaguesBoard } from "@/services/current-odds/therundown-provider";
+import { therundownCurrentOddsProvider } from "@/services/current-odds/therundown-provider";
 import type {
   CurrentOddsBoardResponse,
   CurrentOddsBookOutcome,
@@ -42,8 +42,6 @@ type CurrentOddsSourceCandidate = {
   providerKey: string;
   response: CurrentOddsBoardResponse;
 };
-
-const DEFAULT_LIVE_ODDS_LEAGUES: LeagueKey[] = ["NBA", "MLB"];
 
 function numericValue(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -117,15 +115,9 @@ function selectPreferredBoardResponse(candidates: Array<CurrentOddsSourceCandida
 }
 
 async function fetchLiveBoardResponse() {
-  // The board is league-scoped to keep free-tier providers responsive and quota-safe.
-  // "ALL" still renders scoreboard context for every sport, but only pulls odds for key leagues by default.
   const [backendResponse, theRundownResponse] = await Promise.all([
     backendCurrentOddsProvider.fetchBoard(),
-    fetchTheRundownLeaguesBoard({
-      leagues: DEFAULT_LIVE_ODDS_LEAGUES,
-      timeoutMs: 5_500,
-      cacheTtlMs: 60_000
-    })
+    therundownCurrentOddsProvider.fetchBoard()
   ]);
 
   const response = selectPreferredBoardResponse([
@@ -133,7 +125,7 @@ async function fetchLiveBoardResponse() {
       ? { providerKey: backendCurrentOddsProvider.key, response: backendResponse }
       : null,
     theRundownResponse
-      ? { providerKey: "therundown", response: theRundownResponse }
+      ? { providerKey: therundownCurrentOddsProvider.key, response: theRundownResponse }
       : null
   ]);
 
@@ -553,28 +545,7 @@ function inferBoardGameStatus(startTime: string) {
 }
 
 export async function getLiveBoardPageData(filters: BoardFilters): Promise<BoardPageData | null> {
-  const leaguesForOdds =
-    filters.league === "ALL" ? DEFAULT_LIVE_ODDS_LEAGUES : ([filters.league] satisfies LeagueKey[]);
-
-  const response = await (async () => {
-    const [backendResponse, theRundownResponse] = await Promise.all([
-      backendCurrentOddsProvider.fetchBoard(),
-      fetchTheRundownLeaguesBoard({
-        leagues: leaguesForOdds,
-        timeoutMs: 5_500,
-        cacheTtlMs: 60_000
-      })
-    ]);
-
-    return selectPreferredBoardResponse([
-      backendResponse
-        ? { providerKey: backendCurrentOddsProvider.key, response: backendResponse }
-        : null,
-      theRundownResponse
-        ? { providerKey: "therundown", response: theRundownResponse }
-        : null
-    ]);
-  })();
+  const response = await fetchLiveBoardResponse();
   const supportedSports = (response?.sports ?? []).filter((sport) => {
     const leagueKey = getLeagueForSportKey(sport.key);
     return leagueKey && (filters.league === "ALL" || filters.league === leagueKey);
@@ -609,7 +580,6 @@ export async function getLiveBoardPageData(filters: BoardFilters): Promise<Board
 
       return {
         id: game.id,
-        externalEventId: game.id,
         leagueKey,
         awayTeam,
         homeTeam,

@@ -27,7 +27,6 @@ import {
   decodeBetIntent
 } from "@/lib/utils/bet-intelligence";
 import { withTimeoutFallback } from "@/lib/utils/async";
-import { getScopedEventExternalIdCandidates, resolveMatchupHref } from "@/lib/utils/entity-routing";
 import {
   calculateAverageClv,
   calculateLedgerAverageOdds,
@@ -943,12 +942,6 @@ function mapPrefillFromProp(prop: Awaited<ReturnType<typeof getPropById>>) {
     return null;
   }
 
-  const matchupHref = resolveMatchupHref({
-    leagueKey: prop.leagueKey,
-    externalEventId: prop.gameId,
-    fallbackHref: prop.gameHref ?? null
-  });
-
   return {
     placedAt: new Date().toISOString().slice(0, 16),
     source: "MANUAL",
@@ -970,7 +963,7 @@ function mapPrefillFromProp(prop: Awaited<ReturnType<typeof getPropById>>) {
       sourcePath: "/props",
       eventLabel:
         prop.gameLabel ?? `${prop.team.abbreviation} vs ${prop.opponent.abbreviation}`,
-      matchupHref,
+      matchupHref: prop.gameHref ?? `/game/${prop.gameId}`,
       externalEventId: prop.gameId,
       sportsbookKey: prop.sportsbook.key,
       sportsbookName: prop.bestAvailableSportsbookName ?? prop.sportsbook.name,
@@ -1003,7 +996,7 @@ function mapPrefillFromProp(prop: Awaited<ReturnType<typeof getPropById>>) {
           sourcePath: "/props",
           eventLabel:
             prop.gameLabel ?? `${prop.team.abbreviation} vs ${prop.opponent.abbreviation}`,
-          matchupHref,
+          matchupHref: prop.gameHref ?? `/game/${prop.gameId}`,
           externalEventId: prop.gameId,
           sportsbookKey: prop.sportsbook.key,
           sportsbookName: prop.bestAvailableSportsbookName ?? prop.sportsbook.name,
@@ -1030,9 +1023,7 @@ async function resolveLinkedEventId(
   if (externalEventId) {
     const event = await prisma.event.findFirst({
       where: {
-        externalEventId: {
-          in: getScopedEventExternalIdCandidates(league, externalEventId)
-        },
+        externalEventId,
         league: {
           key: league
         }
@@ -1054,9 +1045,7 @@ async function resolveLinkedEventId(
       if (detail?.externalEventId) {
         const matchedEvent = await prisma.event.findFirst({
           where: {
-            externalEventId: {
-              in: getScopedEventExternalIdCandidates(league, detail.externalEventId)
-            },
+            externalEventId: detail.externalEventId,
             league: {
               key: league
             }
