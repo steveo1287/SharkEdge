@@ -4,40 +4,133 @@ import { lineMovementJob } from "@/services/jobs/line-movement-job";
 import { alertDispatchJob } from "@/services/jobs/alert-dispatch-job";
 import { refreshActiveEventCaches, refreshBoardCache, refreshEdgesCache } from "@/services/feed/cache-refresh";
 import { syncPropWarehouse } from "@/services/props/warehouse-service";
+import { ingestTheRundownCurrentOdds } from "@/services/current-odds/therundown-ingestion-service";
 import { prisma } from "@/lib/db/prisma";
 import { getBooleanArg, getNumberArg, getStringArg, logStep, parseArgs } from "./_runtime-utils";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { existsSync } from "node:fs";
+
+async function logInventory() {
+  const [events, markets, states, edges] = await Promise.all([
+    prisma.event.count({
+      where: {
+        startTime: {
+          gte: new Date(Date.now() - 1000 * 60 * 60 * 8),
+          lte: new Date(Date.now() + 1000 * 60 * 60 * 24)
+        }
+      }
+    }),
+    prisma.eventMarket.count({
+      where: {
+        updatedAt: {
+          gte: new Date(Date.now() - 1000 * 60 * 5)
+        }
+      }
+    }),
+    prisma.currentMarketState.count({
+      where: {
+        updatedAt: {
+          gte: new Date(Date.now() - 1000 * 60 * 5)
+        }
+      }
+    }),
+    prisma.edgeSignal.count({
+      where: {
+        createdAt: {
+          gte: new Date(Date.now() - 1000 * 60 * 5)
+        }
+      }
+    })
+  ]);
+
+  logStep("runtime:inventory", {
+    activeEvents: events,
+    freshEventMarkets: markets,
+    freshCurrentMarketStates: states,
+    recentEdgeSignals: edges
+  });
+
+  return { events, markets, states, edges };
+}
 
 async function runScrape(dryRun: boolean) {
   if (dryRun) {
     logStep("runtime:scrape:dry-run");
-    return;
+    return { ok: true, reason: null, eventCount: 0, marketIngestions: 0 };
   }
 
+  // Try TypeScript ingestion first (works in Vercel production)
+  try {
+    logStep("runtime:scrape:start", { method: "typescript" });
+    const result = await ingestTheRundownCurrentOdds({
+      recomputeEdges: true
+    });
+
+    if (result.ok) {
+      logStep("runtime:scrape:success", {
+        method: "typescript",
+        eventCount: result.eventCount,
+        marketIngestions: result.marketIngestions,
+        leagues: result.leagues,
+        provider: result.provider
+      });
+      return result;
+    }
+
+    logStep("runtime:scrape:failed", {
+      method: "typescript",
+      reason: result.reason
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    logStep("runtime:scrape:error", { method: "typescript", error: msg });
+  }
+
+  // Fallback: try Python scraper if it exists locally (development)
   const scriptPath = path.resolve(process.cwd(), "../backend/live_odds_scraper.py");
-  const command = process.env.PYTHON_BIN?.trim() || "python";
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, [scriptPath], {
-      cwd: path.resolve(process.cwd(), "../backend"),
-      env: { ...process.env, RUN_ONCE: "true" },
-      stdio: "inherit"
-    });
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      reject(new Error(`Runtime scrape exited with code ${code}`));
-    });
-    child.on("error", reject);
-  });
+  if (existsSync(scriptPath)) {
+    try {
+      logStep("runtime:scrape:fallback", { method: "python", path: scriptPath });
+      const command = process.env.PYTHON_BIN?.trim() || "python";
+
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(command, [scriptPath], {
+          cwd: path.resolve(process.cwd(), "../backend"),
+          env: { ...process.env, RUN_ONCE: "true" },
+          stdio: "inherit"
+        });
+        child.on("exit", (code) => {
+          if (code === 0) {
+            logStep("runtime:scrape:success", { method: "python" });
+            resolve();
+            return;
+          }
+          reject(new Error(`Python scraper exited with code ${code}`));
+        });
+        child.on("error", reject);
+      });
+
+      return { ok: true, reason: null, eventCount: 0, marketIngestions: 0 };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      logStep("runtime:scrape:fallback-failed", { method: "python", error: msg });
+    }
+  } else {
+    logStep("runtime:scrape:no-fallback", { path: scriptPath });
+  }
+
+  return { ok: false, reason: "all_methods_failed", eventCount: 0, marketIngestions: 0 };
 }
 
 async function runCycle(leagueKey?: string, dryRun = false) {
   logStep("runtime:cycle:start", { leagueKey: leagueKey ?? null, dryRun });
-  await runScrape(dryRun);
-  if (!leagueKey || leagueKey === "NBA" || leagueKey === "NCAAB") {
+
+  // Ingest live odds
+  const scrapeResult = await runScrape(dryRun);
+
+  // Sync props if applicable
+  if (!dryRun && (!leagueKey || leagueKey === "NBA" || leagueKey === "NCAAB")) {
     await syncPropWarehouse({
       league:
         !leagueKey || (leagueKey !== "NBA" && leagueKey !== "NCAAB")
@@ -45,10 +138,11 @@ async function runCycle(leagueKey?: string, dryRun = false) {
           : (leagueKey as "NBA" | "NCAAB"),
       maxEvents: 2,
       lookaheadHours: 18,
-      dryRun
+      dryRun: false
     });
   }
 
+  // Fetch events and run derivative jobs
   const events = await prisma.event.findMany({
     where: {
       ...(leagueKey ? { league: { key: leagueKey } } : {}),
@@ -60,17 +154,33 @@ async function runCycle(leagueKey?: string, dryRun = false) {
     select: { id: true }
   });
 
-  for (const event of events) {
-    await currentMarketStateJob(event.id);
-    await lineMovementJob(event.id);
-    await edgeRecomputeJob(event.id);
+  if (!dryRun) {
+    for (const event of events) {
+      await currentMarketStateJob(event.id);
+      await lineMovementJob(event.id);
+      await edgeRecomputeJob(event.id);
+    }
+
+    await alertDispatchJob();
+    await refreshBoardCache(leagueKey);
+    await refreshEdgesCache();
+    await refreshActiveEventCaches(leagueKey);
   }
 
-  await alertDispatchJob();
-  await refreshBoardCache(leagueKey);
-  await refreshEdgesCache();
-  await refreshActiveEventCaches(leagueKey);
-  logStep("runtime:cycle:done", { eventCount: events.length });
+  // Log current inventory
+  const inventory = await logInventory();
+
+  logStep("runtime:cycle:done", {
+    eventCount: events.length,
+    ingestedEvents: scrapeResult.eventCount,
+    ingestedMarkets: scrapeResult.marketIngestions,
+    currentState: {
+      activeEvents: inventory.events,
+      freshMarkets: inventory.markets,
+      freshStates: inventory.states,
+      recentEdges: inventory.edges
+    }
+  });
 }
 
 async function main() {
