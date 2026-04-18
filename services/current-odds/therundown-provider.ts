@@ -34,6 +34,16 @@ const THERUNDOWN_SUPPORTED_LEAGUES: LeagueKey[] = [
 const THERUNDOWN_PROVIDER_TIMEOUT_MS = 8_000;
 // 5 minutes: safe for free-tier TheRundown — stops hammering the API on every page load
 const THERUNDOWN_BOARD_CACHE_TTL_MS = 5 * 60_000;
+// Shorter TTL for league-scoped UI board fetches (prevents quota burn on navigation).
+const THERUNDOWN_LEAGUE_CACHE_TTL_MS = 60_000;
+const THERUNDOWN_LEAGUE_SPORT_KEYS: Partial<Record<LeagueKey, string>> = {
+  NBA: "basketball_nba",
+  NCAAB: "basketball_ncaab",
+  MLB: "baseball_mlb",
+  NHL: "icehockey_nhl",
+  NFL: "americanfootball_nfl",
+  NCAAF: "americanfootball_ncaaf"
+};
 const THERUNDOWN_SPORT_IDS: Record<Exclude<LeagueKey, "UFC" | "BOXING">, number> = {
   NCAAF: 1,
   NFL: 2,
@@ -58,6 +68,7 @@ type TheRundownParticipant = {
 };
 
 type TheRundownMarket = {
+  market_id?: number;
   name: string;
   period_id: number;
   participants?: TheRundownParticipant[];
@@ -123,6 +134,49 @@ function formatDateKey(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function getSportKeyForLeague(leagueKey: LeagueKey) {
+  return THERUNDOWN_LEAGUE_SPORT_KEYS[leagueKey] ?? leagueKey.toLowerCase();
+}
+
+async function fetchTheRundownJsonWithTimeout<T>(args: {
+  path: string;
+  params: Record<string, string>;
+  timeoutMs: number;
+}) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    return null;
+  }
+
+  try {
+    const url = new URL(`${THERUNDOWN_BASE_URL}${args.path}`);
+    url.searchParams.set("key", apiKey);
+
+    for (const [key, value] of Object.entries(args.params)) {
+      if (value) {
+        url.searchParams.set(key, value);
+      }
+    }
+
+    const response = await fetch(url.toString(), {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "X-TheRundown-Key": apiKey
+      },
+      signal: AbortSignal.timeout(args.timeoutMs)
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchTheRundownJson<T>(path: string, params: Record<string, string>) {
   const apiKey = getApiKey();
   if (!apiKey) {
@@ -181,17 +235,34 @@ function parsePrice(value: unknown) {
 }
 
 function normalizeMarketName(name: string) {
-  const normalized = name.toLowerCase();
-  if (normalized === "moneyline") {
-    return "moneyline";
-  }
-  if (normalized === "handicap") {
+  const normalized = name.toLowerCase().trim();
+
+  // TheRundown uses stable market_ids (1/2/3) for core markets, but the `name`
+  // can vary by sport or API revision ("handicap" vs "spread", "total" vs "totals").
+  if (normalized === "moneyline") return "moneyline";
+
+  if (
+    normalized === "handicap" ||
+    normalized === "spread" ||
+    normalized === "point spread" ||
+    normalized === "point_spread"
+  ) {
     return "spread";
   }
-  if (normalized === "totals") {
+
+  if (normalized === "total" || normalized === "totals" || normalized === "over/under") {
     return "total";
   }
+
   return null;
+}
+
+function normalizeMarketType(market: TheRundownMarket) {
+  // Prefer the numeric identifier when present.
+  if (market.market_id === 1) return "moneyline";
+  if (market.market_id === 2) return "spread";
+  if (market.market_id === 3) return "total";
+  return normalizeMarketName(market.name);
 }
 
 function buildBookKey(affiliateId: string) {
