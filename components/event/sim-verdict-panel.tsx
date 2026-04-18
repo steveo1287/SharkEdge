@@ -36,13 +36,16 @@ function MarketVerdictRow({ v }: { v: MarketVerdict }) {
       </div>
       {v.edgePct !== null && (
         <div className="mt-1 font-mono text-[11px] tabular-nums text-bone/55">
-          EV {v.edgePct > 0 ? "+" : ""}{v.edgePct}% · edge {v.edgeScore}
+          EV {v.edgePct > 0 ? "+" : ""}{v.edgePct}% · edge {v.edgeScore} · kelly {v.kellyPct}%
         </div>
       )}
+      <div className="mt-1 text-[10px] uppercase tracking-widest text-bone/40">
+        {v.actionState === "BET_NOW" ? "🔴 Act now" : v.actionState === "WAIT" ? "⏱️ Wait" : v.actionState === "WATCH" ? "👁️ Watch" : "⏸️ Pass"} · {v.timingState.replace(/_/g, " ").toLowerCase()}
+      </div>
       <p className="mt-1.5 text-[11.5px] leading-[1.5] text-bone/65">{v.explanation}</p>
-      {v.trapFlag && v.trapReason && (
+      {v.trapFlags.length > 0 && v.trapExplanation && (
         <div className="mt-2 rounded border border-orange-500/20 bg-orange-500/[0.06] px-2.5 py-1.5 text-[11px] text-orange-400">
-          Trap: {v.trapReason}
+          <span className="font-semibold">Trap flags:</span> {v.trapExplanation}
         </div>
       )}
     </div>
