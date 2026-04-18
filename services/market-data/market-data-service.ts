@@ -773,6 +773,7 @@ export async function getBoardFeed(
   options?: { skipCache?: boolean }
 ) {
   const cacheKey = `board:v1:${leagueKey ?? "all"}`;
+
   if (!options?.skipCache) {
     const cached = await readHotCache<unknown>(cacheKey);
     if (cached) {
@@ -835,6 +836,7 @@ export async function getBoardFeed(
     : [];
 
   const eventMarketsByEventId = new Map<string, typeof rawEventMarkets>();
+
   for (const market of rawEventMarkets) {
     const existing = eventMarketsByEventId.get(market.eventId) ?? [];
     existing.push(market);
@@ -868,10 +870,6 @@ export async function getBoardFeed(
       })
       .filter((event) => event.markets.length > 0)
   };
-
-  await writeHotCache(cacheKey, board, 45);
-  return board;
-}
 
   await writeHotCache(cacheKey, board, 45);
   return board;
