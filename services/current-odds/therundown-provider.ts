@@ -415,6 +415,38 @@ async function fetchEmergencyBoardFallback() {
   } satisfies CurrentOddsBoardResponse;
 }
 
+export async function fetchTheRundownLeaguesBoard(params: {
+  leagues: LeagueKey[];
+  timeoutMs?: number;
+  cacheTtlMs?: number;
+}): Promise<CurrentOddsBoardResponse | null> {
+  if (!getApiKey()) {
+    return null;
+  }
+
+  const dateKey = formatDateKey(new Date());
+  const sports: CurrentOddsSport[] = [];
+
+  for (const leagueKey of params.leagues) {
+    const sport = await fetchLeagueBoard(leagueKey, dateKey);
+    if (sport) {
+      sports.push(sport);
+    }
+  }
+
+  return sports.length
+    ? ({
+      configured: true,
+      generated_at: new Date().toISOString(),
+      provider: "therundown",
+      provider_mode: "therundown",
+      bookmakers: getAffiliateIds().join(","),
+      errors: [],
+      sports
+    } satisfies CurrentOddsBoardResponse)
+    : null;
+}
+
 export const therundownCurrentOddsProvider: CurrentOddsProvider = {
   key: "therundown",
   label: "The Rundown",

@@ -399,6 +399,7 @@ function buildGameCard(game: GameRecord, sportsbookKey: string) {
 
   return {
     id: game.id,
+    externalEventId: game.id,
     leagueKey: leagueMap.get(game.leagueId)!.key,
     awayTeam,
     homeTeam,

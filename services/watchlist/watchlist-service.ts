@@ -397,7 +397,20 @@ async function mapWatchlistItem(
     intent,
     current,
     alertCount: row.alertRules.length,
-    opportunitySnapshot
+    opportunitySnapshot,
+    decision: null,
+    changeIntelligence: null,
+    prioritization: {
+      attentionTier: "low",
+      attentionDirection: "stable",
+      surfaced: false,
+      surfacedReasonCodes: [],
+      shortAttentionLabel: "Default",
+      shortAttentionExplanation: null,
+      stableAttentionSignature: "",
+      sortWeight: 0,
+      freshnessBucket: "unknown"
+    }
   };
 }
 

@@ -127,7 +127,7 @@ function toScoreboardPreview(event: ProviderEvent): ScoreboardPreviewView {
   };
 }
 
-function matchEventToGame(game: GameCardView, events: ProviderEvent[]) {
+export function matchEventToGame(game: GameCardView, events: ProviderEvent[]) {
   const awayKey = normalizeName(game.awayTeam.name);
   const homeKey = normalizeName(game.homeTeam.name);
 

@@ -148,7 +148,20 @@ async function mapNotification(row: NotificationRow): Promise<AlertNotificationV
     eventLabel: row.watchlistItem?.eventLabel ?? null,
     selection: row.watchlistItem?.selection ?? null,
     betIntent: toIntent(row.watchlistItem?.intentJson ?? null),
-    opportunitySnapshot: snapshotFromContext
+    opportunitySnapshot: snapshotFromContext,
+    decision: null,
+    changeIntelligence: null,
+    prioritization: {
+      attentionTier: "low",
+      attentionDirection: "stable",
+      surfaced: false,
+      surfacedReasonCodes: [],
+      shortAttentionLabel: "Default",
+      shortAttentionExplanation: null,
+      stableAttentionSignature: "",
+      sortWeight: 0,
+      freshnessBucket: "unknown"
+    }
   };
 }
 

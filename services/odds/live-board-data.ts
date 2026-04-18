@@ -580,6 +580,7 @@ export async function getLiveBoardPageData(filters: BoardFilters): Promise<Board
 
       return {
         id: game.id,
+        externalEventId: game.id,
         leagueKey,
         awayTeam,
         homeTeam,

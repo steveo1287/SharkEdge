@@ -39,8 +39,8 @@ export async function GET(request: Request) {
       providerMode: payload?.provider_mode ?? null,
       sportCount: payload?.sports?.length ?? 0,
       gameCount:
-        payload?.sports?.reduce((sum, sport) => sum + (sport.games?.length ?? 0), 0) ?? 0,
-      sportKeys: payload?.sports?.map((sport) => ({ key: sport.key, games: sport.games.length })) ?? [],
+        payload?.sports?.reduce((sum: number, sport) => sum + (sport.games?.length ?? 0), 0) ?? 0,
+      sportKeys: payload?.sports?.map((sport: any) => ({ key: sport.key, games: sport.games.length })) ?? [],
       errors: payload?.errors ?? []
     });
   } catch (error) {
