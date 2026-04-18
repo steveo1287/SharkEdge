@@ -159,7 +159,7 @@ export async function recomputeCurrentMarketState(eventId?: string) {
     }
 
     console.log(
-      `[market-state] event=${event.id} rawEventMarkets=${event.eventMarkets.length} grouped=${groups.size}`
+      `[market-state] event=${event.id} rawEventMarkets=${event.eventMarkets.length} groups=${groups.size}`
     );
 
     for (const [groupKey, groupMarkets] of groups.entries()) {
@@ -207,6 +207,16 @@ export async function recomputeCurrentMarketState(eventId?: string) {
         lineRows.length > 0
           ? lineRows.reduce((sum, row) => sum + Number(row.currentLine ?? row.line ?? 0), 0) / lineRows.length
           : null;
+
+      const hasUsableOdds =
+        typeof home?.oddsAmerican === "number" ||
+        typeof away?.oddsAmerican === "number" ||
+        typeof over?.oddsAmerican === "number" ||
+        typeof under?.oddsAmerican === "number";
+
+      if (!hasUsableOdds) {
+        continue;
+      }
 
       await prisma.currentMarketState.create({
         data: {

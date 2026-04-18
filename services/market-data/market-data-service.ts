@@ -831,20 +831,22 @@ export async function getBoardFeed(
 
   const board = {
     generatedAt: new Date().toISOString(),
-    events: events.map((event) => ({
-      id: event.id,
-      eventKey: event.externalEventId,
-      league: event.league.key,
-      name: event.name,
-      startTime: event.startTime.toISOString(),
-      status: event.status,
-      participants: event.participants.map((participant) => ({
-        role: participant.role,
-        competitor: participant.competitor.name
-      })),
-      markets: event.currentMarketStates.length > 0 ? event.currentMarketStates : event.eventMarkets,
-      topSignals: event.edgeSignals
-    }))
+    events: events
+      .map((event) => ({
+        id: event.id,
+        eventKey: event.externalEventId,
+        league: event.league.key,
+        name: event.name,
+        startTime: event.startTime.toISOString(),
+        status: event.status,
+        participants: event.participants.map((participant) => ({
+          role: participant.role,
+          competitor: participant.competitor.name
+        })),
+        markets: event.currentMarketStates.length > 0 ? event.currentMarketStates : event.eventMarkets,
+        topSignals: event.edgeSignals
+      }))
+      .filter((event) => event.markets.length > 0)
   };
 
   await writeHotCache(cacheKey, board, 45);
