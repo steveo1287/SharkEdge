@@ -3,6 +3,7 @@ import Link from "next/link";
 import { BoardCommandDeck } from "@/components/board/board-command-deck";
 import { BoardInspector } from "@/components/board/board-inspector";
 import { BoardTable } from "@/components/board/board-table";
+import { SimulationIntelligencePanel } from "@/components/event/simulation-intelligence-panel";
 import { TeamBadge } from "@/components/identity/team-badge";
 import { LeaguePulseGrid } from "@/components/intelligence/league-pulse-grid";
 import { MobileTopBar } from "@/components/mobile/mobile-top-bar";
@@ -11,6 +12,7 @@ import { MiniHistoryChart } from "@/components/charts/mini-history-chart";
 import type { GameCardView, LeagueSnapshotView } from "@/lib/types/domain";
 import type { BoardLeagueScope } from "@/services/board/board-command-service";
 import type { ProviderReadinessView } from "@/services/current-odds/provider-readiness-service";
+import type { EventSimulationView } from "@/services/simulation/simulation-view-service";
 import { getTeamLogoUrl } from "@/lib/utils/team-branding";
 
 function formatTimeLabel(value: string) {
@@ -76,6 +78,7 @@ type BoardCommandCenterProps = {
   }>;
   focusedGameHref: string | null;
   focusedWorkflowLabel: string | null;
+  focusedSimulation: EventSimulationView | null;
   snapshots: LeagueSnapshotView[];
 };
 
@@ -100,6 +103,7 @@ export function BoardCommandCenter({
   focusedMarkets,
   focusedGameHref,
   focusedWorkflowLabel,
+  focusedSimulation,
   snapshots
 }: BoardCommandCenterProps) {
   const activeBoardSource = readiness?.liveBoardProvider ?? "live";
@@ -182,6 +186,13 @@ export function BoardCommandCenter({
         verifiedCount={verifiedCount}
         moverCount={moverCount}
       />
+
+      {/* Focused Game Simulation */}
+      {focusedSimulation && focusedGame && (
+        <section className="grid gap-4">
+          <SimulationIntelligencePanel simulation={focusedSimulation} />
+        </section>
+      )}
 
       <section className="grid gap-4 xl:grid-cols-[1.15fr,.85fr]">
         <div className="panel px-5 py-5 lg:px-6">

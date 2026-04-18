@@ -13,6 +13,7 @@ import {
 import { buildGameMarketOpportunity } from "@/services/opportunities/opportunity-service";
 import { getLeagueSnapshots } from "@/services/stats/stats-service";
 import { BoardCommandCenter } from "@/components/board/board-command-center";
+import { buildEventSimulationView } from "@/services/simulation/simulation-view-service";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +102,10 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
     getBoardCommandData(resolvedSearch),
     getSafeProviderReadiness()
   ]);
+
+  const focusedSimulation = board.focusedGame
+    ? await buildEventSimulationView(board.focusedGame.id).catch(() => null)
+    : null;
 
   const queryState: QueryState = {
     league: board.selectedLeague,
@@ -238,6 +243,7 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
       focusedMarkets={focusedMarkets}
       focusedGameHref={focusedGameHref}
       focusedWorkflowLabel={focusedWorkflowLabel}
+      focusedSimulation={focusedSimulation}
       snapshots={snapshots}
     />
   );
