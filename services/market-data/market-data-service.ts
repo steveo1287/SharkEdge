@@ -210,27 +210,54 @@ function buildLegacySelections(payload: IngestPayload, line: IngestPayload["line
 
 async function resolveTeamByName(leagueId: string, name: string) {
   const normalized = normalizeToken(name);
+  const tokens = normalized.split("_").filter(Boolean);
   const teams = await prisma.team.findMany({
     where: { leagueId },
     include: { aliases: true }
   });
 
-  return (
-    teams.find((team) => {
-      const candidates = [
-        team.name,
-        team.city,
-        team.nickname,
-        team.abbreviation,
-        team.key,
-        ...team.aliases.map((alias) => alias.alias),
-        ...team.aliases.map((alias) => alias.normalizedAlias)
-      ]
+  // Try exact match first
+  const exact = teams.find((team) => {
+    const candidates = [
+      team.name,
+      team.city,
+      team.nickname,
+      team.abbreviation,
+      team.key,
+      ...team.aliases.map((alias) => alias.alias),
+      ...team.aliases.map((alias) => alias.normalizedAlias)
+    ]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => normalizeToken(value));
+    return candidates.includes(normalized);
+  });
+  if (exact) return exact;
+
+  // Try mascot (last token) matching
+  const mascot = tokens[tokens.length - 1];
+  if (mascot) {
+    const byMascot = teams.find((team) => {
+      const candidates = [team.nickname, team.name, ...team.aliases.map((a) => a.alias)]
         .filter((value): value is string => Boolean(value))
         .map((value) => normalizeToken(value));
-      return candidates.includes(normalized);
-    }) ?? null
-  );
+      return candidates.some((c) => c.endsWith(mascot) || c.includes(`_${mascot}`));
+    });
+    if (byMascot) return byMascot;
+  }
+
+  // Try substring inclusion matching
+  return teams.find((team) => {
+    const candidates = [
+      team.name,
+      team.city,
+      team.nickname,
+      team.abbreviation,
+      ...team.aliases.map((alias) => alias.alias)
+    ]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => normalizeToken(value));
+    return candidates.some((c) => c.includes(normalized) || normalized.includes(c));
+  }) ?? null;
 }
 
 async function ensureTeamCompetitor(args: {

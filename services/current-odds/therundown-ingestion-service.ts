@@ -23,12 +23,40 @@ if (!global.sharkedgeTheRundownIngestEnvLoaded) {
 const SUPPORTED_LEAGUES = new Set<LeagueKey>(["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"]);
 
 function normalizeName(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function buildNameCandidates(name: string) {
+  const normalized = normalizeName(name);
+  const tokens = normalized.split(" ").filter(Boolean);
+  return {
+    full: normalized,
+    mascot: tokens[tokens.length - 1] ?? "",
+    city: tokens[0] ?? ""
+  };
 }
 
 function findOutcome(outcomes: CurrentOddsBookOutcome[], name: string) {
-  const target = normalizeName(name);
-  return outcomes.find((outcome) => normalizeName(outcome.name) === target) ?? null;
+  const target = buildNameCandidates(name);
+
+  const exact = outcomes.find((outcome) => normalizeName(outcome.name) === target.full);
+  if (exact) return exact;
+
+  return outcomes.find((outcome) => {
+    const candidate = buildNameCandidates(outcome.name);
+    if (target.mascot && (candidate.full.endsWith(target.mascot) || target.full.endsWith(candidate.mascot))) {
+      return true;
+    }
+    if (target.city && candidate.full.includes(target.city)) {
+      return true;
+    }
+    return false;
+  }) ?? null;
 }
 
 function toEventKey(leagueKey: LeagueKey, game: CurrentOddsGame) {

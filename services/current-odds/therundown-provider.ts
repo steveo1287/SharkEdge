@@ -378,7 +378,7 @@ function buildGame(event: TheRundownEvent, affiliateIds: string[]) {
       continue;
     }
 
-    const marketType = normalizeMarketName(market.name);
+    const marketType = normalizeMarketType(market);
     if (!marketType) {
       continue;
     }
@@ -449,6 +449,7 @@ async function fetchLeagueBoard(leagueKey: LeagueKey, dateKey: string) {
     .filter(Boolean) as CurrentOddsGame[];
 
   if (!games.length) {
+    console.warn(`[therundown] ${leagueKey} ${dateKey}: raw events=${events.length} normalized games=${games.length}`);
     return null;
   }
 
@@ -457,7 +458,11 @@ async function fetchLeagueBoard(leagueKey: LeagueKey, dateKey: string) {
     title: leagueKey,
     short_title: leagueKey,
     game_count: games.length,
-    games
+    games,
+    debug: {
+      rawEventCount: events.length,
+      normalizedGameCount: games.length
+    }
   } satisfies CurrentOddsSport;
 }
 
