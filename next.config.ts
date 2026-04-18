@@ -1,5 +1,8 @@
 import type { NextConfig } from "next";
 
+// Build timestamp: 2026-04-18T14:12:00Z - Forces production rebuild with new board design
+const BUILD_ID = "prod-2026-04-18-14-12-new-board-design";
+
 const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
@@ -22,7 +25,10 @@ const nextConfig: NextConfig = {
     ]
   },
   reactStrictMode: true,
-  serverExternalPackages: ["@prisma/client", "prisma"]
+  serverExternalPackages: ["@prisma/client", "prisma"],
+  env: {
+    BUILD_ID
+  }
 };
 
 export default nextConfig;
