@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  sharkedge-scraper:
+    build: .
+    container_name: sharkedge-scraper
+    restart: unless-stopped
+    environment:
+      - SHARKEDGE_API_KEY=${SHARKEDGE_API_KEY}
+      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-60}
+      - MIN_DELAY_SECONDS=${MIN_DELAY_SECONDS:-1.0}
+      - MAX_DELAY_SECONDS=${MAX_DELAY_SECONDS:-3.0}
+      - HEADLESS=true
+      - ODDS_API_KEYS=${ODDS_API_KEYS}
+    volumes:
+      - ./logs:/app/logs
+      - ./odds_cache.json:/app/odds_cache.json
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    healthcheck:
+      test: ["CMD", "ps", "aux"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
