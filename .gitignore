@@ -8,4 +8,6 @@
 **/tsconfig.tsbuildinfo
 
 .vercel
-# pipeline test commit – SharkEdge setup complete
+# pipeline test commit – SharkEdge setup completelive_odds_optimized.log
+scraper.log
+scraper.pid
