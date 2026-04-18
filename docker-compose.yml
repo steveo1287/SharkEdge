@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
     environment:
       - SHARKEDGE_API_KEY=${SHARKEDGE_API_KEY}
+      - SHARKEDGE_INGEST_URL=${SHARKEDGE_INGEST_URL:-https://shark-odds-1.onrender.com/api/ingest/odds}
       - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-60}
       - MIN_DELAY_SECONDS=${MIN_DELAY_SECONDS:-1.0}
       - MAX_DELAY_SECONDS=${MAX_DELAY_SECONDS:-3.0}
