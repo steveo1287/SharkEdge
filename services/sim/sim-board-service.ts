@@ -23,7 +23,11 @@ export async function getSimBoardFeed(leagueKey?: string) {
         } as any
       },
       eventProjections: {
-        orderBy: { createdAt: "desc" },
+        orderBy: {
+          modelRun: {
+            createdAt: "desc"
+          }
+        },
         take: 1
       },
       edgeSignals: {
@@ -55,7 +59,17 @@ export async function getSimBoardFeed(leagueKey?: string) {
       })),
       projection: event.eventProjections[0] ?? null,
       markets: event.currentMarketStates,
-      topSignals: event.edgeSignals
+      topSignals: event.edgeSignals.map((signal) => ({
+        edgeScore: signal.edgeScore ?? null,
+        evPercent: signal.evPercent ?? null,
+        selectionCompetitor: signal.selectionCompetitor
+          ? { name: signal.selectionCompetitor.name }
+          : null,
+        player: signal.player ? { name: signal.player.name } : null,
+        sportsbook: signal.sportsbook ? { name: signal.sportsbook.name } : null,
+        marketType: String(signal.marketType),
+        side: signal.side
+      }))
     }))
   };
 }
