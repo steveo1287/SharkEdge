@@ -1,7 +1,9 @@
-﻿import type { BoardFilters, BoardPageData, SportsbookRecord } from "@/lib/types/domain";
+import type { BoardFilters, BoardPageData, SportsbookRecord } from "@/lib/types/domain";
 import { boardFiltersSchema } from "@/lib/validation/filters";
 import { buildProviderHealth } from "@/services/providers/provider-health";
 import { withTimeoutFallback } from "@/lib/utils/async";
+import { getBoardFeed } from "@/services/market-data/market-data-service";
+import { getBoardVisibleLeagues, buildBoardSportSections } from "@/services/events/live-score-service";
 
 const LIVE_BOARD_TIMEOUT_MS = 3_500;
 
@@ -71,7 +73,138 @@ async function getMockBoardPageData(filters: BoardFilters): Promise<BoardPageDat
   };
 }
 
+async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPageData | null> {
+  const leagueKey = filters.league === "ALL" ? undefined : filters.league;
+  const board = await getBoardFeed(leagueKey);
+
+  const grouped = new Map<string, any[]>();
+  for (const event of board.events) {
+    const list = grouped.get(event.league) ?? [];
+    list.push(event);
+    grouped.set(event.league, list);
+  }
+
+  const sportSections = await buildBoardSportSections({
+    selectedLeague: filters.league,
+    gamesByLeague: {}
+  });
+
+  const patchedSections = sportSections.map((section) => {
+    const events = grouped.get(section.leagueKey) ?? [];
+
+    return {
+      ...section,
+      games: events.map((event) => {
+        const participants = event.participants ?? [];
+        const away = participants.find((p: any) => p.role === "AWAY")?.competitor ?? "Away";
+        const home = participants.find((p: any) => p.role === "HOME")?.competitor ?? "Home";
+
+        const moneylineState = (event.markets ?? []).find((m: any) => m.marketType === "moneyline");
+        const spreadState = (event.markets ?? []).find((m: any) => m.marketType === "spread");
+        const totalState = (event.markets ?? []).find((m: any) => m.marketType === "total");
+
+        return {
+          id: event.id,
+          externalEventId: event.eventKey ?? event.id,
+          leagueKey: section.leagueKey,
+          awayTeam: {
+            id: away,
+            name: away,
+            abbreviation: away.slice(0, 3).toUpperCase()
+          },
+          homeTeam: {
+            id: home,
+            name: home,
+            abbreviation: home.slice(0, 3).toUpperCase()
+          },
+          startTime: event.startTime,
+          status: event.status,
+          venue: "Live market state",
+          selectedBook: null,
+          bestBookCount: 1,
+          moneyline: {
+            label: "Moneyline",
+            lineLabel: "Moneyline",
+            bestBook: "Best available",
+            bestOdds:
+              moneylineState?.bestAwayOddsAmerican ??
+              moneylineState?.bestHomeOddsAmerican ??
+              0,
+            movement: 0
+          },
+          spread: {
+            label: "Spread",
+            lineLabel:
+              typeof spreadState?.consensusLineValue === "number"
+                ? String(spreadState.consensusLineValue)
+                : "—",
+            bestBook: "Best available",
+            bestOdds:
+              spreadState?.bestAwayOddsAmerican ??
+              spreadState?.bestHomeOddsAmerican ??
+              0,
+            movement: 0
+          },
+          total: {
+            label: "Total",
+            lineLabel:
+              typeof totalState?.consensusLineValue === "number"
+                ? `O/U ${totalState.consensusLineValue}`
+                : "—",
+            bestBook: "Best available",
+            bestOdds:
+              totalState?.bestOverOddsAmerican ??
+              totalState?.bestUnderOddsAmerican ??
+              0,
+            movement: 0
+          },
+          edgeScore: 0,
+          detailHref: `/game/${event.id}`
+        };
+      })
+    };
+  });
+
+  const activeSections = patchedSections.filter(
+    (section) => section.games.length > 0 || section.scoreboard.length > 0
+  );
+
+  return {
+    filters,
+    availableDates: [],
+    leagues: getBoardVisibleLeagues(filters.league),
+    sportsbooks: [{ id: "best", key: "best", name: "Best available", region: "US" }],
+    games: activeSections.flatMap((section) => section.games),
+    sportSections: patchedSections,
+    snapshots: [],
+    summary: {
+      totalGames: activeSections.reduce((sum, section) => sum + section.games.length, 0),
+      totalProps: 0,
+      totalSportsbooks: 1
+    },
+    liveMessage: null,
+    source: "live",
+    sourceNote: "Board is rendering from persisted live market inventory.",
+    providerHealth: buildProviderHealth({
+      source: "live",
+      healthySummary: "Board is rendering from persisted live market inventory.",
+      degradedSummary: "Board inventory is partially available.",
+      fallbackSummary: "Board is using persisted live market inventory fallback.",
+      offlineSummary: "Persisted live market inventory is unavailable."
+    })
+  };
+}
+
 export async function getBoardPageData(filters: BoardFilters): Promise<BoardPageData> {
+  const dbData = await withTimeoutFallback(getDbBackedBoardPageData(filters), {
+    timeoutMs: LIVE_BOARD_TIMEOUT_MS,
+    fallback: null
+  });
+
+  if (dbData && dbData.sportSections.some((section) => section.games.length > 0)) {
+    return dbData;
+  }
+
   const liveData = await withTimeoutFallback(
     import("@/services/odds/live-board-data").then((module) => module.getLiveBoardPageData(filters)),
     {
@@ -79,6 +212,7 @@ export async function getBoardPageData(filters: BoardFilters): Promise<BoardPage
       fallback: null
     }
   );
+
   if (liveData) {
     return liveData;
   }
