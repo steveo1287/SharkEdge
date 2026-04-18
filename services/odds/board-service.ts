@@ -1,4 +1,4 @@
-import type { BoardFilters, BoardPageData, SportsbookRecord } from "@/lib/types/domain";
+import type { BoardFilters, BoardPageData, GameCardView, SportsbookRecord } from "@/lib/types/domain";
 import { boardFiltersSchema } from "@/lib/validation/filters";
 import { buildProviderHealth } from "@/services/providers/provider-health";
 import { withTimeoutFallback } from "@/lib/utils/async";
@@ -110,9 +110,7 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
   const patchedSections = sportSections.map((section) => {
     const events = grouped.get(section.leagueKey) ?? [];
 
-    return {
-      ...section,
-      games: events.map((event) => {
+    const games: GameCardView[] = events.map((event) => {
         const participants = event.participants ?? [];
         const away = participants.find((p: any) => p.role === "AWAY")?.competitor ?? "Away";
         const home = participants.find((p: any) => p.role === "HOME")?.competitor ?? "Home";
@@ -186,7 +184,11 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
           },
           detailHref: `/game/${event.id}`
         };
-      })
+      });
+
+    return {
+      ...section,
+      games
     };
   });
 
@@ -199,7 +201,7 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
     availableDates: [],
     leagues: getBoardVisibleLeagues(filters.league),
     sportsbooks: [{ id: "best", key: "best", name: "Best available", region: "US" }],
-    games: activeSections.flatMap((section) => section.games),
+    games: activeSections.flatMap((section) => section.games) as GameCardView[],
     sportSections: patchedSections,
     snapshots: [],
     summary: {
