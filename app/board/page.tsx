@@ -3,7 +3,7 @@ import { getBoardPageData, parseBoardFilters } from "@/services/odds/board-servi
 import { GameCard } from "@/components/board/game-card";
 import { TeamBadge } from "@/components/identity/team-badge";
 import { formatAmericanOdds } from "@/lib/formatters/odds";
-import type { BoardSportSectionView, LeagueKey } from "@/lib/types/domain";
+import type { BoardSportSectionView, LeagueKey, ProviderHealthView } from "@/lib/types/domain";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -89,11 +89,18 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
   );
 }
 
-function LeagueSection({ section }: { section: BoardSportSectionView }) {
+function LeagueSection({ section, providerHealth, sourceNote }: { section: BoardSportSectionView; providerHealth: ProviderHealthView; sourceNote: string }) {
   const gamesWithOdds = section.games.filter(
     (g) => g.moneyline.bestOdds || g.spread.bestOdds || g.total.bestOdds
   );
   if (gamesWithOdds.length === 0 && section.scoreboard.length === 0) return null;
+
+  const healthColor = {
+    HEALTHY: "border-aqua/20 bg-aqua/[0.04] text-aqua",
+    DEGRADED: "border-amber-500/20 bg-amber-500/[0.04] text-amber-500",
+    FALLBACK: "border-orange-500/20 bg-orange-500/[0.04] text-orange-500",
+    OFFLINE: "border-red-500/20 bg-red-500/[0.04] text-red-500"
+  }[providerHealth.state] || "border-bone/[0.08] text-bone/55";
 
   return (
     <section id={section.leagueKey} className="grid gap-3">
@@ -106,8 +113,8 @@ function LeagueSection({ section }: { section: BoardSportSectionView }) {
         <span className="rounded-full bg-bone/[0.08] px-2.5 py-0.5 font-mono text-[11px] tabular-nums text-bone/55">
           {gamesWithOdds.length}
         </span>
-        <div className="ml-auto text-[10.5px] font-semibold uppercase tracking-[0.18em] text-bone/30">
-          {section.currentOddsProvider ?? "scraper cache"}
+        <div className={`ml-auto rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.18em] ${healthColor}`}>
+          {providerHealth.label}
         </div>
       </div>
 
@@ -120,7 +127,11 @@ function LeagueSection({ section }: { section: BoardSportSectionView }) {
         </div>
       ) : (
         <div className="rounded-xl border border-bone/[0.06] bg-surface px-4 py-3 text-[13px] text-bone/40">
-          Scoreboard only — odds not yet available for this window.
+          <p className="mb-1">No live odds available for this window.</p>
+          <p className="text-[12px] text-bone/30">{providerHealth.summary}</p>
+          {providerHealth.freshnessMinutes !== null && (
+            <p className="mt-1 text-[11px] text-bone/25">Last update: {providerHealth.freshnessLabel}</p>
+          )}
         </div>
       )}
     </section>
@@ -194,12 +205,24 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
       <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
         {activeSections.length === 0 ? (
           <div className="rounded-2xl border border-bone/[0.07] bg-surface px-6 py-12 text-center">
-            <p className="text-[14px] text-bone/50">No games available right now.</p>
+            <p className="mb-2 text-[14px] font-semibold text-bone/70">No games in current window</p>
+            <p className="mb-4 text-[13px] text-bone/50">{data.sourceNote}</p>
+            <div className="mx-auto max-w-md rounded-lg border border-bone/[0.06] bg-ink/30 px-4 py-3 text-left text-[12px]">
+              <p className="mb-1 font-semibold text-bone/60">Provider Status: {data.providerHealth.label}</p>
+              <p className="mb-2 text-bone/45">{data.providerHealth.summary}</p>
+              {data.providerHealth.warnings.length > 0 && (
+                <div className="mt-2 space-y-1 border-t border-bone/[0.06] pt-2">
+                  {data.providerHealth.warnings.map((warning, i) => (
+                    <p key={i} className="text-[11px] text-bone/40">• {warning}</p>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <div className="grid gap-8">
             {activeSections.map((section) => (
-              <LeagueSection key={section.leagueKey} section={section} />
+              <LeagueSection key={section.leagueKey} section={section} providerHealth={data.providerHealth} sourceNote={data.sourceNote} />
             ))}
           </div>
         )}
