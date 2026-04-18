@@ -4,6 +4,8 @@ import {
 } from "@/services/modeling/model-engine";
 import { buildMlbBookMarketState } from "@/services/market-intelligence/mlb-book-market-state";
 import { sharpenMlbExecution } from "@/services/market-intelligence/mlb-execution-sharpener";
+import { buildGameSimVerdict, type GameSimVerdict } from "@/services/simulation/sim-verdict-engine";
+import type { ContextualGameSimulationSummary } from "@/services/simulation/contextual-game-sim";
 
 type SimulationComparison = {
   marketType: "total" | "spread_home";
@@ -138,6 +140,7 @@ export type EventSimulationView = {
   } | null;
   topPlayerEdges: SimulationPlayerEdge[];
   topPlayerProjections: Awaited<ReturnType<typeof buildPlayerPropProjectionsForEvent>>;
+  gameSimVerdict: GameSimVerdict | null;
 };
 
 function round(value: number, digits = 3) {
@@ -152,6 +155,47 @@ function getRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function extractSimSummary(sim: Record<string, unknown>): ContextualGameSimulationSummary | null {
+  if (
+    typeof sim.projectedHomeScore !== "number" ||
+    typeof sim.projectedAwayScore !== "number" ||
+    typeof sim.projectedTotal !== "number" ||
+    typeof sim.projectedSpreadHome !== "number" ||
+    typeof sim.winProbHome !== "number" ||
+    typeof sim.winProbAway !== "number"
+  ) {
+    return null;
+  }
+  const dist = getRecord(sim.distribution);
+  const prior = getRecord(sim.ratingsPrior);
+  return {
+    engine: typeof sim.engine === "string" ? sim.engine : "contextual-game-sim",
+    projectedHomeScore: sim.projectedHomeScore,
+    projectedAwayScore: sim.projectedAwayScore,
+    projectedTotal: sim.projectedTotal,
+    projectedSpreadHome: sim.projectedSpreadHome,
+    winProbHome: sim.winProbHome,
+    winProbAway: sim.winProbAway,
+    distribution: {
+      totalStdDev: typeof dist.totalStdDev === "number" ? dist.totalStdDev : 0,
+      homeScoreStdDev: typeof dist.homeScoreStdDev === "number" ? dist.homeScoreStdDev : 0,
+      awayScoreStdDev: typeof dist.awayScoreStdDev === "number" ? dist.awayScoreStdDev : 0,
+      p10Total: typeof dist.p10Total === "number" ? dist.p10Total : sim.projectedTotal - 10,
+      p50Total: typeof dist.p50Total === "number" ? dist.p50Total : sim.projectedTotal,
+      p90Total: typeof dist.p90Total === "number" ? dist.p90Total : sim.projectedTotal + 10,
+    },
+    drivers: Array.isArray(sim.drivers)
+      ? (sim.drivers as unknown[]).filter((d): d is string => typeof d === "string")
+      : [],
+    ratingsPrior: {
+      source: (typeof prior.source === "string" ? prior.source : "baseline") as ContextualGameSimulationSummary["ratingsPrior"]["source"],
+      blendWeight: typeof prior.blendWeight === "number" ? prior.blendWeight : 0.5,
+      deltaOverall: typeof prior.deltaOverall === "number" ? prior.deltaOverall : 0,
+      confidence: typeof prior.confidence === "number" ? prior.confidence : 0.5,
+    }
+  };
 }
 
 function buildHeadline(eventProjection: NonNullable<Awaited<ReturnType<typeof buildEventProjectionFromHistory>>>) {
@@ -518,6 +562,32 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
         })()
       : null;
 
+  const simSummary = extractSimSummary(simulation);
+  const homeTeamMeta = getRecord(metadata.homeTeam);
+  const awayTeamMeta = getRecord(metadata.awayTeam);
+  const homeTeamName = typeof homeTeamMeta.abbreviation === "string"
+    ? homeTeamMeta.abbreviation
+    : typeof homeTeamMeta.name === "string" ? homeTeamMeta.name : "Home";
+  const awayTeamName = typeof awayTeamMeta.abbreviation === "string"
+    ? awayTeamMeta.abbreviation
+    : typeof awayTeamMeta.name === "string" ? awayTeamMeta.name : "Away";
+  const leagueKey = typeof metadata.league === "string" ? metadata.league : "UNKNOWN";
+
+  const gameSimVerdict = simSummary
+    ? buildGameSimVerdict({
+        sim: simSummary,
+        leagueKey,
+        homeTeam: homeTeamName,
+        awayTeam: awayTeamName,
+        marketTotal: typeof marketAnchor.total === "number" ? marketAnchor.total : null,
+        marketSpreadHome: typeof marketAnchor.spreadHome === "number" ? marketAnchor.spreadHome : null,
+        homeMoneylineOdds: typeof marketAnchor.homeMoneylineOdds === "number" ? marketAnchor.homeMoneylineOdds : null,
+        awayMoneylineOdds: typeof marketAnchor.awayMoneylineOdds === "number" ? marketAnchor.awayMoneylineOdds : null,
+        overOdds: typeof marketAnchor.overOdds === "number" ? marketAnchor.overOdds : null,
+        homeSpreadOdds: typeof marketAnchor.homeSpreadOdds === "number" ? marketAnchor.homeSpreadOdds : null,
+      })
+    : null;
+
   const topPlayerEdges = playerProjections
     .map((projection) => {
       const projectionMeta = getRecord(projection.metadata);
@@ -581,6 +651,7 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
     bookMarketState,
     playerProjectionCount: playerProjections.length,
     topPlayerEdges,
-    topPlayerProjections: playerProjections
+    topPlayerProjections: playerProjections,
+    gameSimVerdict,
   };
 }
