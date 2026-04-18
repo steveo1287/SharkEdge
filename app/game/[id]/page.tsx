@@ -127,20 +127,12 @@ export default async function GameDetailPage({ params }: PageProps) {
           {/* Moneyline */}
           <Card className="surface-panel p-4">
             <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/60">
-              Moneyline
+              {game.moneyline.label}
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <div>
-                <div className="text-[11px] text-bone/50">{game.awayTeam.abbreviation}</div>
-                <div className="mt-1 font-mono text-[16px] font-semibold text-mint">
-                  {game.moneyline.awayOdds ? `${game.moneyline.awayOdds > 0 ? "+" : ""}${game.moneyline.awayOdds}` : "—"}
-                </div>
-              </div>
-              <div>
-                <div className="text-[11px] text-bone/50">{game.homeTeam.abbreviation}</div>
-                <div className="mt-1 font-mono text-[16px] font-semibold text-aqua">
-                  {game.moneyline.homeOdds ? `${game.moneyline.homeOdds > 0 ? "+" : ""}${game.moneyline.homeOdds}` : "—"}
-                </div>
+            <div className="mt-3">
+              <div className="text-[11px] text-bone/50">{game.moneyline.bestBook}</div>
+              <div className="mt-1 font-mono text-[16px] font-semibold text-mint">
+                {game.moneyline.bestOdds ? `${game.moneyline.bestOdds > 0 ? "+" : ""}${game.moneyline.bestOdds}` : "—"}
               </div>
             </div>
             {game.moneyline.movement !== 0 && (
@@ -153,20 +145,12 @@ export default async function GameDetailPage({ params }: PageProps) {
           {/* Spread */}
           <Card className="surface-panel p-4">
             <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/60">
-              Spread
+              {game.spread.label}
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <div>
-                <div className="text-[11px] text-bone/50">{game.awayTeam.abbreviation}</div>
-                <div className="mt-1 font-mono text-[16px] font-semibold">
-                  {game.spread.awayLine ? `${game.spread.awayLine > 0 ? "+" : ""}${game.spread.awayLine}` : "—"}
-                </div>
-              </div>
-              <div>
-                <div className="text-[11px] text-bone/50">{game.homeTeam.abbreviation}</div>
-                <div className="mt-1 font-mono text-[16px] font-semibold">
-                  {game.spread.homeLine ? `${game.spread.homeLine > 0 ? "+" : ""}${game.spread.homeLine}` : "—"}
-                </div>
+            <div className="mt-3">
+              <div className="text-[11px] text-bone/50">{game.spread.bestBook}</div>
+              <div className="mt-1 font-mono text-[16px] font-semibold">
+                {game.spread.lineLabel || "—"}
               </div>
             </div>
             {game.spread.movement !== 0 && (
@@ -179,12 +163,12 @@ export default async function GameDetailPage({ params }: PageProps) {
           {/* Total */}
           <Card className="surface-panel p-4">
             <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/60">
-              Total
+              {game.total.label}
             </div>
             <div className="mt-3">
-              <div className="text-[11px] text-bone/50">Over/Under</div>
+              <div className="text-[11px] text-bone/50">{game.total.bestBook}</div>
               <div className="mt-1 font-mono text-[20px] font-semibold text-aqua">
-                {game.total.line ? game.total.line.toFixed(1) : "—"}
+                {game.total.lineLabel || "—"}
               </div>
             </div>
             {game.total.movement !== 0 && (
