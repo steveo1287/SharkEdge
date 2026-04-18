@@ -1,0 +1,37 @@
+name: Daily Odds Refresh
+
+on:
+  schedule:
+    # Run every day at 8 AM UTC
+    - cron: '0 8 * * *'
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  refresh-odds:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run odds refresh
+        env:
+          API_KEY: ${{ secrets.SHARKEDGE_API_KEY }}
+          BACKEND_URL: https://shark-odds-1.onrender.com/api/ingest/odds
+        run: python3 scripts/refresh_odds_daily.py
+
+      - name: Verify backend
+        run: |
+          curl -s https://shark-odds-1.onrender.com/api/ingest/odds/status | python3 -m json.tool
+
+      - name: Log success
+        run: echo "✅ Daily odds refresh completed successfully"
