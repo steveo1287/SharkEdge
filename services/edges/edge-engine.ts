@@ -139,23 +139,28 @@ export async function recomputeCurrentMarketState(eventId?: string) {
   const events = await prisma.event.findMany({
     where: eventId ? { id: eventId } : undefined,
     include: {
-      markets: true
+      eventMarkets: true
     }
   });
 
   for (const event of events) {
     await prisma.currentMarketState.deleteMany({ where: { eventId: event.id } });
 
-    const groups = new Map<string, typeof event.markets>();
-    for (const market of event.markets) {
+    const groups = new Map<string, typeof event.eventMarkets>();
+    for (const market of event.eventMarkets) {
       const key = [
         market.marketType,
         market.period ?? "full_game",
         market.selectionCompetitorId ?? "none",
         market.playerId ?? "none"
       ].join(":");
+
       groups.set(key, [...(groups.get(key) ?? []), market]);
     }
+
+    console.log(
+      `[market-state] event=${event.id} rawEventMarkets=${event.eventMarkets.length} grouped=${groups.size}`
+    );
 
     for (const [groupKey, groupMarkets] of groups.entries()) {
       const [marketType, period, selectionCompetitorIdRaw, playerIdRaw] = groupKey.split(":");
@@ -163,6 +168,7 @@ export async function recomputeCurrentMarketState(eventId?: string) {
       const playerId = playerIdRaw === "none" ? null : playerIdRaw;
 
       const latestByBookAndSide = new Map<string, (typeof groupMarkets)[number]>();
+
       for (const market of groupMarkets) {
         const dedupeKey = [
           market.sportsbookId ?? "none",
@@ -171,6 +177,7 @@ export async function recomputeCurrentMarketState(eventId?: string) {
           selectionCompetitorId ?? "none",
           playerId ?? "none"
         ].join(":");
+
         const existing = latestByBookAndSide.get(dedupeKey);
         if (!existing || existing.updatedAt < market.updatedAt) {
           latestByBookAndSide.set(dedupeKey, market);
@@ -178,13 +185,24 @@ export async function recomputeCurrentMarketState(eventId?: string) {
       }
 
       const markets = Array.from(latestByBookAndSide.values());
-      const home = markets.filter((row) => row.side === "home").sort((a, b) => b.oddsAmerican - a.oddsAmerican)[0];
-      const away = markets.filter((row) => row.side === "away").sort((a, b) => b.oddsAmerican - a.oddsAmerican)[0];
-      const over = markets.filter((row) => row.side === "over").sort((a, b) => b.oddsAmerican - a.oddsAmerican)[0];
-      const under = markets.filter((row) => row.side === "under").sort((a, b) => b.oddsAmerican - a.oddsAmerican)[0];
-      const lineRows = markets.filter(
-        (row) => typeof (row.currentLine ?? row.line) === "number"
-      );
+
+      const home = markets
+        .filter((row) => row.side === "home")
+        .sort((a, b) => b.oddsAmerican - a.oddsAmerican)[0];
+
+      const away = markets
+        .filter((row) => row.side === "away")
+        .sort((a, b) => b.oddsAmerican - a.oddsAmerican)[0];
+
+      const over = markets
+        .filter((row) => row.side === "over")
+        .sort((a, b) => b.oddsAmerican - a.oddsAmerican)[0];
+
+      const under = markets
+        .filter((row) => row.side === "under")
+        .sort((a, b) => b.oddsAmerican - a.oddsAmerican)[0];
+
+      const lineRows = markets.filter((row) => typeof (row.currentLine ?? row.line) === "number");
       const consensusLineValue =
         lineRows.length > 0
           ? lineRows.reduce((sum, row) => sum + Number(row.currentLine ?? row.line ?? 0), 0) / lineRows.length
