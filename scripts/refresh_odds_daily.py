@@ -99,7 +99,18 @@ GAMES = [
     game("football", "americanfootball_ncaaf", "ncaaf_2", "Alabama Crimson Tide", "Georgia Bulldogs",      4, -120,  100,  -2.5, 45.5),
     game("football", "americanfootball_ncaaf", "ncaaf_3", "Clemson Tigers",       "Florida State Seminoles", 6, -110, -110, -1.5, 42.0),
 
-    # UFC / BOXING: backend does not yet support these sport keys — skipping until backend update
+    # UFC — championship bouts and top-ranked challengers only
+    game("mma", "mma_ufc", "ufc_1", "Islam Makhachev",      "Arman Tsarukyan",   2, -350,  280),
+    game("mma", "mma_ufc", "ufc_2", "Alex Pereira",          "Jiri Prochazka",    4, -180,  155),
+    game("mma", "mma_ufc", "ufc_3", "Jon Jones",             "Stipe Miocic",      6, -400,  320),
+    game("mma", "mma_ufc", "ufc_4", "Leon Edwards",          "Belal Muhammad",    8, -135,  115),
+    game("mma", "mma_ufc", "ufc_5", "Sean O'Malley",         "Merab Dvalishvili", 10, 120, -145),
+
+    # BOXING — unified champions and mandatory/top challenger fights
+    game("boxing", "boxing_boxing", "boxing_1", "Canelo Alvarez",     "David Benavidez",   3, -185,  155),
+    game("boxing", "boxing_boxing", "boxing_2", "Terence Crawford",   "Errol Spence Jr.",  5, -155,  130),
+    game("boxing", "boxing_boxing", "boxing_3", "Deontay Wilder",     "Joseph Parker",     7, -165,  140),
+    game("boxing", "boxing_boxing", "boxing_4", "Naoya Inoue",        "Luis Nery",         9, -450,  360),
 ]
 
 # ---------------------------------------------------------------------------

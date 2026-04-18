@@ -86,6 +86,22 @@ SPORTS = [
         "odds_harvester_leagues": "usa-ncaa",
         "odds_harvester_markets": "moneyline,asian_handicap,over/under",
     },
+    {
+        "key": "mma_ufc",
+        "title": "UFC",
+        "short_title": "UFC",
+        "odds_harvester_sport": "mma",
+        "odds_harvester_leagues": "ufc",
+        "odds_harvester_markets": "moneyline",
+    },
+    {
+        "key": "boxing_boxing",
+        "title": "Boxing",
+        "short_title": "BOXING",
+        "odds_harvester_sport": "boxing",
+        "odds_harvester_leagues": "boxing",
+        "odds_harvester_markets": "moneyline",
+    },
 ]
 SCRAPER_SPORT_KEY_MAP = {
     ("basketball", "nba"): "basketball_nba",
@@ -97,6 +113,11 @@ SCRAPER_SPORT_KEY_MAP = {
     ("american-football", "nfl"): "americanfootball_nfl",
     ("american-football", "ncaaf"): "americanfootball_ncaaf",
     ("american-football", "college football"): "americanfootball_ncaaf",
+    ("mma", "ufc"): "mma_ufc",
+    ("mma", "mma"): "mma_ufc",
+    ("mma", ""): "mma_ufc",
+    ("boxing", "boxing"): "boxing_boxing",
+    ("boxing", ""): "boxing_boxing",
 }
 
 BOOKMAKER_PRIORITY = [
