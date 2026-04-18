@@ -2,8 +2,7 @@ FROM python:3.11-slim
 
 # Install Chrome and dependencies
 RUN apt-get update && apt-get install -y \
-    chromium-browser \
-    chromium-codecs-ffmpeg \
+    chromium \
     fonts-liberation \
     libappindicator3-1 \
     libxss1 \
