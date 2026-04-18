@@ -54,13 +54,13 @@ export default async function SimPage() {
                   <div className="rounded-lg bg-ink/30 p-3">
                     <p className="mb-2 text-[12px] font-semibold text-bone/70">Top Edge Signals</p>
                     <div className="space-y-2">
-                      {event.topSignals.map((signal, idx) => (
+                      {event.topSignals.map((signal: any, idx: number) => (
                         <div
                           key={idx}
                           className="rounded border border-bone/[0.06] bg-ink/50 p-2 text-[11px]"
                         >
                           <p className="text-bone/70">
-                            <span className="font-semibold text-aqua">{signal.type}</span>
+                            <span className="font-semibold text-aqua">{signal.marketType}</span>
                             {signal.selectionCompetitor && (
                               <span className="text-bone/60">
                                 {" "}
@@ -68,10 +68,14 @@ export default async function SimPage() {
                               </span>
                             )}
                           </p>
-                          {signal.edgeScore && (
+                          {typeof signal.edgeScore === "number" && (
                             <p className="mt-1 text-bone/50">
                               Score: {signal.edgeScore.toFixed(2)} • EV:{" "}
-                              {(signal.evPercent ? signal.evPercent * 100 : 0).toFixed(1)}%
+                              {(typeof signal.evPercent === "number"
+                                ? signal.evPercent * 100
+                                : 0
+                              ).toFixed(1)}
+                              %
                             </p>
                           )}
                         </div>
