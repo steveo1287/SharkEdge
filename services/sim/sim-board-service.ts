@@ -62,11 +62,9 @@ export async function getSimBoardFeed(leagueKey?: string) {
       topSignals: event.edgeSignals.map((signal) => ({
         edgeScore: signal.edgeScore ?? null,
         evPercent: signal.evPercent ?? null,
-        selectionCompetitor: signal.selectionCompetitor
-          ? { name: signal.selectionCompetitor.name }
-          : null,
-        player: signal.player ? { name: signal.player.name } : null,
-        sportsbook: signal.sportsbook ? { name: signal.sportsbook.name } : null,
+        selectionCompetitor: signal.selectionCompetitor as any,
+        player: signal.player as any,
+        sportsbook: signal.sportsbook as any,
         marketType: String(signal.marketType),
         side: signal.side
       }))
