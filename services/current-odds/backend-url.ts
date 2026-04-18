@@ -2,9 +2,12 @@ function normalizeBaseUrl(value: string) {
   return value.replace(/\/$/, "");
 }
 
-function buildVercelBackendUrl(value: string) {
-  const host = value.replace(/^https?:\/\//, "").replace(/\/$/, "");
-  return `https://${host}/_/backend`;
+function normalizeHost(value: string) {
+  return value.replace(/^https?:\/\//, "").replace(/\/$/, "");
+}
+
+function buildBackendUrlFromHost(value: string) {
+  return `https://${normalizeHost(value)}/_/backend`;
 }
 
 export function getCurrentOddsBackendBaseUrl() {
@@ -15,13 +18,13 @@ export function getCurrentOddsBackendBaseUrl() {
 
   const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
   if (productionHost) {
-    return buildVercelBackendUrl(productionHost);
+    return buildBackendUrlFromHost(productionHost);
   }
 
   const deploymentHost = process.env.VERCEL_URL?.trim();
   if (deploymentHost) {
-    return buildVercelBackendUrl(deploymentHost);
+    return buildBackendUrlFromHost(deploymentHost);
   }
 
-  return "https://repo-perf-split.vercel.app/_/backend";
+  return "http://localhost:3000/_/backend";
 }
