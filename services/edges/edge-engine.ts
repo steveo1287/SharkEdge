@@ -138,16 +138,20 @@ async function createEdgeSignal(args: {
 export async function recomputeCurrentMarketState(eventId?: string) {
   const events = await prisma.event.findMany({
     where: eventId ? { id: eventId } : undefined,
-    include: {
-      eventMarkets: true
-    }
+    select: { id: true }
   });
 
   for (const event of events) {
     await prisma.currentMarketState.deleteMany({ where: { eventId: event.id } });
 
-    const groups = new Map<string, typeof event.eventMarkets>();
-    for (const market of event.eventMarkets) {
+    const eventMarkets = await prisma.eventMarket.findMany({
+      where: { eventId: event.id },
+      orderBy: { updatedAt: "desc" }
+    });
+
+    const groups = new Map<string, typeof eventMarkets>();
+
+    for (const market of eventMarkets) {
       const key = [
         market.marketType,
         market.period ?? "full_game",
@@ -159,12 +163,13 @@ export async function recomputeCurrentMarketState(eventId?: string) {
     }
 
     console.log(
-      `[market-state] event=${event.id} rawEventMarkets=${event.eventMarkets.length} groups=${groups.size}`
+      `[market-state] event=${event.id} rawEventMarkets=${eventMarkets.length} groups=${groups.size}`
     );
 
     for (const [groupKey, groupMarkets] of groups.entries()) {
       const [marketType, period, selectionCompetitorIdRaw, playerIdRaw] = groupKey.split(":");
-      const selectionCompetitorId = selectionCompetitorIdRaw === "none" ? null : selectionCompetitorIdRaw;
+      const selectionCompetitorId =
+        selectionCompetitorIdRaw === "none" ? null : selectionCompetitorIdRaw;
       const playerId = playerIdRaw === "none" ? null : playerIdRaw;
 
       const latestByBookAndSide = new Map<string, (typeof groupMarkets)[number]>();
@@ -202,12 +207,6 @@ export async function recomputeCurrentMarketState(eventId?: string) {
         .filter((row) => row.side === "under")
         .sort((a, b) => b.oddsAmerican - a.oddsAmerican)[0];
 
-      const lineRows = markets.filter((row) => typeof (row.currentLine ?? row.line) === "number");
-      const consensusLineValue =
-        lineRows.length > 0
-          ? lineRows.reduce((sum, row) => sum + Number(row.currentLine ?? row.line ?? 0), 0) / lineRows.length
-          : null;
-
       const hasUsableOdds =
         typeof home?.oddsAmerican === "number" ||
         typeof away?.oddsAmerican === "number" ||
@@ -217,6 +216,16 @@ export async function recomputeCurrentMarketState(eventId?: string) {
       if (!hasUsableOdds) {
         continue;
       }
+
+      const lineRows = markets.filter(
+        (row) => typeof (row.currentLine ?? row.line) === "number"
+      );
+
+      const consensusLineValue =
+        lineRows.length > 0
+          ? lineRows.reduce((sum, row) => sum + Number(row.currentLine ?? row.line ?? 0), 0) /
+            lineRows.length
+          : null;
 
       await prisma.currentMarketState.create({
         data: {
