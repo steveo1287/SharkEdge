@@ -1,4 +1,10 @@
-import type { BoardFilters, BoardPageData, GameCardView, SportsbookRecord } from "@/lib/types/domain";
+import type {
+  BoardFilters,
+  BoardPageData,
+  GameCardView,
+  GameStatus,
+  SportsbookRecord
+} from "@/lib/types/domain";
 import { boardFiltersSchema } from "@/lib/validation/filters";
 import { buildProviderHealth } from "@/services/providers/provider-health";
 import { withTimeoutFallback } from "@/lib/utils/async";
@@ -91,6 +97,19 @@ type PersistedBoardFeed = {
   }>;
 };
 
+function toGameStatus(value: string): GameStatus {
+  switch (value) {
+    case "PREGAME":
+    case "LIVE":
+    case "FINAL":
+    case "POSTPONED":
+    case "CANCELED":
+      return value;
+    default:
+      return "PREGAME";
+  }
+}
+
 async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPageData | null> {
   const leagueKey = filters.league === "ALL" ? undefined : filters.league;
   const board = (await getBoardFeed(leagueKey)) as PersistedBoardFeed;
@@ -111,80 +130,80 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
     const events = grouped.get(section.leagueKey) ?? [];
 
     const games: GameCardView[] = events.map((event) => {
-        const participants = event.participants ?? [];
-        const away = participants.find((p: any) => p.role === "AWAY")?.competitor ?? "Away";
-        const home = participants.find((p: any) => p.role === "HOME")?.competitor ?? "Home";
+      const participants = event.participants ?? [];
+      const away = participants.find((p: any) => p.role === "AWAY")?.competitor ?? "Away";
+      const home = participants.find((p: any) => p.role === "HOME")?.competitor ?? "Home";
 
-        const moneylineState = (event.markets ?? []).find((m: any) => m.marketType === "moneyline");
-        const spreadState = (event.markets ?? []).find((m: any) => m.marketType === "spread");
-        const totalState = (event.markets ?? []).find((m: any) => m.marketType === "total");
+      const moneylineState = (event.markets ?? []).find((m: any) => m.marketType === "moneyline");
+      const spreadState = (event.markets ?? []).find((m: any) => m.marketType === "spread");
+      const totalState = (event.markets ?? []).find((m: any) => m.marketType === "total");
 
-        return {
-          id: event.id,
-          externalEventId: event.eventKey ?? event.id,
-          leagueKey: section.leagueKey,
-          awayTeam: {
-            id: `away:${event.id}`,
-            leagueId: section.leagueKey,
-            name: away,
-            abbreviation: away.slice(0, 3).toUpperCase(),
-            externalIds: {}
-          },
-          homeTeam: {
-            id: `home:${event.id}`,
-            leagueId: section.leagueKey,
-            name: home,
-            abbreviation: home.slice(0, 3).toUpperCase(),
-            externalIds: {}
-          },
-          startTime: event.startTime,
-          status: event.status,
-          venue: "Live market state",
-          selectedBook: null,
-          bestBookCount: 1,
-          moneyline: {
-            label: "Moneyline",
-            lineLabel: "Moneyline",
-            bestBook: "Best available",
-            bestOdds:
-              moneylineState?.bestAwayOddsAmerican ??
-              moneylineState?.bestHomeOddsAmerican ??
-              0,
-            movement: 0
-          },
-          spread: {
-            label: "Spread",
-            lineLabel:
-              typeof spreadState?.consensusLineValue === "number"
-                ? String(spreadState.consensusLineValue)
-                : "—",
-            bestBook: "Best available",
-            bestOdds:
-              spreadState?.bestAwayOddsAmerican ??
-              spreadState?.bestHomeOddsAmerican ??
-              0,
-            movement: 0
-          },
-          total: {
-            label: "Total",
-            lineLabel:
-              typeof totalState?.consensusLineValue === "number"
-                ? `O/U ${totalState.consensusLineValue}`
-                : "—",
-            bestBook: "Best available",
-            bestOdds:
-              totalState?.bestOverOddsAmerican ??
-              totalState?.bestUnderOddsAmerican ??
-              0,
-            movement: 0
-          },
-          edgeScore: {
-            score: 0,
-            label: "Pass"
-          },
-          detailHref: `/game/${event.id}`
-        };
-      });
+      return {
+        id: event.id,
+        externalEventId: event.eventKey ?? event.id,
+        leagueKey: section.leagueKey,
+        awayTeam: {
+          id: `away:${event.id}`,
+          leagueId: section.leagueKey,
+          name: away,
+          abbreviation: away.slice(0, 3).toUpperCase(),
+          externalIds: {}
+        },
+        homeTeam: {
+          id: `home:${event.id}`,
+          leagueId: section.leagueKey,
+          name: home,
+          abbreviation: home.slice(0, 3).toUpperCase(),
+          externalIds: {}
+        },
+        startTime: event.startTime,
+        status: toGameStatus(event.status),
+        venue: "Live market state",
+        selectedBook: null,
+        bestBookCount: 1,
+        moneyline: {
+          label: "Moneyline",
+          lineLabel: "Moneyline",
+          bestBook: "Best available",
+          bestOdds:
+            moneylineState?.bestAwayOddsAmerican ??
+            moneylineState?.bestHomeOddsAmerican ??
+            0,
+          movement: 0
+        },
+        spread: {
+          label: "Spread",
+          lineLabel:
+            typeof spreadState?.consensusLineValue === "number"
+              ? String(spreadState.consensusLineValue)
+              : "—",
+          bestBook: "Best available",
+          bestOdds:
+            spreadState?.bestAwayOddsAmerican ??
+            spreadState?.bestHomeOddsAmerican ??
+            0,
+          movement: 0
+        },
+        total: {
+          label: "Total",
+          lineLabel:
+            typeof totalState?.consensusLineValue === "number"
+              ? `O/U ${totalState.consensusLineValue}`
+              : "—",
+          bestBook: "Best available",
+          bestOdds:
+            totalState?.bestOverOddsAmerican ??
+            totalState?.bestUnderOddsAmerican ??
+            0,
+          movement: 0
+        },
+        edgeScore: {
+          score: 0,
+          label: "Pass"
+        },
+        detailHref: `/game/${event.id}`
+      };
+    });
 
     return {
       ...section,
