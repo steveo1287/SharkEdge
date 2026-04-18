@@ -11,8 +11,22 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { formatGameDateTime } from "@/lib/formatters/date";
 import { formatAmericanOdds } from "@/lib/formatters/odds";
-import type { GameCardView } from "@/lib/types/domain";
+import type { GameCardView, LeagueKey } from "@/lib/types/domain";
 import { buildGameMarketOpportunity } from "@/services/opportunities/opportunity-service";
+
+// ESPN logo URLs for pro leagues — abbreviation must be lowercase ESPN code
+const ESPN_SPORT_PATH: Partial<Record<LeagueKey, string>> = {
+  NBA: "nba",
+  MLB: "mlb",
+  NHL: "nhl",
+  NFL: "nfl",
+};
+
+function getTeamLogoUrl(leagueKey: LeagueKey, abbreviation: string): string | null {
+  const path = ESPN_SPORT_PATH[leagueKey];
+  if (!path) return null;
+  return `https://a.espncdn.com/i/teamlogos/${path}/500/${abbreviation.toLowerCase()}.png`;
+}
 
 function getStatusTone(status: GameCardView["status"]) {
   if (status === "LIVE") {
@@ -109,7 +123,9 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
               <TeamBadge
                 name={game.awayTeam.name}
                 abbreviation={game.awayTeam.abbreviation}
+                logoUrl={getTeamLogoUrl(game.leagueKey, game.awayTeam.abbreviation)}
                 size="md"
+                tone="away"
               />
               <div className="min-w-0">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">
@@ -125,7 +141,9 @@ export function GameCard({ game, focusMarket, actions }: GameCardProps) {
               <TeamBadge
                 name={game.homeTeam.name}
                 abbreviation={game.homeTeam.abbreviation}
+                logoUrl={getTeamLogoUrl(game.leagueKey, game.homeTeam.abbreviation)}
                 size="md"
+                tone="home"
               />
               <div className="min-w-0">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">
