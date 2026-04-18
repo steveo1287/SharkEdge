@@ -56,14 +56,14 @@ function shouldSkip(provider: BookFeedProvider, now: number) {
   return { skip: false as const };
 }
 
-export async function refreshCurrentBookFeeds(args?: { leagues?: LeagueKey[] }) {
+export async function refreshCurrentBookFeeds(args?: { leagues?: LeagueKey[]; force?: boolean }) {
   const providers = uniqueProviders(args?.leagues);
   const summaries: BookFeedRefreshSummary[] = [];
   const now = Date.now();
 
   for (const provider of providers) {
     const leagues = (args?.leagues?.filter((league) => provider.supportsLeague(league)) ?? []) as LeagueKey[];
-    const skip = shouldSkip(provider, now);
+    const skip = args?.force ? { skip: false as const } : shouldSkip(provider, now);
     if (skip.skip) {
       summaries.push({
         providerKey: provider.key,
