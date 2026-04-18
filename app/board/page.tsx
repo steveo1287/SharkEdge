@@ -1,19 +1,5 @@
-import type { LeagueSnapshotView } from "@/lib/types/domain";
-import type { GameCardView, LeagueKey } from "@/lib/types/domain";
-import { buildGameWorkflowHref, resolveGameWorkflowTarget } from "@/lib/utils/workflow-hrefs";
-import {
-  BOARD_LEAGUE_ITEMS,
-  getBoardCommandData,
-  type BoardLeagueScope
-} from "@/services/board/board-command-service";
-import {
-  getProviderReadinessView,
-  type ProviderReadinessView
-} from "@/services/current-odds/provider-readiness-service";
-import { buildGameMarketOpportunity } from "@/services/opportunities/opportunity-service";
-import { getLeagueSnapshots } from "@/services/stats/stats-service";
-import { BoardCommandCenter } from "@/components/board/board-command-center";
-import { buildEventSimulationView } from "@/services/simulation/simulation-view-service";
+import Link from "next/link";
+import { getBoardPageData, parseBoardFilters } from "@/services/odds/board-service";
 
 export const dynamic = "force-dynamic";
 
@@ -21,230 +7,155 @@ type BoardPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-type QueryState = {
-  league: BoardLeagueScope;
-  market: "all" | "moneyline" | "spread" | "total";
-  sort: "edge" | "movement" | "start";
-  focus?: string | null;
-};
-
-async function getSafeProviderReadiness(): Promise<ProviderReadinessView | null> {
-  try {
-    return await getProviderReadinessView({
-      leagues: ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]
-    });
-  } catch {
-    return null;
-  }
-}
-
-async function getSafeSnapshots(league: BoardLeagueScope): Promise<LeagueSnapshotView[]> {
-  try {
-    return await getLeagueSnapshots(league);
-  } catch {
-    return [];
-  }
-}
-
-function buildBoardHref(state: QueryState) {
-  const params = new URLSearchParams();
-
-  if (state.league !== "ALL") params.set("league", state.league);
-  if (state.market !== "all") params.set("market", state.market);
-  if (state.sort !== "edge") params.set("sort", state.sort);
-  if (state.focus) params.set("focus", state.focus);
-
-  const query = params.toString();
-  return query ? `/board?${query}` : "/board";
-}
-
-function buildLeagueHref(league: BoardLeagueScope, state: QueryState) {
-  return buildBoardHref({ ...state, league, focus: null });
-}
-
-function formatMovementValue(movement: number) {
-  const absolute = Math.abs(movement);
-  if (!absolute) return "Flat";
-  return `${movement > 0 ? "↑" : "↓"} ${absolute >= 10 ? absolute.toFixed(0) : absolute.toFixed(1)}`;
-}
-
-function getLeagueVerifiedCount(games: GameCardView[], league: LeagueKey) {
-  return games.filter((game) => game.leagueKey === league).length;
-}
-
-function getSelectedGameLabel(game: GameCardView | null) {
-  if (!game) return null;
-  return `${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`;
-}
-
-function getWorkflowLabel(game: GameCardView, market: "moneyline" | "spread" | "total") {
-  const marketLabel = market === "moneyline" ? "Moneyline" : market === "spread" ? "Spread" : "Total";
-  const bookLabel = game[market].bestBook && game[market].bestBook !== "No book" ? game[market].bestBook : game.selectedBook?.name ?? null;
-  return bookLabel ? `${marketLabel} @ ${bookLabel}` : marketLabel;
-}
-
-function buildMovementSeries(games: GameCardView[]) {
-  const values = games.slice(0, 10).map((game) => {
-    return Math.max(
-      Math.abs(game.moneyline.movement),
-      Math.abs(game.spread.movement),
-      Math.abs(game.total.movement)
-    );
-  });
-
-  return values.length ? values : [0, 0, 0, 0];
-}
-
 export default async function BoardPage({ searchParams }: BoardPageProps) {
   const resolvedSearch = (await searchParams) ?? {};
 
-  const [board, readiness] = await Promise.all([
-    getBoardCommandData(resolvedSearch),
-    getSafeProviderReadiness()
-  ]);
-
-  const focusedSimulation = board.focusedGame
-    ? await buildEventSimulationView(board.focusedGame.id).catch(() => null)
-    : null;
-
-  const queryState: QueryState = {
-    league: board.selectedLeague,
-    market: board.selectedMarket,
-    sort: board.selectedSort,
-    focus: board.focusedGame?.id ?? null
-  };
-
-  const snapshots = await getSafeSnapshots(queryState.league);
-  const uniqueBooks = Array.from(
-    new Set(
-      board.verifiedGames
-        .flatMap((game) => [
-          game.selectedBook?.name,
-          game.moneyline.bestBook,
-          game.spread.bestBook,
-          game.total.bestBook
-        ])
-        .filter((value): value is string => Boolean(value && value !== "No book"))
-    )
+  const data = await getBoardPageData(
+    parseBoardFilters({
+      league: resolvedSearch.league ?? "ALL",
+      date: resolvedSearch.date ?? "today",
+      status: resolvedSearch.status ?? "all"
+    })
   );
 
-  const movers = board.movers.slice(0, 4);
-  const boardStatusCopy = board.verifiedGames.length
-    ? `${board.verifiedGames.length} verified rows are live across moneyline, spread, and total.`
-    : board.boardData.liveMessage ?? board.boardData.sourceNote ?? "No verified market rows are available right now.";
-
-  const focusedMarkets = board.focusedGame
-    ? [
-        {
-          key: "moneyline" as const,
-          label: "Moneyline",
-          lineLabel: board.focusedGame.moneyline.lineLabel,
-          movementLabel: `Move ${formatMovementValue(board.focusedGame.moneyline.movement)}`,
-          opportunity: buildGameMarketOpportunity(board.focusedGame, "moneyline")
-        },
-        {
-          key: "spread" as const,
-          label: "Spread",
-          lineLabel: board.focusedGame.spread.lineLabel,
-          movementLabel: `Move ${formatMovementValue(board.focusedGame.spread.movement)}`,
-          opportunity: buildGameMarketOpportunity(board.focusedGame, "spread")
-        },
-        {
-          key: "total" as const,
-          label: "Total",
-          lineLabel: board.focusedGame.total.lineLabel,
-          movementLabel: `Move ${formatMovementValue(board.focusedGame.total.movement)}`,
-          opportunity: buildGameMarketOpportunity(board.focusedGame, "total")
-        }
-      ]
-    : [];
-
-  const marketItems = [
-    { label: "All", market: "all" as const },
-    { label: "Moneyline", market: "moneyline" as const },
-    { label: "Spread", market: "spread" as const },
-    { label: "Total", market: "total" as const }
-  ].map((item) => ({
-    label: item.label,
-    href: buildBoardHref({ ...queryState, market: item.market, focus: board.focusedGame?.id ?? null }),
-    active: board.selectedMarket === item.market
-  }));
-
-  const sortItems = [
-    { label: "Edge", sort: "edge" as const },
-    { label: "Movement", sort: "movement" as const },
-    { label: "Start", sort: "start" as const }
-  ].map((item) => ({
-    label: item.label,
-    href: buildBoardHref({ ...queryState, sort: item.sort, focus: board.focusedGame?.id ?? null }),
-    active: board.selectedSort === item.sort
-  }));
-
-  const sortHrefMap = {
-    edge: sortItems.find((item) => item.label === "Edge")?.href ?? buildBoardHref({ ...queryState, sort: "edge" }),
-    movement: sortItems.find((item) => item.label === "Movement")?.href ?? buildBoardHref({ ...queryState, sort: "movement" }),
-    start: sortItems.find((item) => item.label === "Start")?.href ?? buildBoardHref({ ...queryState, sort: "start" })
-  } satisfies Record<"edge" | "movement" | "start", string>;
-
-  const tableRows = board.verifiedGames.slice(0, 24).map((game) => {
-    const workflowTarget = resolveGameWorkflowTarget(game, board.selectedMarket);
-    return {
-      game,
-      selected: game.id === board.focusedGame?.id,
-      inspectHref: buildBoardHref({ ...queryState, focus: game.id }),
-      gameHref: buildGameWorkflowHref(game.detailHref ?? `/game/${game.id}`, queryState, workflowTarget),
-      workflowLabel: getWorkflowLabel(game, workflowTarget.market)
-    };
-  });
-
-  const focusedWorkflowTarget = board.focusedGame
-    ? resolveGameWorkflowTarget(board.focusedGame, board.selectedMarket)
-    : null;
-  const focusedGameHref = board.focusedGame && focusedWorkflowTarget
-    ? buildGameWorkflowHref(board.focusedGame.detailHref ?? `/game/${board.focusedGame.id}`, queryState, focusedWorkflowTarget)
-    : null;
-  const focusedWorkflowLabel = board.focusedGame && focusedWorkflowTarget
-    ? getWorkflowLabel(board.focusedGame, focusedWorkflowTarget.market)
-    : null;
-
-  const leagueTabs = BOARD_LEAGUE_ITEMS.map((league) => {
-    const count =
-      league === "ALL"
-        ? board.verifiedGames.length || null
-        : getLeagueVerifiedCount(board.verifiedGames, league) || null;
-
-    return {
-      label: league,
-      href: buildLeagueHref(league, queryState),
-      active: board.selectedLeague === league,
-      count
-    };
-  });
+  const games = data.games || [];
 
   return (
-    <BoardCommandCenter
-      readiness={readiness}
-      boardStatusCopy={boardStatusCopy}
-      queryState={queryState}
-      leagueTabs={leagueTabs}
-      marketItems={marketItems}
-      sortItems={sortItems}
-      sortHrefMap={sortHrefMap}
-      selectedMarket={board.selectedMarket}
-      selectedSort={board.selectedSort}
-      selectedGameLabel={getSelectedGameLabel(board.focusedGame)}
-      verifiedCount={board.verifiedGames.length}
-      moverCount={board.movers.length}
-      uniqueBooks={uniqueBooks}
-      movers={movers}
-      movementSeries={buildMovementSeries(board.verifiedGames)}
-      tableRows={tableRows}
-      focusedGame={board.focusedGame}
-      focusedMarkets={focusedMarkets}
-      focusedGameHref={focusedGameHref}
-      focusedWorkflowLabel={focusedWorkflowLabel}
-      focusedSimulation={focusedSimulation}
-      snapshots={snapshots}
-    />
+    <div className="min-h-screen bg-ink">
+      {/* Header */}
+      <div className="border-b border-bone/10 bg-surface/50 backdrop-blur-sm sticky top-0 z-40">
+        <div className="page-shell py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="font-display text-[32px] font-bold text-text-primary">
+                Live Odds Board
+              </h1>
+              <p className="text-bone/60 text-sm mt-1">
+                {games.length} games • Real-time odds from {data.sportsbooks.length} books
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-bone/10 bg-surface">
+                <span className="live-dot animate-pulse" />
+                <span className="text-xs font-semibold uppercase text-mint">Live</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Games Grid */}
+      <div className="page-shell py-8">
+        {games.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24">
+            <div className="text-center">
+              <p className="text-bone/50 text-lg mb-2">No games available</p>
+              <p className="text-bone/30 text-sm">Check back later for live odds</p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {games.map((game) => (
+              <Link
+                key={game.id}
+                href={`/game/${game.id}`}
+                className="group relative bg-surface border border-bone/10 rounded-lg p-4 hover:border-aqua/50 hover:bg-surface/80 transition-all duration-200 cursor-pointer"
+              >
+                {/* Game Header */}
+                <div className="mb-4">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <div className="text-xs font-semibold uppercase text-bone/50 mb-1">
+                        {game.leagueKey}
+                      </div>
+                      <div className="font-display font-bold text-text-primary group-hover:text-aqua transition-colors">
+                        <div className="text-sm">{game.awayTeam.name}</div>
+                        <div className="text-xs text-bone/60 my-1">@</div>
+                        <div className="text-sm">{game.homeTeam.name}</div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="px-2 py-1 bg-aqua/10 text-aqua text-xs font-semibold rounded">
+                        {game.status}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Markets Grid */}
+                <div className="space-y-3 border-t border-bone/10 pt-4">
+                  {/* Moneyline */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase text-bone/50">ML</div>
+                      <div className="text-xs text-bone/70">{game.moneyline.bestBook}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-mono font-bold text-mint">
+                        {game.moneyline.bestOdds ? (
+                          <>
+                            {game.moneyline.bestOdds > 0 ? "+" : ""}
+                            {game.moneyline.bestOdds}
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </div>
+                      {game.moneyline.movement !== 0 && (
+                        <div className="text-[10px] text-bone/50 mt-0.5">
+                          {game.moneyline.movement > 0 ? "↑" : "↓"} {Math.abs(game.moneyline.movement).toFixed(1)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Spread */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase text-bone/50">Spread</div>
+                      <div className="text-xs text-bone/70">{game.spread.bestBook}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-mono font-bold">
+                        {game.spread.lineLabel || "—"}
+                      </div>
+                      {game.spread.movement !== 0 && (
+                        <div className="text-[10px] text-bone/50 mt-0.5">
+                          {game.spread.movement > 0 ? "↑" : "↓"} {Math.abs(game.spread.movement).toFixed(1)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Total */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase text-bone/50">Total</div>
+                      <div className="text-xs text-bone/70">{game.total.bestBook}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-mono font-bold text-aqua">
+                        {game.total.lineLabel || "—"}
+                      </div>
+                      {game.total.movement !== 0 && (
+                        <div className="text-[10px] text-bone/50 mt-0.5">
+                          {game.total.movement > 0 ? "↑" : "↓"} {Math.abs(game.total.movement).toFixed(1)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="mt-4 pt-3 border-t border-bone/10 text-[10px] text-bone/40 flex items-center justify-between">
+                  <span>Click to view details</span>
+                  <span className="group-hover:text-aqua transition-colors">→</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
