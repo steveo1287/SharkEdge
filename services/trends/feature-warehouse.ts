@@ -871,11 +871,40 @@ export async function refreshTrendFeatureWarehouse(args?: {
 
   let warmed = 0;
   for (const filters of filtersToWarm) {
+    const baseTrendResult = {
+      hitRate: null,
+      roi: null,
+      profitUnits: null,
+      sampleSize: 0,
+      wins: 0,
+      losses: 0,
+      pushes: 0,
+      streak: null,
+      confidence: "insufficient" as const,
+      adjustedConfidenceScore: null,
+      contextAdjustmentDelta: null,
+      contextSignals: [] as string[],
+      warning: null,
+      dateRange: "",
+      contextLabel: "",
+      todayMatches: [] as any[],
+      contextSummary: {
+        steamMovePct: 0,
+        clvBeatPct: 0,
+        backToBackPct: 0,
+        avgWeatherImpact: 0,
+        avgCompositeEdgeScore: 0,
+        topSignals: [] as string[],
+        weatherNote: null,
+        scheduleNote: null,
+        marketNote: null
+      }
+    };
     await Promise.all([
-      getTrendFeatureSummary({ id: "ats", title: "", hitRate: null, roi: null, profitUnits: null, sampleSize: 0, wins: 0, losses: 0, pushes: 0, streak: null, confidence: "insufficient", adjustedConfidenceScore: null, contextAdjustmentDelta: null, contextSignals: [], warning: null, dateRange: "", contextLabel: "", todayMatches: [], contextSummary: null }, filters),
-      getTrendFeatureSummary({ id: "ou", title: "", hitRate: null, roi: null, profitUnits: null, sampleSize: 0, wins: 0, losses: 0, pushes: 0, streak: null, confidence: "insufficient", adjustedConfidenceScore: null, contextAdjustmentDelta: null, contextSignals: [], warning: null, dateRange: "", contextLabel: "", todayMatches: [], contextSummary: null }, filters),
-      getTrendFeatureSummary({ id: "favorite-roi", title: "", hitRate: null, roi: null, profitUnits: null, sampleSize: 0, wins: 0, losses: 0, pushes: 0, streak: null, confidence: "insufficient", adjustedConfidenceScore: null, contextAdjustmentDelta: null, contextSignals: [], warning: null, dateRange: "", contextLabel: "", todayMatches: [], contextSummary: null }, filters),
-      getTrendFeatureSummary({ id: "underdog-roi", title: "", hitRate: null, roi: null, profitUnits: null, sampleSize: 0, wins: 0, losses: 0, pushes: 0, streak: null, confidence: "insufficient", adjustedConfidenceScore: null, contextAdjustmentDelta: null, contextSignals: [], warning: null, dateRange: "", contextLabel: "", todayMatches: [], contextSummary: null }, filters)
+      getTrendFeatureSummary({ id: "ats", title: "", ...baseTrendResult }, filters),
+      getTrendFeatureSummary({ id: "ou", title: "", ...baseTrendResult }, filters),
+      getTrendFeatureSummary({ id: "favorite-roi", title: "", ...baseTrendResult }, filters),
+      getTrendFeatureSummary({ id: "underdog-roi", title: "", ...baseTrendResult }, filters)
     ]);
     warmed += 1;
   }

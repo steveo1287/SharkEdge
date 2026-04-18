@@ -769,7 +769,7 @@ export function buildGameMarketOpportunity(
     id: `${game.id}:${marketType}`,
     kind: marketLabelToKind(marketType),
     league: game.leagueKey,
-    eventId: game.externalEventId,
+    eventId: game.id,
     eventLabel,
     marketType,
     selectionLabel: market.label,

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { SimulationIntelligencePanel } from "@/components/event/simulation-intelligence-panel";
 import { SimulationWorkbench } from "@/components/event/simulation-workbench";
+import { SimVerdictPanel } from "@/components/event/sim-verdict-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { withTimeoutFallback } from "@/lib/utils/async";
@@ -103,6 +104,11 @@ export default async function GameDetailPage({ params }: PageProps) {
           </div>
         </div>
       </div>
+
+      {/* ── Sim Verdict ─────────────────────────────────────────────────────── */}
+      {simulation?.gameSimVerdict && (
+        <SimVerdictPanel verdict={simulation.gameSimVerdict} />
+      )}
 
       {/* ── Simulation Panel ────────────────────────────────────────────────── */}
       {simulation && (

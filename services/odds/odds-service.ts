@@ -399,7 +399,7 @@ function buildGameCard(game: GameRecord, sportsbookKey: string) {
 
   return {
     id: game.id,
-    externalEventId: game.externalEventId,
+    externalEventId: game.id,
     leagueKey: leagueMap.get(game.leagueId)!.key,
     awayTeam,
     homeTeam,
@@ -425,7 +425,7 @@ function buildGameCard(game: GameRecord, sportsbookKey: string) {
       lineMovementSupport: angle?.lineMovementSupport,
       volatility: angle?.volatility
     }),
-    detailHref: buildMatchupHref(leagueMap.get(game.leagueId)!.key, game.externalEventId)
+    detailHref: buildMatchupHref(leagueMap.get(game.leagueId)!.key, game.id)
   } satisfies GameCardView;
 }
 
@@ -661,7 +661,7 @@ function buildPropCard(angleId: string): PropCardView | null {
       priceDelta >= 10 ? "MARKET_PLUS" : analysis.bestPriceFlag ? "BEST_PRICE" : "NONE",
     supportStatus: "LIVE",
     supportNote: "Showing seeded prop history because the live props backend is unavailable in this runtime.",
-    gameHref: buildMatchupHref(leagueMap.get(game.leagueId)!.key, game.externalEventId),
+    gameHref: buildMatchupHref(leagueMap.get(game.leagueId)!.key, game.id),
     canonicalMarketKey: analysis.canonicalMarketKey,
     analyticsSummary: {
       tags: [

@@ -1862,7 +1862,7 @@ async function getEspnBoardPageData(
 
       return {
         id: game.oddsEventId ?? game.id ?? "",
-        externalEventId: game.id ?? game.oddsEventId ?? "",
+        externalEventId: game.oddsEventId ?? game.id ?? "",
         leagueKey,
         awayTeam,
         homeTeam,

@@ -24,7 +24,6 @@ type ScoreboardResolution = {
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const SCOREBOARD_PROVIDER_TIMEOUT_MS = 2_500;
-const EVENT_MATCH_WINDOW_MS = 18 * 60 * 60 * 1000;
 
 function normalizeName(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -131,22 +130,14 @@ function toScoreboardPreview(event: ProviderEvent): ScoreboardPreviewView {
 export function matchEventToGame(game: GameCardView, events: ProviderEvent[]) {
   const awayKey = normalizeName(game.awayTeam.name);
   const homeKey = normalizeName(game.homeTeam.name);
-  const gameStart = Date.parse(game.startTime);
 
   return (
     events.find((event) => {
       const home = event.participants.find((participant) => participant.role === "HOME");
       const away = event.participants.find((participant) => participant.role === "AWAY");
-      const eventStart = Date.parse(event.startTime);
 
       if (!home || !away) {
         return false;
-      }
-
-      if (Number.isFinite(gameStart) && Number.isFinite(eventStart)) {
-        if (Math.abs(gameStart - eventStart) > EVENT_MATCH_WINDOW_MS) {
-          return false;
-        }
       }
 
       return normalizeName(home.name) === homeKey && normalizeName(away.name) === awayKey;

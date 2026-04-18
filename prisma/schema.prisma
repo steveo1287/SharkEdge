@@ -368,6 +368,7 @@ model Event {
   betLegs        BetLeg[]
   watchlistItems WatchlistItem[]
   alertRules     AlertRule[]
+  explanationSnapshots EdgeExplanationSnapshot[]
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
@@ -1392,4 +1393,34 @@ model AlertSubscription {
 
   @@index([userId, isActive])
   @@map("alert_subscriptions")
+}
+
+model EdgeExplanationSnapshot {
+  id                   String   @id @default(cuid())
+  edgeSignalId         String
+  eventId              String
+  marketType           MarketType
+  sportbookName        String?
+  modelVersion         String?
+  modelProb            Float
+  closingProb          Float?
+  realizedOutcome      Float?
+  confidenceScore      Float?
+  baseEdgeScore        Float?
+  adjustedEdgeScore    Float?
+  rankSignal           Float?
+  clvPercent           Float?
+  decompositionJson    Json
+  xfactorsJson         Json?
+  whyItGradesWellJson  Json?
+  createdAt            DateTime @default(now())
+  resolvedAt           DateTime?
+
+  edgeSignal           EdgeSignal @relation(fields: [edgeSignalId], references: [id], onDelete: Cascade)
+  event                Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([edgeSignalId, createdAt])
+  @@index([eventId, createdAt])
+  @@index([resolvedAt])
+  @@map("edge_explanation_snapshots")
 }

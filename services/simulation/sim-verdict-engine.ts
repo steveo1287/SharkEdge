@@ -26,6 +26,18 @@ import type { PlayerPropSimulationSummary } from "./player-prop-sim";
 export type VerdictRating = "STRONG_BET" | "LEAN" | "NEUTRAL" | "FADE" | "TRAP";
 export type VerdictConfidence = "HIGH" | "MEDIUM" | "LOW" | "INSUFFICIENT";
 export type VerdictSide = "HOME" | "AWAY" | "OVER" | "UNDER" | "NONE";
+export type TrapFlag =
+  | "STALE_EDGE"
+  | "THIN_MARKET"
+  | "ONE_BOOK_OUTLIER"
+  | "FAKE_MOVE_RISK"
+  | "LOW_CONFIDENCE_FAIR_PRICE"
+  | "INJURY_UNCERTAINTY"
+  | "HIGH_MARKET_DISAGREEMENT"
+  | "LOW_PROVIDER_HEALTH"
+  | "MODEL_MARKET_CONFLICT";
+export type ActionState = "BET_NOW" | "WAIT" | "WATCH" | "PASS";
+export type TimingState = "WINDOW_OPEN" | "WAIT_FOR_PULLBACK" | "WAIT_FOR_CONFIRMATION" | "MONITOR_ONLY" | "PASS_ON_PRICE";
 
 export type MarketVerdict = {
   market: "moneyline" | "spread" | "total" | "player_prop";
@@ -40,8 +52,11 @@ export type MarketVerdict = {
   simValue: number | null;    // Sim projected value
   marketValue: number | null; // Market line/price
   delta: number | null;       // simValue - marketValue
-  trapFlag: boolean;
-  trapReason: string | null;
+  trapFlags: TrapFlag[];      // Comprehensive trap detection
+  trapExplanation: string | null;
+  actionState: ActionState;   // BET_NOW, WAIT, WATCH, PASS
+  timingState: TimingState;   // Window, pullback, confirmation, etc.
+  kellyPct: number;           // Kelly criterion stake (%)
 };
 
 export type GameSimVerdict = {
@@ -99,6 +114,37 @@ function calculateEV(fairProb: number, offeredOdds: number): number {
   return round((fairProb * decimal) - 1, 4);
 }
 
+function stripVig(probs: [number, number]): [number, number] {
+  const total = probs[0] + probs[1];
+  if (total <= 0) return [0.5, 0.5];
+  return [round(probs[0] / total, 4), round(probs[1] / total, 4)];
+}
+
+function noVigProbabilities(leftOdds: number | null, rightOdds: number | null): { left: number; right: number; hold: number } | null {
+  if (leftOdds === null || rightOdds === null) return null;
+  const left = americanToImplied(leftOdds);
+  const right = americanToImplied(rightOdds);
+  const hold = left + right - 1;
+  const stripped = stripVig([left, right]);
+  return { left: stripped[0], right: stripped[1], hold };
+}
+
+function kellyFraction(winProb: number, odds: number): number {
+  if (odds <= 0) return 0;
+  const b = odds > 0 ? odds / 100 : 100 / Math.abs(odds);
+  const p = winProb;
+  const q = 1 - winProb;
+  const kelly = (p * b - q) / b;
+  return Math.max(0, Math.min(0.25, kelly)); // Cap at 25%
+}
+
+function confidenceScore(sampleSize: number, edgeMagnitude: number, hold: number): number {
+  const sampleBoost = Math.min(50, (sampleSize / 50) * 50);
+  const edgeBoost = Math.min(30, Math.abs(edgeMagnitude) * 100);
+  const holdPenalty = Math.min(25, hold * 100);
+  return Math.max(0, Math.min(100, sampleBoost + edgeBoost - holdPenalty));
+}
+
 function ratingFromEdge(edgeScore: number, ev: number | null): VerdictRating {
   if (edgeScore >= 72 && (ev === null || ev > 0.04)) return "STRONG_BET";
   if (edgeScore >= 55) return "LEAN";
@@ -115,26 +161,83 @@ function confidenceFromSample(sampleSize: number, stdDev: number, mean: number):
   return "INSUFFICIENT";
 }
 
-function detectTrap(
-  rating: VerdictRating,
-  delta: number | null,
-  drivers: string[]
-): { trapFlag: boolean; trapReason: string | null } {
-  // Public-side trap: sim says FADE but market has moved toward this side
-  if (rating === "FADE" && delta !== null && Math.abs(delta) < 0.5) {
-    return {
-      trapFlag: true,
-      trapReason: "Market and sim are close but the sim leans against this side. Public money may be inflating the line."
-    };
+function detectTrapFlags(args: {
+  rating: VerdictRating;
+  delta: number | null;
+  drivers: string[];
+  confidence: VerdictConfidence;
+  edgeScore: number;
+  freshness?: number; // minutes
+  providerHealth?: boolean; // true = healthy
+  marketDisagreement?: number; // 0-100, how much books disagree
+}): TrapFlag[] {
+  const flags: TrapFlag[] = [];
+
+  // STALE_EDGE: consensus is drifting away from the edge
+  if (args.rating === "FADE" && args.delta !== null && Math.abs(args.delta) < 0.5) {
+    flags.push("STALE_EDGE");
   }
-  // Back-to-back trap
-  if (drivers.some((d) => d.toLowerCase().includes("back-to-back"))) {
-    return {
-      trapFlag: true,
-      trapReason: "Back-to-back fatigue is a sim driver. Public bettors often ignore schedule stress."
-    };
+
+  // THIN_MARKET: confidence is low and edge is small
+  if (args.confidence === "LOW" && args.edgeScore < 40) {
+    flags.push("THIN_MARKET");
   }
-  return { trapFlag: false, trapReason: null };
+
+  // ONE_BOOK_OUTLIER: back-to-back or schedule factors
+  if (args.drivers.some((d) => d.toLowerCase().includes("back-to-back"))) {
+    flags.push("ONE_BOOK_OUTLIER");
+  }
+
+  // FAKE_MOVE_RISK: suspicious model market conflict
+  if (args.rating === "TRAP" || args.drivers.some((d) => d.toLowerCase().includes("reverse"))) {
+    flags.push("FAKE_MOVE_RISK");
+  }
+
+  // LOW_CONFIDENCE_FAIR_PRICE: low confidence tier
+  if (args.confidence === "INSUFFICIENT" || args.confidence === "LOW") {
+    flags.push("LOW_CONFIDENCE_FAIR_PRICE");
+  }
+
+  // INJURY_UNCERTAINTY: injury-related drivers
+  if (args.drivers.some((d) => d.toLowerCase().includes("injur"))) {
+    flags.push("INJURY_UNCERTAINTY");
+  }
+
+  // HIGH_MARKET_DISAGREEMENT: high disagreement between books
+  if (args.marketDisagreement !== undefined && args.marketDisagreement > 70) {
+    flags.push("HIGH_MARKET_DISAGREEMENT");
+  }
+
+  // LOW_PROVIDER_HEALTH: stale data
+  if (args.providerHealth === false || (args.freshness !== undefined && args.freshness > 20)) {
+    flags.push("LOW_PROVIDER_HEALTH");
+  }
+
+  // MODEL_MARKET_CONFLICT: rating is TRAP or confidence is insufficient
+  if (args.rating === "TRAP" && args.confidence === "INSUFFICIENT") {
+    flags.push("MODEL_MARKET_CONFLICT");
+  }
+
+  return [...new Set(flags)]; // Deduplicate
+}
+
+function getTrapExplanation(flags: TrapFlag[]): string | null {
+  if (flags.length === 0) return null;
+
+  const explanations: Record<TrapFlag, string> = {
+    STALE_EDGE: "Market and sim have converged; edge may be fading.",
+    THIN_MARKET: "Small edge on low confidence; not worth the risk.",
+    ONE_BOOK_OUTLIER: "Edge may depend on one outlier book.",
+    FAKE_MOVE_RISK: "Price movement looks artificial; buyer beware.",
+    LOW_CONFIDENCE_FAIR_PRICE: "Fair price estimate is unreliable.",
+    INJURY_UNCERTAINTY: "Injury status is fluid; model may be stale.",
+    HIGH_MARKET_DISAGREEMENT: "Books are far apart; uncertainty is real.",
+    LOW_PROVIDER_HEALTH: "Data freshness or coverage is degraded.",
+    MODEL_MARKET_CONFLICT: "Model and market are in fundamental disagreement."
+  };
+
+  const top = flags.slice(0, 2).map((f) => explanations[f]).join(" ");
+  return top || null;
 }
 
 function buildExplanation(
@@ -226,15 +329,15 @@ export function buildMoneylineVerdict(
   awayOddsAmerican: number | null
 ): MarketVerdict[] {
   const verdicts: MarketVerdict[] = [];
+  const noVig = noVigProbabilities(homeOddsAmerican, awayOddsAmerican);
 
   for (const side of ["HOME", "AWAY"] as const) {
     const simProb = side === "HOME" ? sim.winProbHome : sim.winProbAway;
     const offeredOdds = side === "HOME" ? homeOddsAmerican : awayOddsAmerican;
-    const marketImplied = offeredOdds !== null ? americanToImplied(offeredOdds) : null;
+    const marketImplied = offeredOdds !== null ? americanToImplied(offeredOdds) : noVig ? (side === "HOME" ? noVig.left : noVig.right) : null;
     const delta = marketImplied !== null ? round(simProb - marketImplied, 4) : null;
     const ev = offeredOdds !== null ? calculateEV(simProb, offeredOdds) : null;
 
-    // Edge score: how much does sim prob exceed market implied?
     const probEdge = delta !== null ? Math.abs(delta) : 0;
     const edgeScore = Math.min(100, Math.round(50 + probEdge * 300));
     const leansSide = delta !== null && delta > 0.02;
@@ -242,13 +345,36 @@ export function buildMoneylineVerdict(
 
     const rating = leansSide ? ratingFromEdge(adjustedEdge, ev) : (delta !== null && delta < -0.04 ? "FADE" : "NEUTRAL");
     const confidence = confidenceFromSample(sim.distribution.totalStdDev > 0 ? 2500 : 800, sim.distribution.totalStdDev, sim.projectedTotal);
-    const { trapFlag, trapReason } = detectTrap(rating, delta, sim.drivers);
+
+    const trapFlags = detectTrapFlags({
+      rating,
+      delta,
+      drivers: sim.drivers,
+      confidence,
+      edgeScore: adjustedEdge,
+      marketDisagreement: 0
+    });
+    const trapExplanation = getTrapExplanation(trapFlags);
+
+    // Determine action and timing states
+    const actionState: ActionState =
+      leansSide && adjustedEdge >= 72 ? "BET_NOW"
+      : leansSide && adjustedEdge >= 55 ? "WAIT"
+      : leansSide ? "WATCH"
+      : "PASS";
+
+    const timingState: TimingState =
+      confidence === "HIGH" ? "WINDOW_OPEN"
+      : confidence === "MEDIUM" ? "WAIT_FOR_CONFIRMATION"
+      : "MONITOR_ONLY";
+
+    const kelly = offeredOdds !== null ? kellyFraction(simProb, offeredOdds) : 0;
 
     verdicts.push({
       market: "moneyline",
       side,
       rating,
-      edgeScore: leansSide ? adjustedEdge : Math.max(0, 50 - Math.round(probEdge * 200)),
+      edgeScore: adjustedEdge,
       edgePct: ev !== null ? round(ev * 100, 2) : null,
       confidence,
       headline: `${side === "HOME" ? homeTeam : awayTeam} ML: sim ${round(simProb * 100, 1)}% vs market ${marketImplied !== null ? round(marketImplied * 100, 1) : "?"}%`,
@@ -257,8 +383,11 @@ export function buildMoneylineVerdict(
       simValue: round(simProb, 4),
       marketValue: marketImplied !== null ? round(marketImplied, 4) : null,
       delta,
-      trapFlag,
-      trapReason
+      trapFlags,
+      trapExplanation,
+      actionState,
+      timingState,
+      kellyPct: round(kelly * 100, 1)
     });
   }
 
@@ -279,14 +408,36 @@ export function buildSpreadVerdict(
   const delta = marketSpreadHome !== null ? round(simSpread - marketSpreadHome, 2) : null;
   const absDelta = delta !== null ? Math.abs(delta) : 0;
 
-  // Positive delta = sim thinks home covers more than market says
   const side: VerdictSide = delta !== null && delta > 0.5 ? "HOME" : delta !== null && delta < -0.5 ? "AWAY" : "NONE";
   const edgeScore = Math.min(100, Math.round(50 + absDelta * 12));
   const ev = homeSpreadOdds !== null && side === "HOME"
     ? calculateEV(0.52 + absDelta * 0.04, homeSpreadOdds)
     : null;
   const rating = absDelta >= 3 ? ratingFromEdge(edgeScore, ev) : absDelta >= 1.5 ? "LEAN" : "NEUTRAL";
-  const { trapFlag, trapReason } = detectTrap(rating, delta, sim.drivers);
+  const confidence = confidenceFromSample(2500, sim.distribution.homeScoreStdDev, sim.projectedHomeScore);
+
+  const trapFlags = detectTrapFlags({
+    rating,
+    delta,
+    drivers: sim.drivers,
+    confidence,
+    edgeScore,
+    marketDisagreement: 0
+  });
+  const trapExplanation = getTrapExplanation(trapFlags);
+
+  const actionState: ActionState =
+    side === "HOME" && edgeScore >= 72 ? "BET_NOW"
+    : side === "HOME" && edgeScore >= 55 ? "WAIT"
+    : side === "HOME" ? "WATCH"
+    : "PASS";
+
+  const timingState: TimingState =
+    absDelta >= 3 ? "WINDOW_OPEN"
+    : absDelta >= 1.5 ? "WAIT_FOR_PULLBACK"
+    : "MONITOR_ONLY";
+
+  const kelly = homeSpreadOdds !== null && side === "HOME" ? kellyFraction(0.52 + absDelta * 0.04, homeSpreadOdds) : 0;
 
   return {
     market: "spread",
@@ -294,15 +445,18 @@ export function buildSpreadVerdict(
     rating,
     edgeScore,
     edgePct: ev !== null ? round(ev * 100, 2) : null,
-    confidence: confidenceFromSample(2500, sim.distribution.homeScoreStdDev, sim.projectedHomeScore),
+    confidence,
     headline: `Spread: sim ${simSpread > 0 ? "+" : ""}${round(simSpread, 1)} vs market ${marketSpreadHome !== null ? (marketSpreadHome > 0 ? "+" : "") + round(marketSpreadHome, 1) : "?"}`,
     explanation: buildExplanation("spread", side, rating, delta, sim.drivers, homeTeam, awayTeam),
     topDrivers: sim.drivers.slice(0, 3),
     simValue: round(simSpread, 2),
     marketValue: marketSpreadHome,
     delta,
-    trapFlag,
-    trapReason
+    trapFlags,
+    trapExplanation,
+    actionState,
+    timingState,
+    kellyPct: round(kelly * 100, 1)
   };
 }
 
@@ -319,7 +473,6 @@ export function buildTotalVerdict(
   const absDelta = delta !== null ? Math.abs(delta) : 0;
   const side: VerdictSide = delta !== null && delta > 0.5 ? "OVER" : delta !== null && delta < -0.5 ? "UNDER" : "NONE";
 
-  // Use distribution to assess confidence
   const p10 = sim.distribution.p10Total;
   const p90 = sim.distribution.p90Total;
   const marketInRange = marketTotal !== null && marketTotal >= p10 && marketTotal <= p90;
@@ -328,7 +481,30 @@ export function buildTotalVerdict(
     ? calculateEV(0.52 + absDelta * 0.03, overOdds)
     : null;
   const rating = absDelta >= 4 ? ratingFromEdge(edgeScore, ev) : absDelta >= 2 ? "LEAN" : "NEUTRAL";
-  const { trapFlag, trapReason } = detectTrap(rating, delta, sim.drivers);
+  const confidence = confidenceFromSample(2500, sim.distribution.totalStdDev, simTotal);
+
+  const trapFlags = detectTrapFlags({
+    rating,
+    delta,
+    drivers: sim.drivers,
+    confidence,
+    edgeScore,
+    marketDisagreement: 0
+  });
+  const trapExplanation = getTrapExplanation(trapFlags);
+
+  const actionState: ActionState =
+    side === "OVER" && edgeScore >= 72 ? "BET_NOW"
+    : side === "OVER" && edgeScore >= 55 ? "WAIT"
+    : side === "OVER" ? "WATCH"
+    : "PASS";
+
+  const timingState: TimingState =
+    absDelta >= 4 ? "WINDOW_OPEN"
+    : absDelta >= 2 ? "WAIT_FOR_PULLBACK"
+    : "MONITOR_ONLY";
+
+  const kelly = overOdds !== null && side === "OVER" ? kellyFraction(0.52 + absDelta * 0.03, overOdds) : 0;
 
   const rangeNote = marketInRange
     ? ` Market line sits inside the sim’s P10–P90 range (${round(p10, 1)}–${round(p90, 1)}), so variance is real.`
@@ -340,15 +516,18 @@ export function buildTotalVerdict(
     rating,
     edgeScore,
     edgePct: ev !== null ? round(ev * 100, 2) : null,
-    confidence: confidenceFromSample(2500, sim.distribution.totalStdDev, simTotal),
+    confidence,
     headline: `Total: sim ${round(simTotal, 1)} vs market ${marketTotal !== null ? round(marketTotal, 1) : "?"}`,
     explanation: buildExplanation("total", side, rating, delta, sim.drivers, "", "") + rangeNote,
     topDrivers: sim.drivers.slice(0, 3),
     simValue: round(simTotal, 2),
     marketValue: marketTotal,
     delta,
-    trapFlag,
-    trapReason
+    trapFlags,
+    trapExplanation,
+    actionState,
+    timingState,
+    kellyPct: round(kelly * 100, 1)
   };
 }
 
@@ -379,11 +558,29 @@ export function buildPlayerPropVerdict(
 
   const absDelta = Math.abs(delta);
   const edgeScore = Math.min(100, Math.round(50 + sim.contextualEdgeScore * 2 + absDelta * 8));
+  const confidence = sim.priorWeight > 0.05 ? "MEDIUM" : "LOW";
   const rating = absDelta >= 2 && (ev === null || ev > 0.02)
     ? ratingFromEdge(edgeScore, ev)
     : absDelta >= 1 ? "LEAN" : "NEUTRAL";
 
-  const { trapFlag, trapReason } = detectTrap(rating, delta, sim.drivers);
+  const trapFlags = detectTrapFlags({
+    rating,
+    delta,
+    drivers: sim.drivers,
+    confidence,
+    edgeScore,
+    marketDisagreement: 0
+  });
+  const trapExplanation = getTrapExplanation(trapFlags);
+
+  const actionState: ActionState =
+    side === "OVER" && edgeScore >= 72 ? "BET_NOW"
+    : side === "OVER" && edgeScore >= 55 ? "WAIT"
+    : side === "OVER" ? "WATCH"
+    : "PASS";
+
+  const timingState: TimingState = confidence === "MEDIUM" ? "WAIT_FOR_CONFIRMATION" : "MONITOR_ONLY";
+  const kelly = relevantOdds !== null && relevantProb !== null ? kellyFraction(relevantProb, relevantOdds) : 0;
 
   const verdict: MarketVerdict = {
     market: "player_prop",
@@ -391,15 +588,18 @@ export function buildPlayerPropVerdict(
     rating,
     edgeScore,
     edgePct: ev !== null ? round(ev * 100, 2) : null,
-    confidence: sim.priorWeight > 0.05 ? "MEDIUM" : "LOW",
+    confidence,
     headline: `${playerName} ${statKey.replace("player_", "")}: sim ${round(simMean, 1)} vs line ${marketLine}`,
     explanation: buildExplanation("player_prop", side, rating, delta, sim.drivers, "", ""),
     topDrivers: sim.drivers.slice(0, 3),
     simValue: round(simMean, 3),
     marketValue: marketLine,
     delta,
-    trapFlag,
-    trapReason
+    trapFlags,
+    trapExplanation,
+    actionState,
+    timingState,
+    kellyPct: round(kelly * 100, 1)
   };
 
   return { playerId, playerName, statKey, marketLine, verdict };
