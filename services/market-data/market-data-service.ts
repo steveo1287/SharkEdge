@@ -801,20 +801,6 @@ export async function getBoardFeed(
           bestUnderBook: true
         } as any
       },
-      eventMarkets: {
-        where: {
-          updatedAt: {
-            gte: new Date(Date.now() - 1000 * 60 * 60 * 6)
-          }
-        },
-        include: {
-          sportsbook: true,
-          selectionCompetitor: true,
-          player: true
-        } as any,
-        orderBy: { updatedAt: "desc" },
-        take: 50
-      },
       edgeSignals: {
         where: { isActive: true },
         include: {
@@ -829,25 +815,63 @@ export async function getBoardFeed(
     orderBy: { startTime: "asc" }
   });
 
+  const eventIds = events.map((event) => event.id);
+
+  const rawEventMarkets = eventIds.length
+    ? await prisma.eventMarket.findMany({
+        where: {
+          eventId: { in: eventIds },
+          updatedAt: {
+            gte: new Date(Date.now() - 1000 * 60 * 60 * 6)
+          }
+        },
+        include: {
+          sportsbook: true,
+          selectionCompetitor: true,
+          player: true
+        } as any,
+        orderBy: { updatedAt: "desc" }
+      })
+    : [];
+
+  const eventMarketsByEventId = new Map<string, typeof rawEventMarkets>();
+  for (const market of rawEventMarkets) {
+    const existing = eventMarketsByEventId.get(market.eventId) ?? [];
+    existing.push(market);
+    eventMarketsByEventId.set(market.eventId, existing);
+  }
+
   const board = {
     generatedAt: new Date().toISOString(),
     events: events
-      .map((event) => ({
-        id: event.id,
-        eventKey: event.externalEventId,
-        league: event.league.key,
-        name: event.name,
-        startTime: event.startTime.toISOString(),
-        status: event.status,
-        participants: event.participants.map((participant) => ({
-          role: participant.role,
-          competitor: participant.competitor.name
-        })),
-        markets: event.currentMarketStates.length > 0 ? event.currentMarketStates : event.eventMarkets,
-        topSignals: event.edgeSignals
-      }))
+      .map((event) => {
+        const fallbackMarkets = eventMarketsByEventId.get(event.id) ?? [];
+        const markets =
+          event.currentMarketStates.length > 0
+            ? event.currentMarketStates
+            : fallbackMarkets;
+
+        return {
+          id: event.id,
+          eventKey: event.externalEventId,
+          league: event.league.key,
+          name: event.name,
+          startTime: event.startTime.toISOString(),
+          status: event.status,
+          participants: event.participants.map((participant) => ({
+            role: participant.role,
+            competitor: participant.competitor.name
+          })),
+          markets,
+          topSignals: event.edgeSignals
+        };
+      })
       .filter((event) => event.markets.length > 0)
   };
+
+  await writeHotCache(cacheKey, board, 45);
+  return board;
+}
 
   await writeHotCache(cacheKey, board, 45);
   return board;
