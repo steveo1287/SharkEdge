@@ -19,6 +19,19 @@ function formatScore(value: number | null | undefined) {
   return value.toFixed(2);
 }
 
+function recommendationTone(value: string) {
+  switch (value) {
+    case "ATTACK":
+      return "border-aqua/20 bg-aqua/[0.05] text-aqua";
+    case "WATCH":
+      return "border-amber-500/20 bg-amber-500/[0.05] text-amber-500";
+    case "BUILDING":
+      return "border-bone/[0.08] text-bone/55";
+    default:
+      return "border-red-500/20 bg-red-500/[0.05] text-red-400";
+  }
+}
+
 export default async function SimPage() {
   const data = await getSimBoardFeed();
 
@@ -33,7 +46,7 @@ export default async function SimPage() {
       </div>
 
       <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
-        <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <div className="rounded-xl border border-bone/[0.07] bg-surface p-4">
             <p className="text-[11px] uppercase tracking-[0.18em] text-bone/45">Events</p>
             <p className="mt-2 font-mono text-[24px] text-text-primary">{data.summary.totalEvents}</p>
@@ -49,6 +62,10 @@ export default async function SimPage() {
           <div className="rounded-xl border border-bone/[0.07] bg-surface p-4">
             <p className="text-[11px] uppercase tracking-[0.18em] text-bone/45">Market Ready</p>
             <p className="mt-2 font-mono text-[24px] text-text-primary">{data.summary.marketReadyEvents}</p>
+          </div>
+          <div className="rounded-xl border border-aqua/20 bg-aqua/[0.04] p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-aqua/80">Attackable</p>
+            <p className="mt-2 font-mono text-[24px] text-aqua">{data.summary.attackableEvents}</p>
           </div>
         </div>
 
@@ -73,19 +90,22 @@ export default async function SimPage() {
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    <span className={`rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] ${recommendationTone(event.diagnostics.recommendation)}`}>
+                      {event.diagnostics.recommendation}
+                    </span>
                     <span className="rounded-full border border-bone/[0.08] px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-bone/55">
-                      {event.diagnostics.hasProjection ? "Projection Ready" : "No Projection"}
+                      {event.diagnostics.confidenceBand} Confidence
                     </span>
                     <span className="rounded-full border border-bone/[0.08] px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-bone/55">
                       {event.diagnostics.signalCount} Signals
                     </span>
                     <span className="rounded-full border border-aqua/20 bg-aqua/[0.05] px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-aqua">
-                      Best EV {formatPercent(event.diagnostics.bestEvPercent)}
+                      Smart Score {formatScore(event.diagnostics.smartScore)}
                     </span>
                   </div>
                 </div>
 
-                <div className="mb-4 grid gap-3 sm:grid-cols-3">
+                <div className="mb-4 grid gap-3 sm:grid-cols-4">
                   <div className="rounded-lg bg-ink/30 p-3">
                     <p className="text-[11px] uppercase tracking-[0.16em] text-bone/45">Best Edge</p>
                     <p className="mt-2 font-mono text-[18px] text-text-primary">
@@ -102,6 +122,12 @@ export default async function SimPage() {
                     <p className="text-[11px] uppercase tracking-[0.16em] text-bone/45">Markets</p>
                     <p className="mt-2 font-mono text-[18px] text-text-primary">
                       {event.diagnostics.marketCount}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-ink/30 p-3">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-bone/45">Projection</p>
+                    <p className="mt-2 font-mono text-[18px] text-text-primary">
+                      {event.diagnostics.hasProjection ? "READY" : "PENDING"}
                     </p>
                   </div>
                 </div>
