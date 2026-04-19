@@ -37,6 +37,8 @@ const THERUNDOWN_PROVIDER_TIMEOUT_MS = 8_000;
 const THERUNDOWN_BOARD_CACHE_TTL_MS = 5 * 60_000;
 // Shorter TTL for league-scoped UI board fetches (prevents quota burn on navigation).
 const THERUNDOWN_LEAGUE_CACHE_TTL_MS = 60_000;
+const THERUNDOWN_CIRCUIT_FAILURE_THRESHOLD = 3;
+const THERUNDOWN_CIRCUIT_OPEN_MS = 10 * 60_000;
 const THERUNDOWN_LEAGUE_SPORT_KEYS: Partial<Record<LeagueKey, string>> = {
   NBA: "basketball_nba",
   NCAAB: "basketball_ncaab",
@@ -105,9 +107,18 @@ type TheRundownBoardCache = {
   payload: CurrentOddsBoardResponse | null;
 };
 
+type TheRundownCircuitState = {
+  consecutiveFailures: number;
+  openUntilMs: number;
+  lastStatus: number | null;
+  lastError: string | null;
+};
+
 declare global {
   // eslint-disable-next-line no-var
   var sharkedgeTheRundownBoardCache: TheRundownBoardCache | undefined;
+  // eslint-disable-next-line no-var
+  var sharkedgeTheRundownCircuitState: TheRundownCircuitState | undefined;
 }
 
 function getApiKey() {
@@ -142,6 +153,54 @@ function getPrimarySweepLeagues() {
     );
 
   return parsed.length ? parsed : THERUNDOWN_PRIMARY_SWEEP_LEAGUES;
+}
+
+function getCircuitState(): TheRundownCircuitState {
+  if (!global.sharkedgeTheRundownCircuitState) {
+    global.sharkedgeTheRundownCircuitState = {
+      consecutiveFailures: 0,
+      openUntilMs: 0,
+      lastStatus: null,
+      lastError: null
+    };
+  }
+
+  return global.sharkedgeTheRundownCircuitState;
+}
+
+function markRequestSuccess() {
+  const state = getCircuitState();
+  state.consecutiveFailures = 0;
+  state.openUntilMs = 0;
+  state.lastStatus = 200;
+  state.lastError = null;
+}
+
+function markRequestFailure(status: number | null, reason: string) {
+  const state = getCircuitState();
+  state.consecutiveFailures += 1;
+  state.lastStatus = status;
+  state.lastError = reason;
+
+  if (status === 429 || state.consecutiveFailures >= THERUNDOWN_CIRCUIT_FAILURE_THRESHOLD) {
+    state.openUntilMs = Date.now() + THERUNDOWN_CIRCUIT_OPEN_MS;
+  }
+}
+
+function isCircuitOpen() {
+  const state = getCircuitState();
+  return state.openUntilMs > Date.now();
+}
+
+function getCircuitWarning() {
+  const state = getCircuitState();
+  if (state.openUntilMs <= Date.now()) {
+    return null;
+  }
+
+  const minutes = Math.max(1, Math.ceil((state.openUntilMs - Date.now()) / 60_000));
+  const status = state.lastStatus ?? "unknown";
+  return `TheRundown circuit breaker active for ~${minutes}m after repeated failures (last status: ${status}).`;
 }
 
 function formatDateKey(date: Date) {
@@ -185,11 +244,15 @@ async function fetchTheRundownJsonWithTimeout<T>(args: {
     });
 
     if (!response.ok) {
+      markRequestFailure(response.status, `TheRundown request failed with status ${response.status}.`);
       return null;
     }
 
-    return (await response.json()) as T;
+    const parsed = (await response.json()) as T;
+    markRequestSuccess();
+    return parsed;
   } catch {
+    markRequestFailure(null, "TheRundown request threw before a response.");
     return null;
   }
 }
@@ -220,11 +283,15 @@ async function fetchTheRundownJson<T>(path: string, params: Record<string, strin
     });
 
     if (!response.ok) {
+      markRequestFailure(response.status, `TheRundown request failed with status ${response.status}.`);
       return null;
     }
 
-    return (await response.json()) as T;
+    const parsed = (await response.json()) as T;
+    markRequestSuccess();
+    return parsed;
   } catch {
+    markRequestFailure(null, "TheRundown request threw before a response.");
     return null;
   }
 }
@@ -549,6 +616,20 @@ export const therundownCurrentOddsProvider: CurrentOddsProvider = {
     }
 
     const cached = global.sharkedgeTheRundownBoardCache;
+    if (isCircuitOpen()) {
+      if (!cached?.payload) {
+        return null;
+      }
+
+      const warning = getCircuitWarning();
+      return {
+        ...cached.payload,
+        errors: warning
+          ? Array.from(new Set([...(cached.payload.errors ?? []), warning]))
+          : cached.payload.errors
+      } satisfies CurrentOddsBoardResponse;
+    }
+
     if (
       cached &&
       Date.now() - cached.generatedAtMs < THERUNDOWN_BOARD_CACHE_TTL_MS

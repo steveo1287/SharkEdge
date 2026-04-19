@@ -2,6 +2,10 @@
   "framework": "nextjs",
   "crons": [
     {
+      "path": "/api/internal/cron/odds-health",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/internal/cron/odds-refresh",
       "schedule": "*/2 * * * *"
     },

@@ -91,6 +91,22 @@ What it checks:
 
 It exits non-zero when the board still has zero verified requested-league games, so you can use it as the repo-level smoke command for this rescue pass.
 
+## Safe Production Deploy
+
+Use:
+
+```bash
+npm run deploy:prod
+```
+
+This enforces:
+
+- project link must be `sharkedge`
+- deploy to scope `steveo1287s-projects`
+- alias `sharkedge.vercel.app` to the new deployment
+- post-deploy probes for `/api/v1/board` and `/api/v1/providers/readiness`
+- automatic rollback to previous ready deployment if probes fail
+
 ## Environment Variables
 
 - `DATABASE_URL`

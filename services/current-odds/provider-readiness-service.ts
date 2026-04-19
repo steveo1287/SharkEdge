@@ -149,6 +149,12 @@ function deriveBoardProviderState(response: CurrentOddsBoardResponse | null, war
     return "NOT_CONFIGURED" as const;
   }
 
+  const sportsCount = response.sports?.length ?? 0;
+  const gameCount = response.sports?.reduce((sum, sport) => sum + sport.games.length, 0) ?? 0;
+  if (sportsCount === 0 || gameCount === 0) {
+    return "DEGRADED" as const;
+  }
+
   const freshnessMinutes = getFreshnessMinutes(response.generated_at);
   if (warnings.length || (typeof freshnessMinutes === "number" && freshnessMinutes > SOFT_STALE_MINUTES)) {
     return "DEGRADED" as const;
@@ -160,9 +166,19 @@ function deriveBoardProviderState(response: CurrentOddsBoardResponse | null, war
 function buildBoardWarnings(response: CurrentOddsBoardResponse | null) {
   const warnings = [...(response?.errors ?? [])];
   const freshnessMinutes = getFreshnessMinutes(response?.generated_at);
+  const sportsCount = response?.sports?.length ?? 0;
+  const gameCount = response?.sports?.reduce((sum, sport) => sum + sport.games.length, 0) ?? 0;
 
   if (response?.configured && freshnessMinutes === null) {
     warnings.push("Configured provider did not return a usable timestamp.");
+  }
+
+  if (response?.configured && sportsCount === 0) {
+    warnings.push("Configured provider returned 0 sports in the live board payload.");
+  }
+
+  if (response?.configured && gameCount === 0) {
+    warnings.push("Configured provider returned 0 games in the live board payload.");
   }
 
   if (typeof freshnessMinutes === "number" && freshnessMinutes > SOFT_STALE_MINUTES) {
