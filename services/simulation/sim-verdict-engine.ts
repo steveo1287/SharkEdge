@@ -19,6 +19,12 @@
 
 import type { ContextualGameSimulationSummary } from "./contextual-game-sim";
 import type { PlayerPropSimulationSummary } from "./player-prop-sim";
+import {
+  calibratePropHitProbability,
+  calibrateSpreadDelta,
+  calibrateTotalDelta,
+  calibrateWinProbability
+} from "./sim-calibration";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -323,6 +329,7 @@ function buildExplanation(
 // ---------------------------------------------------------------------------
 export function buildMoneylineVerdict(
   sim: ContextualGameSimulationSummary,
+  leagueKey: string,
   homeTeam: string,
   awayTeam: string,
   homeOddsAmerican: number | null,
@@ -332,11 +339,18 @@ export function buildMoneylineVerdict(
   const noVig = noVigProbabilities(homeOddsAmerican, awayOddsAmerican);
 
   for (const side of ["HOME", "AWAY"] as const) {
-    const simProb = side === "HOME" ? sim.winProbHome : sim.winProbAway;
+    const rawSimProb = side === "HOME" ? sim.winProbHome : sim.winProbAway;
     const offeredOdds = side === "HOME" ? homeOddsAmerican : awayOddsAmerican;
     const marketImplied = offeredOdds !== null ? americanToImplied(offeredOdds) : noVig ? (side === "HOME" ? noVig.left : noVig.right) : null;
-    const delta = marketImplied !== null ? round(simProb - marketImplied, 4) : null;
-    const ev = offeredOdds !== null ? calculateEV(simProb, offeredOdds) : null;
+    const calibratedSimProb = calibrateWinProbability({
+      leagueKey,
+      rawProb: rawSimProb,
+      marketImplied,
+      ratingsConfidence: sim.ratingsPrior.confidence,
+      totalStdDev: sim.distribution.totalStdDev
+    });
+    const delta = marketImplied !== null ? round(calibratedSimProb - marketImplied, 4) : null;
+    const ev = offeredOdds !== null ? calculateEV(calibratedSimProb, offeredOdds) : null;
 
     const probEdge = delta !== null ? Math.abs(delta) : 0;
     const edgeScore = Math.min(100, Math.round(50 + probEdge * 300));
@@ -356,7 +370,6 @@ export function buildMoneylineVerdict(
     });
     const trapExplanation = getTrapExplanation(trapFlags);
 
-    // Determine action and timing states
     const actionState: ActionState =
       leansSide && adjustedEdge >= 72 ? "BET_NOW"
       : leansSide && adjustedEdge >= 55 ? "WAIT"
@@ -368,7 +381,7 @@ export function buildMoneylineVerdict(
       : confidence === "MEDIUM" ? "WAIT_FOR_CONFIRMATION"
       : "MONITOR_ONLY";
 
-    const kelly = offeredOdds !== null ? kellyFraction(simProb, offeredOdds) : 0;
+    const kelly = offeredOdds !== null ? kellyFraction(calibratedSimProb, offeredOdds) : 0;
 
     verdicts.push({
       market: "moneyline",
@@ -377,10 +390,10 @@ export function buildMoneylineVerdict(
       edgeScore: adjustedEdge,
       edgePct: ev !== null ? round(ev * 100, 2) : null,
       confidence,
-      headline: `${side === "HOME" ? homeTeam : awayTeam} ML: sim ${round(simProb * 100, 1)}% vs market ${marketImplied !== null ? round(marketImplied * 100, 1) : "?"}%`,
+      headline: `${side === "HOME" ? homeTeam : awayTeam} ML: sim ${round(calibratedSimProb * 100, 1)}% vs market ${marketImplied !== null ? round(marketImplied * 100, 1) : "?"}%`,
       explanation: buildExplanation("moneyline", side, rating, delta, sim.drivers, homeTeam, awayTeam),
       topDrivers: sim.drivers.slice(0, 3),
-      simValue: round(simProb, 4),
+      simValue: round(calibratedSimProb, 4),
       marketValue: marketImplied !== null ? round(marketImplied, 4) : null,
       delta,
       trapFlags,
@@ -399,26 +412,39 @@ export function buildMoneylineVerdict(
 // ---------------------------------------------------------------------------
 export function buildSpreadVerdict(
   sim: ContextualGameSimulationSummary,
+  leagueKey: string,
   homeTeam: string,
   awayTeam: string,
   marketSpreadHome: number | null,
   homeSpreadOdds: number | null
 ): MarketVerdict {
   const simSpread = sim.projectedSpreadHome;
-  const delta = marketSpreadHome !== null ? round(simSpread - marketSpreadHome, 2) : null;
-  const absDelta = delta !== null ? Math.abs(delta) : 0;
+  const rawDelta = marketSpreadHome !== null ? round(simSpread - marketSpreadHome, 2) : null;
+  const calibratedDelta = rawDelta !== null
+    ? round(
+        calibrateSpreadDelta({
+          leagueKey,
+          rawDelta,
+          totalStdDev: sim.distribution.totalStdDev,
+          ratingsConfidence: sim.ratingsPrior.confidence
+        }),
+        2
+      )
+    : null;
+  const absDelta = calibratedDelta !== null ? Math.abs(calibratedDelta) : 0;
 
-  const side: VerdictSide = delta !== null && delta > 0.5 ? "HOME" : delta !== null && delta < -0.5 ? "AWAY" : "NONE";
+  const side: VerdictSide = calibratedDelta !== null && calibratedDelta > 0.5 ? "HOME" : calibratedDelta !== null && calibratedDelta < -0.5 ? "AWAY" : "NONE";
   const edgeScore = Math.min(100, Math.round(50 + absDelta * 12));
   const ev = homeSpreadOdds !== null && side === "HOME"
     ? calculateEV(0.52 + absDelta * 0.04, homeSpreadOdds)
     : null;
   const rating = absDelta >= 3 ? ratingFromEdge(edgeScore, ev) : absDelta >= 1.5 ? "LEAN" : "NEUTRAL";
   const confidence = confidenceFromSample(2500, sim.distribution.homeScoreStdDev, sim.projectedHomeScore);
+  const calibratedSpread = marketSpreadHome !== null && calibratedDelta !== null ? marketSpreadHome + calibratedDelta : simSpread;
 
   const trapFlags = detectTrapFlags({
     rating,
-    delta,
+    delta: calibratedDelta,
     drivers: sim.drivers,
     confidence,
     edgeScore,
@@ -446,12 +472,12 @@ export function buildSpreadVerdict(
     edgeScore,
     edgePct: ev !== null ? round(ev * 100, 2) : null,
     confidence,
-    headline: `Spread: sim ${simSpread > 0 ? "+" : ""}${round(simSpread, 1)} vs market ${marketSpreadHome !== null ? (marketSpreadHome > 0 ? "+" : "") + round(marketSpreadHome, 1) : "?"}`,
-    explanation: buildExplanation("spread", side, rating, delta, sim.drivers, homeTeam, awayTeam),
+    headline: `Spread: sim ${calibratedSpread > 0 ? "+" : ""}${round(calibratedSpread, 1)} vs market ${marketSpreadHome !== null ? (marketSpreadHome > 0 ? "+" : "") + round(marketSpreadHome, 1) : "?"}`,
+    explanation: buildExplanation("spread", side, rating, calibratedDelta, sim.drivers, homeTeam, awayTeam),
     topDrivers: sim.drivers.slice(0, 3),
-    simValue: round(simSpread, 2),
+    simValue: round(calibratedSpread, 2),
     marketValue: marketSpreadHome,
-    delta,
+    delta: calibratedDelta,
     trapFlags,
     trapExplanation,
     actionState,
@@ -465,13 +491,26 @@ export function buildSpreadVerdict(
 // ---------------------------------------------------------------------------
 export function buildTotalVerdict(
   sim: ContextualGameSimulationSummary,
+  leagueKey: string,
   marketTotal: number | null,
   overOdds: number | null
 ): MarketVerdict {
   const simTotal = sim.projectedTotal;
-  const delta = marketTotal !== null ? round(simTotal - marketTotal, 2) : null;
-  const absDelta = delta !== null ? Math.abs(delta) : 0;
-  const side: VerdictSide = delta !== null && delta > 0.5 ? "OVER" : delta !== null && delta < -0.5 ? "UNDER" : "NONE";
+  const rawDelta = marketTotal !== null ? round(simTotal - marketTotal, 2) : null;
+  const calibratedDelta = rawDelta !== null
+    ? round(
+        calibrateTotalDelta({
+          leagueKey,
+          rawDelta,
+          totalStdDev: sim.distribution.totalStdDev,
+          ratingsConfidence: sim.ratingsPrior.confidence
+        }),
+        2
+      )
+    : null;
+  const calibratedTotal = marketTotal !== null && calibratedDelta !== null ? marketTotal + calibratedDelta : simTotal;
+  const absDelta = calibratedDelta !== null ? Math.abs(calibratedDelta) : 0;
+  const side: VerdictSide = calibratedDelta !== null && calibratedDelta > 0.5 ? "OVER" : calibratedDelta !== null && calibratedDelta < -0.5 ? "UNDER" : "NONE";
 
   const p10 = sim.distribution.p10Total;
   const p90 = sim.distribution.p90Total;
@@ -485,7 +524,7 @@ export function buildTotalVerdict(
 
   const trapFlags = detectTrapFlags({
     rating,
-    delta,
+    delta: calibratedDelta,
     drivers: sim.drivers,
     confidence,
     edgeScore,
@@ -517,12 +556,12 @@ export function buildTotalVerdict(
     edgeScore,
     edgePct: ev !== null ? round(ev * 100, 2) : null,
     confidence,
-    headline: `Total: sim ${round(simTotal, 1)} vs market ${marketTotal !== null ? round(marketTotal, 1) : "?"}`,
-    explanation: buildExplanation("total", side, rating, delta, sim.drivers, "", "") + rangeNote,
+    headline: `Total: sim ${round(calibratedTotal, 1)} vs market ${marketTotal !== null ? round(marketTotal, 1) : "?"}`,
+    explanation: buildExplanation("total", side, rating, calibratedDelta, sim.drivers, "", "") + rangeNote,
     topDrivers: sim.drivers.slice(0, 3),
-    simValue: round(simTotal, 2),
+    simValue: round(calibratedTotal, 2),
     marketValue: marketTotal,
-    delta,
+    delta: calibratedDelta,
     trapFlags,
     trapExplanation,
     actionState,
@@ -541,16 +580,27 @@ export function buildPlayerPropVerdict(
   statKey: string,
   marketLine: number,
   overOdds: number | null,
-  underOdds: number | null
+  underOdds: number | null,
+  leagueKey = "NBA"
 ): PlayerPropVerdict {
   const simMean = sim.meanValue;
   const delta = round(simMean - marketLine, 3);
   const side: VerdictSide = delta > 0.3 ? "OVER" : delta < -0.3 ? "UNDER" : "NONE";
 
-  const overProb = sim.hitProbOver[String(marketLine)] ?? null;
-  const underProb = sim.hitProbUnder[String(marketLine)] ?? null;
-  const relevantProb = side === "OVER" ? overProb : side === "UNDER" ? underProb : null;
+  const rawOverProb = sim.hitProbOver[String(marketLine)] ?? null;
+  const rawUnderProb = sim.hitProbUnder[String(marketLine)] ?? null;
+  const relevantRawProb = side === "OVER" ? rawOverProb : side === "UNDER" ? rawUnderProb : null;
   const relevantOdds = side === "OVER" ? overOdds : side === "UNDER" ? underOdds : null;
+  const marketImplied = relevantOdds !== null ? americanToImplied(relevantOdds) : null;
+  const relevantProb = relevantRawProb !== null
+    ? calibratePropHitProbability({
+        leagueKey,
+        rawProb: relevantRawProb,
+        marketImplied,
+        ratingsConfidence: null,
+        totalStdDev: null
+      })
+    : null;
 
   const ev = relevantProb !== null && relevantOdds !== null
     ? calculateEV(relevantProb, relevantOdds)
@@ -623,18 +673,17 @@ export function buildGameSimVerdict(args: {
   const { sim, leagueKey, homeTeam, awayTeam } = args;
 
   const moneylineVerdicts = buildMoneylineVerdict(
-    sim, homeTeam, awayTeam,
+    sim, leagueKey, homeTeam, awayTeam,
     args.homeMoneylineOdds, args.awayMoneylineOdds
   );
   const spreadVerdict = buildSpreadVerdict(
-    sim, homeTeam, awayTeam,
+    sim, leagueKey, homeTeam, awayTeam,
     args.marketSpreadHome, args.homeSpreadOdds
   );
-  const totalVerdict = buildTotalVerdict(sim, args.marketTotal, args.overOdds);
+  const totalVerdict = buildTotalVerdict(sim, leagueKey, args.marketTotal, args.overOdds);
 
   const allVerdicts = [...moneylineVerdicts, spreadVerdict, totalVerdict];
 
-  // Pick the best bet: highest edge score among STRONG_BET or LEAN
   const actionable = allVerdicts
     .filter((v) => v.rating === "STRONG_BET" || v.rating === "LEAN")
     .sort((a, b) => b.edgeScore - a.edgeScore);
