@@ -7,8 +7,9 @@ import { SimVerdictPanel } from "@/components/event/sim-verdict-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { withTimeoutFallback } from "@/lib/utils/async";
-import { buildEventSimulationView } from "@/services/simulation/simulation-view-service";
 import { getBoardPageData, parseBoardFilters } from "@/services/odds/board-service";
+import { loadPersistedSimCalibrationProfiles } from "@/services/simulation/sim-calibration-report-service";
+import { buildEventSimulationView } from "@/services/simulation/simulation-view-service";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,8 @@ async function getGameDetails(gameId: string) {
 
 async function getSimulation(gameId: string) {
   try {
+    await loadPersistedSimCalibrationProfiles();
+
     const sim = await withTimeoutFallback(
       buildEventSimulationView(gameId),
       {
@@ -82,7 +85,6 @@ export default async function GameDetailPage({ params }: PageProps) {
 
   return (
     <div className="grid gap-6">
-      {/* ── Game Header ─────────────────────────────────────────────────────── */}
       <div className="hero-shell p-5 sm:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -105,12 +107,10 @@ export default async function GameDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* ── Sim Verdict ─────────────────────────────────────────────────────── */}
       {simulation?.gameSimVerdict && (
         <SimVerdictPanel verdict={simulation.gameSimVerdict} />
       )}
 
-      {/* ── Simulation Panel ────────────────────────────────────────────────── */}
       {simulation && (
         <>
           <SimulationIntelligencePanel simulation={simulation} />
@@ -118,7 +118,6 @@ export default async function GameDetailPage({ params }: PageProps) {
         </>
       )}
 
-      {/* ── Markets Overview ────────────────────────────────────────────────── */}
       <section className="grid gap-3">
         <div>
           <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">
@@ -130,7 +129,6 @@ export default async function GameDetailPage({ params }: PageProps) {
         </div>
 
         <div className="grid gap-3 sm:grid-cols-3">
-          {/* Moneyline */}
           <Card className="surface-panel p-4">
             <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/60">
               {game.moneyline.label}
@@ -148,7 +146,6 @@ export default async function GameDetailPage({ params }: PageProps) {
             )}
           </Card>
 
-          {/* Spread */}
           <Card className="surface-panel p-4">
             <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/60">
               {game.spread.label}
@@ -166,7 +163,6 @@ export default async function GameDetailPage({ params }: PageProps) {
             )}
           </Card>
 
-          {/* Total */}
           <Card className="surface-panel p-4">
             <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/60">
               {game.total.label}
@@ -186,7 +182,6 @@ export default async function GameDetailPage({ params }: PageProps) {
         </div>
       </section>
 
-      {/* ── Back to Board ───────────────────────────────────────────────────── */}
       <div className="flex justify-center">
         <Link
           href="/board"
