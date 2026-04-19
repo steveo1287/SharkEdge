@@ -153,6 +153,16 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
     0
   );
 
+  const showHealthBanner =
+    data.providerHealth.state !== "HEALTHY" || data.providerHealth.warnings.length > 0;
+
+  const bannerTone = {
+    DEGRADED: "border-amber-500/20 bg-amber-500/[0.06] text-amber-100",
+    FALLBACK: "border-orange-500/20 bg-orange-500/[0.06] text-orange-100",
+    OFFLINE: "border-red-500/20 bg-red-500/[0.06] text-red-100",
+    HEALTHY: "border-aqua/20 bg-aqua/[0.06] text-aqua"
+  }[data.providerHealth.state];
+
   return (
     <div className="min-h-screen">
       <div className="sticky top-0 z-30 border-b border-bone/[0.06] bg-ink/90 backdrop-blur-xl">
@@ -196,6 +206,29 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
       </div>
 
       <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
+        {showHealthBanner ? (
+          <div className={`mb-6 rounded-2xl border px-4 py-4 ${bannerTone}`}>
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.18em]">
+                {data.providerHealth.label}
+              </p>
+              {data.providerHealth.freshnessMinutes !== null ? (
+                <p className="text-[11px] opacity-80">
+                  Last success: {data.providerHealth.freshnessLabel}
+                </p>
+              ) : null}
+            </div>
+            <p className="mt-2 text-[13px] leading-6 opacity-90">{data.providerHealth.summary}</p>
+            {data.providerHealth.warnings.length > 0 ? (
+              <div className="mt-3 space-y-1 border-t border-current/10 pt-3 text-[12px] opacity-85">
+                {data.providerHealth.warnings.map((warning, index) => (
+                  <p key={index}>• {warning}</p>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {activeSections.length === 0 ? (
           <div className="rounded-2xl border border-bone/[0.07] bg-surface px-6 py-12 text-center">
             <p className="mb-2 text-[14px] font-semibold text-bone/70">No games in current window</p>
