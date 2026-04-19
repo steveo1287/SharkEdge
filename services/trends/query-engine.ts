@@ -8,6 +8,7 @@ import type {
   TrendCardView,
   TrendDashboardView,
   TrendFilters,
+  TrendMatchView,
   TrendMode
 } from "@/lib/types/domain";
 import { buildMatchupHref } from "@/lib/utils/matchups";
@@ -502,6 +503,7 @@ function createCard(args: {
   href?: string | null;
   tone?: TrendCardView["tone"];
   window: TrendFilters["window"];
+  todayMatches?: TrendMatchView[];
 }) {
   const smallSample = args.sampleSize > 0 && args.sampleSize < 10;
   return {
@@ -534,8 +536,9 @@ function createCard(args: {
         ? "success"
         : args.hitRate !== null && args.hitRate >= 55
           ? "brand"
-          : "muted")
-  } satisfies TrendCardView;
+          : "muted"),
+    todayMatches: args.todayMatches ?? []
+  } as TrendCardView;
 }
 
 function humanizeRoleBucket(value: HistoricalRow["roleBucket"]) {
@@ -718,7 +721,8 @@ async function buildBacktestedMarketCards(args: {
               : candidate.marketType === "total"
                 ? "premium"
                 : "muted",
-        window: filters.window
+        window: filters.window,
+        todayMatches: liveMatches.matches.slice(0, 3)
       });
     })
   );
