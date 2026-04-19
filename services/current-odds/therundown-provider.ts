@@ -31,6 +31,7 @@ const THERUNDOWN_SUPPORTED_LEAGUES: LeagueKey[] = [
   "NFL",
   "NCAAF"
 ];
+const THERUNDOWN_PRIMARY_SWEEP_LEAGUES: LeagueKey[] = ["MLB", "NBA", "NHL"];
 const THERUNDOWN_PROVIDER_TIMEOUT_MS = 8_000;
 // 5 minutes: safe for free-tier TheRundown — stops hammering the API on every page load
 const THERUNDOWN_BOARD_CACHE_TTL_MS = 5 * 60_000;
@@ -125,6 +126,22 @@ function getAffiliateIds() {
   }
 
   return raw.split(",").map((value) => value.trim()).filter(Boolean);
+}
+
+function getPrimarySweepLeagues() {
+  const fromEnv = process.env.THERUNDOWN_BOARD_LEAGUES?.trim();
+  if (!fromEnv) {
+    return THERUNDOWN_PRIMARY_SWEEP_LEAGUES;
+  }
+
+  const parsed = fromEnv
+    .split(",")
+    .map((value) => value.trim().toUpperCase())
+    .filter((value): value is LeagueKey =>
+      THERUNDOWN_SUPPORTED_LEAGUES.includes(value as LeagueKey)
+    );
+
+  return parsed.length ? parsed : THERUNDOWN_PRIMARY_SWEEP_LEAGUES;
 }
 
 function formatDateKey(date: Date) {
@@ -546,10 +563,11 @@ export const therundownCurrentOddsProvider: CurrentOddsProvider = {
       formatDateKey(new Date()),
       formatDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000))
     ];
+    const sweepLeagues = getPrimarySweepLeagues();
     const sports: CurrentOddsSport[] = [];
     const seenLeagues = new Set<LeagueKey>();
     for (const dateKey of dateKeys) {
-      for (const leagueKey of THERUNDOWN_SUPPORTED_LEAGUES) {
+      for (const leagueKey of sweepLeagues) {
         if (seenLeagues.has(leagueKey)) {
           continue; // already have data for this league from an earlier date pass
         }
@@ -560,7 +578,7 @@ export const therundownCurrentOddsProvider: CurrentOddsProvider = {
         }
       }
       // Short-circuit if every supported league already has games
-      if (seenLeagues.size === THERUNDOWN_SUPPORTED_LEAGUES.length) {
+      if (seenLeagues.size === sweepLeagues.length) {
         break;
       }
     }
