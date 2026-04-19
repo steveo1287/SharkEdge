@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 
@@ -51,6 +51,13 @@ function getSiteUrl() {
   return undefined;
 }
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  maximumScale: 5
+};
+
 export const metadata: Metadata = {
   title: {
     default: brandKit.name,
@@ -60,7 +67,6 @@ export const metadata: Metadata = {
   applicationName: brandKit.name,
   description: brandKit.description,
   keywords: [...brandKit.keywords],
-  viewport: "width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5",
   openGraph: {
     title: brandKit.name,
     description: brandKit.description,
