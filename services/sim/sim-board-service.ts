@@ -1,5 +1,50 @@
 import { prisma } from "@/lib/db/prisma";
 
+type SimRecommendation = "ATTACK" | "WATCH" | "BUILDING" | "PASS";
+type SimConfidenceBand = "HIGH" | "MEDIUM" | "LOW";
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getConfidenceBand(score: number): SimConfidenceBand {
+  if (score >= 75) return "HIGH";
+  if (score >= 45) return "MEDIUM";
+  return "LOW";
+}
+
+function getRecommendation(args: {
+  hasProjection: boolean;
+  marketCount: number;
+  signalCount: number;
+  bestEdgeScore: number | null;
+  bestEvPercent: number | null;
+}): SimRecommendation {
+  if (!args.hasProjection && args.marketCount === 0 && args.signalCount === 0) {
+    return "PASS";
+  }
+
+  if (
+    args.hasProjection &&
+    args.marketCount >= 3 &&
+    args.signalCount >= 2 &&
+    (args.bestEdgeScore ?? 0) >= 60 &&
+    (args.bestEvPercent ?? 0) >= 0.03
+  ) {
+    return "ATTACK";
+  }
+
+  if (
+    args.hasProjection &&
+    args.marketCount >= 1 &&
+    ((args.bestEdgeScore ?? 0) >= 45 || (args.bestEvPercent ?? 0) >= 0.015)
+  ) {
+    return "WATCH";
+  }
+
+  return "BUILDING";
+}
+
 export async function getSimBoardFeed(leagueKey?: string) {
   const events = await prisma.event.findMany({
     where: {
@@ -67,11 +112,27 @@ export async function getSimBoardFeed(leagueKey?: string) {
       const bestEdgeScore = numericEdgeScores.length > 0 ? Math.max(...numericEdgeScores) : null;
       const bestEvPercent = numericEvPercents.length > 0 ? Math.max(...numericEvPercents) : null;
       const hasProjection = projection !== null;
-      const sortScore =
-        (hasProjection ? 1000 : 0) +
-        (bestEdgeScore ?? 0) * 10 +
-        (bestEvPercent ?? 0) * 100 +
-        topSignals.length;
+      const marketCount = event.currentMarketStates.length;
+      const signalCount = topSignals.length;
+
+      const smartScore = clamp(
+        (hasProjection ? 35 : 0) +
+          clamp(marketCount * 7, 0, 21) +
+          clamp(signalCount * 6, 0, 24) +
+          clamp((bestEdgeScore ?? 0) * 0.35, 0, 28) +
+          clamp((bestEvPercent ?? 0) * 400, 0, 20),
+        0,
+        100
+      );
+
+      const confidenceBand = getConfidenceBand(smartScore);
+      const recommendation = getRecommendation({
+        hasProjection,
+        marketCount,
+        signalCount,
+        bestEdgeScore,
+        bestEvPercent
+      });
 
       return {
         id: event.id,
@@ -89,12 +150,15 @@ export async function getSimBoardFeed(leagueKey?: string) {
         topSignals,
         diagnostics: {
           hasProjection,
-          signalCount: topSignals.length,
+          signalCount,
           bestEdgeScore,
           bestEvPercent,
-          marketCount: event.currentMarketStates.length
+          marketCount,
+          smartScore,
+          confidenceBand,
+          recommendation
         },
-        sortScore
+        sortScore: smartScore
       };
     })
     .sort((a, b) => b.sortScore - a.sortScore || a.startTime.localeCompare(b.startTime));
@@ -105,7 +169,8 @@ export async function getSimBoardFeed(leagueKey?: string) {
       totalEvents: mappedEvents.length,
       projectedEvents: mappedEvents.filter((event) => event.diagnostics.hasProjection).length,
       signalEvents: mappedEvents.filter((event) => event.diagnostics.signalCount > 0).length,
-      marketReadyEvents: mappedEvents.filter((event) => event.diagnostics.marketCount > 0).length
+      marketReadyEvents: mappedEvents.filter((event) => event.diagnostics.marketCount > 0).length,
+      attackableEvents: mappedEvents.filter((event) => event.diagnostics.recommendation === "ATTACK").length
     },
     events: mappedEvents.map(({ sortScore, ...event }) => event)
   };
