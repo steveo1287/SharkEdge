@@ -25,6 +25,24 @@ function normalizeText(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
 }
 
+function titleCase(value: string) {
+  return value
+    .toLowerCase()
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatMarketLabel(market: TrendFilters["market"]) {
+  if (market === "ALL") return "market";
+  if (market === "moneyline") return "moneyline";
+  if (market === "spread") return "spread";
+  if (market === "total") return "total";
+  if (market === "fight_winner") return "winner";
+  return market.replace(/_/g, " ");
+}
+
 function getTargetLeagues(filters: TrendFilters) {
   if (filters.league !== "ALL") {
     return [filters.league];
@@ -131,6 +149,71 @@ function matchesParticipants(
   return true;
 }
 
+function findParticipantForSide(
+  participants: Array<{ name: string; role: string }>,
+  side: TrendFilters["side"],
+  filters: TrendFilters
+) {
+  const activeSubject = normalizeText(getActiveSubject(filters));
+
+  if (activeSubject) {
+    const subjectMatch = participants.find(
+      (participant) =>
+        participant.role === side && normalizeText(participant.name).includes(activeSubject)
+    );
+    if (subjectMatch) {
+      return subjectMatch.name;
+    }
+  }
+
+  return participants.find((participant) => participant.role === side)?.name ?? null;
+}
+
+function buildRecommendedBetLabel(
+  filters: TrendFilters,
+  participants: Array<{ name: string; role: string }>
+) {
+  const marketLabel = formatMarketLabel(filters.market);
+
+  if (filters.side === "OVER") {
+    return filters.market === "ALL" ? "Over" : `Over ${marketLabel}`;
+  }
+
+  if (filters.side === "UNDER") {
+    return filters.market === "ALL" ? "Under" : `Under ${marketLabel}`;
+  }
+
+  if (
+    filters.side === "HOME" ||
+    filters.side === "AWAY" ||
+    filters.side === "COMPETITOR_A" ||
+    filters.side === "COMPETITOR_B"
+  ) {
+    const participantName = findParticipantForSide(participants, filters.side, filters);
+    const baseLabel = participantName ?? titleCase(filters.side.replace(/_/g, " "));
+
+    if (filters.market === "moneyline") {
+      return `${baseLabel} moneyline`;
+    }
+
+    if (filters.market === "spread") {
+      return `${baseLabel} spread`;
+    }
+
+    if (filters.market === "fight_winner") {
+      return `${baseLabel} to win`;
+    }
+
+    if (filters.market === "ALL") {
+      return baseLabel;
+    }
+
+    return `${baseLabel} ${marketLabel}`;
+  }
+
+  return filters.market === "ALL" ? null : titleCase(marketLabel);
+}
+
 async function ensureFreshEvents(leagues: LeagueKey[]) {
   await Promise.all(
     leagues.map((leagueKey) => {
@@ -220,9 +303,11 @@ export async function getTodayTrendMatches(filters: TrendFilters): Promise<{
     .map((event) => {
       const leagueKey = event.league.key as LeagueKey;
       const registry = getProviderRegistryEntry(leagueKey);
-      const eventLabel = event.participants
-        .map((participant) => participant.competitor.name)
-        .join(" vs ");
+      const mappedParticipants = event.participants.map((participant) => ({
+        name: participant.competitor.name,
+        role: participant.role
+      }));
+      const eventLabel = mappedParticipants.map((participant) => participant.name).join(" vs ");
       const marketContext =
         filters.market === "ALL"
           ? null
@@ -251,6 +336,7 @@ export async function getTodayTrendMatches(filters: TrendFilters): Promise<{
             ? String((event.stateJson as Record<string, unknown>).detail)
             : null,
         matchingLogic: buildMatchingLogic(filters),
+        recommendedBetLabel: buildRecommendedBetLabel(filters, mappedParticipants),
         oddsContext: marketContext,
         matchupHref: buildMatchupHref(leagueKey, event.externalEventId ?? event.id),
         boardHref:
