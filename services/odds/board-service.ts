@@ -15,7 +15,7 @@ import { getBoardVisibleLeagues, buildBoardSportSections } from "@/services/even
 import { currentMarketStateJob } from "@/services/jobs/current-market-state-job";
 import { getBoardFeed } from "@/services/market-data/market-data-service";
 
-const LIVE_BOARD_TIMEOUT_MS = 3_500;
+const LIVE_BOARD_TIMEOUT_MS = 15_000;
 
 export function parseBoardFilters(searchParams: Record<string, string | string[] | undefined>) {
   return boardFiltersSchema.parse({
