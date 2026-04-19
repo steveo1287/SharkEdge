@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import { BOARD_SPORTS } from "@/lib/config/board-sports";
 import type { TrendDashboardView, TrendFilters, TrendMode, TrendCardView } from "@/lib/types/domain";
 import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
@@ -15,6 +14,17 @@ import { TREND_QUERY_EXAMPLES } from "@/services/trends/ai-query";
 type TrendsDashboardProps = {
   data: TrendDashboardView;
 };
+
+const TREND_LEAGUE_OPTIONS = [
+  { leagueKey: "NBA", leagueLabel: "NBA" },
+  { leagueKey: "NCAAB", leagueLabel: "NCAAB" },
+  { leagueKey: "MLB", leagueLabel: "MLB" },
+  { leagueKey: "NHL", leagueLabel: "NHL" },
+  { leagueKey: "NFL", leagueLabel: "NFL" },
+  { leagueKey: "NCAAF", leagueLabel: "NCAAF" },
+  { leagueKey: "UFC", leagueLabel: "UFC" },
+  { leagueKey: "BOXING", leagueLabel: "Boxing" }
+] as const;
 
 function buildTrendHref(
   filters: TrendFilters,
@@ -431,7 +441,7 @@ export function TrendsDashboard({ data }: TrendsDashboardProps) {
             </select>
             <select name="league" defaultValue={data.filters.league} className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white">
               <option value="ALL">All leagues</option>
-              {BOARD_SPORTS.map((sport) => (
+              {TREND_LEAGUE_OPTIONS.map((sport) => (
                 <option key={sport.leagueKey} value={sport.leagueKey}>
                   {sport.leagueLabel}
                 </option>
