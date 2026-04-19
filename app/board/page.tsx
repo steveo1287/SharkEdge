@@ -68,7 +68,7 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
               {game.homeTeam.name}
             </span>
             <span className="ml-auto font-mono text-[13px] tabular-nums text-bone/60">
-              {formatOdds(game.moneyline.bestOdds ? (game.moneyline.bestOdds > 0 ? game.moneyline.bestOdds - 20 : game.moneyline.bestOdds + 20) : null)}
+              —
             </span>
           </div>
         </div>
@@ -144,7 +144,7 @@ type BoardPageProps = {
 
 export default async function BoardPage({ searchParams }: BoardPageProps) {
   const resolved = (await searchParams) ?? {};
-  const filters = parseBoardFilters({ league: "ALL", date: "today", status: "all" });
+  const filters = parseBoardFilters(resolved);
   const data = await getBoardPageData(filters);
 
   const activeSections = data.sportSections.filter(
