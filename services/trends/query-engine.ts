@@ -140,6 +140,20 @@ type TrendQueryResult = {
   setup: TrendDashboardView["setup"];
 };
 
+type BacktestedSystemCandidate = {
+  id: string;
+  marketType: "spread" | "moneyline" | "total";
+  roleBucket: HistoricalRow["roleBucket"];
+  bucketLabel: string;
+  sampleSize: number;
+  hitRate: number | null;
+  roi: number | null;
+  avgMovement: number | null;
+  note: string;
+  href: string | null;
+  score: number;
+};
+
 function normalizeText(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
 }
@@ -523,6 +537,179 @@ function createCard(args: {
   } satisfies TrendCardView;
 }
 
+function humanizeRoleBucket(value: HistoricalRow["roleBucket"]) {
+  return value.toLowerCase().replace(/_/g, " ");
+}
+
+function bucketSpreadLine(value: number | null) {
+  if (typeof value !== "number") return null;
+  const abs = Math.abs(value);
+  if (abs < 1) return "pk to 0.5";
+  if (abs <= 3) return "1 to 3";
+  if (abs <= 6) return "3.5 to 6";
+  if (abs <= 10) return "6.5 to 10";
+  return "10+";
+}
+
+function bucketMoneylineOdds(value: number) {
+  if (value <= -250) return "-250+";
+  if (value <= -181) return "-181 to -250";
+  if (value <= -141) return "-141 to -180";
+  if (value <= -110) return "-110 to -140";
+  if (value < 100) return "sub +100";
+  if (value <= 140) return "+100 to +140";
+  if (value <= 200) return "+141 to +200";
+  return "+201+";
+}
+
+function bucketTotalLine(value: number | null) {
+  if (typeof value !== "number") return null;
+  if (value < 210) return "under 210";
+  if (value < 225) return "210 to 224.5";
+  if (value < 240) return "225 to 239.5";
+  return "240+";
+}
+
+function buildSystemHref(filters: TrendFilters, market: TrendFilters["market"], side: TrendFilters["side"]) {
+  const params = new URLSearchParams();
+  if (filters.league !== "ALL") params.set("league", filters.league);
+  if (filters.sport !== "ALL") params.set("sport", filters.sport);
+  params.set("market", market);
+  if (side !== "ALL") params.set("side", side);
+  params.set("window", filters.window);
+  params.set("sample", String(filters.sample));
+  if (filters.sportsbook !== "all") params.set("sportsbook", filters.sportsbook);
+  if (filters.subject) params.set("subject", filters.subject);
+  if (filters.team) params.set("team", filters.team);
+  if (filters.player) params.set("player", filters.player);
+  if (filters.fighter) params.set("fighter", filters.fighter);
+  if (filters.opponent) params.set("opponent", filters.opponent);
+  return `/trends?${params.toString()}`;
+}
+
+function buildSystemScore(args: {
+  sampleSize: number;
+  hitRate: number | null;
+  roi: number | null;
+  avgMovement: number | null;
+}) {
+  const sampleWeight = Math.min(args.sampleSize / 50, 1) * 38;
+  const hitRateWeight = args.hitRate !== null ? Math.max(args.hitRate - 50, 0) * 0.9 : 0;
+  const roiWeight = args.roi !== null ? Math.max(args.roi, 0) * 2.1 : 0;
+  const moveWeight = args.avgMovement !== null ? Math.min(args.avgMovement, 10) * 1.2 : 0;
+  return Number((sampleWeight + hitRateWeight + roiWeight + moveWeight).toFixed(2));
+}
+
+function buildBacktestedMarketCards(args: {
+  historicalRows: HistoricalRow[];
+  filters: TrendFilters;
+}) {
+  const { historicalRows, filters } = args;
+  const grouped = new Map<string, { marketType: "spread" | "moneyline" | "total"; roleBucket: HistoricalRow["roleBucket"]; bucketLabel: string; rows: HistoricalRow[] }>();
+
+  for (const row of historicalRows) {
+    if (row.outcome === "UNAVAILABLE") continue;
+    if (row.marketType !== "spread" && row.marketType !== "moneyline" && row.marketType !== "total") continue;
+
+    let bucketLabel: string | null = null;
+    if (row.marketType === "spread") {
+      if (!["HOME", "AWAY", "FAVORITE", "UNDERDOG"].includes(row.roleBucket)) continue;
+      bucketLabel = bucketSpreadLine(row.closingLine);
+    } else if (row.marketType === "moneyline") {
+      if (!["HOME", "AWAY", "FAVORITE", "UNDERDOG"].includes(row.roleBucket)) continue;
+      bucketLabel = bucketMoneylineOdds(row.closingOddsAmerican);
+    } else if (row.marketType === "total") {
+      if (!["OVER", "UNDER"].includes(row.roleBucket)) continue;
+      bucketLabel = bucketTotalLine(row.closingLine);
+    }
+
+    if (!bucketLabel) continue;
+
+    const key = `${row.marketType}:${row.roleBucket}:${bucketLabel}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.rows.push(row);
+    } else {
+      grouped.set(key, {
+        marketType: row.marketType,
+        roleBucket: row.roleBucket,
+        bucketLabel,
+        rows: [row]
+      });
+    }
+  }
+
+  const candidates: BacktestedSystemCandidate[] = [];
+
+  for (const [key, group] of grouped.entries()) {
+    if (group.rows.length < Math.max(5, filters.sample)) continue;
+
+    const sampleSize = group.rows.length;
+    const hitRate = getHitRate(group.rows);
+    const roi = getHistoricalRoi(group.rows);
+    const avgMovement = average(
+      group.rows
+        .map((row) => Math.abs(row.movementValue ?? 0))
+        .filter((value) => Number.isFinite(value))
+    );
+    const score = buildSystemScore({ sampleSize, hitRate, roi, avgMovement: Number.isFinite(avgMovement) ? avgMovement : null });
+    const marketLabel = getMarketLabel(group.marketType);
+    const title = `${marketLabel} | ${humanizeRoleBucket(group.roleBucket)} ${group.bucketLabel}`;
+    const note = `${sampleSize} historical rows · ${hitRate !== null ? `${hitRate.toFixed(1)}% hit` : "hit rate unavailable"}${roi !== null ? ` · ${roi > 0 ? "+" : ""}${roi.toFixed(1)}% ROI` : ""}${Number.isFinite(avgMovement) && avgMovement > 0 ? ` · avg move ${avgMovement.toFixed(group.marketType === "moneyline" ? 0 : 1)} ${group.marketType === "moneyline" ? "c" : "pts"}` : ""}`;
+    const href = buildSystemHref(filters, group.marketType, group.roleBucket as TrendFilters["side"]);
+
+    candidates.push({
+      id: key.replace(/[^a-z0-9:-]/gi, "-"),
+      marketType: group.marketType,
+      roleBucket: group.roleBucket,
+      bucketLabel: group.bucketLabel,
+      sampleSize,
+      hitRate,
+      roi,
+      avgMovement: Number.isFinite(avgMovement) ? Number(avgMovement.toFixed(group.marketType === "moneyline" ? 0 : 1)) : null,
+      note,
+      href,
+      score
+    });
+  }
+
+  const topSpread = candidates
+    .filter((candidate) => candidate.marketType === "spread")
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 2);
+  const topMoneyline = candidates
+    .filter((candidate) => candidate.marketType === "moneyline")
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 2);
+  const topTotal = candidates
+    .filter((candidate) => candidate.marketType === "total")
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 2);
+
+  return [...topSpread, ...topMoneyline, ...topTotal]
+    .sort((left, right) => right.score - left.score)
+    .map((candidate) =>
+      createCard({
+        id: candidate.id,
+        title: candidate.marketType === "spread" ? `Backtest | ${candidate.title}` : candidate.marketType === "moneyline" ? `Backtest | ${candidate.title}` : `Backtest | ${candidate.title}`,
+        sampleSize: candidate.sampleSize,
+        hitRate: candidate.hitRate,
+        roi: candidate.roi,
+        note: candidate.note,
+        href: candidate.href,
+        tone:
+          candidate.roi !== null && candidate.roi > 6
+            ? "success"
+            : candidate.hitRate !== null && candidate.hitRate >= 56
+              ? "brand"
+              : candidate.marketType === "total"
+                ? "premium"
+                : "muted",
+        window: filters.window
+      })
+    );
+}
+
 async function fetchSourceRows(filters: TrendFilters) {
   const windowStart = getWindowStart(filters.window);
 
@@ -735,7 +922,8 @@ export async function getTrendQueryResult(
       )
     ).length;
 
-    const cards: TrendCardView[] = [
+    const backtestedCards = buildBacktestedMarketCards({ historicalRows, filters });
+    const fallbackCards: TrendCardView[] = [
       createCard({
         id: "ats-trend",
         title: "ATS trend",
@@ -865,6 +1053,8 @@ export async function getTrendQueryResult(
         window: filters.window
       })
     ];
+
+    const cards = backtestedCards.length ? backtestedCards : fallbackCards;
 
     const movementRows = historicalRows
       .filter((row) => typeof row.movementValue === "number")
