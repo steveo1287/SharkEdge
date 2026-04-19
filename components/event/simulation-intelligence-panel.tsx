@@ -40,6 +40,28 @@ function getEdgeTone(edge: number) {
   return "muted" as const;
 }
 
+function getMlbCertaintyState(simulation: EventSimulationView) {
+  const context = simulation.mlbSourceNativeContext;
+  if (!context) {
+    return null;
+  }
+
+  const lineupScore =
+    (context.home.lineupCertainty === "HIGH" ? 12 : context.home.lineupCertainty === "MEDIUM" ? 8 : 4) +
+    (context.away.lineupCertainty === "HIGH" ? 12 : context.away.lineupCertainty === "MEDIUM" ? 8 : 4);
+  const starterScore = (context.home.starterConfidence + context.away.starterConfidence) * 0.2;
+  const bullpenScore = (context.home.bullpenCoverage + context.away.bullpenCoverage) * 0.15;
+  const score = lineupScore + starterScore + bullpenScore;
+
+  if (score >= 42) {
+    return { label: "HIGH certainty", tone: "success" as const };
+  }
+  if (score >= 30) {
+    return { label: "MEDIUM certainty", tone: "brand" as const };
+  }
+  return { label: "LOW certainty", tone: "muted" as const };
+}
+
 export function SimulationIntelligencePanel({ simulation }: Props) {
   const summary = simulation.projectionSummary;
 
@@ -64,6 +86,8 @@ export function SimulationIntelligencePanel({ simulation }: Props) {
       ].slice(0, 5)
     }
   ].filter((bucket) => bucket.items.length > 0);
+
+  const mlbCertaintyState = getMlbCertaintyState(simulation);
 
   return (
     <section id="simulation" className="grid gap-3">
@@ -230,59 +254,81 @@ export function SimulationIntelligencePanel({ simulation }: Props) {
           ) : null}
 
           <div className="grid gap-3">
-
-          {simulation.mlbSourceNativeContext ? (
-            <div className="grid gap-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-[1.05rem] font-semibold text-white">MLB source-native context</div>
-                <Badge tone="brand">
-                  Coverage {simulation.mlbSourceNativeContext.sourceCoverageScore}
-                </Badge>
-              </div>
-
-              <div className="grid gap-3 lg:grid-cols-3">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Venue and run environment</div>
-                  <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
-                    <div>
-                      {simulation.mlbSourceNativeContext.venue.venueName ?? "Venue unknown"}
-                      {simulation.mlbSourceNativeContext.venue.stationCode ? ` · ${simulation.mlbSourceNativeContext.venue.stationCode}` : ""}
-                    </div>
-                    <div>
-                      Roof {simulation.mlbSourceNativeContext.venue.roofType ?? "UNKNOWN"} · wind {simulation.mlbSourceNativeContext.venue.windSensitivity ?? "UNKNOWN"}
-                    </div>
-                    {simulation.mlbSourceNativeContext.venue.altitudeFeet != null ? (
-                      <div>Altitude {simulation.mlbSourceNativeContext.venue.altitudeFeet} ft</div>
+            {simulation.mlbSourceNativeContext ? (
+              <div className="grid gap-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-[1.05rem] font-semibold text-white">MLB source-native context</div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge tone="brand">
+                      Coverage {simulation.mlbSourceNativeContext.sourceCoverageScore}
+                    </Badge>
+                    {mlbCertaintyState ? (
+                      <Badge tone={mlbCertaintyState.tone}>{mlbCertaintyState.label}</Badge>
                     ) : null}
-                    {simulation.mlbSourceNativeContext.venue.parkFactor != null ? (
-                      <div>Park factor {simulation.mlbSourceNativeContext.venue.parkFactor.toFixed(3)} · baseline run factor {simulation.mlbSourceNativeContext.venue.baselineRunFactor?.toFixed?.(3) ?? simulation.mlbSourceNativeContext.venue.baselineRunFactor}</div>
-                    ) : null}
-                    {simulation.mlbSourceNativeContext.venue.notes.map((note) => (
-                      <div key={note} className="rounded-xl bg-white/[0.04] px-3 py-2">{note}</div>
-                    ))}
                   </div>
                 </div>
 
-                {[simulation.mlbSourceNativeContext.away, simulation.mlbSourceNativeContext.home].map((team) => (
-                  <div key={team.abbreviation} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">{team.abbreviation} execution context</div>
-                      <Badge tone="muted">{team.lineupCertainty ?? "unknown"} certainty</Badge>
-                    </div>
+                <div className="grid gap-3 lg:grid-cols-4">
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Venue and run environment</div>
                     <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
-                      <div>Starter {team.starterName ?? "TBD"} · confidence {team.starterConfidence ?? "n/a"}</div>
-                      <div>Lineup strength {team.lineupStrength ?? "n/a"} · bullpen freshness {team.bullpenFreshness ?? "n/a"}</div>
-                      {team.topBats.length ? <div>Top bats {team.topBats.join(", ")}</div> : null}
-                      {team.notes.map((note) => (
-                        <div key={note} className="rounded-xl bg-white/[0.04] px-3 py-2">{note}</div>
-                      ))}
+                      <div>
+                        {simulation.mlbSourceNativeContext.venue.venueName ?? "Venue unknown"}
+                        {simulation.mlbSourceNativeContext.venue.stationCode ? ` · ${simulation.mlbSourceNativeContext.venue.stationCode}` : ""}
+                      </div>
+                      <div>
+                        Roof {simulation.mlbSourceNativeContext.venue.roofType ?? "UNKNOWN"} · wind {simulation.mlbSourceNativeContext.venue.windSensitivity ?? "UNKNOWN"}
+                      </div>
+                      {simulation.mlbSourceNativeContext.venue.altitudeFeet != null ? (
+                        <div>Altitude {simulation.mlbSourceNativeContext.venue.altitudeFeet} ft</div>
+                      ) : null}
+                      {simulation.mlbSourceNativeContext.venue.parkFactor != null ? (
+                        <div>Park factor {simulation.mlbSourceNativeContext.venue.parkFactor.toFixed(3)} · baseline run factor {simulation.mlbSourceNativeContext.venue.baselineRunFactor?.toFixed?.(3) ?? simulation.mlbSourceNativeContext.venue.baselineRunFactor}</div>
+                      ) : null}
                     </div>
                   </div>
-                ))}
-              </div>
 
-              {simulation.mlbSourceNativeContext.matchupFlags.length || simulation.mlbSourceNativeContext.sourceSummary.length ? (
+                  {[simulation.mlbSourceNativeContext.away, simulation.mlbSourceNativeContext.home].map((team) => (
+                    <div key={team.abbreviation} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">{team.abbreviation} lineup</div>
+                        <Badge tone={team.lineupCertainty === "HIGH" ? "success" : team.lineupCertainty === "MEDIUM" ? "brand" : "muted"}>
+                          {team.lineupCertainty} certainty
+                        </Badge>
+                      </div>
+                      <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
+                        <div>Strength {team.lineupStrength} · contact {team.lineupContactScore} · power {team.lineupPowerScore}</div>
+                        {team.topBats.length ? <div>Top bats {team.topBats.join(", ")}</div> : null}
+                      </div>
+                    </div>
+                  ))}
+
+                  {[simulation.mlbSourceNativeContext.away, simulation.mlbSourceNativeContext.home].map((team) => (
+                    <div key={`${team.abbreviation}:staff`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">{team.abbreviation} staff</div>
+                        <Badge tone={team.starterConfidence >= 70 ? "success" : team.starterConfidence >= 55 ? "brand" : "muted"}>
+                          Starter {team.starterConfidence}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
+                        <div>Probable {team.starterName ?? "TBD"}</div>
+                        <div>Bullpen freshness {team.bullpenFreshness} · coverage {team.bullpenCoverage}</div>
+                        <div>Risk {team.bullpenRisk}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
                 <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Re-simulation state</div>
+                    <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
+                      <div>Current MLB number is being interpreted through lineup certainty, probable starter confidence, and bullpen availability.</div>
+                      {mlbCertaintyState ? <div>Overall state: <span className="font-semibold text-white">{mlbCertaintyState.label}</span></div> : null}
+                      <div>Use high-certainty states for stronger conviction. Use low-certainty states as watchlist conditions until more source-native context firms up.</div>
+                    </div>
+                  </div>
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                     <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Source summary</div>
                     <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
@@ -291,20 +337,20 @@ export function SimulationIntelligencePanel({ simulation }: Props) {
                       ))}
                     </div>
                   </div>
+                </div>
+
+                {simulation.mlbSourceNativeContext.matchupFlags.length ? (
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                     <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Matchup flags</div>
                     <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
-                      {simulation.mlbSourceNativeContext.matchupFlags.length ? simulation.mlbSourceNativeContext.matchupFlags.map((item) => (
+                      {simulation.mlbSourceNativeContext.matchupFlags.map((item) => (
                         <div key={item} className="rounded-xl bg-white/[0.04] px-3 py-2">{item}</div>
-                      )) : (
-                        <div className="rounded-xl bg-white/[0.04] px-3 py-2">No major MLB source-native matchup flags triggered.</div>
-                      )}
+                      ))}
                     </div>
                   </div>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="flex items-center justify-between gap-3">
               <div className="text-[1.05rem] font-semibold text-white">Top player edges</div>
