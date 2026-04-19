@@ -1031,6 +1031,7 @@ export type TrendMatchView = {
   status: GameStatus;
   stateDetail: string | null;
   matchingLogic: string;
+  recommendedBetLabel: string | null;
   oddsContext: string | null;
   matchupHref: string;
   boardHref: string | null;
