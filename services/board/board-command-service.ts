@@ -211,7 +211,9 @@ export async function getBoardCommandData(
     status: "all"
   });
 
-  const boardData = await liveBoardService.getLiveBoardPageData(filters);
+  const boardData =
+    (await liveBoardService.getLiveBoardPageData(filters)) ??
+    (await oddsService.getBoardPageData(filters));
 
   const filteredVerifiedGames = boardData.games
     .filter(isVerifiedGame)
