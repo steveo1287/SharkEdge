@@ -182,7 +182,15 @@ export default async function GameDetailPage({ params }: PageProps) {
         </div>
       </section>
 
-      <div className="flex justify-center">
+      <div className="flex flex-wrap justify-center gap-3">
+        {simulation ? (
+          <Link
+            href="/sim"
+            className="rounded-md border border-aqua/25 bg-aqua/[0.06] px-4 py-2.5 text-[12.5px] font-semibold text-aqua transition-colors hover:border-aqua/40 hover:bg-aqua/[0.10]"
+          >
+            ← Back to Simulator Studio
+          </Link>
+        ) : null}
         <Link
           href="/board"
           className="rounded-md border border-bone/[0.10] bg-surface px-4 py-2.5 text-[12.5px] font-semibold text-bone/70 transition-colors hover:border-aqua/25 hover:text-aqua"
