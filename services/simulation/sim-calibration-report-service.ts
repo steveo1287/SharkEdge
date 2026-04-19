@@ -414,6 +414,16 @@ export async function fitAndPersistSimCalibrationProfiles() {
         expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7)
       }
     });
+
+    await prisma.trendCache.create({
+      data: {
+        cacheKey: `sim_calibration_profile_history:${leagueKey}:${report.generatedAt}`,
+        scope: "sim_calibration_profile_history",
+        filterJson: { leagueKey, generatedAt: report.generatedAt },
+        payloadJson: report,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 90)
+      }
+    });
   }
 
   setCalibrationProfileOverrides(persisted);
@@ -457,4 +467,16 @@ export async function getPersistedSimCalibrationReports() {
   return cached
     .map((row) => row.payloadJson as LeagueCalibrationPayload)
     .sort((a, b) => a.leagueKey.localeCompare(b.leagueKey));
+}
+
+export async function getSimCalibrationHistoryReports() {
+  const cached = await prisma.trendCache.findMany({
+    where: {
+      scope: "sim_calibration_profile_history",
+      expiresAt: { gt: new Date() }
+    },
+    orderBy: { createdAt: "asc" }
+  });
+
+  return cached.map((row) => row.payloadJson as LeagueCalibrationPayload);
 }
