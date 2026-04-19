@@ -7,6 +7,21 @@ type Props = {
   simulation: EventSimulationView;
 };
 
+type MlbPanelTeamContext = {
+  abbreviation: string;
+  starterName: string | null;
+  starterConfidence: number | null;
+  lineupStrength: number | null;
+  lineupContactScore?: number | null;
+  lineupPowerScore?: number | null;
+  lineupCertainty: string | null;
+  bullpenFreshness: number | null;
+  bullpenCoverage?: number | null;
+  bullpenRisk?: string | null;
+  topBats: string[];
+  notes: string[];
+};
+
 function formatProbability(value: number | null | undefined) {
   if (typeof value !== "number") {
     return null;
@@ -52,11 +67,14 @@ function getMlbCertaintyState(simulation: EventSimulationView) {
     return null;
   }
 
+  const home = context.home as MlbPanelTeamContext;
+  const away = context.away as MlbPanelTeamContext;
+
   const lineupScore =
-    (context.home.lineupCertainty === "HIGH" ? 12 : context.home.lineupCertainty === "MEDIUM" ? 8 : 4) +
-    (context.away.lineupCertainty === "HIGH" ? 12 : context.away.lineupCertainty === "MEDIUM" ? 8 : 4);
-  const starterScore = ((context.home.starterConfidence ?? 0) + (context.away.starterConfidence ?? 0)) * 0.2;
-  const bullpenScore = ((context.home.bullpenCoverage ?? 0) + (context.away.bullpenCoverage ?? 0)) * 0.15;
+    (home.lineupCertainty === "HIGH" ? 12 : home.lineupCertainty === "MEDIUM" ? 8 : 4) +
+    (away.lineupCertainty === "HIGH" ? 12 : away.lineupCertainty === "MEDIUM" ? 8 : 4);
+  const starterScore = ((home.starterConfidence ?? 0) + (away.starterConfidence ?? 0)) * 0.2;
+  const bullpenScore = ((home.bullpenCoverage ?? 0) + (away.bullpenCoverage ?? 0)) * 0.15;
   const score = lineupScore + starterScore + bullpenScore;
 
   if (score >= 42) {
@@ -294,7 +312,7 @@ export function SimulationIntelligencePanel({ simulation }: Props) {
                     </div>
                   </div>
 
-                  {[simulation.mlbSourceNativeContext.away, simulation.mlbSourceNativeContext.home].map((team) => (
+                  {([simulation.mlbSourceNativeContext.away, simulation.mlbSourceNativeContext.home] as MlbPanelTeamContext[]).map((team) => (
                     <div key={team.abbreviation} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <div className="flex items-center justify-between gap-2">
                         <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">{team.abbreviation} lineup</div>
@@ -309,7 +327,7 @@ export function SimulationIntelligencePanel({ simulation }: Props) {
                     </div>
                   ))}
 
-                  {[simulation.mlbSourceNativeContext.away, simulation.mlbSourceNativeContext.home].map((team) => (
+                  {([simulation.mlbSourceNativeContext.away, simulation.mlbSourceNativeContext.home] as MlbPanelTeamContext[]).map((team) => (
                     <div key={`${team.abbreviation}:staff`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <div className="flex items-center justify-between gap-2">
                         <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">{team.abbreviation} staff</div>
