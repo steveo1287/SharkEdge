@@ -142,6 +142,7 @@ type TrendQueryResult = {
 
 type BacktestedSystemCandidate = {
   id: string;
+  title: string;
   marketType: "spread" | "moneyline" | "total";
   roleBucket: HistoricalRow["roleBucket"];
   bucketLabel: string;
@@ -660,6 +661,7 @@ async function buildBacktestedMarketCards(args: {
 
     candidates.push({
       id: key.replace(/[^a-z0-9:-]/gi, "-"),
+      title,
       marketType: group.marketType,
       roleBucket: group.roleBucket,
       bucketLabel: group.bucketLabel,
