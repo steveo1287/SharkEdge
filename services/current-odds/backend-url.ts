@@ -7,7 +7,7 @@ function normalizeHost(value: string) {
 }
 
 function buildBackendUrlFromHost(value: string) {
-  return `https://${normalizeHost(value)}/_/backend`;
+  return `https://${normalizeHost(value)}`;
 }
 
 export function getCurrentOddsBackendBaseUrl() {
@@ -26,5 +26,5 @@ export function getCurrentOddsBackendBaseUrl() {
     return buildBackendUrlFromHost(deploymentHost);
   }
 
-  return "http://localhost:3000/_/backend";
+  return "http://localhost:3000";
 }
