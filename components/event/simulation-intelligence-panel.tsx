@@ -40,6 +40,12 @@ function getEdgeTone(edge: number) {
   return "muted" as const;
 }
 
+function getLineupCertaintyTone(value: string | null | undefined) {
+  if (value === "HIGH") return "success" as const;
+  if (value === "MEDIUM") return "brand" as const;
+  return "muted" as const;
+}
+
 function getMlbCertaintyState(simulation: EventSimulationView) {
   const context = simulation.mlbSourceNativeContext;
   if (!context) {
@@ -49,8 +55,8 @@ function getMlbCertaintyState(simulation: EventSimulationView) {
   const lineupScore =
     (context.home.lineupCertainty === "HIGH" ? 12 : context.home.lineupCertainty === "MEDIUM" ? 8 : 4) +
     (context.away.lineupCertainty === "HIGH" ? 12 : context.away.lineupCertainty === "MEDIUM" ? 8 : 4);
-  const starterScore = (context.home.starterConfidence + context.away.starterConfidence) * 0.2;
-  const bullpenScore = (context.home.bullpenCoverage + context.away.bullpenCoverage) * 0.15;
+  const starterScore = ((context.home.starterConfidence ?? 0) + (context.away.starterConfidence ?? 0)) * 0.2;
+  const bullpenScore = ((context.home.bullpenCoverage ?? 0) + (context.away.bullpenCoverage ?? 0)) * 0.15;
   const score = lineupScore + starterScore + bullpenScore;
 
   if (score >= 42) {
@@ -292,12 +298,12 @@ export function SimulationIntelligencePanel({ simulation }: Props) {
                     <div key={team.abbreviation} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <div className="flex items-center justify-between gap-2">
                         <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">{team.abbreviation} lineup</div>
-                        <Badge tone={team.lineupCertainty === "HIGH" ? "success" : team.lineupCertainty === "MEDIUM" ? "brand" : "muted"}>
-                          {team.lineupCertainty} certainty
+                        <Badge tone={getLineupCertaintyTone(team.lineupCertainty)}>
+                          {team.lineupCertainty ?? "LOW"} certainty
                         </Badge>
                       </div>
                       <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
-                        <div>Strength {team.lineupStrength} · contact {team.lineupContactScore} · power {team.lineupPowerScore}</div>
+                        <div>Strength {team.lineupStrength ?? "—"} · contact {team.lineupContactScore ?? "—"} · power {team.lineupPowerScore ?? "—"}</div>
                         {team.topBats.length ? <div>Top bats {team.topBats.join(", ")}</div> : null}
                       </div>
                     </div>
@@ -307,14 +313,14 @@ export function SimulationIntelligencePanel({ simulation }: Props) {
                     <div key={`${team.abbreviation}:staff`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <div className="flex items-center justify-between gap-2">
                         <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">{team.abbreviation} staff</div>
-                        <Badge tone={team.starterConfidence >= 70 ? "success" : team.starterConfidence >= 55 ? "brand" : "muted"}>
-                          Starter {team.starterConfidence}
+                        <Badge tone={(team.starterConfidence ?? 0) >= 70 ? "success" : (team.starterConfidence ?? 0) >= 55 ? "brand" : "muted"}>
+                          Starter {team.starterConfidence ?? 0}
                         </Badge>
                       </div>
                       <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-300">
                         <div>Probable {team.starterName ?? "TBD"}</div>
-                        <div>Bullpen freshness {team.bullpenFreshness} · coverage {team.bullpenCoverage}</div>
-                        <div>Risk {team.bullpenRisk}</div>
+                        <div>Bullpen freshness {team.bullpenFreshness ?? "—"} · coverage {team.bullpenCoverage ?? 0}</div>
+                        <div>Risk {team.bullpenRisk ?? "UNKNOWN"}</div>
                       </div>
                     </div>
                   ))}
