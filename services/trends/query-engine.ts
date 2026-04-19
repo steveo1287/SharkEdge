@@ -538,7 +538,7 @@ function createCard(args: {
           ? "brand"
           : "muted"),
     todayMatches: args.todayMatches ?? []
-  } as TrendCardView;
+  } satisfies TrendCardView;
 }
 
 function humanizeRoleBucket(value: HistoricalRow["roleBucket"]) {
