@@ -4,6 +4,10 @@
     {
       "path": "/api/internal/cron/odds-refresh",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/internal/cron/sim-calibration",
+      "schedule": "0 */6 * * *"
     }
   ]
 }
