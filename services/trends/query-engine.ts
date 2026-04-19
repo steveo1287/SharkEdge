@@ -600,7 +600,7 @@ function buildSystemScore(args: {
   return Number((sampleWeight + hitRateWeight + roiWeight + moveWeight).toFixed(2));
 }
 
-function buildBacktestedMarketCards(args: {
+async function buildBacktestedMarketCards(args: {
   historicalRows: HistoricalRow[];
   filters: TrendFilters;
 }) {
@@ -613,10 +613,10 @@ function buildBacktestedMarketCards(args: {
 
     let bucketLabel: string | null = null;
     if (row.marketType === "spread") {
-      if (!["HOME", "AWAY", "FAVORITE", "UNDERDOG"].includes(row.roleBucket)) continue;
+      if (!["HOME", "AWAY"].includes(row.roleBucket)) continue;
       bucketLabel = bucketSpreadLine(row.closingLine);
     } else if (row.marketType === "moneyline") {
-      if (!["HOME", "AWAY", "FAVORITE", "UNDERDOG"].includes(row.roleBucket)) continue;
+      if (!["HOME", "AWAY"].includes(row.roleBucket)) continue;
       bucketLabel = bucketMoneylineOdds(row.closingOddsAmerican);
     } else if (row.marketType === "total") {
       if (!["OVER", "UNDER"].includes(row.roleBucket)) continue;
@@ -673,29 +673,40 @@ function buildBacktestedMarketCards(args: {
     });
   }
 
-  const topSpread = candidates
-    .filter((candidate) => candidate.marketType === "spread")
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 2);
-  const topMoneyline = candidates
-    .filter((candidate) => candidate.marketType === "moneyline")
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 2);
-  const topTotal = candidates
-    .filter((candidate) => candidate.marketType === "total")
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 2);
+  const selectedCandidates = [
+    ...candidates
+      .filter((candidate) => candidate.marketType === "spread")
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 2),
+    ...candidates
+      .filter((candidate) => candidate.marketType === "moneyline")
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 2),
+    ...candidates
+      .filter((candidate) => candidate.marketType === "total")
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 2)
+  ].sort((left, right) => right.score - left.score);
 
-  return [...topSpread, ...topMoneyline, ...topTotal]
-    .sort((left, right) => right.score - left.score)
-    .map((candidate) =>
-      createCard({
+  return Promise.all(
+    selectedCandidates.map(async (candidate) => {
+      const liveFilters = {
+        ...filters,
+        market: candidate.marketType,
+        side: candidate.roleBucket as TrendFilters["side"]
+      } satisfies TrendFilters;
+      const liveMatches = await getTodayTrendMatches(liveFilters);
+      const liveQualifierNote = liveMatches.matches.length
+        ? ` · ${liveMatches.matches.length} live qualifier${liveMatches.matches.length === 1 ? "" : "s"} today`
+        : "";
+
+      return createCard({
         id: candidate.id,
-        title: candidate.marketType === "spread" ? `Backtest | ${candidate.title}` : candidate.marketType === "moneyline" ? `Backtest | ${candidate.title}` : `Backtest | ${candidate.title}`,
+        title: `Backtest | ${candidate.title}`,
         sampleSize: candidate.sampleSize,
         hitRate: candidate.hitRate,
         roi: candidate.roi,
-        note: candidate.note,
+        note: `${candidate.note}${liveQualifierNote}`,
         href: candidate.href,
         tone:
           candidate.roi !== null && candidate.roi > 6
@@ -706,8 +717,9 @@ function buildBacktestedMarketCards(args: {
                 ? "premium"
                 : "muted",
         window: filters.window
-      })
-    );
+      });
+    })
+  );
 }
 
 async function fetchSourceRows(filters: TrendFilters) {
@@ -922,7 +934,7 @@ export async function getTrendQueryResult(
       )
     ).length;
 
-    const backtestedCards = buildBacktestedMarketCards({ historicalRows, filters });
+    const backtestedCards = await buildBacktestedMarketCards({ historicalRows, filters });
     const fallbackCards: TrendCardView[] = [
       createCard({
         id: "ats-trend",
