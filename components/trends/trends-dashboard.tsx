@@ -26,10 +26,6 @@ const TREND_LEAGUE_OPTIONS = [
   { leagueKey: "BOXING", leagueLabel: "Boxing" }
 ] as const;
 
-type TrendCardWithMatches = TrendCardView & {
-  todayMatches?: TrendDashboardView["todayMatches"];
-};
-
 function buildTrendHref(
   filters: TrendFilters,
   mode: TrendMode,
@@ -591,8 +587,7 @@ export function TrendsDashboard({ data }: TrendsDashboardProps) {
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {displayCards.map((rawCard) => {
-          const card = rawCard as TrendCardWithMatches;
+        {displayCards.map((card) => {
           const trendConfidence = deriveTrendConfidence(card);
           const trendSeries = buildMetricSeries({
             seed: Math.round(trendConfidence * 1000) + card.sampleSize * 9,
