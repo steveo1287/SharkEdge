@@ -26,6 +26,10 @@ const TREND_LEAGUE_OPTIONS = [
   { leagueKey: "BOXING", leagueLabel: "Boxing" }
 ] as const;
 
+type TrendCardWithMatches = TrendCardView & {
+  todayMatches?: TrendDashboardView["todayMatches"];
+};
+
 function buildTrendHref(
   filters: TrendFilters,
   mode: TrendMode,
@@ -587,7 +591,8 @@ export function TrendsDashboard({ data }: TrendsDashboardProps) {
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {displayCards.map((card) => {
+        {displayCards.map((rawCard) => {
+          const card = rawCard as TrendCardWithMatches;
           const trendConfidence = deriveTrendConfidence(card);
           const trendSeries = buildMetricSeries({
             seed: Math.round(trendConfidence * 1000) + card.sampleSize * 9,
@@ -596,6 +601,7 @@ export function TrendsDashboard({ data }: TrendsDashboardProps) {
             drift: trendConfidence >= 0.55 ? 0.018 : 0.002,
             variance: 0.1,
           });
+          const cardMatches = card.todayMatches ?? [];
 
           return (
             <Card
@@ -624,6 +630,46 @@ export function TrendsDashboard({ data }: TrendsDashboardProps) {
                   <TerminalSparkline points={trendSeries} />
                 </div>
               </div>
+
+              {cardMatches.length ? (
+                <div className="mt-4 rounded-2xl border border-cyan-400/12 bg-black/28 p-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-cyan-200/55">
+                    Live qualifiers
+                  </div>
+                  <div className="mt-3 grid gap-2">
+                    {cardMatches.map((match) => (
+                      <div key={`${card.id}:${match.id}`} className="rounded-xl border border-white/8 bg-slate-950/55 p-3">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-white">{match.eventLabel}</div>
+                            <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                              {match.leagueKey} · {match.status}
+                            </div>
+                            {match.oddsContext ? (
+                              <div className="mt-2 text-xs leading-5 text-slate-400">{match.oddsContext}</div>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Link href={match.matchupHref} className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
+                              Matchup
+                            </Link>
+                            {match.boardHref ? (
+                              <Link href={match.boardHref} className="rounded-xl border border-line px-3 py-2 text-xs text-slate-300">
+                                Board
+                              </Link>
+                            ) : null}
+                            {match.propsHref ? (
+                              <Link href={match.propsHref} className="rounded-xl border border-line px-3 py-2 text-xs text-slate-300">
+                                Props
+                              </Link>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               {data.mode === "simple" ? (
                 <div className="mt-3 rounded-2xl border border-line bg-slate-950/50 p-3 text-xs leading-6 text-slate-400">
