@@ -462,16 +462,24 @@ async function probeBookFeedProvider(
 }
 
 export function deriveOverallReadinessState(probes: ProbeLike[]) {
-  if (probes.some((probe) => probe.state === "ERROR")) {
-    return "ERROR" as const;
-  }
+  const hasReady = probes.some((probe) => probe.state === "READY");
+  const hasDegraded = probes.some((probe) => probe.state === "DEGRADED");
+  const hasError = probes.some((probe) => probe.state === "ERROR");
 
-  if (probes.some((probe) => probe.state === "DEGRADED")) {
+  if (hasReady && hasError) {
     return "DEGRADED" as const;
   }
 
-  if (probes.some((probe) => probe.state === "READY")) {
+  if (hasDegraded) {
+    return "DEGRADED" as const;
+  }
+
+  if (hasReady) {
     return "READY" as const;
+  }
+
+  if (hasError) {
+    return "ERROR" as const;
   }
 
   return "NOT_CONFIGURED" as const;

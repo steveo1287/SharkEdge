@@ -39,7 +39,7 @@ function getSelectedLeague(value: string | undefined): BoardLeagueScope {
 }
 
 function getSelectedDate(value: string | undefined): BoardDateScope {
-  return BOARD_DATE_ITEMS.find((item) => item === value) ?? "today";
+  return BOARD_DATE_ITEMS.find((item) => item === value) ?? "upcoming";
 }
 
 function getSelectedMarket(value: string | undefined): BoardMarketScope {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import type { BoardFilters, LeagueKey } from "@/lib/types/domain";
+import { parseBoardFilters } from "@/services/odds/board-service";
 import { getLiveBoardPageData } from "@/services/odds/live-board-data";
 
 const SUPPORTED_LEAGUES = new Set<LeagueKey>([
@@ -14,25 +15,40 @@ const SUPPORTED_LEAGUES = new Set<LeagueKey>([
   "BOXING"
 ]);
 
-function parseLeague(request: Request): BoardFilters["league"] {
-  const { searchParams } = new URL(request.url);
-  const raw = searchParams.get("league")?.trim().toUpperCase() ?? null;
+function parseLeague(value: string | null): BoardFilters["league"] {
+  const raw = value?.trim().toUpperCase() ?? null;
 
   if (!raw || raw === "ALL") {
     return "ALL";
   }
 
-  return (SUPPORTED_LEAGUES.has(raw as LeagueKey) ? (raw as LeagueKey) : "ALL") as BoardFilters["league"];
+  return SUPPORTED_LEAGUES.has(raw as LeagueKey)
+    ? (raw as LeagueKey)
+    : "ALL";
+}
+
+function parseDate(value: string | null): BoardFilters["date"] {
+  const raw = value?.trim().toLowerCase();
+  if (!raw || raw === "upcoming") {
+    return "all";
+  }
+
+  return raw;
+}
+
+function parseFilters(request: Request): BoardFilters {
+  const { searchParams } = new URL(request.url);
+  return parseBoardFilters({
+    league: parseLeague(searchParams.get("league")),
+    date: parseDate(searchParams.get("date")),
+    sportsbook: searchParams.get("sportsbook") ?? "best",
+    market: searchParams.get("market") ?? "all",
+    status: searchParams.get("status") ?? "all"
+  });
 }
 
 export async function GET(request: Request) {
-  const filters: BoardFilters = {
-    league: parseLeague(request),
-    date: "today",
-    sportsbook: "best",
-    market: "all",
-    status: "all"
-  };
+  const filters = parseFilters(request);
 
   try {
     const payload = await getLiveBoardPageData(filters);
