@@ -84,46 +84,46 @@ export function OpportunitySpotlightCard({
     : "muted";
 
   return (
-    <Card className="surface-panel p-4 sm:p-5">
+    <Card className="panel p-4 sm:p-5">
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Badge tone={getTone(opportunity.actionState)}>
             {formatOpportunityAction(opportunity.actionState)}
           </Badge>
 
-          <div className="text-xs text-slate-500">
-            Score {Math.round(opportunity.opportunityScore)}
+          <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] tabular-nums text-bone/55">
+            Score <span className="text-text-primary">{Math.round(opportunity.opportunityScore)}</span>
           </div>
         </div>
 
         <div className="min-w-0">
-          <div className="text-[0.66rem] uppercase tracking-[0.18em] text-slate-500">
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">
             {opportunity.eventLabel}
           </div>
-          <div className="mt-2 text-lg font-semibold text-white sm:text-xl">
+          <div className="mt-2 font-display text-[18px] font-semibold tracking-[-0.01em] text-text-primary sm:text-[20px]">
             {opportunity.selectionLabel}
           </div>
-          <div className="mt-2 text-sm leading-6 text-slate-300">
+          <div className="mt-2 text-[13px] leading-[1.55] text-bone/65">
             {opportunity.reasonSummary}
           </div>
 
           {opportunity.triggerSummary ? (
-            <div className="mt-3 rounded-2xl border border-emerald-400/15 bg-emerald-400/5 px-3 py-2 text-xs leading-5 text-emerald-100">
-              <span className="mr-2 uppercase tracking-[0.18em] text-emerald-300/80">Trigger</span>
-              {opportunity.triggerSummary}
+            <div className="mt-3 rounded-md border border-mint/25 bg-mint/[0.06] px-3 py-2 text-[12px] leading-[1.5] text-mint">
+              <span className="mr-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-mint/75">Trigger</span>
+              <span className="text-bone/85">{opportunity.triggerSummary}</span>
             </div>
           ) : null}
 
           {opportunity.killSummary ? (
-            <div className="mt-2 rounded-2xl border border-rose-400/15 bg-rose-400/5 px-3 py-2 text-xs leading-5 text-rose-100">
-              <span className="mr-2 uppercase tracking-[0.18em] text-rose-300/80">Kill</span>
-              {opportunity.killSummary}
+            <div className="mt-2 rounded-md border border-crimson/25 bg-crimson/[0.06] px-3 py-2 text-[12px] leading-[1.5] text-crimson">
+              <span className="mr-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-crimson/75">Kill</span>
+              <span className="text-bone/85">{opportunity.killSummary}</span>
             </div>
           ) : null}
-          <div className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">
-            Stake {stakeLabel} • {bankrollLabel}
+          <div className="mt-2 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] tabular-nums text-bone/55">
+            Stake <span className="text-text-primary">{stakeLabel}</span> · {bankrollLabel}
             {hasPortfolioPenalty
-              ? ` • Corr ${(opportunity.sizing.correlationPenalty * 100).toFixed(0)}% • Comp ${(opportunity.sizing.competitionPenalty * 100).toFixed(0)}%`
+              ? ` · Corr ${(opportunity.sizing.correlationPenalty * 100).toFixed(0)}% · Comp ${(opportunity.sizing.competitionPenalty * 100).toFixed(0)}%`
               : ""}
           </div>
         </div>
@@ -213,74 +213,75 @@ export function OpportunitySpotlightCard({
         </div>
 
         {opportunity.decisionRationale?.length ? (
-          <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs leading-5 text-slate-300">
-            <span className="mr-2 uppercase tracking-[0.16em] text-slate-500">Decision basis</span>
-            {opportunity.decisionRationale.slice(0, 3).join(" • ")}
+          <div className="rounded-md border border-bone/[0.08] bg-surface px-3 py-2 text-[12px] leading-[1.5] text-bone/65">
+            <span className="mr-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">Decision basis</span>
+            <span className="text-bone/85">{opportunity.decisionRationale.slice(0, 3).join(" · ")}</span>
           </div>
         ) : null}
 
         {opportunity.thesisCluster ? (
-          <div className="text-xs leading-5 text-slate-400">
-            Thesis: {opportunity.thesisCluster.label}
+          <div className="text-[12px] leading-[1.5] text-bone/55">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">Thesis</span>{" "}
+            <span className="text-bone/75">{opportunity.thesisCluster.label}</span>
             {opportunity.thesisCluster.correlationCount > 1
-              ? ` • cluster ${opportunity.thesisCluster.correlationCount}`
+              ? ` · cluster ${opportunity.thesisCluster.correlationCount}`
               : ""}
-            {!opportunity.thesisCluster.isPrimary ? " • secondary expression" : ""}
+            {!opportunity.thesisCluster.isPrimary ? " · secondary expression" : ""}
           </div>
         ) : null}
 
-{opportunity.weatherSourcePlan?.applicable ? (
-  <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-xs leading-5 text-slate-300">
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="uppercase tracking-[0.16em] text-slate-500">Weather sourcing</span>
-      <Badge
-        tone={
-          opportunity.weatherSourcePlan.sourceConfidence >= 70
-            ? "success"
-            : opportunity.weatherSourcePlan.sourceConfidence >= 45
-              ? "premium"
-              : "muted"
-        }
-      >
-        {opportunity.weatherSourcePlan.sourceConfidence}
-      </Badge>
-      <Badge tone="premium">
-        {opportunity.weatherSourcePlan.primaryObservationProvider ?? "n/a"} / {opportunity.weatherSourcePlan.primaryForecastProvider ?? "n/a"}
-      </Badge>
-      {opportunity.weatherSourcePlan.visualizationProvider ? (
-        <Badge tone="muted">
-          Map {opportunity.weatherSourcePlan.visualizationProvider}
-        </Badge>
-      ) : null}
-    </div>
-    <div className="mt-2 text-slate-200">
-      {opportunity.weatherSourcePlan.summary}
-    </div>
-    <div className="mt-1 text-slate-400">
-      Station {opportunity.weatherSourcePlan.stationJoinStatus.toLowerCase().replace(/_/g, " ")} • Venue {opportunity.weatherSourcePlan.venueJoinStatus.toLowerCase().replace(/_/g, " ")}
-      {opportunity.weatherSourcePlan.joinMethod ? ` • ${opportunity.weatherSourcePlan.joinMethod.toLowerCase().replace(/_/g, " ")}` : ""}
-    </div>
-    {(opportunity.weatherSourcePlan.venueName || opportunity.weatherSourcePlan.stationCode || opportunity.weatherSourcePlan.roofType) ? (
-      <div className="mt-2 text-slate-400">
-        {opportunity.weatherSourcePlan.venueName ? `Venue ${opportunity.weatherSourcePlan.venueName}` : "Venue n/a"}
-        {opportunity.weatherSourcePlan.stationCode ? ` • Station ${opportunity.weatherSourcePlan.stationCode}` : ""}
-        {opportunity.weatherSourcePlan.roofType ? ` • ${opportunity.weatherSourcePlan.roofType.toLowerCase().replace(/_/g, " ")}` : ""}
-        {opportunity.weatherSourcePlan.weatherExposure ? ` • ${opportunity.weatherSourcePlan.weatherExposure.toLowerCase()}` : ""}
-        {typeof opportunity.weatherSourcePlan.altitudeFeet === "number" ? ` • ${opportunity.weatherSourcePlan.altitudeFeet} ft` : ""}
-      </div>
-    ) : null}
-    {opportunity.weatherSourcePlan.parkFactorNote ? (
-      <div className="mt-1 text-slate-400">
-        {opportunity.weatherSourcePlan.parkFactorNote}
-      </div>
-    ) : null}
-  </div>
-) : null}
+        {opportunity.weatherSourcePlan?.applicable ? (
+          <div className="rounded-md border border-bone/[0.08] bg-surface px-3 py-3 text-[12px] leading-[1.5] text-bone/65">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">Weather sourcing</span>
+              <Badge
+                tone={
+                  opportunity.weatherSourcePlan.sourceConfidence >= 70
+                    ? "success"
+                    : opportunity.weatherSourcePlan.sourceConfidence >= 45
+                      ? "premium"
+                      : "muted"
+                }
+              >
+                {opportunity.weatherSourcePlan.sourceConfidence}
+              </Badge>
+              <Badge tone="premium">
+                {opportunity.weatherSourcePlan.primaryObservationProvider ?? "n/a"} / {opportunity.weatherSourcePlan.primaryForecastProvider ?? "n/a"}
+              </Badge>
+              {opportunity.weatherSourcePlan.visualizationProvider ? (
+                <Badge tone="muted">
+                  Map {opportunity.weatherSourcePlan.visualizationProvider}
+                </Badge>
+              ) : null}
+            </div>
+            <div className="mt-2 text-bone/85">
+              {opportunity.weatherSourcePlan.summary}
+            </div>
+            <div className="mt-1 text-bone/55">
+              Station {opportunity.weatherSourcePlan.stationJoinStatus.toLowerCase().replace(/_/g, " ")} · Venue {opportunity.weatherSourcePlan.venueJoinStatus.toLowerCase().replace(/_/g, " ")}
+              {opportunity.weatherSourcePlan.joinMethod ? ` · ${opportunity.weatherSourcePlan.joinMethod.toLowerCase().replace(/_/g, " ")}` : ""}
+            </div>
+            {(opportunity.weatherSourcePlan.venueName || opportunity.weatherSourcePlan.stationCode || opportunity.weatherSourcePlan.roofType) ? (
+              <div className="mt-2 text-bone/55">
+                {opportunity.weatherSourcePlan.venueName ? `Venue ${opportunity.weatherSourcePlan.venueName}` : "Venue n/a"}
+                {opportunity.weatherSourcePlan.stationCode ? ` · Station ${opportunity.weatherSourcePlan.stationCode}` : ""}
+                {opportunity.weatherSourcePlan.roofType ? ` · ${opportunity.weatherSourcePlan.roofType.toLowerCase().replace(/_/g, " ")}` : ""}
+                {opportunity.weatherSourcePlan.weatherExposure ? ` · ${opportunity.weatherSourcePlan.weatherExposure.toLowerCase()}` : ""}
+                {typeof opportunity.weatherSourcePlan.altitudeFeet === "number" ? ` · ${opportunity.weatherSourcePlan.altitudeFeet} ft` : ""}
+              </div>
+            ) : null}
+            {opportunity.weatherSourcePlan.parkFactorNote ? (
+              <div className="mt-1 text-bone/55">
+                {opportunity.weatherSourcePlan.parkFactorNote}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {opportunity.trendIntelligence ? (
-          <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-xs leading-5 text-slate-300">
+          <div className="rounded-md border border-bone/[0.08] bg-surface px-3 py-3 text-[12px] leading-[1.5] text-bone/65">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="uppercase tracking-[0.16em] text-slate-500">Trend stack</span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/55">Trend stack</span>
               <Badge tone={opportunity.trendIntelligence.supportiveLensCount > opportunity.trendIntelligence.contraryLensCount ? "success" : opportunity.trendIntelligence.contraryLensCount > 0 ? "danger" : "muted"}>
                 {opportunity.trendIntelligence.intelligenceScore}
               </Badge>
@@ -299,10 +300,10 @@ export function OpportunitySpotlightCard({
                 Source {opportunity.trendIntelligence.sourceCoverageScore}
               </Badge>
             </div>
-            <div className="mt-2 text-slate-200">
+            <div className="mt-2 text-bone/85">
               {opportunity.trendIntelligence.summary}
             </div>
-            <div className="mt-1 text-slate-400">
+            <div className="mt-1 text-bone/55">
               {opportunity.trendIntelligence.sourceSummary}
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
@@ -327,7 +328,7 @@ export function OpportunitySpotlightCard({
                 ))}
             </div>
             {opportunity.trendIntelligence.topAngle ? (
-              <div className="mt-2 text-slate-400">
+              <div className="mt-2 text-bone/55">
                 {opportunity.trendIntelligence.topAngle}
               </div>
             ) : null}
@@ -336,22 +337,22 @@ export function OpportunitySpotlightCard({
 
 
         {(typeof opportunity.fairOddsAmerican === "number" || typeof opportunity.confidenceBandLow === "number") ? (
-          <div className="text-xs leading-5 text-slate-400">
+          <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] tabular-nums text-bone/55">
             {typeof opportunity.fairOddsAmerican === "number"
-              ? `Fair ${opportunity.fairOddsAmerican > 0 ? "+" : ""}${opportunity.fairOddsAmerican}`
+              ? <>Fair <span className="text-text-primary">{opportunity.fairOddsAmerican > 0 ? "+" : ""}{opportunity.fairOddsAmerican}</span></>
               : "Fair n/a"}
             {typeof opportunity.pushProbability === "number"
-              ? ` • Push ${(opportunity.pushProbability * 100).toFixed(1)}%`
+              ? <> · Push <span className="text-text-primary">{(opportunity.pushProbability * 100).toFixed(1)}%</span></>
               : ""}
             {typeof opportunity.confidenceBandLow === "number" && typeof opportunity.confidenceBandHigh === "number"
-              ? ` • Band ${opportunity.confidenceBandLow} to ${opportunity.confidenceBandHigh}`
+              ? <> · Band <span className="text-text-primary">{opportunity.confidenceBandLow} to {opportunity.confidenceBandHigh}</span></>
               : ""}
           </div>
         ) : null}
 
         <Link
           href={href}
-          className="mt-2 w-full rounded-full bg-sky-500 px-4 py-2 text-center text-sm font-semibold text-slate-950 transition hover:bg-sky-400"
+          className="mt-2 inline-flex w-full items-center justify-center rounded-sm border border-aqua/40 bg-aqua/[0.08] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-aqua transition-colors hover:border-aqua/60 hover:bg-aqua/[0.12]"
         >
           {ctaLabel}
         </Link>
