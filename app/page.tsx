@@ -559,7 +559,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 icon={`<circle cx="8" cy="5" r="2.5" stroke="currentColor" stroke-width="1.4" fill="none"/><path d="M3.5 14c0-2.485 2.015-4.5 4.5-4.5s4.5 2.015 4.5 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/>`}
               />
               <QuickAction
-                href="/game/sim"
+                href="/sim"
                 label="Sim Engine"
                 description="Model outcomes and stress-test lines"
                 icon={`<path d="M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3z" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linejoin="round"/><path d="M9 11h4M11 9v4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>`}
