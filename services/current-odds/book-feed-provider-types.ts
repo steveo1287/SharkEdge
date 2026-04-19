@@ -1,6 +1,6 @@
 import type { LeagueKey } from "@/lib/types/domain";
 
-export type BookFeedProviderKey = "draftkings" | "fanduel";
+export type BookFeedProviderKey = "draftkings" | "fanduel" | "oddsapi-io";
 
 export type BookFeedBackoffPolicy = {
   baseMs: number;
