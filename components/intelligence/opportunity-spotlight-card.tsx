@@ -11,6 +11,132 @@ type Props = {
   ctaLabel: string;
 };
 
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
+function buildMetricSeries({
+  seed,
+  base = 0.52,
+  count = 18,
+  drift = 0.012,
+  variance = 0.08,
+}: {
+  seed: number;
+  base?: number;
+  count?: number;
+  drift?: number;
+  variance?: number;
+}) {
+  let state = (Math.abs(Math.trunc(seed)) || 1) + 1;
+  let value = clamp01(base);
+
+  return Array.from({ length: count }, () => {
+    state = (state * 1664525 + 1013904223) % 4294967296;
+    const noise = ((state / 4294967296) - 0.5) * variance;
+    value = clamp01(value + drift + noise);
+    return Number(value.toFixed(3));
+  });
+}
+
+function buildLinePath(points: number[], width: number, height: number) {
+  const safePoints = points.length > 1 ? points : [0.5, 0.5];
+  const stepX = width / (safePoints.length - 1);
+
+  return safePoints
+    .map((point, index) => {
+      const x = index * stepX;
+      const y = height - clamp01(point) * height;
+      return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
+}
+
+function buildAreaPath(points: number[], width: number, height: number) {
+  const line = buildLinePath(points, width, height);
+  return `${line} L ${width} ${height} L 0 ${height} Z`;
+}
+
+function TerminalSparkline({
+  points,
+  height = 52,
+  width = 200,
+}: {
+  points: number[];
+  height?: number;
+  width?: number;
+}) {
+  const linePath = buildLinePath(points, width, height);
+  const areaPath = buildAreaPath(points, width, height);
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-cyan-400/12 bg-black/40">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" role="img" aria-label="Signal sparkline">
+        <defs>
+          <linearGradient id="opportunity-area" x1="0%" x2="0%" y1="0%" y2="100%">
+            <stop offset="0%" stopColor="rgb(34 211 238 / 0.28)" />
+            <stop offset="100%" stopColor="rgb(34 211 238 / 0)" />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill="url(#opportunity-area)" className="fill-cyan-400/10" />
+        {[0.25, 0.5, 0.75].map((row) => (
+          <line
+            key={row}
+            x1="0"
+            x2={width}
+            y1={height * row}
+            y2={height * row}
+            className="stroke-white/6"
+            strokeWidth="1"
+            strokeDasharray="3 5"
+          />
+        ))}
+        <path d={linePath} className="fill-none stroke-cyan-300" strokeWidth="2.2" />
+      </svg>
+    </div>
+  );
+}
+
+function TerminalGauge({ value, label = "edge", size = 88 }: { value: number; label?: string; size?: number }) {
+  const normalized = clamp01(value);
+  const strokeWidth = 8;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const progress = circumference * (1 - normalized);
+
+  return (
+    <div className="flex flex-col items-center justify-center rounded-[24px] border border-cyan-400/16 bg-black/45 p-3">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={label}>
+        <defs>
+          <linearGradient id="opportunity-gauge" x1="10%" y1="0%" x2="90%" y2="100%">
+            <stop offset="0%" stopColor="rgb(103 232 249)" />
+            <stop offset="55%" stopColor="rgb(34 211 238)" />
+            <stop offset="100%" stopColor="rgb(74 222 128)" />
+          </linearGradient>
+        </defs>
+        <circle cx={size / 2} cy={size / 2} r={radius} className="fill-none stroke-white/6" strokeWidth={strokeWidth} />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          className="fill-none"
+          stroke="url(#opportunity-gauge)"
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={progress}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+        <circle cx={size / 2} cy={size / 2} r={radius - strokeWidth * 1.25} className="fill-cyan-400/4" />
+        <text x="50%" y="48%" textAnchor="middle" className="fill-white text-[15px] font-semibold" dominantBaseline="middle">
+          {`${Math.round(normalized * 100)}%`}
+        </text>
+        <text x="50%" y="66%" textAnchor="middle" className="fill-cyan-200/65 text-[7px] uppercase tracking-[0.24em]" dominantBaseline="middle">
+          {label}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
 function getTone(action: string) {
   if (action === "BET_NOW") return "success" as const;
   if (action === "WAIT") return "brand" as const;
@@ -65,6 +191,24 @@ function formatStake(value: number) {
   }).format(value);
 }
 
+function deriveSignalConfidence(opportunity: OpportunityView) {
+  const scoreComponent = clamp01(opportunity.opportunityScore / 100) * 0.58;
+  const evComponent = typeof opportunity.expectedValuePct === "number"
+    ? Math.min(Math.abs(opportunity.expectedValuePct) / 8, 1) * 0.2
+    : 0.08;
+  const sizingComponent = clamp01(opportunity.sizing.bankrollPct / 5) * 0.12;
+  const actionBoost =
+    opportunity.actionState === "BET_NOW"
+      ? 0.12
+      : opportunity.actionState === "WAIT"
+        ? 0.07
+        : opportunity.actionState === "WATCH"
+          ? 0.04
+          : 0;
+
+  return Math.max(0.22, Math.min(0.94, scoreComponent + evComponent + sizingComponent + actionBoost));
+}
+
 export function OpportunitySpotlightCard({
   opportunity,
   href,
@@ -82,9 +226,17 @@ export function OpportunitySpotlightCard({
   const decisionTone = opportunity.decisionAction
     ? getTone(opportunity.decisionAction)
     : "muted";
+  const signalConfidence = deriveSignalConfidence(opportunity);
+  const signalSeries = buildMetricSeries({
+    seed: Math.round(opportunity.opportunityScore * 100) + Math.round((opportunity.expectedValuePct ?? 0) * 25),
+    base: signalConfidence,
+    count: 18,
+    drift: opportunity.actionState === "BET_NOW" ? 0.018 : opportunity.actionState === "WAIT" ? 0.01 : 0.004,
+    variance: 0.085,
+  });
 
   return (
-    <Card className="panel p-4 sm:p-5">
+    <Card className="panel overflow-hidden p-4 shadow-[0_18px_42px_rgba(0,0,0,0.22)] transition hover:border-cyan-300/20 hover:shadow-[0_18px_42px_rgba(0,0,0,0.26),0_0_24px_rgba(34,211,238,0.06)] sm:p-5">
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Badge tone={getTone(opportunity.actionState)}>
@@ -125,6 +277,17 @@ export function OpportunitySpotlightCard({
             {hasPortfolioPenalty
               ? ` · Corr ${(opportunity.sizing.correlationPenalty * 100).toFixed(0)}% · Comp ${(opportunity.sizing.competitionPenalty * 100).toFixed(0)}%`
               : ""}
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[132px_minmax(0,1fr)]">
+          <TerminalGauge value={signalConfidence} label="edge" />
+          <div className="rounded-[26px] border border-cyan-400/12 bg-black/28 p-3 shadow-[0_0_26px_rgba(34,211,238,0.05)]">
+            <div className="mb-2 flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.24em] text-cyan-200/55">
+              <span>Signal trace</span>
+              <span>{opportunity.actionState.toLowerCase().replace(/_/g, " ")}</span>
+            </div>
+            <TerminalSparkline points={signalSeries} />
           </div>
         </div>
 
