@@ -1,29 +1,27 @@
 import Link from "next/link";
 import { getBoardPageData, parseBoardFilters } from "@/services/odds/board-service";
-import { GameCard } from "@/components/board/game-card";
 import { TeamBadge } from "@/components/identity/team-badge";
-import { formatAmericanOdds } from "@/lib/formatters/odds";
 import type { BoardSportSectionView, LeagueKey, ProviderHealthView } from "@/lib/types/domain";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const LEAGUE_ICONS: Record<LeagueKey, string> = {
-  NBA:    "🏀",
-  NCAAB:  "🏀",
-  MLB:    "⚾",
-  NHL:    "🏒",
-  NFL:    "🏈",
-  NCAAF:  "🏈",
-  UFC:    "🥊",
-  BOXING: "🥊",
+  NBA: "🏀",
+  NCAAB: "🏀",
+  MLB: "⚾",
+  NHL: "🏒",
+  NFL: "🏈",
+  NCAAF: "🏈",
+  UFC: "🥊",
+  BOXING: "🥊"
 };
 
 const ESPN_SPORT_PATH: Partial<Record<LeagueKey, string>> = {
   NBA: "nba",
   MLB: "mlb",
   NHL: "nhl",
-  NFL: "nfl",
+  NFL: "nfl"
 };
 
 function getTeamLogoUrl(leagueKey: LeagueKey, abbreviation: string): string | null {
@@ -37,12 +35,6 @@ function formatOdds(v: number | null | undefined) {
   return v > 0 ? `+${v}` : `${v}`;
 }
 
-function hasOdds(section: BoardSportSectionView) {
-  return section.games.some(
-    (g) => g.moneyline.bestOdds || g.spread.bestOdds || g.total.bestOdds
-  );
-}
-
 function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["games"][number]; leagueKey: LeagueKey }) {
   const awayLogo = getTeamLogoUrl(leagueKey, game.awayTeam.abbreviation);
   const homeLogo = getTeamLogoUrl(leagueKey, game.homeTeam.abbreviation);
@@ -50,11 +42,15 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
   return (
     <Link href={game.detailHref ?? `/game/${game.id}`} className="block">
       <div className="group grid grid-cols-[1fr_auto] gap-x-4 gap-y-0 rounded-xl border border-bone/[0.07] bg-surface px-4 py-3 transition-colors hover:border-aqua/25 hover:bg-panel">
-
-        {/* Teams column */}
         <div className="grid gap-2.5">
           <div className="flex items-center gap-2.5">
-            <TeamBadge name={game.awayTeam.name} abbreviation={game.awayTeam.abbreviation} logoUrl={awayLogo} size="sm" tone="away" />
+            <TeamBadge
+              name={game.awayTeam.name}
+              abbreviation={game.awayTeam.abbreviation}
+              logoUrl={awayLogo}
+              size="sm"
+              tone="away"
+            />
             <span className="truncate font-display text-[14px] font-semibold tracking-[-0.01em] text-text-primary">
               {game.awayTeam.name}
             </span>
@@ -63,17 +59,20 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
             </span>
           </div>
           <div className="flex items-center gap-2.5">
-            <TeamBadge name={game.homeTeam.name} abbreviation={game.homeTeam.abbreviation} logoUrl={homeLogo} size="sm" tone="home" />
+            <TeamBadge
+              name={game.homeTeam.name}
+              abbreviation={game.homeTeam.abbreviation}
+              logoUrl={homeLogo}
+              size="sm"
+              tone="home"
+            />
             <span className="truncate font-display text-[14px] font-semibold tracking-[-0.01em] text-text-primary">
               {game.homeTeam.name}
             </span>
-            <span className="ml-auto font-mono text-[13px] tabular-nums text-bone/60">
-              —
-            </span>
+            <span className="ml-auto font-mono text-[13px] tabular-nums text-bone/60">—</span>
           </div>
         </div>
 
-        {/* Markets column */}
         <div className="flex flex-col items-end justify-center gap-1.5 border-l border-bone/[0.06] pl-4">
           <div className="flex items-center gap-2 text-[11px]">
             <span className="text-bone/40 uppercase tracking-widest">SPR</span>
@@ -89,7 +88,7 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
   );
 }
 
-function LeagueSection({ section, providerHealth, sourceNote }: { section: BoardSportSectionView; providerHealth: ProviderHealthView; sourceNote: string }) {
+function LeagueSection({ section, providerHealth }: { section: BoardSportSectionView; providerHealth: ProviderHealthView }) {
   const gamesWithOdds = section.games.filter(
     (g) => g.moneyline.bestOdds || g.spread.bestOdds || g.total.bestOdds
   );
@@ -104,7 +103,6 @@ function LeagueSection({ section, providerHealth, sourceNote }: { section: Board
 
   return (
     <section id={section.leagueKey} className="grid gap-3">
-      {/* Section header */}
       <div className="flex items-center gap-3">
         <span className="text-lg">{LEAGUE_ICONS[section.leagueKey]}</span>
         <h2 className="font-display text-[15px] font-semibold text-text-primary">
@@ -118,7 +116,6 @@ function LeagueSection({ section, providerHealth, sourceNote }: { section: Board
         </div>
       </div>
 
-      {/* Games grid — 2-col on md+, 1-col on mobile */}
       {gamesWithOdds.length > 0 ? (
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
           {gamesWithOdds.map((game) => (
@@ -151,13 +148,13 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
     (s) => s.games.length > 0 || s.scoreboard.length > 0
   );
 
-  const totalGames = data.sportSections.reduce((n, s) => n + s.games.filter(
-    (g) => g.moneyline.bestOdds || g.spread.bestOdds || g.total.bestOdds
-  ).length, 0);
+  const totalGames = data.sportSections.reduce(
+    (n, s) => n + s.games.filter((g) => g.moneyline.bestOdds || g.spread.bestOdds || g.total.bestOdds).length,
+    0
+  );
 
   return (
     <div className="min-h-screen">
-      {/* Page header */}
       <div className="sticky top-0 z-30 border-b border-bone/[0.06] bg-ink/90 backdrop-blur-xl">
         <div className="mx-auto max-w-[1400px] px-4 py-3 sm:px-6">
           <div className="flex items-center justify-between gap-4">
@@ -177,7 +174,6 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
             </div>
           </div>
 
-          {/* League jump nav */}
           <div className="no-scrollbar mt-2.5 flex gap-1.5 overflow-x-auto pb-0.5">
             {activeSections.map((section) => {
               const count = section.games.filter(
@@ -191,9 +187,7 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
                 >
                   <span>{LEAGUE_ICONS[section.leagueKey]}</span>
                   <span>{section.leagueKey}</span>
-                  {count > 0 && (
-                    <span className="font-mono tabular-nums text-bone/40">{count}</span>
-                  )}
+                  {count > 0 && <span className="font-mono tabular-nums text-bone/40">{count}</span>}
                 </a>
               );
             })}
@@ -201,7 +195,6 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
         </div>
       </div>
 
-      {/* Main content */}
       <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
         {activeSections.length === 0 ? (
           <div className="rounded-2xl border border-bone/[0.07] bg-surface px-6 py-12 text-center">
@@ -222,7 +215,7 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
         ) : (
           <div className="grid gap-8">
             {activeSections.map((section) => (
-              <LeagueSection key={section.leagueKey} section={section} providerHealth={data.providerHealth} sourceNote={data.sourceNote} />
+              <LeagueSection key={section.leagueKey} section={section} providerHealth={data.providerHealth} />
             ))}
           </div>
         )}
