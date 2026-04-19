@@ -1,6 +1,6 @@
-type SupportedLeague = "NBA" | "NCAAB" | "NFL" | "NCAAF" | "NHL" | "MLB";
+export type SupportedLeague = "NBA" | "NCAAB" | "NFL" | "NCAAF" | "NHL" | "MLB";
 
-type CalibrationProfile = {
+export type CalibrationProfile = {
   neutralShrink: number;
   marketBlend: number;
   spreadDeltaShrink: number;
@@ -47,12 +47,26 @@ const PROFILES: Record<SupportedLeague, CalibrationProfile> = {
   MLB: { neutralShrink: 0.12, marketBlend: 0.16, spreadDeltaShrink: 0.9, totalDeltaShrink: 0.88, propProbShrink: 0.14, stdBaseline: 2.5 }
 };
 
+let profileOverrides: Partial<Record<string, CalibrationProfile>> = {};
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function getProfile(leagueKey: string): CalibrationProfile {
+export function getDefaultCalibrationProfile(leagueKey: string): CalibrationProfile {
   return PROFILES[leagueKey as SupportedLeague] ?? DEFAULT_PROFILE;
+}
+
+export function setCalibrationProfileOverrides(overrides: Partial<Record<string, CalibrationProfile>>) {
+  profileOverrides = { ...profileOverrides, ...overrides };
+}
+
+export function resetCalibrationProfileOverrides() {
+  profileOverrides = {};
+}
+
+export function getCalibrationProfile(leagueKey: string): CalibrationProfile {
+  return profileOverrides[leagueKey] ?? getDefaultCalibrationProfile(leagueKey);
 }
 
 function getVariancePenalty(totalStdDev: number | null | undefined, stdBaseline: number) {
@@ -72,7 +86,7 @@ function getConfidenceModifier(ratingsConfidence: number | null | undefined) {
 }
 
 export function calibrateWinProbability(args: ProbabilityCalibrationArgs) {
-  const profile = getProfile(args.leagueKey);
+  const profile = getCalibrationProfile(args.leagueKey);
   const variancePenalty = getVariancePenalty(args.totalStdDev, profile.stdBaseline);
   const confidenceModifier = getConfidenceModifier(args.ratingsConfidence);
 
@@ -87,7 +101,7 @@ export function calibrateWinProbability(args: ProbabilityCalibrationArgs) {
 }
 
 export function calibrateSpreadDelta(args: DeltaCalibrationArgs) {
-  const profile = getProfile(args.leagueKey);
+  const profile = getCalibrationProfile(args.leagueKey);
   const variancePenalty = getVariancePenalty(args.totalStdDev, profile.stdBaseline);
   const confidenceModifier = getConfidenceModifier(args.ratingsConfidence);
 
@@ -95,7 +109,7 @@ export function calibrateSpreadDelta(args: DeltaCalibrationArgs) {
 }
 
 export function calibrateTotalDelta(args: DeltaCalibrationArgs) {
-  const profile = getProfile(args.leagueKey);
+  const profile = getCalibrationProfile(args.leagueKey);
   const variancePenalty = getVariancePenalty(args.totalStdDev, profile.stdBaseline);
   const confidenceModifier = getConfidenceModifier(args.ratingsConfidence);
 
@@ -103,7 +117,7 @@ export function calibrateTotalDelta(args: DeltaCalibrationArgs) {
 }
 
 export function calibratePropHitProbability(args: ProbabilityCalibrationArgs) {
-  const profile = getProfile(args.leagueKey);
+  const profile = getCalibrationProfile(args.leagueKey);
   const confidenceModifier = getConfidenceModifier(args.ratingsConfidence);
   const centered = args.rawProb - 0.5;
   const shrunk = 0.5 + centered * (1 - profile.propProbShrink) / confidenceModifier;
