@@ -24,6 +24,7 @@ import { buildBoardSportSections, getBoardSupportSummary, getBoardVisibleLeagues
 import { analyzeMarket } from "@/services/market/market-analysis-service";
 import type { MarketPriceSample } from "@/services/market/market-truth-service";
 import { buildProviderHealth } from "@/services/providers/provider-health";
+import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
 
 import {
   buildLiveSportsbookRecord,
@@ -36,6 +37,8 @@ import {
 
 const LIVE_BOARD_SOFT_STALE_MINUTES = 15;
 const LIVE_BOARD_HARD_STALE_MINUTES = 45;
+const LIVE_BOARD_CACHE_KEY = "current-board:v1:live-response";
+const LIVE_BOARD_CACHE_TTL_SECONDS = 300;
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 type CurrentOddsSourceCandidate = {
@@ -115,6 +118,11 @@ function selectPreferredBoardResponse(candidates: Array<CurrentOddsSourceCandida
 }
 
 async function fetchLiveBoardResponse() {
+  const cached = await readHotCache<CurrentOddsBoardResponse>(LIVE_BOARD_CACHE_KEY);
+  if (cached && !isHardStale(cached.generated_at, LIVE_BOARD_SOFT_STALE_MINUTES)) {
+    return cached;
+  }
+
   const [backendResponse, theRundownResponse] = await Promise.all([
     backendCurrentOddsProvider.fetchBoard(),
     therundownCurrentOddsProvider.fetchBoard()
@@ -130,9 +138,14 @@ async function fetchLiveBoardResponse() {
   ]);
 
   if (!response?.configured) {
+    if (cached && !isHardStale(cached.generated_at, LIVE_BOARD_HARD_STALE_MINUTES)) {
+      return cached;
+    }
+
     return null;
   }
 
+  await writeHotCache(LIVE_BOARD_CACHE_KEY, response, LIVE_BOARD_CACHE_TTL_SECONDS);
   return response;
 }
 
