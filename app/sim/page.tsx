@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { getSimBoardFeed } from "@/services/sim/sim-board-service";
 
 export const dynamic = "force-dynamic";
@@ -171,6 +173,23 @@ export default async function SimPage() {
                     </div>
                   </div>
                 )}
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {event.diagnostics.hasProjection ? (
+                    <Link
+                      href={`/game/${event.id}#simulation`}
+                      className="inline-flex items-center rounded-lg border border-aqua/25 bg-aqua/[0.06] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-aqua transition-colors hover:border-aqua/40 hover:bg-aqua/[0.10]"
+                    >
+                      Open simulation
+                    </Link>
+                  ) : null}
+                  <Link
+                    href={`/game/${event.id}`}
+                    className="inline-flex items-center rounded-lg border border-bone/[0.08] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-bone/70 transition-colors hover:border-bone/[0.16] hover:text-white"
+                  >
+                    Open matchup
+                  </Link>
+                </div>
               </div>
             ))}
           </div>
