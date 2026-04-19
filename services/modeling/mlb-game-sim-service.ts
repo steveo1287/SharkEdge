@@ -1,4 +1,8 @@
 import { buildMlbSourceNativeContext } from "@/services/modeling/mlb-source-native-context";
+import {
+  applyMlbSourceAwareResimulation,
+  recalibrateMlbMarketOutputs
+} from "@/services/modeling/mlb-source-aware-resimulation";
 
 type TeamRole = "HOME" | "AWAY";
 
@@ -933,7 +937,7 @@ export async function buildMlbEventProjection(eventId: string) {
         : `Venue-aware run environment baseline ${sourceNativeContext.venue.baselineRunFactor.toFixed(3)} at ${sourceNativeContext.venue.venueName ?? venue ?? "venue"}; live forecast still needs game-day joins.`
   };
 
-  const simulation = simulateMlbGame({
+  const baseInput: MlbSimulationInput = {
     home: {
       teamName: home.teamName,
       offenseFactor: clamp(
@@ -982,11 +986,15 @@ export async function buildMlbEventProjection(eventId: string) {
     },
     weather,
     seed: hashSeed(`${resolved.event.id}:${resolved.event.startTime.toISOString()}:${venue ?? "neutral"}`)
-  });
+  };
+
+  const resimInput = applyMlbSourceAwareResimulation(baseInput, sourceNativeContext);
+  const rawSimulation = simulateMlbGame(resimInput);
+  const simulation = recalibrateMlbMarketOutputs(rawSimulation, sourceNativeContext);
 
   return {
     modelKey: "mlb-game-state-sim",
-    modelVersion: "v2-source-native",
+    modelVersion: "v3-source-aware-resim",
     eventId: resolved.event.id,
     projectedHomeScore: simulation.projectedHomeRuns,
     projectedAwayScore: simulation.projectedAwayRuns,
@@ -998,7 +1006,7 @@ export async function buildMlbEventProjection(eventId: string) {
       sport: resolved.event.league.sport,
       league: resolved.event.league.key,
       engine: "mlb-game-state-sim",
-      engineVersion: "v2-source-native",
+      engineVersion: "v3-source-aware-resim",
       venue,
       runEnvironment: {
         parkFactor: round(parkFactor, 3),
@@ -1057,6 +1065,12 @@ export async function buildMlbEventProjection(eventId: string) {
         }
       },
       mlbSourceNativeContext: sourceNativeContext,
+      reSimulation: {
+        lineupAware: true,
+        probablePitcherAware: true,
+        bullpenAvailabilityAware: true,
+        inputSeed: resimInput.seed ?? null
+      },
       fullGame: {
         projectedHomeRuns: simulation.projectedHomeRuns,
         projectedAwayRuns: simulation.projectedAwayRuns,
