@@ -19,7 +19,7 @@ type DeltaRecord = {
   actualDelta: number;
 };
 
-type LeagueCalibrationPayload = {
+export type LeagueCalibrationPayload = {
   leagueKey: string;
   profile: CalibrationProfile;
   metrics: {
@@ -33,7 +33,24 @@ type LeagueCalibrationPayload = {
     marketLogLoss: number | null;
     buckets: Array<{ bucket: string; predicted: number; actual: number; count: number }>;
   };
+  guardrails: {
+    minimums: {
+      moneylineSample: number;
+      spreadSample: number;
+      totalSample: number;
+      propSample: number;
+    };
+    eligible: boolean;
+    warnings: string[];
+  };
   generatedAt: string;
+};
+
+const MINIMUM_SAMPLES = {
+  moneylineSample: 150,
+  spreadSample: 150,
+  totalSample: 150,
+  propSample: 250
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -146,6 +163,29 @@ function getPropActualValue(marketType: string, statsJson: unknown) {
   }
 }
 
+function buildGuardrails(metrics: LeagueCalibrationPayload["metrics"]) {
+  const warnings: string[] = [];
+
+  if (metrics.moneylineSample < MINIMUM_SAMPLES.moneylineSample) {
+    warnings.push(`Moneyline sample below minimum (${metrics.moneylineSample}/${MINIMUM_SAMPLES.moneylineSample}).`);
+  }
+  if (metrics.spreadSample < MINIMUM_SAMPLES.spreadSample) {
+    warnings.push(`Spread sample below minimum (${metrics.spreadSample}/${MINIMUM_SAMPLES.spreadSample}).`);
+  }
+  if (metrics.totalSample < MINIMUM_SAMPLES.totalSample) {
+    warnings.push(`Total sample below minimum (${metrics.totalSample}/${MINIMUM_SAMPLES.totalSample}).`);
+  }
+  if (metrics.propSample < MINIMUM_SAMPLES.propSample) {
+    warnings.push(`Prop sample below minimum (${metrics.propSample}/${MINIMUM_SAMPLES.propSample}).`);
+  }
+
+  return {
+    minimums: MINIMUM_SAMPLES,
+    eligible: warnings.length === 0,
+    warnings
+  };
+}
+
 function buildProfile(leagueKey: string, args: {
   moneylineRecords: ProbabilityRecord[];
   spreadRecords: DeltaRecord[];
@@ -179,20 +219,23 @@ function buildProfile(leagueKey: string, args: {
     stdBaseline: base.stdBaseline
   };
 
+  const metrics = {
+    moneylineSample: args.moneylineRecords.length,
+    spreadSample: args.spreadRecords.length,
+    totalSample: args.totalRecords.length,
+    propSample: args.propRecords.length,
+    modelBrier,
+    marketBrier,
+    modelLogLoss,
+    marketLogLoss,
+    buckets: summarizeCalibrationBuckets(args.moneylineRecords)
+  };
+
   return {
     leagueKey,
     profile,
-    metrics: {
-      moneylineSample: args.moneylineRecords.length,
-      spreadSample: args.spreadRecords.length,
-      totalSample: args.totalRecords.length,
-      propSample: args.propRecords.length,
-      modelBrier,
-      marketBrier,
-      modelLogLoss,
-      marketLogLoss,
-      buckets: summarizeCalibrationBuckets(args.moneylineRecords)
-    },
+    metrics,
+    guardrails: buildGuardrails(metrics),
     generatedAt: new Date().toISOString()
   };
 }
@@ -248,9 +291,7 @@ export async function fitAndPersistSimCalibrationProfiles() {
     }
 
     const homeParticipant = event.participants.find((participant) => participant.role === "HOME");
-    const awayParticipant = event.participants.find((participant) => participant.role === "AWAY");
     const homeCompetitorId = homeParticipant?.competitorId ?? null;
-    const awayCompetitorId = awayParticipant?.competitorId ?? null;
     const leagueKey = event.leagueId ? event.leagueId : "UNKNOWN";
     const leagueRecords = recordsByLeague.get(leagueKey) ?? {
       moneylineRecords: [],
@@ -352,7 +393,9 @@ export async function fitAndPersistSimCalibrationProfiles() {
 
   for (const [leagueKey, records] of recordsByLeague.entries()) {
     const report = buildProfile(leagueKey, records);
-    persisted[leagueKey] = report.profile;
+    if (report.guardrails.eligible) {
+      persisted[leagueKey] = report.profile;
+    }
     reports.push(report);
 
     await prisma.trendCache.upsert({
@@ -394,11 +437,24 @@ export async function loadPersistedSimCalibrationProfiles() {
   const overrides: Record<string, CalibrationProfile> = {};
   for (const row of cached) {
     const payload = row.payloadJson as Partial<LeagueCalibrationPayload> | null;
-    if (payload?.leagueKey && payload.profile) {
+    if (payload?.leagueKey && payload.profile && payload.guardrails?.eligible) {
       overrides[payload.leagueKey] = payload.profile;
     }
   }
 
   setCalibrationProfileOverrides(overrides);
   return overrides;
+}
+
+export async function getPersistedSimCalibrationReports() {
+  const cached = await prisma.trendCache.findMany({
+    where: {
+      scope: "sim_calibration_profile"
+    },
+    orderBy: { updatedAt: "desc" }
+  });
+
+  return cached
+    .map((row) => row.payloadJson as LeagueCalibrationPayload)
+    .sort((a, b) => a.leagueKey.localeCompare(b.leagueKey));
 }
