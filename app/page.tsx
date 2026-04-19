@@ -560,7 +560,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               />
               <QuickAction
                 href="/sim"
-                label="Sim Engine"
+                label="Simulator Studio"
                 description="Model outcomes and stress-test lines"
                 icon={`<path d="M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3z" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linejoin="round"/><path d="M9 11h4M11 9v4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>`}
               />
