@@ -1091,6 +1091,7 @@ export type TrendCardView = {
   caution?: string | null;
   href?: string | null;
   tone: "success" | "brand" | "premium" | "muted";
+  todayMatches?: TrendMatchView[];
 };
 
 export type TrendDashboardView = {
