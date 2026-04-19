@@ -26,14 +26,17 @@ function buildOddsApiUrl(leagues: LeagueKey[]) {
     return null;
   }
 
-  const apiKey = API_KEY_2 || API_KEY; // Alternate between keys for load distribution
-  const params = new URLSearchParams({
-    apiKey,
-    regions: "us",
-    markets: "h2h,spreads,totals",
-    oddsFormat: "american",
-    dateFormat: "iso"
-  });
+  const selectedApiKey = API_KEY_2 || API_KEY;
+  if (!selectedApiKey) {
+    return null;
+  }
+
+  const params = new URLSearchParams();
+  params.set("apiKey", selectedApiKey);
+  params.set("regions", "us");
+  params.set("markets", "h2h,spreads,totals");
+  params.set("oddsFormat", "american");
+  params.set("dateFormat", "iso");
 
   return `https://api.the-odds-api.com/v4/sports/${sports}/odds?${params.toString()}`;
 }
@@ -124,7 +127,7 @@ export const oddsApiIoBookFeedProvider: BookFeedProvider = {
         providerKey: "oddsapi-io",
         sportsbookKey: "oddsapi-io",
         fetchedAt: new Date().toISOString(),
-        sourceUrl: url.replace(API_KEY, "***"),
+        sourceUrl: API_KEY ? url.replace(API_KEY, "***") : url,
         cacheTtlMs: 60_000,
         etag: response.headers.get("etag"),
         payload
