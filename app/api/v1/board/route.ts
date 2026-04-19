@@ -51,6 +51,24 @@ export async function GET(request: Request) {
 
   try {
     const payload = await getLiveBoardPageData(filters);
+    if (!payload) {
+      return NextResponse.json(
+        {
+          filters,
+          source: "live",
+          games: [],
+          events: [],
+          summary: { totalGames: 0, totalProps: 0, totalSportsbooks: 0 },
+          providerHealth: {
+            state: "OFFLINE",
+            label: "Offline",
+            summary: "Live board payload was unavailable."
+          }
+        },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json({
       ...payload,
       // Backward-compatible shape for any legacy consumer still expecting `events`.
