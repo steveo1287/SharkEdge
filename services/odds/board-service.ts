@@ -63,18 +63,18 @@ async function getMockBoardPageData(filters: BoardFilters): Promise<BoardPageDat
     },
     liveMessage:
       filters.status === "live"
-        ? "The live scoreboard mesh is still active, but the current-odds backend did not respond. SharkEdge is staying honest instead of rendering seeded board rows."
+        ? "The live scoreboard mesh is still active, but the persisted current-odds inventory did not respond. SharkEdge is staying honest instead of rendering fake live board rows."
         : null,
     source: "mock",
     sourceNote:
-      "Current odds are unavailable right now, so the homepage is rendering support-aware scoreboard sections only. No seeded game rows are being passed off as live coverage.",
+      "Persisted live board inventory is unavailable right now, so the homepage is rendering support-aware scoreboard sections only. No synthetic provider rows are being passed off as live coverage.",
     providerHealth: buildProviderHealth({
       source: "mock",
-      healthySummary: "Live board pricing is connected.",
+      healthySummary: "Persisted live board inventory is connected.",
       fallbackSummary:
-        "The board is leaning on scoreboard context because the live current-odds adapter is not responding.",
+        "The board is leaning on scoreboard context because persisted live market inventory is unavailable.",
       offlineSummary:
-        "The live current-odds adapter is offline in this runtime, so only support-aware scoreboard context is being shown."
+        "Persisted live market inventory is offline in this runtime, so only support-aware scoreboard context is being shown."
     })
   };
 }
@@ -249,18 +249,6 @@ export async function getBoardPageData(filters: BoardFilters): Promise<BoardPage
 
   if (dbData && dbData.sportSections.some((section) => section.games.length > 0)) {
     return dbData;
-  }
-
-  const liveData = await withTimeoutFallback(
-    import("@/services/odds/live-board-data").then((module) => module.getLiveBoardPageData(filters)),
-    {
-      timeoutMs: LIVE_BOARD_TIMEOUT_MS,
-      fallback: null
-    }
-  );
-
-  if (liveData) {
-    return liveData;
   }
 
   return getMockBoardPageData(filters);
