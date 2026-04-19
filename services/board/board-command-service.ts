@@ -202,6 +202,7 @@ export async function getBoardCommandData(
   const requestedFocusId = readValue(searchParams, "focus");
 
   const oddsService = await import("@/services/odds/board-service");
+  const liveBoardService = await import("@/services/odds/live-board-data");
   const filters = oddsService.parseBoardFilters({
     league: selectedLeague,
     date: resolveBoardDate(selectedDate),
@@ -210,7 +211,7 @@ export async function getBoardCommandData(
     status: "all"
   });
 
-  const boardData = await oddsService.getBoardPageData(filters);
+  const boardData = await liveBoardService.getLiveBoardPageData(filters);
 
   const filteredVerifiedGames = boardData.games
     .filter(isVerifiedGame)
