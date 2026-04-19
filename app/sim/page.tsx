@@ -3,6 +3,22 @@ import { getSimBoardFeed } from "@/services/sim/sim-board-service";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function formatPercent(value: number | null | undefined) {
+  if (typeof value !== "number") {
+    return "—";
+  }
+
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatScore(value: number | null | undefined) {
+  if (typeof value !== "number") {
+    return "—";
+  }
+
+  return value.toFixed(2);
+}
+
 export default async function SimPage() {
   const data = await getSimBoardFeed();
 
@@ -17,6 +33,25 @@ export default async function SimPage() {
       </div>
 
       <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
+        <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-xl border border-bone/[0.07] bg-surface p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-bone/45">Events</p>
+            <p className="mt-2 font-mono text-[24px] text-text-primary">{data.summary.totalEvents}</p>
+          </div>
+          <div className="rounded-xl border border-bone/[0.07] bg-surface p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-bone/45">Projection Ready</p>
+            <p className="mt-2 font-mono text-[24px] text-aqua">{data.summary.projectedEvents}</p>
+          </div>
+          <div className="rounded-xl border border-bone/[0.07] bg-surface p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-bone/45">Signal Ready</p>
+            <p className="mt-2 font-mono text-[24px] text-text-primary">{data.summary.signalEvents}</p>
+          </div>
+          <div className="rounded-xl border border-bone/[0.07] bg-surface p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-bone/45">Market Ready</p>
+            <p className="mt-2 font-mono text-[24px] text-text-primary">{data.summary.marketReadyEvents}</p>
+          </div>
+        </div>
+
         {data.events.length === 0 ? (
           <div className="rounded-2xl border border-bone/[0.07] bg-surface px-6 py-12 text-center">
             <p className="text-[14px] font-semibold text-bone/70">No events available</p>
@@ -28,13 +63,47 @@ export default async function SimPage() {
                 key={event.id}
                 className="rounded-xl border border-bone/[0.07] bg-surface p-6"
               >
-                <div className="mb-4">
-                  <h2 className="font-display text-[16px] font-semibold text-text-primary">
-                    {event.name}
-                  </h2>
-                  <p className="text-[13px] text-bone/50">
-                    {event.league} • {new Date(event.startTime).toLocaleString()}
-                  </p>
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="font-display text-[16px] font-semibold text-text-primary">
+                      {event.name}
+                    </h2>
+                    <p className="text-[13px] text-bone/50">
+                      {event.league} • {new Date(event.startTime).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="rounded-full border border-bone/[0.08] px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-bone/55">
+                      {event.diagnostics.hasProjection ? "Projection Ready" : "No Projection"}
+                    </span>
+                    <span className="rounded-full border border-bone/[0.08] px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-bone/55">
+                      {event.diagnostics.signalCount} Signals
+                    </span>
+                    <span className="rounded-full border border-aqua/20 bg-aqua/[0.05] px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-aqua">
+                      Best EV {formatPercent(event.diagnostics.bestEvPercent)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mb-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg bg-ink/30 p-3">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-bone/45">Best Edge</p>
+                    <p className="mt-2 font-mono text-[18px] text-text-primary">
+                      {formatScore(event.diagnostics.bestEdgeScore)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-ink/30 p-3">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-bone/45">Best EV</p>
+                    <p className="mt-2 font-mono text-[18px] text-text-primary">
+                      {formatPercent(event.diagnostics.bestEvPercent)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-ink/30 p-3">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-bone/45">Markets</p>
+                    <p className="mt-2 font-mono text-[18px] text-text-primary">
+                      {event.diagnostics.marketCount}
+                    </p>
+                  </div>
                 </div>
 
                 {event.projection ? (
@@ -68,16 +137,9 @@ export default async function SimPage() {
                               </span>
                             )}
                           </p>
-                          {typeof signal.edgeScore === "number" && (
-                            <p className="mt-1 text-bone/50">
-                              Score: {signal.edgeScore.toFixed(2)} • EV:{" "}
-                              {(typeof signal.evPercent === "number"
-                                ? signal.evPercent * 100
-                                : 0
-                              ).toFixed(1)}
-                              %
-                            </p>
-                          )}
+                          <p className="mt-1 text-bone/50">
+                            Score: {formatScore(signal.edgeScore)} • EV: {formatPercent(signal.evPercent)}
+                          </p>
                         </div>
                       ))}
                     </div>
