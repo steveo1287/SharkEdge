@@ -632,36 +632,49 @@ export function TrendsDashboard({ data }: TrendsDashboardProps) {
                     Live qualifiers
                   </div>
                   <div className="mt-3 grid gap-2">
-                    {cardMatches.map((match) => (
-                      <div key={`${card.id}:${match.id}`} className="rounded-xl border border-white/8 bg-slate-950/55 p-3">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                          <div>
-                            <div className="text-sm font-semibold text-white">{match.eventLabel}</div>
-                            <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                              {match.leagueKey} · {match.status}
+                    {cardMatches.map((match) => {
+                      const recommendedBetLabel = (match as typeof match & {
+                        recommendedBetLabel?: string | null;
+                      }).recommendedBetLabel;
+
+                      return (
+                        <div key={`${card.id}:${match.id}`} className="rounded-xl border border-white/8 bg-slate-950/55 p-3">
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="text-sm font-semibold text-white">{match.eventLabel}</div>
+                                {recommendedBetLabel ? (
+                                  <div className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
+                                    {recommendedBetLabel}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                                {match.leagueKey} · {match.status}
+                              </div>
+                              {match.oddsContext ? (
+                                <div className="mt-2 text-xs leading-5 text-slate-400">{match.oddsContext}</div>
+                              ) : null}
                             </div>
-                            {match.oddsContext ? (
-                              <div className="mt-2 text-xs leading-5 text-slate-400">{match.oddsContext}</div>
-                            ) : null}
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <Link href={match.matchupHref} className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
-                              Matchup
-                            </Link>
-                            {match.boardHref ? (
-                              <Link href={match.boardHref} className="rounded-xl border border-line px-3 py-2 text-xs text-slate-300">
-                                Board
+                            <div className="flex flex-wrap gap-2">
+                              <Link href={match.matchupHref} className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
+                                Matchup
                               </Link>
-                            ) : null}
-                            {match.propsHref ? (
-                              <Link href={match.propsHref} className="rounded-xl border border-line px-3 py-2 text-xs text-slate-300">
-                                Props
-                              </Link>
-                            ) : null}
+                              {match.boardHref ? (
+                                <Link href={match.boardHref} className="rounded-xl border border-line px-3 py-2 text-xs text-slate-300">
+                                  Board
+                                </Link>
+                              ) : null}
+                              {match.propsHref ? (
+                                <Link href={match.propsHref} className="rounded-xl border border-line px-3 py-2 text-xs text-slate-300">
+                                  Props
+                                </Link>
+                              ) : null}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ) : null}
@@ -705,48 +718,61 @@ export function TrendsDashboard({ data }: TrendsDashboardProps) {
         </div>
         {data.todayMatches.length ? (
           <div className="mt-5 grid gap-3">
-            {data.todayMatches.map((match) => (
-              <div key={match.id} className="rounded-2xl border border-line bg-slate-950/70 p-4">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                      {match.leagueKey} - {match.status}
+            {data.todayMatches.map((match) => {
+              const recommendedBetLabel = (match as typeof match & {
+                recommendedBetLabel?: string | null;
+              }).recommendedBetLabel;
+
+              return (
+                <div key={match.id} className="rounded-2xl border border-line bg-slate-950/70 p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                          {match.leagueKey} - {match.status}
+                        </div>
+                        {recommendedBetLabel ? (
+                          <div className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
+                            {recommendedBetLabel}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 font-semibold text-white">{match.eventLabel}</div>
+                      <div className="mt-2 text-sm text-slate-400">
+                        {match.matchingLogic}
+                      </div>
+                      <div className="mt-2 text-xs text-slate-500">
+                        {new Date(match.startTime).toLocaleString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit"
+                        })}
+                        {match.stateDetail ? ` - ${match.stateDetail}` : ""}
+                      </div>
+                      {match.oddsContext ? (
+                        <div className="mt-2 text-xs text-slate-400">{match.oddsContext}</div>
+                      ) : null}
                     </div>
-                    <div className="mt-2 font-semibold text-white">{match.eventLabel}</div>
-                    <div className="mt-2 text-sm text-slate-400">
-                      {match.matchingLogic}
-                    </div>
-                    <div className="mt-2 text-xs text-slate-500">
-                      {new Date(match.startTime).toLocaleString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        hour: "numeric",
-                        minute: "2-digit"
-                      })}
-                      {match.stateDetail ? ` - ${match.stateDetail}` : ""}
-                    </div>
-                    {match.oddsContext ? (
-                      <div className="mt-2 text-xs text-slate-400">{match.oddsContext}</div>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Link href={match.matchupHref} className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-200">
-                      Matchup
-                    </Link>
-                    {match.boardHref ? (
-                      <Link href={match.boardHref} className="rounded-xl border border-line px-3 py-2 text-sm text-slate-300">
-                        Board
+                    <div className="flex flex-wrap gap-2">
+                      <Link href={match.matchupHref} className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-200">
+                        Matchup
                       </Link>
-                    ) : null}
-                    {match.propsHref ? (
-                      <Link href={match.propsHref} className="rounded-xl border border-line px-3 py-2 text-sm text-slate-300">
-                        Props
-                      </Link>
-                    ) : null}
+                      {match.boardHref ? (
+                        <Link href={match.boardHref} className="rounded-xl border border-line px-3 py-2 text-sm text-slate-300">
+                          Board
+                        </Link>
+                      ) : null}
+                      {match.propsHref ? (
+                        <Link href={match.propsHref} className="rounded-xl border border-line px-3 py-2 text-sm text-slate-300">
+                          Props
+                        </Link>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : null}
       </Card>
