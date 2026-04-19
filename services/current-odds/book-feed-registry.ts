@@ -1,12 +1,10 @@
 import type { LeagueKey } from "@/lib/types/domain";
 
-import { draftKingsBookFeedProvider } from "./providers/draftkings-feed";
-import { fanDuelBookFeedProvider } from "./providers/fanduel-feed";
+import { oddsApiIoBookFeedProvider } from "./providers/oddsapi-feed";
 import type { BookFeedProvider, BookFeedProviderKey } from "./book-feed-provider-types";
 
 const BOOK_FEED_PROVIDERS: BookFeedProvider[] = [
-  draftKingsBookFeedProvider,
-  fanDuelBookFeedProvider
+  oddsApiIoBookFeedProvider
 ];
 
 export function getBookFeedProviders() {
