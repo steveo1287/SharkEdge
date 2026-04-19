@@ -54,7 +54,7 @@ export default async function SimPage() {
                   <div className="rounded-lg bg-ink/30 p-3">
                     <p className="mb-2 text-[12px] font-semibold text-bone/70">Top Edge Signals</p>
                     <div className="space-y-2">
-                      {event.topSignals.map((signal, idx) => (
+                      {event.topSignals.map((signal: any, idx: number) => (
                         <div
                           key={idx}
                           className="rounded border border-bone/[0.06] bg-ink/50 p-2 text-[11px]"

@@ -138,16 +138,27 @@ async function createEdgeSignal(args: {
 export async function recomputeCurrentMarketState(eventId?: string) {
   const events = await prisma.event.findMany({
     where: eventId ? { id: eventId } : undefined,
-    include: {
-      eventMarkets: true
-    }
+    select: { id: true }
   });
+
+  const eventMarketsByEventId = new Map<string, Awaited<ReturnType<typeof prisma.eventMarket.findMany>>>();
+  if (events.length > 0) {
+    const eventMarkets = await prisma.eventMarket.findMany({
+      where: { eventId: { in: events.map((e) => e.id) } }
+    });
+    for (const market of eventMarkets) {
+      const list = eventMarketsByEventId.get(market.eventId) ?? [];
+      list.push(market);
+      eventMarketsByEventId.set(market.eventId, list);
+    }
+  }
 
   for (const event of events) {
     await prisma.currentMarketState.deleteMany({ where: { eventId: event.id } });
 
-    const groups = new Map<string, typeof event.eventMarkets>();
-    for (const market of event.eventMarkets) {
+    const eventMarkets = eventMarketsByEventId.get(event.id) ?? [];
+    const groups = new Map<string, typeof eventMarkets>();
+    for (const market of eventMarkets) {
       const key = [
         market.marketType,
         market.period ?? "full_game",
@@ -159,7 +170,7 @@ export async function recomputeCurrentMarketState(eventId?: string) {
     }
 
     console.log(
-      `[market-state] event=${event.id} rawEventMarkets=${event.eventMarkets.length} groups=${groups.size}`
+      `[market-state] event=${event.id} rawEventMarkets=${eventMarkets.length} groups=${groups.size}`
     );
 
     for (const [groupKey, groupMarkets] of groups.entries()) {

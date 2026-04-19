@@ -782,70 +782,98 @@ export async function getBoardFeed(
 
   const events = await prisma.event.findMany({
     where: {
-      ...(leagueKey ? { league: { key: leagueKey } } : {}),
       startTime: {
         gte: new Date(Date.now() - 1000 * 60 * 60 * 12),
         lte: new Date(Date.now() + 1000 * 60 * 60 * 48)
       }
     },
-    include: {
-      league: true,
-      participants: { include: { competitor: true } },
-      currentMarketStates: {
-        include: {
-          selectionCompetitor: true,
-          player: true,
-          bestHomeBook: true,
-          bestAwayBook: true,
-          bestOverBook: true,
-          bestUnderBook: true
-        } as any
-      },
-      eventMarkets: {
-        where: {
-          updatedAt: {
-            gte: new Date(Date.now() - 1000 * 60 * 60 * 6)
-          }
-        },
-        include: {
-          sportsbook: true,
-          selectionCompetitor: true,
-          player: true
-        } as any,
-        orderBy: { updatedAt: "desc" },
-        take: 50
-      },
-      edgeSignals: {
-        where: { isActive: true },
-        include: {
-          selectionCompetitor: true,
-          player: true,
-          sportsbook: true
-        } as any,
-        orderBy: [{ edgeScore: "desc" }, { evPercent: "desc" }],
-        take: 6
-      }
+    select: {
+      id: true,
+      externalEventId: true,
+      leagueId: true,
+      name: true,
+      startTime: true,
+      status: true
     },
     orderBy: { startTime: "asc" }
   });
 
+  const eventIds = events.map((e) => e.id);
+  const [league, participants, currentMarketStates, eventMarkets] = await Promise.all([
+    prisma.league.findUnique({ where: { id: events[0]?.leagueId ?? "" } }),
+    prisma.eventParticipant.findMany({
+      where: { eventId: { in: eventIds } },
+      include: { competitor: true }
+    }),
+    prisma.currentMarketState.findMany({
+      where: { eventId: { in: eventIds } },
+      include: {
+        selectionCompetitor: true,
+        player: true,
+        bestHomeBook: true,
+        bestAwayBook: true,
+        bestOverBook: true,
+        bestUnderBook: true
+      }
+    }),
+    prisma.eventMarket.findMany({
+      where: {
+        eventId: { in: eventIds },
+        updatedAt: {
+          gte: new Date(Date.now() - 1000 * 60 * 60 * 6)
+        }
+      },
+      include: {
+        sportsbook: true,
+        selectionCompetitor: true,
+        player: true
+      }
+    })
+  ]);
+
+  const participantsByEventId = new Map<string, typeof participants>();
+  for (const p of participants) {
+    const list = participantsByEventId.get(p.eventId) ?? [];
+    list.push(p);
+    participantsByEventId.set(p.eventId, list);
+  }
+
+  const currentMarketStatesByEventId = new Map<string, typeof currentMarketStates>();
+  for (const cms of currentMarketStates) {
+    const list = currentMarketStatesByEventId.get(cms.eventId) ?? [];
+    list.push(cms);
+    currentMarketStatesByEventId.set(cms.eventId, list);
+  }
+
+  const eventMarketsByEventId = new Map<string, typeof eventMarkets>();
+  for (const em of eventMarkets) {
+    const list = eventMarketsByEventId.get(em.eventId) ?? [];
+    list.push(em);
+    eventMarketsByEventId.set(em.eventId, list);
+  }
+
   const board = {
     generatedAt: new Date().toISOString(),
     events: events
-      .map((event) => ({
-        id: event.id,
-        eventKey: event.externalEventId,
-        league: event.league.key,
-        name: event.name,
-        startTime: event.startTime.toISOString(),
-        status: event.status,
-        participants: event.participants.map((participant) => ({
-          role: participant.role,
-          competitor: participant.competitor.name
-        })),
-        markets: event.currentMarketStates.length > 0 ? event.currentMarketStates : event.eventMarkets,
-        topSignals: event.edgeSignals
-      }))
+      .map((event) => {
+        const eventParticipants = participantsByEventId.get(event.id) ?? [];
+        const cms = currentMarketStatesByEventId.get(event.id) ?? [];
+        const em = eventMarketsByEventId.get(event.id) ?? [];
+        return {
+          id: event.id,
+          eventKey: event.externalEventId,
+          league: event.leagueId,
+          name: event.name,
+          startTime: event.startTime.toISOString(),
+          status: event.status,
+          participants: eventParticipants.map((participant) => ({
+            role: participant.role,
+            competitor: participant.competitor.name
+          })),
+          markets: cms.length > 0 ? cms : em,
+          topSignals: []
+        };
+      })
       .filter((event) => event.markets.length > 0)
   };
 
