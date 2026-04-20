@@ -22,14 +22,18 @@ function parseKeyList(value: string | undefined) {
 const LEGACY_API_KEYS = [
   ...parseKeyList(process.env.ODDSAPI_IO_KEYS),
   ...parseKeyList(process.env.ODDS_API_KEYS),
-  ...parseKeyList(process.env.THE_ODDS_API_KEYS)
+  ...parseKeyList(process.env.THE_ODDS_API_KEYS),
+  ...parseKeyList(process.env.NEXT_PUBLIC_ODDS_API_KEYS),
+  ...parseKeyList(process.env.NEXT_PUBLIC_THE_ODDS_API_KEYS)
 ];
 const CONFIGURED_API_KEYS = [
   process.env.ODDSAPI_IO_KEY?.trim(),
   process.env.ODDSAPI_IO_KEY_2?.trim(),
   ...LEGACY_API_KEYS,
   process.env.ODDS_API_KEY?.trim(),
-  process.env.THE_ODDS_API_KEY?.trim()
+  process.env.THE_ODDS_API_KEY?.trim(),
+  process.env.NEXT_PUBLIC_ODDS_API_KEY?.trim(),
+  process.env.NEXT_PUBLIC_THE_ODDS_API_KEY?.trim()
 ].filter((value): value is string => isUsableEnvValue(value));
 
 const PRIMARY_API_KEY = CONFIGURED_API_KEYS[0] ?? null;
@@ -97,7 +101,7 @@ export const oddsApiIoBookFeedProvider: BookFeedProvider = {
   },
   describe() {
     if (!PRIMARY_API_KEY) {
-      return "OddsAPI.io feed (not configured - set ODDSAPI_IO_KEY, ODDSAPI_IO_KEYS, ODDS_API_KEY, ODDS_API_KEYS, or THE_ODDS_API_KEY)";
+      return "OddsAPI.io feed (not configured - set ODDSAPI_IO_KEY, ODDSAPI_IO_KEYS, ODDS_API_KEY, ODDS_API_KEYS, THE_ODDS_API_KEY, or NEXT_PUBLIC_ODDS_API_KEY)";
     }
     return `OddsAPI.io feed (${CONFIGURED_API_KEYS.length} key${CONFIGURED_API_KEYS.length === 1 ? "" : "s"} configured)`;
   },
@@ -109,7 +113,7 @@ export const oddsApiIoBookFeedProvider: BookFeedProvider = {
         sportsbookKey: "oddsapi-io",
         fetchedAt: new Date().toISOString(),
         status: "ERROR",
-        reason: "Odds API key not configured (ODDSAPI_IO_KEY, ODDSAPI_IO_KEYS, ODDS_API_KEY, ODDS_API_KEYS, or THE_ODDS_API_KEY)",
+        reason: "Odds API key not configured (ODDSAPI_IO_KEY, ODDSAPI_IO_KEYS, ODDS_API_KEY, ODDS_API_KEYS, THE_ODDS_API_KEY, or NEXT_PUBLIC_ODDS_API_KEY)",
         errorCode: "MISSING_API_KEY"
       };
     }
