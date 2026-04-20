@@ -73,6 +73,7 @@ export const backendCurrentOddsProvider: CurrentOddsProvider = {
 
     return {
       ...cached,
+      provider_mode: "backend_cached_snapshot",
       errors: Array.from(
         new Set([
           ...(cached.errors ?? []),
