@@ -3,11 +3,20 @@ import type { BookFeedProvider } from "../book-feed-provider-types";
 
 const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
 
+function isUsableEnvValue(value: string | undefined) {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized !== "undefined" && normalized !== "null";
+}
+
 function parseKeyList(value: string | undefined) {
   return (value ?? "")
     .split(",")
     .map((entry) => entry.trim())
-    .filter(Boolean);
+    .filter((entry) => isUsableEnvValue(entry));
 }
 
 const LEGACY_API_KEYS = [
@@ -21,7 +30,7 @@ const CONFIGURED_API_KEYS = [
   ...LEGACY_API_KEYS,
   process.env.ODDS_API_KEY?.trim(),
   process.env.THE_ODDS_API_KEY?.trim()
-].filter((value): value is string => Boolean(value));
+].filter((value): value is string => isUsableEnvValue(value));
 
 const PRIMARY_API_KEY = CONFIGURED_API_KEYS[0] ?? null;
 
