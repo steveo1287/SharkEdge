@@ -33,8 +33,8 @@ import {
   getStoredPropsForEvent
 } from "@/services/props/warehouse-service";
 import { getPropTrendSummaries } from "@/services/trends/trends-service";
+import { getLiveBoardPageData } from "@/services/odds/live-board-data";
 import {
-  getLiveBoardPageData,
   getLiveGameDetail,
   getLivePropById,
   getLivePropsExplorerData
