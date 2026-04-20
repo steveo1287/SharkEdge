@@ -37,7 +37,7 @@ import {
 
 const LIVE_BOARD_SOFT_STALE_MINUTES = 15;
 const LIVE_BOARD_HARD_STALE_MINUTES = 45;
-const LIVE_BOARD_CACHE_KEY = "current-board:v1:live-response";
+const LIVE_BOARD_CACHE_KEY = "current-board:v2:live-response";
 const LIVE_BOARD_CACHE_TTL_SECONDS = 300;
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
@@ -70,6 +70,12 @@ function getResponseAgeMinutes(value: string | null | undefined) {
 function isHardStale(value: string | null | undefined, thresholdMinutes: number) {
   const ageMinutes = getResponseAgeMinutes(value);
   return typeof ageMinutes === "number" && ageMinutes >= thresholdMinutes;
+}
+
+function responseHasBoardGames(response: CurrentOddsBoardResponse | null | undefined) {
+  return Boolean(
+    response?.sports?.some((sport) => Array.isArray(sport.games) && sport.games.length > 0)
+  );
 }
 
 function scoreBoardCandidate(candidate: CurrentOddsSourceCandidate) {
@@ -108,6 +114,7 @@ function scoreBoardCandidate(candidate: CurrentOddsSourceCandidate) {
 function selectPreferredBoardResponse(candidates: Array<CurrentOddsSourceCandidate | null>) {
   const viableCandidates = candidates
     .filter((candidate): candidate is CurrentOddsSourceCandidate => Boolean(candidate?.response?.configured))
+    .filter((candidate) => responseHasBoardGames(candidate.response))
     .filter((candidate) => !isHardStale(candidate.response.generated_at, LIVE_BOARD_HARD_STALE_MINUTES));
 
   if (!viableCandidates.length) {
@@ -119,7 +126,11 @@ function selectPreferredBoardResponse(candidates: Array<CurrentOddsSourceCandida
 
 async function fetchLiveBoardResponse() {
   const cached = await readHotCache<CurrentOddsBoardResponse>(LIVE_BOARD_CACHE_KEY);
-  if (cached && !isHardStale(cached.generated_at, LIVE_BOARD_SOFT_STALE_MINUTES)) {
+  if (
+    cached &&
+    responseHasBoardGames(cached) &&
+    !isHardStale(cached.generated_at, LIVE_BOARD_SOFT_STALE_MINUTES)
+  ) {
     return cached;
   }
 
@@ -137,8 +148,12 @@ async function fetchLiveBoardResponse() {
       : null
   ]);
 
-  if (!response?.configured) {
-    if (cached && !isHardStale(cached.generated_at, LIVE_BOARD_HARD_STALE_MINUTES)) {
+  if (!response?.configured || !responseHasBoardGames(response)) {
+    if (
+      cached &&
+      responseHasBoardGames(cached) &&
+      !isHardStale(cached.generated_at, LIVE_BOARD_HARD_STALE_MINUTES)
+    ) {
       return cached;
     }
 
@@ -207,7 +222,7 @@ function getLiveBestOffer(game: CurrentOddsGame, marketType: "spread" | "moneyli
   return [...offers].sort((left, right) => {
     const pointDelta = (getConsensusPoint(right) ?? -999) - (getConsensusPoint(left) ?? -999);
     if (pointDelta !== 0) {
-      return pointDelta;
+      return pointDelta - leftPrice;
     }
 
     return getBestPrice(right) - getBestPrice(left);
