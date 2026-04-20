@@ -224,7 +224,7 @@ export async function getHomeCommandData(
   });
 
   const [boardData, topProps] = await Promise.all([
-    oddsService.getBoardPageData(boardFilters),
+    oddsService.getHomeBoardSnapshot(boardFilters),
     propsService.getTopPlayCards(4)
   ]);
 

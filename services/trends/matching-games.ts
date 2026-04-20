@@ -19,7 +19,8 @@ const SUPPORTED_TREND_LEAGUES: LeagueKey[] = [
   "BOXING"
 ];
 
-const TREND_MATCH_LOOKAHEAD_HOURS = 72;
+const TREND_MATCH_LOOKAHEAD_HOURS = 24;
+const TREND_MATCH_MAX_RESULTS = 20;
 
 function normalizeText(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
@@ -267,7 +268,7 @@ export async function getTodayTrendMatches(filters: TrendFilters): Promise<{
         }
       ]
     },
-    orderBy: [{ status: "asc" }, { startTime: "asc" }],
+    orderBy: [{ startTime: "asc" }],
     include: {
       league: {
         select: {
@@ -336,6 +337,7 @@ export async function getTodayTrendMatches(filters: TrendFilters): Promise<{
             ? String((event.stateJson as Record<string, unknown>).detail)
             : null,
         matchingLogic: buildMatchingLogic(filters),
+        recommendedBetLabel: buildRecommendedBetLabel(filters, mappedParticipants),
         oddsContext: marketContext,
         matchupHref: buildMatchupHref(leagueKey, event.externalEventId ?? event.id),
         boardHref:
@@ -351,7 +353,8 @@ export async function getTodayTrendMatches(filters: TrendFilters): Promise<{
             ? null
             : registry.propsNote
       } satisfies TrendMatchView;
-    });
+    })
+    .slice(0, TREND_MATCH_MAX_RESULTS);
 
   return {
     matches,

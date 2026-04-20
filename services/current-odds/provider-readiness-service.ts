@@ -19,7 +19,7 @@ if (!global.sharkedgeProviderReadinessEnvLoaded) {
   global.sharkedgeProviderReadinessEnvLoaded = true;
 }
 
-const BACKEND_PROVIDER_TIMEOUT_MS = 2_500;
+const BACKEND_PROVIDER_TIMEOUT_MS = Number(process.env.SHARKEDGE_PROVIDER_TIMEOUT_MS ?? 12_000);
 const SOFT_STALE_MINUTES = 15;
 const HARD_STALE_MINUTES = 45;
 const DEFAULT_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
@@ -390,10 +390,21 @@ export function selectPreferredBoardProvider(
 }
 
 function getBookFeedConfigured(providerKey: string) {
+  if (providerKey === "oddsapi-io") {
+    return Boolean(
+      process.env.ODDSAPI_IO_KEY?.trim() ||
+      process.env.ODDSAPI_IO_KEY_2?.trim() ||
+      process.env.ODDS_API_KEY?.trim() ||
+      process.env.ODDS_API_KEYS?.trim()
+    );
+  }
   return Boolean(getBookFeedSourceUrl(providerKey));
 }
 
 function getBookFeedSourceUrl(providerKey: string) {
+  if (providerKey === "oddsapi-io") {
+    return "https://api.the-odds-api.com/v4/sports/{sport}/odds";
+  }
   if (providerKey === "draftkings") {
     return (
       process.env.SHARKEDGE_DRAFTKINGS_FEED_URL?.trim() ||
@@ -418,6 +429,17 @@ async function probeBookFeedProvider(
   const stateSnapshot = readBookFeedState(provider.key);
 
   if (!configured) {
+    const envName =
+      provider.key === "draftkings"
+        ? "SHARKEDGE_DRAFTKINGS_FEED_URL"
+        : provider.key === "fanduel"
+          ? "SHARKEDGE_FANDUEL_FEED_URL"
+          : "ODDSAPI_IO_KEY (or ODDS_API_KEY)";
+    const warningMessage =
+      provider.key === "oddsapi-io"
+        ? `${provider.label} is scaffolded but missing API credentials.`
+        : `${provider.label} is scaffolded but not configured with a feed URL.`;
+
     return {
       providerKey: provider.key,
       label: provider.label,
@@ -425,8 +447,8 @@ async function probeBookFeedProvider(
       state: "NOT_CONFIGURED",
       configured: false,
       checkedAt,
-      warnings: [`${provider.label} is scaffolded but not configured with a feed URL.`],
-      reason: `Set ${provider.key === "draftkings" ? "SHARKEDGE_DRAFTKINGS_FEED_URL" : "SHARKEDGE_FANDUEL_FEED_URL"} to enable this worker-only feed.`,
+      warnings: [warningMessage],
+      reason: `Set ${envName} to enable this worker-only feed.`,
       sourceUrl: getBookFeedSourceUrl(provider.key),
       lastAttemptAt: isoFromMs(stateSnapshot.lastAttemptAt),
       lastSuccessAt: isoFromMs(stateSnapshot.lastSuccessAt),

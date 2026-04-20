@@ -3,6 +3,7 @@ import type {
   BoardPageData,
   GameCardView,
   GameStatus,
+  LeagueKey,
   SportsbookRecord
 } from "@/lib/types/domain";
 import { prisma } from "@/lib/db/prisma";
@@ -16,6 +17,8 @@ import { currentMarketStateJob } from "@/services/jobs/current-market-state-job"
 import { getBoardFeed } from "@/services/market-data/market-data-service";
 
 const LIVE_BOARD_TIMEOUT_MS = 15_000;
+const ENABLE_RENDER_PATH_HYDRATION = process.env.SHARKEDGE_BOARD_RENDER_HYDRATE === "true";
+const HOME_SNAPSHOT_MAX_EVENTS = 40;
 
 export function parseBoardFilters(searchParams: Record<string, string | string[] | undefined>) {
   return boardFiltersSchema.parse({
@@ -116,7 +119,10 @@ function toGameStatus(value: string): GameStatus {
 
 async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPageData | null> {
   const leagueKey = filters.league === "ALL" ? undefined : filters.league;
-  const board = (await getBoardFeed(leagueKey)) as PersistedBoardFeed;
+  const board = (await getBoardFeed(leagueKey, {
+    status: filters.status,
+    date: filters.date
+  })) as PersistedBoardFeed;
 
   const grouped = new Map<string, any[]>();
   for (const event of board.events) {
@@ -245,6 +251,111 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
   };
 }
 
+async function getDbBackedBoardSnapshot(filters: BoardFilters): Promise<BoardPageData | null> {
+  const leagueKey = filters.league === "ALL" ? undefined : filters.league;
+  const board = (await getBoardFeed(leagueKey, {
+    status: filters.status,
+    date: filters.date,
+    maxEvents: HOME_SNAPSHOT_MAX_EVENTS
+  })) as PersistedBoardFeed;
+
+  const games: GameCardView[] = board.events.map((event) => {
+    const participants = event.participants ?? [];
+    const away = participants.find((p: any) => p.role === "AWAY")?.competitor ?? "Away";
+    const home = participants.find((p: any) => p.role === "HOME")?.competitor ?? "Home";
+
+    const moneylineState = (event.markets ?? []).find((m: any) => m.marketType === "moneyline");
+    const spreadState = (event.markets ?? []).find((m: any) => m.marketType === "spread");
+    const totalState = (event.markets ?? []).find((m: any) => m.marketType === "total");
+
+    return {
+      id: event.id,
+      externalEventId: event.eventKey ?? event.id,
+      leagueKey: event.league as LeagueKey,
+      awayTeam: {
+        id: `away:${event.id}`,
+        leagueId: event.league,
+        name: away,
+        abbreviation: away.slice(0, 3).toUpperCase(),
+        externalIds: {}
+      },
+      homeTeam: {
+        id: `home:${event.id}`,
+        leagueId: event.league,
+        name: home,
+        abbreviation: home.slice(0, 3).toUpperCase(),
+        externalIds: {}
+      },
+      startTime: event.startTime,
+      status: toGameStatus(event.status),
+      venue: "Live market state",
+      selectedBook: null,
+      bestBookCount: 1,
+      moneyline: {
+        label: "Moneyline",
+        lineLabel: "Moneyline",
+        bestBook: "Best available",
+        bestOdds: moneylineState?.bestAwayOddsAmerican ?? moneylineState?.bestHomeOddsAmerican ?? 0,
+        movement: 0
+      },
+      spread: {
+        label: "Spread",
+        lineLabel:
+          typeof spreadState?.consensusLineValue === "number"
+            ? String(spreadState.consensusLineValue)
+            : "--",
+        bestBook: "Best available",
+        bestOdds: spreadState?.bestAwayOddsAmerican ?? spreadState?.bestHomeOddsAmerican ?? 0,
+        movement: 0
+      },
+      total: {
+        label: "Total",
+        lineLabel:
+          typeof totalState?.consensusLineValue === "number"
+            ? `O/U ${totalState.consensusLineValue}`
+            : "--",
+        bestBook: "Best available",
+        bestOdds: totalState?.bestOverOddsAmerican ?? totalState?.bestUnderOddsAmerican ?? 0,
+        movement: 0
+      },
+      edgeScore: {
+        score: 0,
+        label: "Pass"
+      },
+      detailHref: `/game/${event.id}`
+    } satisfies GameCardView;
+  });
+
+  if (!games.length) {
+    return null;
+  }
+
+  return {
+    filters,
+    availableDates: [],
+    leagues: getBoardVisibleLeagues(filters.league),
+    sportsbooks: [{ id: "best", key: "best", name: "Best available", region: "US" }],
+    games,
+    sportSections: [],
+    snapshots: [],
+    summary: {
+      totalGames: games.length,
+      totalProps: 0,
+      totalSportsbooks: 1
+    },
+    liveMessage: null,
+    source: "live",
+    sourceNote: "Home command snapshot is rendering from targeted persisted live board inventory.",
+    providerHealth: buildProviderHealth({
+      source: "live",
+      healthySummary: "Home command is rendering from targeted persisted live board inventory.",
+      degradedSummary: "Home command board inventory is partially available.",
+      fallbackSummary: "Home command is using persisted live market inventory fallback.",
+      offlineSummary: "Persisted live market inventory is unavailable."
+    })
+  };
+}
+
 async function tryHydrateBoardInventory() {
   await refreshCurrentBookFeeds({ force: true });
 
@@ -264,6 +375,10 @@ async function tryHydrateBoardInventory() {
   }
 }
 
+export async function hydrateBoardInventoryNow() {
+  await tryHydrateBoardInventory();
+}
+
 export async function getBoardPageData(filters: BoardFilters): Promise<BoardPageData> {
   const dbData = await withTimeoutFallback(getDbBackedBoardPageData(filters), {
     timeoutMs: LIVE_BOARD_TIMEOUT_MS,
@@ -274,22 +389,37 @@ export async function getBoardPageData(filters: BoardFilters): Promise<BoardPage
     return dbData;
   }
 
-  try {
-    await withTimeoutFallback(tryHydrateBoardInventory(), {
-      timeoutMs: LIVE_BOARD_TIMEOUT_MS,
-      fallback: null
-    });
+  if (ENABLE_RENDER_PATH_HYDRATION) {
+    try {
+      await withTimeoutFallback(tryHydrateBoardInventory(), {
+        timeoutMs: LIVE_BOARD_TIMEOUT_MS,
+        fallback: null
+      });
 
-    const recovered = await withTimeoutFallback(getDbBackedBoardPageData(filters), {
-      timeoutMs: LIVE_BOARD_TIMEOUT_MS,
-      fallback: null
-    });
+      const recovered = await withTimeoutFallback(getDbBackedBoardPageData(filters), {
+        timeoutMs: LIVE_BOARD_TIMEOUT_MS,
+        fallback: null
+      });
 
-    if (recovered && recovered.sportSections.some((section) => section.games.length > 0)) {
-      return recovered;
+      if (recovered && recovered.sportSections.some((section) => section.games.length > 0)) {
+        return recovered;
+      }
+    } catch {
+      // fall through to scoreboard-only fallback
     }
-  } catch {
-    // fall through to scoreboard-only fallback
+  }
+
+  return getMockBoardPageData(filters);
+}
+
+export async function getHomeBoardSnapshot(filters: BoardFilters): Promise<BoardPageData> {
+  const snapshot = await withTimeoutFallback(getDbBackedBoardSnapshot(filters), {
+    timeoutMs: LIVE_BOARD_TIMEOUT_MS,
+    fallback: null
+  });
+
+  if (snapshot && snapshot.games.length > 0) {
+    return snapshot;
   }
 
   return getMockBoardPageData(filters);
