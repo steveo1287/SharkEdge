@@ -1,9 +1,11 @@
 import type { BoardSupportStatus, LeagueKey, MarketType } from "@/lib/types/domain";
+import type { SupportedLeagueKey } from "@/lib/types/ledger";
 import { backendCurrentOddsProvider } from "@/services/current-odds/backend-provider";
 import { therundownCurrentOddsProvider } from "@/services/current-odds/therundown-provider";
 import { boxingEventProvider } from "@/services/events/boxing-provider";
 import { espnEventProvider } from "@/services/events/espn-provider";
 import { ncaaFallbackEventProvider } from "@/services/events/ncaa-fallback-provider";
+import { theSportsDbEventProvider } from "@/services/events/thesportsdb-provider";
 import { ufcEventProvider } from "@/services/events/ufc-provider";
 import { oddsharvesterHistoricalProvider } from "@/services/historical-odds/oddsharvester-provider";
 import { therundownHistoricalProvider } from "@/services/historical-odds/therundown-provider";
@@ -566,7 +568,10 @@ export function getProviderRegistryEntry(leagueKey: LeagueKey) {
 }
 
 export function getScoreProviders(leagueKey: LeagueKey) {
-  return getProviderRegistryEntry(leagueKey)?.scoreProviders ?? [];
+  const providers = getProviderRegistryEntry(leagueKey)?.scoreProviders ?? [];
+  return theSportsDbEventProvider.supportsLeague(leagueKey as SupportedLeagueKey)
+    ? [...providers, theSportsDbEventProvider]
+    : providers;
 }
 
 export function getMatchupProviders(leagueKey: LeagueKey) {
