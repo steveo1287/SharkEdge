@@ -74,7 +74,10 @@ function isHardStale(value: string | null | undefined, thresholdMinutes: number)
 
 function responseHasBoardGames(response: CurrentOddsBoardResponse | null | undefined) {
   return Boolean(
-    response?.sports?.some((sport) => Array.isArray(sport.games) && sport.games.length > 0)
+    response?.sports?.some((sport) => {
+      const leagueKey = getLeagueForSportKey(sport.key);
+      return Boolean(leagueKey && Array.isArray(sport.games) && sport.games.length > 0);
+    })
   );
 }
 
@@ -222,7 +225,7 @@ function getLiveBestOffer(game: CurrentOddsGame, marketType: "spread" | "moneyli
   return [...offers].sort((left, right) => {
     const pointDelta = (getConsensusPoint(right) ?? -999) - (getConsensusPoint(left) ?? -999);
     if (pointDelta !== 0) {
-      return pointDelta - leftPrice;
+      return pointDelta;
     }
 
     return getBestPrice(right) - getBestPrice(left);
@@ -267,12 +270,12 @@ function buildLiveMarketSamples(
     }
 
     samples.push({
-        bookKey: bookmaker.key,
-        bookName: bookmaker.title,
-        price: numericValue(outcome.price),
-        line: numericValue(outcome.point),
-        updatedAt: bookmaker.last_update ?? null
-      });
+      bookKey: bookmaker.key,
+      bookName: bookmaker.title,
+      price: numericValue(outcome.price),
+      line: numericValue(outcome.point),
+      updatedAt: bookmaker.last_update ?? null
+    });
   }
 
   return samples;
@@ -312,7 +315,10 @@ function buildMarketViewFromSamples(args: {
     marketType: args.marketType,
     marketScope: "game",
     side: args.marketType === "total" ? args.outcomeName.toUpperCase() : args.outcomeName,
-    oppositeSide: args.marketType === "total" ? getOppositeOutcomeName(args.game, args.outcomeName, args.marketType).toUpperCase() : getOppositeOutcomeName(args.game, args.outcomeName, args.marketType),
+    oppositeSide:
+      args.marketType === "total"
+        ? getOppositeOutcomeName(args.game, args.outcomeName, args.marketType).toUpperCase()
+        : getOppositeOutcomeName(args.game, args.outcomeName, args.marketType),
     line: args.line,
     participantTeamId:
       args.marketType === "total"
