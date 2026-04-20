@@ -35,6 +35,15 @@ function formatOdds(v: number | null | undefined) {
   return v > 0 ? `+${v}` : `${v}`;
 }
 
+function hasRenderableBoardGame(game: BoardSportSectionView["games"][number]) {
+  return Boolean(
+    game.bestBookCount > 0 ||
+      game.moneyline.label !== "No market" ||
+      game.spread.label !== "No market" ||
+      game.total.label !== "No market"
+  );
+}
+
 function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["games"][number]; leagueKey: LeagueKey }) {
   const awayLogo = getTeamLogoUrl(leagueKey, game.awayTeam.abbreviation);
   const homeLogo = getTeamLogoUrl(leagueKey, game.homeTeam.abbreviation);
@@ -96,9 +105,7 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
 }
 
 function LeagueSection({ section, providerHealth }: { section: BoardSportSectionView; providerHealth: ProviderHealthView }) {
-  const gamesWithOdds = section.games.filter(
-    (g) => g.moneyline.bestOdds || g.spread.bestOdds || g.total.bestOdds
-  );
+  const gamesWithOdds = section.games.filter(hasRenderableBoardGame);
   if (gamesWithOdds.length === 0 && section.scoreboard.length === 0) return null;
 
   const healthColor = {
@@ -152,11 +159,11 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
   const data = await getBoardPageData(filters);
 
   const activeSections = data.sportSections.filter(
-    (s) => s.games.length > 0 || s.scoreboard.length > 0
+    (s) => s.games.some(hasRenderableBoardGame) || s.scoreboard.length > 0
   );
 
   const totalGames = data.sportSections.reduce(
-    (n, s) => n + s.games.filter((g) => g.moneyline.bestOdds || g.spread.bestOdds || g.total.bestOdds).length,
+    (n, s) => n + s.games.filter(hasRenderableBoardGame).length,
     0
   );
 
@@ -183,9 +190,7 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
 
           <div className="no-scrollbar mt-2.5 flex gap-1.5 overflow-x-auto pb-0.5">
             {activeSections.map((section) => {
-              const count = section.games.filter(
-                (g) => g.moneyline.bestOdds || g.spread.bestOdds || g.total.bestOdds
-              ).length;
+              const count = section.games.filter(hasRenderableBoardGame).length;
               return (
                 <a
                   key={section.leagueKey}
