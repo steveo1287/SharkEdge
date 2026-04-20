@@ -3,11 +3,17 @@ import type { LeagueKey, LeagueRecord, PlayerRecord, SportsbookRecord, TeamRecor
 
 export const LIVE_SPORT_TO_LEAGUE: Record<string, LeagueKey | null> = {
   basketball_nba: "NBA",
+  NBA: "NBA",
   basketball_ncaab: "NCAAB",
+  NCAAB: "NCAAB",
   baseball_mlb: "MLB",
+  MLB: "MLB",
   icehockey_nhl: "NHL",
+  NHL: "NHL",
   americanfootball_nfl: "NFL",
-  americanfootball_ncaaf: "NCAAF"
+  NFL: "NFL",
+  americanfootball_ncaaf: "NCAAF",
+  NCAAF: "NCAAF"
 };
 
 export const LIVE_PROP_SPORT_KEYS: Partial<Record<LeagueKey, string>> = {
