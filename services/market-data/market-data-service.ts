@@ -555,7 +555,9 @@ function buildEventMarketKey(row: {
   playerId: string | null;
   side: string | null;
   selection: string;
+  line: number | null;
 }) {
+  const normalizedLine = normalizeEventMarketLine(row.line);
   return [
     row.eventId,
     row.sportsbookId,
@@ -564,8 +566,20 @@ function buildEventMarketKey(row: {
     row.selectionCompetitorId ?? "none",
     row.playerId ?? "none",
     row.side ?? "none",
-    normalizeToken(row.selection)
+    normalizeToken(row.selection),
+    normalizedLine
   ].join(":");
+}
+
+function normalizeEventMarketLine(line: number | null | undefined) {
+  if (typeof line !== "number" || !Number.isFinite(line)) {
+    return "none";
+  }
+
+  // Keep enough precision for half points and prop ladders without float noise.
+  const rounded = Math.round(line * 1000) / 1000;
+  const asFixed = rounded.toFixed(3).replace(/\.?0+$/, "");
+  return asFixed === "-0" ? "0" : asFixed;
 }
 
 export async function upsertOddsIngestPayload(payload: IngestPayload) {
@@ -621,7 +635,8 @@ export async function upsertOddsIngestPayload(payload: IngestPayload) {
         selectionCompetitorId: row.selectionCompetitorId,
         playerId: row.playerId,
         side: row.side,
-        selection: row.selection
+        selection: row.selection,
+        line: row.line
       });
 
       const oddsDecimal =
@@ -689,7 +704,14 @@ export async function upsertOddsIngestPayload(payload: IngestPayload) {
     }
   }
 
-  await invalidateHotCache(`board:v1:${league.key}`);
+  const boardCacheKeys = [
+    `board:v1:${league.key}`,
+    "board:v2:all:status:all:date:all:max:all",
+    `board:v2:${league.key}:status:all:date:all:max:all`
+  ];
+  for (const key of boardCacheKeys) {
+    await invalidateHotCache(key);
+  }
   await invalidateHotCache(`event:v1:${event.id}`);
 
   return { eventId: event.id, eventKey: payload.eventKey, touchedMarketIds };
@@ -775,6 +797,24 @@ type BoardFeedReadOptions = {
   maxEvents?: number;
 };
 
+export type BoardFeedPayload = {
+  generatedAt: string;
+  events: Array<{
+    id: string;
+    eventKey: string | null;
+    league: string;
+    name: string;
+    startTime: string;
+    status: string;
+    participants: Array<{
+      role: string;
+      competitor: string;
+    }>;
+    markets: unknown[];
+    topSignals: unknown[];
+  }>;
+};
+
 function resolveBoardDateWindow(dateFilter?: string) {
   const now = new Date();
   const normalized = (dateFilter ?? "all").trim().toLowerCase();
@@ -830,7 +870,7 @@ function resolveBoardStatusFilter(statusFilter?: BoardFeedReadOptions["status"])
 export async function getBoardFeed(
   leagueKey?: string,
   options?: BoardFeedReadOptions
-) {
+): Promise<BoardFeedPayload> {
   const statusFilter = options?.status ?? "all";
   const dateFilter = options?.date ?? "all";
   const maxEvents = Number.isFinite(options?.maxEvents)
@@ -846,7 +886,7 @@ export async function getBoardFeed(
   ].join(":");
 
   if (!options?.skipCache) {
-    const cached = await readHotCache<unknown>(cacheKey);
+    const cached = await readHotCache<BoardFeedPayload>(cacheKey);
     if (cached) {
       return cached;
     }
@@ -919,7 +959,7 @@ export async function getBoardFeed(
     eventMarketsByEventId.set(market.eventId, existing);
   }
 
-  const board = {
+  const board: BoardFeedPayload = {
     generatedAt: new Date().toISOString(),
     events: events
       .map((event) => {

@@ -10,6 +10,18 @@ function isProjection(
   return value !== null;
 }
 
+async function invalidateBoardCaches(leagueKey: string) {
+  const keys = [
+    `board:v1:${leagueKey}`,
+    "board:v2:all:status:all:date:all:max:all",
+    `board:v2:${leagueKey}:status:all:date:all:max:all`
+  ];
+
+  for (const key of keys) {
+    await invalidateHotCache(key);
+  }
+}
+
 export async function edgeRecomputeJob(eventId: string) {
   const eventProjection = await buildEventProjectionFromHistory(eventId);
   if (eventProjection) {
@@ -31,7 +43,7 @@ export async function edgeRecomputeJob(eventId: string) {
   if (event) {
     await invalidateHotCache("edges:v1:all");
     await invalidateHotCache(`event:v1:${event.id}`);
-    await invalidateHotCache(`board:v1:${event.league.key}`);
+    await invalidateBoardCaches(event.league.key);
   }
 
   return {
