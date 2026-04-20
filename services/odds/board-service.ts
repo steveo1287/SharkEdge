@@ -68,18 +68,18 @@ async function getMockBoardPageData(filters: BoardFilters): Promise<BoardPageDat
     },
     liveMessage:
       filters.status === "live"
-        ? "The live scoreboard mesh is still active, but the persisted current-odds inventory did not respond. SharkEdge is staying honest instead of rendering fake live board rows."
+        ? "The live scoreboard mesh is still active, but the live current-odds board did not respond. SharkEdge is staying honest instead of rendering fake live board rows."
         : null,
     source: "mock",
     sourceNote:
-      "Persisted live board inventory is unavailable right now, so the homepage is rendering support-aware scoreboard sections only. No synthetic provider rows are being passed off as live coverage.",
+      "The live current-odds board is unavailable right now, so the homepage is rendering support-aware scoreboard sections only. No synthetic provider rows are being passed off as live coverage.",
     providerHealth: buildProviderHealth({
       source: "mock",
-      healthySummary: "Persisted live board inventory is connected.",
+      healthySummary: "Live current-odds board is connected.",
       fallbackSummary:
-        "The board is leaning on scoreboard context because persisted live market inventory is unavailable.",
+        "The board is leaning on scoreboard context because the live current-odds board is unavailable.",
       offlineSummary:
-        "Persisted live market inventory is offline in this runtime, so only support-aware scoreboard context is being shown."
+        "Live current-odds board is offline in this runtime, so only support-aware scoreboard context is being shown."
     })
   };
 }
@@ -266,44 +266,13 @@ async function tryHydrateBoardInventory() {
 }
 
 export async function getBoardPageData(filters: BoardFilters): Promise<BoardPageData> {
-  const liveData = await withTimeoutFallback(getLiveBoardPageData(filters), {
-    timeoutMs: LIVE_BOARD_TIMEOUT_MS,
-    fallback: null
-  });
-
-  if (
-    liveData &&
-    liveData.sportSections.some((section) => section.games.length > 0 || section.scoreboard.length > 0)
-  ) {
-    return liveData;
-  }
-
-  const dbData = await withTimeoutFallback(getDbBackedBoardPageData(filters), {
-    timeoutMs: LIVE_BOARD_TIMEOUT_MS,
-    fallback: null
-  });
-
-  if (dbData && dbData.sportSections.some((section) => section.games.length > 0)) {
-    return dbData;
-  }
-
   try {
-    await withTimeoutFallback(tryHydrateBoardInventory(), {
-      timeoutMs: LIVE_BOARD_TIMEOUT_MS,
-      fallback: null
-    });
-
-    const recovered = await withTimeoutFallback(getDbBackedBoardPageData(filters), {
-      timeoutMs: LIVE_BOARD_TIMEOUT_MS,
-      fallback: null
-    });
-
-    if (recovered && recovered.sportSections.some((section) => section.games.length > 0)) {
-      return recovered;
+    const liveData = await getLiveBoardPageData(filters);
+    if (liveData) {
+      return liveData;
     }
   } catch {
     // fall through to scoreboard-only fallback
   }
-
   return getMockBoardPageData(filters);
 }
