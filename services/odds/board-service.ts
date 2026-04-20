@@ -14,12 +14,8 @@ import { recomputeEdgeSignals } from "@/services/edges/edge-engine";
 import { getBoardVisibleLeagues, buildBoardSportSections } from "@/services/events/live-score-service";
 import { currentMarketStateJob } from "@/services/jobs/current-market-state-job";
 import { getBoardFeed } from "@/services/market-data/market-data-service";
-import { readBookFeedState } from "@/services/current-odds/book-feed-cache";
-import { getBookFeedProviders, getBookFeedProvidersForLeague } from "@/services/current-odds/book-feed-registry";
 
 const LIVE_BOARD_TIMEOUT_MS = 15_000;
-const MINUTE_IN_MS = 60 * 1000;
-const STALE_PROVIDER_MINUTES = 15;
 
 export function parseBoardFilters(searchParams: Record<string, string | string[] | undefined>) {
   return boardFiltersSchema.parse({
@@ -33,64 +29,11 @@ export function parseBoardFilters(searchParams: Record<string, string | string[]
   }) satisfies BoardFilters;
 }
 
-function toIsoTimestamp(value?: number) {
-  return typeof value === "number" ? new Date(value).toISOString() : null;
-}
-
-function getProviderRuntimeHealth(filters: BoardFilters) {
-  const providers =
-    filters.league === "ALL"
-      ? getBookFeedProviders()
-      : getBookFeedProvidersForLeague(filters.league);
-
-  const warnings: string[] = [];
-  const successTimestamps: number[] = [];
-
-  if (!providers.length) {
-    warnings.push("No live book-feed providers are registered for the current board filter.");
-  }
-
-  for (const provider of providers) {
-    const state = readBookFeedState(provider.key);
-
-    if (typeof state.lastSuccessAt === "number") {
-      successTimestamps.push(state.lastSuccessAt);
-      const staleMinutes = Math.max(0, Math.round((Date.now() - state.lastSuccessAt) / MINUTE_IN_MS));
-      if (staleMinutes > STALE_PROVIDER_MINUTES) {
-        warnings.push(`${provider.label} last refreshed ${staleMinutes} minute${staleMinutes === 1 ? "" : "s"} ago.`);
-      }
-    } else {
-      warnings.push(`${provider.label} has not completed a successful refresh in this runtime yet.`);
-    }
-
-    if (state.consecutiveFailures > 0) {
-      warnings.push(`${provider.label} has ${state.consecutiveFailures} consecutive refresh failure${state.consecutiveFailures === 1 ? "" : "s"}.`);
-    }
-  }
-
-  const latestSuccessAt = successTimestamps.length
-    ? new Date(Math.max(...successTimestamps)).toISOString()
-    : null;
-
-  const summary = !providers.length
-    ? "No live book-feed providers are registered for this board slice."
-    : warnings.length
-      ? "Live book-feed health is degraded. Persisted inventory may still render, but freshness is not fully trusted."
-      : `Live book-feed health is stable across ${providers.length} provider${providers.length === 1 ? "" : "s"}.`;
-
-  return {
-    latestSuccessAt,
-    warnings,
-    summary
-  };
-}
-
 async function getMockBoardPageData(filters: BoardFilters): Promise<BoardPageData> {
   const [{ mockDatabase }, liveScoreService] = await Promise.all([
     import("@/prisma/seed-data"),
     import("@/services/events/live-score-service")
   ]);
-  const runtimeHealth = getProviderRuntimeHealth(filters);
 
   const sportSections = await liveScoreService.buildBoardSportSections({
     selectedLeague: filters.league,
@@ -131,13 +74,11 @@ async function getMockBoardPageData(filters: BoardFilters): Promise<BoardPageDat
       "Persisted live board inventory is unavailable right now, so the homepage is rendering support-aware scoreboard sections only. No synthetic provider rows are being passed off as live coverage.",
     providerHealth: buildProviderHealth({
       source: "mock",
-      lastUpdatedAt: runtimeHealth.latestSuccessAt,
-      warnings: runtimeHealth.warnings,
-      healthySummary: `Persisted live board inventory is connected. ${runtimeHealth.summary}`,
+      healthySummary: "Persisted live board inventory is connected.",
       fallbackSummary:
-        `The board is leaning on scoreboard context because persisted live market inventory is unavailable. ${runtimeHealth.summary}`,
+        "The board is leaning on scoreboard context because persisted live market inventory is unavailable.",
       offlineSummary:
-        `Persisted live market inventory is offline in this runtime, so only support-aware scoreboard context is being shown. ${runtimeHealth.summary}`
+        "Persisted live market inventory is offline in this runtime, so only support-aware scoreboard context is being shown."
     })
   };
 }
@@ -176,7 +117,6 @@ function toGameStatus(value: string): GameStatus {
 async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPageData | null> {
   const leagueKey = filters.league === "ALL" ? undefined : filters.league;
   const board = (await getBoardFeed(leagueKey)) as PersistedBoardFeed;
-  const runtimeHealth = getProviderRuntimeHealth(filters);
 
   const grouped = new Map<string, any[]>();
   for (const event of board.events) {
@@ -297,13 +237,10 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
     sourceNote: "Board is rendering from persisted live market inventory.",
     providerHealth: buildProviderHealth({
       source: "live",
-      generatedAt: board.generatedAt,
-      lastUpdatedAt: runtimeHealth.latestSuccessAt ?? board.generatedAt,
-      warnings: runtimeHealth.warnings,
-      healthySummary: `Board is rendering from persisted live market inventory. ${runtimeHealth.summary}`,
-      degradedSummary: `Board inventory is partially available. ${runtimeHealth.summary}`,
-      fallbackSummary: `Board is using persisted live market inventory fallback. ${runtimeHealth.summary}`,
-      offlineSummary: `Persisted live market inventory is unavailable. ${runtimeHealth.summary}`
+      healthySummary: "Board is rendering from persisted live market inventory.",
+      degradedSummary: "Board inventory is partially available.",
+      fallbackSummary: "Board is using persisted live market inventory fallback.",
+      offlineSummary: "Persisted live market inventory is unavailable."
     })
   };
 }
