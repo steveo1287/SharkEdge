@@ -35,15 +35,6 @@ function formatOdds(v: number | null | undefined) {
   return v > 0 ? `+${v}` : `${v}`;
 }
 
-function hasRenderableBoardGame(game: BoardSportSectionView["games"][number]) {
-  return Boolean(
-    game.bestBookCount > 0 ||
-      game.moneyline.label !== "No market" ||
-      game.spread.label !== "No market" ||
-      game.total.label !== "No market"
-  );
-}
-
 function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["games"][number]; leagueKey: LeagueKey }) {
   const awayLogo = getTeamLogoUrl(leagueKey, game.awayTeam.abbreviation);
   const homeLogo = getTeamLogoUrl(leagueKey, game.homeTeam.abbreviation);
@@ -105,8 +96,8 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
 }
 
 function LeagueSection({ section, providerHealth }: { section: BoardSportSectionView; providerHealth: ProviderHealthView }) {
-  const gamesWithOdds = section.games.filter(hasRenderableBoardGame);
-  if (gamesWithOdds.length === 0 && section.scoreboard.length === 0) return null;
+  const surfacedGames = section.games;
+  if (surfacedGames.length === 0 && section.scoreboard.length === 0) return null;
 
   const healthColor = {
     HEALTHY: "border-aqua/20 bg-aqua/[0.04] text-aqua",
@@ -123,16 +114,16 @@ function LeagueSection({ section, providerHealth }: { section: BoardSportSection
           {section.leagueLabel}
         </h2>
         <span className="rounded-full bg-bone/[0.08] px-2.5 py-0.5 font-mono text-[11px] tabular-nums text-bone/55">
-          {gamesWithOdds.length}
+          {surfacedGames.length}
         </span>
         <div className={`ml-auto rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.18em] ${healthColor}`}>
           {providerHealth.label}
         </div>
       </div>
 
-      {gamesWithOdds.length > 0 ? (
+      {surfacedGames.length > 0 ? (
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
-          {gamesWithOdds.map((game) => (
+          {surfacedGames.map((game) => (
             <CompactGameRow key={game.id} game={game} leagueKey={section.leagueKey} />
           ))}
         </div>
@@ -159,11 +150,11 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
   const data = await getBoardPageData(filters);
 
   const activeSections = data.sportSections.filter(
-    (s) => s.games.some(hasRenderableBoardGame) || s.scoreboard.length > 0
+    (s) => s.games.length > 0 || s.scoreboard.length > 0
   );
 
   const totalGames = data.sportSections.reduce(
-    (n, s) => n + s.games.filter(hasRenderableBoardGame).length,
+    (n, s) => n + s.games.length,
     0
   );
 
@@ -190,7 +181,7 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
 
           <div className="no-scrollbar mt-2.5 flex gap-1.5 overflow-x-auto pb-0.5">
             {activeSections.map((section) => {
-              const count = section.games.filter(hasRenderableBoardGame).length;
+              const count = section.games.length;
               return (
                 <a
                   key={section.leagueKey}
