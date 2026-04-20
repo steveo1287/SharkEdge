@@ -4,16 +4,27 @@ import type { LeagueKey, LeagueRecord, PlayerRecord, SportsbookRecord, TeamRecor
 export const LIVE_SPORT_TO_LEAGUE: Record<string, LeagueKey | null> = {
   basketball_nba: "NBA",
   NBA: "NBA",
+  nba: "NBA",
   basketball_ncaab: "NCAAB",
   NCAAB: "NCAAB",
+  ncaab: "NCAAB",
   baseball_mlb: "MLB",
   MLB: "MLB",
+  mlb: "MLB",
   icehockey_nhl: "NHL",
   NHL: "NHL",
+  nhl: "NHL",
   americanfootball_nfl: "NFL",
   NFL: "NFL",
+  nfl: "NFL",
   americanfootball_ncaaf: "NCAAF",
-  NCAAF: "NCAAF"
+  NCAAF: "NCAAF",
+  ncaaf: "NCAAF",
+  mma_mixed_martial_arts: "UFC",
+  UFC: "UFC",
+  ufc: "UFC",
+  boxing: "BOXING",
+  BOXING: "BOXING"
 };
 
 export const LIVE_PROP_SPORT_KEYS: Partial<Record<LeagueKey, string>> = {
@@ -78,7 +89,13 @@ export function deriveAbbreviation(teamName: string) {
 }
 
 export function getLeagueForSportKey(sportKey: string): LeagueKey | null {
-  return LIVE_SPORT_TO_LEAGUE[sportKey] ?? null;
+  const normalized = sportKey.trim();
+  return (
+    LIVE_SPORT_TO_LEAGUE[normalized] ??
+    LIVE_SPORT_TO_LEAGUE[normalized.toUpperCase()] ??
+    LIVE_SPORT_TO_LEAGUE[normalized.toLowerCase()] ??
+    null
+  );
 }
 
 export function getLeagueRecord(leagueKey: LeagueKey): LeagueRecord {
