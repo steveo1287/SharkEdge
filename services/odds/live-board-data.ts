@@ -191,15 +191,62 @@ function formatBookLabel(bookmakers: string[]) {
   return `${bookmakers[0]}, ${bookmakers[1]} +${bookmakers.length - 2}`;
 }
 
+function buildFallbackOffersFromBookmakers(
+  game: CurrentOddsGame,
+  marketType: "spread" | "moneyline" | "total"
+) {
+  const grouped = new Map<
+    string,
+    Array<{ name: string; price: number | null; point: number | null; bookTitle: string }>
+  >();
+
+  for (const bookmaker of game.bookmakers ?? []) {
+    for (const outcome of bookmaker.markets[marketType] ?? []) {
+      const key = normalizeName(outcome.name);
+      const existing = grouped.get(key) ?? [];
+      existing.push({
+        name: outcome.name,
+        price: numericValue(outcome.price),
+        point: numericValue(outcome.point),
+        bookTitle: bookmaker.title
+      });
+      grouped.set(key, existing);
+    }
+  }
+
+  return Array.from(grouped.values()).map((rows) => {
+    const best = [...rows].sort((left, right) => (right.price ?? -999) - (left.price ?? -999))[0];
+    const prices = rows.map((row) => row.price).filter((value): value is number => typeof value === "number");
+    const points = rows.map((row) => row.point).filter((value): value is number => typeof value === "number");
+
+    return {
+      name: best?.name ?? "Market",
+      best_price: best?.price ?? null,
+      best_bookmakers: Array.from(new Set(rows.map((row) => row.bookTitle))),
+      average_price:
+        prices.length > 0
+          ? Number((prices.reduce((sum, value) => sum + value, 0) / prices.length).toFixed(2))
+          : null,
+      book_count: rows.length,
+      consensus_point:
+        points.length > 0
+          ? Number((points.reduce((sum, value) => sum + value, 0) / points.length).toFixed(2))
+          : null,
+      point_frequency: points.length
+    } satisfies CurrentOddsOffer;
+  });
+}
+
 function getLiveBestOffer(game: CurrentOddsGame, marketType: "spread" | "moneyline" | "total") {
   const offers = game.market_stats[marketType] ?? [];
+  const resolvedOffers = offers.length ? offers : buildFallbackOffersFromBookmakers(game, marketType);
 
-  if (!offers.length) {
+  if (!resolvedOffers.length) {
     return null;
   }
 
   if (marketType === "total") {
-    return [...offers].sort((left, right) => {
+    return [...resolvedOffers].sort((left, right) => {
       const leftBooks = left.book_count ?? 0;
       const rightBooks = right.book_count ?? 0;
       if (rightBooks !== leftBooks) {
@@ -211,7 +258,7 @@ function getLiveBestOffer(game: CurrentOddsGame, marketType: "spread" | "moneyli
   }
 
   if (marketType === "moneyline") {
-    return [...offers].sort((left, right) => {
+    return [...resolvedOffers].sort((left, right) => {
       const leftPrice = numericValue(left.average_price) ?? getBestPrice(left);
       const rightPrice = numericValue(right.average_price) ?? getBestPrice(right);
       if (rightPrice !== leftPrice) {
@@ -222,7 +269,7 @@ function getLiveBestOffer(game: CurrentOddsGame, marketType: "spread" | "moneyli
     })[0] ?? null;
   }
 
-  return [...offers].sort((left, right) => {
+  return [...resolvedOffers].sort((left, right) => {
     const pointDelta = (getConsensusPoint(right) ?? -999) - (getConsensusPoint(left) ?? -999);
     if (pointDelta !== 0) {
       return pointDelta;
