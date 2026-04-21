@@ -290,14 +290,14 @@ def get_board_provider_mode() -> str:
 
 
 def get_board_fallback_providers() -> list[str]:
-    raw_value = os.getenv("ODDS_BOARD_FALLBACKS", "scraper_cache,oddsharvester").strip()
+    raw_value = os.getenv("ODDS_BOARD_FALLBACKS", "odds_api,scraper_cache").strip()
     if not raw_value:
         return []
 
     fallbacks: list[str] = []
     for token in raw_value.split(","):
         normalized = token.strip().lower()
-        if normalized in {"scraper_cache", "oddsharvester"} and normalized not in fallbacks:
+        if normalized in {"odds_api", "scraper_cache", "oddsharvester"} and normalized not in fallbacks:
             fallbacks.append(normalized)
     return fallbacks
 
@@ -1913,7 +1913,7 @@ def build_board_provider_candidates(
     elif mode == "odds_api":
         requested = ["odds_api"]
     else:
-        requested = ["odds_api", *get_board_fallback_providers()]
+        requested = ["oddsharvester", *get_board_fallback_providers()]
 
     candidates: list[str] = []
     unavailable: list[str] = []
