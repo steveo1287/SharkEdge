@@ -555,9 +555,7 @@ function buildEventMarketKey(row: {
   playerId: string | null;
   side: string | null;
   selection: string;
-  line: number | null;
 }) {
-  const normalizedLine = normalizeEventMarketLine(row.line);
   return [
     row.eventId,
     row.sportsbookId,
@@ -566,20 +564,8 @@ function buildEventMarketKey(row: {
     row.selectionCompetitorId ?? "none",
     row.playerId ?? "none",
     row.side ?? "none",
-    normalizeToken(row.selection),
-    normalizedLine
+    normalizeToken(row.selection)
   ].join(":");
-}
-
-function normalizeEventMarketLine(line: number | null | undefined) {
-  if (typeof line !== "number" || !Number.isFinite(line)) {
-    return "none";
-  }
-
-  // Keep enough precision for half points and prop ladders without float noise.
-  const rounded = Math.round(line * 1000) / 1000;
-  const asFixed = rounded.toFixed(3).replace(/\.?0+$/, "");
-  return asFixed === "-0" ? "0" : asFixed;
 }
 
 export async function upsertOddsIngestPayload(payload: IngestPayload) {
@@ -635,8 +621,7 @@ export async function upsertOddsIngestPayload(payload: IngestPayload) {
         selectionCompetitorId: row.selectionCompetitorId,
         playerId: row.playerId,
         side: row.side,
-        selection: row.selection,
-        line: row.line
+        selection: row.selection
       });
 
       const oddsDecimal =
@@ -704,14 +689,7 @@ export async function upsertOddsIngestPayload(payload: IngestPayload) {
     }
   }
 
-  const boardCacheKeys = [
-    `board:v1:${league.key}`,
-    "board:v2:all:status:all:date:all:max:all",
-    `board:v2:${league.key}:status:all:date:all:max:all`
-  ];
-  for (const key of boardCacheKeys) {
-    await invalidateHotCache(key);
-  }
+  await invalidateHotCache(`board:v1:${league.key}`);
   await invalidateHotCache(`event:v1:${event.id}`);
 
   return { eventId: event.id, eventKey: payload.eventKey, touchedMarketIds };
@@ -790,118 +768,25 @@ export async function ingestInjury(input: InjuryPayload) {
   });
 }
 
-type BoardFeedReadOptions = {
-  skipCache?: boolean;
-  status?: "pregame" | "live" | "all";
-  date?: string;
-  maxEvents?: number;
-};
-
-export type BoardFeedPayload = {
-  generatedAt: string;
-  events: Array<{
-    id: string;
-    eventKey: string | null;
-    league: string;
-    name: string;
-    startTime: string;
-    status: string;
-    participants: Array<{
-      role: string;
-      competitor: string;
-    }>;
-    markets: unknown[];
-    topSignals: unknown[];
-  }>;
-};
-
-function resolveBoardDateWindow(dateFilter?: string) {
-  const now = new Date();
-  const normalized = (dateFilter ?? "all").trim().toLowerCase();
-
-  if (normalized === "all") {
-    return {
-      gte: new Date(now.getTime() - 1000 * 60 * 60 * 12),
-      lte: new Date(now.getTime() + 1000 * 60 * 60 * 48)
-    };
-  }
-
-  const baseDate = new Date(now);
-  if (normalized === "today") {
-    // Keep local timezone day boundaries for day-scoped board slices.
-    baseDate.setHours(0, 0, 0, 0);
-  } else if (normalized === "tomorrow") {
-    baseDate.setDate(baseDate.getDate() + 1);
-    baseDate.setHours(0, 0, 0, 0);
-  } else if (/^\d{8}$/.test(normalized)) {
-    const year = Number(normalized.slice(0, 4));
-    const month = Number(normalized.slice(4, 6)) - 1;
-    const day = Number(normalized.slice(6, 8));
-    baseDate.setFullYear(year, month, day);
-    baseDate.setHours(0, 0, 0, 0);
-  } else if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
-    const [year, month, day] = normalized.split("-").map((value) => Number(value));
-    baseDate.setFullYear(year, month - 1, day);
-    baseDate.setHours(0, 0, 0, 0);
-  } else {
-    return {
-      gte: new Date(now.getTime() - 1000 * 60 * 60 * 12),
-      lte: new Date(now.getTime() + 1000 * 60 * 60 * 48)
-    };
-  }
-
-  const start = new Date(baseDate);
-  const end = new Date(baseDate);
-  end.setDate(end.getDate() + 1);
-
-  return { gte: start, lte: end };
-}
-
-function resolveBoardStatusFilter(statusFilter?: BoardFeedReadOptions["status"]) {
-  if (statusFilter === "live") {
-    return "LIVE" as const;
-  }
-  if (statusFilter === "pregame") {
-    return "SCHEDULED" as const;
-  }
-  return null;
-}
-
 export async function getBoardFeed(
   leagueKey?: string,
-  options?: BoardFeedReadOptions
-): Promise<BoardFeedPayload> {
-  const statusFilter = options?.status ?? "all";
-  const dateFilter = options?.date ?? "all";
-  const maxEvents = Number.isFinite(options?.maxEvents)
-    ? Math.max(1, Number(options?.maxEvents))
-    : null;
-
-  const cacheKey = [
-    "board:v2",
-    leagueKey ?? "all",
-    `status:${statusFilter}`,
-    `date:${dateFilter}`,
-    `max:${maxEvents ?? "all"}`
-  ].join(":");
+  options?: { skipCache?: boolean }
+) {
+  const cacheKey = `board:v1:${leagueKey ?? "all"}`;
 
   if (!options?.skipCache) {
-    const cached = await readHotCache<BoardFeedPayload>(cacheKey);
+    const cached = await readHotCache<unknown>(cacheKey);
     if (cached) {
       return cached;
     }
   }
 
-  const dateWindow = resolveBoardDateWindow(dateFilter);
-  const status = resolveBoardStatusFilter(statusFilter);
-
   const events = await prisma.event.findMany({
     where: {
       ...(leagueKey ? { league: { key: leagueKey } } : {}),
-      ...(status ? { status } : {}),
       startTime: {
-        gte: dateWindow.gte,
-        lte: dateWindow.lte
+        gte: new Date(Date.now() - 1000 * 60 * 60 * 12),
+        lte: new Date(Date.now() + 1000 * 60 * 60 * 48)
       }
     },
     include: {
@@ -928,8 +813,7 @@ export async function getBoardFeed(
         take: 6
       }
     },
-    orderBy: { startTime: "asc" },
-    ...(maxEvents ? { take: maxEvents } : {})
+    orderBy: { startTime: "asc" }
   });
 
   const eventIds = events.map((event) => event.id);
@@ -959,7 +843,7 @@ export async function getBoardFeed(
     eventMarketsByEventId.set(market.eventId, existing);
   }
 
-  const board: BoardFeedPayload = {
+  const board = {
     generatedAt: new Date().toISOString(),
     events: events
       .map((event) => {

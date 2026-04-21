@@ -9,23 +9,6 @@ function toLeagueKey(value: string): LeagueKey | null {
   return allowed.has(value as LeagueKey) ? (value as LeagueKey) : null;
 }
 
-async function invalidateBoardCaches(leagueKey?: string) {
-  const keys = leagueKey
-    ? [
-        `board:v1:${leagueKey}`,
-        "board:v2:all:status:all:date:all:max:all",
-        `board:v2:${leagueKey}:status:all:date:all:max:all`
-      ]
-    : [
-        "board:v1:all",
-        "board:v2:all:status:all:date:all:max:all"
-      ];
-
-  for (const key of keys) {
-    await invalidateHotCache(key);
-  }
-}
-
 export async function currentMarketStateJob(
   eventId?: string,
   options?: {
@@ -77,11 +60,11 @@ export async function currentMarketStateJob(
       include: { league: true }
     });
     if (event) {
-      await invalidateBoardCaches(event.league.key);
+      await invalidateHotCache(`board:v1:${event.league.key}`);
       await invalidateHotCache(`event:v1:${event.id}`);
     }
   } else {
-    await invalidateBoardCaches();
+    await invalidateHotCache("board:v1:all");
   }
 
   return {

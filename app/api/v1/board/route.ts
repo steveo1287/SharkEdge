@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import type { BoardFilters, LeagueKey } from "@/lib/types/domain";
 import { parseBoardFilters } from "@/services/odds/board-service";
-import { getBoardFeed } from "@/services/market-data/market-data-service";
+import { getLiveBoardPageData } from "@/services/odds/live-board-data";
 
 const SUPPORTED_LEAGUES = new Set<LeagueKey>([
   "NBA",
@@ -48,20 +48,43 @@ function parseFilters(request: Request): BoardFilters {
 
 export async function GET(request: Request) {
   const filters = parseFilters(request);
-  const leagueKey = filters.league === "ALL" ? undefined : filters.league;
 
   try {
-    const payload = await getBoardFeed(leagueKey, {
-      status: filters.status,
-      date: filters.date
-    });
+    const payload = await getLiveBoardPageData(filters);
+    if (!payload) {
+      return NextResponse.json(
+        {
+          filters,
+          source: "live",
+          games: [],
+          events: [],
+          summary: { totalGames: 0, totalProps: 0, totalSportsbooks: 0 },
+          providerHealth: {
+            state: "OFFLINE",
+            label: "Offline",
+            summary: "Live board payload was unavailable."
+          }
+        },
+        { status: 503 }
+      );
+    }
 
     return NextResponse.json({
       ...payload,
-      filters,
-      source: "internal_market_store",
       // Backward-compatible shape for any legacy consumer still expecting `events`.
-      events: payload.events ?? []
+      events: payload.games.map((game) => ({
+        id: game.id,
+        eventKey: game.externalEventId ?? game.id,
+        league: game.leagueKey,
+        name: `${game.awayTeam.name} @ ${game.homeTeam.name}`,
+        startTime: game.startTime,
+        status: game.status,
+        participants: [
+          { role: "AWAY", competitor: game.awayTeam.name },
+          { role: "HOME", competitor: game.homeTeam.name }
+        ],
+        markets: []
+      }))
     });
   } catch (error) {
     return NextResponse.json(

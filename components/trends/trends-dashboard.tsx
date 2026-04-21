@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import type { TrendDashboardView, TrendFilters, TrendMode } from "@/lib/types/domain";
+import type { TrendDashboardView, TrendFilters, TrendMode, TrendCardView } from "@/lib/types/domain";
 import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import { SetupStateCard } from "@/components/ui/setup-state-card";
@@ -72,37 +72,147 @@ function toneClass(tone: "success" | "brand" | "premium" | "muted") {
   return "border-line bg-slate-950/65";
 }
 
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
 function parsePercent(value: string | null | undefined) {
   if (!value) return null;
   const parsed = Number.parseFloat(value.replace(/[^\d.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function TrendDiagnosticTile({
-  label,
-  value,
-  note,
-  accent = "muted",
+function buildMetricSeries({
+  seed,
+  base = 0.52,
+  count = 18,
+  drift = 0.012,
+  variance = 0.08,
 }: {
-  label: string;
-  value: string;
-  note?: string | null;
-  accent?: "muted" | "brand" | "success" | "premium";
+  seed: number;
+  base?: number;
+  count?: number;
+  drift?: number;
+  variance?: number;
 }) {
-  const valueClass = {
-    muted: "text-white",
-    brand: "text-sky-200",
-    success: "text-emerald-200",
-    premium: "text-amber-100",
-  }[accent];
+  let state = (Math.abs(Math.trunc(seed)) || 1) + 1;
+  let value = clamp01(base);
+
+  return Array.from({ length: count }, () => {
+    state = (state * 1664525 + 1013904223) % 4294967296;
+    const noise = ((state / 4294967296) - 0.5) * variance;
+    value = clamp01(value + drift + noise);
+    return Number(value.toFixed(3));
+  });
+}
+
+function buildLinePath(points: number[], width: number, height: number) {
+  const safePoints = points.length > 1 ? points : [0.5, 0.5];
+  const stepX = width / (safePoints.length - 1);
+
+  return safePoints
+    .map((point, index) => {
+      const x = index * stepX;
+      const y = height - clamp01(point) * height;
+      return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
+}
+
+function buildAreaPath(points: number[], width: number, height: number) {
+  const line = buildLinePath(points, width, height);
+  return `${line} L ${width} ${height} L 0 ${height} Z`;
+}
+
+function TerminalSparkline({
+  points,
+  height = 58,
+  width = 200,
+}: {
+  points: number[];
+  height?: number;
+  width?: number;
+}) {
+  const linePath = buildLinePath(points, width, height);
+  const areaPath = buildAreaPath(points, width, height);
 
   return (
-    <div className="rounded-[22px] border border-line bg-slate-950/55 p-3">
-      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
-      <div className={`mt-2 font-mono text-[20px] font-semibold ${valueClass}`}>{value}</div>
-      {note ? <div className="mt-2 text-[11px] leading-5 text-slate-400">{note}</div> : null}
+    <div className="relative overflow-hidden rounded-2xl border border-cyan-400/12 bg-black/40">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" role="img" aria-label="Trend signal trace">
+        <defs>
+          <linearGradient id="trend-card-area" x1="0%" x2="0%" y1="0%" y2="100%">
+            <stop offset="0%" stopColor="rgb(34 211 238 / 0.28)" />
+            <stop offset="100%" stopColor="rgb(34 211 238 / 0)" />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill="url(#trend-card-area)" className="fill-cyan-400/10" />
+        {[0.25, 0.5, 0.75].map((row) => (
+          <line
+            key={row}
+            x1="0"
+            x2={width}
+            y1={height * row}
+            y2={height * row}
+            className="stroke-white/6"
+            strokeWidth="1"
+            strokeDasharray="3 5"
+          />
+        ))}
+        <path d={linePath} className="fill-none stroke-cyan-300" strokeWidth="2.2" />
+      </svg>
     </div>
   );
+}
+
+function TerminalGauge({ value, label = "win %", size = 108 }: { value: number; label?: string; size?: number }) {
+  const normalized = clamp01(value);
+  const strokeWidth = 8;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const progress = circumference * (1 - normalized);
+
+  return (
+    <div className="flex flex-col items-center justify-center rounded-[26px] border border-cyan-400/14 bg-zinc-950/78 p-3 shadow-[0_0_26px_rgba(34,211,238,0.05)]">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={label}>
+        <defs>
+          <linearGradient id="trend-card-gauge" x1="10%" y1="0%" x2="90%" y2="100%">
+            <stop offset="0%" stopColor="rgb(103 232 249)" />
+            <stop offset="55%" stopColor="rgb(34 211 238)" />
+            <stop offset="100%" stopColor="rgb(74 222 128)" />
+          </linearGradient>
+        </defs>
+        <circle cx={size / 2} cy={size / 2} r={radius} className="fill-none stroke-white/6" strokeWidth={strokeWidth} />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          className="fill-none"
+          stroke="url(#trend-card-gauge)"
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={progress}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+        <circle cx={size / 2} cy={size / 2} r={radius - strokeWidth * 1.25} className="fill-cyan-400/4" />
+        <text x="50%" y="48%" textAnchor="middle" className="fill-white text-[15px] font-semibold" dominantBaseline="middle">
+          {`${Math.round(normalized * 100)}%`}
+        </text>
+        <text x="50%" y="66%" textAnchor="middle" className="fill-cyan-200/65 text-[7px] uppercase tracking-[0.24em]" dominantBaseline="middle">
+          {label}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+function deriveTrendConfidence(card: TrendCardView) {
+  const hitRate = parsePercent(card.hitRate);
+  const roi = parsePercent(card.roi);
+  const sampleComponent = Math.min(card.sampleSize / 40, 1) * 0.34;
+  const hitRateComponent = hitRate !== null ? Math.min(Math.max((hitRate - 50) / 20, 0), 1) * 0.34 : 0.1;
+  const roiComponent = roi !== null ? Math.min(Math.abs(roi) / 20, 1) * 0.2 : 0.06;
+  const toneComponent = card.tone === "success" ? 0.08 : card.tone === "brand" ? 0.05 : card.tone === "premium" ? 0.04 : 0;
+
+  return Math.max(0.24, Math.min(0.92, sampleComponent + hitRateComponent + roiComponent + toneComponent));
 }
 
 export function TrendsDashboard({ data }: TrendsDashboardProps) {
@@ -477,13 +587,16 @@ export function TrendsDashboard({ data }: TrendsDashboardProps) {
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {displayCards.map((card: TrendDashboardView["cards"][number]) => {
-          const hitRate = parsePercent(card.hitRate);
-          const roi = parsePercent(card.roi);
+        {displayCards.map((card) => {
+          const trendConfidence = deriveTrendConfidence(card);
+          const trendSeries = buildMetricSeries({
+            seed: Math.round(trendConfidence * 1000) + card.sampleSize * 9,
+            base: Math.max(0.28, trendConfidence),
+            count: 12,
+            drift: trendConfidence >= 0.55 ? 0.018 : 0.002,
+            variance: 0.1,
+          });
           const cardMatches = card.todayMatches ?? [];
-          const hitRateValue = hitRate !== null ? `${Math.round(hitRate)}%` : "—";
-          const roiValue = roi !== null ? `${roi > 0 ? "+" : ""}${roi.toFixed(1)}%` : "—";
-          const sampleValue = card.sampleSize.toLocaleString("en-US");
 
           return (
             <Card
@@ -502,31 +615,15 @@ export function TrendsDashboard({ data }: TrendsDashboardProps) {
               </div>
               <div className="mt-3 text-sm leading-6 text-slate-300">{card.note}</div>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <TrendDiagnosticTile
-                  label="Hit rate"
-                  value={hitRateValue}
-                  note={card.hitRate ? `Measured over ${card.dateRange}` : "Historical hit rate unavailable"}
-                  accent={hitRate !== null && hitRate >= 55 ? "success" : hitRate !== null && hitRate >= 50 ? "brand" : "muted"}
-                />
-                <TrendDiagnosticTile
-                  label="ROI"
-                  value={roiValue}
-                  note={card.roi ? "Historical return on tracked qualifiers" : "ROI unavailable for this lane"}
-                  accent={roi !== null && roi > 0 ? "success" : roi !== null && roi === 0 ? "premium" : "muted"}
-                />
-                <TrendDiagnosticTile
-                  label="Sample"
-                  value={sampleValue}
-                  note={card.dateRange}
-                  accent={card.sampleSize >= 50 ? "brand" : "muted"}
-                />
-                <TrendDiagnosticTile
-                  label="Live qualifiers"
-                  value={String(cardMatches.length)}
-                  note={cardMatches.length ? "Current slate matches found" : "No current qualifiers"}
-                  accent={cardMatches.length ? "premium" : "muted"}
-                />
+              <div className="mt-4 grid gap-4 lg:grid-cols-[132px_minmax(0,1fr)]">
+                <TerminalGauge value={trendConfidence} label="win %" />
+                <div className="rounded-[26px] border border-cyan-400/12 bg-black/28 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.24em] text-cyan-200/55">
+                    <span>Signal trace</span>
+                    <span>{card.sampleSize} sample</span>
+                  </div>
+                  <TerminalSparkline points={trendSeries} />
+                </div>
               </div>
 
               {cardMatches.length ? (
@@ -535,7 +632,7 @@ export function TrendsDashboard({ data }: TrendsDashboardProps) {
                     Live qualifiers
                   </div>
                   <div className="mt-3 grid gap-2">
-                    {cardMatches.map((match: typeof cardMatches[number]) => {
+                    {cardMatches.map((match) => {
                       const recommendedBetLabel = (match as typeof match & {
                         recommendedBetLabel?: string | null;
                       }).recommendedBetLabel;

@@ -38,6 +38,13 @@ function formatOdds(v: number | null | undefined) {
 function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["games"][number]; leagueKey: LeagueKey }) {
   const awayLogo = getTeamLogoUrl(leagueKey, game.awayTeam.abbreviation);
   const homeLogo = getTeamLogoUrl(leagueKey, game.homeTeam.abbreviation);
+  const moneylineLabel = game.moneyline.label ?? "";
+  const awayMoneyline = moneylineLabel.startsWith(game.awayTeam.abbreviation)
+    ? game.moneyline.bestOdds
+    : null;
+  const homeMoneyline = moneylineLabel.startsWith(game.homeTeam.abbreviation)
+    ? game.moneyline.bestOdds
+    : null;
 
   return (
     <Link href={game.detailHref ?? `/game/${game.id}`} className="block">
@@ -55,7 +62,7 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
               {game.awayTeam.name}
             </span>
             <span className="ml-auto font-mono text-[13px] tabular-nums text-bone/60">
-              {formatOdds(game.moneyline.bestOdds)}
+              {formatOdds(awayMoneyline)}
             </span>
           </div>
           <div className="flex items-center gap-2.5">
@@ -69,7 +76,7 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
             <span className="truncate font-display text-[14px] font-semibold tracking-[-0.01em] text-text-primary">
               {game.homeTeam.name}
             </span>
-            <span className="ml-auto font-mono text-[13px] tabular-nums text-bone/60">—</span>
+            <span className="ml-auto font-mono text-[13px] tabular-nums text-bone/60">{formatOdds(homeMoneyline)}</span>
           </div>
         </div>
 
