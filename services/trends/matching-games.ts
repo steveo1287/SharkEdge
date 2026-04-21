@@ -336,6 +336,7 @@ export async function getTodayTrendMatches(filters: TrendFilters): Promise<{
             ? String((event.stateJson as Record<string, unknown>).detail)
             : null,
         matchingLogic: buildMatchingLogic(filters),
+        recommendedBetLabel: buildRecommendedBetLabel(filters, mappedParticipants),
         oddsContext: marketContext,
         matchupHref: buildMatchupHref(leagueKey, event.externalEventId ?? event.id),
         boardHref:
