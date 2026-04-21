@@ -25,7 +25,7 @@ if (!global.sharkedgeBackendIngestEnvLoaded) {
 
 const SUPPORTED_LEAGUES = new Set<LeagueKey>(["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"]);
 
-type BackendBoardSource = "theoddsapi" | "scraper" | "therundown" | "oddsharvester";
+type BackendBoardSource = "theoddsapi" | "scraper" | "therundown";
 
 function normalizeName(value: string) {
   return (value ?? "")
@@ -82,10 +82,6 @@ function mapBackendBoardSource(board: CurrentOddsBoardResponse): BackendBoardSou
   const provider = String(board.provider ?? board.provider_mode ?? "")
     .trim()
     .toLowerCase();
-
-  if (provider === "oddsharvester") {
-    return "oddsharvester";
-  }
 
   if (provider === "odds_api" || provider === "oddsapi" || provider === "theoddsapi") {
     return "theoddsapi";

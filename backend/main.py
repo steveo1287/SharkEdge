@@ -284,7 +284,7 @@ def get_api_key() -> str:
 
 def get_board_provider_mode() -> str:
     configured = os.getenv("ODDS_BOARD_PROVIDER", "auto").strip().lower()
-    if configured in {"auto", "odds_api", "scraper_cache", "oddsharvester"}:
+    if configured in {"auto", "odds_api", "scraper_cache"}:
         return configured
     return "auto"
 
@@ -297,7 +297,7 @@ def get_board_fallback_providers() -> list[str]:
     fallbacks: list[str] = []
     for token in raw_value.split(","):
         normalized = token.strip().lower()
-        if normalized in {"odds_api", "scraper_cache", "oddsharvester"} and normalized not in fallbacks:
+        if normalized in {"odds_api", "scraper_cache"} and normalized not in fallbacks:
             fallbacks.append(normalized)
     return fallbacks
 
@@ -1891,10 +1891,6 @@ def get_available_board_provider_status(
             "reason": None if cache_game_count > 0 else "Scraper cache has no fresh live games.",
             "game_count": cache_game_count,
         },
-        "oddsharvester": {
-            "available": is_oddsharvester_available(),
-            "reason": None if is_oddsharvester_available() else "OddsHarvester is not available in this runtime.",
-        },
     }
 
 
@@ -1908,12 +1904,10 @@ def build_board_provider_candidates(
     requested: list[str]
     if mode == "scraper_cache":
         requested = ["scraper_cache"]
-    elif mode == "oddsharvester":
-        requested = ["oddsharvester"]
     elif mode == "odds_api":
         requested = ["odds_api"]
     else:
-        requested = ["oddsharvester", *get_board_fallback_providers()]
+        requested = ["odds_api", *get_board_fallback_providers()]
 
     candidates: list[str] = []
     unavailable: list[str] = []
@@ -1947,9 +1941,6 @@ def fetch_sport_odds(
             if cached_sport.get("key") == sport["key"]:
                 return cached_sport
         return build_empty_sport_payload(sport)
-
-    if provider == "oddsharvester":
-        return fetch_sport_odds_from_oddsharvester(sport)
 
     return fetch_sport_odds_from_api(sport, api_key)
 

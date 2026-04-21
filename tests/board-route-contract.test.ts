@@ -9,7 +9,7 @@ const boardLiveRoute = fs.readFileSync(path.join(root, "app", "api", "v1", "boar
 assert.match(boardRoute, /getBoardPageData/);
 assert.doesNotMatch(boardRoute, /getLiveBoardPageData/);
 
-assert.match(boardLiveRoute, /getBoardPageData/);
-assert.doesNotMatch(boardLiveRoute, /getLiveBoardPageData/);
+assert.doesNotMatch(boardLiveRoute, /getBoardPageData/);
+assert.match(boardLiveRoute, /getLiveBoardPageData/);
 
 console.log("board-route-contract test passed");
