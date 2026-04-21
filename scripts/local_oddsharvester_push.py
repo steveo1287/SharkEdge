@@ -64,8 +64,15 @@ API_KEY = os.getenv("SHARKEDGE_API_KEY", "").strip()
 ODDSHARVESTER_COMMAND = os.getenv("ODDSHARVESTER_COMMAND", "python -m oddsharvester").strip()
 ODDSHARVESTER_TIMEOUT_SECONDS = int(os.getenv("ODDSHARVESTER_TIMEOUT_SECONDS", "120"))
 ODDSHARVESTER_HEADLESS = os.getenv("ODDSHARVESTER_HEADLESS", "true").strip().lower() not in {"0", "false", "no", "off"}
+ODDSHARVESTER_PROXY_URL = os.getenv("ODDSHARVESTER_PROXY_URL", "").strip()
 OUTPUT_DIR = Path(os.getenv("ODDSHARVESTER_OUTPUT_DIR", "./tmp/oddsharvester-output"))
 POST_TO_BACKEND = os.getenv("POST_TO_BACKEND", "true").strip().lower() not in {"0", "false", "no", "off"}
+BEST_EFFORT_CONTINUE = os.getenv("BEST_EFFORT_CONTINUE", "true").strip().lower() not in {"0", "false", "no", "off"}
+ENABLED_SPORT_KEYS = {
+    token.strip()
+    for token in os.getenv("ENABLED_SPORT_KEYS", "").split(",")
+    if token.strip()
+}
 
 
 @dataclass
@@ -76,6 +83,33 @@ class GamePayload:
 
 def command_parts() -> list[str]:
     return shlex.split(ODDSHARVESTER_COMMAND)
+
+
+def build_subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    if ODDSHARVESTER_PROXY_URL:
+        env["HTTP_PROXY"] = ODDSHARVESTER_PROXY_URL
+        env["HTTPS_PROXY"] = ODDSHARVESTER_PROXY_URL
+        env["ALL_PROXY"] = ODDSHARVESTER_PROXY_URL
+    return env
+
+
+def env_override_name(prefix: str, sport_key: str) -> str:
+    return f"{prefix}_{sport_key.upper()}"
+
+
+def get_sport_league(sport: dict[str, str]) -> str:
+    return os.getenv(env_override_name("ODDSHARVESTER_LEAGUES", sport["key"]), sport["league"]).strip()
+
+
+def get_sport_markets(sport: dict[str, str]) -> str:
+    return os.getenv(env_override_name("ODDSHARVESTER_MARKETS", sport["key"]), sport["markets"]).strip()
+
+
+def get_enabled_sports() -> list[dict[str, str]]:
+    if not ENABLED_SPORT_KEYS:
+        return SPORTS
+    return [sport for sport in SPORTS if sport["key"] in ENABLED_SPORT_KEYS]
 
 
 def extract_events(payload: Any) -> list[dict[str, Any]]:
@@ -310,28 +344,60 @@ def build_payload_for_event(sport: dict[str, str], event: dict[str, Any]) -> Gam
         if "Under" in total_map:
             _, line["underOdds"] = total_map["Under"]
 
-        has_any = any(line.get(key) is not None for key in (
-            "homeMoneyline", "awayMoneyline", "homeSpread", "awaySpread", "total", "overOdds", "underOdds"
-        ))
+        has_any = any(
+            line.get(key) is not None
+            for key in (
+                "homeMoneyline",
+                "awayMoneyline",
+                "homeSpread",
+                "awaySpread",
+                "total",
+                "overOdds",
+                "underOdds",
+            )
+        )
         if not has_any:
             continue
         lines.append(line)
 
-        for key in ("homeMoneyline", "awayMoneyline", "homeSpread", "awaySpread", "homeSpreadOdds", "awaySpreadOdds", "total", "overOdds", "underOdds"):
+        for key in (
+            "homeMoneyline",
+            "awayMoneyline",
+            "homeSpread",
+            "awaySpread",
+            "homeSpreadOdds",
+            "awaySpreadOdds",
+            "total",
+            "overOdds",
+            "underOdds",
+        ):
             if best[key] is None and line.get(key) is not None:
                 best[key] = line.get(key)
 
     if not lines:
         return None
 
-    event_id = str(event.get("id") or event.get("event_id") or event.get("eventId") or event.get("match_id") or event.get("matchId") or f"{sport['key']}:{away_team}:{home_team}")
+    event_id = str(
+        event.get("id")
+        or event.get("event_id")
+        or event.get("eventId")
+        or event.get("match_id")
+        or event.get("matchId")
+        or f"{sport['key']}:{away_team}:{home_team}"
+    )
     payload = {
         "sport": sport["sport"],
         "sportKey": sport["key"],
         "eventKey": f"oddsharvester:{sport['key']}:{event_id}",
         "homeTeam": home_team,
         "awayTeam": away_team,
-        "commenceTime": event.get("commence_time") or event.get("start_time") or event.get("startTime") or event.get("date") or event.get("event_time") or event.get("match_time") or event.get("datetime"),
+        "commenceTime": event.get("commence_time")
+        or event.get("start_time")
+        or event.get("startTime")
+        or event.get("date")
+        or event.get("event_time")
+        or event.get("match_time")
+        or event.get("datetime"),
         "scrapedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "source": "oddsharvester",
         "sourceMeta": {
@@ -347,14 +413,19 @@ def build_payload_for_event(sport: dict[str, str], event: dict[str, Any]) -> Gam
 
 def run_harvest_for_sport(sport: dict[str, str]) -> list[GamePayload]:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    league = get_sport_league(sport)
+    markets = get_sport_markets(sport)
+    if not league or not markets:
+        raise RuntimeError(f"Missing league or market config for {sport['key']}")
+
     command = command_parts()
     with tempfile.TemporaryDirectory(prefix=f"oddsharvester-{sport['key']}-") as temp_dir:
         output_base = Path(temp_dir) / sport["key"]
         command.extend([
             "upcoming",
             "-s", sport["sport"],
-            "-l", sport["league"],
-            "-m", sport["markets"],
+            "-l", league,
+            "-m", markets,
             "-f", "json",
             "-o", str(output_base),
         ])
@@ -367,6 +438,7 @@ def run_harvest_for_sport(sport: dict[str, str]) -> list[GamePayload]:
             text=True,
             timeout=ODDSHARVESTER_TIMEOUT_SECONDS,
             check=False,
+            env=build_subprocess_env(),
         )
 
         if completed.returncode != 0:
@@ -414,10 +486,19 @@ def main() -> None:
     total_games = 0
     total_posts = 0
     print(f"Local OddsHarvester push -> {BACKEND_URL}")
+    if ODDSHARVESTER_PROXY_URL:
+        print("Proxy mode enabled for OddsHarvester subprocesses")
 
-    for sport in SPORTS:
+    for sport in get_enabled_sports():
         print(f"\n[{sport['title']}] harvesting...")
-        harvested = run_harvest_for_sport(sport)
+        try:
+            harvested = run_harvest_for_sport(sport)
+        except Exception as error:
+            print(f"  ✗ harvest failed: {error}")
+            if BEST_EFFORT_CONTINUE:
+                continue
+            raise
+
         total_games += len(harvested)
         print(f"  harvested {len(harvested)} games")
         for game in harvested:
