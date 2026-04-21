@@ -539,7 +539,7 @@ async function fetchLeagueBoard(leagueKey: LeagueKey, dateKey: string) {
   }
 
   return {
-    key: leagueKey,
+    key: getSportKeyForLeague(leagueKey),
     title: leagueKey,
     short_title: leagueKey,
     game_count: games.length,
