@@ -12,34 +12,20 @@ function maskKey(value: string | null) {
   return `${value.slice(0, 4)}...${value.slice(-4)}`;
 }
 
-function isUsableEnvValue(value: string | null | undefined) {
-  if (!value) {
-    return false;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  return normalized !== "undefined" && normalized !== "null";
-}
-
 function getRuntimeKey() {
-  const value = [
-    process.env.THERUNDOWN_API_KEY?.trim(),
-    process.env.THERUNDOWN_KEY?.trim(),
-    process.env.THE_RUNDOWN_API_KEY?.trim(),
-    process.env.THE_RUNDOWN_KEY?.trim(),
-    process.env.NEXT_PUBLIC_THERUNDOWN_API_KEY?.trim(),
-    process.env.NEXT_PUBLIC_THE_RUNDOWN_API_KEY?.trim()
-  ].find((entry) => isUsableEnvValue(entry));
+  const value =
+    process.env.THERUNDOWN_API_KEY?.trim() ??
+    process.env.THERUNDOWN_KEY?.trim() ??
+    process.env.THE_RUNDOWN_API_KEY?.trim() ??
+    process.env.THE_RUNDOWN_KEY?.trim() ??
+    null;
   return value && value.length ? value : null;
 }
 
 export async function GET() {
   const key = getRuntimeKey();
-  const baseUrl = [
-    process.env.THERUNDOWN_BASE_URL?.trim(),
-    process.env.NEXT_PUBLIC_THERUNDOWN_BASE_URL?.trim(),
-    "https://therundown.io/api/v2"
-  ].find((value) => isUsableEnvValue(value)) as string;
+  const baseUrl =
+    process.env.THERUNDOWN_BASE_URL?.trim() || "https://therundown.io/api/v2";
   const date = new Date().toISOString().slice(0, 10);
   const url = new URL(`${baseUrl}/sports/3/events/${date}`);
   url.searchParams.set("market_ids", "1,2,3");

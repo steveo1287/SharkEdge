@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { ingestBackendCurrentOdds } from "@/services/current-odds/backend-ingestion-service";
 import { refreshCurrentBookFeeds } from "@/services/current-odds/book-feed-refresh-service";
 import { prisma } from "@/lib/db/prisma";
 import { currentMarketStateJob } from "@/services/jobs/current-market-state-job";
@@ -26,9 +25,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const backendIngest = await ingestBackendCurrentOdds({
-    allowedSources: ["oddsharvester", "theoddsapi", "scraper"]
-  });
   const refresh = await refreshCurrentBookFeeds({ force: true });
 
   const activeEvents = await prisma.event.findMany({
@@ -78,7 +74,6 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     ok: true,
-    backendIngest,
     refresh,
     inventory: {
       events,

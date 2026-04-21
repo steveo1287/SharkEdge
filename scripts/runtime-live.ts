@@ -3,12 +3,7 @@ import { edgeRecomputeJob } from "@/services/jobs/edge-recompute-job";
 import { lineMovementJob } from "@/services/jobs/line-movement-job";
 import { alertDispatchJob } from "@/services/jobs/alert-dispatch-job";
 import { refreshActiveEventCaches, refreshBoardCache, refreshEdgesCache } from "@/services/feed/cache-refresh";
-import {
-  importDKscraPyProps,
-  importGto76Props,
-  syncPropWarehouse
-} from "@/services/props/warehouse-service";
-import { ingestBackendCurrentOdds } from "@/services/current-odds/backend-ingestion-service";
+import { syncPropWarehouse } from "@/services/props/warehouse-service";
 import { ingestTheRundownCurrentOdds } from "@/services/current-odds/therundown-ingestion-service";
 import { prisma } from "@/lib/db/prisma";
 import { getBooleanArg, getNumberArg, getStringArg, logStep, parseArgs } from "./_runtime-utils";
@@ -66,34 +61,6 @@ async function runScrape(dryRun: boolean) {
   }
 
   // Try TypeScript ingestion first (works in Vercel production)
-  try {
-    logStep("runtime:scrape:start", { method: "backend-board" });
-    const result = await ingestBackendCurrentOdds({
-      allowedSources: ["oddsharvester", "theoddsapi", "scraper"]
-    });
-
-    if (result.ok) {
-      logStep("runtime:scrape:success", {
-        method: "backend-board",
-        eventCount: result.eventCount,
-        marketIngestions: result.marketIngestions,
-        leagues: result.leagues,
-        provider: result.provider,
-        providerMode: result.providerMode,
-        source: result.source
-      });
-      return result;
-    }
-
-    logStep("runtime:scrape:failed", {
-      method: "backend-board",
-      reason: result.reason
-    });
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    logStep("runtime:scrape:error", { method: "backend-board", error: msg });
-  }
-
   try {
     logStep("runtime:scrape:start", { method: "typescript" });
     const result = await ingestTheRundownCurrentOdds({
@@ -172,42 +139,6 @@ async function runCycle(leagueKey?: string, dryRun = false) {
       maxEvents: 2,
       lookaheadHours: 18,
       dryRun: false
-    });
-  }
-
-  const gto76Path = process.env.GTO76_IMPORT_PATH?.trim();
-  if (!dryRun && gto76Path && (!leagueKey || leagueKey === "NBA")) {
-    const gto76Result = await importGto76Props({
-      path: gto76Path,
-      dryRun: false
-    });
-
-    logStep("runtime:props:gto76", {
-      path: gto76Path,
-      importedRows: gto76Result.importedRows,
-      storedRows: gto76Result.storedRows,
-      storedSnapshots: gto76Result.storedSnapshots,
-      skippedRows: gto76Result.skippedRows
-    });
-  }
-
-  const dkscrapyPath = process.env.DKSCRAPY_IMPORT_PATH?.trim();
-  if (!dryRun && dkscrapyPath) {
-    const dkscrapyResult = await importDKscraPyProps({
-      path: dkscrapyPath,
-      dryRun: false,
-      league:
-        leagueKey && ["NBA", "NCAAB", "MLB", "NFL", "NCAAF"].includes(leagueKey)
-          ? (leagueKey as "NBA" | "NCAAB" | "MLB" | "NFL" | "NCAAF")
-          : "ALL"
-    });
-
-    logStep("runtime:props:dkscrapy", {
-      path: dkscrapyPath,
-      importedRows: dkscrapyResult.importedRows,
-      storedRows: dkscrapyResult.storedRows,
-      storedSnapshots: dkscrapyResult.storedSnapshots,
-      skippedRows: dkscrapyResult.skippedRows
     });
   }
 

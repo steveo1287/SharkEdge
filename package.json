@@ -12,7 +12,7 @@
     "typecheck": "node scripts/typecheck-safe.mjs",
     "start:core": "next start",
     "start": "node scripts/boot-live-guard.mjs start",
-    "test": "tsx tests/ledger-utils.test.ts && tsx tests/live-board-data.test.ts && tsx tests/book-feed-normalization.test.ts && tsx tests/opportunity-engine.test.ts && tsx tests/opportunity-truth-calibration.test.ts && tsx tests/market-path-engine.test.ts && tsx tests/opportunity-portfolio.test.ts && tsx tests/opportunity-decision-replay.test.ts && tsx tests/opportunity-evidence-balance.test.ts && tsx tests/mlb-game-sim-service.test.ts && tsx tests/provider-readiness.test.ts && tsx tests/provider-readiness-banner.test.ts && tsx tests/discovered-trend-route-contract.test.ts && tsx tests/sim-route-contract.test.ts",
+    "test": "tsx tests/ledger-utils.test.ts && tsx tests/live-board-data.test.ts && tsx tests/board-route-contract.test.ts && tsx tests/book-feed-normalization.test.ts && tsx tests/opportunity-engine.test.ts && tsx tests/opportunity-truth-calibration.test.ts && tsx tests/market-path-engine.test.ts && tsx tests/opportunity-portfolio.test.ts && tsx tests/opportunity-decision-replay.test.ts && tsx tests/opportunity-evidence-balance.test.ts && tsx tests/mlb-game-sim-service.test.ts && tsx tests/provider-readiness.test.ts && tsx tests/provider-readiness-banner.test.ts && tsx tests/discovered-trend-route-contract.test.ts && tsx tests/sim-route-contract.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
@@ -45,17 +45,14 @@
     "historical:catalog": "tsx scripts/backfill-historical-catalog.ts",
     "historical:bootstrap": "tsx scripts/bootstrap-historical-database.ts",
     "historical:free": "tsx scripts/worker-free-historical.ts",
-    "historical:refresh": "tsx scripts/worker-historical-refresh.ts",
-    "odds:harvester:smoke": "tsx scripts/oddsharvester-smoke.ts"
+    "historical:refresh": "tsx scripts/worker-historical-refresh.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.7.0",
-    "cheerio": "^1.0.0-rc.12",
     "discord.js": "^14.19.3",
     "next": "15.5.10",
     "react": "19.0.4",
     "react-dom": "19.0.4",
-    "sportsdataverse": "^2.0.0",
     "ws": "^8.18.3",
     "zod": "^3.24.2"
   },

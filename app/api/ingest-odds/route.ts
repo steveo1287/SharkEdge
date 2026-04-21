@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { getCurrentOddsBackendBaseUrl } from "@/services/current-odds/backend-url";
-
-const BACKEND_BASE_URL = getCurrentOddsBackendBaseUrl();
+const BACKEND_BASE_URL =
+  process.env.SHARKEDGE_BACKEND_URL?.replace(/\/$/, "") ??
+  "https://shark-odds-1.onrender.com";
 
 async function proxy(path: string, init?: RequestInit) {
   try {

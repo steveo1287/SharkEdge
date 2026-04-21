@@ -96,22 +96,6 @@ function normalizePeriod(value: string | null | undefined) {
   return normalized;
 }
 
-function normalizeLineKeyComponent(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return "none";
-  }
-
-  const rounded = Math.round(value * 1000) / 1000;
-  if (Object.is(rounded, -0)) {
-    return "0";
-  }
-
-  return rounded
-    .toFixed(3)
-    .replace(/\.0+$/, "")
-    .replace(/(\.\d*?)0+$/, "$1");
-}
-
 function resolveSportAndLeague(payload: IngestPayload) {
   const direct = SPORT_MAP[normalizeToken(payload.sport)];
   if (direct) {
@@ -571,7 +555,6 @@ function buildEventMarketKey(row: {
   playerId: string | null;
   side: string | null;
   selection: string;
-  line: number | null;
 }) {
   return [
     row.eventId,
@@ -581,8 +564,7 @@ function buildEventMarketKey(row: {
     row.selectionCompetitorId ?? "none",
     row.playerId ?? "none",
     row.side ?? "none",
-    normalizeToken(row.selection),
-    normalizeLineKeyComponent(row.line)
+    normalizeToken(row.selection)
   ].join(":");
 }
 
@@ -639,8 +621,7 @@ export async function upsertOddsIngestPayload(payload: IngestPayload) {
         selectionCompetitorId: row.selectionCompetitorId,
         playerId: row.playerId,
         side: row.side,
-        selection: row.selection,
-        line: row.line
+        selection: row.selection
       });
 
       const oddsDecimal =

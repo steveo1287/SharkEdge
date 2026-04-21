@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 
 import type { BoardFilters, LeagueKey } from "@/lib/types/domain";
-import { parseBoardFilters } from "@/services/odds/board-service";
-import { getLiveBoardPageData } from "@/services/odds/live-board-data";
+import { getBoardPageData, parseBoardFilters } from "@/services/odds/board-service";
 
 const SUPPORTED_LEAGUES = new Set<LeagueKey>([
   "NBA",
@@ -50,7 +49,7 @@ export async function GET(request: Request) {
   const filters = parseFilters(request);
 
   try {
-    const payload = await getLiveBoardPageData(filters);
+    const payload = await getBoardPageData(filters);
     if (!payload) {
       return NextResponse.json(
         {

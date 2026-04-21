@@ -38,13 +38,6 @@ function formatOdds(v: number | null | undefined) {
 function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["games"][number]; leagueKey: LeagueKey }) {
   const awayLogo = getTeamLogoUrl(leagueKey, game.awayTeam.abbreviation);
   const homeLogo = getTeamLogoUrl(leagueKey, game.homeTeam.abbreviation);
-  const moneylineLabel = game.moneyline.label ?? "";
-  const awayMoneyline = moneylineLabel.startsWith(game.awayTeam.abbreviation)
-    ? game.moneyline.bestOdds
-    : null;
-  const homeMoneyline = moneylineLabel.startsWith(game.homeTeam.abbreviation)
-    ? game.moneyline.bestOdds
-    : null;
 
   return (
     <Link href={game.detailHref ?? `/game/${game.id}`} className="block">
@@ -62,7 +55,7 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
               {game.awayTeam.name}
             </span>
             <span className="ml-auto font-mono text-[13px] tabular-nums text-bone/60">
-              {formatOdds(awayMoneyline)}
+              {formatOdds(game.moneyline.bestOdds)}
             </span>
           </div>
           <div className="flex items-center gap-2.5">
@@ -76,7 +69,7 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
             <span className="truncate font-display text-[14px] font-semibold tracking-[-0.01em] text-text-primary">
               {game.homeTeam.name}
             </span>
-            <span className="ml-auto font-mono text-[13px] tabular-nums text-bone/60">{formatOdds(homeMoneyline)}</span>
+            <span className="ml-auto font-mono text-[13px] tabular-nums text-bone/60">—</span>
           </div>
         </div>
 
@@ -96,8 +89,10 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
 }
 
 function LeagueSection({ section, providerHealth }: { section: BoardSportSectionView; providerHealth: ProviderHealthView }) {
-  const surfacedGames = section.games;
-  if (surfacedGames.length === 0 && section.scoreboard.length === 0) return null;
+  const gamesWithOdds = section.games.filter(
+    (g) => g.moneyline.bestOdds || g.spread.bestOdds || g.total.bestOdds
+  );
+  if (gamesWithOdds.length === 0 && section.scoreboard.length === 0) return null;
 
   const healthColor = {
     HEALTHY: "border-aqua/20 bg-aqua/[0.04] text-aqua",
@@ -114,16 +109,16 @@ function LeagueSection({ section, providerHealth }: { section: BoardSportSection
           {section.leagueLabel}
         </h2>
         <span className="rounded-full bg-bone/[0.08] px-2.5 py-0.5 font-mono text-[11px] tabular-nums text-bone/55">
-          {surfacedGames.length}
+          {gamesWithOdds.length}
         </span>
         <div className={`ml-auto rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.18em] ${healthColor}`}>
           {providerHealth.label}
         </div>
       </div>
 
-      {surfacedGames.length > 0 ? (
+      {gamesWithOdds.length > 0 ? (
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
-          {surfacedGames.map((game) => (
+          {gamesWithOdds.map((game) => (
             <CompactGameRow key={game.id} game={game} leagueKey={section.leagueKey} />
           ))}
         </div>
@@ -154,7 +149,7 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
   );
 
   const totalGames = data.sportSections.reduce(
-    (n, s) => n + s.games.length,
+    (n, s) => n + s.games.filter((g) => g.moneyline.bestOdds || g.spread.bestOdds || g.total.bestOdds).length,
     0
   );
 
@@ -181,7 +176,9 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
 
           <div className="no-scrollbar mt-2.5 flex gap-1.5 overflow-x-auto pb-0.5">
             {activeSections.map((section) => {
-              const count = section.games.length;
+              const count = section.games.filter(
+                (g) => g.moneyline.bestOdds || g.spread.bestOdds || g.total.bestOdds
+              ).length;
               return (
                 <a
                   key={section.leagueKey}

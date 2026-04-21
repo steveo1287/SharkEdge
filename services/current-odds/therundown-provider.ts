@@ -104,7 +104,7 @@ type BookOutcomeEntry = {
 
 type TheRundownBoardCache = {
   generatedAtMs: number;
-  payload: CurrentOddsBoardResponse;
+  payload: CurrentOddsBoardResponse | null;
 };
 
 type TheRundownCircuitState = {
@@ -539,7 +539,7 @@ async function fetchLeagueBoard(leagueKey: LeagueKey, dateKey: string) {
   }
 
   return {
-    key: getSportKeyForLeague(leagueKey),
+    key: leagueKey,
     title: leagueKey,
     short_title: leagueKey,
     game_count: games.length,
@@ -678,12 +678,10 @@ export const therundownCurrentOddsProvider: CurrentOddsProvider = {
 
     const resolvedPayload = payload ?? (await fetchEmergencyBoardFallback());
 
-    if (resolvedPayload) {
-      global.sharkedgeTheRundownBoardCache = {
-        generatedAtMs: Date.now(),
-        payload: resolvedPayload
-      };
-    }
+    global.sharkedgeTheRundownBoardCache = {
+      generatedAtMs: Date.now(),
+      payload: resolvedPayload
+    };
 
     return resolvedPayload;
   }

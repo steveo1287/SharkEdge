@@ -37,7 +37,7 @@ import {
 
 const LIVE_BOARD_SOFT_STALE_MINUTES = 15;
 const LIVE_BOARD_HARD_STALE_MINUTES = 45;
-const LIVE_BOARD_CACHE_KEY = "current-board:v2:live-response";
+const LIVE_BOARD_CACHE_KEY = "current-board:v1:live-response";
 const LIVE_BOARD_CACHE_TTL_SECONDS = 300;
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
@@ -70,15 +70,6 @@ function getResponseAgeMinutes(value: string | null | undefined) {
 function isHardStale(value: string | null | undefined, thresholdMinutes: number) {
   const ageMinutes = getResponseAgeMinutes(value);
   return typeof ageMinutes === "number" && ageMinutes >= thresholdMinutes;
-}
-
-function responseHasBoardGames(response: CurrentOddsBoardResponse | null | undefined) {
-  return Boolean(
-    response?.sports?.some((sport) => {
-      const leagueKey = getLeagueForSportKey(sport.key);
-      return Boolean(leagueKey && Array.isArray(sport.games) && sport.games.length > 0);
-    })
-  );
 }
 
 function scoreBoardCandidate(candidate: CurrentOddsSourceCandidate) {
@@ -117,7 +108,6 @@ function scoreBoardCandidate(candidate: CurrentOddsSourceCandidate) {
 function selectPreferredBoardResponse(candidates: Array<CurrentOddsSourceCandidate | null>) {
   const viableCandidates = candidates
     .filter((candidate): candidate is CurrentOddsSourceCandidate => Boolean(candidate?.response?.configured))
-    .filter((candidate) => responseHasBoardGames(candidate.response))
     .filter((candidate) => !isHardStale(candidate.response.generated_at, LIVE_BOARD_HARD_STALE_MINUTES));
 
   if (!viableCandidates.length) {
@@ -129,11 +119,7 @@ function selectPreferredBoardResponse(candidates: Array<CurrentOddsSourceCandida
 
 async function fetchLiveBoardResponse() {
   const cached = await readHotCache<CurrentOddsBoardResponse>(LIVE_BOARD_CACHE_KEY);
-  if (
-    cached &&
-    responseHasBoardGames(cached) &&
-    !isHardStale(cached.generated_at, LIVE_BOARD_SOFT_STALE_MINUTES)
-  ) {
+  if (cached && !isHardStale(cached.generated_at, LIVE_BOARD_SOFT_STALE_MINUTES)) {
     return cached;
   }
 
@@ -151,12 +137,8 @@ async function fetchLiveBoardResponse() {
       : null
   ]);
 
-  if (!response?.configured || !responseHasBoardGames(response)) {
-    if (
-      cached &&
-      responseHasBoardGames(cached) &&
-      !isHardStale(cached.generated_at, LIVE_BOARD_HARD_STALE_MINUTES)
-    ) {
+  if (!response?.configured) {
+    if (cached && !isHardStale(cached.generated_at, LIVE_BOARD_HARD_STALE_MINUTES)) {
       return cached;
     }
 
@@ -191,62 +173,15 @@ function formatBookLabel(bookmakers: string[]) {
   return `${bookmakers[0]}, ${bookmakers[1]} +${bookmakers.length - 2}`;
 }
 
-function buildFallbackOffersFromBookmakers(
-  game: CurrentOddsGame,
-  marketType: "spread" | "moneyline" | "total"
-) {
-  const grouped = new Map<
-    string,
-    Array<{ name: string; price: number | null; point: number | null; bookTitle: string }>
-  >();
-
-  for (const bookmaker of game.bookmakers ?? []) {
-    for (const outcome of bookmaker.markets[marketType] ?? []) {
-      const key = normalizeName(outcome.name);
-      const existing = grouped.get(key) ?? [];
-      existing.push({
-        name: outcome.name,
-        price: numericValue(outcome.price),
-        point: numericValue(outcome.point),
-        bookTitle: bookmaker.title
-      });
-      grouped.set(key, existing);
-    }
-  }
-
-  return Array.from(grouped.values()).map((rows) => {
-    const best = [...rows].sort((left, right) => (right.price ?? -999) - (left.price ?? -999))[0];
-    const prices = rows.map((row) => row.price).filter((value): value is number => typeof value === "number");
-    const points = rows.map((row) => row.point).filter((value): value is number => typeof value === "number");
-
-    return {
-      name: best?.name ?? "Market",
-      best_price: best?.price ?? null,
-      best_bookmakers: Array.from(new Set(rows.map((row) => row.bookTitle))),
-      average_price:
-        prices.length > 0
-          ? Number((prices.reduce((sum, value) => sum + value, 0) / prices.length).toFixed(2))
-          : null,
-      book_count: rows.length,
-      consensus_point:
-        points.length > 0
-          ? Number((points.reduce((sum, value) => sum + value, 0) / points.length).toFixed(2))
-          : null,
-      point_frequency: points.length
-    } satisfies CurrentOddsOffer;
-  });
-}
-
 function getLiveBestOffer(game: CurrentOddsGame, marketType: "spread" | "moneyline" | "total") {
   const offers = game.market_stats[marketType] ?? [];
-  const resolvedOffers = offers.length ? offers : buildFallbackOffersFromBookmakers(game, marketType);
 
-  if (!resolvedOffers.length) {
+  if (!offers.length) {
     return null;
   }
 
   if (marketType === "total") {
-    return [...resolvedOffers].sort((left, right) => {
+    return [...offers].sort((left, right) => {
       const leftBooks = left.book_count ?? 0;
       const rightBooks = right.book_count ?? 0;
       if (rightBooks !== leftBooks) {
@@ -258,7 +193,7 @@ function getLiveBestOffer(game: CurrentOddsGame, marketType: "spread" | "moneyli
   }
 
   if (marketType === "moneyline") {
-    return [...resolvedOffers].sort((left, right) => {
+    return [...offers].sort((left, right) => {
       const leftPrice = numericValue(left.average_price) ?? getBestPrice(left);
       const rightPrice = numericValue(right.average_price) ?? getBestPrice(right);
       if (rightPrice !== leftPrice) {
@@ -269,7 +204,7 @@ function getLiveBestOffer(game: CurrentOddsGame, marketType: "spread" | "moneyli
     })[0] ?? null;
   }
 
-  return [...resolvedOffers].sort((left, right) => {
+  return [...offers].sort((left, right) => {
     const pointDelta = (getConsensusPoint(right) ?? -999) - (getConsensusPoint(left) ?? -999);
     if (pointDelta !== 0) {
       return pointDelta;
@@ -317,12 +252,12 @@ function buildLiveMarketSamples(
     }
 
     samples.push({
-      bookKey: bookmaker.key,
-      bookName: bookmaker.title,
-      price: numericValue(outcome.price),
-      line: numericValue(outcome.point),
-      updatedAt: bookmaker.last_update ?? null
-    });
+        bookKey: bookmaker.key,
+        bookName: bookmaker.title,
+        price: numericValue(outcome.price),
+        line: numericValue(outcome.point),
+        updatedAt: bookmaker.last_update ?? null
+      });
   }
 
   return samples;
@@ -362,10 +297,7 @@ function buildMarketViewFromSamples(args: {
     marketType: args.marketType,
     marketScope: "game",
     side: args.marketType === "total" ? args.outcomeName.toUpperCase() : args.outcomeName,
-    oppositeSide:
-      args.marketType === "total"
-        ? getOppositeOutcomeName(args.game, args.outcomeName, args.marketType).toUpperCase()
-        : getOppositeOutcomeName(args.game, args.outcomeName, args.marketType),
+    oppositeSide: args.marketType === "total" ? getOppositeOutcomeName(args.game, args.outcomeName, args.marketType).toUpperCase() : getOppositeOutcomeName(args.game, args.outcomeName, args.marketType),
     line: args.line,
     participantTeamId:
       args.marketType === "total"
@@ -594,12 +526,8 @@ export function selectBoardGamesByStatus(
 
 function getLiveSourceNote(response: CurrentOddsBoardResponse) {
   const providerLabel =
-    response.provider === "oddsharvester"
-      ? "OddsHarvester"
-      : response.provider === "odds_api"
+    response.provider === "odds_api"
       ? "The Odds API"
-      : response.provider === "scraper_cache"
-        ? "the scraper cache"
       : response.provider === "therundown"
         ? "The Rundown"
         : "the live backend";

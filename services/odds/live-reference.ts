@@ -3,32 +3,11 @@ import type { LeagueKey, LeagueRecord, PlayerRecord, SportsbookRecord, TeamRecor
 
 export const LIVE_SPORT_TO_LEAGUE: Record<string, LeagueKey | null> = {
   basketball_nba: "NBA",
-  NBA: "NBA",
-  nba: "NBA",
   basketball_ncaab: "NCAAB",
-  NCAAB: "NCAAB",
-  ncaab: "NCAAB",
   baseball_mlb: "MLB",
-  MLB: "MLB",
-  mlb: "MLB",
   icehockey_nhl: "NHL",
-  ice_hockey_nhl: "NHL",
-  NHL: "NHL",
-  nhl: "NHL",
   americanfootball_nfl: "NFL",
-  american_football_nfl: "NFL",
-  NFL: "NFL",
-  nfl: "NFL",
-  americanfootball_ncaaf: "NCAAF",
-  american_football_ncaaf: "NCAAF",
-  NCAAF: "NCAAF",
-  ncaaf: "NCAAF",
-  mma_mixed_martial_arts: "UFC",
-  mixed_martial_arts: "UFC",
-  UFC: "UFC",
-  ufc: "UFC",
-  boxing: "BOXING",
-  BOXING: "BOXING"
+  americanfootball_ncaaf: "NCAAF"
 };
 
 export const LIVE_PROP_SPORT_KEYS: Partial<Record<LeagueKey, string>> = {
@@ -93,15 +72,7 @@ export function deriveAbbreviation(teamName: string) {
 }
 
 export function getLeagueForSportKey(sportKey: string): LeagueKey | null {
-  const normalized = sportKey.trim();
-  const compact = normalized.toLowerCase().replace(/[\s/-]+/g, "_");
-  return (
-    LIVE_SPORT_TO_LEAGUE[normalized] ??
-    LIVE_SPORT_TO_LEAGUE[normalized.toUpperCase()] ??
-    LIVE_SPORT_TO_LEAGUE[normalized.toLowerCase()] ??
-    LIVE_SPORT_TO_LEAGUE[compact] ??
-    null
-  );
+  return LIVE_SPORT_TO_LEAGUE[sportKey] ?? null;
 }
 
 export function getLeagueRecord(leagueKey: LeagueKey): LeagueRecord {

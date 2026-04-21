@@ -6,18 +6,7 @@ import { getCurrentOddsBackendBaseUrl } from "./backend-url";
 const LIVE_BACKEND_URL = getCurrentOddsBackendBaseUrl();
 
 const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
-const BACKEND_PROVIDER_TIMEOUT_MS = 2_500;
-const BACKEND_BOARD_CACHE_TTL_MS = 10 * 60_000;
-
-type BackendBoardCache = {
-  generatedAtMs: number;
-  payload: CurrentOddsBoardResponse | null;
-};
-
-declare global {
-  // eslint-disable-next-line no-var
-  var sharkedgeBackendBoardCache: BackendBoardCache | undefined;
-}
+const BACKEND_PROVIDER_TIMEOUT_MS = 10_000;
 
 async function fetchBackendJson<T>(path: string) {
   try {
@@ -36,25 +25,6 @@ async function fetchBackendJson<T>(path: string) {
   }
 }
 
-function getCachedBackendBoard() {
-  const cached = global.sharkedgeBackendBoardCache;
-  if (!cached?.payload) {
-    return null;
-  }
-
-  if (Date.now() - cached.generatedAtMs > BACKEND_BOARD_CACHE_TTL_MS) {
-    return null;
-  }
-
-  return cached.payload;
-}
-
-function hasBoardGames(response: CurrentOddsBoardResponse | null | undefined) {
-  return Boolean(
-    response?.sports?.some((sport) => Array.isArray(sport.games) && sport.games.length > 0)
-  );
-}
-
 export const backendCurrentOddsProvider: CurrentOddsProvider = {
   key: "current-odds-backend",
   label: "Current odds backend",
@@ -64,30 +34,10 @@ export const backendCurrentOddsProvider: CurrentOddsProvider = {
   async fetchBoard() {
     const response = await fetchBackendJson<CurrentOddsBoardResponse>("/api/odds/board");
 
-    if (response?.configured && hasBoardGames(response)) {
-      global.sharkedgeBackendBoardCache = {
-        generatedAtMs: Date.now(),
-        payload: response
-      };
-      return response;
+    if (!response?.configured) {
+      return null;
     }
 
-    const cached = getCachedBackendBoard();
-    if (!cached) {
-      return response?.configured ? response : null;
-    }
-
-    return {
-      ...cached,
-      provider_mode: "backend_cached_snapshot",
-      errors: Array.from(
-        new Set([
-          ...(cached.errors ?? []),
-          response?.configured
-            ? "Backend board returned an empty payload; serving the last good backend board snapshot."
-            : "Backend board request failed; serving the last good backend board snapshot."
-        ])
-      )
-    } satisfies CurrentOddsBoardResponse;
+    return response;
   }
 };

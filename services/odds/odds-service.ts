@@ -33,8 +33,8 @@ import {
   getStoredPropsForEvent
 } from "@/services/props/warehouse-service";
 import { getPropTrendSummaries } from "@/services/trends/trends-service";
-import { getLiveBoardPageData } from "@/services/odds/live-board-data";
 import {
+  getLiveBoardPageData,
   getLiveGameDetail,
   getLivePropById,
   getLivePropsExplorerData
@@ -42,7 +42,7 @@ import {
 
 // TODO: Replace mockDatabase reads with bookmaker ingestion + Prisma-backed queries.
 
-const LIVE_BOARD_TIMEOUT_MS = 15_000;
+const LIVE_BOARD_TIMEOUT_MS = 3_500;
 const LIVE_PROPS_TIMEOUT_MS = 3_500;
 const STORED_PROPS_TIMEOUT_MS = 2_500;
 const LIVE_GAME_DETAIL_TIMEOUT_MS = 3_500;

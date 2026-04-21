@@ -1,19 +1,14 @@
 import type { BoardSupportStatus, LeagueKey, MarketType } from "@/lib/types/domain";
-import type { SupportedLeagueKey } from "@/lib/types/ledger";
 import { backendCurrentOddsProvider } from "@/services/current-odds/backend-provider";
 import { therundownCurrentOddsProvider } from "@/services/current-odds/therundown-provider";
 import { boxingEventProvider } from "@/services/events/boxing-provider";
 import { espnEventProvider } from "@/services/events/espn-provider";
 import { ncaaFallbackEventProvider } from "@/services/events/ncaa-fallback-provider";
-import { theSportsDbEventProvider } from "@/services/events/thesportsdb-provider";
-import { sportsdataverseEventProvider } from "@/services/events/sportsdataverse-provider";
 import { ufcEventProvider } from "@/services/events/ufc-provider";
 import { oddsharvesterHistoricalProvider } from "@/services/historical-odds/oddsharvester-provider";
-import { sportsbookReviewHistoricalProvider } from "@/services/historical-odds/sportsbookreview-provider";
 import { therundownHistoricalProvider } from "@/services/historical-odds/therundown-provider";
 import { boxingMatchupStatsProvider } from "@/services/stats/boxing-stats-provider";
 import { espnMatchupStatsProvider } from "@/services/stats/espn-stats-provider";
-import { sportsdataverseMatchupStatsProvider } from "@/services/stats/sportsdataverse-stats-provider";
 import type { MatchupStatsProvider } from "@/services/stats/provider-types";
 import { ufcMatchupStatsProvider } from "@/services/stats/ufc-stats-provider";
 
@@ -28,8 +23,6 @@ type PropMarketType = Extract<
   | "player_rebounds"
   | "player_assists"
   | "player_threes"
-  | "player_pitcher_outs"
-  | "player_pitcher_strikeouts"
   | "fight_winner"
   | "method_of_victory"
   | "round_total"
@@ -76,13 +69,13 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   NBA: {
     leagueKey: "NBA",
     status: "LIVE",
-    scoreProviders: [sportsdataverseEventProvider, espnEventProvider],
-    matchupProviders: [sportsdataverseMatchupStatsProvider, espnMatchupStatsProvider],
+    scoreProviders: [espnEventProvider],
+    matchupProviders: [espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NBA"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "LIVE",
-    propsProviders: ["Current odds backend", "gto76/bets import", "DKscraPy import"],
+    propsProviders: ["Current odds backend"],
     supportedPropMarkets: [
       "player_points",
       "player_rebounds",
@@ -90,7 +83,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
       "player_threes"
     ],
     propsNote:
-      "Live basketball props come from the current odds backend, while gto76/bets and DKscraPy exports can enrich stored NBA player-prop snapshots.",
+      "Live basketball player props are wired through the current odds backend.",
     sourceMesh: {
       scores: [
         {
@@ -131,7 +124,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
           name: "SharkEdge odds backend",
           stage: "ACTIVE",
           url: "https://github.com/steveo1287/shark-odds",
-          note: "Primary runtime path. It can now promote OddsHarvester-backed current odds into SharkEdge's internal market store."
+          note: "Existing current odds path stays primary."
         }
       ],
       historical: [
@@ -140,12 +133,6 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
           stage: "HISTORICAL_ONLY",
           url: "https://github.com/jordantete/OddsHarvester",
           note: "Background-only opening/current/closing odds ingestion."
-        },
-        {
-          name: "SportsbookReview scraper",
-          stage: "READY_TO_LAYER",
-          url: "https://github.com/michaelwittig/sportsbookreview-scraper",
-          note: "Supplemental historical importer for extra opener, closer, and snapshot coverage."
         }
       ]
     }
@@ -153,13 +140,13 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   NCAAB: {
     leagueKey: "NCAAB",
     status: "LIVE",
-    scoreProviders: [sportsdataverseEventProvider, espnEventProvider, ncaaFallbackEventProvider],
-    matchupProviders: [sportsdataverseMatchupStatsProvider, espnMatchupStatsProvider],
+    scoreProviders: [espnEventProvider, ncaaFallbackEventProvider],
+    matchupProviders: [espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NCAAB"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "LIVE",
-    propsProviders: ["Current odds backend", "DKscraPy import"],
+    propsProviders: ["Current odds backend"],
     supportedPropMarkets: [
       "player_points",
       "player_rebounds",
@@ -167,7 +154,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
       "player_threes"
     ],
     propsNote:
-      "Live NCAAB player props are wired through the current odds backend, and DKscraPy exports can backfill stored DraftKings snapshots for analysis.",
+      "Live NCAAB player props are wired through the current odds backend.",
     sourceMesh: {
       scores: [
         {
@@ -230,20 +217,16 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   MLB: {
     leagueKey: "MLB",
     status: "LIVE",
-    scoreProviders: [sportsdataverseEventProvider, espnEventProvider],
-    matchupProviders: [sportsdataverseMatchupStatsProvider, espnMatchupStatsProvider],
+    scoreProviders: [espnEventProvider],
+    matchupProviders: [espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("MLB"),
-    historicalProviders: [
-      oddsharvesterHistoricalProvider,
-      sportsbookReviewHistoricalProvider,
-      therundownHistoricalProvider
-    ],
+    historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "PARTIAL",
-    propsProviders: ["DKscraPy import"],
-    supportedPropMarkets: ["player_pitcher_outs", "player_pitcher_strikeouts"],
+    propsProviders: [],
+    supportedPropMarkets: [],
     propsNote:
-      "MLB matchup coverage is live, and DKscraPy exports can enrich stored DraftKings pitcher-prop and team-market snapshots.",
+      "MLB matchup coverage is live, but prop ingestion is not connected yet.",
     sourceMesh: {
       scores: [
         {
@@ -287,12 +270,6 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
           stage: "HISTORICAL_ONLY",
           url: "https://github.com/jordantete/OddsHarvester",
           note: "Background-only opening/current/closing odds ingestion."
-        },
-        {
-          name: "SportsbookReview scraper",
-          stage: "READY_TO_LAYER",
-          url: "https://github.com/michaelwittig/sportsbookreview-scraper",
-          note: "Supplemental historical importer for richer MLB closing-line archives."
         }
       ]
     }
@@ -300,15 +277,11 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   NHL: {
     leagueKey: "NHL",
     status: "LIVE",
-    scoreProviders: [sportsdataverseEventProvider, espnEventProvider],
-    matchupProviders: [sportsdataverseMatchupStatsProvider, espnMatchupStatsProvider],
+    scoreProviders: [espnEventProvider],
+    matchupProviders: [espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NHL"),
-    historicalProviders: [
-      oddsharvesterHistoricalProvider,
-      sportsbookReviewHistoricalProvider,
-      therundownHistoricalProvider
-    ],
+    historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "PARTIAL",
     propsProviders: [],
     supportedPropMarkets: [],
@@ -364,20 +337,16 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   NFL: {
     leagueKey: "NFL",
     status: "LIVE",
-    scoreProviders: [sportsdataverseEventProvider, espnEventProvider],
-    matchupProviders: [sportsdataverseMatchupStatsProvider, espnMatchupStatsProvider],
+    scoreProviders: [espnEventProvider],
+    matchupProviders: [espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NFL"),
-    historicalProviders: [
-      oddsharvesterHistoricalProvider,
-      sportsbookReviewHistoricalProvider,
-      therundownHistoricalProvider
-    ],
+    historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "PARTIAL",
-    propsProviders: ["DKscraPy import"],
+    propsProviders: [],
     supportedPropMarkets: [],
     propsNote:
-      "NFL matchup coverage is live, and DKscraPy exports can enrich stored DraftKings player and team market snapshots.",
+      "NFL matchup coverage is live, but prop ingestion is not connected yet.",
     sourceMesh: {
       scores: [
         {
@@ -429,12 +398,6 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
           note: "Background-only opening/current/closing odds ingestion."
         },
         {
-          name: "SportsbookReview scraper",
-          stage: "READY_TO_LAYER",
-          url: "https://github.com/michaelwittig/sportsbookreview-scraper",
-          note: "Supplemental historical importer for broader NFL closing-line and market archive depth."
-        },
-        {
           name: "nflreadpy",
           stage: "READY_TO_LAYER",
           url: "https://github.com/nflverse/nflreadpy",
@@ -446,16 +409,16 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   NCAAF: {
     leagueKey: "NCAAF",
     status: "LIVE",
-    scoreProviders: [sportsdataverseEventProvider, espnEventProvider, ncaaFallbackEventProvider],
-    matchupProviders: [sportsdataverseMatchupStatsProvider, espnMatchupStatsProvider],
+    scoreProviders: [espnEventProvider, ncaaFallbackEventProvider],
+    matchupProviders: [espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NCAAF"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "PARTIAL",
-    propsProviders: ["DKscraPy import"],
+    propsProviders: [],
     supportedPropMarkets: [],
     propsNote:
-      "College football matchup coverage is live, and DKscraPy exports can enrich stored DraftKings player and team market snapshots for analysis.",
+      "College football matchup coverage is live, but prop ingestion is not connected yet.",
     sourceMesh: {
       scores: [
         {
@@ -511,12 +474,6 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
           stage: "HISTORICAL_ONLY",
           url: "https://github.com/jordantete/OddsHarvester",
           note: "Background-only opening/current/closing odds ingestion."
-        },
-        {
-          name: "SportsbookReview scraper",
-          stage: "READY_TO_LAYER",
-          url: "https://github.com/michaelwittig/sportsbookreview-scraper",
-          note: "Supplemental historical importer for richer NHL closing-line archives."
         }
       ]
     }
@@ -609,10 +566,7 @@ export function getProviderRegistryEntry(leagueKey: LeagueKey) {
 }
 
 export function getScoreProviders(leagueKey: LeagueKey) {
-  const providers = getProviderRegistryEntry(leagueKey)?.scoreProviders ?? [];
-  return theSportsDbEventProvider.supportsLeague(leagueKey as SupportedLeagueKey)
-    ? [...providers, theSportsDbEventProvider]
-    : providers;
+  return getProviderRegistryEntry(leagueKey)?.scoreProviders ?? [];
 }
 
 export function getMatchupProviders(leagueKey: LeagueKey) {
