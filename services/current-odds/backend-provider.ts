@@ -1,12 +1,24 @@
 import type { LeagueKey } from "@/lib/types/domain";
 
-import type { CurrentOddsBoardResponse, CurrentOddsProvider } from "./provider-types";
+import type {
+  CurrentOddsBoardResponse,
+  CurrentOddsProvider,
+  CurrentOddsSport
+} from "./provider-types";
 import { getCurrentOddsBackendBaseUrl } from "./backend-url";
 
 const LIVE_BACKEND_URL = getCurrentOddsBackendBaseUrl();
 
 const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
 const BACKEND_PROVIDER_TIMEOUT_MS = 10_000;
+
+type OddsHarvesterHarvestResponse = {
+  configured: boolean;
+  generated_at: string;
+  provider?: string | null;
+  errors?: string[];
+  sports: CurrentOddsSport[];
+};
 
 async function fetchBackendJson<T>(path: string) {
   try {
@@ -32,12 +44,32 @@ export const backendCurrentOddsProvider: CurrentOddsProvider = {
     return SUPPORTED_LEAGUES.includes(leagueKey);
   },
   async fetchBoard() {
-    const response = await fetchBackendJson<CurrentOddsBoardResponse>("/api/odds/board");
+    const boardResponse = await fetchBackendJson<CurrentOddsBoardResponse>("/api/odds/board");
 
-    if (!response?.configured) {
+    if (boardResponse?.configured && boardResponse.provider === "oddsharvester") {
+      return boardResponse;
+    }
+
+    const harvestResponse = await fetchBackendJson<OddsHarvesterHarvestResponse>(
+      "/api/historical/odds/harvest"
+    );
+
+    if (harvestResponse?.configured && harvestResponse.provider === "oddsharvester") {
+      return {
+        configured: true,
+        generated_at: harvestResponse.generated_at,
+        provider: "oddsharvester",
+        provider_mode: boardResponse?.provider_mode ?? "oddsharvester",
+        bookmakers: boardResponse?.bookmakers ?? "",
+        errors: harvestResponse.errors ?? boardResponse?.errors ?? [],
+        sports: harvestResponse.sports
+      };
+    }
+
+    if (!boardResponse?.configured) {
       return null;
     }
 
-    return response;
+    return boardResponse;
   }
 };
