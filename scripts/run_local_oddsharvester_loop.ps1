@@ -3,6 +3,20 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
 
+$envFile = Join-Path $repoRoot '.env.local-oddsharvester'
+if (Test-Path $envFile) {
+  Get-Content $envFile | ForEach-Object {
+    $line = $_.Trim()
+    if (-not $line -or $line.StartsWith('#')) {
+      return
+    }
+    $parts = $line.Split('=', 2)
+    if ($parts.Length -eq 2) {
+      [System.Environment]::SetEnvironmentVariable($parts[0].Trim(), $parts[1].Trim())
+    }
+  }
+}
+
 if (-not (Test-Path '.venv')) {
   python -m venv .venv
 }
