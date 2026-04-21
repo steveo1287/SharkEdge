@@ -40,9 +40,14 @@ function normalizeEventId(eventId: string | number) {
   return Number.isFinite(asNumber) ? asNumber : normalized;
 }
 
+const runtimeImportModule = new Function(
+  "specifier",
+  "return import(specifier);"
+) as (specifier: string) => Promise<unknown>;
+
 async function loadSportsDataverseRoot() {
   if (!sportsDataverseRootPromise) {
-    sportsDataverseRootPromise = import("sportsdataverse")
+    sportsDataverseRootPromise = runtimeImportModule("sportsdataverse")
       .then((module) => ((module as { default?: unknown }).default ?? module) as SportsDataverseRoot)
       .catch(() => null);
   }
