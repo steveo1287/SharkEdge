@@ -37,7 +37,7 @@ import {
 
 const LIVE_BOARD_SOFT_STALE_MINUTES = 15;
 const LIVE_BOARD_HARD_STALE_MINUTES = 45;
-const LIVE_BOARD_CACHE_KEY = "current-board:v1:live-response";
+const LIVE_BOARD_CACHE_KEY = "current-board:v2:live-response";
 const LIVE_BOARD_CACHE_TTL_SECONDS = 300;
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
