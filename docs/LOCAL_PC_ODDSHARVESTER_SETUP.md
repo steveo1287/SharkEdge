@@ -8,16 +8,29 @@ This path moves the heavy OddsHarvester work off the free Render web service and
 - `scripts/run_local_oddsharvester_loop.ps1`
 - `scripts/run_local_oddsharvester_once.ps1`
 - `scripts/install_local_oddsharvester_task.ps1`
+- `.env.local-oddsharvester.example`
 
-## Required environment variables
+## Easiest setup
 
-Set these in PowerShell before running the loop or installing the task:
+1. Copy:
 
 ```powershell
-$env:SHARKEDGE_BACKEND_URL = "https://shark-odds-1.onrender.com"
-$env:SHARKEDGE_API_KEY = "your_backend_x_api_key_here"
-$env:ODDSHARVESTER_COMMAND = "python -m oddsharvester"
-$env:POST_TO_BACKEND = "true"
+Copy-Item .env.local-oddsharvester.example .env.local-oddsharvester
+```
+
+2. Edit `.env.local-oddsharvester` and fill in your real backend API key.
+
+The PowerShell runners will auto-load that file.
+
+## Example env file
+
+```text
+SHARKEDGE_BACKEND_URL=https://shark-odds-1.onrender.com
+SHARKEDGE_API_KEY=replace_with_your_backend_x_api_key
+ODDSHARVESTER_COMMAND=python -m oddsharvester
+POST_TO_BACKEND=true
+ODDSHARVESTER_TIMEOUT_SECONDS=120
+ODDSHARVESTER_HEADLESS=true
 ```
 
 ## Run once
