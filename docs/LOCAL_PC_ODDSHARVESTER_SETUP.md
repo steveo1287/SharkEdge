@@ -6,10 +6,12 @@ This path moves the heavy OddsHarvester work off the free Render web service and
 
 - `scripts/local_oddsharvester_push.py`
 - `scripts/run_local_oddsharvester_loop.ps1`
+- `scripts/run_local_oddsharvester_once.ps1`
+- `scripts/install_local_oddsharvester_task.ps1`
 
 ## Required environment variables
 
-Set these in PowerShell before running the loop:
+Set these in PowerShell before running the loop or installing the task:
 
 ```powershell
 $env:SHARKEDGE_BACKEND_URL = "https://shark-odds-1.onrender.com"
@@ -18,7 +20,15 @@ $env:ODDSHARVESTER_COMMAND = "python -m oddsharvester"
 $env:POST_TO_BACKEND = "true"
 ```
 
-## Start the runner
+## Run once
+
+From the repo root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_local_oddsharvester_once.ps1
+```
+
+## Run in a loop
 
 From the repo root:
 
@@ -33,6 +43,18 @@ That script will:
 3. run the harvester
 4. push odds into the backend ingest endpoint
 5. sleep 15 minutes and repeat
+
+## Install a Windows scheduled task
+
+To make it run automatically every 15 minutes:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install_local_oddsharvester_task.ps1
+```
+
+That installs a task named:
+
+- `SharkEdge Local OddsHarvester`
 
 ## Output
 
