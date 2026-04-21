@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import type { LeagueKey } from "@/lib/types/domain";
+import { ingestBackendCurrentOdds } from "@/services/current-odds/backend-ingestion-service";
 import { refreshCurrentBookFeeds } from "@/services/current-odds/book-feed-refresh-service";
 import { currentMarketStateJob } from "@/services/jobs/current-market-state-job";
 import { getBooleanArg, getStringArg, logStep, parseArgs } from "./_runtime-utils";
@@ -66,6 +67,22 @@ async function main() {
   );
 
   if (batchLeagues.length) {
+    const backendIngest = await ingestBackendCurrentOdds({
+      leagues: batchLeagues,
+      allowedSources: ["oddsharvester", "theoddsapi", "scraper"]
+    });
+
+    logStep("worker:current-markets:backend-board", {
+      leagues: batchLeagues,
+      ok: backendIngest.ok,
+      reason: backendIngest.reason,
+      provider: backendIngest.provider,
+      providerMode: "providerMode" in backendIngest ? backendIngest.providerMode ?? null : null,
+      source: "source" in backendIngest ? backendIngest.source ?? null : null,
+      eventCount: backendIngest.eventCount,
+      marketIngestions: backendIngest.marketIngestions
+    });
+
     const bookFeedRefresh = await refreshCurrentBookFeeds({
       leagues: batchLeagues
     });

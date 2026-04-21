@@ -9,6 +9,7 @@ import { theSportsDbEventProvider } from "@/services/events/thesportsdb-provider
 import { sportsdataverseEventProvider } from "@/services/events/sportsdataverse-provider";
 import { ufcEventProvider } from "@/services/events/ufc-provider";
 import { oddsharvesterHistoricalProvider } from "@/services/historical-odds/oddsharvester-provider";
+import { sportsbookReviewHistoricalProvider } from "@/services/historical-odds/sportsbookreview-provider";
 import { therundownHistoricalProvider } from "@/services/historical-odds/therundown-provider";
 import { boxingMatchupStatsProvider } from "@/services/stats/boxing-stats-provider";
 import { espnMatchupStatsProvider } from "@/services/stats/espn-stats-provider";
@@ -27,6 +28,8 @@ type PropMarketType = Extract<
   | "player_rebounds"
   | "player_assists"
   | "player_threes"
+  | "player_pitcher_outs"
+  | "player_pitcher_strikeouts"
   | "fight_winner"
   | "method_of_victory"
   | "round_total"
@@ -79,7 +82,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     bookFeedProviders: getBookFeedLabelsForLeague("NBA"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "LIVE",
-    propsProviders: ["Current odds backend"],
+    propsProviders: ["Current odds backend", "gto76/bets import", "DKscraPy import"],
     supportedPropMarkets: [
       "player_points",
       "player_rebounds",
@@ -87,7 +90,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
       "player_threes"
     ],
     propsNote:
-      "Live basketball player props are wired through the current odds backend.",
+      "Live basketball props come from the current odds backend, while gto76/bets and DKscraPy exports can enrich stored NBA player-prop snapshots.",
     sourceMesh: {
       scores: [
         {
@@ -128,7 +131,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
           name: "SharkEdge odds backend",
           stage: "ACTIVE",
           url: "https://github.com/steveo1287/shark-odds",
-          note: "Existing current odds path stays primary."
+          note: "Primary runtime path. It can now promote OddsHarvester-backed current odds into SharkEdge's internal market store."
         }
       ],
       historical: [
@@ -137,6 +140,12 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
           stage: "HISTORICAL_ONLY",
           url: "https://github.com/jordantete/OddsHarvester",
           note: "Background-only opening/current/closing odds ingestion."
+        },
+        {
+          name: "SportsbookReview scraper",
+          stage: "READY_TO_LAYER",
+          url: "https://github.com/michaelwittig/sportsbookreview-scraper",
+          note: "Supplemental historical importer for extra opener, closer, and snapshot coverage."
         }
       ]
     }
@@ -150,7 +159,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     bookFeedProviders: getBookFeedLabelsForLeague("NCAAB"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "LIVE",
-    propsProviders: ["Current odds backend"],
+    propsProviders: ["Current odds backend", "DKscraPy import"],
     supportedPropMarkets: [
       "player_points",
       "player_rebounds",
@@ -158,7 +167,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
       "player_threes"
     ],
     propsNote:
-      "Live NCAAB player props are wired through the current odds backend.",
+      "Live NCAAB player props are wired through the current odds backend, and DKscraPy exports can backfill stored DraftKings snapshots for analysis.",
     sourceMesh: {
       scores: [
         {
@@ -225,12 +234,16 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     matchupProviders: [sportsdataverseMatchupStatsProvider, espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("MLB"),
-    historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
+    historicalProviders: [
+      oddsharvesterHistoricalProvider,
+      sportsbookReviewHistoricalProvider,
+      therundownHistoricalProvider
+    ],
     propsStatus: "PARTIAL",
-    propsProviders: [],
-    supportedPropMarkets: [],
+    propsProviders: ["DKscraPy import"],
+    supportedPropMarkets: ["player_pitcher_outs", "player_pitcher_strikeouts"],
     propsNote:
-      "MLB matchup coverage is live, but prop ingestion is not connected yet.",
+      "MLB matchup coverage is live, and DKscraPy exports can enrich stored DraftKings pitcher-prop and team-market snapshots.",
     sourceMesh: {
       scores: [
         {
@@ -274,6 +287,12 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
           stage: "HISTORICAL_ONLY",
           url: "https://github.com/jordantete/OddsHarvester",
           note: "Background-only opening/current/closing odds ingestion."
+        },
+        {
+          name: "SportsbookReview scraper",
+          stage: "READY_TO_LAYER",
+          url: "https://github.com/michaelwittig/sportsbookreview-scraper",
+          note: "Supplemental historical importer for richer MLB closing-line archives."
         }
       ]
     }
@@ -285,7 +304,11 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     matchupProviders: [sportsdataverseMatchupStatsProvider, espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NHL"),
-    historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
+    historicalProviders: [
+      oddsharvesterHistoricalProvider,
+      sportsbookReviewHistoricalProvider,
+      therundownHistoricalProvider
+    ],
     propsStatus: "PARTIAL",
     propsProviders: [],
     supportedPropMarkets: [],
@@ -345,12 +368,16 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     matchupProviders: [sportsdataverseMatchupStatsProvider, espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NFL"),
-    historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
+    historicalProviders: [
+      oddsharvesterHistoricalProvider,
+      sportsbookReviewHistoricalProvider,
+      therundownHistoricalProvider
+    ],
     propsStatus: "PARTIAL",
-    propsProviders: [],
+    propsProviders: ["DKscraPy import"],
     supportedPropMarkets: [],
     propsNote:
-      "NFL matchup coverage is live, but prop ingestion is not connected yet.",
+      "NFL matchup coverage is live, and DKscraPy exports can enrich stored DraftKings player and team market snapshots.",
     sourceMesh: {
       scores: [
         {
@@ -402,6 +429,12 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
           note: "Background-only opening/current/closing odds ingestion."
         },
         {
+          name: "SportsbookReview scraper",
+          stage: "READY_TO_LAYER",
+          url: "https://github.com/michaelwittig/sportsbookreview-scraper",
+          note: "Supplemental historical importer for broader NFL closing-line and market archive depth."
+        },
+        {
           name: "nflreadpy",
           stage: "READY_TO_LAYER",
           url: "https://github.com/nflverse/nflreadpy",
@@ -419,10 +452,10 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     bookFeedProviders: getBookFeedLabelsForLeague("NCAAF"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "PARTIAL",
-    propsProviders: [],
+    propsProviders: ["DKscraPy import"],
     supportedPropMarkets: [],
     propsNote:
-      "College football matchup coverage is live, but prop ingestion is not connected yet.",
+      "College football matchup coverage is live, and DKscraPy exports can enrich stored DraftKings player and team market snapshots for analysis.",
     sourceMesh: {
       scores: [
         {
@@ -478,6 +511,12 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
           stage: "HISTORICAL_ONLY",
           url: "https://github.com/jordantete/OddsHarvester",
           note: "Background-only opening/current/closing odds ingestion."
+        },
+        {
+          name: "SportsbookReview scraper",
+          stage: "READY_TO_LAYER",
+          url: "https://github.com/michaelwittig/sportsbookreview-scraper",
+          note: "Supplemental historical importer for richer NHL closing-line archives."
         }
       ]
     }

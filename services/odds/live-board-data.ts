@@ -594,8 +594,12 @@ export function selectBoardGamesByStatus(
 
 function getLiveSourceNote(response: CurrentOddsBoardResponse) {
   const providerLabel =
-    response.provider === "odds_api"
+    response.provider === "oddsharvester"
+      ? "OddsHarvester"
+      : response.provider === "odds_api"
       ? "The Odds API"
+      : response.provider === "scraper_cache"
+        ? "the scraper cache"
       : response.provider === "therundown"
         ? "The Rundown"
         : "the live backend";

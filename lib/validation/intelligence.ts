@@ -56,7 +56,14 @@ export const ingestPayloadSchema = z.object({
   homeTeam: z.string().min(1),
   awayTeam: z.string().min(1),
   commenceTime: z.string().datetime(),
-  source: z.enum(["theoddsapi", "scraper", "therundown", "draftkings", "fanduel"]),
+  source: z.enum([
+    "theoddsapi",
+    "scraper",
+    "therundown",
+    "oddsharvester",
+    "draftkings",
+    "fanduel"
+  ]),
   lines: z.array(oddsLineSchema).min(1),
   sourceMeta: z.record(z.string(), z.unknown()).optional()
 });
