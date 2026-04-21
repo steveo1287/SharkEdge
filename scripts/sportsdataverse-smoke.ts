@@ -5,7 +5,7 @@ import { sportsdataverseEventProvider } from "@/services/events/sportsdataverse-
 
 loadEnvConfig(process.cwd());
 
-const ALLOWED_LEAGUES = new Set<LeagueKey>(["NBA", "NCAAB", "NCAAF"]);
+const ALLOWED_LEAGUES = new Set<LeagueKey>(["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"]);
 
 function parseLeague(argv: string[]) {
   const raw = argv.find((value) => value.startsWith("--league="))?.split("=")[1]?.trim().toUpperCase();
