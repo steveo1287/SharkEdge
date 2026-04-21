@@ -19,8 +19,8 @@ type ScoreboardPayload = {
 
 export const sportsdataverseEventProvider: EventProvider = {
   key: "sportsdataverse",
-  label: "SportsDataverse scoreboard",
-  kind: "LIVE",
+  label: "SportsDataverse scoreboard fallback",
+  kind: "FALLBACK",
   supportsLeague(leagueKey) {
     return SUPPORTED_LEAGUES.includes(leagueKey);
   },
