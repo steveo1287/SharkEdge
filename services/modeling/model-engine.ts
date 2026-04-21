@@ -450,7 +450,7 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     home: {
       teamName: homeTeam.name,
       offense: homeOffense,
-      defense: awayDefense > 0 ? awayDefense : homeDefense,
+      defense: homeDefense > 0 ? homeDefense : awayDefense,
       pace,
       recentForm: homeContext?.recentMargin ?? 0,
       recentWinRate: homeContext?.recentWinRate ?? null,
@@ -466,7 +466,7 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     away: {
       teamName: awayTeam.name,
       offense: awayOffense,
-      defense: homeDefense > 0 ? homeDefense : awayDefense,
+      defense: awayDefense > 0 ? awayDefense : homeDefense,
       pace,
       recentForm: awayContext?.recentMargin ?? 0,
       recentWinRate: awayContext?.recentWinRate ?? null,
