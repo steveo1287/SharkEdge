@@ -4267,6 +4267,15 @@ def ingest_odds(
         "book": (payload.get("lines") or [{}])[0].get("book") or payload.get("source") or "scraper",
         "lines": payload.get("lines") or [],
         "sourceMeta": source_meta if isinstance(source_meta, dict) else {},
+        "homeMoneyline": payload.get("homeMoneyline"),
+        "awayMoneyline": payload.get("awayMoneyline"),
+        "homeSpread": payload.get("homeSpread"),
+        "awaySpread": payload.get("awaySpread"),
+        "homeSpreadOdds": payload.get("homeSpreadOdds"),
+        "awaySpreadOdds": payload.get("awaySpreadOdds"),
+        "total": payload.get("total"),
+        "overOdds": payload.get("overOdds"),
+        "underOdds": payload.get("underOdds"),
     }
 
     cache = load_scraper_cache()
