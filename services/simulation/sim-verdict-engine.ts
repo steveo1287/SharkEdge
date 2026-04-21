@@ -19,6 +19,7 @@
 
 import type { ContextualGameSimulationSummary } from "./contextual-game-sim";
 import type { PlayerPropSimulationSummary } from "./player-prop-sim";
+import { estimateOverUnderProbabilities } from "@/services/modeling/market-distribution";
 import {
   calibratePropHitProbability,
   calibrateSpreadDelta,
@@ -102,6 +103,79 @@ export type PlayerPropVerdict = {
 // ---------------------------------------------------------------------------
 function round(value: number, digits = 2) {
   return Number(value.toFixed(digits));
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function erf(value: number) {
+  const sign = value < 0 ? -1 : 1;
+  const x = Math.abs(value);
+  const a1 = 0.254829592;
+  const a2 = -0.284496736;
+  const a3 = 1.421413741;
+  const a4 = -1.453152027;
+  const a5 = 1.061405429;
+  const p = 0.3275911;
+  const t = 1 / (1 + p * x);
+  const y = 1 - (((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t) * Math.exp(-x * x);
+  return sign * y;
+}
+
+function normalCdf(value: number) {
+  return 0.5 * (1 + erf(value / Math.sqrt(2)));
+}
+
+function estimateSpreadCoverProbabilities(args: {
+  meanSpreadHome: number | null | undefined;
+  lineHome: number | null | undefined;
+  marginStdDev: number | null | undefined;
+}) {
+  if (
+    typeof args.meanSpreadHome !== "number" ||
+    typeof args.lineHome !== "number" ||
+    typeof args.marginStdDev !== "number" ||
+    !Number.isFinite(args.meanSpreadHome) ||
+    !Number.isFinite(args.lineHome) ||
+    !Number.isFinite(args.marginStdDev) ||
+    args.marginStdDev <= 0
+  ) {
+    return null;
+  }
+
+  const roundedLine = Math.round(args.lineHome * 2) / 2;
+  const isHalfLine = Math.abs(roundedLine % 1) === 0.5;
+  const homeThreshold = -roundedLine;
+  const homeCoverProbRaw = 1 - normalCdf((homeThreshold - args.meanSpreadHome) / args.marginStdDev);
+  const homeCoverProb = clamp(homeCoverProbRaw, 0.001, 0.999);
+  const pushProb = isHalfLine
+    ? 0
+    : clamp(
+        1 - homeCoverProb - normalCdf((homeThreshold - 0.5 - args.meanSpreadHome) / args.marginStdDev),
+        0,
+        0.08
+      );
+  const awayCoverProb = clamp(1 - homeCoverProb - pushProb, 0.001, 0.999);
+
+  return {
+    homeCoverProb,
+    awayCoverProb,
+    pushProb
+  };
+}
+
+function actionStateForSide(side: VerdictSide, edgeScore: number): ActionState {
+  if (side === "NONE") {
+    return "PASS";
+  }
+  if (edgeScore >= 72) {
+    return "BET_NOW";
+  }
+  if (edgeScore >= 55) {
+    return "WAIT";
+  }
+  return "WATCH";
 }
 
 function americanToImplied(odds: number): number {
@@ -416,7 +490,8 @@ export function buildSpreadVerdict(
   homeTeam: string,
   awayTeam: string,
   marketSpreadHome: number | null,
-  homeSpreadOdds: number | null
+  homeSpreadOdds: number | null,
+  awaySpreadOdds: number | null
 ): MarketVerdict {
   const simSpread = sim.projectedSpreadHome;
   const rawDelta = marketSpreadHome !== null ? round(simSpread - marketSpreadHome, 2) : null;
@@ -434,13 +509,32 @@ export function buildSpreadVerdict(
   const absDelta = calibratedDelta !== null ? Math.abs(calibratedDelta) : 0;
 
   const side: VerdictSide = calibratedDelta !== null && calibratedDelta > 0.5 ? "HOME" : calibratedDelta !== null && calibratedDelta < -0.5 ? "AWAY" : "NONE";
-  const edgeScore = Math.min(100, Math.round(50 + absDelta * 12));
-  const ev = homeSpreadOdds !== null && side === "HOME"
-    ? calculateEV(0.52 + absDelta * 0.04, homeSpreadOdds)
-    : null;
-  const rating = absDelta >= 3 ? ratingFromEdge(edgeScore, ev) : absDelta >= 1.5 ? "LEAN" : "NEUTRAL";
-  const confidence = confidenceFromSample(2500, sim.distribution.homeScoreStdDev, sim.projectedHomeScore);
   const calibratedSpread = marketSpreadHome !== null && calibratedDelta !== null ? marketSpreadHome + calibratedDelta : simSpread;
+  const marginStdDev = Math.max(
+    0.75,
+    Math.sqrt(
+      (sim.distribution.homeScoreStdDev ?? 0) ** 2 +
+      (sim.distribution.awayScoreStdDev ?? 0) ** 2
+    )
+  );
+  const spreadProbabilities = estimateSpreadCoverProbabilities({
+    meanSpreadHome: calibratedSpread,
+    lineHome: marketSpreadHome,
+    marginStdDev
+  });
+  const relevantProb =
+    side === "HOME"
+      ? spreadProbabilities?.homeCoverProb ?? null
+      : side === "AWAY"
+        ? spreadProbabilities?.awayCoverProb ?? null
+        : null;
+  const relevantOdds = side === "HOME" ? homeSpreadOdds : side === "AWAY" ? awaySpreadOdds : null;
+  const ev = relevantProb !== null && relevantOdds !== null
+    ? calculateEV(relevantProb, relevantOdds)
+    : null;
+  const edgeScore = Math.min(100, Math.round(50 + absDelta * 12 + ((relevantProb ?? 0.5) - 0.5) * 35));
+  const rating = absDelta >= 3 ? ratingFromEdge(edgeScore, ev) : absDelta >= 1.5 ? "LEAN" : "NEUTRAL";
+  const confidence = confidenceFromSample(2500, marginStdDev, Math.abs(sim.projectedSpreadHome));
 
   const trapFlags = detectTrapFlags({
     rating,
@@ -452,18 +546,14 @@ export function buildSpreadVerdict(
   });
   const trapExplanation = getTrapExplanation(trapFlags);
 
-  const actionState: ActionState =
-    side === "HOME" && edgeScore >= 72 ? "BET_NOW"
-    : side === "HOME" && edgeScore >= 55 ? "WAIT"
-    : side === "HOME" ? "WATCH"
-    : "PASS";
+  const actionState: ActionState = actionStateForSide(side, edgeScore);
 
   const timingState: TimingState =
     absDelta >= 3 ? "WINDOW_OPEN"
     : absDelta >= 1.5 ? "WAIT_FOR_PULLBACK"
     : "MONITOR_ONLY";
 
-  const kelly = homeSpreadOdds !== null && side === "HOME" ? kellyFraction(0.52 + absDelta * 0.04, homeSpreadOdds) : 0;
+  const kelly = relevantOdds !== null && relevantProb !== null ? kellyFraction(relevantProb, relevantOdds) : 0;
 
   return {
     market: "spread",
@@ -493,7 +583,8 @@ export function buildTotalVerdict(
   sim: ContextualGameSimulationSummary,
   leagueKey: string,
   marketTotal: number | null,
-  overOdds: number | null
+  overOdds: number | null,
+  underOdds: number | null
 ): MarketVerdict {
   const simTotal = sim.projectedTotal;
   const rawDelta = marketTotal !== null ? round(simTotal - marketTotal, 2) : null;
@@ -515,9 +606,21 @@ export function buildTotalVerdict(
   const p10 = sim.distribution.p10Total;
   const p90 = sim.distribution.p90Total;
   const marketInRange = marketTotal !== null && marketTotal >= p10 && marketTotal <= p90;
-  const edgeScore = Math.min(100, Math.round(50 + absDelta * 10));
-  const ev = overOdds !== null && side === "OVER"
-    ? calculateEV(0.52 + absDelta * 0.03, overOdds)
+  const totalProbabilities = estimateOverUnderProbabilities({
+    mean: calibratedTotal,
+    line: marketTotal,
+    stdDev: sim.distribution.totalStdDev
+  });
+  const relevantProb =
+    side === "OVER"
+      ? totalProbabilities?.overProb ?? null
+      : side === "UNDER"
+        ? totalProbabilities?.underProb ?? null
+        : null;
+  const relevantOdds = side === "OVER" ? overOdds : side === "UNDER" ? underOdds : null;
+  const edgeScore = Math.min(100, Math.round(50 + absDelta * 10 + ((relevantProb ?? 0.5) - 0.5) * 35));
+  const ev = relevantProb !== null && relevantOdds !== null
+    ? calculateEV(relevantProb, relevantOdds)
     : null;
   const rating = absDelta >= 4 ? ratingFromEdge(edgeScore, ev) : absDelta >= 2 ? "LEAN" : "NEUTRAL";
   const confidence = confidenceFromSample(2500, sim.distribution.totalStdDev, simTotal);
@@ -532,18 +635,14 @@ export function buildTotalVerdict(
   });
   const trapExplanation = getTrapExplanation(trapFlags);
 
-  const actionState: ActionState =
-    side === "OVER" && edgeScore >= 72 ? "BET_NOW"
-    : side === "OVER" && edgeScore >= 55 ? "WAIT"
-    : side === "OVER" ? "WATCH"
-    : "PASS";
+  const actionState: ActionState = actionStateForSide(side, edgeScore);
 
   const timingState: TimingState =
     absDelta >= 4 ? "WINDOW_OPEN"
     : absDelta >= 2 ? "WAIT_FOR_PULLBACK"
     : "MONITOR_ONLY";
 
-  const kelly = overOdds !== null && side === "OVER" ? kellyFraction(0.52 + absDelta * 0.03, overOdds) : 0;
+  const kelly = relevantOdds !== null && relevantProb !== null ? kellyFraction(relevantProb, relevantOdds) : 0;
 
   const rangeNote = marketInRange
     ? ` Market line sits inside the sim’s P10–P90 range (${round(p10, 1)}–${round(p90, 1)}), so variance is real.`
@@ -623,11 +722,7 @@ export function buildPlayerPropVerdict(
   });
   const trapExplanation = getTrapExplanation(trapFlags);
 
-  const actionState: ActionState =
-    side === "OVER" && edgeScore >= 72 ? "BET_NOW"
-    : side === "OVER" && edgeScore >= 55 ? "WAIT"
-    : side === "OVER" ? "WATCH"
-    : "PASS";
+  const actionState: ActionState = actionStateForSide(side, edgeScore);
 
   const timingState: TimingState = confidence === "MEDIUM" ? "WAIT_FOR_CONFIRMATION" : "MONITOR_ONLY";
   const kelly = relevantOdds !== null && relevantProb !== null ? kellyFraction(relevantProb, relevantOdds) : 0;
@@ -668,7 +763,9 @@ export function buildGameSimVerdict(args: {
   homeMoneylineOdds: number | null;
   awayMoneylineOdds: number | null;
   overOdds: number | null;
+  underOdds: number | null;
   homeSpreadOdds: number | null;
+  awaySpreadOdds: number | null;
 }): GameSimVerdict {
   const { sim, leagueKey, homeTeam, awayTeam } = args;
 
@@ -678,9 +775,9 @@ export function buildGameSimVerdict(args: {
   );
   const spreadVerdict = buildSpreadVerdict(
     sim, leagueKey, homeTeam, awayTeam,
-    args.marketSpreadHome, args.homeSpreadOdds
+    args.marketSpreadHome, args.homeSpreadOdds, args.awaySpreadOdds
   );
-  const totalVerdict = buildTotalVerdict(sim, leagueKey, args.marketTotal, args.overOdds);
+  const totalVerdict = buildTotalVerdict(sim, leagueKey, args.marketTotal, args.overOdds, args.underOdds);
 
   const allVerdicts = [...moneylineVerdicts, spreadVerdict, totalVerdict];
 

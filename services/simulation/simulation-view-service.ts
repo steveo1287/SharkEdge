@@ -638,7 +638,9 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
         homeMoneylineOdds: typeof marketAnchor.homeMoneylineOdds === "number" ? marketAnchor.homeMoneylineOdds : null,
         awayMoneylineOdds: typeof marketAnchor.awayMoneylineOdds === "number" ? marketAnchor.awayMoneylineOdds : null,
         overOdds: typeof marketAnchor.overOdds === "number" ? marketAnchor.overOdds : null,
+        underOdds: typeof marketAnchor.underOdds === "number" ? marketAnchor.underOdds : null,
         homeSpreadOdds: typeof marketAnchor.homeSpreadOdds === "number" ? marketAnchor.homeSpreadOdds : null,
+        awaySpreadOdds: typeof marketAnchor.awaySpreadOdds === "number" ? marketAnchor.awaySpreadOdds : null,
       })
     : null;
 

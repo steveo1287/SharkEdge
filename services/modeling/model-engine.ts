@@ -53,18 +53,31 @@ function getCurrentMarketAnchor(
     marketType: string;
     period: string;
     consensusLineValue: number | null;
+    bestHomeOddsAmerican?: number | null;
+    bestAwayOddsAmerican?: number | null;
+    bestOverOddsAmerican?: number | null;
+    bestUnderOddsAmerican?: number | null;
   }>
 ) {
+  const fullGameMoneyline = states.find(
+    (state) => state.marketType === "moneyline" && state.period === "full_game"
+  ) ?? null;
   const fullGameTotal = states.find(
     (state) => state.marketType === "total" && state.period === "full_game"
-  )?.consensusLineValue ?? null;
+  ) ?? null;
   const fullGameSpread = states.find(
     (state) => state.marketType === "spread" && state.period === "full_game"
-  )?.consensusLineValue ?? null;
+  ) ?? null;
 
   return {
-    total: fullGameTotal,
-    spreadHome: fullGameSpread
+    total: fullGameTotal?.consensusLineValue ?? null,
+    spreadHome: fullGameSpread?.consensusLineValue ?? null,
+    homeMoneylineOdds: fullGameMoneyline?.bestHomeOddsAmerican ?? null,
+    awayMoneylineOdds: fullGameMoneyline?.bestAwayOddsAmerican ?? null,
+    homeSpreadOdds: fullGameSpread?.bestHomeOddsAmerican ?? null,
+    awaySpreadOdds: fullGameSpread?.bestAwayOddsAmerican ?? null,
+    overOdds: fullGameTotal?.bestOverOddsAmerican ?? null,
+    underOdds: fullGameTotal?.bestUnderOddsAmerican ?? null
   };
 }
 
@@ -249,7 +262,11 @@ export async function buildEventProjectionFromHistory(eventId: string) {
         select: {
           marketType: true,
           period: true,
-          consensusLineValue: true
+          consensusLineValue: true,
+          bestHomeOddsAmerican: true,
+          bestAwayOddsAmerican: true,
+          bestOverOddsAmerican: true,
+          bestUnderOddsAmerican: true
         }
       },
       participants: {
@@ -419,7 +436,11 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     event.currentMarketStates.map((state) => ({
       marketType: state.marketType,
       period: state.period,
-      consensusLineValue: state.consensusLineValue
+      consensusLineValue: state.consensusLineValue,
+      bestHomeOddsAmerican: state.bestHomeOddsAmerican,
+      bestAwayOddsAmerican: state.bestAwayOddsAmerican,
+      bestOverOddsAmerican: state.bestOverOddsAmerican,
+      bestUnderOddsAmerican: state.bestUnderOddsAmerican
     }))
   );
   const weather = inferWeatherTotalFactor(event.league.key, event.venue, event.metadataJson);
