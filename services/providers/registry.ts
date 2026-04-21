@@ -6,11 +6,13 @@ import { boxingEventProvider } from "@/services/events/boxing-provider";
 import { espnEventProvider } from "@/services/events/espn-provider";
 import { ncaaFallbackEventProvider } from "@/services/events/ncaa-fallback-provider";
 import { theSportsDbEventProvider } from "@/services/events/thesportsdb-provider";
+import { sportsdataverseEventProvider } from "@/services/events/sportsdataverse-provider";
 import { ufcEventProvider } from "@/services/events/ufc-provider";
 import { oddsharvesterHistoricalProvider } from "@/services/historical-odds/oddsharvester-provider";
 import { therundownHistoricalProvider } from "@/services/historical-odds/therundown-provider";
 import { boxingMatchupStatsProvider } from "@/services/stats/boxing-stats-provider";
 import { espnMatchupStatsProvider } from "@/services/stats/espn-stats-provider";
+import { sportsdataverseMatchupStatsProvider } from "@/services/stats/sportsdataverse-stats-provider";
 import type { MatchupStatsProvider } from "@/services/stats/provider-types";
 import { ufcMatchupStatsProvider } from "@/services/stats/ufc-stats-provider";
 
@@ -71,8 +73,8 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   NBA: {
     leagueKey: "NBA",
     status: "LIVE",
-    scoreProviders: [espnEventProvider],
-    matchupProviders: [espnMatchupStatsProvider],
+    scoreProviders: [sportsdataverseEventProvider, espnEventProvider],
+    matchupProviders: [sportsdataverseMatchupStatsProvider, espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NBA"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
@@ -142,8 +144,8 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   NCAAB: {
     leagueKey: "NCAAB",
     status: "LIVE",
-    scoreProviders: [espnEventProvider, ncaaFallbackEventProvider],
-    matchupProviders: [espnMatchupStatsProvider],
+    scoreProviders: [sportsdataverseEventProvider, espnEventProvider, ncaaFallbackEventProvider],
+    matchupProviders: [sportsdataverseMatchupStatsProvider, espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NCAAB"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
@@ -219,8 +221,8 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   MLB: {
     leagueKey: "MLB",
     status: "LIVE",
-    scoreProviders: [espnEventProvider],
-    matchupProviders: [espnMatchupStatsProvider],
+    scoreProviders: [sportsdataverseEventProvider, espnEventProvider],
+    matchupProviders: [sportsdataverseMatchupStatsProvider, espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("MLB"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
@@ -279,8 +281,8 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   NHL: {
     leagueKey: "NHL",
     status: "LIVE",
-    scoreProviders: [espnEventProvider],
-    matchupProviders: [espnMatchupStatsProvider],
+    scoreProviders: [sportsdataverseEventProvider, espnEventProvider],
+    matchupProviders: [sportsdataverseMatchupStatsProvider, espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NHL"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
@@ -339,8 +341,8 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   NFL: {
     leagueKey: "NFL",
     status: "LIVE",
-    scoreProviders: [espnEventProvider],
-    matchupProviders: [espnMatchupStatsProvider],
+    scoreProviders: [sportsdataverseEventProvider, espnEventProvider],
+    matchupProviders: [sportsdataverseMatchupStatsProvider, espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NFL"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
@@ -411,8 +413,8 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   NCAAF: {
     leagueKey: "NCAAF",
     status: "LIVE",
-    scoreProviders: [espnEventProvider, ncaaFallbackEventProvider],
-    matchupProviders: [espnMatchupStatsProvider],
+    scoreProviders: [sportsdataverseEventProvider, espnEventProvider, ncaaFallbackEventProvider],
+    matchupProviders: [sportsdataverseMatchupStatsProvider, espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NCAAF"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
