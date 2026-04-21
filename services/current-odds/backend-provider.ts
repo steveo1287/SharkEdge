@@ -44,15 +44,10 @@ export const backendCurrentOddsProvider: CurrentOddsProvider = {
     return SUPPORTED_LEAGUES.includes(leagueKey);
   },
   async fetchBoard() {
-    const boardResponse = await fetchBackendJson<CurrentOddsBoardResponse>("/api/odds/board");
-
-    if (boardResponse?.configured && boardResponse.provider === "oddsharvester") {
-      return boardResponse;
-    }
-
-    const harvestResponse = await fetchBackendJson<OddsHarvesterHarvestResponse>(
-      "/api/historical/odds/harvest"
-    );
+    const [boardResponse, harvestResponse] = await Promise.all([
+      fetchBackendJson<CurrentOddsBoardResponse>("/api/odds/board"),
+      fetchBackendJson<OddsHarvesterHarvestResponse>("/api/historical/odds/harvest")
+    ]);
 
     if (harvestResponse?.configured && harvestResponse.provider === "oddsharvester") {
       return {
@@ -66,10 +61,10 @@ export const backendCurrentOddsProvider: CurrentOddsProvider = {
       };
     }
 
-    if (!boardResponse?.configured) {
-      return null;
+    if (boardResponse?.configured && boardResponse.provider === "oddsharvester") {
+      return boardResponse;
     }
 
-    return boardResponse;
+    return null;
   }
 };
