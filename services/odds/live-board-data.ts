@@ -507,6 +507,14 @@ function countRenderedRows(sections: BoardPageData["sportSections"]) {
   return sections.reduce((total, section) => total + section.games.length + section.scoreboard.length, 0);
 }
 
+function resolveLeagueKeyForSport(sport: CurrentOddsSport) {
+  return (
+    getLeagueForSportKey(sport.key) ??
+    getLeagueForSportKey(sport.short_title) ??
+    getLeagueForSportKey(sport.title)
+  );
+}
+
 export function selectBoardGamesByStatus(
   sections: BoardPageData["sportSections"],
   status: BoardFilters["status"]
@@ -560,7 +568,7 @@ function inferBoardGameStatus(startTime: string) {
 export async function getLiveBoardPageData(filters: BoardFilters): Promise<BoardPageData | null> {
   const response = await fetchLiveBoardResponse();
   const supportedSports = (response?.sports ?? []).filter((sport) => {
-    const leagueKey = getLeagueForSportKey(sport.key);
+    const leagueKey = resolveLeagueKeyForSport(sport);
     return leagueKey && (filters.league === "ALL" || filters.league === leagueKey);
   });
 
@@ -570,7 +578,7 @@ export async function getLiveBoardPageData(filters: BoardFilters): Promise<Board
 
   const games = supportedSports
     .flatMap((sport) => {
-      const leagueKey = getLeagueForSportKey(sport.key);
+      const leagueKey = resolveLeagueKeyForSport(sport);
       if (!leagueKey) {
         return [];
       }
@@ -621,7 +629,7 @@ export async function getLiveBoardPageData(filters: BoardFilters): Promise<Board
       supportedSports.flatMap((sport) =>
         sport.games
           .map((game) => {
-            const leagueKey = getLeagueForSportKey(sport.key);
+            const leagueKey = resolveLeagueKeyForSport(sport);
             return leagueKey && isGameInCurrentBoardWindow(leagueKey, game.commence_time)
               ? game.commence_time.slice(0, 10)
               : null;

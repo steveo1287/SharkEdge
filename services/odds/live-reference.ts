@@ -10,6 +10,24 @@ export const LIVE_SPORT_TO_LEAGUE: Record<string, LeagueKey | null> = {
   americanfootball_ncaaf: "NCAAF"
 };
 
+const LIVE_SPORT_FALLBACK_ALIASES: Record<string, LeagueKey> = {
+  nba: "NBA",
+  basketball_nba: "NBA",
+  ncaab: "NCAAB",
+  basketball_ncaab: "NCAAB",
+  ncaa_mens_basketball: "NCAAB",
+  ncaa_men_s_basketball: "NCAAB",
+  mlb: "MLB",
+  baseball_mlb: "MLB",
+  nhl: "NHL",
+  icehockey_nhl: "NHL",
+  nfl: "NFL",
+  americanfootball_nfl: "NFL",
+  ncaaf: "NCAAF",
+  college_football: "NCAAF",
+  americanfootball_ncaaf: "NCAAF"
+};
+
 export const LIVE_PROP_SPORT_KEYS: Partial<Record<LeagueKey, string>> = {
   NBA: "basketball_nba",
   NCAAB: "basketball_ncaab"
@@ -72,7 +90,18 @@ export function deriveAbbreviation(teamName: string) {
 }
 
 export function getLeagueForSportKey(sportKey: string): LeagueKey | null {
-  return LIVE_SPORT_TO_LEAGUE[sportKey] ?? null;
+  const raw = sportKey?.trim();
+  if (!raw) {
+    return null;
+  }
+
+  const direct = LIVE_SPORT_TO_LEAGUE[raw];
+  if (direct) {
+    return direct;
+  }
+
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return LIVE_SPORT_TO_LEAGUE[normalized] ?? LIVE_SPORT_FALLBACK_ALIASES[normalized] ?? null;
 }
 
 export function getLeagueRecord(leagueKey: LeagueKey): LeagueRecord {
