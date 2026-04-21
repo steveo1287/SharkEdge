@@ -4,6 +4,7 @@ import { therundownCurrentOddsProvider } from "@/services/current-odds/therundow
 import { boxingEventProvider } from "@/services/events/boxing-provider";
 import { espnEventProvider } from "@/services/events/espn-provider";
 import { ncaaFallbackEventProvider } from "@/services/events/ncaa-fallback-provider";
+import { sportsdataverseEventProvider } from "@/services/events/sportsdataverse-provider";
 import { ufcEventProvider } from "@/services/events/ufc-provider";
 import { oddsharvesterHistoricalProvider } from "@/services/historical-odds/oddsharvester-provider";
 import { therundownHistoricalProvider } from "@/services/historical-odds/therundown-provider";
@@ -69,7 +70,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   NBA: {
     leagueKey: "NBA",
     status: "LIVE",
-    scoreProviders: [espnEventProvider],
+    scoreProviders: [espnEventProvider, sportsdataverseEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NBA"),
@@ -140,7 +141,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   NCAAB: {
     leagueKey: "NCAAB",
     status: "LIVE",
-    scoreProviders: [espnEventProvider, ncaaFallbackEventProvider],
+    scoreProviders: [espnEventProvider, ncaaFallbackEventProvider, sportsdataverseEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NCAAB"),
@@ -409,7 +410,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   NCAAF: {
     leagueKey: "NCAAF",
     status: "LIVE",
-    scoreProviders: [espnEventProvider, ncaaFallbackEventProvider],
+    scoreProviders: [espnEventProvider, ncaaFallbackEventProvider, sportsdataverseEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NCAAF"),
