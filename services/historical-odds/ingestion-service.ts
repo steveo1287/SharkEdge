@@ -15,7 +15,7 @@ import type {
 } from "./provider-types";
 
 const SHARKEDGE_BACKEND_URL =
-  process.env.SHARKEDGE_BACKEND_URL?.trim() || "https://shark-odds-1.onrender.com";
+  process.env.SHARKEDGE_BACKEND_URL?.trim().replace(/\/$/, "") || "";
 const HISTORICAL_SOURCE_KEY = "oddsharvester_historical" as const;
 const HISTORICAL_BACKEND_TIMEOUT_MS = 90_000;
 const PRE_EVENT_LONG_BUCKET_MINUTES = 30;
@@ -483,6 +483,12 @@ function assertHistoricalStorageAvailable() {
 }
 
 async function fetchBackendJson<T>(path: string) {
+  if (!SHARKEDGE_BACKEND_URL) {
+    throw new Error(
+      "Historical odds backend URL is not configured. Set SHARKEDGE_BACKEND_URL before running historical odds ingestion."
+    );
+  }
+
   const response = await fetch(`${SHARKEDGE_BACKEND_URL}${path}`, {
     cache: "no-store",
     signal: AbortSignal.timeout(HISTORICAL_BACKEND_TIMEOUT_MS)

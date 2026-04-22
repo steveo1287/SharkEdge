@@ -1,10 +1,20 @@
 import { NextResponse } from "next/server";
 
-const BACKEND_BASE_URL =
-  process.env.SHARKEDGE_BACKEND_URL?.replace(/\/$/, "") ??
-  "https://shark-odds-1.onrender.com";
+const BACKEND_BASE_URL = process.env.SHARKEDGE_BACKEND_URL?.replace(/\/$/, "") ?? "";
 
 async function proxy(path: string, init?: RequestInit) {
+  if (!BACKEND_BASE_URL) {
+    return NextResponse.json(
+      {
+        error:
+          "SHARKEDGE_BACKEND_URL is not configured, so the ingest proxy is disabled in this runtime."
+      },
+      {
+        status: 503
+      }
+    );
+  }
+
   try {
     const response = await fetch(`${BACKEND_BASE_URL}${path}`, {
       ...init,
