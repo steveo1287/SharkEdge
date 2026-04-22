@@ -8,7 +8,13 @@ from datetime import datetime, timezone
 from threading import Lock
 from typing import Any
 
-import requests
+try:
+    import requests
+except Exception as error:  # pragma: no cover
+    requests = None
+    REQUESTS_IMPORT_ERROR = error
+else:
+    REQUESTS_IMPORT_ERROR = None
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -42,10 +48,12 @@ PINNACLE_HEADERS = {
         "Chrome/124.0.0.0 Safari/537.36"
     ),
     "Accept": "application/json",
-    "X-API-Key": os.getenv("PINNACLE_API_KEY", "CmX2KcMrXuFmNg6YFbmTxE0y9CblvR6W"),
     "Referer": "https://www.pinnacle.com/",
     "Origin": "https://www.pinnacle.com",
 }
+_PINNACLE_API_KEY = os.getenv("PINNACLE_API_KEY", "").strip()
+if _PINNACLE_API_KEY:
+    PINNACLE_HEADERS["X-API-Key"] = _PINNACLE_API_KEY
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("PINNACLE_REQUEST_TIMEOUT_SECONDS", "10"))
 PINNACLE_CACHE_SECONDS = int(os.getenv("PINNACLE_CACHE_SECONDS", "45"))
 
@@ -89,6 +97,11 @@ def _empty_source_diagnostic(source: str) -> dict[str, Any]:
         "error": None,
         "fetched_at": None,
     }
+
+
+def _requests_unavailable_error() -> RuntimeError:
+    detail = str(REQUESTS_IMPORT_ERROR) if REQUESTS_IMPORT_ERROR else "requests is unavailable"
+    return RuntimeError(f"Python requests dependency is unavailable for Pinnacle fetches: {detail}")
 
 
 def _iter_actionnetwork_odds_entries(odds_map: Any) -> list[tuple[str, dict[str, Any]]]:
@@ -383,6 +396,8 @@ def _run_source_fetch(
 
 def fetch_from_actionnetwork() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     def _fetch() -> list[dict[str, Any]]:
+        if requests is None:
+            raise _requests_unavailable_error()
         log.info("Trying ActionNetwork for Pinnacle MLB odds...")
         response = requests.get(AN_MLB_URL, headers=AN_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
@@ -413,6 +428,8 @@ def fetch_from_actionnetwork() -> tuple[list[dict[str, Any]], dict[str, Any]]:
 
 def fetch_from_pinnacle_direct() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     def _fetch() -> list[dict[str, Any]]:
+        if requests is None:
+            raise _requests_unavailable_error()
         log.info("Trying Pinnacle guest API for MLB odds...")
         try:
             matchups_response = requests.get(
@@ -432,7 +449,7 @@ def fetch_from_pinnacle_direct() -> tuple[list[dict[str, Any]], dict[str, Any]]:
             markets_payload = markets_response.json()
 
             return _parse_pinnacle_feed(matchups_payload, markets_payload)
-        except (requests.RequestException, json.JSONDecodeError) as error:
+        except Exception as error:
             log.warning("Pinnacle guest API failed (%s); trying Selenium fallback...", error)
             return _fetch_pinnacle_selenium()
 
