@@ -10,6 +10,8 @@ import type {
 } from "@/lib/types/domain";
 import type { WeatherSourcePlanView } from "@/services/weather/provider-types";
 import type { RankedTrendPlay } from "@/services/trends/play-types";
+import type { MarketVerdict } from "@/services/simulation/sim-verdict-engine";
+import type { OpportunitySimAlignment } from "@/services/sim-trends-bridge";
 
 export type OpportunityKind = "game_side" | "game_total" | "moneyline" | "prop";
 
@@ -768,6 +770,8 @@ export type OpportunityView = {
   thesisCluster?: OpportunityThesisClusterView | null;
   trendIntelligence?: OpportunityTrendIntelligenceView | null;
   matchingTrendPlays?: RankedTrendPlay[] | null;
+  simMarketVerdict?: MarketVerdict | null;
+  simVerdictAlignment?: OpportunitySimAlignment | null;
   weatherSourcePlan?: WeatherSourcePlanView | null;
 };
 

@@ -129,13 +129,41 @@ function getCapitalEfficiencyScore(opportunity: OpportunityView) {
   return round(clamp(score, 0, 100));
 }
 
+function buildSimVerdictLift(opportunity: OpportunityView): number {
+  const verdict = opportunity.simMarketVerdict;
+  const alignment = opportunity.simVerdictAlignment;
+  if (!verdict || !alignment) return 0;
+  if (verdict.confidence === "INSUFFICIENT") return 0;
+
+  const confWeight = verdict.confidence === "HIGH" ? 1.0 : verdict.confidence === "MEDIUM" ? 0.6 : 0.3;
+
+  if (alignment === "AGREE") {
+    if (verdict.rating === "STRONG_BET") return Math.min(18 * confWeight, 18);
+    if (verdict.rating === "LEAN") return Math.min(10 * confWeight, 10);
+    if (verdict.rating === "TRAP") return -14 * confWeight;
+    if (verdict.rating === "FADE") return -10 * confWeight;
+    return 0;
+  }
+
+  if (alignment === "DISAGREE") {
+    if (verdict.rating === "STRONG_BET") return -18 * confWeight;
+    if (verdict.rating === "LEAN") return -10 * confWeight;
+    if (verdict.rating === "TRAP") return -6 * confWeight;
+    return -4 * confWeight;
+  }
+
+  return 0;
+}
+
 function getEdgeQualityScore(opportunity: OpportunityView) {
+  const simLift = buildSimVerdictLift(opportunity);
   const score =
     opportunity.opportunityScore * 0.76 +
     (opportunity.expectedValuePct ?? 0) * 4 +
     opportunity.sourceQuality.score * 0.08 +
     opportunity.truthCalibration.scoreDelta * 1.8 +
-    opportunity.marketMicrostructure.scoreDelta * 1.5 -
+    opportunity.marketMicrostructure.scoreDelta * 1.5 +
+    simLift -
     opportunity.trapFlags.length * 3;
 
   return round(clamp(score, 0, 100));
@@ -270,6 +298,7 @@ function buildRankingNotes(args: {
   trendIntelligenceSummary?: string | null;
   matchingTrendPlayCount?: number;
   bestMatchingPlayTier?: string | null;
+  simVerdictNote?: string | null;
 }) {
   const capitalLeader = args.capitalEfficiencyScore >= args.edgeQualityScore;
   const playNote =
@@ -284,6 +313,7 @@ function buildRankingNotes(args: {
     `Trend reliability contributes ${args.trendReliabilityScore}; recommendation tier is ${args.recommendationTier.toLowerCase()}.`,
     args.trendIntelligenceSummary ? `Trend intelligence: ${args.trendIntelligenceSummary}` : null,
     playNote,
+    args.simVerdictNote ?? null,
     `Destination quality contributes ${args.destinationQualityScore}, execution capacity ${args.executionCapacityScore}, and execution quality ${args.executionQualityScore}.`,
     `Market-path quality contributes ${args.marketPathQualityScore} and portfolio fit sits at ${args.portfolioFitScore}.`,
     `Portfolio fit is ${args.portfolioFitScore} and posture only adds ${args.actionModifier >= 0 ? "+" : ""}${args.actionModifier}.`
@@ -360,7 +390,10 @@ export function buildOpportunityRanking(opportunity: OpportunityView): Opportuni
       recommendationTier,
       trendIntelligenceSummary: opportunity.trendIntelligence?.summary ?? null,
       matchingTrendPlayCount: opportunity.matchingTrendPlays?.length ?? 0,
-      bestMatchingPlayTier: opportunity.matchingTrendPlays?.[0]?.tier ?? null
+      bestMatchingPlayTier: opportunity.matchingTrendPlays?.[0]?.tier ?? null,
+      simVerdictNote: opportunity.simMarketVerdict && opportunity.simVerdictAlignment
+        ? `Sim ${opportunity.simVerdictAlignment.toLowerCase()}s with opportunity: ${opportunity.simMarketVerdict.rating} on ${opportunity.simMarketVerdict.side} (${opportunity.simMarketVerdict.confidence} confidence, edge ${Math.round(opportunity.simMarketVerdict.edgeScore)}).`
+        : null
     })
   };
 }
