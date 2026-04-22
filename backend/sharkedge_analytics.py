@@ -92,6 +92,10 @@ def _coerce_numeric(value: Any) -> float | int | None:
     return value if isinstance(value, (int, float)) else None
 
 
+def _safe_reason(error: Exception) -> str:
+    return str(error) or error.__class__.__name__
+
+
 def _build_sharp_reference_payload(
     market_name: str,
     ordered: list[dict[str, Any]],
@@ -315,6 +319,22 @@ def build_sharkscore(
     }
 
 
+def _fallback_sharp_signals(reason: str) -> dict[str, Any]:
+    return {
+        "favorite": None,
+        "dog": None,
+        "estimated_sharp_lean": None,
+        "estimated_lean_magnitude": None,
+        "movement_direction": "neutral",
+        "books_sampled": 0,
+        "reference_source": None,
+        "reference_book": None,
+        "reference_available": False,
+        "source_diagnostics": {"analytics_error": reason},
+        "note": "Sharp signals degraded after an analytics parsing failure.",
+    }
+
+
 def build_sharp_signals(
     bookmakers: list[dict[str, Any]],
     away_team: str,
@@ -322,164 +342,197 @@ def build_sharp_signals(
     sharp_reference: dict[str, Any] | None = None,
     source_diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    moneyline_prices: dict[str, list[int]] = {away_team: [], home_team: []}
-    spread_points: dict[str, list[float]] = {away_team: [], home_team: []}
-    spread_prices: dict[str, list[int]] = {away_team: [], home_team: []}
+    try:
+        moneyline_prices: dict[str, list[int]] = {away_team: [], home_team: []}
+        spread_points: dict[str, list[float]] = {away_team: [], home_team: []}
+        spread_prices: dict[str, list[int]] = {away_team: [], home_team: []}
 
-    for bookmaker in bookmakers or []:
-        markets = bookmaker.get("markets") or {}
-        for outcome in markets.get("moneyline", []):
-            name = outcome.get("name")
-            price = outcome.get("price")
-            if name in moneyline_prices and isinstance(price, (int, float)):
-                moneyline_prices[name].append(int(price))
-        for outcome in markets.get("spread", []):
-            name = outcome.get("name")
-            point = outcome.get("point")
-            price = outcome.get("price")
-            if name in spread_points and isinstance(point, (int, float)):
-                spread_points[name].append(float(point))
-            if name in spread_prices and isinstance(price, (int, float)):
-                spread_prices[name].append(int(price))
+        for bookmaker in bookmakers or []:
+            markets = bookmaker.get("markets") or {}
+            for outcome in markets.get("moneyline", []):
+                name = outcome.get("name")
+                price = outcome.get("price")
+                if name in moneyline_prices and isinstance(price, (int, float)):
+                    moneyline_prices[name].append(int(price))
+            for outcome in markets.get("spread", []):
+                name = outcome.get("name")
+                point = outcome.get("point")
+                price = outcome.get("price")
+                if name in spread_points and isinstance(point, (int, float)):
+                    spread_points[name].append(float(point))
+                if name in spread_prices and isinstance(price, (int, float)):
+                    spread_prices[name].append(int(price))
 
-    signals: dict[str, Any] = {}
+        signals: dict[str, Any] = {}
 
-    for team in (away_team, home_team):
-        team_points = spread_points.get(team, [])
-        span = round(max(team_points) - min(team_points), 2) if len(team_points) >= 2 else None
-        key_prefix = team.lower().replace(" ", "_")
-        signals[f"{key_prefix}_spread_span"] = span
-        signals[f"{key_prefix}_steam_alert"] = bool(span is not None and span >= 1.5)
+        for team in (away_team, home_team):
+            team_points = spread_points.get(team, [])
+            span = round(max(team_points) - min(team_points), 2) if len(team_points) >= 2 else None
+            key_prefix = team.lower().replace(" ", "_")
+            signals[f"{key_prefix}_spread_span"] = span
+            signals[f"{key_prefix}_steam_alert"] = bool(span is not None and span >= 1.5)
 
-    away_ml = mean(moneyline_prices[away_team]) if moneyline_prices[away_team] else None
-    home_ml = mean(moneyline_prices[home_team]) if moneyline_prices[home_team] else None
-    reference_moneyline = sharp_reference.get("moneyline") if isinstance(sharp_reference, dict) else None
-    reference_spread = sharp_reference.get("spread") if isinstance(sharp_reference, dict) else None
-    if isinstance(reference_moneyline, dict):
-        away_ml = _coerce_numeric(reference_moneyline.get("away")) or away_ml
-        home_ml = _coerce_numeric(reference_moneyline.get("home")) or home_ml
-    favorite = None
-    if away_ml is not None and home_ml is not None:
-        favorite = away_team if away_ml < home_ml else home_team if home_ml < away_ml else None
-    dog = home_team if favorite == away_team else away_team if favorite == home_team else None
+        away_ml = mean(moneyline_prices[away_team]) if moneyline_prices[away_team] else None
+        home_ml = mean(moneyline_prices[home_team]) if moneyline_prices[home_team] else None
+        reference_moneyline = sharp_reference.get("moneyline") if isinstance(sharp_reference, dict) else None
+        reference_spread = sharp_reference.get("spread") if isinstance(sharp_reference, dict) else None
+        if isinstance(reference_moneyline, dict):
+            away_ml = _coerce_numeric(reference_moneyline.get("away")) or away_ml
+            home_ml = _coerce_numeric(reference_moneyline.get("home")) or home_ml
+        favorite = None
+        if away_ml is not None and home_ml is not None:
+            favorite = away_team if away_ml < home_ml else home_team if home_ml < away_ml else None
+        dog = home_team if favorite == away_team else away_team if favorite == home_team else None
 
-    movement_direction = "neutral"
-    estimated_sharp_lean: str | None = None
-    estimated_lean_magnitude = None
-    away_avg_spread = mean(spread_points[away_team]) if spread_points[away_team] else None
-    home_avg_spread = mean(spread_points[home_team]) if spread_points[home_team] else None
-    if isinstance(reference_spread, dict):
-        away_avg_spread = _coerce_numeric(reference_spread.get("away")) or away_avg_spread
-        home_avg_spread = _coerce_numeric(reference_spread.get("home")) or home_avg_spread
-    if away_avg_spread is not None and home_avg_spread is not None:
-        # More negative spread indicates stronger market support for that team.
-        if away_avg_spread <= -0.5:
-            estimated_sharp_lean = away_team
-            estimated_lean_magnitude = round(abs(away_avg_spread), 2)
-            movement_direction = "sharp_favorable"
-        elif home_avg_spread <= -0.5:
-            estimated_sharp_lean = home_team
-            estimated_lean_magnitude = round(abs(home_avg_spread), 2)
-            movement_direction = "sharp_favorable"
+        movement_direction = "neutral"
+        estimated_sharp_lean: str | None = None
+        estimated_lean_magnitude = None
+        away_avg_spread = mean(spread_points[away_team]) if spread_points[away_team] else None
+        home_avg_spread = mean(spread_points[home_team]) if spread_points[home_team] else None
+        if isinstance(reference_spread, dict):
+            away_avg_spread = _coerce_numeric(reference_spread.get("away")) or away_avg_spread
+            home_avg_spread = _coerce_numeric(reference_spread.get("home")) or home_avg_spread
+        if away_avg_spread is not None and home_avg_spread is not None:
+            if away_avg_spread <= -0.5:
+                estimated_sharp_lean = away_team
+                estimated_lean_magnitude = round(abs(away_avg_spread), 2)
+                movement_direction = "sharp_favorable"
+            elif home_avg_spread <= -0.5:
+                estimated_sharp_lean = home_team
+                estimated_lean_magnitude = round(abs(home_avg_spread), 2)
+                movement_direction = "sharp_favorable"
+            else:
+                estimated_sharp_lean = "neutral"
+                estimated_lean_magnitude = 0.0
         else:
-            estimated_sharp_lean = "neutral"
-            estimated_lean_magnitude = 0.0
-    else:
-        estimated_sharp_lean = None
+            estimated_sharp_lean = None
 
-    signals.update(
-        {
-            "favorite": favorite,
-            "dog": dog,
-            "estimated_sharp_lean": estimated_sharp_lean,
-            "estimated_lean_magnitude": estimated_lean_magnitude,
-            "movement_direction": movement_direction,
-            "books_sampled": len(bookmakers or []),
-            "reference_source": sharp_reference.get("source") if isinstance(sharp_reference, dict) else None,
-            "reference_book": sharp_reference.get("book_name") if isinstance(sharp_reference, dict) else None,
-            "reference_available": isinstance(sharp_reference, dict),
-            "source_diagnostics": source_diagnostics or {},
-            "note": (
-                "Sharp signals are inferred from cross-book line shape and spread dispersion. "
-                "True reverse-line-movement classification still requires ticket or money splits."
-            ),
-        }
-    )
-    return signals
+        signals.update(
+            {
+                "favorite": favorite,
+                "dog": dog,
+                "estimated_sharp_lean": estimated_sharp_lean,
+                "estimated_lean_magnitude": estimated_lean_magnitude,
+                "movement_direction": movement_direction,
+                "books_sampled": len(bookmakers or []),
+                "reference_source": sharp_reference.get("source") if isinstance(sharp_reference, dict) else None,
+                "reference_book": sharp_reference.get("book_name") if isinstance(sharp_reference, dict) else None,
+                "reference_available": isinstance(sharp_reference, dict),
+                "source_diagnostics": source_diagnostics or {},
+                "note": (
+                    "Sharp signals are inferred from cross-book line shape and spread dispersion. "
+                    "True reverse-line-movement classification still requires ticket or money splits."
+                ),
+            }
+        )
+        return signals
+    except Exception as error:
+        return _fallback_sharp_signals(_safe_reason(error))
+
+
+def _fallback_edge_block(reason: str) -> dict[str, Any]:
+    return {
+        "generated_at": _utc_now(),
+        "sharkscore": {
+            "score": 0.0,
+            "label": "NEUTRAL",
+            "tier": "C",
+            "best_ev_market": None,
+            "best_ev": None,
+            "best_ev_pct": None,
+            "components": {
+                "ev": 0.0,
+                "book_consensus": 0.0,
+                "market_efficiency": 0.0,
+                "line_movement": 0.0,
+            },
+            "movement_signal": "neutral",
+        },
+        "moneyline": {"available": False, "reason": "analytics_error"},
+        "spread": {"available": False, "reason": "analytics_error"},
+        "total": {"available": False, "reason": "analytics_error"},
+        "sharp_signals": _fallback_sharp_signals(reason),
+        "sharp_reference": None,
+        "top_edges": [],
+        "error": reason,
+    }
 
 
 def build_game_edge_block(game: dict[str, Any]) -> dict[str, Any]:
-    away_team = str(game.get("away_team") or "Away")
-    home_team = str(game.get("home_team") or "Home")
-    market_stats = game.get("market_stats") or {}
-    bookmakers = game.get("bookmakers") or []
-    sharp_reference = game.get("sharp_reference") if isinstance(game.get("sharp_reference"), dict) else None
-    bookmakers_available = int(game.get("bookmakers_available") or len(bookmakers) or 1)
+    try:
+        away_team = str(game.get("away_team") or "Away")
+        home_team = str(game.get("home_team") or "Home")
+        market_stats = game.get("market_stats") or {}
+        bookmakers = game.get("bookmakers") or []
+        sharp_reference = game.get("sharp_reference") if isinstance(game.get("sharp_reference"), dict) else None
+        bookmakers_available = int(game.get("bookmakers_available") or len(bookmakers) or 1)
 
-    moneyline = build_edge_analytics_for_market(
-        market_stats.get("moneyline") or [],
-        [away_team, home_team],
-        "moneyline",
-        sharp_reference=sharp_reference.get("moneyline") if sharp_reference else None,
-    )
-    spread = build_edge_analytics_for_market(
-        market_stats.get("spread") or [],
-        [away_team, home_team],
-        "spread",
-        sharp_reference=sharp_reference.get("spread") if sharp_reference else None,
-    )
-    total = build_edge_analytics_for_market(
-        market_stats.get("total") or [],
-        ["Over", "Under"],
-        "total",
-        sharp_reference=sharp_reference.get("total") if sharp_reference else None,
-    )
-    sharp_signals = build_sharp_signals(
-        bookmakers,
-        away_team,
-        home_team,
-        sharp_reference=sharp_reference,
-        source_diagnostics=game.get("sharp_reference_diagnostics"),
-    )
-    sharkscore = build_sharkscore(
-        moneyline,
-        spread,
-        total,
-        bookmakers_available=bookmakers_available,
-        movement_direction=sharp_signals.get("movement_direction"),
-    )
+        moneyline = build_edge_analytics_for_market(
+            market_stats.get("moneyline") or [],
+            [away_team, home_team],
+            "moneyline",
+            sharp_reference=sharp_reference.get("moneyline") if sharp_reference else None,
+        )
+        spread = build_edge_analytics_for_market(
+            market_stats.get("spread") or [],
+            [away_team, home_team],
+            "spread",
+            sharp_reference=sharp_reference.get("spread") if sharp_reference else None,
+        )
+        total = build_edge_analytics_for_market(
+            market_stats.get("total") or [],
+            ["Over", "Under"],
+            "total",
+            sharp_reference=sharp_reference.get("total") if sharp_reference else None,
+        )
+        sharp_signals = build_sharp_signals(
+            bookmakers,
+            away_team,
+            home_team,
+            sharp_reference=sharp_reference,
+            source_diagnostics=game.get("sharp_reference_diagnostics"),
+        )
+        sharkscore = build_sharkscore(
+            moneyline,
+            spread,
+            total,
+            bookmakers_available=bookmakers_available,
+            movement_direction=sharp_signals.get("movement_direction"),
+        )
 
-    top_edges: list[dict[str, Any]] = []
-    for market_name, analytics in (("moneyline", moneyline), ("spread", spread), ("total", total)):
-        if not analytics.get("available"):
-            continue
-        for outcome in analytics.get("outcomes", []):
-            if outcome.get("ev") is None:
+        top_edges: list[dict[str, Any]] = []
+        for market_name, analytics in (("moneyline", moneyline), ("spread", spread), ("total", total)):
+            if not analytics.get("available"):
                 continue
-            top_edges.append(
-                {
-                    "market": market_name,
-                    "outcome": outcome.get("name"),
-                    "ev": outcome.get("ev"),
-                    "ev_pct": outcome.get("ev_pct"),
-                    "price": outcome.get("best_price"),
-                    "consensus_point": outcome.get("consensus_point"),
-                    "bookmakers": outcome.get("best_bookmakers", []),
-                    "has_edge": outcome.get("has_edge", False),
-                }
-            )
-    top_edges.sort(key=lambda item: item.get("ev") or -999.0, reverse=True)
+            for outcome in analytics.get("outcomes", []):
+                if outcome.get("ev") is None:
+                    continue
+                top_edges.append(
+                    {
+                        "market": market_name,
+                        "outcome": outcome.get("name"),
+                        "ev": outcome.get("ev"),
+                        "ev_pct": outcome.get("ev_pct"),
+                        "price": outcome.get("best_price"),
+                        "consensus_point": outcome.get("consensus_point"),
+                        "bookmakers": outcome.get("best_bookmakers", []),
+                        "has_edge": outcome.get("has_edge", False),
+                    }
+                )
+        top_edges.sort(key=lambda item: item.get("ev") or -999.0, reverse=True)
 
-    return {
-        "generated_at": _utc_now(),
-        "sharkscore": sharkscore,
-        "moneyline": moneyline,
-        "spread": spread,
-        "total": total,
-        "sharp_signals": sharp_signals,
-        "sharp_reference": sharp_reference,
-        "top_edges": top_edges[:5],
-    }
+        return {
+            "generated_at": _utc_now(),
+            "sharkscore": sharkscore,
+            "moneyline": moneyline,
+            "spread": spread,
+            "total": total,
+            "sharp_signals": sharp_signals,
+            "sharp_reference": sharp_reference,
+            "top_edges": top_edges[:5],
+        }
+    except Exception as error:
+        return _fallback_edge_block(_safe_reason(error))
 
 
 def _build_prop_ev(
@@ -528,29 +581,50 @@ def _build_prop_ev(
 
 
 def enrich_props_with_ev(props: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    grouped: dict[tuple[str, str, float | int | None], list[dict[str, Any]]] = {}
-    for prop in props:
-        key = (str(prop.get("player_name") or ""), str(prop.get("market_key") or ""), prop.get("line"))
-        grouped.setdefault(key, []).append(prop)
+    try:
+        grouped: dict[tuple[str, str, float | int | None], list[dict[str, Any]]] = {}
+        for prop in props:
+            key = (str(prop.get("player_name") or ""), str(prop.get("market_key") or ""), prop.get("line"))
+            grouped.setdefault(key, []).append(prop)
 
-    enriched: list[dict[str, Any]] = []
-    for prop in props:
-        key = (str(prop.get("player_name") or ""), str(prop.get("market_key") or ""), prop.get("line"))
-        group = grouped.get(key, [])
-        over_prices = [item["price"] for item in group if item.get("side") == "OVER" and isinstance(item.get("price"), (int, float))]
-        under_prices = [item["price"] for item in group if item.get("side") == "UNDER" and isinstance(item.get("price"), (int, float))]
-        enriched_prop = dict(prop)
-        enriched_prop["ev_analytics"] = _build_prop_ev(prop.get("side", ""), prop.get("price"), over_prices, under_prices)
-        enriched.append(enriched_prop)
+        enriched: list[dict[str, Any]] = []
+        for prop in props:
+            try:
+                key = (str(prop.get("player_name") or ""), str(prop.get("market_key") or ""), prop.get("line"))
+                group = grouped.get(key, [])
+                over_prices = [item["price"] for item in group if item.get("side") == "OVER" and isinstance(item.get("price"), (int, float))]
+                under_prices = [item["price"] for item in group if item.get("side") == "UNDER" and isinstance(item.get("price"), (int, float))]
+                enriched_prop = dict(prop)
+                enriched_prop["ev_analytics"] = _build_prop_ev(prop.get("side", ""), prop.get("price"), over_prices, under_prices)
+                enriched.append(enriched_prop)
+            except Exception as error:
+                enriched_prop = dict(prop)
+                enriched_prop["ev_analytics"] = {
+                    "available": False,
+                    "reason": "analytics_error",
+                    "error": _safe_reason(error),
+                }
+                enriched.append(enriched_prop)
 
-    enriched.sort(
-        key=lambda item: (
-            -(item.get("ev_analytics", {}).get("ev") or -999.0),
-            item.get("player_name") or "",
-            item.get("market_key") or "",
+        enriched.sort(
+            key=lambda item: (
+                -(item.get("ev_analytics", {}).get("ev") or -999.0),
+                item.get("player_name") or "",
+                item.get("market_key") or "",
+            )
         )
-    )
-    return enriched
+        return enriched
+    except Exception as error:
+        fallback: list[dict[str, Any]] = []
+        for prop in props:
+            enriched_prop = dict(prop)
+            enriched_prop["ev_analytics"] = {
+                "available": False,
+                "reason": "analytics_error",
+                "error": _safe_reason(error),
+            }
+            fallback.append(enriched_prop)
+        return fallback
 
 
 def build_top_prop_feed(props: list[dict[str, Any]], limit: int = 25) -> list[dict[str, Any]]:
