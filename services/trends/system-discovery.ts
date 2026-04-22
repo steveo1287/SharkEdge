@@ -3,6 +3,7 @@ import { scoreTrendAtom } from "./discovery/atom-scorer";
 import { runBeamSearch } from "./discovery/beam-search";
 import { pruneCorrelatedSystems } from "./discovery/correlation-pruner";
 import { validateTrendSystem } from "./validation/validation-suite";
+import { applyMultipleTestingControl } from "./validation/multiple-testing";
 import { buildActiveTrendSignals } from "./activation/active-signal-builder";
 import type {
   CandidateTrendSystem,
@@ -20,7 +21,9 @@ export const defaultDiscoveryConfig: TrendDiscoveryConfig = {
   beamWidth: 20,
   maxConditions: 3,
   maxSystemOverlap: 0.8,
-  requirePositiveClv: false
+  requirePositiveClv: false,
+  maxFalseDiscoveryRate: 0.25,
+  multipleTestingPenaltyWeight: 1.75
 };
 
 export function discoverTrendSystems(
@@ -54,7 +57,7 @@ export function discoverTrendSystems(
       .slice(0, config.maxSeedAtoms)
       .map((entry) => entry.atom);
 
-    const candidates = runBeamSearch({
+    const searchResult = runBeamSearch({
       rows: bucket,
       league,
       sport,
@@ -64,14 +67,20 @@ export function discoverTrendSystems(
       config
     });
 
-    const validated = candidates
+    const validated = searchResult.accepted
       .map((candidate) => validateTrendSystem(candidate, bucket, config))
       .filter((candidate) => candidate.sampleSize >= config.minSample)
-      .filter((candidate) => (candidate.roi ?? 0) > 0)
+      .filter((candidate) => (candidate.roi ?? 0) > 0);
+
+    const discoveryAdjusted = applyMultipleTestingControl(
+      validated,
+      searchResult.hypothesesTested,
+      config
+    )
       .sort((left, right) => right.validationScore - left.validationScore)
       .slice(0, 20);
 
-    systems.push(...validated);
+    systems.push(...discoveryAdjusted);
   }
 
   return pruneCorrelatedSystems(systems, config.maxSystemOverlap)
