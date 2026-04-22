@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
-import { refreshCurrentBookFeeds } from "@/services/current-odds/book-feed-refresh-service";
 import { prisma } from "@/lib/db/prisma";
-import { currentMarketStateJob } from "@/services/jobs/current-market-state-job";
-import { recomputeEdgeSignals } from "@/services/edges/edge-engine";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 60;
+export const maxDuration = 10;
 
 function isAuthorized(request: Request) {
   const authHeader = request.headers.get("authorization");
@@ -25,8 +22,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const refresh = await refreshCurrentBookFeeds({ force: true });
-
   const activeEvents = await prisma.event.findMany({
     where: {
       startTime: {
@@ -36,11 +31,6 @@ export async function GET(request: Request) {
     },
     select: { id: true }
   });
-
-  for (const event of activeEvents) {
-    await currentMarketStateJob(event.id, { skipBookFeedRefresh: true });
-    await recomputeEdgeSignals(event.id);
-  }
 
   const [events, eventMarkets, currentMarketStates, edgeSignals] = await Promise.all([
     prisma.event.count({
@@ -74,9 +64,15 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     ok: true,
-    refresh,
+    mode: "status_only",
+    worker: {
+      managedBy: "external_worker",
+      entrypoint: "workers/odds-refresh-worker.ts",
+      note: "Heavy odds refresh and recompute now run outside the web service."
+    },
     inventory: {
       events,
+      activeEvents: activeEvents.length,
       eventMarkets,
       currentMarketStates,
       edgeSignals

@@ -32,6 +32,7 @@
     "worker:historical-refresh": "tsx scripts/worker-historical-refresh.ts",
     "worker:therundown": "tsx scripts/worker-therundown-refresh.ts",
     "worker:therundown-stream": "tsx scripts/worker-therundown-stream.ts",
+    "worker:odds-refresh": "tsx workers/odds-refresh-worker.ts",
     "worker:trends": "tsx scripts/worker-trends.ts",
     "providers:readiness": "tsx scripts/provider-readiness.ts",
     "sportsdataverse:smoke": "tsx scripts/sportsdataverse-smoke.ts",

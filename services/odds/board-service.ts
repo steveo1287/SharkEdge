@@ -5,14 +5,10 @@ import type {
   GameStatus,
   SportsbookRecord
 } from "@/lib/types/domain";
-import { prisma } from "@/lib/db/prisma";
 import { boardFiltersSchema } from "@/lib/validation/filters";
 import { buildProviderHealth } from "@/services/providers/provider-health";
 import { withTimeoutFallback } from "@/lib/utils/async";
-import { refreshCurrentBookFeeds } from "@/services/current-odds/book-feed-refresh-service";
-import { recomputeEdgeSignals } from "@/services/edges/edge-engine";
 import { getBoardVisibleLeagues, buildBoardSportSections } from "@/services/events/live-score-service";
-import { currentMarketStateJob } from "@/services/jobs/current-market-state-job";
 import { getBoardFeed } from "@/services/market-data/market-data-service";
 
 const LIVE_BOARD_TIMEOUT_MS = 15_000;
@@ -245,51 +241,14 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
   };
 }
 
-async function tryHydrateBoardInventory() {
-  await refreshCurrentBookFeeds({ force: true });
-
-  const activeEvents = await prisma.event.findMany({
-    where: {
-      startTime: {
-        gte: new Date(Date.now() - 1000 * 60 * 60 * 12),
-        lte: new Date(Date.now() + 1000 * 60 * 60 * 48)
-      }
-    },
-    select: { id: true }
-  });
-
-  for (const event of activeEvents) {
-    await currentMarketStateJob(event.id, { skipBookFeedRefresh: true });
-    await recomputeEdgeSignals(event.id);
-  }
-}
-
 export async function getBoardPageData(filters: BoardFilters): Promise<BoardPageData> {
   const dbData = await withTimeoutFallback(getDbBackedBoardPageData(filters), {
     timeoutMs: LIVE_BOARD_TIMEOUT_MS,
     fallback: null
   });
 
-  if (dbData && dbData.sportSections.some((section) => section.games.length > 0)) {
+  if (dbData) {
     return dbData;
-  }
-
-  try {
-    await withTimeoutFallback(tryHydrateBoardInventory(), {
-      timeoutMs: LIVE_BOARD_TIMEOUT_MS,
-      fallback: null
-    });
-
-    const recovered = await withTimeoutFallback(getDbBackedBoardPageData(filters), {
-      timeoutMs: LIVE_BOARD_TIMEOUT_MS,
-      fallback: null
-    });
-
-    if (recovered && recovered.sportSections.some((section) => section.games.length > 0)) {
-      return recovered;
-    }
-  } catch {
-    // fall through to scoreboard-only fallback
   }
 
   return getMockBoardPageData(filters);
