@@ -47,6 +47,17 @@ function parseFilters(request: Request): BoardFilters {
   });
 }
 
+function buildFallback(filters: BoardFilters, reason: string) {
+  return {
+    ok: false,
+    filters,
+    source: "degraded_fallback",
+    warnings: [reason],
+    gameCount: 0,
+    sample: []
+  };
+}
+
 export async function GET(request: Request) {
   const filters = parseFilters(request);
 
@@ -54,11 +65,20 @@ export async function GET(request: Request) {
     const payload = await getLiveBoardPageData(filters);
     const games = payload?.games ?? [];
 
+    if (!payload) {
+      return NextResponse.json(
+        buildFallback(
+          filters,
+          "Live board payload was unavailable, so SharkEdge returned a safe degraded response."
+        )
+      );
+    }
+
     return NextResponse.json({
-      ok: Boolean(payload),
+      ok: true,
       filters,
-      source: payload?.source ?? null,
-      warnings: payload?.providerHealth?.warnings ?? [],
+      source: payload.source ?? null,
+      warnings: payload.providerHealth?.warnings ?? [],
       gameCount: games.length,
       sample: games.slice(0, 5).map((game) => ({
         id: game.id,
@@ -71,12 +91,12 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     return NextResponse.json(
-      {
-        ok: false,
+      buildFallback(
         filters,
-        error: error instanceof Error ? error.message : "Failed to load board data."
-      },
-      { status: 500 }
+        error instanceof Error
+          ? `Live board request degraded safely after an internal error: ${error.message}`
+          : "Live board request degraded safely after an internal error."
+      )
     );
   }
 }
