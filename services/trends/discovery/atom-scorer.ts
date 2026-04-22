@@ -1,10 +1,19 @@
 import { computeWindowMetrics } from "../metrics";
+import { computeEdgeEvidenceScore } from "../statistical-guardrails";
 import { filterRowsByConditions } from "./helpers";
 import type { HistoricalBetOpportunity, TrendCondition } from "../types";
 
 export function scoreTrendAtom(rows: HistoricalBetOpportunity[], atom: TrendCondition) {
   const matched = filterRowsByConditions(rows, [atom]);
   const metrics = computeWindowMetrics(matched);
+  const evidence = computeEdgeEvidenceScore({
+    wins: metrics.wins,
+    losses: metrics.losses,
+    roi: metrics.roi,
+    avgClv: metrics.avgClv,
+    beatCloseRate: metrics.beatCloseRate,
+    recentSampleSize: Math.min(metrics.sampleSize, 12)
+  });
 
   return {
     atom,
@@ -13,9 +22,6 @@ export function scoreTrendAtom(rows: HistoricalBetOpportunity[], atom: TrendCond
     roi: metrics.roi,
     hitRate: metrics.hitRate,
     avgClv: metrics.avgClv,
-    score:
-      (metrics.roi ?? 0) * 100 +
-      (metrics.avgClv ?? 0) / 5 +
-      Math.min(metrics.sampleSize, 250) / 20
+    score: evidence.total
   };
 }
