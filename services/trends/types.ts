@@ -64,6 +64,8 @@ export type TrendDiscoveryConfig = {
   maxConditions: number;
   maxSystemOverlap: number;
   requirePositiveClv: boolean;
+  maxFalseDiscoveryRate: number;
+  multipleTestingPenaltyWeight: number;
 };
 
 export type CandidateTrendSystem = {
@@ -92,6 +94,12 @@ export type CandidateTrendSystem = {
   warnings: string[];
   activationCount?: number;
   triggerEventIds?: string[];
+  hypothesesTested?: number;
+  effectiveHypothesisCount?: number;
+  discoveryPValue?: number | null;
+  falseDiscoveryRate?: number | null;
+  multipleTestingPenalty?: number;
+  discoveryAdjustedScore?: number;
 };
 
 export type ActiveTrendSignal = {
