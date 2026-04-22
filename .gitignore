@@ -6,8 +6,10 @@
 **/.npm-cache
 **/.npm-cache-build
 **/tsconfig.tsbuildinfo
+**/.venv
+**/tmp/
 
 .vercel
-# pipeline test commit – SharkEdge setup completelive_odds_optimized.log
+live_odds_optimized.log
 scraper.log
 scraper.pid
