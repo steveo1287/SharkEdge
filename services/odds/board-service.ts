@@ -269,7 +269,6 @@ export async function getBoardPageData(filters: BoardFilters): Promise<BoardPage
       providerHealth: buildProviderHealth({
         supportStatus: "PARTIAL",
         source: liveData.source,
-        generatedAt: liveData.providerHealth.generatedAt ?? null,
         warnings: [
           ...(liveData.providerHealth.warnings ?? []),
           "Request-time board hydration is disabled in this runtime."
