@@ -5,12 +5,13 @@ import type {
   CurrentOddsProvider,
   CurrentOddsSport
 } from "./provider-types";
-import { getCurrentOddsBackendBaseUrl } from "./backend-url";
-
-const LIVE_BACKEND_URL = getCurrentOddsBackendBaseUrl();
+import {
+  getCurrentOddsBackendBaseUrl,
+  hasCurrentOddsBackendBaseUrl
+} from "./backend-url";
 
 const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
-const BACKEND_PROVIDER_TIMEOUT_MS = 10_000;
+const BACKEND_PROVIDER_TIMEOUT_MS = 2_500;
 
 type OddsHarvesterHarvestResponse = {
   configured: boolean;
@@ -21,8 +22,17 @@ type OddsHarvesterHarvestResponse = {
 };
 
 async function fetchBackendJson<T>(path: string) {
+  if (process.env.npm_lifecycle_event === "build" || !hasCurrentOddsBackendBaseUrl()) {
+    return null;
+  }
+
+  const baseUrl = getCurrentOddsBackendBaseUrl();
+  if (!baseUrl) {
+    return null;
+  }
+
   try {
-    const response = await fetch(`${LIVE_BACKEND_URL}${path}`, {
+    const response = await fetch(`${baseUrl}${path}`, {
       cache: "no-store",
       signal: AbortSignal.timeout(BACKEND_PROVIDER_TIMEOUT_MS)
     });
@@ -44,6 +54,10 @@ export const backendCurrentOddsProvider: CurrentOddsProvider = {
     return SUPPORTED_LEAGUES.includes(leagueKey);
   },
   async fetchBoard() {
+    if (!hasCurrentOddsBackendBaseUrl()) {
+      return null;
+    }
+
     const [boardResponse, harvestResponse] = await Promise.all([
       fetchBackendJson<CurrentOddsBoardResponse>("/api/odds/board"),
       fetchBackendJson<OddsHarvesterHarvestResponse>("/api/historical/odds/harvest")

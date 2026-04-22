@@ -5,7 +5,10 @@ import { readBookFeedState } from "./book-feed-cache";
 import { getBookFeedProviders } from "./book-feed-registry";
 import type { BookFeedProvider } from "./book-feed-provider-types";
 import { backendCurrentOddsProvider } from "./backend-provider";
-import { getCurrentOddsBackendBaseUrl } from "./backend-url";
+import {
+  getCurrentOddsBackendBaseUrl,
+  hasCurrentOddsBackendBaseUrl
+} from "./backend-url";
 import type { CurrentOddsBoardResponse } from "./provider-types";
 import { therundownCurrentOddsProvider } from "./therundown-provider";
 
@@ -189,6 +192,14 @@ function buildBoardWarnings(response: CurrentOddsBoardResponse | null) {
 }
 
 async function fetchBackendBoardResponse() {
+  if (process.env.npm_lifecycle_event === "build" || !hasCurrentOddsBackendBaseUrl()) {
+    return {
+      ok: false as const,
+      url: null,
+      reason: "SHARKEDGE_BACKEND_URL is not configured in this runtime."
+    };
+  }
+
   const url = `${getBackendBaseUrl().replace(/\/$/, "")}/api/odds/board`;
 
   try {
@@ -225,15 +236,16 @@ export async function probeBackendBoardProvider(): Promise<BoardProviderReadines
   const result = await fetchBackendBoardResponse();
 
   if (!result.ok) {
+    const notConfigured = result.reason.includes("not configured");
     return {
       providerKey: backendCurrentOddsProvider.key,
       label: backendCurrentOddsProvider.label,
-      state: "ERROR",
+      state: notConfigured ? "NOT_CONFIGURED" : "ERROR",
       configured: false,
       checkedAt,
       generatedAt: null,
       freshnessMinutes: null,
-      errors: [result.reason],
+      errors: notConfigured ? [] : [result.reason],
       warnings: [result.reason],
       providerMode: null,
       sportsCount: 0,
@@ -395,16 +407,24 @@ function getBookFeedConfigured(providerKey: string) {
 
 function getBookFeedSourceUrl(providerKey: string) {
   if (providerKey === "draftkings") {
-    return (
-      process.env.SHARKEDGE_DRAFTKINGS_FEED_URL?.trim() ||
-      `${getBackendBaseUrl().replace(/\/$/, "")}/api/book-feeds/draftkings`
-    );
+    const explicit = process.env.SHARKEDGE_DRAFTKINGS_FEED_URL?.trim();
+    if (explicit) {
+      return explicit;
+    }
+
+    return hasCurrentOddsBackendBaseUrl()
+      ? `${getBackendBaseUrl().replace(/\/$/, "")}/api/book-feeds/draftkings`
+      : null;
   }
   if (providerKey === "fanduel") {
-    return (
-      process.env.SHARKEDGE_FANDUEL_FEED_URL?.trim() ||
-      `${getBackendBaseUrl().replace(/\/$/, "")}/api/book-feeds/fanduel`
-    );
+    const explicit = process.env.SHARKEDGE_FANDUEL_FEED_URL?.trim();
+    if (explicit) {
+      return explicit;
+    }
+
+    return hasCurrentOddsBackendBaseUrl()
+      ? `${getBackendBaseUrl().replace(/\/$/, "")}/api/book-feeds/fanduel`
+      : null;
   }
   return null;
 }
@@ -426,7 +446,7 @@ async function probeBookFeedProvider(
       configured: false,
       checkedAt,
       warnings: [`${provider.label} is scaffolded but not configured with a feed URL.`],
-      reason: `Set ${provider.key === "draftkings" ? "SHARKEDGE_DRAFTKINGS_FEED_URL" : "SHARKEDGE_FANDUEL_FEED_URL"} to enable this worker-only feed.`,
+      reason: `Set ${provider.key === "draftkings" ? "SHARKEDGE_DRAFTKINGS_FEED_URL" : "SHARKEDGE_FANDUEL_FEED_URL"} or SHARKEDGE_BACKEND_URL to enable this worker-only feed.`,
       sourceUrl: getBookFeedSourceUrl(provider.key),
       lastAttemptAt: isoFromMs(stateSnapshot.lastAttemptAt),
       lastSuccessAt: isoFromMs(stateSnapshot.lastSuccessAt),
