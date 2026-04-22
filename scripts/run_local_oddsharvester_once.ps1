@@ -17,11 +17,22 @@ if (Test-Path $envFile) {
   }
 }
 
-if (-not (Test-Path '.venv')) {
-  python -m venv .venv
+$bootstrapScript = Join-Path $repoRoot 'scripts\bootstrap_local_oddsharvester.ps1'
+$venvPython = Join-Path $repoRoot '.venv\Scripts\python.exe'
+if (-not (Test-Path $venvPython)) {
+  & powershell.exe -ExecutionPolicy Bypass -File $bootstrapScript
 }
 
-. .\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install requests oddsharvester
-python .\scripts\local_oddsharvester_push.py
+$venvPython = Join-Path $repoRoot '.venv\Scripts\python.exe'
+if (-not (Test-Path $venvPython)) {
+  throw "Virtualenv python not found: $venvPython"
+}
+
+$env:PATH = "$(Join-Path $repoRoot '.venv\Scripts');$env:PATH"
+
+& $venvPython -m pip show requests oddsharvester *> $null
+if ($LASTEXITCODE -ne 0) {
+  & $venvPython -m pip install requests oddsharvester
+}
+
+& $venvPython .\scripts\local_oddsharvester_push.py

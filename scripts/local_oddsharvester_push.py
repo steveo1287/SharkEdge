@@ -5,6 +5,7 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -17,15 +18,15 @@ SPORTS = [
     {
         "key": "basketball_nba",
         "sport": "basketball",
-        "league": "usa-nba",
-        "markets": "moneyline,asian_handicap,over/under",
+        "league": "nba",
+        "markets": "home_away",
         "title": "NBA",
     },
     {
         "key": "basketball_ncaab",
         "sport": "basketball",
-        "league": "usa-ncaa",
-        "markets": "moneyline,asian_handicap,over/under",
+        "league": "ncaa",
+        "markets": None,
         "title": "NCAAB",
     },
     {
@@ -38,22 +39,22 @@ SPORTS = [
     {
         "key": "icehockey_nhl",
         "sport": "ice-hockey",
-        "league": "usa-nhl",
-        "markets": "home_away,over/under",
+        "league": "nhl",
+        "markets": None,
         "title": "NHL",
     },
     {
         "key": "americanfootball_nfl",
         "sport": "american-football",
-        "league": "usa-nfl",
-        "markets": "moneyline,asian_handicap,over/under",
+        "league": "nfl",
+        "markets": None,
         "title": "NFL",
     },
     {
         "key": "americanfootball_ncaaf",
         "sport": "american-football",
-        "league": "usa-ncaa",
-        "markets": "moneyline,asian_handicap,over/under",
+        "league": "ncaa",
+        "markets": None,
         "title": "NCAAF",
     },
 ]
@@ -69,9 +70,9 @@ OUTPUT_DIR = Path(os.getenv("ODDSHARVESTER_OUTPUT_DIR", "./tmp/oddsharvester-out
 POST_TO_BACKEND = os.getenv("POST_TO_BACKEND", "true").strip().lower() not in {"0", "false", "no", "off"}
 BEST_EFFORT_CONTINUE = os.getenv("BEST_EFFORT_CONTINUE", "true").strip().lower() not in {"0", "false", "no", "off"}
 ENABLED_SPORT_KEYS = {
-    token.strip()
-    for token in os.getenv("ENABLED_SPORT_KEYS", "").split(",")
-    if token.strip()
+    item.strip()
+    for item in os.getenv("ENABLED_SPORT_KEYS", "").split(",")
+    if item.strip()
 }
 
 
@@ -81,8 +82,18 @@ class GamePayload:
     lines_added: int
 
 
+@dataclass
+class PostResult:
+    ok: bool
+    status_code: int | None = None
+    detail: str | None = None
+
+
 def command_parts() -> list[str]:
-    return shlex.split(ODDSHARVESTER_COMMAND)
+    parts = shlex.split(ODDSHARVESTER_COMMAND)
+    if len(parts) >= 3 and parts[0].lower() in {"python", "python.exe"} and parts[1:3] == ["-m", "oddsharvester"]:
+        parts[0] = sys.executable
+    return parts
 
 
 def build_subprocess_env() -> dict[str, str]:
@@ -103,13 +114,20 @@ def get_sport_league(sport: dict[str, str]) -> str:
 
 
 def get_sport_markets(sport: dict[str, str]) -> str:
-    return os.getenv(env_override_name("ODDSHARVESTER_MARKETS", sport["key"]), sport["markets"]).strip()
+    raw = os.getenv(env_override_name("ODDSHARVESTER_MARKETS", sport["key"]), str(sport.get("markets") or ""))
+    return raw.strip()
 
 
 def get_enabled_sports() -> list[dict[str, str]]:
     if not ENABLED_SPORT_KEYS:
         return SPORTS
-    return [sport for sport in SPORTS if sport["key"] in ENABLED_SPORT_KEYS]
+
+    enabled = [sport for sport in SPORTS if sport["key"] in ENABLED_SPORT_KEYS]
+    if enabled:
+        return enabled
+
+    known_keys = ", ".join(sport["key"] for sport in SPORTS)
+    raise RuntimeError(f"ENABLED_SPORT_KEYS did not match any configured sports. Known keys: {known_keys}")
 
 
 def extract_events(payload: Any) -> list[dict[str, Any]]:
@@ -192,7 +210,16 @@ def parse_numeric(value: Any) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, str):
-        cleaned = value.strip().replace(",", "").replace("−", "-").replace("½", ".5")
+        cleaned = (
+            value.strip()
+            .replace(",", "")
+            .replace("\u2212", "-")
+            .replace("\u00bd", ".5")
+            .replace("âˆ’", "-")
+            .replace("Â½", ".5")
+            .replace("Ã¢Ë†â€™", "-")
+            .replace("Ã‚Â½", ".5")
+        )
         if not cleaned:
             return None
         number = []
@@ -274,12 +301,86 @@ def normalize_outcome_name(raw_name: str | None, market_type: str, away_team: st
     return raw_name.strip()
 
 
+def parse_market_line_from_key(market_name: str) -> float | None:
+    numeric_parts = [part for part in market_name.split("_") if part.lstrip("+-").isdigit()]
+    if not numeric_parts:
+        return None
+    if len(numeric_parts) == 1:
+        return parse_numeric(numeric_parts[0])
+    return parse_numeric(f"{numeric_parts[-2]}.{numeric_parts[-1]}")
+
+
+def extract_bookmakers_from_market_payload(event: dict[str, Any]) -> list[dict[str, Any]]:
+    bookmakers: dict[str, dict[str, Any]] = {}
+
+    for key, value in event.items():
+        if not key.endswith("_market") or not isinstance(value, list):
+            continue
+
+        market_name = key[: -len("_market")]
+        for entry in value:
+            if not isinstance(entry, dict):
+                continue
+
+            bookmaker_name = str(entry.get("bookmaker_name") or entry.get("book") or "OddsHarvester")
+            bookmaker = bookmakers.setdefault(
+                bookmaker_name,
+                {
+                    "title": bookmaker_name,
+                    "last_update": event.get("scraped_date"),
+                    "markets": [],
+                },
+            )
+
+            if market_name in {"home_away", "1x2"}:
+                outcomes = []
+                if entry.get("1") is not None:
+                    outcomes.append({"name": "home", "price": entry.get("1")})
+                if entry.get("2") is not None:
+                    outcomes.append({"name": "away", "price": entry.get("2")})
+                if entry.get("X") is not None:
+                    outcomes.append({"name": "draw", "price": entry.get("X")})
+                if outcomes:
+                    bookmaker["markets"].append({"key": market_name, "outcomes": outcomes})
+                continue
+
+            if market_name.startswith("over_under_"):
+                point = parse_market_line_from_key(market_name)
+                outcomes = []
+                if entry.get("odds_over") is not None:
+                    outcomes.append({"name": "Over", "price": entry.get("odds_over"), "point": point})
+                if entry.get("odds_under") is not None:
+                    outcomes.append({"name": "Under", "price": entry.get("odds_under"), "point": point})
+                if outcomes:
+                    bookmaker["markets"].append({"key": market_name, "outcomes": outcomes, "point": point})
+
+    return list(bookmakers.values())
+
+
+def dedupe_harvested_games(games: list[GamePayload]) -> list[GamePayload]:
+    deduped: dict[tuple[str | None, str | None, str | None, str | None], GamePayload] = {}
+
+    for game in games:
+        payload = game.payload
+        key = (
+            payload.get("sportKey"),
+            payload.get("commenceTime"),
+            payload.get("awayTeam"),
+            payload.get("homeTeam"),
+        )
+        existing = deduped.get(key)
+        if existing is None or game.lines_added > existing.lines_added:
+            deduped[key] = game
+
+    return list(deduped.values())
+
+
 def build_payload_for_event(sport: dict[str, str], event: dict[str, Any]) -> GamePayload | None:
     away_team, home_team = extract_teams(event)
     if not away_team or not home_team:
         return None
 
-    bookmakers = event.get("bookmakers") or event.get("odds") or []
+    bookmakers = event.get("bookmakers") or event.get("odds") or extract_bookmakers_from_market_payload(event)
     if isinstance(bookmakers, dict):
         bookmaker_list = [{"key": key, **value} for key, value in bookmakers.items() if isinstance(value, dict)]
     elif isinstance(bookmakers, list):
@@ -320,7 +421,13 @@ def build_payload_for_event(sport: dict[str, str], event: dict[str, Any]) -> Gam
                 normalized_name = normalize_outcome_name(str(raw_name) if raw_name is not None else None, market_type, away_team, home_team)
                 if not normalized_name:
                     continue
-                price = normalize_price(outcome.get("price") or outcome.get("odds") or outcome.get("value") or outcome.get("american") or outcome.get("decimal"))
+                price = normalize_price(
+                    outcome.get("price")
+                    or outcome.get("odds")
+                    or outcome.get("value")
+                    or outcome.get("american")
+                    or outcome.get("decimal")
+                )
                 point = parse_numeric(outcome.get("point") or outcome.get("line") or raw_market.get("point") or raw_market.get("line"))
                 if market_type == "moneyline" and price is not None:
                     moneyline_map[normalized_name] = price
@@ -346,15 +453,7 @@ def build_payload_for_event(sport: dict[str, str], event: dict[str, Any]) -> Gam
 
         has_any = any(
             line.get(key) is not None
-            for key in (
-                "homeMoneyline",
-                "awayMoneyline",
-                "homeSpread",
-                "awaySpread",
-                "total",
-                "overOdds",
-                "underOdds",
-            )
+            for key in ("homeMoneyline", "awayMoneyline", "homeSpread", "awaySpread", "total", "overOdds", "underOdds")
         )
         if not has_any:
             continue
@@ -383,6 +482,7 @@ def build_payload_for_event(sport: dict[str, str], event: dict[str, Any]) -> Gam
         or event.get("eventId")
         or event.get("match_id")
         or event.get("matchId")
+        or event.get("match_link")
         or f"{sport['key']}:{away_team}:{home_team}"
     )
     payload = {
@@ -394,6 +494,7 @@ def build_payload_for_event(sport: dict[str, str], event: dict[str, Any]) -> Gam
         "commenceTime": event.get("commence_time")
         or event.get("start_time")
         or event.get("startTime")
+        or event.get("match_date")
         or event.get("date")
         or event.get("event_time")
         or event.get("match_time")
@@ -415,8 +516,8 @@ def run_harvest_for_sport(sport: dict[str, str]) -> list[GamePayload]:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     league = get_sport_league(sport)
     markets = get_sport_markets(sport)
-    if not league or not markets:
-        raise RuntimeError(f"Missing league or market config for {sport['key']}")
+    if not league:
+        raise RuntimeError(f"Missing league config for {sport['key']}")
 
     command = command_parts()
     with tempfile.TemporaryDirectory(prefix=f"oddsharvester-{sport['key']}-") as temp_dir:
@@ -425,10 +526,11 @@ def run_harvest_for_sport(sport: dict[str, str]) -> list[GamePayload]:
             "upcoming",
             "-s", sport["sport"],
             "-l", league,
-            "-m", markets,
             "-f", "json",
             "-o", str(output_base),
         ])
+        if markets:
+            command.extend(["-m", markets])
         if ODDSHARVESTER_HEADLESS:
             command.append("--headless")
 
@@ -446,9 +548,9 @@ def run_harvest_for_sport(sport: dict[str, str]) -> list[GamePayload]:
             raise RuntimeError(f"OddsHarvester failed for {sport['title']}: {detail}")
 
         payload = None
-        for candidate in [output_base, output_base.with_suffix('.json'), Path(temp_dir) / 'output.json']:
+        for candidate in [output_base, output_base.with_suffix(".json"), Path(temp_dir) / "output.json"]:
             if candidate.exists():
-                payload = json.loads(candidate.read_text(encoding='utf-8'))
+                payload = json.loads(candidate.read_text(encoding="utf-8"))
                 break
         if payload is None and completed.stdout.strip().startswith(("{", "[")):
             payload = json.loads(completed.stdout)
@@ -463,13 +565,13 @@ def run_harvest_for_sport(sport: dict[str, str]) -> list[GamePayload]:
                 results.append(mapped)
 
         dump_path = OUTPUT_DIR / f"{sport['key']}.json"
-        dump_path.write_text(json.dumps([item.payload for item in results], indent=2), encoding='utf-8')
+        dump_path.write_text(json.dumps([item.payload for item in results], indent=2), encoding="utf-8")
         return results
 
 
-def post_payload(payload: dict[str, Any]) -> bool:
+def post_payload(payload: dict[str, Any]) -> PostResult:
     if not POST_TO_BACKEND:
-        return True
+        return PostResult(ok=True, detail="POST_TO_BACKEND=false")
     if not API_KEY:
         raise RuntimeError("SHARKEDGE_API_KEY is required when POST_TO_BACKEND=true")
 
@@ -479,37 +581,61 @@ def post_payload(payload: dict[str, Any]) -> bool:
         headers={"Content-Type": "application/json", "x-api-key": API_KEY},
         timeout=20,
     )
-    return response.ok
+    detail = None
+    if not response.ok:
+        body = response.text.strip()
+        detail = body[:300] if body else response.reason
+    return PostResult(ok=response.ok, status_code=response.status_code, detail=detail)
 
 
 def main() -> None:
     total_games = 0
     total_posts = 0
+    failures: list[str] = []
+    selected_sports = get_enabled_sports()
+
     print(f"Local OddsHarvester push -> {BACKEND_URL}")
+    print(f"Enabled sports: {', '.join(sport['key'] for sport in selected_sports)}")
     if ODDSHARVESTER_PROXY_URL:
         print("Proxy mode enabled for OddsHarvester subprocesses")
 
-    for sport in get_enabled_sports():
+    for sport in selected_sports:
         print(f"\n[{sport['title']}] harvesting...")
         try:
             harvested = run_harvest_for_sport(sport)
-        except Exception as error:
-            print(f"  ✗ harvest failed: {error}")
-            if BEST_EFFORT_CONTINUE:
-                continue
-            raise
+        except Exception as exc:
+            message = f"[{sport['title']}] harvest failed: {exc}"
+            if not BEST_EFFORT_CONTINUE:
+                raise
+            failures.append(message)
+            print(f"  [warn] {message}")
+            continue
 
+        harvested = dedupe_harvested_games(harvested)
         total_games += len(harvested)
         print(f"  harvested {len(harvested)} games")
         for game in harvested:
-            ok = post_payload(game.payload)
-            if ok:
+            result = post_payload(game.payload)
+            if result.ok:
                 total_posts += 1
-                print(f"  ✓ posted {game.payload['awayTeam']} @ {game.payload['homeTeam']} ({game.lines_added} books)")
+                print(f"  [ok] posted {game.payload['awayTeam']} @ {game.payload['homeTeam']} ({game.lines_added} books)")
             else:
-                print(f"  ✗ failed {game.payload['awayTeam']} @ {game.payload['homeTeam']}")
+                detail = f" status={result.status_code}" if result.status_code is not None else ""
+                if result.detail:
+                    detail = f"{detail} detail={result.detail}"
+                message = f"post failed for {game.payload['awayTeam']} @ {game.payload['homeTeam']}{detail}"
+                if not BEST_EFFORT_CONTINUE:
+                    raise RuntimeError(message)
+                failures.append(message)
+                print(f"  [warn] {message}")
 
     print(f"\nDone. harvested={total_games} posted={total_posts}")
+    if failures:
+        print("Failures:")
+        for failure in failures:
+            print(f"  - {failure}")
+        if total_posts == 0:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

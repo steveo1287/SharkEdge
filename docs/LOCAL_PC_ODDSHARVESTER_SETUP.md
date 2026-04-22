@@ -1,28 +1,17 @@
 # Local PC OddsHarvester Setup
 
-This path moves the heavy OddsHarvester work off the free Render web service and runs it on your local Windows PC instead.
+This path makes your Windows PC the active OddsHarvester worker for SharkEdge instead of EC2.
 
-## What was added
+## Files
 
+- `scripts/bootstrap_local_oddsharvester.ps1`
 - `scripts/local_oddsharvester_push.py`
-- `scripts/run_local_oddsharvester_loop.ps1`
 - `scripts/run_local_oddsharvester_once.ps1`
+- `scripts/run_local_oddsharvester_loop.ps1`
 - `scripts/install_local_oddsharvester_task.ps1`
 - `.env.local-oddsharvester.example`
 
-## Easiest setup
-
-1. Copy:
-
-```powershell
-Copy-Item .env.local-oddsharvester.example .env.local-oddsharvester
-```
-
-2. Edit `.env.local-oddsharvester` and fill in your real backend API key.
-
-The PowerShell runners will auto-load that file.
-
-## Example env file
+## Default local worker env
 
 ```text
 SHARKEDGE_BACKEND_URL=https://shark-odds-1.onrender.com
@@ -31,35 +20,47 @@ ODDSHARVESTER_COMMAND=python -m oddsharvester
 POST_TO_BACKEND=true
 ODDSHARVESTER_TIMEOUT_SECONDS=120
 ODDSHARVESTER_HEADLESS=true
+BEST_EFFORT_CONTINUE=true
+ENABLED_SPORT_KEYS=basketball_nba,baseball_mlb
 ```
 
-## Run once
+## One-time bootstrap
 
 From the repo root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap_local_oddsharvester.ps1
+```
+
+That script will:
+
+1. install Python 3.12 with `winget` if needed
+2. create `.venv`
+3. install `requests` and `oddsharvester`
+4. install Playwright Chromium
+5. create `.env.local-oddsharvester` from the example if it is missing
+
+## Configure the API key
+
+Edit `.env.local-oddsharvester` and replace:
+
+- `SHARKEDGE_API_KEY=replace_with_your_backend_x_api_key`
+
+with your real backend ingest key.
+
+## Run once
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run_local_oddsharvester_once.ps1
 ```
 
-## Run in a loop
-
-From the repo root:
+## Run continuously
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run_local_oddsharvester_loop.ps1
 ```
 
-That script will:
-
-1. create `.venv` if needed
-2. install `requests` and `oddsharvester`
-3. run the harvester
-4. push odds into the backend ingest endpoint
-5. sleep 15 minutes and repeat
-
-## Install a Windows scheduled task
-
-To make it run automatically every 15 minutes:
+## Install the scheduled task
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\install_local_oddsharvester_task.ps1
@@ -69,12 +70,8 @@ That installs a task named:
 
 - `SharkEdge Local OddsHarvester`
 
-## Output
+## Local output
 
-Harvested payloads are also written locally to:
+Harvested payloads are written to:
 
 - `./tmp/oddsharvester-output/*.json`
-
-## Important note
-
-This local path removes the heavy browser/scraper load from Render, but the backend ingest contract still needs to preserve the top-level odds fields cleanly for the board to fully trust pushed cache data.
