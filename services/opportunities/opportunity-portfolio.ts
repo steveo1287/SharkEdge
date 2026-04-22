@@ -24,6 +24,9 @@ import { assessDistributionPricing } from "@/services/pricing/distribution-prici
 import { buildOpportunityRanking } from "@/services/opportunities/opportunity-ranking";
 import { buildOpportunityTrendIntelligence } from "@/services/trends/opportunity-trend-intelligence";
 import { buildWeatherSourcePlan } from "@/services/weather/weather-source-planner";
+import { buildTrendPlays } from "@/services/trends/play-builder";
+import { matchTrendPlaysToOpportunity } from "@/services/sim-trends-bridge";
+import type { RankedTrendPlay } from "@/services/trends/play-types";
 
 type PortfolioPosition = {
   id: string;
@@ -437,8 +440,12 @@ function clonePosition(opportunity: OpportunityView): PortfolioPosition {
 }
 
 
-function enrichOpportunityIntelligence(opportunity: OpportunityView): OpportunityView {
+function enrichOpportunityIntelligence(
+  opportunity: OpportunityView,
+  allTrendPlays: RankedTrendPlay[]
+): OpportunityView {
   const weatherSourcePlan = buildWeatherSourcePlan(opportunity);
+  const matchingTrendPlays = matchTrendPlaysToOpportunity(allTrendPlays, opportunity);
   const trendIntelligence = buildOpportunityTrendIntelligence({
     ...opportunity,
     weatherSourcePlan
@@ -446,6 +453,7 @@ function enrichOpportunityIntelligence(opportunity: OpportunityView): Opportunit
   const enrichedOpportunity = {
     ...opportunity,
     trendIntelligence,
+    matchingTrendPlays: matchingTrendPlays.length > 0 ? matchingTrendPlays : null,
     weatherSourcePlan
   } satisfies OpportunityView;
   const ranking = buildOpportunityRanking(enrichedOpportunity);
@@ -538,10 +546,12 @@ export function createOpportunityPortfolioAllocator(args?: {
   bankrollSettings?: OpportunityBankrollSettings | null;
   openPositions?: PortfolioPosition[];
   executionResolver?: OpportunityExecutionResolver | null;
+  trendPlays?: RankedTrendPlay[] | null;
 }): OpportunityPortfolioAllocator {
   const bankrollSettings = args?.bankrollSettings ?? buildDefaultBankrollSettings();
   const openPositions = args?.openPositions ?? [];
   const executionResolver = args?.executionResolver ?? createOpportunityExecutionResolver();
+  const trendPlays = args?.trendPlays ?? [];
 
   return {
     bankrollSettings,
@@ -688,10 +698,10 @@ export function createOpportunityPortfolioAllocator(args?: {
     } as OpportunityView;
 
     const ranking = buildOpportunityRanking(updatedOpportunity);
-    const intelligenceReady = enrichOpportunityIntelligence({
-      ...updatedOpportunity,
-      ranking
-    });
+    const intelligenceReady = enrichOpportunityIntelligence(
+      { ...updatedOpportunity, ranking },
+      trendPlays
+    );
 
     finalById.set(updatedOpportunity.id, intelligenceReady);
 
@@ -762,13 +772,19 @@ export async function getOpportunityPortfolioAllocator(): Promise<OpportunityPor
     )
   };
 
-  const executionResolver = await getOpportunityExecutionResolver().catch(() =>
-    createOpportunityExecutionResolver()
-  );
+  const [executionResolver, trendPlaysResponse] = await Promise.all([
+    getOpportunityExecutionResolver().catch(() => createOpportunityExecutionResolver()),
+    buildTrendPlays().catch(() => null)
+  ]);
+
+  const trendPlays = trendPlaysResponse
+    ? [...trendPlaysResponse.bestPlays, ...trendPlaysResponse.buildingSignals]
+    : [];
 
   return createOpportunityPortfolioAllocator({
     bankrollSettings,
     openPositions,
-    executionResolver
+    executionResolver,
+    trendPlays
   });
 }

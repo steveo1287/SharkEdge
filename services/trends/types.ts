@@ -2,7 +2,7 @@ export type SupportedDiscoveryMarket = "moneyline" | "spread" | "total";
 export type SupportedDiscoverySide = "home" | "away" | "over" | "under";
 export type ConditionOperator = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "between" | "is_true" | "is_false";
 export type ConfidenceTier = "A" | "B" | "C";
-export type TimingState = "EARLY" | "BUILDING" | "PEAK" | "LATE" | "DEAD";
+export type TrendTimingPhase = "EARLY" | "BUILDING" | "PEAK" | "LATE" | "DEAD";
 
 export type HistoricalBetOpportunity = {
   rowId: string;
@@ -107,7 +107,7 @@ export type ActiveTrendSignal = {
   currentOdds: number;
   fairOdds: number | null;
   edgePct: number | null;
-  timingState: TimingState;
+  timingState: TrendTimingPhase;
   confidenceTier: ConfidenceTier;
   reasons: string[];
   eventLabel: string;
