@@ -25,7 +25,8 @@ import { buildOpportunityRanking } from "@/services/opportunities/opportunity-ra
 import { buildOpportunityTrendIntelligence } from "@/services/trends/opportunity-trend-intelligence";
 import { buildWeatherSourcePlan } from "@/services/weather/weather-source-planner";
 import { buildTrendPlays } from "@/services/trends/play-builder";
-import { matchTrendPlaysToOpportunity } from "@/services/sim-trends-bridge";
+import { matchTrendPlaysToOpportunity, matchSimVerdictToOpportunity } from "@/services/sim-trends-bridge";
+import { getSimVerdict } from "@/services/simulation/sim-verdict-cache";
 import type { RankedTrendPlay } from "@/services/trends/play-types";
 
 type PortfolioPosition = {
@@ -446,6 +447,10 @@ function enrichOpportunityIntelligence(
 ): OpportunityView {
   const weatherSourcePlan = buildWeatherSourcePlan(opportunity);
   const matchingTrendPlays = matchTrendPlaysToOpportunity(allTrendPlays, opportunity);
+  const cachedGameVerdict = getSimVerdict(opportunity.eventId);
+  const simMatch = cachedGameVerdict
+    ? matchSimVerdictToOpportunity(cachedGameVerdict, opportunity)
+    : null;
   const trendIntelligence = buildOpportunityTrendIntelligence({
     ...opportunity,
     weatherSourcePlan
@@ -454,6 +459,8 @@ function enrichOpportunityIntelligence(
     ...opportunity,
     trendIntelligence,
     matchingTrendPlays: matchingTrendPlays.length > 0 ? matchingTrendPlays : null,
+    simMarketVerdict: simMatch?.verdict ?? null,
+    simVerdictAlignment: simMatch?.alignment ?? null,
     weatherSourcePlan
   } satisfies OpportunityView;
   const ranking = buildOpportunityRanking(enrichedOpportunity);
@@ -520,12 +527,18 @@ function enrichOpportunityIntelligence(
       100
     ),
     executionQualityScore: bookContext.executionQualityScore,
-    matchingTrendPlays: enrichedOpportunity.matchingTrendPlays ?? []
+    matchingTrendPlays: enrichedOpportunity.matchingTrendPlays ?? [],
+    simMarketVerdict: enrichedOpportunity.simMarketVerdict ?? null,
+    simVerdictAlignment: enrichedOpportunity.simVerdictAlignment ?? null
   } as any);
 
   const livePlayLabels = (enrichedOpportunity.matchingTrendPlays ?? [])
     .filter(p => p.activationState === "LIVE_NOW")
     .map(p => `Trend: ${p.gameLabel} ${p.marketType} [${p.tier}] score ${p.finalScore}`);
+
+  const simLabel = enrichedOpportunity.simMarketVerdict && enrichedOpportunity.simVerdictAlignment
+    ? [`Sim: ${enrichedOpportunity.simMarketVerdict.rating} on ${enrichedOpportunity.simMarketVerdict.side} [${enrichedOpportunity.simMarketVerdict.confidence} conf, edge ${Math.round(enrichedOpportunity.simMarketVerdict.edgeScore)}, ${enrichedOpportunity.simVerdictAlignment}]`]
+    : [];
 
   return {
     ...enrichedOpportunity,
@@ -535,7 +548,8 @@ function enrichOpportunityIntelligence(
     decisionRationale: Array.from(new Set([
       ...(decision.rationale ?? []),
       ...(trendIntelligence.topAngle ? [trendIntelligence.topAngle] : []),
-      ...livePlayLabels
+      ...livePlayLabels,
+      ...simLabel
     ])),
     marketRegime: bookContext.regime,
     staleLineProbability: bookContext.staleLineProbability,

@@ -5,6 +5,7 @@ import {
 import { buildMlbBookMarketState } from "@/services/market-intelligence/mlb-book-market-state";
 import { sharpenMlbExecution } from "@/services/market-intelligence/mlb-execution-sharpener";
 import { buildGameSimVerdict, type GameSimVerdict } from "@/services/simulation/sim-verdict-engine";
+import { setSimVerdict } from "@/services/simulation/sim-verdict-cache";
 import type { ContextualGameSimulationSummary } from "@/services/simulation/contextual-game-sim";
 
 type SimulationComparison = {
@@ -643,6 +644,10 @@ export async function buildEventSimulationView(eventId: string): Promise<EventSi
         awaySpreadOdds: typeof marketAnchor.awaySpreadOdds === "number" ? marketAnchor.awaySpreadOdds : null,
       })
     : null;
+
+  if (gameSimVerdict) {
+    setSimVerdict(eventId, gameSimVerdict);
+  }
 
   return {
     eventProjection,
