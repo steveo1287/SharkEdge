@@ -1,15 +1,33 @@
 import type { LeagueKey } from "@/lib/types/domain";
 
 import type { BookFeedProvider } from "../book-feed-provider-types";
-import { getCurrentOddsBackendBaseUrl } from "../backend-url";
+import {
+  getCurrentOddsBackendBaseUrl,
+  hasCurrentOddsBackendBaseUrl
+} from "../backend-url";
 
 const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
-const DRAFTKINGS_FEED_URL =
-  process.env.SHARKEDGE_DRAFTKINGS_FEED_URL?.trim() ??
-  `${getCurrentOddsBackendBaseUrl()}/api/book-feeds/draftkings`;
+
+function resolveDraftKingsFeedUrl() {
+  const explicit = process.env.SHARKEDGE_DRAFTKINGS_FEED_URL?.trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  if (!hasCurrentOddsBackendBaseUrl()) {
+    return null;
+  }
+
+  return `${getCurrentOddsBackendBaseUrl()}/api/book-feeds/draftkings`;
+}
 
 function buildDraftKingsFeedUrl(leagues: LeagueKey[]) {
-  const url = new URL(DRAFTKINGS_FEED_URL);
+  const baseUrl = resolveDraftKingsFeedUrl();
+  if (!baseUrl) {
+    return null;
+  }
+
+  const url = new URL(baseUrl);
   if (leagues.length) {
     url.searchParams.set("leagues", leagues.join(","));
   }
@@ -44,10 +62,24 @@ export const draftKingsBookFeedProvider: BookFeedProvider = {
   describe() {
     return process.env.SHARKEDGE_DRAFTKINGS_FEED_URL?.trim()
       ? "Worker-only DraftKings feed adapter. Uses an externally configured feed endpoint and never runs in page requests."
-      : "Worker-only DraftKings feed adapter. Defaults to the backend /api/book-feeds/draftkings endpoint so the worker can ingest the same live board source even before a direct DraftKings source URL is configured.";
+      : hasCurrentOddsBackendBaseUrl()
+        ? "Worker-only DraftKings feed adapter. Uses the explicitly configured backend /api/book-feeds/draftkings endpoint when direct feed wiring is not provided."
+        : "Worker-only DraftKings feed adapter. Disabled until SHARKEDGE_DRAFTKINGS_FEED_URL or SHARKEDGE_BACKEND_URL is set.";
   },
   async fetchFeed(args) {
     const url = buildDraftKingsFeedUrl(args.leagues ?? []);
+
+    if (!url) {
+      return {
+        ok: false,
+        providerKey: "draftkings",
+        sportsbookKey: "draftkings",
+        fetchedAt: new Date().toISOString(),
+        status: "NOT_CONFIGURED",
+        reason: "SHARKEDGE_DRAFTKINGS_FEED_URL or SHARKEDGE_BACKEND_URL must be set before this worker feed can run.",
+        errorCode: "BOOK_FEED_NOT_CONFIGURED"
+      };
+    }
 
     try {
       const response = await fetch(url, {
