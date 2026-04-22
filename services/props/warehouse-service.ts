@@ -17,9 +17,7 @@ import { calculateMarketExpectedValuePct } from "@/lib/utils/bet-intelligence";
 import { buildMatchupHref } from "@/lib/utils/matchups";
 import { americanToDecimal, americanToImpliedProbability } from "@/lib/utils/odds";
 
-const BACKEND_BASE_URL =
-  process.env.SHARKEDGE_BACKEND_URL?.replace(/\/$/, "") ??
-  "https://shark-odds-1.onrender.com";
+const BACKEND_BASE_URL = process.env.SHARKEDGE_BACKEND_URL?.replace(/\/$/, "") ?? "";
 const PROP_ARCHIVE_DIR = path.join(process.cwd(), "data", "props-board");
 const PROP_CACHE_WINDOW_MS = 60_000;
 const PROP_FETCH_TIMEOUT_MS = 20_000;
@@ -218,6 +216,12 @@ function sleep(ms: number) {
 }
 
 async function pacedFetchJson(pathname: string) {
+  if (!BACKEND_BASE_URL) {
+    throw new Error(
+      "Props backend URL is not configured. Set SHARKEDGE_BACKEND_URL before syncing the prop warehouse."
+    );
+  }
+
   const cached = fetchCache.get(pathname);
   const now = Date.now();
   if (cached && cached.expiresAt > now) {
