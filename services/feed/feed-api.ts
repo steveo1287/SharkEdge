@@ -3,6 +3,31 @@ import { prisma } from "@/lib/db/prisma";
 import { getBoardFeed } from "@/services/market-data/market-data-service";
 import { getPropsExplorerData } from "@/services/odds/props-service";
 
+function buildEmptyFeedPayload(source: string, note: string) {
+  return {
+    generatedAt: new Date().toISOString(),
+    count: 0,
+    source,
+    note,
+    data: []
+  };
+}
+
+function isRecoverableFeedError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return (
+    message.includes("does not exist") ||
+    message.includes("relation") ||
+    message.includes("table") ||
+    message.includes("prisma") ||
+    message.includes("Prisma") ||
+    message.includes("database") ||
+    message.includes("prepared statement") ||
+    message.includes("Can't reach database server") ||
+    message.includes("Can't connect to database server")
+  );
+}
+
 export async function getBoardApi(
   leagueKey?: string,
   options?: { skipCache?: boolean }
@@ -19,45 +44,60 @@ export async function getEdgesApi(options?: { skipCache?: boolean }) {
     }
   }
 
-  const signals = await prisma.edgeSignal.findMany({
-    where: { isActive: true },
-    include: {
-      event: { include: { league: true } },
-      player: true,
-      sportsbook: true
-    },
-    orderBy: [{ edgeScore: "desc" }, { evPercent: "desc" }],
-    take: 100
-  });
+  try {
+    const signals = await prisma.edgeSignal.findMany({
+      where: { isActive: true },
+      include: {
+        event: { include: { league: true } },
+        player: true,
+        sportsbook: true
+      },
+      orderBy: [{ edgeScore: "desc" }, { evPercent: "desc" }],
+      take: 100
+    });
 
-  const payload = {
-    generatedAt: new Date().toISOString(),
-    count: signals.length,
-    data: signals.map((signal) => ({
-      id: signal.id,
-      eventId: signal.eventId,
-      eventLabel: signal.event.name,
-      league: signal.event.league.key,
-      marketType: signal.marketType,
-      player: signal.player?.name ?? null,
-      sportsbook: signal.sportsbook.name,
-      side: signal.side,
-      lineValue: signal.lineValue,
-      offeredOddsAmerican: signal.offeredOddsAmerican,
-      fairOddsAmerican: signal.fairOddsAmerican,
-      modelProb: signal.modelProb,
-      noVigProb: signal.noVigProb,
-      evPercent: signal.evPercent,
-      kellyFull: signal.kellyFull,
-      kellyHalf: signal.kellyHalf,
-      confidenceScore: signal.confidenceScore,
-      edgeScore: signal.edgeScore,
-      flags: signal.flagsJson,
-      expiresAt: signal.expiresAt?.toISOString() ?? null
-    }))
-  };
-  await writeHotCache(cacheKey, payload, 45);
-  return payload;
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      count: signals.length,
+      data: signals.map((signal) => ({
+        id: signal.id,
+        eventId: signal.eventId,
+        eventLabel: signal.event.name,
+        league: signal.event.league.key,
+        marketType: signal.marketType,
+        player: signal.player?.name ?? null,
+        sportsbook: signal.sportsbook.name,
+        side: signal.side,
+        lineValue: signal.lineValue,
+        offeredOddsAmerican: signal.offeredOddsAmerican,
+        fairOddsAmerican: signal.fairOddsAmerican,
+        modelProb: signal.modelProb,
+        noVigProb: signal.noVigProb,
+        evPercent: signal.evPercent,
+        kellyFull: signal.kellyFull,
+        kellyHalf: signal.kellyHalf,
+        confidenceScore: signal.confidenceScore,
+        edgeScore: signal.edgeScore,
+        flags: signal.flagsJson,
+        expiresAt: signal.expiresAt?.toISOString() ?? null
+      }))
+    };
+    await writeHotCache(cacheKey, payload, 45);
+    return payload;
+  } catch (error) {
+    if (!isRecoverableFeedError(error)) {
+      throw error;
+    }
+
+    const payload = buildEmptyFeedPayload(
+      "edges_degraded_fallback",
+      error instanceof Error
+        ? `Edges degraded safely after a Prisma/database failure: ${error.message}`
+        : "Edges degraded safely after a Prisma/database failure."
+    );
+    await writeHotCache(cacheKey, payload, 30);
+    return payload;
+  }
 }
 
 export async function getEventApi(
@@ -201,19 +241,32 @@ export async function getPropsApi() {
 }
 
 export async function getLineMovementsApi() {
-  const rows = await prisma.lineMovement.findMany({
-    include: {
-      event: { include: { league: true } },
-      sportsbook: true,
-      player: true
-    },
-    orderBy: { movedAt: "desc" },
-    take: 200
-  });
+  try {
+    const rows = await prisma.lineMovement.findMany({
+      include: {
+        event: { include: { league: true } },
+        sportsbook: true,
+        player: true
+      },
+      orderBy: { movedAt: "desc" },
+      take: 200
+    });
 
-  return {
-    generatedAt: new Date().toISOString(),
-    count: rows.length,
-    data: rows
-  };
+    return {
+      generatedAt: new Date().toISOString(),
+      count: rows.length,
+      data: rows
+    };
+  } catch (error) {
+    if (!isRecoverableFeedError(error)) {
+      throw error;
+    }
+
+    return buildEmptyFeedPayload(
+      "line_movements_degraded_fallback",
+      error instanceof Error
+        ? `Line movements degraded safely after a Prisma/database failure: ${error.message}`
+        : "Line movements degraded safely after a Prisma/database failure."
+    );
+  }
 }
