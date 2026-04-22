@@ -30,7 +30,8 @@ const LIVE_SPORT_FALLBACK_ALIASES: Record<string, LeagueKey> = {
 
 export const LIVE_PROP_SPORT_KEYS: Partial<Record<LeagueKey, string>> = {
   NBA: "basketball_nba",
-  NCAAB: "basketball_ncaab"
+  NCAAB: "basketball_ncaab",
+  NHL: "icehockey_nhl"
 };
 
 export const PROP_COVERAGE_ORDER: LeagueKey[] = [
