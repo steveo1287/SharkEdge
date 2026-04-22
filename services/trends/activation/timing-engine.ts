@@ -1,6 +1,6 @@
-import type { HistoricalBetOpportunity, TimingState } from "../types";
+import type { HistoricalBetOpportunity, TrendTimingPhase } from "../types";
 
-export function getTimingState(row: HistoricalBetOpportunity): TimingState {
+export function getTimingState(row: HistoricalBetOpportunity): TrendTimingPhase {
   const start = new Date(row.gameDate).getTime();
   const deltaMinutes = (start - Date.now()) / 60000;
 
