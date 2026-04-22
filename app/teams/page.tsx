@@ -19,45 +19,77 @@ type TeamHubRow = {
   edgeLabel: string;
 };
 
-function buildTeamRows(props: PropCardView[], verifiedGameCounts: Map<string, number>) {
-  const grouped = new Map<string, PropCardView[]>();
+function buildTeamRows(props: PropCardView[], boardGames: Awaited<ReturnType<typeof getBoardPageData>>["games"]) {
+  const groupedProps = new Map<string, PropCardView[]>();
 
   for (const prop of props) {
-    const current = grouped.get(prop.team.id) ?? [];
+    const current = groupedProps.get(prop.team.id) ?? [];
     current.push(prop);
-    grouped.set(prop.team.id, current);
+    groupedProps.set(prop.team.id, current);
   }
 
-  return Array.from(grouped.values())
-    .map((teamProps) => {
-      const sorted = [...teamProps].sort((left, right) => {
-        const evDelta = (right.expectedValuePct ?? -999) - (left.expectedValuePct ?? -999);
-        if (evDelta !== 0) {
-          return evDelta;
-        }
+  const teams = new Map<string, TeamHubRow>();
 
-        return right.edgeScore.score - left.edgeScore.score;
+  for (const game of boardGames) {
+    if (game.bestBookCount <= 0) {
+      continue;
+    }
+
+    for (const team of [game.awayTeam, game.homeTeam]) {
+      const existing = teams.get(team.id);
+      teams.set(team.id, {
+        team,
+        leagueKey: game.leagueKey,
+        propCount: existing?.propCount ?? 0,
+        bestEv: existing?.bestEv ?? null,
+        nextGameCount: (existing?.nextGameCount ?? 0) + 1,
+        edgeLabel: existing?.edgeLabel ?? "Measured"
       });
-      const topProp = sorted[0];
+    }
+  }
 
-      return {
-        team: topProp.team,
-        leagueKey: topProp.leagueKey,
-        propCount: teamProps.length,
-        bestEv: topProp.expectedValuePct ?? null,
-        nextGameCount: verifiedGameCounts.get(topProp.team.id) ?? 0,
-        edgeLabel: topProp.edgeScore.label
-      } satisfies TeamHubRow;
-    })
+  for (const teamProps of groupedProps.values()) {
+    const sorted = [...teamProps].sort((left, right) => {
+      const evDelta = (right.expectedValuePct ?? -999) - (left.expectedValuePct ?? -999);
+      if (evDelta !== 0) {
+        return evDelta;
+      }
+
+      return right.edgeScore.score - left.edgeScore.score;
+    });
+    const topProp = sorted[0];
+    const existing = teams.get(topProp.team.id);
+
+    teams.set(topProp.team.id, {
+      team: topProp.team,
+      leagueKey: topProp.leagueKey,
+      propCount: teamProps.length,
+      bestEv: topProp.expectedValuePct ?? null,
+      nextGameCount: existing?.nextGameCount ?? 0,
+      edgeLabel: topProp.edgeScore.label
+    });
+  }
+
+  return Array.from(teams.values())
     .sort((left, right) => {
       const gameDelta = right.nextGameCount - left.nextGameCount;
       if (gameDelta !== 0) {
         return gameDelta;
       }
 
-      return (right.bestEv ?? -999) - (left.bestEv ?? -999);
+      const evDelta = (right.bestEv ?? -999) - (left.bestEv ?? -999);
+      if (evDelta !== 0) {
+        return evDelta;
+      }
+
+      const propDelta = right.propCount - left.propCount;
+      if (propDelta !== 0) {
+        return propDelta;
+      }
+
+      return left.team.name.localeCompare(right.team.name);
     })
-    .slice(0, 18);
+    .slice(0, 24);
 }
 
 export default async function TeamsPage() {
@@ -82,17 +114,7 @@ export default async function TeamsPage() {
     )
   ]);
 
-  const verifiedGameCounts = new Map<string, number>();
-  for (const game of boardData.games) {
-    if (game.bestBookCount <= 0) {
-      continue;
-    }
-
-    verifiedGameCounts.set(game.awayTeam.id, (verifiedGameCounts.get(game.awayTeam.id) ?? 0) + 1);
-    verifiedGameCounts.set(game.homeTeam.id, (verifiedGameCounts.get(game.homeTeam.id) ?? 0) + 1);
-  }
-
-  const teamRows = buildTeamRows(propsData.props, verifiedGameCounts);
+  const teamRows = buildTeamRows(propsData.props, boardData.games);
 
   return (
     <div className="grid gap-8">
@@ -104,7 +126,7 @@ export default async function TeamsPage() {
               Team context should lead you into matchups, not dump you into dead schedule pages.
             </div>
             <div className="max-w-3xl text-base leading-8 text-slate-300">
-              This hub surfaces the teams currently producing the best mix of verified board coverage and prop opportunity.
+              This hub now merges verified board coverage with live prop pressure, so teams stay visible even when props are thin or still coming online.
             </div>
           </div>
           <div className="grid gap-3 rounded-[1.55rem] border border-white/8 bg-[#09131f]/85 p-5 text-sm text-slate-300">
@@ -126,7 +148,7 @@ export default async function TeamsPage() {
       <ResearchStatusNotice
         eyebrow="Page status"
         title="Supporting desk, not a finished team-page system"
-        body="Use this page to identify which teams are currently worth opening in the board or matchup workflow. It is a routing surface until full team pages, schedule spots, injuries, and deeper context are rebuilt."
+        body="Use this page to identify which teams are worth opening in the board or matchup workflow right now. Verified board teams stay surfaced even when player props are thin, so NHL and other lighter prop leagues do not disappear."
         meta="Best use: jump from the team signal into the league or matchup desk where the actual pricing decision happens."
       />
 
@@ -134,7 +156,7 @@ export default async function TeamsPage() {
         <SectionTitle
           eyebrow="Research hubs"
           title="Teams worth opening first"
-          description="Driven by verified board presence and current prop pressure, not generic standings wallpaper."
+          description="Driven by verified board presence first, then current prop pressure where real markets exist."
         />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {teamRows.map((row) => (
