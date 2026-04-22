@@ -3,6 +3,7 @@ import type {
   OpportunityRankingView,
   OpportunityView
 } from "@/lib/types/opportunity"
+import type { RankedTrendPlay } from "@/services/trends/play-types";
 import { decideOpportunity } from "@/services/opportunities/opportunity-decision-policy"
 import { assessBookContext } from "@/services/market-intelligence/book-context"
 import { assessDistributionPricing } from "@/services/pricing/distribution-pricing";
@@ -191,6 +192,17 @@ function getFragilityScore(opportunity: OpportunityView) {
   return round(clamp(score, 0, 100));
 }
 
+function buildMatchingPlayLift(plays: RankedTrendPlay[]): number {
+  if (!plays.length) return 0;
+  const tierWeight = (t: string) => t === "A" ? 1.0 : t === "B" ? 0.65 : 0.35;
+  const stateWeight = (s: string) => s === "LIVE_NOW" ? 1.0 : 0.5;
+  const raw = plays.reduce(
+    (sum, p) => sum + p.finalScore * tierWeight(p.tier) * stateWeight(p.activationState) * 0.28,
+    0
+  );
+  return Math.min(raw, 22);
+}
+
 function getTrendReliabilityScore(opportunity: OpportunityView) {
   const calibrationLift =
     (opportunity.truthCalibration.status === "APPLIED" ? 8 : 0) +
@@ -207,11 +219,14 @@ function getTrendReliabilityScore(opportunity: OpportunityView) {
       opportunity.trendIntelligence.pendingLensCount * 1.5
     : 0;
 
+  const matchingPlayLift = buildMatchingPlayLift(opportunity.matchingTrendPlays ?? []);
+
   const score =
     opportunity.sourceQuality.score * 0.44 +
     opportunity.opportunityScore * 0.14 +
     calibrationLift +
-    trendIntelligenceLift -
+    trendIntelligenceLift +
+    matchingPlayLift -
     disagreementPenalty -
     trapPenalty;
 
@@ -253,8 +268,14 @@ function buildRankingNotes(args: {
   trendReliabilityScore: number;
   recommendationTier: "PRIME" | "ACTIONABLE" | "WATCH" | "PASS";
   trendIntelligenceSummary?: string | null;
+  matchingTrendPlayCount?: number;
+  bestMatchingPlayTier?: string | null;
 }) {
   const capitalLeader = args.capitalEfficiencyScore >= args.edgeQualityScore;
+  const playNote =
+    args.matchingTrendPlayCount && args.matchingTrendPlayCount > 0
+      ? `${args.matchingTrendPlayCount} live trend play${args.matchingTrendPlayCount > 1 ? "s" : ""} match this market (best tier: ${args.bestMatchingPlayTier ?? "C"}).`
+      : null;
   const notes = [
     capitalLeader
       ? `Rank leans on capital efficiency ${args.capitalEfficiencyScore} over posture.`
@@ -262,6 +283,7 @@ function buildRankingNotes(args: {
     `Expected CLV quality is ${args.expectedClvScore} while fragility prints ${args.fragilityScore}.`,
     `Trend reliability contributes ${args.trendReliabilityScore}; recommendation tier is ${args.recommendationTier.toLowerCase()}.`,
     args.trendIntelligenceSummary ? `Trend intelligence: ${args.trendIntelligenceSummary}` : null,
+    playNote,
     `Destination quality contributes ${args.destinationQualityScore}, execution capacity ${args.executionCapacityScore}, and execution quality ${args.executionQualityScore}.`,
     `Market-path quality contributes ${args.marketPathQualityScore} and portfolio fit sits at ${args.portfolioFitScore}.`,
     `Portfolio fit is ${args.portfolioFitScore} and posture only adds ${args.actionModifier >= 0 ? "+" : ""}${args.actionModifier}.`
@@ -336,7 +358,9 @@ export function buildOpportunityRanking(opportunity: OpportunityView): Opportuni
       fragilityScore,
       trendReliabilityScore,
       recommendationTier,
-      trendIntelligenceSummary: opportunity.trendIntelligence?.summary ?? null
+      trendIntelligenceSummary: opportunity.trendIntelligence?.summary ?? null,
+      matchingTrendPlayCount: opportunity.matchingTrendPlays?.length ?? 0,
+      bestMatchingPlayTier: opportunity.matchingTrendPlays?.[0]?.tier ?? null
     })
   };
 }

@@ -519,15 +519,24 @@ function enrichOpportunityIntelligence(
       0,
       100
     ),
-    executionQualityScore: bookContext.executionQualityScore
+    executionQualityScore: bookContext.executionQualityScore,
+    matchingTrendPlays: enrichedOpportunity.matchingTrendPlays ?? []
   } as any);
+
+  const livePlayLabels = (enrichedOpportunity.matchingTrendPlays ?? [])
+    .filter(p => p.activationState === "LIVE_NOW")
+    .map(p => `Trend: ${p.gameLabel} ${p.marketType} [${p.tier}] score ${p.finalScore}`);
 
   return {
     ...enrichedOpportunity,
     ranking,
     decisionAction: decision.action,
     stakeTier: decision.stakeTier,
-    decisionRationale: Array.from(new Set([...(decision.rationale ?? []), ...(trendIntelligence.topAngle ? [trendIntelligence.topAngle] : [])])),
+    decisionRationale: Array.from(new Set([
+      ...(decision.rationale ?? []),
+      ...(trendIntelligence.topAngle ? [trendIntelligence.topAngle] : []),
+      ...livePlayLabels
+    ])),
     marketRegime: bookContext.regime,
     staleLineProbability: bookContext.staleLineProbability,
     bookSoftnessScore: bookContext.softnessScore,

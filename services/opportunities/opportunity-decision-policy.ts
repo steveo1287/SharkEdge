@@ -1,4 +1,5 @@
 import type { RankedOpportunity } from "@/lib/types/opportunity"
+import type { RankedTrendPlay } from "@/services/trends/play-types";
 import { assessBookContext } from "@/services/market-intelligence/book-context"
 
 export type OpportunityAction = "BET_NOW" | "WAIT" | "WATCH" | "PASS"
@@ -20,6 +21,12 @@ function getStakeTier(opportunity: RankedOpportunity): OpportunityDecision["stak
   return "TINY"
 }
 
+function bestPlayTierWeight(tier: string): number {
+  if (tier === "A") return 1.0;
+  if (tier === "B") return 0.7;
+  return 0.4;
+}
+
 export function decideOpportunity(opportunity: RankedOpportunity): OpportunityDecision {
   const clv = opportunity.expectedClvScore ?? 50
   const fragility = opportunity.fragilityScore ?? 50
@@ -27,6 +34,11 @@ export function decideOpportunity(opportunity: RankedOpportunity): OpportunityDe
   const market = opportunity.marketPathScore ?? 50
   const efficiency = opportunity.capitalEfficiencyScore ?? 50
   const edge = opportunity.score
+
+  const matchingPlays: RankedTrendPlay[] = (opportunity as any).matchingTrendPlays ?? [];
+  const livePlays = matchingPlays.filter(p => p.activationState === "LIVE_NOW");
+  const bestLivePlay = livePlays.sort((a, b) => b.finalScore - a.finalScore)[0] ?? null;
+  const trendConfirmation = bestLivePlay ? bestPlayTierWeight(bestLivePlay.tier) : 0;
 
   const context = assessBookContext({
     book: (opportunity as any).book ?? (opportunity as any).sportsbook ?? null,
@@ -46,12 +58,23 @@ export function decideOpportunity(opportunity: RankedOpportunity): OpportunityDe
   if (reliability >= 60) rationale.push("trend evidence is sufficiently reliable")
   if (fragility >= 60) rationale.push("fragility is elevated")
   if (efficiency < 45) rationale.push("capital efficiency is weak")
+  if (bestLivePlay) {
+    rationale.push(
+      `${livePlays.length} live trend system${livePlays.length > 1 ? "s" : ""} firing on this market (best: ${bestLivePlay.tier}-tier, score ${bestLivePlay.finalScore})`
+    );
+  }
 
   if (fragility >= 75 || reliability < 35 || edge < 45 || context.executionQualityScore < 35) {
     return { action: "PASS", stakeTier: "TINY", rationale: rationale.length ? rationale : ["insufficient edge quality"] }
   }
 
-  if (clv >= 68 && market >= 65 && fragility <= 42 && reliability >= 58 && edge >= 70 && context.executionQualityScore >= 58) {
+  // Live trend confirmation relaxes the fragility and reliability gates for BET_NOW.
+  // A-tier play: fragility gate opens to 52 (vs 42), reliability drops to 52 (vs 58).
+  // B-tier play: fragility gate opens to 46, reliability drops to 55.
+  const fragilityGate = trendConfirmation >= 1.0 ? 52 : trendConfirmation >= 0.7 ? 46 : 42;
+  const reliabilityGate = trendConfirmation >= 1.0 ? 52 : trendConfirmation >= 0.7 ? 55 : 58;
+
+  if (clv >= 68 && market >= 65 && fragility <= fragilityGate && reliability >= reliabilityGate && edge >= 70 && context.executionQualityScore >= 58) {
     return { action: "BET_NOW", stakeTier: getStakeTier(opportunity), rationale: [...rationale, ...context.reasons] }
   }
 
