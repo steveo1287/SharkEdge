@@ -45,6 +45,29 @@ function parseFilters(request: Request): BoardFilters {
   });
 }
 
+function buildDegradedBoardResponse(filters: BoardFilters, reason: string) {
+  return {
+    filters,
+    availableDates: [],
+    leagues: filters.league === "ALL" ? [] : [],
+    sportsbooks: [{ id: "best", key: "best", name: "Best available", region: "US" }],
+    games: [],
+    events: [],
+    sportSections: [],
+    snapshots: [],
+    summary: { totalGames: 0, totalProps: 0, totalSportsbooks: 0 },
+    liveMessage: null,
+    source: "mock",
+    sourceNote: reason,
+    providerHealth: {
+      state: "DEGRADED",
+      label: "Degraded",
+      summary: reason,
+      warnings: [reason]
+    }
+  };
+}
+
 export async function GET(request: Request) {
   const filters = parseFilters(request);
 
@@ -52,19 +75,10 @@ export async function GET(request: Request) {
     const payload = await getBoardPageData(filters);
     if (!payload) {
       return NextResponse.json(
-        {
+        buildDegradedBoardResponse(
           filters,
-          source: "live",
-          games: [],
-          events: [],
-          summary: { totalGames: 0, totalProps: 0, totalSportsbooks: 0 },
-          providerHealth: {
-            state: "OFFLINE",
-            label: "Offline",
-            summary: "Live board payload was unavailable."
-          }
-        },
-        { status: 503 }
+          "Live board payload was unavailable, so SharkEdge returned a safe degraded board response instead of throwing."
+        )
       );
     }
 
@@ -87,11 +101,12 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     return NextResponse.json(
-      {
+      buildDegradedBoardResponse(
         filters,
-        error: error instanceof Error ? error.message : "Failed to load board."
-      },
-      { status: 500 }
+        error instanceof Error
+          ? `Board request degraded safely after an internal error: ${error.message}`
+          : "Board request degraded safely after an internal error."
+      )
     );
   }
 }
