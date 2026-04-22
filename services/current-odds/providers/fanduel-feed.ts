@@ -1,15 +1,33 @@
 import type { LeagueKey } from "@/lib/types/domain";
 
 import type { BookFeedProvider } from "../book-feed-provider-types";
-import { getCurrentOddsBackendBaseUrl } from "../backend-url";
+import {
+  getCurrentOddsBackendBaseUrl,
+  hasCurrentOddsBackendBaseUrl
+} from "../backend-url";
 
 const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
-const FANDUEL_FEED_URL =
-  process.env.SHARKEDGE_FANDUEL_FEED_URL?.trim() ??
-  `${getCurrentOddsBackendBaseUrl()}/api/book-feeds/fanduel`;
+
+function resolveFanDuelFeedUrl() {
+  const explicit = process.env.SHARKEDGE_FANDUEL_FEED_URL?.trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  if (!hasCurrentOddsBackendBaseUrl()) {
+    return null;
+  }
+
+  return `${getCurrentOddsBackendBaseUrl()}/api/book-feeds/fanduel`;
+}
 
 function buildFanDuelFeedUrl(leagues: LeagueKey[]) {
-  const url = new URL(FANDUEL_FEED_URL);
+  const baseUrl = resolveFanDuelFeedUrl();
+  if (!baseUrl) {
+    return null;
+  }
+
+  const url = new URL(baseUrl);
   if (leagues.length) {
     url.searchParams.set("leagues", leagues.join(","));
   }
@@ -44,10 +62,24 @@ export const fanDuelBookFeedProvider: BookFeedProvider = {
   describe() {
     return process.env.SHARKEDGE_FANDUEL_FEED_URL?.trim()
       ? "Worker-only FanDuel feed adapter. Uses an externally configured feed endpoint and never runs in page requests."
-      : "Worker-only FanDuel feed adapter. Defaults to the backend /api/book-feeds/fanduel endpoint so the worker can ingest the same live board source even before a direct FanDuel source URL is configured.";
+      : hasCurrentOddsBackendBaseUrl()
+        ? "Worker-only FanDuel feed adapter. Uses the explicitly configured backend /api/book-feeds/fanduel endpoint when direct feed wiring is not provided."
+        : "Worker-only FanDuel feed adapter. Disabled until SHARKEDGE_FANDUEL_FEED_URL or SHARKEDGE_BACKEND_URL is set.";
   },
   async fetchFeed(args) {
     const url = buildFanDuelFeedUrl(args.leagues ?? []);
+
+    if (!url) {
+      return {
+        ok: false,
+        providerKey: "fanduel",
+        sportsbookKey: "fanduel",
+        fetchedAt: new Date().toISOString(),
+        status: "NOT_CONFIGURED",
+        reason: "SHARKEDGE_FANDUEL_FEED_URL or SHARKEDGE_BACKEND_URL must be set before this worker feed can run.",
+        errorCode: "BOOK_FEED_NOT_CONFIGURED"
+      };
+    }
 
     try {
       const response = await fetch(url, {
