@@ -14,6 +14,7 @@ import { recomputeEdgeSignals } from "@/services/edges/edge-engine";
 import { getBoardVisibleLeagues, buildBoardSportSections } from "@/services/events/live-score-service";
 import { currentMarketStateJob } from "@/services/jobs/current-market-state-job";
 import { getBoardFeed } from "@/services/market-data/market-data-service";
+import { getLiveBoardPageData } from "@/services/odds/live-board-data";
 
 const LIVE_BOARD_TIMEOUT_MS = 15_000;
 
@@ -265,6 +266,15 @@ async function tryHydrateBoardInventory() {
 }
 
 export async function getBoardPageData(filters: BoardFilters): Promise<BoardPageData> {
+  const liveData = await withTimeoutFallback(getLiveBoardPageData(filters), {
+    timeoutMs: LIVE_BOARD_TIMEOUT_MS,
+    fallback: null
+  });
+
+  if (liveData && liveData.sportSections.some((section) => section.games.length > 0)) {
+    return liveData;
+  }
+
   const dbData = await withTimeoutFallback(getDbBackedBoardPageData(filters), {
     timeoutMs: LIVE_BOARD_TIMEOUT_MS,
     fallback: null
@@ -289,7 +299,11 @@ export async function getBoardPageData(filters: BoardFilters): Promise<BoardPage
       return recovered;
     }
   } catch {
-    // fall through to scoreboard-only fallback
+    // fall through to live/mock fallback
+  }
+
+  if (liveData) {
+    return liveData;
   }
 
   return getMockBoardPageData(filters);
