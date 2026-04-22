@@ -94,8 +94,10 @@ async function fetchLivePropsBoardResponse(
   sportKey?: string,
   maxEvents = LIVE_PROPS_EVENT_LIMIT
 ): Promise<LivePropsBoardResponse | null> {
-  const backendUrl =
-    process.env.SHARKEDGE_BACKEND_URL?.trim() || "https://shark-odds-1.onrender.com";
+  const backendUrl = process.env.SHARKEDGE_BACKEND_URL?.trim().replace(/\/$/, "");
+  if (!backendUrl) {
+    return null;
+  }
 
   const query = new URLSearchParams();
   if (sportKey) {
