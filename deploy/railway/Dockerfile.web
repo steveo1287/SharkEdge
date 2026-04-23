@@ -1,11 +1,19 @@
-FROM node:20-bookworm-slim
+FROM node:20-bookworm-slim AS build
+
 WORKDIR /app
-ENV NODE_ENV=production
 
 COPY package*.json ./
 COPY prisma ./prisma
-RUN npm ci --include=dev || true
+RUN npm ci --include=dev
 
 COPY . .
+RUN npm run build
 
-CMD ["sh", "-lc", "npm run dev -- -p ${PORT:-3000}"]
+FROM node:20-bookworm-slim AS runtime
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY --from=build /app /app
+
+CMD ["sh", "-lc", "npm run start -- -p ${PORT:-3000}"]

@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY package*.json ./
 COPY prisma ./prisma
-RUN npm ci --include=dev || true
+RUN npm ci --include=dev
 
 COPY . .
 

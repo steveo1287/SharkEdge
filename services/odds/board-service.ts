@@ -243,15 +243,6 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
 }
 
 export async function getBoardPageData(filters: BoardFilters): Promise<BoardPageData> {
-  const liveData = await withTimeoutFallback(getLiveBoardPageData(filters), {
-    timeoutMs: LIVE_BOARD_TIMEOUT_MS,
-    fallback: null
-  });
-
-  if (liveData) {
-    return liveData;
-  }
-
   const dbData = await withTimeoutFallback(getDbBackedBoardPageData(filters), {
     timeoutMs: LIVE_BOARD_TIMEOUT_MS,
     fallback: null
@@ -259,29 +250,6 @@ export async function getBoardPageData(filters: BoardFilters): Promise<BoardPage
 
   if (dbData) {
     return dbData;
-  }
-
-  if (liveData) {
-    return {
-      ...liveData,
-      sourceNote:
-        "Live board inventory is thin right now, and request-time self-healing has been disabled to keep page renders stable. Rebuild inventory through workers or explicit refresh flows instead.",
-      providerHealth: buildProviderHealth({
-        supportStatus: "PARTIAL",
-        source: liveData.source,
-        warnings: [
-          ...(liveData.providerHealth.warnings ?? []),
-          "Request-time board hydration is disabled in this runtime."
-        ],
-        healthySummary: "The live board feed is connected and powering verified board comparisons.",
-        degradedSummary:
-          "The live board feed is connected, but inventory recovery now happens outside the page-request path.",
-        fallbackSummary:
-          "The board is staying read-only during page requests. Inventory rebuilds must happen through workers or explicit refresh paths.",
-        offlineSummary:
-          "The board feed is offline in this runtime, so only fallback scoreboard context is available."
-      })
-    };
   }
 
   return getMockBoardPageData(filters);
