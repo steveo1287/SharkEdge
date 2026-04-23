@@ -66,7 +66,7 @@ SELECTORS = {
     "cookie_accept": "button#onetrust-accept-btn-handler, button[id*='accept'], button[class*='accept']",
 }
 
-DS_HOSTS = ["1.ds.flashscore.com", "2.ds.flashscore.com", "3.ds.flashscore.com"]
+DS_HOSTS = ["d.flashscore.com"]
 SCRAPER_BOOK_NAME = "flashscore_best"
 LIVE_JSON_PATH = "live_odds_optimized.json"
 CACHE_JSON_PATH = "odds_cache.json"
@@ -82,7 +82,7 @@ SPORTS_TO_SCRAPE = [
 ]
 
 HEADLESS = os.getenv("HEADLESS", "true").lower() == "true"
-POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))
+POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "120"))
 MAX_EVENTS_PER_SPORT = max(1, int(os.getenv("MAX_EVENTS_PER_SPORT", "20")))
 RUN_ONCE = os.getenv("RUN_ONCE", "false").lower() == "true"
 PROXY_URL = os.getenv("PROXY_URL", "").strip() or None
@@ -93,7 +93,7 @@ SHARKEDGE_INGEST_URL = os.getenv(
 SHARKEDGE_API_KEY = os.getenv("SHARKEDGE_API_KEY", "").strip()
 
 # Railway hardening
-MAX_WORKERS = max(1, int(os.getenv("MAX_WORKERS", "2")))
+MAX_WORKERS = max(1, int(os.getenv("MAX_WORKERS", "1")))
 MAX_WORKERS = min(MAX_WORKERS, len(SPORTS_TO_SCRAPE))
 CACHE_ENABLED = os.getenv("CACHE_ENABLED", "true").lower() == "true"
 PAGE_LOAD_TIMEOUT_SECONDS = int(os.getenv("PAGE_LOAD_TIMEOUT_SECONDS", "20"))
@@ -138,7 +138,6 @@ def has_changed(event_key: str, old: dict[str, Any], new: dict[str, Any]) -> boo
     if not CACHE_ENABLED:
         return True
 
-    # Only check key odds fields
     for field in ["moneyline_home", "moneyline_away", "spread", "total", "over_odds", "under_odds"]:
         if old.get(field) != new.get(field):
             return True
@@ -182,7 +181,7 @@ def utc_now_iso() -> str:
 
 
 def build_feed_url(match_id: str) -> str:
-    return f"https://{random.choice(DS_HOSTS)}/dm/feed/st_{match_id}_en_1"
+    return f"https://{random.choice(DS_HOSTS)}/x/feed/proxy?pid=7&sid=1&z=1&cid=1&type=st&id={match_id}&lang=en&method=main"
 
 
 def fast_scrape_odds(session: requests.Session, match_id: str) -> Optional[str]:
@@ -199,8 +198,10 @@ def fast_scrape_odds(session: requests.Session, match_id: str) -> Optional[str]:
                 return response.text
             if response.status_code == 429:
                 break
-        except Exception:
-            pass
+        except Exception as error:
+            if "NameResolutionError" in str(error):
+                logger.warning("Feed DNS resolution failed for %s; skipping direct feed", match_id)
+                return None
 
         time.sleep(1.0 * (attempt + 1))
 
@@ -549,13 +550,11 @@ def scrape_sport(sport: str) -> tuple[dict[str, dict[str, Any]], bool]:
 
 
 def run_cycle(ingest_session: requests.Session) -> dict[str, dict[str, Any]]:
-    """NEW: Parallel polling across all sports"""
     snapshot: dict[str, dict[str, Any]] = {}
     cache = load_cache()
 
     logger.info("Starting parallel poll of %d sports", len(SPORTS_TO_SCRAPE))
 
-    # Parallel scraping: each sport gets its own browser
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {executor.submit(scrape_sport, sport): sport for sport in SPORTS_TO_SCRAPE}
 
@@ -564,7 +563,6 @@ def run_cycle(ingest_session: requests.Session) -> dict[str, dict[str, Any]]:
             try:
                 sport_snapshot, success = future.result()
                 if success:
-                    # Change detection: only post changed/new events
                     for event_key, event in sport_snapshot.items():
                         old = cache.get(event_key, {})
                         if has_changed(event_key, old, event):
