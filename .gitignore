@@ -13,3 +13,10 @@
 live_odds_optimized.log
 scraper.log
 scraper.pid
+
+# Live odds scraper runtime
+backend/.scraper.pid
+backend/live_odds_scraper.log
+backend/live_odds_optimized.log
+backend/odds_cache.json
+backend/live_odds_optimized.json
