@@ -11,6 +11,9 @@ import { calculateEdgeScore } from "@/lib/utils/edge-score";
 import { americanToImpliedProbability } from "@/lib/utils/odds";
 import { buildMatchupHref } from "@/lib/utils/matchups";
 import { backendCurrentOddsProvider } from "@/services/current-odds/backend-provider";
+import { therundownCurrentOddsProvider } from "@/services/current-odds/therundown-provider";
+import { theOddsApiProvider } from "@/services/current-odds/the-odds-api-provider";
+import { pinnacleProvider } from "@/services/current-odds/pinnacle-provider";
 import type {
   CurrentOddsBoardResponse,
   CurrentOddsBookOutcome,
@@ -76,18 +79,33 @@ async function fetchLiveBoardResponse() {
     return cached;
   }
 
-  const backendResponse = await backendCurrentOddsProvider.fetchBoard();
+  // Try providers in fallback chain order
+  const providers = [
+    { provider: backendCurrentOddsProvider, name: "backend" },
+    { provider: therundownCurrentOddsProvider, name: "therundown" },
+    { provider: theOddsApiProvider, name: "odds-api" },
+    { provider: pinnacleProvider, name: "pinnacle" }
+  ];
 
-  if (!backendResponse?.configured) {
-    if (cached && !isHardStale(cached.generated_at, LIVE_BOARD_HARD_STALE_MINUTES)) {
-      return cached;
+  for (const { provider, name } of providers) {
+    try {
+      const response = await provider.fetchBoard();
+      if (response?.configured && Array.isArray(response.sports) && response.sports.length > 0) {
+        await writeHotCache(LIVE_BOARD_CACHE_KEY, response, LIVE_BOARD_CACHE_TTL_SECONDS);
+        return response;
+      }
+    } catch (error) {
+      // Continue to next provider
+      continue;
     }
-
-    return null;
   }
 
-  await writeHotCache(LIVE_BOARD_CACHE_KEY, backendResponse, LIVE_BOARD_CACHE_TTL_SECONDS);
-  return backendResponse;
+  // All providers failed, try cached if available
+  if (cached && !isHardStale(cached.generated_at, LIVE_BOARD_HARD_STALE_MINUTES)) {
+    return cached;
+  }
+
+  return null;
 }
 
 function getBestPrice(offer: CurrentOddsOffer | null | undefined) {
