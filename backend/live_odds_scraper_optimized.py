@@ -92,9 +92,16 @@ SHARKEDGE_INGEST_URL = os.getenv(
 )
 SHARKEDGE_API_KEY = os.getenv("SHARKEDGE_API_KEY", "").strip()
 
-# NEW: Parallel polling settings
-MAX_WORKERS = min(4, len(SPORTS_TO_SCRAPE))  # Max 4 parallel browsers
+# Railway hardening
+MAX_WORKERS = max(1, int(os.getenv("MAX_WORKERS", "2")))
+MAX_WORKERS = min(MAX_WORKERS, len(SPORTS_TO_SCRAPE))
 CACHE_ENABLED = os.getenv("CACHE_ENABLED", "true").lower() == "true"
+PAGE_LOAD_TIMEOUT_SECONDS = int(os.getenv("PAGE_LOAD_TIMEOUT_SECONDS", "20"))
+SCRIPT_TIMEOUT_SECONDS = int(os.getenv("SCRIPT_TIMEOUT_SECONDS", "20"))
+FEED_RETRY_ATTEMPTS = int(os.getenv("FEED_RETRY_ATTEMPTS", "2"))
+FEED_TIMEOUT_SECONDS = int(os.getenv("FEED_TIMEOUT_SECONDS", "6"))
+SPORT_STARTUP_JITTER_MIN_SECONDS = float(os.getenv("SPORT_STARTUP_JITTER_MIN_SECONDS", "0.5"))
+SPORT_STARTUP_JITTER_MAX_SECONDS = float(os.getenv("SPORT_STARTUP_JITTER_MAX_SECONDS", "1.5"))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -144,10 +151,27 @@ def normalize_text_token(text: str) -> str:
 
 def build_http_session() -> requests.Session:
     session = requests.Session()
+
     if PROXY_URL:
         session.proxies.update({"http": PROXY_URL, "https": PROXY_URL})
-    retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
-    adapter = HTTPAdapter(max_retries=retries)
+
+    retries = Retry(
+        total=int(os.getenv("HTTP_RETRY_TOTAL", "2")),
+        connect=int(os.getenv("HTTP_RETRY_CONNECT", "2")),
+        read=int(os.getenv("HTTP_RETRY_READ", "2")),
+        backoff_factor=float(os.getenv("HTTP_BACKOFF_FACTOR", "1.0")),
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=frozenset(["GET", "POST"]),
+        respect_retry_after_header=True,
+        raise_on_status=False,
+    )
+
+    adapter = HTTPAdapter(
+        max_retries=retries,
+        pool_connections=int(os.getenv("HTTP_POOL_CONNECTIONS", "10")),
+        pool_maxsize=int(os.getenv("HTTP_POOL_MAXSIZE", "10")),
+    )
+
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session
@@ -163,15 +187,23 @@ def build_feed_url(match_id: str) -> str:
 
 def fast_scrape_odds(session: requests.Session, match_id: str) -> Optional[str]:
     url = build_feed_url(match_id)
-    headers = {"Referer": "https://www.flashscore.com/", "X-Requested-With": "XMLHttpRequest"}
-    for attempt in range(3):
+    headers = {
+        "Referer": "https://www.flashscore.com/",
+        "X-Requested-With": "XMLHttpRequest",
+    }
+
+    for attempt in range(FEED_RETRY_ATTEMPTS):
         try:
-            response = session.get(url, headers=headers, timeout=10)
+            response = session.get(url, headers=headers, timeout=FEED_TIMEOUT_SECONDS)
             if response.status_code == 200 and response.text:
                 return response.text
+            if response.status_code == 429:
+                break
         except Exception:
             pass
-        time.sleep(1.5 * (attempt + 1))
+
+        time.sleep(1.0 * (attempt + 1))
+
     return None
 
 
@@ -457,21 +489,45 @@ def enrich_matches_with_odds(driver: WebDriver, browser_session: requests.Sessio
 
 def build_driver() -> WebDriver:
     options = Options()
+
     if HEADLESS:
         options.add_argument("--headless=new")
-    options.add_argument("--disable-blink-features=AutomationControlled")
+
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-background-timer-throttling")
+    options.add_argument("--disable-backgrounding-occluded-windows")
+    options.add_argument("--disable-renderer-backgrounding")
+    options.add_argument("--disable-features=Translate,BackForwardCache,AcceptCHFrame")
+    options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--window-size=1600,1200")
+    options.add_argument("--hide-scrollbars")
+    options.add_argument("--mute-audio")
+
     if PROXY_URL:
         options.add_argument(f"--proxy-server={PROXY_URL}")
-    return webdriver.Chrome(options=options)
+
+    chrome_bin = os.getenv("CHROME_BIN", "").strip()
+    if chrome_bin:
+        options.binary_location = chrome_bin
+
+    options.page_load_strategy = "eager"
+
+    driver = webdriver.Chrome(options=options)
+    driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT_SECONDS)
+    driver.set_script_timeout(SCRIPT_TIMEOUT_SECONDS)
+    return driver
 
 
 def scrape_sport(sport: str) -> tuple[dict[str, dict[str, Any]], bool]:
     """Scrape a single sport (runs in parallel thread)"""
     driver: Optional[WebDriver] = None
     try:
+        time.sleep(random.uniform(SPORT_STARTUP_JITTER_MIN_SECONDS, SPORT_STARTUP_JITTER_MAX_SECONDS))
         driver = build_driver()
         if sport not in SPORT_CONFIG:
             logger.warning("Unknown sport '%s'", sport)
