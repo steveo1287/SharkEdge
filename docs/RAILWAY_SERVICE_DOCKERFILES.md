@@ -10,7 +10,7 @@ Set this environment variable per Railway service:
 
 Runtime mapping:
 
-- `web` -> `npm run start`
+- `web` -> `npm run dev`
 - `odds-worker` -> `npm run worker:odds-refresh`
 
 The `deploy/railway/` Dockerfiles remain in the repo for explicit service-path targeting if Railway service-level Dockerfile selection is enabled in your workspace later.
