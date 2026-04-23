@@ -5,7 +5,7 @@ import { getBooleanArg, logStep, parseArgs } from "./_runtime-utils";
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const scriptPath = path.resolve(process.cwd(), "../backend/live_odds_scraper.py");
+  const scriptPath = path.resolve(process.cwd(), "../backend/live_odds_scraper_optimized.py");
   const command = process.env.PYTHON_BIN?.trim() || "python";
   const env = {
     ...process.env,
