@@ -2,6 +2,7 @@ FROM node:20-bookworm-slim AS build
 
 WORKDIR /app
 
+# Railway web build
 COPY package*.json ./
 COPY prisma ./prisma
 RUN npm ci --include=dev
