@@ -63,22 +63,22 @@ export const backendCurrentOddsProvider: CurrentOddsProvider = {
       fetchBackendJson<OddsHarvesterHarvestResponse>("/api/historical/odds/harvest")
     ]);
 
-    if (harvestResponse?.configured && harvestResponse.provider === "oddsharvester") {
+    if (boardResponse?.configured && Array.isArray(boardResponse.sports) && boardResponse.sports.length > 0) {
+      return boardResponse;
+    }
+
+    if (harvestResponse?.configured && Array.isArray(harvestResponse.sports) && harvestResponse.sports.length > 0) {
       return {
         configured: true,
         generated_at: harvestResponse.generated_at,
-        provider: "oddsharvester",
-        provider_mode: boardResponse?.provider_mode ?? "oddsharvester",
+        provider: harvestResponse.provider ?? "backend",
+        provider_mode: boardResponse?.provider_mode ?? harvestResponse.provider ?? "backend",
         bookmakers: boardResponse?.bookmakers ?? "",
         errors: harvestResponse.errors ?? boardResponse?.errors ?? [],
         sports: harvestResponse.sports
       };
     }
 
-    if (boardResponse?.configured && boardResponse.provider === "oddsharvester") {
-      return boardResponse;
-    }
-
-    return null;
+    return boardResponse?.configured ? boardResponse : null;
   }
 };
