@@ -1,6 +1,7 @@
 import type { BoardSupportStatus, LeagueKey, MarketType } from "@/lib/types/domain";
 import { backendCurrentOddsProvider } from "@/services/current-odds/backend-provider";
 import { therundownCurrentOddsProvider } from "@/services/current-odds/therundown-provider";
+import { theOddsApiProvider } from "@/services/current-odds/the-odds-api-provider";
 import { boxingEventProvider } from "@/services/events/boxing-provider";
 import { espnEventProvider } from "@/services/events/espn-provider";
 import { ncaaFallbackEventProvider } from "@/services/events/ncaa-fallback-provider";
@@ -72,7 +73,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     status: "LIVE",
     scoreProviders: [espnEventProvider, sportsdataverseEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
-    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
+    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider, theOddsApiProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NBA"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "LIVE",
@@ -143,7 +144,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     status: "LIVE",
     scoreProviders: [espnEventProvider, ncaaFallbackEventProvider, sportsdataverseEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
-    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
+    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider, theOddsApiProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NCAAB"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "LIVE",
@@ -220,7 +221,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     status: "LIVE",
     scoreProviders: [espnEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
-    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
+    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider, theOddsApiProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("MLB"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "PARTIAL",
@@ -280,7 +281,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     status: "LIVE",
     scoreProviders: [espnEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
-    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
+    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider, theOddsApiProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NHL"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "PARTIAL",
@@ -340,7 +341,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     status: "LIVE",
     scoreProviders: [espnEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
-    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
+    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider, theOddsApiProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NFL"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "PARTIAL",
@@ -412,7 +413,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     status: "LIVE",
     scoreProviders: [espnEventProvider, ncaaFallbackEventProvider, sportsdataverseEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
-    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider],
+    currentOddsProviders: [backendCurrentOddsProvider, therundownCurrentOddsProvider, theOddsApiProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("NCAAF"),
     historicalProviders: [oddsharvesterHistoricalProvider, therundownHistoricalProvider],
     propsStatus: "PARTIAL",
