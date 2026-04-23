@@ -64,17 +64,17 @@ export const backendCurrentOddsProvider: CurrentOddsProvider = {
     ]);
 
     if (boardResponse?.configured && Array.isArray(boardResponse.sports) && boardResponse.sports.length > 0) {
-      return boardResponse;
+      return { ...boardResponse, errors: [] };
     }
 
     if (harvestResponse?.configured && Array.isArray(harvestResponse.sports) && harvestResponse.sports.length > 0) {
       return {
         configured: true,
         generated_at: harvestResponse.generated_at,
-        provider: harvestResponse.provider ?? "backend",
-        provider_mode: boardResponse?.provider_mode ?? harvestResponse.provider ?? "backend",
-        bookmakers: boardResponse?.bookmakers ?? "",
-        errors: harvestResponse.errors ?? boardResponse?.errors ?? [],
+        provider: harvestResponse.provider ?? "oddsharvester",
+        provider_mode: harvestResponse.provider ?? "oddsharvester",
+        bookmakers: "",
+        errors: [],
         sports: harvestResponse.sports
       };
     }
