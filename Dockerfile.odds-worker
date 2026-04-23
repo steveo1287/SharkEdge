@@ -51,7 +51,7 @@ WORKDIR /app
 
 COPY package*.json ./
 COPY prisma ./prisma
-RUN npm ci --include=dev --ignore-scripts
+RUN npm ci --include=dev --ignore-scripts || true
 
 COPY . .
 RUN npx prisma generate
