@@ -197,13 +197,22 @@ def fast_scrape_odds(session: requests.Session, match_id: str) -> Optional[str]:
             if response.status_code == 200 and response.text:
                 return response.text
             if response.status_code == 429:
-                break
-        except Exception as error:
-            if "NameResolutionError" in str(error):
-                logger.warning("Feed DNS resolution failed for %s; skipping direct feed", match_id)
+                logger.debug("Rate limited (429) for feed %s", match_id)
                 return None
+            if response.status_code >= 500:
+                logger.debug("Server error (%d) for feed %s", response.status_code, match_id)
+        except requests.Timeout:
+            logger.debug("Feed timeout for %s on attempt %d", match_id, attempt + 1)
+        except requests.ConnectionError as error:
+            if "NameResolutionError" in str(error):
+                logger.debug("DNS resolution failed for feed %s", match_id)
+                return None
+            logger.debug("Connection error for feed %s: %s", match_id, error)
+        except requests.RequestException as error:
+            logger.debug("Request exception for feed %s: %s", match_id, error)
 
-        time.sleep(1.0 * (attempt + 1))
+        if attempt < FEED_RETRY_ATTEMPTS - 1:
+            time.sleep(0.5 * (attempt + 1))
 
     return None
 
@@ -280,10 +289,16 @@ def parse_market(driver: WebDriver, url: str, market_type: str) -> dict[str, Any
     try:
         driver.get(url)
         WebDriverWait(driver, 12).until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, SELECTORS["bookmaker_rows"])))
-    except TimeoutException:
+    except (TimeoutException, WebDriverException) as e:
+        logger.debug("Market load timeout for %s: %s", market_type, e)
         return {"line": None, "left": None, "right": None, "left_book": None, "right_book": None}
 
-    rows = driver.find_elements(By.CSS_SELECTOR, SELECTORS["bookmaker_rows"])
+    try:
+        rows = driver.find_elements(By.CSS_SELECTOR, SELECTORS["bookmaker_rows"])
+    except WebDriverException as e:
+        logger.debug("Failed to find rows for %s: %s", market_type, e)
+        return {"line": None, "left": None, "right": None, "left_book": None, "right_book": None}
+
     parsed_rows: list[dict[str, Any]] = []
     for row in rows:
         try:
@@ -301,7 +316,8 @@ def parse_market(driver: WebDriver, url: str, market_type: str) -> dict[str, Any
             except NoSuchElementException:
                 pass
             parsed_rows.append({"book": book, "line": line, "values": values})
-        except Exception:
+        except Exception as e:
+            logger.debug("Failed to parse row for %s: %s", market_type, e)
             continue
 
     if market_type == "moneyline":
@@ -379,33 +395,69 @@ def build_payload(event: dict[str, Any], include_source_meta: bool = True) -> di
 
 def post_to_sharkedge(session: requests.Session, event: dict[str, Any]) -> bool:
     if not SHARKEDGE_API_KEY:
-        logger.warning("SHARKEDGE_API_KEY not set; skipping ingest")
+        logger.debug("SHARKEDGE_API_KEY not set; skipping ingest")
         return False
 
-    payloads = [build_payload(event, include_source_meta=True), build_payload(event, include_source_meta=False)]
-    for payload in payloads:
-        try:
-            response = session.post(
-                SHARKEDGE_INGEST_URL,
-                json=payload,
-                headers={"Content-Type": "application/json", "x-api-key": SHARKEDGE_API_KEY},
-                timeout=12,
-            )
-            if response.status_code == 200:
-                return True
-            if response.status_code not in {400, 401, 404, 422}:
-                logger.warning("Ingest failed for %s: HTTP %d", event["event_key"], response.status_code)
-                return False
-        except requests.RequestException as error:
-            logger.warning("Ingest exception for %s: %s", event["event_key"], error)
+    event_key = event.get("event_key", "unknown")
+
+    try:
+        payload = build_payload(event, include_source_meta=False)
+        response = session.post(
+            SHARKEDGE_INGEST_URL,
+            json=payload,
+            headers={"Content-Type": "application/json", "x-api-key": SHARKEDGE_API_KEY},
+            timeout=12,
+        )
+        if response.status_code == 200:
+            return True
+        if response.status_code == 429:
+            logger.debug("Rate limited posting %s", event_key)
             return False
-    return False
+        if response.status_code in {400, 401, 404, 422}:
+            logger.debug("Invalid payload for %s (HTTP %d), trying with metadata", event_key, response.status_code)
+            try:
+                payload_with_meta = build_payload(event, include_source_meta=True)
+                response = session.post(
+                    SHARKEDGE_INGEST_URL,
+                    json=payload_with_meta,
+                    headers={"Content-Type": "application/json", "x-api-key": SHARKEDGE_API_KEY},
+                    timeout=12,
+                )
+                if response.status_code == 200:
+                    return True
+            except Exception:
+                pass
+            return False
+        logger.warning("Ingest failed for %s: HTTP %d", event_key, response.status_code)
+        return False
+    except requests.Timeout:
+        logger.debug("Timeout posting %s", event_key)
+        return False
+    except requests.RequestException as error:
+        logger.warning("Ingest exception for %s: %s", event_key, error)
+        return False
+    except Exception as error:
+        logger.error("Unexpected error posting %s: %s", event_key, error)
+        return False
 
 
 def scrape_match_list(driver: WebDriver, sport: str, url: str) -> dict[str, dict[str, Any]]:
-    driver.get(url)
-    try_accept_cookies(driver)
-    WebDriverWait(driver, 20).until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, SELECTORS["event_cards"])))
+    try:
+        driver.get(url)
+    except (TimeoutException, WebDriverException) as e:
+        logger.warning("Failed to load %s page: %s", sport, e)
+        return {}
+
+    try:
+        try_accept_cookies(driver)
+    except Exception as e:
+        logger.debug("Cookie acceptance failed for %s: %s", sport, e)
+
+    try:
+        WebDriverWait(driver, 20).until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, SELECTORS["event_cards"])))
+    except TimeoutException as e:
+        logger.warning("Timeout waiting for event cards on %s: %s", sport, e)
+        return {}
 
     headers = []
     for header in driver.find_elements(By.CSS_SELECTOR, SELECTORS["tournament_headers"]):
@@ -456,14 +508,34 @@ def scrape_match_list(driver: WebDriver, sport: str, url: str) -> dict[str, dict
 def enrich_matches_with_odds(driver: WebDriver, browser_session: requests.Session, snapshot: dict[str, dict[str, Any]]) -> None:
     for event in snapshot.values():
         match_id = event["match_id"]
-        feed_payload = fast_scrape_odds(browser_session, match_id)
-        if not feed_payload:
-            logger.debug("Direct feed unavailable for %s", event["event_key"])
+        event_key = event["event_key"]
+
+        try:
+            feed_payload = fast_scrape_odds(browser_session, match_id)
+            if not feed_payload:
+                logger.debug("Direct feed unavailable for %s", event_key)
+        except Exception as e:
+            logger.warning("Feed scrape failed for %s: %s", event_key, e)
 
         base = f"https://www.flashscore.com/match/{match_id}/#/odds-comparison"
-        moneyline = parse_market(driver, f"{base}/1x2/full-time", "moneyline")
-        spread = parse_market(driver, f"{base}/asian-handicap/full-time", "spread")
-        total = parse_market(driver, f"{base}/over-under/full-time", "total")
+
+        try:
+            moneyline = parse_market(driver, f"{base}/1x2/full-time", "moneyline")
+        except Exception as e:
+            logger.warning("Moneyline parse failed for %s: %s", event_key, e)
+            moneyline = {"line": None, "left": None, "right": None, "left_book": None, "right_book": None}
+
+        try:
+            spread = parse_market(driver, f"{base}/asian-handicap/full-time", "spread")
+        except Exception as e:
+            logger.warning("Spread parse failed for %s: %s", event_key, e)
+            spread = {"line": None, "left": None, "right": None, "left_book": None, "right_book": None}
+
+        try:
+            total = parse_market(driver, f"{base}/over-under/full-time", "total")
+        except Exception as e:
+            logger.warning("Total parse failed for %s: %s", event_key, e)
+            total = {"line": None, "left": None, "right": None, "left_book": None, "right_book": None}
 
         event.update(
             {
@@ -536,22 +608,34 @@ def scrape_sport(sport: str) -> tuple[dict[str, dict[str, Any]], bool]:
 
         snapshot = scrape_match_list(driver, sport, SPORT_CONFIG[sport])
         if snapshot:
-            enrich_matches_with_odds(driver, sync_selenium_to_requests(driver), snapshot)
+            try:
+                browser_session = sync_selenium_to_requests(driver)
+                enrich_matches_with_odds(driver, browser_session, snapshot)
+                logger.info("Enriched %d events for %s", len(snapshot), sport)
+            except Exception as e:
+                logger.error("Failed to enrich matches for %s: %s", sport, e)
+        else:
+            logger.info("No matches found for %s", sport)
         return snapshot, True
+    except WebDriverException as e:
+        logger.error("WebDriver error for %s: %s", sport, e)
+        return {}, False
     except Exception as e:
-        logger.error(f"Error scraping {sport}: {e}")
+        logger.error("Unexpected error scraping %s: %s", sport, e)
         return {}, False
     finally:
         if driver:
             try:
                 driver.quit()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Error closing driver for %s: %s", sport, e)
 
 
 def run_cycle(ingest_session: requests.Session) -> dict[str, dict[str, Any]]:
     snapshot: dict[str, dict[str, Any]] = {}
     cache = load_cache()
+    posted_count = 0
+    total_events_found = 0
 
     logger.info("Starting parallel poll of %d sports", len(SPORTS_TO_SCRAPE))
 
@@ -563,18 +647,30 @@ def run_cycle(ingest_session: requests.Session) -> dict[str, dict[str, Any]]:
             try:
                 sport_snapshot, success = future.result()
                 if success:
+                    total_events_found += len(sport_snapshot)
                     for event_key, event in sport_snapshot.items():
                         old = cache.get(event_key, {})
                         if has_changed(event_key, old, event):
                             snapshot[event_key] = event
-                            success = post_to_sharkedge(ingest_session, event)
-                            logger.info(f"Posted {event_key}: {success}")
+                            try:
+                                post_success = post_to_sharkedge(ingest_session, event)
+                                if post_success:
+                                    posted_count += 1
+                                    logger.info("Posted %s", event_key)
+                                else:
+                                    logger.warning("Failed to post %s", event_key)
+                            except Exception as post_error:
+                                logger.error("Post exception for %s: %s", event_key, post_error)
+                else:
+                    logger.warning("Sport scrape failed or incomplete: %s", sport)
             except Exception as e:
-                logger.error(f"Parallel scrape failed for {sport}: {e}")
+                logger.error("Parallel scrape exception for %s: %s", sport, e)
 
     if snapshot:
         save_cache(snapshot)
-        logger.info("Posted %d/%d events (change detection applied)", len(snapshot), len(snapshot))
+        logger.info("Cycle complete: found %d events, posted %d, with change detection applied", total_events_found, posted_count)
+    else:
+        logger.warning("No events found or all filtered by change detection")
 
     return snapshot
 
@@ -587,26 +683,46 @@ def shutdown_handler(signum: int, frame: Any) -> None:
 def main() -> None:
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
-    ingest_session = build_http_session()
+
+    logger.info("=== Odds Feed Scraper Starting ===")
+    logger.info("Configuration: %d sports, %d workers, %.1fs poll interval", len(SPORTS_TO_SCRAPE), MAX_WORKERS, POLL_INTERVAL_SECONDS)
+
+    try:
+        ingest_session = build_http_session()
+    except Exception as e:
+        logger.error("Failed to build HTTP session: %s", e)
+        sys.exit(1)
+
+    consecutive_failures = 0
+    max_consecutive_failures = 5
 
     try:
         while True:
             started_at = time.time()
             try:
                 current_snapshot = run_cycle(ingest_session)
+                consecutive_failures = 0
                 if not current_snapshot:
-                    logger.warning("No events this cycle")
+                    logger.debug("No events this cycle")
             except Exception as error:
-                logger.exception("Unexpected error: %s", error)
+                consecutive_failures += 1
+                logger.exception("Cycle error (%d/%d): %s", consecutive_failures, max_consecutive_failures, error)
+                if consecutive_failures >= max_consecutive_failures:
+                    logger.critical("Too many consecutive failures, exiting")
+                    sys.exit(1)
 
             if RUN_ONCE:
                 logger.info("RUN_ONCE enabled - exiting after single cycle")
                 break
 
             elapsed = time.time() - started_at
-            time.sleep(max(0, POLL_INTERVAL_SECONDS - elapsed))
+            sleep_time = max(0, POLL_INTERVAL_SECONDS - elapsed)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+    except KeyboardInterrupt:
+        logger.info("Interrupted by user")
     finally:
-        pass
+        logger.info("Shutting down")
 
 
 if __name__ == "__main__":
