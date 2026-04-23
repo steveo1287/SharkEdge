@@ -1,8 +1,8 @@
 import type { LeagueKey } from "@/lib/types/domain";
-import type { BookFeedProvider } from "../book-feed-provider-types";
-import { getCurrentOddsBackendBaseUrl } from "../backend-url";
+import type { BookFeedProvider } from "@/services/current-odds/book-feed-provider-types";
+import { getCurrentOddsBackendBaseUrl } from "@/services/current-odds/backend-url";
 
-const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA","NCAAB","MLB","NHL","NFL","NCAAF"];
+const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
 
 export const oddsharvesterBookFeedProvider: BookFeedProvider = {
   key: "oddsharvester",
