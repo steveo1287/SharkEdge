@@ -58,12 +58,12 @@ export async function GET(request: Request) {
           commence_time: game.startTime,
           home_team: game.homeTeam.name,
           away_team: game.awayTeam.name,
-          bookmakers_available: game.bestBookCount ?? 0,
-          bookmakers: [],
+          bookmakers_available: game.bookmakers?.length ?? 0,
+          bookmakers: game.bookmakers ?? [],
           market_stats: {
-            moneyline: [],
-            spread: [],
-            total: []
+            moneyline: game.market_stats?.moneyline ?? [],
+            spread: game.market_stats?.spread ?? [],
+            total: game.market_stats?.total ?? []
           }
         }));
 
@@ -82,7 +82,7 @@ export async function GET(request: Request) {
       generated_at: new Date().toISOString(),
       provider: payload.source,
       provider_mode: payload.source,
-      bookmakers: "best",
+      bookmakers: payload.sportsbooks?.map((sb) => sb.name).join(", ") ?? "best",
       errors: payload.providerHealth.warnings,
       sports
     });
