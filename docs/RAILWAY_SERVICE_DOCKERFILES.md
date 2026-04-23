@@ -1,13 +1,16 @@
 # Railway Service Dockerfiles
 
-Railway in this repo detects a root `Dockerfile` by default, which can force the wrong runtime path for web and worker services.
+Railway currently resolves builds from the root `Dockerfile` in this project.
+To keep both services correct under that behavior, the root Dockerfile is service-aware.
 
-Use explicit per-service Dockerfile paths:
+Set this environment variable per Railway service:
 
-- Web service (`SharkEdge`): `deploy/railway/Dockerfile.web`
-- Worker service (`odds-worker`): `deploy/railway/Dockerfile.odds-worker`
+- Web service (`SharkEdge`): `SHARKEDGE_SERVICE_MODE=web`
+- Worker service (`odds-worker`): `SHARKEDGE_SERVICE_MODE=odds-worker`
 
-Both Dockerfiles are Node 20-based and map directly to:
+Runtime mapping:
 
-- web start: `npm run start`
-- worker start: `npm run worker:odds-refresh`
+- `web` -> `npm run start`
+- `odds-worker` -> `npm run worker:odds-refresh`
+
+The `deploy/railway/` Dockerfiles remain in the repo for explicit service-path targeting if Railway service-level Dockerfile selection is enabled in your workspace later.

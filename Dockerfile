@@ -1,29 +1,18 @@
-FROM python:3.11-slim
-
-# Install Chrome and dependencies
-RUN apt-get update && apt-get install -y \
-    chromium \
-    fonts-liberation \
-    libappindicator3-1 \
-    libxss1 \
-    xdg-utils \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
+FROM node:20-bookworm-slim AS base
 
 WORKDIR /app
+
+COPY package*.json ./
+COPY prisma ./prisma
+RUN npm ci --include=dev
+
 COPY . .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -q selenium requests webdriver-manager
+# Keep build artifacts ready for the web runtime.
+RUN npm run build
 
-# Create logs directory
-RUN mkdir -p /app/logs && chmod 777 /app/logs
+ENV NODE_ENV=production
+# web | odds-worker
+ENV SHARKEDGE_SERVICE_MODE=web
 
-# Make startup script executable
-RUN chmod +x start-scraper.sh
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD ps aux | grep -q "[l]ive_odds_scraper_optimized.py" || exit 1
-
-CMD ["python3", "backend/live_odds_scraper_optimized.py"]
+CMD ["sh", "-lc", "if [ \"$SHARKEDGE_SERVICE_MODE\" = \"odds-worker\" ]; then npm run worker:odds-refresh; else npm run start -- -p ${PORT:-3000}; fi"]
