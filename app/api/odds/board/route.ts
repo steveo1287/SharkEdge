@@ -58,12 +58,12 @@ export async function GET(request: Request) {
           commence_time: game.startTime,
           home_team: game.homeTeam.name,
           away_team: game.awayTeam.name,
-          bookmakers_available: game.bookmakers?.length ?? 0,
-          bookmakers: game.bookmakers ?? [],
+          bookmakers_available: game.bestBookCount,
+          bookmakers: [],
           market_stats: {
-            moneyline: game.market_stats?.moneyline ?? [],
-            spread: game.market_stats?.spread ?? [],
-            total: game.market_stats?.total ?? []
+            moneyline: [game.moneyline],
+            spread: [game.spread],
+            total: [game.total]
           }
         }));
 
