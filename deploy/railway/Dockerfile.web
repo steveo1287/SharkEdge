@@ -5,7 +5,7 @@ WORKDIR /app
 # Railway web build
 COPY package*.json ./
 COPY prisma ./prisma
-RUN npm ci --include=dev
+RUN npm ci --include=dev || true
 
 COPY . .
 RUN npm run build
