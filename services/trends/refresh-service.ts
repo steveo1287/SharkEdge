@@ -9,8 +9,8 @@ import { refreshEventParticipantContextWarehouse } from "@/services/trends/event
 import { refreshTrendFeatureWarehouse } from "@/services/trends/feature-warehouse";
 import { refreshDiscoveredTrendSystems } from "@/services/trends/discovered-systems";
 
-const DEFAULT_TREND_LEAGUES: SupportedLeagueKey[] = ["NBA", "MLB", "NCAAB", "NHL", "NFL", "NCAAF"];
-const PUBLISHABLE_TREND_LEAGUES = new Set<SupportedLeagueKey>(["NBA", "MLB", "NCAAB", "NHL", "NFL", "NCAAF"]);
+const DEFAULT_TREND_LEAGUES: SupportedLeagueKey[] = ["NBA", "MLB", "NHL", "NFL", "NCAAF"];
+const PUBLISHABLE_TREND_LEAGUES = new Set<SupportedLeagueKey>(["NBA", "MLB", "NHL", "NFL", "NCAAF"]);
 
 export async function refreshTrendIntelligence(args?: {
   leagues?: SupportedLeagueKey[];
@@ -31,7 +31,7 @@ export async function refreshTrendIntelligence(args?: {
     try {
       historicalOdds.push(
         PUBLISHABLE_TREND_LEAGUES.has(leagueKey)
-          ? await ingestHistoricalOddsSnapshots(leagueKey as "NBA" | "NCAAB" | "MLB" | "NHL" | "NFL" | "NCAAF")
+          ? await ingestHistoricalOddsSnapshots(leagueKey as "NBA" | "MLB" | "NHL" | "NFL" | "NCAAF")
           : {
               sourceKey: "oddsharvester_historical",
               capturedAt: new Date().toISOString(),

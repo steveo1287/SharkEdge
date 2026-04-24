@@ -4,7 +4,6 @@ import type { LeagueKey, TeamRecord } from "@/lib/types/domain";
 const EVENT_SCOPE_SEPARATOR = ":";
 const ESPN_TEAM_LOGO_PATHS: Partial<Record<LeagueKey, string>> = {
   NBA: "nba",
-  NCAAB: "ncb",
   MLB: "mlb",
   NHL: "nhl",
   NFL: "nfl",

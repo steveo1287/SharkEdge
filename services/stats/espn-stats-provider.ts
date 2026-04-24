@@ -27,7 +27,6 @@ const mlbTeamDirectoryCache = new Map<number, MlbTeamDirectoryEntry[]>();
 
 const ESPN_LEAGUE_PATHS: Partial<Record<LeagueKey, EspnLeaguePath>> = {
   NBA: "basketball/nba",
-  NCAAB: "basketball/mens-college-basketball",
   MLB: "baseball/mlb",
   NHL: "hockey/nhl",
   NFL: "football/nfl",
@@ -38,15 +37,6 @@ const SEASON_STAT_BLUEPRINTS: Partial<
   Record<LeagueKey, Array<{ label: string; terms: string[] }>>
 > = {
   NBA: [
-    { label: "PPG", terms: ["avgPoints", "points per game"] },
-    { label: "FG%", terms: ["field goal percentage", "fg percentage", "fieldgoalpct"] },
-    { label: "3P%", terms: ["three point field goal percentage", "3 point percentage", "threepointfieldgoalpct"] },
-    { label: "FT%", terms: ["free throw percentage", "freethrowpct"] },
-    { label: "APG", terms: ["avgAssists", "assists per game"] },
-    { label: "RPG", terms: ["avgRebounds", "rebounds per game"] },
-    { label: "TO/G", terms: ["avgTurnovers", "turnovers per game"] }
-  ],
-  NCAAB: [
     { label: "PPG", terms: ["avgPoints", "points per game"] },
     { label: "FG%", terms: ["field goal percentage", "fg percentage", "fieldgoalpct"] },
     { label: "3P%", terms: ["three point field goal percentage", "3 point percentage", "threepointfieldgoalpct"] },
@@ -102,13 +92,6 @@ const LIVE_TEAM_STAT_BLUEPRINTS: Partial<
     { label: "REB", terms: ["totalrebounds", "rebounds", "reb"] },
     { label: "AST", terms: ["assists", "ast"] }
   ],
-  NCAAB: [
-    { label: "PTS", terms: ["points", "pts"] },
-    { label: "FG%", terms: ["fieldgoalpct", "field goal %", "fg%"] },
-    { label: "3P%", terms: ["threepointfieldgoalpct", "three point %", "3p%"] },
-    { label: "REB", terms: ["totalrebounds", "rebounds", "reb"] },
-    { label: "AST", terms: ["assists", "ast"] }
-  ],
   MLB: [
     { label: "R", terms: ["runs", "r"] },
     { label: "H", terms: ["hits", "h"] },
@@ -142,17 +125,6 @@ const FULL_BOX_SCORE_BLUEPRINTS: Partial<
   Record<LeagueKey, Array<{ label: string; terms: string[] }>>
 > = {
   NBA: [
-    { label: "PTS", terms: ["points", "pts"] },
-    { label: "FG", terms: ["fieldgoalsmadefieldgoalsattempted", "fg"] },
-    { label: "3PT", terms: ["threepointfieldgoalsmadethreepointfieldgoalsattempted", "3pt"] },
-    { label: "FT", terms: ["freethrowsmadefreethrowsattempted", "ft"] },
-    { label: "REB", terms: ["totalrebounds", "rebounds", "reb"] },
-    { label: "AST", terms: ["assists", "ast"] },
-    { label: "TO", terms: ["turnovers", "to"] },
-    { label: "STL", terms: ["steals", "stl"] },
-    { label: "BLK", terms: ["blocks", "blk"] }
-  ],
-  NCAAB: [
     { label: "PTS", terms: ["points", "pts"] },
     { label: "FG", terms: ["fieldgoalsmadefieldgoalsattempted", "fg"] },
     { label: "3PT", terms: ["threepointfieldgoalsmadethreepointfieldgoalsattempted", "3pt"] },
@@ -205,7 +177,6 @@ const FULL_BOX_SCORE_BLUEPRINTS: Partial<
 
 const SPORT_BOXSCORE_LIMITS: Partial<Record<LeagueKey, number>> = {
   NBA: 12,
-  NCAAB: 12,
   MLB: 12,
   NHL: 12,
   NFL: 14,
@@ -1388,7 +1359,7 @@ function extractFullPlayerBoxscoreRows(
   teamId: string,
   payload: JsonRecord
 ) {
-  if (leagueKey === "NBA" || leagueKey === "NCAAB") {
+  if (leagueKey === "NBA") {
     return extractBasketballBoxscoreRows(teamId, payload);
   }
 
@@ -1415,7 +1386,7 @@ function extractLiveBoxscoreDetails(
 ) {
   const teamStrip = extractDetailedBoxscoreTeamStats(leagueKey, competition, teamId, payload);
   const playerSpotlights =
-    leagueKey === "NBA" || leagueKey === "NCAAB"
+    leagueKey === "NBA"
       ? extractBasketballPlayerSpotlights(teamId, payload)
       : leagueKey === "MLB"
         ? extractMlbPlayerSpotlights(teamId, payload)
@@ -1771,13 +1742,13 @@ export const espnMatchupStatsProvider: MatchupStatsProvider = {
       ],
       trendCards: buildTrendCards(participantPanels),
       propsSupport: {
-        status: leagueKey === "NBA" || leagueKey === "NCAAB" ? "LIVE" : "PARTIAL",
+        status: leagueKey === "NBA" ? "LIVE" : "PARTIAL",
         note:
-          leagueKey === "NBA" || leagueKey === "NCAAB"
+          leagueKey === "NBA"
             ? "Live basketball player props are wired from the current odds backend for this matchup."
             : "Current props coverage for this league is still adapter-limited even though matchup detail is live.",
         supportedMarkets:
-          leagueKey === "NBA" || leagueKey === "NCAAB"
+          leagueKey === "NBA"
             ? [
                 "player_points",
                 "player_rebounds",

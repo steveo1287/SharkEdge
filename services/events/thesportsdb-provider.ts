@@ -11,7 +11,6 @@ const THESPORTSDB_LEAGUE_IDS: Partial<Record<SupportedLeagueKey, number>> = {
 
 const SPORT_BY_LEAGUE: Record<SupportedLeagueKey, ProviderEvent["sportCode"]> = {
   NBA: "BASKETBALL",
-  NCAAB: "BASKETBALL",
   MLB: "BASEBALL",
   NHL: "HOCKEY",
   NFL: "FOOTBALL",

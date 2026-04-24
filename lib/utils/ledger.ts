@@ -20,7 +20,6 @@ export const SPORT_LABELS: Record<SupportedSportCode, string> = {
 
 export const LEAGUE_SPORT_MAP: Record<SupportedLeagueKey, SupportedSportCode> = {
   NBA: "BASKETBALL",
-  NCAAB: "BASKETBALL",
   MLB: "BASEBALL",
   NHL: "HOCKEY",
   NFL: "FOOTBALL",
@@ -31,7 +30,6 @@ export const LEAGUE_SPORT_MAP: Record<SupportedLeagueKey, SupportedSportCode> = 
 
 export const LEAGUE_LABELS: Record<SupportedLeagueKey, string> = {
   NBA: "NBA",
-  NCAAB: "NCAA Men's Basketball",
   MLB: "MLB",
   NHL: "NHL",
   NFL: "NFL",

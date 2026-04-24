@@ -11,7 +11,6 @@ import type { MatchupDetailPayload, MatchupStatsProvider } from "./provider-type
 
 const SUPPORTED_LEAGUES: LeagueKey[] = [
   "NBA",
-  "NCAAB",
   "MLB",
   "NHL",
   "NFL",

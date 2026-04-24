@@ -2,7 +2,6 @@ import type { LeagueKey, TeamRecord } from "@/lib/types/domain";
 
 const ESPN_LEAGUE_LOGOS: Partial<Record<LeagueKey, string | null>> = {
   NBA: "https://a.espncdn.com/i/teamlogos/leagues/500/nba.png",
-  NCAAB: "https://a.espncdn.com/i/teamlogos/leagues/500/ncb.png",
   MLB: "https://a.espncdn.com/i/teamlogos/leagues/500/mlb.png",
   NHL: "https://a.espncdn.com/i/teamlogos/leagues/500/nhl.png",
   NFL: "https://a.espncdn.com/i/teamlogos/leagues/500/nfl.png",
@@ -22,7 +21,6 @@ function normalizeAbbreviation(team: TeamRecord) {
 
 function inferLeagueKey(team: TeamRecord): LeagueKey | null {
   if (team.leagueId.includes("nba")) return "NBA";
-  if (team.leagueId.includes("ncaab")) return "NCAAB";
   if (team.leagueId.includes("mlb")) return "MLB";
   if (team.leagueId.includes("nhl")) return "NHL";
   if (team.leagueId.includes("nfl")) return "NFL";
@@ -60,7 +58,7 @@ export function getTeamLogoUrl(team: TeamRecord, leagueKey?: LeagueKey | null) {
     return `https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/${abbreviation}.png&h=96&w=96`;
   }
 
-  if ((resolvedLeague === "NCAAB" || resolvedLeague === "NCAAF") && espnId) {
+  if (resolvedLeague === "NCAAF" && espnId) {
     return `https://a.espncdn.com/combiner/i?img=/i/teamlogos/ncaa/500/${espnId}.png&h=96&w=96`;
   }
 

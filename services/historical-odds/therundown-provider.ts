@@ -4,7 +4,6 @@ import type { HistoricalOddsIngestionProvider } from "./provider-types";
 
 const THERUNDOWN_SUPPORTED_LEAGUES: LeagueKey[] = [
   "NBA",
-  "NCAAB",
   "MLB",
   "NHL",
   "NFL",

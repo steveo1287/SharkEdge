@@ -75,7 +75,7 @@ type PublishedCandidate = PublishedTrendCard & {
 };
 type DiscoveredTrendView = Awaited<ReturnType<typeof listDiscoveredTrendSystems>>[number];
 
-const DISCOVER_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
+const DISCOVER_LEAGUES: LeagueKey[] = ["NBA", "MLB", "NHL", "NFL", "NCAAF"];
 const CATEGORY_ORDER: PublishedTrendCategory[] = [
   "Live Now",
   "Ready Next",

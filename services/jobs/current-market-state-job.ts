@@ -5,7 +5,7 @@ import { refreshCurrentBookFeeds } from "@/services/current-odds/book-feed-refre
 import { recomputeCurrentMarketState } from "@/services/edges/edge-engine";
 
 function toLeagueKey(value: string): LeagueKey | null {
-  const allowed = new Set<LeagueKey>(["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]);
+  const allowed = new Set<LeagueKey>(["NBA", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]);
   return allowed.has(value as LeagueKey) ? (value as LeagueKey) : null;
 }
 

@@ -2,7 +2,6 @@ import type { LeagueKey, LeagueMetaCard } from "@/lib/types/domain";
 
 const SPORTSDB_LEAGUE_NAMES: Partial<Record<LeagueKey, string>> = {
   NBA: "NBA",
-  NCAAB: "NCAA Men's Basketball",
   MLB: "MLB",
   NHL: "NHL",
   NFL: "NFL",

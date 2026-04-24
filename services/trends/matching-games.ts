@@ -10,7 +10,6 @@ import { getProviderRegistryEntry } from "@/services/providers/registry";
 
 const SUPPORTED_TREND_LEAGUES: LeagueKey[] = [
   "NBA",
-  "NCAAB",
   "MLB",
   "NHL",
   "NFL",
@@ -59,7 +58,7 @@ function getTargetLeagues(filters: TrendFilters) {
     const entry = getProviderRegistryEntry(leagueKey);
     switch (filters.sport) {
       case "BASKETBALL":
-        return leagueKey === "NBA" || leagueKey === "NCAAB";
+        return leagueKey === "NBA";
       case "BASEBALL":
         return leagueKey === "MLB";
       case "HOCKEY":

@@ -6,7 +6,7 @@ import {
   hasCurrentOddsBackendBaseUrl
 } from "../backend-url";
 
-const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
+const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "MLB", "NHL", "NFL", "NCAAF"];
 
 function resolveFanDuelFeedUrl() {
   const explicit = process.env.SHARKEDGE_FANDUEL_FEED_URL?.trim();

@@ -8,7 +8,6 @@ export const revalidate = 0;
 
 const LEAGUE_ICONS: Record<LeagueKey, string> = {
   NBA: "🏀",
-  NCAAB: "🏀",
   MLB: "⚾",
   NHL: "🏒",
   NFL: "🏈",

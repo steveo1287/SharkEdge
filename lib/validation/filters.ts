@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const boardFiltersSchema = z.object({
   league: z
-    .enum(["ALL", "NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"])
+    .enum(["ALL", "NBA", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"])
     .default("ALL"),
   date: z.string().default("all"),
   sportsbook: z.string().default("best"),
@@ -12,7 +12,7 @@ export const boardFiltersSchema = z.object({
 
 export const propsFiltersSchema = z.object({
   league: z
-    .enum(["ALL", "NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"])
+    .enum(["ALL", "NBA", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"])
     .default("ALL"),
   marketType: z
     .enum([
@@ -43,7 +43,7 @@ export const trendFiltersSchema = z.object({
     .enum(["ALL", "BASKETBALL", "BASEBALL", "HOCKEY", "FOOTBALL", "MMA", "BOXING", "OTHER"])
     .default("ALL"),
   league: z
-    .enum(["ALL", "NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"])
+    .enum(["ALL", "NBA", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"])
     .default("ALL"),
   market: z
     .enum([

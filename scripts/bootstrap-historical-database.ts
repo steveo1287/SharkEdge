@@ -4,7 +4,7 @@ import { backfillHistoricalEventCatalog } from "@/services/historical-odds/catal
 import { backfillHistoricalIntelligence } from "@/services/historical-odds/backfill-service";
 import { ingestHistoricalOddsSnapshots } from "@/services/historical-odds/ingestion-service";
 
-type SupportedHistoricalLeagueKey = "NBA" | "NCAAB" | "MLB" | "NHL" | "NFL" | "NCAAF";
+type SupportedHistoricalLeagueKey = "NBA" | "MLB" | "NHL" | "NFL" | "NCAAF";
 
 function readArg(flag: string) {
   return process.argv.find((argument) => argument.startsWith(`${flag}=`))?.split("=")[1] ?? null;
@@ -30,9 +30,9 @@ async function main() {
 
   const targetLeagues: Array<SupportedHistoricalLeagueKey> = leagues?.length
     ? leagues.filter((leagueKey): leagueKey is SupportedHistoricalLeagueKey =>
-        ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"].includes(leagueKey)
+        ["NBA", "MLB", "NHL", "NFL", "NCAAF"].includes(leagueKey)
       )
-    : ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
+    : ["NBA", "MLB", "NHL", "NFL", "NCAAF"];
   const oddsResults = [];
   const intelligenceResults = [];
 

@@ -13,7 +13,6 @@ import { buildProviderHealth } from "@/services/providers/provider-health";
 const LIVE_PROPS_TIMEOUT_MS = 3_500;
 const PROPS_FALLBACK_LEAGUES: LeagueKey[] = [
   "NBA",
-  "NCAAB",
   "MLB",
   "NHL",
   "NFL",

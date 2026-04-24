@@ -12,7 +12,6 @@ import { buildLeagueStorySummary } from "@/services/content/story-writer-service
 
 const ESPN_LEAGUE_PATHS: Partial<Record<LeagueKey, string>> = {
   NBA: "basketball/nba",
-  NCAAB: "basketball/mens-college-basketball",
   MLB: "baseball/mlb",
   NHL: "hockey/nhl",
   NFL: "football/nfl",

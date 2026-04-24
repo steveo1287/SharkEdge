@@ -5,7 +5,6 @@ import { getBoardPageData, parseBoardFilters } from "@/services/odds/board-servi
 
 const SUPPORTED_LEAGUES = new Set<LeagueKey>([
   "NBA",
-  "NCAAB",
   "MLB",
   "NHL",
   "NFL",

@@ -17,7 +17,7 @@ import { LEAGUE_SPORT_MAP, SPORT_LABELS } from "@/lib/utils/ledger";
 
 export const dynamic = "force-dynamic";
 
-const FEATURED_LEAGUE_PRIORITY: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"];
+const FEATURED_LEAGUE_PRIORITY: LeagueKey[] = ["NBA", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"];
 
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;

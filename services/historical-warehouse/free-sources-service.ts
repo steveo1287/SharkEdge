@@ -61,7 +61,7 @@ type NhlClubScheduleResponse = {
   }>;
 };
 
-const DEFAULT_LEAGUES: SupportedLeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
+const DEFAULT_LEAGUES: SupportedLeagueKey[] = ["NBA", "MLB", "NHL", "NFL", "NCAAF"];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const NHL_TEAM_CODES = [
@@ -252,7 +252,7 @@ async function importPersistedGames(sourceKey: FreeHistoricalSourceKey, games: S
 }
 
 function mapSportsDataverseGame(args: {
-  leagueKey: "NBA" | "NCAAB" | "NCAAF";
+  leagueKey: "NBA" | "NCAAF";
   sportCode: SupportedSportCode;
   sourceKey: FreeHistoricalSourceKey;
   row: CsvRecord;
@@ -305,7 +305,7 @@ function mapSportsDataverseGame(args: {
 }
 
 async function importSportsDataverseGames(args: {
-  leagueKey: "NBA" | "NCAAB" | "NCAAF";
+  leagueKey: "NBA" | "NCAAF";
   sourceKey: FreeHistoricalSourceKey;
   url: string;
   startDate: Date;
@@ -558,19 +558,6 @@ export async function importFreeHistoricalWarehouse(
           leagueKey: "NBA",
           sourceKey: "sportsdataverse_nba",
           url: nbaUrl,
-          startDate,
-          endDate
-        })
-      );
-    } else if (leagueKey === "NCAAB") {
-      result = await buildLeagueImportResult(
-        "NCAAB",
-        "sportsdataverse_ncaab",
-        "BASKETBALL",
-        await importSportsDataverseGames({
-          leagueKey: "NCAAB",
-          sourceKey: "sportsdataverse_ncaab",
-          url: ncaabUrl,
           startDate,
           endDate
         })

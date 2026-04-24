@@ -31,14 +31,6 @@ const HISTORICAL_LEAGUE_CONFIG = {
     sportCode: "BASKETBALL" as SportCode,
     category: "team"
   },
-  NCAAB: {
-    backendSportKey: "basketball_ncaab",
-    leagueName: "NCAA Men's Basketball",
-    sportProfileKey: "basketball",
-    sportName: "Basketball",
-    sportCode: "BASKETBALL" as SportCode,
-    category: "team"
-  },
   MLB: {
     backendSportKey: "baseball_mlb",
     leagueName: "Major League Baseball",
@@ -87,7 +79,6 @@ const HISTORICAL_LEAGUE_CONFIG = {
 
 const ESPN_HISTORICAL_SCOREBOARD_PATHS: Record<SupportedHistoricalLeagueKey, string> = {
   NBA: "basketball/nba",
-  NCAAB: "basketball/mens-college-basketball",
   MLB: "baseball/mlb",
   NHL: "hockey/nhl",
   NFL: "football/nfl",

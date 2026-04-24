@@ -6,7 +6,6 @@ const NCAA_API_BASE_URL =
   process.env.NCAA_API_BASE_URL?.trim() || "https://ncaa-api.henrygd.me";
 
 const NCAA_SCOREBOARD_PATHS: Partial<Record<SupportedLeagueKey, string>> = {
-  NCAAB: "scoreboard/basketball-men/d1",
   NCAAF: "scoreboard/football/fbs"
 };
 
@@ -156,7 +155,7 @@ function normalizeGame(
         ? String(game.id)
         : `${leagueKey.toLowerCase()}-${participants[0]?.name}-${participants[1]?.name}-${String(game.date ?? game.startTime ?? "na")}`,
     providerKey: "ncaa-api",
-    sportCode: leagueKey === "NCAAB" ? "BASKETBALL" : "FOOTBALL",
+    sportCode: "FOOTBALL",
     leagueKey,
     name: `${participants[0]?.name ?? "TBD"} vs ${participants[1]?.name ?? "TBD"}`,
     startTime:

@@ -3,7 +3,7 @@ import type { LeagueKey } from "@/lib/types/domain";
 import { getCurrentOddsBackendBaseUrl } from "./backend-url";
 import type { BookFeedProvider, BookFeedProviderKey } from "./book-feed-provider-types";
 
-const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
+const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "MLB", "NHL", "NFL", "NCAAF"];
 
 const oddsharvesterBookFeedProvider: BookFeedProvider = {
   key: "oddsharvester",

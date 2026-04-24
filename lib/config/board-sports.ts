@@ -19,7 +19,6 @@ export type BoardSportConfig = {
 
 const SPORT_LABELS: Record<LeagueKey, string> = {
   NBA: "NBA",
-  NCAAB: "NCAA Men's Basketball",
   MLB: "MLB",
   NHL: "NHL",
   NFL: "NFL",
@@ -30,7 +29,6 @@ const SPORT_LABELS: Record<LeagueKey, string> = {
 
 const SPORT_CODES: Record<LeagueKey, SportCode> = {
   NBA: "BASKETBALL",
-  NCAAB: "BASKETBALL",
   MLB: "BASEBALL",
   NHL: "HOCKEY",
   NFL: "FOOTBALL",
@@ -53,13 +51,6 @@ const SPORT_NOTES: Record<
       "NBA now runs through a live score adapter, matchup detail provider, current odds adapter, and harvested historical odds foundation.",
     scoreboardDetail:
       "ESPN powers live state and matchup drill-in. Current odds stay separate from historical ingestion."
-  },
-  NCAAB: {
-    note: "NCAAB is live on the board with ESPN state, NCAA fallback support, and current basketball props.",
-    detail:
-      "NCAAB now has live score coverage, matchup detail drill-ins, current pregame odds, and basketball prop support with honest provider notes.",
-    scoreboardDetail:
-      "ESPN is primary, with NCAA fallback scaffolding available for college enrichment."
   },
   MLB: {
     note: "MLB scoreboard and matchup pages are live. Current odds are wired. Props remain partial.",
@@ -107,7 +98,6 @@ const SPORT_NOTES: Record<
 
 export const BOARD_SPORT_ORDER: LeagueKey[] = [
   "NBA",
-  "NCAAB",
   "MLB",
   "NHL",
   "NFL",

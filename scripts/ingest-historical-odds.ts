@@ -5,7 +5,6 @@ const league =
   (leagueArg?.split("=")[1] as
     | "ALL"
     | "NBA"
-    | "NCAAB"
     | "MLB"
     | "NHL"
     | "NFL"

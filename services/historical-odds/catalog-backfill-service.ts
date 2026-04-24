@@ -5,7 +5,6 @@ import { invalidateTrendCache } from "@/services/trends/cache";
 
 const HISTORICAL_DATE_WINDOWS: Record<SupportedLeagueKey, number> = {
   NBA: 365,
-  NCAAB: 365,
   MLB: 240,
   NHL: 365,
   NFL: 210,

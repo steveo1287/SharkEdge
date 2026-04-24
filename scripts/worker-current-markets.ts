@@ -4,7 +4,7 @@ import { refreshCurrentBookFeeds } from "@/services/current-odds/book-feed-refre
 import { currentMarketStateJob } from "@/services/jobs/current-market-state-job";
 import { getBooleanArg, getStringArg, logStep, parseArgs } from "./_runtime-utils";
 
-const ALLOWED_LEAGUES = new Set<LeagueKey>(["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]);
+const ALLOWED_LEAGUES = new Set<LeagueKey>(["NBA", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]);
 
 function toLeagueKey(value: string | null | undefined): LeagueKey | null {
   if (!value) {

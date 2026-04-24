@@ -1,13 +1,12 @@
 import type { LeagueKey } from "@/lib/types/domain";
 import type { BookFeedProvider } from "../book-feed-provider-types";
 
-const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
+const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "MLB", "NHL", "NFL", "NCAAF"];
 const API_KEY = process.env.ODDSAPI_IO_KEY?.trim();
 const API_KEY_2 = process.env.ODDSAPI_IO_KEY_2?.trim();
 
 const SPORT_MAP: Record<LeagueKey, string> = {
   NBA: "basketball_nba",
-  NCAAB: "basketball_ncaab",
   MLB: "baseball_mlb",
   NHL: "icehockey_nhl",
   NFL: "americanfootball_nfl",

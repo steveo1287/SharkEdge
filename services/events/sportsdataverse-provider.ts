@@ -6,7 +6,6 @@ import type { EventProvider, ProviderEvent } from "./provider-types";
 
 const SUPPORTED_LEAGUES: SupportedLeagueKey[] = [
   "NBA",
-  "NCAAB",
   "MLB",
   "NHL",
   "NFL",

@@ -33,7 +33,7 @@ type SafeTrendFeed = {
 };
 
 const VALID_TREND_LEAGUES: Array<NonNullable<TrendFilters["league"]>> = [
-  "ALL","NBA","NCAAB","MLB","NHL","NFL","NCAAF","BOXING","UFC"
+  "ALL","NBA","MLB","NHL","NFL","NCAAF","BOXING","UFC"
 ];
 
 function normalizeTrendLeague(value: string | null | undefined): NonNullable<TrendFilters["league"]> {

@@ -3,7 +3,6 @@ import type { LeagueKey, LeagueRecord, PlayerRecord, SportsbookRecord, TeamRecor
 
 export const LIVE_SPORT_TO_LEAGUE: Record<string, LeagueKey | null> = {
   basketball_nba: "NBA",
-  basketball_ncaab: "NCAAB",
   baseball_mlb: "MLB",
   icehockey_nhl: "NHL",
   americanfootball_nfl: "NFL",
@@ -13,10 +12,6 @@ export const LIVE_SPORT_TO_LEAGUE: Record<string, LeagueKey | null> = {
 const LIVE_SPORT_FALLBACK_ALIASES: Record<string, LeagueKey> = {
   nba: "NBA",
   basketball_nba: "NBA",
-  ncaab: "NCAAB",
-  basketball_ncaab: "NCAAB",
-  ncaa_mens_basketball: "NCAAB",
-  ncaa_men_s_basketball: "NCAAB",
   mlb: "MLB",
   baseball_mlb: "MLB",
   nhl: "NHL",
@@ -30,13 +25,11 @@ const LIVE_SPORT_FALLBACK_ALIASES: Record<string, LeagueKey> = {
 
 export const LIVE_PROP_SPORT_KEYS: Partial<Record<LeagueKey, string>> = {
   NBA: "basketball_nba",
-  NCAAB: "basketball_ncaab",
   NHL: "icehockey_nhl"
 };
 
 export const PROP_COVERAGE_ORDER: LeagueKey[] = [
   "NBA",
-  "NCAAB",
   "MLB",
   "NHL",
   "NFL",

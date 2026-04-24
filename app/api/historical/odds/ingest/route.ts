@@ -8,7 +8,7 @@ import {
 
 const ingestSchema = z.object({
   league: z
-    .enum(["ALL", "NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"])
+    .enum(["ALL", "NBA", "MLB", "NHL", "NFL", "NCAAF"])
     .default("ALL")
 });
 

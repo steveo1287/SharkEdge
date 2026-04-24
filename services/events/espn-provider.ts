@@ -4,7 +4,6 @@ import type { EventProvider, ProviderEvent, ProviderParticipant } from "./provid
 
 const ESPN_LEAGUE_PATHS: Record<SupportedLeagueKey, string | null> = {
   NBA: "basketball/nba",
-  NCAAB: "basketball/mens-college-basketball",
   MLB: "baseball/mlb",
   NHL: "hockey/nhl",
   NFL: "football/nfl",
@@ -15,7 +14,6 @@ const ESPN_LEAGUE_PATHS: Record<SupportedLeagueKey, string | null> = {
 
 const SPORT_BY_LEAGUE: Record<SupportedLeagueKey, ProviderEvent["sportCode"]> = {
   NBA: "BASKETBALL",
-  NCAAB: "BASKETBALL",
   MLB: "BASEBALL",
   NHL: "HOCKEY",
   NFL: "FOOTBALL",

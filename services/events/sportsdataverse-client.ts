@@ -20,7 +20,6 @@ const SPORTS_DATAVERSE_MODULE_BY_LEAGUE: Partial<
   Record<SupportedLeagueKey, keyof SportsDataverseRoot>
 > = {
   NBA: "nba",
-  NCAAB: "mbb",
   MLB: "mlb",
   NHL: "nhl",
   NFL: "nfl",

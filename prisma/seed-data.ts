@@ -74,14 +74,6 @@ const leagues: LeagueRecord[] = [
     updatedAt: timestamps.updated
   },
   {
-    id: "league_ncaab",
-    key: "NCAAB",
-    name: "NCAA Men's Basketball",
-    sport: "BASKETBALL",
-    createdAt: timestamps.created,
-    updatedAt: timestamps.updated
-  },
-  {
     id: "league_mlb",
     key: "MLB",
     name: "Major League Baseball",
@@ -225,22 +217,12 @@ const standings: Partial<Record<LeagueRecord["key"], LeagueStanding[]>> = {
     { teamId: "team_mil", rank: 4, wins: 46, losses: 29, streak: "L1", netRating: 4.8 },
     { teamId: "team_lal", rank: 5, wins: 43, losses: 32, streak: "W3", netRating: 2.1 },
     { teamId: "team_mia", rank: 6, wins: 41, losses: 34, streak: "L2", netRating: 0.9 }
-  ],
-  NCAAB: [
-    { teamId: "team_hou", rank: 1, wins: 30, losses: 5, streak: "W8", netRating: 21.5 },
-    { teamId: "team_duke", rank: 2, wins: 29, losses: 6, streak: "W6", netRating: 20.3 },
-    { teamId: "team_purdue", rank: 3, wins: 28, losses: 7, streak: "W3", netRating: 17.9 },
-    { teamId: "team_uconn", rank: 4, wins: 26, losses: 9, streak: "W2", netRating: 16.2 },
-    { teamId: "team_arizona", rank: 5, wins: 26, losses: 9, streak: "L1", netRating: 15.4 },
-    { teamId: "team_kansas", rank: 6, wins: 24, losses: 11, streak: "W1", netRating: 11.7 }
   ]
 };
 
 const previousGames: PreviousGame[] = [
   { id: "prev_nba_1", leagueKey: "NBA", playedAt: "2026-03-22T01:00:00.000Z", awayTeamId: "team_bos", homeTeamId: "team_nyk", awayScore: 114, homeScore: 107 },
-  { id: "prev_nba_2", leagueKey: "NBA", playedAt: "2026-03-22T02:30:00.000Z", awayTeamId: "team_den", homeTeamId: "team_lal", awayScore: 118, homeScore: 111 },
-  { id: "prev_ncaab_1", leagueKey: "NCAAB", playedAt: "2026-03-22T00:10:00.000Z", awayTeamId: "team_hou", homeTeamId: "team_arizona", awayScore: 76, homeScore: 70 },
-  { id: "prev_ncaab_2", leagueKey: "NCAAB", playedAt: "2026-03-22T02:05:00.000Z", awayTeamId: "team_purdue", homeTeamId: "team_duke", awayScore: 72, homeScore: 78 }
+  { id: "prev_nba_2", leagueKey: "NBA", playedAt: "2026-03-22T02:30:00.000Z", awayTeamId: "team_den", homeTeamId: "team_lal", awayScore: 118, homeScore: 111 }
 ];
 
 const teamGameStats: TeamGameStatRecord[] = [
@@ -828,14 +810,10 @@ function buildPropMarkets() {
 const seededBetsSource = [
   ["bet_1", "2026-03-18T19:30:00.000Z", "BASKETBALL", "NBA", "game_bos_mil", null, "spread", "BOS", -3.5, -110, "book_fd", 1.5, "WIN", -4.0, 0.5, "Beat the close on Boston.", ["steam", "pregame"], false],
   ["bet_2", "2026-03-18T23:15:00.000Z", "BASKETBALL", "NBA", "game_den_lal", "player_jokic", "player_assists", "OVER", 8.5, -105, "book_dk", 1.0, "WIN", 9.0, 0.5, "Lakers gave up middle all week.", ["props"], false],
-  ["bet_3", "2026-03-19T00:45:00.000Z", "BASKETBALL", "NCAAB", "game_duke_hou", null, "total", "UNDER", 140.5, -110, "book_mgm", 1.0, "LOSS", 139.0, -1.5, "Bought into the semifinal nerves angle.", ["totals"], false],
-  ["bet_4", "2026-03-19T21:10:00.000Z", "BASKETBALL", "NBA", "game_nyk_mia", "player_brunson", "player_assists", "OVER", 7.0, -112, "book_fd", 1.0, "WIN", 7.5, 0.5, "Usage spike without Randle.", ["props", "injury"], false],
-  ["bet_5", "2026-03-20T01:00:00.000Z", "BASKETBALL", "NCAAB", "game_kansas_purdue", null, "moneyline", "PUR", null, -170, "book_dk", 2.0, "WIN", null, null, "Faded Kansas interior depth.", ["side"], false],
-  ["bet_6", "2026-03-20T17:45:00.000Z", "BASKETBALL", "NBA", null, "player_lebron", "player_points", "UNDER", 27.5, -110, "book_czr", 1.0, "LOSS", 26.5, 1.0, "Late number move but wrong read.", ["props"], false],
-  ["bet_7", "2026-03-21T18:20:00.000Z", "BASKETBALL", "NCAAB", null, "player_flagg", "player_points", "OVER", 17.5, -108, "book_fd", 1.0, "WIN", 18.5, 1.0, "Freshman usage never dipped.", ["props"], false],
-  ["bet_8", "2026-03-22T23:00:00.000Z", "BASKETBALL", "NBA", "game_bos_mil", null, "total", "OVER", 227.5, -105, "book_mgm", 1.0, "PUSH", 228.5, 1.0, "Market landed right on it.", ["totals"], false],
-  ["bet_9", "2026-03-23T13:10:00.000Z", "BASKETBALL", "NBA", "game_den_lal", null, "spread", "DEN", -5.5, -110, "book_dk", 1.25, "OPEN", -6.0, 0.5, "Still playable to -6.", ["today", "board"], false],
-  ["bet_10", "2026-03-23T13:35:00.000Z", "BASKETBALL", "NCAAB", "game_kansas_purdue", "player_braden", "player_assists", "OVER", 8.5, -104, "book_dk", 0.75, "OPEN", 9.0, 0.5, "Need pace and paint touches.", ["today", "props"], false]
+  ["bet_3", "2026-03-19T21:10:00.000Z", "BASKETBALL", "NBA", "game_nyk_mia", "player_brunson", "player_assists", "OVER", 7.0, -112, "book_fd", 1.0, "WIN", 7.5, 0.5, "Usage spike without Randle.", ["props", "injury"], false],
+  ["bet_4", "2026-03-20T17:45:00.000Z", "BASKETBALL", "NBA", null, "player_lebron", "player_points", "UNDER", 27.5, -110, "book_czr", 1.0, "LOSS", 26.5, 1.0, "Late number move but wrong read.", ["props"], false],
+  ["bet_5", "2026-03-22T23:00:00.000Z", "BASKETBALL", "NBA", "game_bos_mil", null, "total", "OVER", 227.5, -105, "book_mgm", 1.0, "PUSH", 228.5, 1.0, "Market landed right on it.", ["totals"], false],
+  ["bet_6", "2026-03-23T13:10:00.000Z", "BASKETBALL", "NBA", "game_den_lal", null, "spread", "DEN", -5.5, -110, "book_dk", 1.25, "OPEN", -6.0, 0.5, "Still playable to -6.", ["today", "board"], false]
 ] as const;
 
 const bets: BetRecord[] = seededBetsSource.map(

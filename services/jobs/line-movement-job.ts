@@ -4,7 +4,7 @@ import type { LeagueKey } from "@/lib/types/domain";
 import { refreshCurrentBookFeeds } from "@/services/current-odds/book-feed-refresh-service";
 
 function toLeagueKey(value: string): LeagueKey | null {
-  const allowed = new Set<LeagueKey>(["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]);
+  const allowed = new Set<LeagueKey>(["NBA", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]);
   return allowed.has(value as LeagueKey) ? (value as LeagueKey) : null;
 }
 

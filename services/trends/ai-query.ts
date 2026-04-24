@@ -10,7 +10,6 @@ const SPORT_KEYWORDS: Array<{
   league?: TrendFilters["league"];
 }> = [
   { pattern: /\bnba\b/i, sport: "BASKETBALL", league: "NBA" },
-  { pattern: /\bncaab\b|\bcollege basketball\b|\bmens college basketball\b/i, sport: "BASKETBALL", league: "NCAAB" },
   { pattern: /\bmlb\b|\bbaseball\b/i, sport: "BASEBALL", league: "MLB" },
   { pattern: /\bnhl\b|\bhockey\b/i, sport: "HOCKEY", league: "NHL" },
   { pattern: /\bnfl\b/i, sport: "FOOTBALL", league: "NFL" },
