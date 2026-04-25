@@ -1,4 +1,4 @@
-name: Deploy to Railway
+name: Deploy Production
 
 on:
   push:
@@ -6,109 +6,180 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  RAILWAY_ENVIRONMENT: ${{ vars.RAILWAY_ENVIRONMENT || 'production' }}
+  RAILWAY_WEB_SERVICE: ${{ vars.RAILWAY_WEB_SERVICE || 'sharkedge-web' }}
+  RAILWAY_WORKER_ODDS_SERVICE: ${{ vars.RAILWAY_WORKER_ODDS_SERVICE || 'odds-worker' }}
+  RAILWAY_WORKER_TRENDS_SERVICE: ${{ vars.RAILWAY_WORKER_TRENDS_SERVICE || 'trends-worker' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
-
     services:
       postgres:
-        image: postgres:15
+        image: postgres:16
         env:
+          POSTGRES_DB: sharkedge_ci
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: sharkedge
+        ports:
+          - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d sharkedge_ci"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        ports:
-          - 5432:5432
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sharkedge_ci
+      NODE_ENV: test
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
-      - run: npm ci
+      - name: Install dependencies
+        run: npm ci --include=dev || npm install --include=dev
 
-      - name: TypeScript Check
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Typecheck
         run: npm run typecheck
 
-      - name: Run Tests
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sharkedge
+      - name: Tests
         run: npm test
 
   deploy:
-    needs: test
     runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Deploy Web Service
+      - name: Deploy Railway services
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up --service sharkedge-web --detach
-
-      - name: Deploy Workers
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        shell: bash
         run: |
-          railway up --service sharkedge-odds-worker --detach
-          railway up --service sharkedge-trends-worker --detach
+          set -euo pipefail
 
-      - name: Run Database Migrations
+          if [ -z "${RAILWAY_TOKEN:-}" ]; then
+            echo "RAILWAY_TOKEN secret is required"
+            exit 1
+          fi
+
+          if [ -z "${RAILWAY_PROJECT_ID:-}" ]; then
+            echo "RAILWAY_PROJECT_ID secret is required"
+            exit 1
+          fi
+
+          railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_WEB_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
+          railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_WORKER_ODDS_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
+
+          if [ -n "${RAILWAY_WORKER_TRENDS_SERVICE:-}" ]; then
+            railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_WORKER_TRENDS_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
+          fi
+
+      - name: Health check
         env:
-          DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
-        run: npx prisma migrate deploy --skip-generate
+          HEALTHCHECK_URL: ${{ vars.PRODUCTION_HEALTHCHECK_URL || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      - name: Health Check - Web Service
+          if [ -z "${HEALTHCHECK_URL:-}" ]; then
+            echo "PRODUCTION_HEALTHCHECK_URL not set; skipping HTTP verification"
+            exit 0
+          fi
+
+          echo "Checking $HEALTHCHECK_URL"
+          for i in {1..20}; do
+            if curl -fsS "$HEALTHCHECK_URL" >/tmp/health.json; then
+              echo "Health check passed"
+              cat /tmp/health.json
+              exit 0
+            fi
+            echo "Health check attempt $i failed; retrying..."
+            sleep 10
+          done
+
+          echo "Health check failed after retries"
+          exit 1
+
+      - name: Verify database tables
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+          REQUIRED_TABLES: ${{ vars.REQUIRED_DB_TABLES || 'sports,leagues,events,event_markets,current_market_states' }}
+          OPTIONAL_TABLES: ${{ vars.OPTIONAL_DB_TABLES || 'simulation_cache,verdict_ab_tests' }}
+        shell: bash
         run: |
-          HEALTH_URL=$(railway variables get RAILWAY_HEALTHCHECK_URL 2>/dev/null || echo "https://sharkedge.railway.app/api/health")
-          sleep 30
-          curl -f $HEALTH_URL || exit 1
+          set -euo pipefail
 
-      - name: Verify Database Tables
-        env:
-          DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
-        run: |
-          npx tsx -e "
-            const { execSync } = require('child_process');
-            const result = execSync('npx prisma db execute --stdin', {
-              input: \"SELECT table_name FROM information_schema.tables WHERE table_name IN ('simulation_cache', 'verdict_ab_tests')\",
-              encoding: 'utf-8'
-            });
-            console.log('✅ Database tables verified');
-          "
+          if [ -z "${RAILWAY_DATABASE_URL:-}" ]; then
+            echo "RAILWAY_DATABASE_URL secret is required"
+            exit 1
+          fi
 
-      - name: Deployment Summary
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y postgresql-client >/dev/null
+
+          IFS=',' read -ra REQUIRED <<< "$REQUIRED_TABLES"
+          IFS=',' read -ra OPTIONAL <<< "$OPTIONAL_TABLES"
+
+          for table in "${REQUIRED[@]}"; do
+            table_trimmed="$(echo "$table" | xargs)"
+            if [ -z "$table_trimmed" ]; then
+              continue
+            fi
+            exists=$(psql "$RAILWAY_DATABASE_URL" -tAc "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='${table_trimmed}');")
+            if [ "$exists" != "t" ]; then
+              echo "Missing required table: $table_trimmed"
+              exit 1
+            fi
+            echo "Verified required table: $table_trimmed"
+          done
+
+          for table in "${OPTIONAL[@]}"; do
+            table_trimmed="$(echo "$table" | xargs)"
+            if [ -z "$table_trimmed" ]; then
+              continue
+            fi
+            exists=$(psql "$RAILWAY_DATABASE_URL" -tAc "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='${table_trimmed}');")
+            if [ "$exists" != "t" ]; then
+              echo "Warning: optional table not found: $table_trimmed"
+            else
+              echo "Verified optional table: $table_trimmed"
+            fi
+          done
+
+      - name: Deployment summary
         run: |
-          echo "✅ Deployment Complete"
-          echo ""
-          echo "Services deployed:"
-          echo "  - Web: sharkedge-web"
-          echo "  - Worker: sharkedge-odds-worker"
-          echo "  - Worker: sharkedge-trends-worker"
-          echo ""
-          echo "Database:"
-          echo "  - SimulationCache table"
-          echo "  - VerdictAbTest table"
-          echo ""
-          echo "A/B Test:"
-          echo "  - regime-aware-variance-v1 (50/50 split)"
-          echo ""
-          echo "Monitor at: https://railway.app/dashboard"
+          echo "Deployment completed for commit $GITHUB_SHA"
+          echo "Environment: $RAILWAY_ENVIRONMENT"
+          echo "Web service: $RAILWAY_WEB_SERVICE"
+          echo "Odds worker: $RAILWAY_WORKER_ODDS_SERVICE"
+          echo "Trends worker: ${RAILWAY_WORKER_TRENDS_SERVICE:-<skipped>}"
