@@ -345,7 +345,7 @@ export async function getBoardPageData(filters: BoardFilters): Promise<BoardPage
     fallback: null
   });
 
-  if (hasRenderableOdds(dbData)) {
+  if (dbData && hasRenderableOdds(dbData)) {
     return dbData;
   }
 
@@ -354,7 +354,7 @@ export async function getBoardPageData(filters: BoardFilters): Promise<BoardPage
     fallback: null
   });
 
-  if (hasRenderableOdds(liveData)) {
+  if (liveData && hasRenderableOdds(liveData)) {
     return liveData;
   }
 
