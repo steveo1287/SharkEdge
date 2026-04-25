@@ -181,11 +181,11 @@ export async function getABTestDashboard(): Promise<ABTestDashboard> {
     const recentTests = allTests.slice(0, 50).map((t) => ({
       eventId: t.eventId,
       testName,
-      variant: t.variant,
-      regime: (t.metadataJson as any)?.regime ?? null,
-      controlError: t.controlVerdict && t.actualHomeScore !== null ? (t.totalAccuracy as any) : null,
-      treatmentError: t.treatmentVerdict && t.actualHomeScore !== null ? (t.totalAccuracy as any) : null,
-      winner: !t.resolved ? "pending" : t.verdictAccuracy === 0.5 ? "tie" : (t.winnerVariant as any),
+      variant: t.variant as "control" | "treatment",
+      regime: ((t.metadataJson as any)?.regime ?? null) as string | null,
+      controlError: t.controlVerdict && t.actualHomeScore !== null ? (t.totalAccuracy as number) : null,
+      treatmentError: t.treatmentVerdict && t.actualHomeScore !== null ? (t.totalAccuracy as number) : null,
+      winner: (!t.resolved ? "pending" : t.verdictAccuracy === 0.5 ? "tie" : (t.winnerVariant as "control" | "treatment")) as "control" | "treatment" | "pending" | "tie",
       resolvedAt: t.resolvedAt ? t.resolvedAt.toISOString() : null
     }));
 
