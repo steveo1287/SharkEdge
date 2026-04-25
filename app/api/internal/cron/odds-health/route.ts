@@ -86,10 +86,10 @@ export async function GET(request: Request) {
   }
 
   const origin = getOrigin(request);
-  const [board, readiness, therundownBoard, inventory, previousState] = await Promise.all([
+  // Using OddsHarvester + SportsDataverse for all odds data (removed paid APIs)
+  const [board, readiness, inventory, previousState] = await Promise.all([
     fetchJson(`${origin}/api/v1/board?status=all&date=all`),
     fetchJson(`${origin}/api/v1/providers/readiness`),
-    fetchJson(`${origin}/api/v1/providers/therundown-board`),
     Promise.all([
       prisma.event.count({
         where: {
@@ -122,9 +122,6 @@ export async function GET(request: Request) {
 
   const boardGames = Array.isArray(board.json?.games) ? board.json.games.length : 0;
   const readinessState = readiness.json?.overallState ?? "ERROR";
-  const therundownSports = Array.isArray(therundownBoard.json?.sports)
-    ? therundownBoard.json.sports.length
-    : 0;
 
   const issues: string[] = [];
   if (!board.ok) {
@@ -135,9 +132,6 @@ export async function GET(request: Request) {
   }
   if (boardGames === 0) {
     issues.push("Board returned zero games.");
-  }
-  if (therundownBoard.ok && therundownSports === 0) {
-    issues.push("TheRundown board returned zero sports.");
   }
 
   const status: "ok" | "degraded" | "error" =
@@ -160,7 +154,6 @@ export async function GET(request: Request) {
       `SharkEdge odds health alert (${status.toUpperCase()})`,
       `Board games: ${boardGames}`,
       `Readiness: ${readinessState}`,
-      `TheRundown sports: ${therundownSports}`,
       `Failure streak: ${nextState.failureStreak}`,
       `Issues: ${issues.join(" | ")}`
     ].join("\n");
@@ -190,11 +183,6 @@ export async function GET(request: Request) {
         ok: readiness.ok,
         status: readiness.status,
         overallState: readinessState
-      },
-      therundownBoard: {
-        ok: therundownBoard.ok,
-        status: therundownBoard.status,
-        sports: therundownSports
       }
     },
     inventory: {

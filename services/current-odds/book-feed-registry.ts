@@ -3,6 +3,20 @@ import type { LeagueKey } from "@/lib/types/domain";
 import { getCurrentOddsBackendBaseUrl } from "./backend-url";
 import type { BookFeedProvider, BookFeedProviderKey } from "./book-feed-provider-types";
 
+/**
+ * Book feed providers registry - OPEN-SOURCE ONLY
+ *
+ * Primary data sources:
+ * - OddsHarvester: CLI-based odds scraper (https://github.com/jordantete/OddsHarvester)
+ * - SportsDataverse: Enriched sports data (https://github.com/sportsdataverse/sportsdataverse-js)
+ *
+ * Removed paid/rate-limited providers:
+ * - OddsAPI (the-odds-api.com) - paid service with rate limits
+ * - TheRundown - paid historical odds service
+ * - Pinnacle - paid premium lines
+ * - TheSportsDB - rate-limited free tier
+ */
+
 const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "MLB", "NHL", "NFL", "NCAAF"];
 
 const oddsharvesterBookFeedProvider: BookFeedProvider = {

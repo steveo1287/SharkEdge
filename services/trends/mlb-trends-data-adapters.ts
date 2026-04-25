@@ -4,7 +4,7 @@ import type {
   MlbHistoricalNormalizationResult
 } from "@/lib/types/mlb-trends";
 import { backendCurrentOddsProvider } from "@/services/current-odds/backend-provider";
-import { therundownCurrentOddsProvider } from "@/services/current-odds/therundown-provider";
+// Removed: therundownCurrentOddsProvider (TheRundown is paid - using OddsHarvester via backend)
 import type { CurrentOddsBoardResponse } from "@/services/current-odds/provider-types";
 import type { HistoricalOddsHarvestResponse } from "@/services/historical-odds/provider-types";
 
@@ -395,14 +395,11 @@ export async function loadRawMlbHistoricalTrendInputs(): Promise<unknown[]> {
 }
 
 export async function loadRawMlbBoardTrendInputs(): Promise<unknown[]> {
-  const [backendResponse, theRundownResponse] = await Promise.all([
-    backendCurrentOddsProvider.fetchBoard(),
-    therundownCurrentOddsProvider.fetchBoard()
-  ]);
+  // OddsHarvester/SportsDataverse via backend (removed paid providers)
+  const backendResponse = await backendCurrentOddsProvider.fetchBoard();
 
   const response = selectPreferredBoardResponse([
-    backendResponse ? { providerKey: backendCurrentOddsProvider.key, response: backendResponse } : null,
-    theRundownResponse ? { providerKey: therundownCurrentOddsProvider.key, response: theRundownResponse } : null
+    backendResponse ? { providerKey: backendCurrentOddsProvider.key, response: backendResponse } : null
   ]);
 
   if (!response?.configured) {

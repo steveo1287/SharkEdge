@@ -1,16 +1,9 @@
 const CACHE_TTL = 5 * 60 * 1000;
 const cache = new Map<string, { data: unknown; timestamp: number }>();
 
-const ODDS_API_BASE = "https://api.the-odds-api.com/v4";
+// REMOVED: OddsAPI (paid/rate-limited service)
+// Using SportsDataverse and OddsHarvester for odds data instead
 
-const ODDS_API_SPORT = {
-  nba: "basketball_nba",
-  ncaab: "basketball_ncaab",
-  mlb: "baseball_mlb",
-  nhl: "icehockey_nhl",
-  nfl: "americanfootball_nfl",
-  ncaaf: "americanfootball_ncaaf"
-} as const;
 
 const LEAGUE_MAP = {
   nba: "basketball/nba",
@@ -128,140 +121,11 @@ async function espnFetch<T>(url: string): Promise<T> {
   return data;
 }
 
-async function fetchOddsApiData(league: LeagueParam) {
-  const apiKey = process.env.ODDS_API_KEY;
-  if (!apiKey) {
-    return new Map<string, OddsEntry>();
-  }
-
-  const sport = ODDS_API_SPORT[league];
-  if (!sport) {
-    return new Map<string, OddsEntry>();
-  }
-
-  const cacheKey = `oddsapi:${league}`;
-  const cached = getCached<Map<string, OddsEntry>>(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  const params = new URLSearchParams({
-    apiKey,
-    regions: "us",
-    markets: "h2h,spreads,totals",
-    oddsFormat: "american",
-    dateFormat: "iso"
-  });
-
-  const url = `${ODDS_API_BASE}/sports/${sport}/odds?${params.toString()}`;
-
-  try {
-    const response = await fetch(url, {
-      next: { revalidate: 300 }
-    });
-
-    const remaining = response.headers.get("x-requests-remaining");
-    const used = response.headers.get("x-requests-used");
-
-    if (remaining) {
-      console.log(`[OddsAPI] ${league} - ${remaining} requests remaining (${used ?? "?"} used)`);
-    }
-
-    if (!response.ok) {
-      console.error(`[OddsAPI] ${response.status} for ${league}`);
-      return new Map<string, OddsEntry>();
-    }
-
-    const events = (await response.json()) as Array<Record<string, any>>;
-    const oddsMap = new Map<string, OddsEntry>();
-
-    for (const event of events) {
-      let bestSpread: OddsEntry["spread"] = null;
-      let bestTotal: OddsEntry["total"] = null;
-      let bestHomeML: { price: number; book: string } | null = null;
-      let bestAwayML: { price: number; book: string } | null = null;
-      const bookmakers: string[] = [];
-
-      for (const book of event.bookmakers ?? []) {
-        bookmakers.push(String(book.key ?? ""));
-
-        for (const market of book.markets ?? []) {
-          if (market.key === "spreads") {
-            for (const outcome of market.outcomes ?? []) {
-              if (outcome.name === event.home_team) {
-                if (
-                  bestSpread === null ||
-                  Math.abs(Number(outcome.point ?? 0)) < Math.abs(bestSpread.point)
-                ) {
-                  bestSpread = {
-                    point: Number(outcome.point),
-                    price: Number(outcome.price),
-                    book: String(book.key ?? ""),
-                    label: `${outcome.name} ${Number(outcome.point) > 0 ? "+" : ""}${Number(outcome.point)}`
-                  };
-                }
-              }
-            }
-          }
-
-          if (market.key === "totals") {
-            const over = market.outcomes?.find((outcome: Record<string, any>) => outcome.name === "Over");
-            const under = market.outcomes?.find((outcome: Record<string, any>) => outcome.name === "Under");
-
-            if (over && (bestTotal === null || Number(over.point) > bestTotal.point)) {
-              bestTotal = {
-                point: Number(over.point),
-                overPrice: Number(over.price),
-                underPrice: under?.price ? Number(under.price) : null,
-                book: String(book.key ?? "")
-              };
-            }
-          }
-
-          if (market.key === "h2h") {
-            for (const outcome of market.outcomes ?? []) {
-              if (outcome.name === event.home_team) {
-                if (bestHomeML === null || Number(outcome.price) > bestHomeML.price) {
-                  bestHomeML = { price: Number(outcome.price), book: String(book.key ?? "") };
-                }
-              }
-
-              if (outcome.name === event.away_team) {
-                if (bestAwayML === null || Number(outcome.price) > bestAwayML.price) {
-                  bestAwayML = { price: Number(outcome.price), book: String(book.key ?? "") };
-                }
-              }
-            }
-          }
-        }
-      }
-
-      const key = normalizeMatchupKey(
-        String(event.away_team ?? ""),
-        String(event.home_team ?? "")
-      );
-
-      oddsMap.set(key, {
-        source: "the-odds-api",
-        eventId: event.id ? String(event.id) : null,
-        bookmakers,
-        spread: bestSpread,
-        total: bestTotal,
-        homeMoneyline: bestHomeML?.price ?? null,
-        awayMoneyline: bestAwayML?.price ?? null,
-        commenceTime: event.commence_time ? String(event.commence_time) : null
-      });
-    }
-
-    setCached(cacheKey, oddsMap);
-    return oddsMap;
-  } catch (error) {
-    console.error(
-      "[OddsAPI] fetch error:",
-      error instanceof Error ? error.message : String(error)
-    );
-    return new Map<string, OddsEntry>();
-  }
+// DEPRECATED: OddsAPI integration removed (paid/rate-limited service)
+// Use SportsDataverse or OddsHarvester for odds data instead
+async function fetchOddsApiData(_league: LeagueParam) {
+  console.log("[Odds Data] Using ESPN consensus odds only (OddsAPI removed in favor of open-source sources)");
+  return new Map<string, OddsEntry>();
 }
 
 function normalizeTeamName(name = "") {

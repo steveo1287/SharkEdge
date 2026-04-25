@@ -30,8 +30,6 @@
     "worker:props-refresh": "tsx scripts/worker-props-refresh.ts",
     "worker:historical-free": "tsx scripts/worker-free-historical.ts",
     "worker:historical-refresh": "tsx scripts/worker-historical-refresh.ts",
-    "worker:therundown": "tsx scripts/worker-therundown-refresh.ts",
-    "worker:therundown-stream": "tsx scripts/worker-therundown-stream.ts",
     "worker:odds-refresh": "tsx workers/odds-refresh-worker.ts",
     "worker:trends": "tsx scripts/worker-trends.ts",
     "providers:readiness": "tsx scripts/provider-readiness.ts",

@@ -4,7 +4,7 @@ import { lineMovementJob } from "@/services/jobs/line-movement-job";
 import { alertDispatchJob } from "@/services/jobs/alert-dispatch-job";
 import { refreshActiveEventCaches, refreshBoardCache, refreshEdgesCache } from "@/services/feed/cache-refresh";
 import { syncPropWarehouse } from "@/services/props/warehouse-service";
-import { ingestTheRundownCurrentOdds } from "@/services/current-odds/therundown-ingestion-service";
+import { ingestBackendCurrentOdds } from "@/services/current-odds/backend-ingestion-service";
 import { prisma } from "@/lib/db/prisma";
 import { getBooleanArg, getNumberArg, getStringArg, logStep, parseArgs } from "./_runtime-utils";
 import { spawn } from "node:child_process";
@@ -60,67 +60,33 @@ async function runScrape(dryRun: boolean) {
     return { ok: true, reason: null, eventCount: 0, marketIngestions: 0 };
   }
 
-  // Try TypeScript ingestion first (works in Vercel production)
+  // Ingest from backend (OddsHarvester or SportsDataverse sourced)
   try {
-    logStep("runtime:scrape:start", { method: "typescript" });
-    const result = await ingestTheRundownCurrentOdds({
-      recomputeEdges: true
-    });
+    logStep("runtime:scrape:start", { method: "backend" });
+    const result = await ingestBackendCurrentOdds();
 
     if (result.ok) {
       logStep("runtime:scrape:success", {
-        method: "typescript",
+        method: "backend",
         eventCount: result.eventCount,
         marketIngestions: result.marketIngestions,
         leagues: result.leagues,
-        provider: result.provider
+        provider: result.provider,
+        source: result.source
       });
       return result;
     }
 
     logStep("runtime:scrape:failed", {
-      method: "typescript",
+      method: "backend",
       reason: result.reason
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    logStep("runtime:scrape:error", { method: "typescript", error: msg });
+    logStep("runtime:scrape:error", { method: "backend", error: msg });
   }
 
-  // Fallback: try Python scraper if it exists locally (development)
-  const scriptPath = path.resolve(process.cwd(), "../backend/live_odds_scraper.py");
-  if (existsSync(scriptPath)) {
-    try {
-      logStep("runtime:scrape:fallback", { method: "python", path: scriptPath });
-      const command = process.env.PYTHON_BIN?.trim() || "python";
-
-      await new Promise<void>((resolve, reject) => {
-        const child = spawn(command, [scriptPath], {
-          cwd: path.resolve(process.cwd(), "../backend"),
-          env: { ...process.env, RUN_ONCE: "true" },
-          stdio: "inherit"
-        });
-        child.on("exit", (code) => {
-          if (code === 0) {
-            logStep("runtime:scrape:success", { method: "python" });
-            resolve();
-            return;
-          }
-          reject(new Error(`Python scraper exited with code ${code}`));
-        });
-        child.on("error", reject);
-      });
-
-      return { ok: true, reason: null, eventCount: 0, marketIngestions: 0 };
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      logStep("runtime:scrape:fallback-failed", { method: "python", error: msg });
-    }
-  } else {
-    logStep("runtime:scrape:no-fallback", { path: scriptPath });
-  }
-
-  return { ok: false, reason: "all_methods_failed", eventCount: 0, marketIngestions: 0 };
+  return { ok: false, reason: "backend_ingest_failed", eventCount: 0, marketIngestions: 0 };
 }
 
 async function runCycle(leagueKey?: string, dryRun = false) {

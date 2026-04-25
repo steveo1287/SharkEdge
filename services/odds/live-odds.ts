@@ -19,7 +19,7 @@ import type {
 } from "@/lib/types/domain";
 import { mockDatabase } from "@/prisma/seed-data";
 import { backendCurrentOddsProvider } from "@/services/current-odds/backend-provider";
-import { therundownCurrentOddsProvider } from "@/services/current-odds/therundown-provider";
+// Removed: therundownCurrentOddsProvider (TheRundown is a paid service - using OddsHarvester instead)
 import { buildProviderHealth } from "@/services/providers/provider-health";
 import { getProviderRegistryEntry } from "@/services/providers/registry";
 import { analyzeMarket } from "@/services/market/market-analysis-service";
@@ -387,12 +387,8 @@ function getLiveTeamRecord(leagueKey: LeagueKey, teamName: string): TeamRecord {
 }
 
 function getLiveSourceNote(response: LiveBoardResponse) {
-  const providerLabel =
-    response.provider === "odds_api"
-        ? "The Odds API"
-        : response.provider === "therundown"
-          ? "The Rundown"
-        : "the live backend";
+  // Open-source sources only: OddsHarvester (scraper) via backend
+  const providerLabel = "the open-source odds backend (OddsHarvester)";
 
   if (response.errors.length) {
     return `${providerLabel} is connected for the board, with partial fetch warnings still reported by the backend.`;
@@ -1509,22 +1505,14 @@ function selectPreferredBoardResponse(candidates: Array<CurrentOddsSourceCandida
 }
 
 async function fetchLiveBoardResponse() {
-  const [backendResponse, theRundownResponse] = await Promise.all([
-    backendCurrentOddsProvider.fetchBoard(),
-    therundownCurrentOddsProvider.fetchBoard()
-  ]);
+  // OddsHarvester/SportsDataverse via backend is the only source (removed paid APIs)
+  const backendResponse = await backendCurrentOddsProvider.fetchBoard();
 
   const response = selectPreferredBoardResponse([
     backendResponse
       ? {
           providerKey: backendCurrentOddsProvider.key,
           response: backendResponse
-        }
-      : null,
-    theRundownResponse
-      ? {
-          providerKey: therundownCurrentOddsProvider.key,
-          response: theRundownResponse
         }
       : null
   ]);

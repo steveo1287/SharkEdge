@@ -25,7 +25,9 @@ if (!global.sharkedgeBackendIngestEnvLoaded) {
 
 const SUPPORTED_LEAGUES = new Set<LeagueKey>(["NBA", "MLB", "NHL", "NFL", "NCAAF"]);
 
-type BackendBoardSource = "theoddsapi" | "scraper" | "therundown";
+// OddsHarvester and SportsDataverse are the primary open-source data sources
+// "scraper" refers to OddsHarvester CLI output
+type BackendBoardSource = "scraper";
 
 function normalizeName(value: string) {
   return (value ?? "")
@@ -83,17 +85,14 @@ function mapBackendBoardSource(board: CurrentOddsBoardResponse): BackendBoardSou
     .trim()
     .toLowerCase();
 
-  if (provider === "odds_api" || provider === "oddsapi" || provider === "theoddsapi") {
-    return "theoddsapi";
-  }
-
+  // Only OddsHarvester (scraper) is supported for open-source data
   if (provider === "scraper_cache" || provider === "scraper") {
     return "scraper";
   }
 
-  if (provider === "therundown") {
-    return "therundown";
-  }
+  // Removed: "theoddsapi" (OddsAPI - paid service)
+  // Removed: "therundown" (TheRundown - paid service)
+  // All odds data now sources from OddsHarvester or SportsDataverse
 
   return null;
 }
