@@ -69,6 +69,7 @@ import { buildOpportunityTrapFlags } from "@/services/opportunities/opportunity-
 import { getMarketPathRole } from "@/services/market/market-path-service";
 import { simulateContextualGame, type ContextualGameSimulationInput } from "@/services/simulation/contextual-game-sim";
 import { buildGameSimVerdict } from "@/services/simulation/sim-verdict-engine";
+import { buildOpportunityTrendIntelligence } from "@/services/trends/opportunity-trend-intelligence";
 
 const neutralTruthCalibrationResolver = createOpportunityTruthCalibrationResolver();
 const neutralMarketPathResolver = createOpportunityMarketPathResolver();
@@ -280,6 +281,7 @@ type BaseOpportunityArgs = {
   homeTeamName?: string | null;
   awayTeamName?: string | null;
   simVerdictScore?: number | null;
+  trendVerdictScore?: number | null;
 };
 
 function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
@@ -412,6 +414,7 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     marketEfficiencyScore: getMarketEfficiencyScore(marketEfficiency),
     edgeDecayPenalty: edgeDecay.penalty,
     simVerdictScore: args.simVerdictScore ?? undefined,
+    trendVerdictScore: args.trendVerdictScore ?? undefined,
     truthCalibrationScoreDelta: 0,
     marketPathScoreDelta: 0,
     closeDestinationScoreDelta: 0,

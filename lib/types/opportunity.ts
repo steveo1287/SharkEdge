@@ -473,6 +473,7 @@ export type OpportunityScoreComponents = {
   sourceQuality: number;
   marketEfficiency: number;
   simulation: number;
+  trends: number;
   edgeDecay: number;
   truthCalibration: number;
   reasonCalibration: number;

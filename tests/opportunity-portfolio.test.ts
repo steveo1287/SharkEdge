@@ -301,6 +301,7 @@ function makeOpportunity(
       sourceQuality: 8,
       marketEfficiency: 2,
       simulation: 0,
+      trends: 0,
       edgeDecay: -2,
       truthCalibration: 0,
       reasonCalibration: 0,

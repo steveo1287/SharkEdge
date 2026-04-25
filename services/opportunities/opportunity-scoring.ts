@@ -18,6 +18,7 @@ type BuildOpportunityScoreArgs = {
   marketEfficiencyScore?: number;
   edgeDecayPenalty?: number;
   simVerdictScore?: number;
+  trendVerdictScore?: number;
   truthCalibrationScoreDelta?: number;
   reasonCalibrationScoreDelta?: number;
   marketPathScoreDelta?: number;
@@ -178,6 +179,23 @@ function buildSimulationScore(args: BuildOpportunityScoreArgs) {
   return 8;
 }
 
+function buildTrendScore(args: BuildOpportunityScoreArgs) {
+  const trendScore = args.trendVerdictScore ?? 0;
+  if (trendScore <= 25) {
+    return -2;
+  }
+  if (trendScore <= 45) {
+    return 0;
+  }
+  if (trendScore <= 65) {
+    return 2;
+  }
+  if (trendScore <= 80) {
+    return 4;
+  }
+  return 6;
+}
+
 function buildDecayPenalty(args: BuildOpportunityScoreArgs) {
   return clamp((args.edgeDecayPenalty ?? 0) * 0.55, 0, 24);
 }
@@ -197,6 +215,7 @@ export function buildOpportunityScore(
   const sourceQuality = buildSourceQualityScore(args);
   const marketEfficiency = buildMarketEfficiencyScore(args);
   const simulation = buildSimulationScore(args);
+  const trends = buildTrendScore(args);
   const edgeDecayPenalty = buildDecayPenalty(args);
   const truthCalibration = clamp(args.truthCalibrationScoreDelta ?? 0, -8, 6);
   const reasonCalibration = clamp(args.reasonCalibrationScoreDelta ?? 0, -5, 5);
@@ -223,6 +242,7 @@ export function buildOpportunityScore(
     sourceQuality +
     marketEfficiency +
     simulation +
+    trends +
     truthCalibration +
     reasonCalibration +
     marketPath +
@@ -245,6 +265,7 @@ export function buildOpportunityScore(
       sourceQuality: round(sourceQuality),
       marketEfficiency: round(marketEfficiency),
       simulation: round(simulation),
+      trends: round(trends),
       edgeDecay: -round(edgeDecayPenalty),
       truthCalibration: round(truthCalibration),
       reasonCalibration: round(reasonCalibration),
