@@ -67,6 +67,8 @@ import {
 } from "@/services/opportunities/opportunity-truth-calibration";
 import { buildOpportunityTrapFlags } from "@/services/opportunities/opportunity-traps";
 import { getMarketPathRole } from "@/services/market/market-path-service";
+import { simulateContextualGame, type ContextualGameSimulationInput } from "@/services/simulation/contextual-game-sim";
+import { buildGameSimVerdict } from "@/services/simulation/sim-verdict-engine";
 
 const neutralTruthCalibrationResolver = createOpportunityTruthCalibrationResolver();
 const neutralMarketPathResolver = createOpportunityMarketPathResolver();
@@ -175,6 +177,66 @@ function getConfidencePriority(confidenceTier: OpportunityConfidenceTier) {
   return 1;
 }
 
+function getSimulationVerdictScore(args: {
+  leagueKey: string;
+  marketType: string;
+  homeTeamName?: string | null;
+  awayTeamName?: string | null;
+  homeMoneylineOdds?: number | null;
+  awayMoneylineOdds?: number | null;
+  spreadOdds?: number | null;
+  overOdds?: number | null;
+  underOdds?: number | null;
+}): number | null {
+  try {
+    if (!args.homeTeamName || !args.awayTeamName) {
+      return null;
+    }
+
+    const simInput: ContextualGameSimulationInput = {
+      leagueKey: args.leagueKey,
+      home: {
+        teamName: args.homeTeamName,
+        offense: 100,
+        defense: 100,
+        pace: 100
+      },
+      away: {
+        teamName: args.awayTeamName,
+        offense: 100,
+        defense: 100,
+        pace: 100
+      },
+      samples: 1000
+    };
+
+    const simSummary = simulateContextualGame(simInput);
+    const verdict = buildGameSimVerdict({
+      sim: simSummary,
+      leagueKey: args.leagueKey,
+      homeTeam: args.homeTeamName,
+      awayTeam: args.awayTeamName,
+      marketTotal: null,
+      marketSpreadHome: null,
+      homeMoneylineOdds: args.homeMoneylineOdds ?? null,
+      awayMoneylineOdds: args.awayMoneylineOdds ?? null,
+      overOdds: args.overOdds ?? null,
+      underOdds: args.underOdds ?? null,
+      homeSpreadOdds: args.spreadOdds ?? null,
+      awaySpreadOdds: args.spreadOdds ?? null
+    });
+
+    const marketVerdict = verdict.verdicts.find(
+      (v) => v.market === args.marketType.toLowerCase()
+    );
+
+    return marketVerdict?.edgeScore ?? null;
+  } catch (error) {
+    console.error("[SimVerdictScore]", error instanceof Error ? error.message : String(error));
+    return null;
+  }
+}
+
 type BaseOpportunityArgs = {
   id: string;
   kind: OpportunityKind;
@@ -215,6 +277,9 @@ type BaseOpportunityArgs = {
   reasonCalibrationResolver?: OpportunityReasonCalibrationResolver | null;
   timingReplayResolver?: OpportunityTimingReplayResolver | null;
   conflictSignal?: boolean;
+  homeTeamName?: string | null;
+  awayTeamName?: string | null;
+  simVerdictScore?: number | null;
 };
 
 function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
@@ -346,6 +411,7 @@ function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
     sourceQualityScore: baseSourceQuality.score,
     marketEfficiencyScore: getMarketEfficiencyScore(marketEfficiency),
     edgeDecayPenalty: edgeDecay.penalty,
+    simVerdictScore: args.simVerdictScore ?? undefined,
     truthCalibrationScoreDelta: 0,
     marketPathScoreDelta: 0,
     closeDestinationScoreDelta: 0,
@@ -765,6 +831,18 @@ export function buildGameMarketOpportunity(
   const fairGap = market.evProfile?.fairLineGap ?? market.marketTruth?.sharpGapAmerican ?? null;
   const offeredOdds = market.bestOdds && market.bestOdds !== 0 ? market.bestOdds : null;
 
+  const simVerdictScore = getSimulationVerdictScore({
+    leagueKey: game.leagueKey,
+    marketType,
+    homeTeamName: game.homeTeam.name,
+    awayTeamName: game.awayTeam.name,
+    homeMoneylineOdds: game.moneyline.bestOdds ?? undefined,
+    awayMoneylineOdds: game.moneyline.bestOdds ?? undefined,
+    spreadOdds: game.spread.bestOdds ?? undefined,
+    overOdds: game.total.bestOdds ?? undefined,
+    underOdds: game.total.bestOdds ?? undefined
+  });
+
   return buildOpportunity({
     id: `${game.id}:${marketType}`,
     kind: marketLabelToKind(marketType),
@@ -808,7 +886,10 @@ export function buildGameMarketOpportunity(
     bookLeadershipResolver,
     closeDestinationResolver,
     reasonCalibrationResolver,
-    timingReplayResolver
+    timingReplayResolver,
+    homeTeamName: game.homeTeam.name,
+    awayTeamName: game.awayTeam.name,
+    simVerdictScore
   });
 }
 

@@ -338,6 +338,7 @@ function makeOpportunity(overrides: Partial<OpportunityView> = {}): OpportunityV
       support: 8,
       sourceQuality: 8,
       marketEfficiency: 2,
+      simulation: 0,
       edgeDecay: -2,
       truthCalibration: 0,
       reasonCalibration: 0,
