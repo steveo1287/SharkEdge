@@ -262,7 +262,7 @@ type LivePropsBoardResponse = {
 };
 
 type EspnBoardOdds = {
-  source: "the-odds-api" | "espn";
+  source: "oddsharvester" | "espn";
   bookmakers: string[];
   spread: string | null;
   spreadPoint: number | null;
@@ -1742,7 +1742,7 @@ function buildEspnSpreadView(
   return {
     label,
     lineLabel: label,
-    bestBook: game.odds?.source === "the-odds-api" ? "Best market" : "ESPN consensus",
+    bestBook: game.odds?.source === "oddsharvester" ? "Best market" : "ESPN consensus",
     bestOdds: game.odds?.spreadPrice ?? -110,
     movement: 0
   } satisfies BoardMarketView;
@@ -1780,7 +1780,7 @@ function buildEspnMoneylineView(
   return {
     label: `${chosen.team.abbreviation} ${formatAmericanOdds(chosen.price)}`,
     lineLabel: `${chosen.team.abbreviation} ${formatAmericanOdds(chosen.price)}`,
-    bestBook: game.odds?.source === "the-odds-api" ? "Best market" : "ESPN consensus",
+    bestBook: game.odds?.source === "oddsharvester" ? "Best market" : "ESPN consensus",
     bestOdds: chosen.price,
     movement: 0
   } satisfies BoardMarketView;
@@ -1800,7 +1800,7 @@ function buildEspnTotalView(game: EspnBoardGame): BoardMarketView {
   return {
     label: `O/U ${formatLine(game.odds.overUnder, false)}`,
     lineLabel: `O/U ${formatLine(game.odds.overUnder, false)}`,
-    bestBook: game.odds?.source === "the-odds-api" ? "Best market" : "ESPN consensus",
+    bestBook: game.odds?.source === "oddsharvester" ? "Best market" : "ESPN consensus",
     bestOdds: game.odds?.overPrice ?? -110,
     movement: 0
   } satisfies BoardMarketView;
@@ -1817,8 +1817,8 @@ function buildEspnEdgeScore(game: EspnBoardGame) {
       typeof anchorPrice === "number"
         ? americanToImpliedProbability(anchorPrice)
         : null,
-    recentHitRate: game.odds?.source === "the-odds-api" ? 0.58 : 0.52,
-    lineMovementSupport: game.odds?.source === "the-odds-api" ? 0.25 : 0.05,
+    recentHitRate: game.odds?.source === "oddsharvester" ? 0.58 : 0.52,
+    lineMovementSupport: game.odds?.source === "oddsharvester" ? 0.25 : 0.05,
     volatility: game.status.completed ? 0.8 : 0.38
   });
 }
