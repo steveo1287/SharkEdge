@@ -164,7 +164,7 @@ export async function GET() {
         id: true,
         name: true,
         league: { select: { key: true } },
-        _count: { select: { eventMarkets: true } }
+        _count: { select: { markets: true } }
       },
       take: 10
     });
