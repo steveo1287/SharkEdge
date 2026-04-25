@@ -461,13 +461,12 @@ export function deriveOverallReadinessState(probes: ProbeLike[]) {
 
 export async function getLiveOddsReadinessReport(args?: { leagues?: LeagueKey[] }): Promise<LiveOddsReadinessReport> {
   const leagues = args?.leagues?.length ? args.leagues : DEFAULT_LEAGUES;
-  const [backend, theRundown, bookFeeds] = await Promise.all([
+  const [backend, bookFeeds] = await Promise.all([
     probeBackendBoardProvider(),
-    probeTheRundownBoardProvider(),
     Promise.all(getBookFeedProviders().map((provider) => probeBookFeedProvider(provider, leagues)))
   ]);
 
-  const boardProviders = [backend, theRundown];
+  const boardProviders = [backend];
   const selectedBoardProvider = selectPreferredBoardProvider(boardProviders);
   const overallState = deriveOverallReadinessState([...boardProviders, ...bookFeeds]);
   const warnings = Array.from(
@@ -479,7 +478,6 @@ export async function getLiveOddsReadinessReport(args?: { leagues?: LeagueKey[] 
 
   const notes = [
     `${backend.label}: ${backend.state}${backend.providerMode ? ` (${backend.providerMode})` : ""}`,
-    `${theRundown.label}: ${theRundown.state}`,
     `Book feeds configured: ${bookFeeds.filter((feed) => feed.configured).length}/${bookFeeds.length}`,
     selectedBoardProvider.providerKey
       ? `Live board winner right now: ${selectedBoardProvider.label}.`
