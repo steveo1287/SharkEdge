@@ -1,9 +1,13 @@
 const CACHE_TTL = 5 * 60 * 1000;
 const cache = new Map<string, { data: unknown; timestamp: number }>();
 
-// REMOVED: OddsAPI (paid/rate-limited service)
-// Using SportsDataverse and OddsHarvester for odds data instead
-
+function getBackendUrl() {
+  const explicit = process.env.SHARKEDGE_BACKEND_URL?.trim();
+  if (explicit) {
+    return explicit.replace(/\/$/, "");
+  }
+  return "https://shark-odds-1.onrender.com";
+}
 
 const LEAGUE_MAP = {
   nba: "basketball/nba",
@@ -17,8 +21,7 @@ const LEAGUE_MAP = {
 type LeagueParam = keyof typeof LEAGUE_MAP;
 
 type OddsEntry = {
-  source: "the-odds-api";
-  eventId: string | null;
+  source: "oddsharvester";
   bookmakers: string[];
   spread: {
     point: number;
@@ -34,7 +37,6 @@ type OddsEntry = {
   } | null;
   homeMoneyline: number | null;
   awayMoneyline: number | null;
-  commenceTime: string | null;
 };
 
 type NormalizedGame = {
@@ -70,7 +72,7 @@ type NormalizedGame = {
   venue: string | null;
   broadcast: string | null;
   odds: {
-    source: "the-odds-api" | "espn";
+    source: "oddsharvester" | "espn";
     bookmakers: string[];
     spread: string | null;
     spreadPoint: number | null;
@@ -121,11 +123,115 @@ async function espnFetch<T>(url: string): Promise<T> {
   return data;
 }
 
-// DEPRECATED: OddsAPI integration removed (paid/rate-limited service)
-// Use SportsDataverse or OddsHarvester for odds data instead
-async function fetchOddsApiData(_league: LeagueParam) {
-  console.log("[Odds Data] Using ESPN consensus odds only (OddsAPI removed in favor of open-source sources)");
-  return new Map<string, OddsEntry>();
+async function fetchOddsHarvesterData(): Promise<Map<string, OddsEntry>> {
+  const cacheKey = "oddsharvester:board";
+  const cached = getCached<Map<string, OddsEntry>>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const backendUrl = getBackendUrl();
+  const url = `${backendUrl}/api/odds/board`;
+
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000)
+    });
+
+    if (!response.ok) {
+      console.error(`[OddsHarvester] ${response.status} from ${url}`);
+      return new Map<string, OddsEntry>();
+    }
+
+    const data = (await response.json()) as Record<string, any>;
+
+    if (!data.sports || !Array.isArray(data.sports)) {
+      console.error("[OddsHarvester] Invalid response structure");
+      return new Map<string, OddsEntry>();
+    }
+
+    const oddsMap = new Map<string, OddsEntry>();
+
+    for (const sport of data.sports) {
+      for (const game of sport.games ?? []) {
+        let bestSpread: OddsEntry["spread"] = null;
+        let bestTotal: OddsEntry["total"] = null;
+        let bestHomeML: { price: number; book: string } | null = null;
+        let bestAwayML: { price: number; book: string } | null = null;
+        const bookmakers = new Set<string>();
+
+        for (const book of game.books ?? []) {
+          bookmakers.add(String(book.sportsbook?.name ?? book.name ?? ""));
+
+          const spread = book.spread?.spread;
+          const spreadPrice = book.spread?.american;
+          if (spread !== null && spread !== undefined && spreadPrice !== null && spreadPrice !== undefined) {
+            if (bestSpread === null || Math.abs(spread) < Math.abs(bestSpread.point)) {
+              bestSpread = {
+                point: spread,
+                price: spreadPrice,
+                book: String(book.sportsbook?.name ?? book.name ?? ""),
+                label: `${spread > 0 ? "+" : ""}${spread}`
+              };
+            }
+          }
+
+          const total = book.total?.total;
+          const overPrice = book.total?.overAmerican;
+          const underPrice = book.total?.underAmerican;
+          if (total !== null && total !== undefined && overPrice !== null && overPrice !== undefined) {
+            if (bestTotal === null || total > bestTotal.point) {
+              bestTotal = {
+                point: total,
+                overPrice: overPrice,
+                underPrice: underPrice ?? null,
+                book: String(book.sportsbook?.name ?? book.name ?? "")
+              };
+            }
+          }
+
+          const homeML = book.moneyline?.home;
+          if (homeML !== null && homeML !== undefined) {
+            if (bestHomeML === null || homeML > bestHomeML.price) {
+              bestHomeML = { price: homeML, book: String(book.sportsbook?.name ?? book.name ?? "") };
+            }
+          }
+
+          const awayML = book.moneyline?.away;
+          if (awayML !== null && awayML !== undefined) {
+            if (bestAwayML === null || awayML > bestAwayML.price) {
+              bestAwayML = { price: awayML, book: String(book.sportsbook?.name ?? book.name ?? "") };
+            }
+          }
+        }
+
+        const awayTeam = game.away_team ?? game.awayTeam ?? "";
+        const homeTeam = game.home_team ?? game.homeTeam ?? "";
+
+        const key = normalizeMatchupKey(String(awayTeam), String(homeTeam));
+
+        oddsMap.set(key, {
+          source: "oddsharvester",
+          bookmakers: Array.from(bookmakers),
+          spread: bestSpread,
+          total: bestTotal,
+          homeMoneyline: bestHomeML?.price ?? null,
+          awayMoneyline: bestAwayML?.price ?? null
+        });
+      }
+    }
+
+    setCached(cacheKey, oddsMap);
+    console.log(`[OddsHarvester] Loaded ${oddsMap.size} games from backend`);
+    return oddsMap;
+  } catch (error) {
+    console.error(
+      "[OddsHarvester] fetch error:",
+      error instanceof Error ? error.message : String(error)
+    );
+    return new Map<string, OddsEntry>();
+  }
 }
 
 function normalizeTeamName(name = "") {
@@ -225,21 +331,20 @@ function normalizeGame(
     odds: null
   };
 
-  const oddsApiData = findOddsForGame(game, oddsMap);
+  const oddsHarvesterData = findOddsForGame(game, oddsMap);
 
-  if (oddsApiData) {
-    game.oddsEventId = oddsApiData.eventId;
+  if (oddsHarvesterData) {
     game.odds = {
-      source: "the-odds-api",
-      bookmakers: oddsApiData.bookmakers,
-      spread: oddsApiData.spread?.label ?? null,
-      spreadPoint: oddsApiData.spread?.point ?? null,
-      spreadPrice: oddsApiData.spread?.price ?? null,
-      overUnder: oddsApiData.total?.point ?? null,
-      overPrice: oddsApiData.total?.overPrice ?? null,
-      underPrice: oddsApiData.total?.underPrice ?? null,
-      homeMoneyline: oddsApiData.homeMoneyline,
-      awayMoneyline: oddsApiData.awayMoneyline
+      source: "oddsharvester",
+      bookmakers: oddsHarvesterData.bookmakers,
+      spread: oddsHarvesterData.spread?.label ?? null,
+      spreadPoint: oddsHarvesterData.spread?.point ?? null,
+      spreadPrice: oddsHarvesterData.spread?.price ?? null,
+      overUnder: oddsHarvesterData.total?.point ?? null,
+      overPrice: oddsHarvesterData.total?.overPrice ?? null,
+      underPrice: oddsHarvesterData.total?.underPrice ?? null,
+      homeMoneyline: oddsHarvesterData.homeMoneyline,
+      awayMoneyline: oddsHarvesterData.awayMoneyline
     };
   } else if (espnOdds) {
     game.odds = {
@@ -287,7 +392,7 @@ export async function GET(request: Request) {
   try {
     const [espnData, oddsMap] = await Promise.all([
       espnFetch<{ events?: Array<Record<string, any>> }>(espnUrl),
-      fetchOddsApiData(league)
+      fetchOddsHarvesterData()
     ]);
 
     const events = espnData.events ?? [];
@@ -298,8 +403,8 @@ export async function GET(request: Request) {
       date: date || "today",
       count: games.length,
       gamesWithOdds: games.filter((game) => game.odds !== null).length,
-      oddsSource: oddsMap.size > 0 ? "the-odds-api+espn-fallback" : "espn-only",
-      oddsApiActive: oddsMap.size > 0,
+      oddsSource: oddsMap.size > 0 ? "oddsharvester+espn-fallback" : "espn-only",
+      oddsHarvesterActive: oddsMap.size > 0,
       games,
       fetchedAt: new Date().toISOString()
     });
