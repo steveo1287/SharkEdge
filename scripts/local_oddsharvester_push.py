@@ -60,8 +60,8 @@ SPORTS = [
     },
 ]
 
-BACKEND_URL = os.getenv("SHARKEDGE_BACKEND_URL", "https://shark-odds-1.onrender.com").rstrip("/")
-INGEST_URL = f"{BACKEND_URL}/api/ingest/odds"
+BACKEND_URL = os.getenv("SHARKEDGE_BACKEND_URL", "").rstrip("/")
+INGEST_URL = f"{BACKEND_URL}/api/ingest/odds" if BACKEND_URL else ""
 API_KEY = os.getenv("SHARKEDGE_API_KEY", "").strip()
 ODDSHARVESTER_COMMAND = os.getenv("ODDSHARVESTER_COMMAND", "python -m oddsharvester").strip()
 ODDSHARVESTER_TIMEOUT_SECONDS = int(os.getenv("ODDSHARVESTER_TIMEOUT_SECONDS", "120"))
@@ -573,6 +573,8 @@ def run_harvest_for_sport(sport: dict[str, str]) -> list[GamePayload]:
 def post_payload(payload: dict[str, Any]) -> PostResult:
     if not POST_TO_BACKEND:
         return PostResult(ok=True, detail="POST_TO_BACKEND=false")
+    if not BACKEND_URL or not INGEST_URL:
+        raise RuntimeError("SHARKEDGE_BACKEND_URL is required when POST_TO_BACKEND=true")
     if not API_KEY:
         raise RuntimeError("SHARKEDGE_API_KEY is required when POST_TO_BACKEND=true")
 
@@ -590,11 +592,17 @@ def post_payload(payload: dict[str, Any]) -> PostResult:
 
 
 def main() -> None:
+    if POST_TO_BACKEND and not BACKEND_URL:
+        raise RuntimeError(
+            "SHARKEDGE_BACKEND_URL is required. Example: "
+            "SHARKEDGE_BACKEND_URL=https://your-vercel-app.vercel.app"
+        )
+
     parsed_host = (urlparse(BACKEND_URL).hostname or "").lower()
     if parsed_host in {"app.sharkedge.com", "www.app.sharkedge.com"}:
         raise RuntimeError(
             "SHARKEDGE_BACKEND_URL points to the frontend domain. "
-            "Use a backend ingest target (for Railway internal routing, e.g. http://sharkedge-web:3000)."
+            "Use the deployed SharkEdge app URL that exposes /api/ingest/odds."
         )
 
     total_games = 0
@@ -602,7 +610,7 @@ def main() -> None:
     failures: list[str] = []
     selected_sports = get_enabled_sports()
 
-    print(f"Local OddsHarvester push -> {BACKEND_URL}")
+    print(f"Local OddsHarvester push -> {BACKEND_URL or 'local output only'}")
     print(f"Enabled sports: {', '.join(sport['key'] for sport in selected_sports)}")
     if ODDSHARVESTER_PROXY_URL:
         print("Proxy mode enabled for OddsHarvester subprocesses")
