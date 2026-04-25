@@ -39,7 +39,6 @@ const MARKET_KEYWORDS: Array<{
 
 export const TREND_QUERY_EXAMPLES = [
   "Show me NBA road underdogs after a loss",
-  "Find NCAAB under trends with at least 20 games",
   "Show today's NHL games matching over systems",
   "Show UFC fighters with finish trends"
 ] as const;

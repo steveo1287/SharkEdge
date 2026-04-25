@@ -640,7 +640,7 @@ async function fetchLeagueSnapshot(leagueKey: LeagueKey): Promise<LeagueSnapshot
 export async function getLeagueSnapshots(selectedLeague: "ALL" | LeagueKey) {
   const leagueKeys: LeagueKey[] =
     selectedLeague === "ALL"
-      ? (["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"] as LeagueKey[])
+      ? (["NBA", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"] as LeagueKey[])
       : [selectedLeague];
 
   const snapshots = await Promise.all(

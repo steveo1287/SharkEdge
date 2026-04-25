@@ -481,7 +481,7 @@ function teamVsTeamAssessment(opportunity: OpportunityView): FeedNativeLensAsses
 function coachVsCoachAssessment(opportunity: OpportunityView): FeedNativeLensAssessment {
   const payloadText = getPayloadText(opportunity);
   const joinedText = getJoinedText(opportunity);
-  const applicable = ["NBA", "NCAAB", "NFL", "NCAAF", "NHL", "MLB"].includes(opportunity.league);
+  const applicable = ["NBA", "NFL", "NCAAF", "NHL", "MLB"].includes(opportunity.league);
 
   const coachPatterns = [
     /\bcoach\b/,

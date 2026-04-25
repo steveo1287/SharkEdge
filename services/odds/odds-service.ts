@@ -767,7 +767,6 @@ function getMockPropsExplorerData(filters: PropFilters) {
   );
   const coverage = [
     "NBA",
-    "NCAAB",
     "MLB",
     "NHL",
     "NFL",

@@ -156,7 +156,6 @@ function inferWeatherTotalFactor(leagueKey: string, venue: string | null | undef
 function buildSportFeatureSet(sportKey: string) {
   switch (sportKey) {
     case "NBA":
-    case "NCAAB":
       return {
         offense: ["points", "PTS", "points_per_game"],
         defense: ["opp_points", "oppPTS", "points_allowed"],

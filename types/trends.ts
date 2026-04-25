@@ -19,7 +19,7 @@ export const filterConditionsSchema = z.object({
     .enum(["ALL", "BASKETBALL", "BASEBALL", "HOCKEY", "FOOTBALL", "MMA", "BOXING", "OTHER"])
     .default("ALL"),
   league: z
-    .enum(["ALL", "NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"])
+    .enum(["ALL", "NBA", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"])
     .default("ALL"),
   betType: trendBetTypeSchema.default("spread"),
   marketType: z.enum(["moneyline", "spread", "total"]).default("spread"),

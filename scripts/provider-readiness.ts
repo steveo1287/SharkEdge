@@ -5,7 +5,7 @@ import { getLiveOddsReadinessReport } from "@/services/current-odds/provider-rea
 
 loadEnvConfig(process.cwd());
 
-const ALLOWED_LEAGUES = new Set<LeagueKey>(["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]);
+const ALLOWED_LEAGUES = new Set<LeagueKey>(["NBA", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]);
 
 function parseLeagues(argv: string[]) {
   const raw = argv.find((value) => value.startsWith("--leagues="))?.split("=")[1]?.trim();

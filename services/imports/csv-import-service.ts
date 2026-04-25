@@ -132,8 +132,7 @@ function parsePlacedAt(value: string) {
 
 function normalizeLeague(value: string) {
   const normalized = value.toUpperCase();
-  if (normalized.includes("NBA")) return "NBA";
-  if (normalized.includes("NCAAB") || normalized.includes("COLLEGE BASKETBALL")) return "NBA";
+  if (normalized.includes("NBA") || normalized.includes("NCAAB") || normalized.includes("COLLEGE BASKETBALL")) return "NBA";
   if (normalized.includes("MLB") || normalized.includes("BASEBALL")) return "MLB";
   if (normalized.includes("NHL") || normalized.includes("HOCKEY")) return "NHL";
   if (normalized.includes("NFL")) return "NFL";

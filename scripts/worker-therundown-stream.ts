@@ -2,7 +2,7 @@ import type { LeagueKey } from "@/lib/types/domain";
 import { streamTheRundownCurrentOdds } from "@/services/current-odds/therundown-stream-service";
 import { getNumberArg, getStringArg, logStep, parseArgs } from "./_runtime-utils";
 
-const ALLOWED_LEAGUES = new Set<LeagueKey>(["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"]);
+const ALLOWED_LEAGUES = new Set<LeagueKey>(["NBA", "MLB", "NHL", "NFL", "NCAAF"]);
 
 function parseLeagues(raw: string | undefined) {
   if (!raw) {

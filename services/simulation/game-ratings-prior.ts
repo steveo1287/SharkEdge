@@ -57,19 +57,6 @@ const LEAGUE_CONFIG: Record<string, LeagueRatingConfig> = {
     defenseScale: 3.4,
     tempoScale: 0.95
   },
-  NCAAB: {
-    takePlayers: 9,
-    offenseKeys: ["points", "PTS", "assists", "AST", "threes", "FG3M", "3PM"],
-    defenseKeys: ["rebounds", "REB", "steals", "STL", "blocks", "BLK"],
-    tempoKeys: ["minutes", "MIN", "pace", "possessions"],
-    overallKeys: ["overall", "ovr", "overallRating", "rating_2k"],
-    offenseBaseline: 18,
-    defenseBaseline: 7,
-    tempoBaseline: 26,
-    offenseScale: 1.65,
-    defenseScale: 3.7,
-    tempoScale: 0.9
-  },
   NFL: {
     takePlayers: 14,
     offenseKeys: ["passing_yards", "pass_yds", "rushing_yards", "rush_yds", "receiving_yards", "rec_yds", "touchdowns", "TD"],

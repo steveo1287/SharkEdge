@@ -82,7 +82,6 @@ type SportConfig = {
 
 const SPORT_CONFIG: Record<string, SportConfig> = {
   NBA: { baseScore: 112, baseStdDev: 12.5, homeEdge: 2.6, paceBaseline: 99, totalBlendWeight: 0.18, spreadBlendWeight: 0.16 },
-  NCAAB: { baseScore: 74, baseStdDev: 10.8, homeEdge: 3.2, paceBaseline: 69, totalBlendWeight: 0.2, spreadBlendWeight: 0.18 },
   NFL: { baseScore: 23.5, baseStdDev: 9.6, homeEdge: 1.8, paceBaseline: 64, totalBlendWeight: 0.16, spreadBlendWeight: 0.16 },
   NCAAF: { baseScore: 28, baseStdDev: 11.4, homeEdge: 2.7, paceBaseline: 70, totalBlendWeight: 0.16, spreadBlendWeight: 0.16 },
   NHL: { baseScore: 3.1, baseStdDev: 1.55, homeEdge: 0.18, paceBaseline: 31, totalBlendWeight: 0.14, spreadBlendWeight: 0.14 },
@@ -252,11 +251,11 @@ export function simulateContextualGame(input: ContextualGameSimulationInput): Co
   }
 
   if (input.home.backToBack) {
-    homeMean -= input.leagueKey.includes("NBA") || input.leagueKey.includes("NCAAB") ? 1.7 : 0.7;
+    homeMean -= input.leagueKey.includes("NBA") ? 1.7 : 0.7;
     drivers.push("Home back-to-back penalty");
   }
   if (input.away.backToBack) {
-    awayMean -= input.leagueKey.includes("NBA") || input.leagueKey.includes("NCAAB") ? 1.7 : 0.7;
+    awayMean -= input.leagueKey.includes("NBA") ? 1.7 : 0.7;
     drivers.push("Away back-to-back penalty");
   }
   if (input.home.revengeSpot) {

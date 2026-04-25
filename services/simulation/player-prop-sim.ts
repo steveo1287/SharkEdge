@@ -152,7 +152,6 @@ function statKeys(statKey: string) {
 function ratingKeys(leagueKey: string) {
   switch (leagueKey) {
     case "NBA":
-    case "NCAAB":
       return ["overall", "ovr", "overallRating", "rating_2k", "nba2k_overall"];
     case "NFL":
     case "NCAAF":

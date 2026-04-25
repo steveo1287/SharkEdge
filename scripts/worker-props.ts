@@ -5,8 +5,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const league = (getStringArg(args, "league")?.toUpperCase() ?? "ALL") as
     | "ALL"
-    | "NBA"
-    | "NCAAB";
+    | "NBA";
   const eventId = getStringArg(args, "eventId");
   const maxEvents = getNumberArg(args, "maxEvents", 4);
   const lookaheadHours = getNumberArg(args, "lookaheadHours", 36);

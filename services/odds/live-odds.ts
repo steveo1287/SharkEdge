@@ -45,7 +45,6 @@ const LIVE_PROPS_HARD_STALE_MINUTES = 20;
 
 const LIVE_SPORT_TO_LEAGUE: Record<string, LeagueKey | null> = {
   basketball_nba: "NBA",
-  basketball_ncaab: "NCAAB",
   baseball_mlb: "MLB",
   icehockey_nhl: "NHL",
   americanfootball_nfl: "NFL",
@@ -53,13 +52,11 @@ const LIVE_SPORT_TO_LEAGUE: Record<string, LeagueKey | null> = {
 };
 
 const LIVE_PROP_SPORT_KEYS: Partial<Record<LeagueKey, string>> = {
-  NBA: "basketball_nba",
-  NCAAB: "basketball_ncaab"
+  NBA: "basketball_nba"
 };
 
 const PROP_COVERAGE_ORDER: LeagueKey[] = [
   "NBA",
-  "NCAAB",
   "MLB",
   "NHL",
   "NFL",
@@ -1677,7 +1674,7 @@ async function getStoredLineMovement(eventExternalId: string) {
 }
 
 function mapEspnLeagueToLeagueKey(league: EspnBoardResponse["league"]): LeagueKey {
-  return league === "nba" ? "NBA" : "NCAAB";
+  return "NBA";
 }
 
 function mapEspnStatus(game: EspnBoardGame) {
@@ -1909,7 +1906,7 @@ async function getEspnBoardPageData(
   return {
     filters,
     availableDates,
-    leagues: getBoardLeagueRecords(["NBA", "NCAAB"]),
+    leagues: getBoardLeagueRecords(["NBA"]),
     sportsbooks: liveSportsbooks,
     games,
     sportSections,

@@ -1,4 +1,4 @@
-export type SupportedLeague = "NBA" | "NCAAB" | "NFL" | "NCAAF" | "NHL" | "MLB";
+export type SupportedLeague = "NBA" | "NFL" | "NCAAF" | "NHL" | "MLB";
 
 export type CalibrationProfile = {
   neutralShrink: number;
@@ -40,7 +40,6 @@ const DEFAULT_PROFILE: CalibrationProfile = {
 
 const PROFILES: Record<SupportedLeague, CalibrationProfile> = {
   NBA: { neutralShrink: 0.14, marketBlend: 0.18, spreadDeltaShrink: 0.84, totalDeltaShrink: 0.82, propProbShrink: 0.16, stdBaseline: 13 },
-  NCAAB: { neutralShrink: 0.18, marketBlend: 0.22, spreadDeltaShrink: 0.8, totalDeltaShrink: 0.78, propProbShrink: 0.2, stdBaseline: 11 },
   NFL: { neutralShrink: 0.12, marketBlend: 0.2, spreadDeltaShrink: 0.86, totalDeltaShrink: 0.84, propProbShrink: 0.14, stdBaseline: 10 },
   NCAAF: { neutralShrink: 0.16, marketBlend: 0.22, spreadDeltaShrink: 0.82, totalDeltaShrink: 0.8, propProbShrink: 0.18, stdBaseline: 12 },
   NHL: { neutralShrink: 0.14, marketBlend: 0.18, spreadDeltaShrink: 0.88, totalDeltaShrink: 0.86, propProbShrink: 0.14, stdBaseline: 2 },

@@ -5,8 +5,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const league = (getStringArg(args, "league")?.toUpperCase() ?? "ALL") as
     | "ALL"
-    | "NBA"
-    | "NCAAB";
+    | "NBA";
   const from = getStringArg(args, "from");
   const to = getStringArg(args, "to");
   const dryRun = getBooleanArg(args, "dryRun");

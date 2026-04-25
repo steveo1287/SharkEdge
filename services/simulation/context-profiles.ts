@@ -115,7 +115,6 @@ function getNumber(stats: Prisma.JsonValue | unknown, keys: string[]) {
 function featureKeys(leagueKey: string) {
   switch (leagueKey) {
     case "NBA":
-    case "NCAAB":
       return {
         pace: ["pace", "tempo", "possessions"],
         offense: ["offensiveRating", "off_rating", "points", "PTS", "points_per_game"],
@@ -163,8 +162,6 @@ function leagueBaseline(leagueKey: string) {
   switch (leagueKey) {
     case "NBA":
       return { pace: 99, offense: 114, defense: 114, volume: 96, control: 50 };
-    case "NCAAB":
-      return { pace: 69, offense: 108, defense: 108, volume: 84, control: 50 };
     case "NFL":
       return { pace: 64, offense: 350, defense: 350, volume: 62, control: 50 };
     case "NCAAF":

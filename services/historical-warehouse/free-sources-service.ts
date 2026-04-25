@@ -539,9 +539,6 @@ export async function importFreeHistoricalWarehouse(
   const nbaUrl =
     process.env.SPORTSDATAVERSE_NBA_URL?.trim() ||
     "https://raw.githubusercontent.com/sportsdataverse/hoopR-data/main/nba_schedule_master.csv";
-  const ncaabUrl =
-    process.env.SPORTSDATAVERSE_NCAAB_URL?.trim() ||
-    "https://raw.githubusercontent.com/sportsdataverse/hoopR-data/main/mbb_schedule_master.csv";
   const ncaafUrl =
     process.env.SPORTSDATAVERSE_NCAAF_URL?.trim() ||
     "https://raw.githubusercontent.com/sportsdataverse/cfbfastR-data/main/schedules/cfb_games_info.csv";

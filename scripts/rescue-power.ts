@@ -184,8 +184,6 @@ async function runLocalScrape(args: {
           return "basketball:NBA";
         case "MLB":
           return "baseball:MLB";
-        case "NCAAB":
-          return "basketball:NCAAB";
         case "NHL":
           return "hockey:NHL";
         case "NFL":
@@ -205,7 +203,6 @@ async function runLocalScrape(args: {
         .map((league) => {
           switch (league) {
             case "NBA":
-            case "NCAAB":
               return "basketball";
             case "MLB":
               return "baseball";

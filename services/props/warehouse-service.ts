@@ -33,13 +33,6 @@ const LEAGUE_CONFIG = {
     sportKeyName: "basketball",
     sportName: "Basketball",
     sportCode: "BASKETBALL" as const
-  },
-  NCAAB: {
-    sportKey: "basketball_ncaab",
-    leagueName: "NCAA Men's Basketball",
-    sportKeyName: "basketball",
-    sportName: "Basketball",
-    sportCode: "BASKETBALL" as const
   }
 };
 
