@@ -13,3 +13,5 @@
 live_odds_optimized.log
 scraper.log
 scraper.pid
+backend/.scraper.pid
+backend/live_odds_scraper.log
