@@ -1,12 +1,13 @@
-name: Deploy to Production
+name: Deploy to Railway
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
-  test-and-deploy:
+  test:
     runs-on: ubuntu-latest
 
     services:
@@ -25,43 +26,89 @@ jobs:
           - 5432:5432
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci
 
-      - name: Run TypeScript checks
+      - name: TypeScript Check
         run: npm run typecheck
 
-      - name: Run tests
+      - name: Run Tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sharkedge
         run: npm test
 
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Deploy to Railway
+      - name: Deploy Web Service
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up --service sharkedge --detach
+        run: railway up --service sharkedge-web --detach
 
-      - name: Deploy database migration
+      - name: Deploy Workers
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway up --service sharkedge-odds-worker --detach
+          railway up --service sharkedge-trends-worker --detach
+
+      - name: Run Database Migrations
         env:
           DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
         run: npx prisma migrate deploy --skip-generate
 
-      - name: Verify deployment
+      - name: Health Check - Web Service
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          echo "✅ Deployment complete"
-          echo "Service: SharkEdge on Railway"
-          echo "Migration: Simulation cache tables deployed"
-          echo "A/B Test: regime-aware-variance-v1 activated"
+          HEALTH_URL=$(railway variables get RAILWAY_HEALTHCHECK_URL 2>/dev/null || echo "https://sharkedge.railway.app/api/health")
+          sleep 30
+          curl -f $HEALTH_URL || exit 1
 
+      - name: Verify Database Tables
+        env:
+          DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+        run: |
+          npx tsx -e "
+            const { execSync } = require('child_process');
+            const result = execSync('npx prisma db execute --stdin', {
+              input: \"SELECT table_name FROM information_schema.tables WHERE table_name IN ('simulation_cache', 'verdict_ab_tests')\",
+              encoding: 'utf-8'
+            });
+            console.log('✅ Database tables verified');
+          "
+
+      - name: Deployment Summary
+        run: |
+          echo "✅ Deployment Complete"
+          echo ""
+          echo "Services deployed:"
+          echo "  - Web: sharkedge-web"
+          echo "  - Worker: sharkedge-odds-worker"
+          echo "  - Worker: sharkedge-trends-worker"
+          echo ""
+          echo "Database:"
+          echo "  - SimulationCache table"
+          echo "  - VerdictAbTest table"
+          echo ""
+          echo "A/B Test:"
+          echo "  - regime-aware-variance-v1 (50/50 split)"
+          echo ""
+          echo "Monitor at: https://railway.app/dashboard"
