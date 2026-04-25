@@ -99,3 +99,8 @@ ALTER TABLE "discovered_trend_systems" ADD CONSTRAINT "discovered_trend_systems_
 ALTER TABLE "discovered_trend_system_snapshots" ADD CONSTRAINT "discovered_trend_system_snapshots_system_id_fkey" FOREIGN KEY ("system_id") REFERENCES "discovered_trend_systems"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "discovered_trend_activations" ADD CONSTRAINT "discovered_trend_activations_system_id_fkey" FOREIGN KEY ("system_id") REFERENCES "discovered_trend_systems"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "discovered_trend_activations" ADD CONSTRAINT "discovered_trend_activations_event_id_fkey" FOREIGN KEY ("event_id") REFERENCES "events"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE IF EXISTS "discovered_trend_systems"
+  ADD COLUMN IF NOT EXISTS "teamBreakdownJson" JSONB,
+  ADD COLUMN IF NOT EXISTS "opponentBreakdownJson" JSONB,
+  ADD COLUMN IF NOT EXISTS "lineDistributionJson" JSONB;
