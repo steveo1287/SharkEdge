@@ -130,12 +130,12 @@ async function runCycle(leagueKey?: string, dryRun = false) {
   const scrapeResult = await runScrape(dryRun);
 
   // Sync props if applicable
-  if (!dryRun && (!leagueKey || leagueKey === "NBA" || leagueKey === "NCAAB")) {
+  if (!dryRun && (!leagueKey || leagueKey === "NBA")) {
     await syncPropWarehouse({
       league:
-        !leagueKey || (leagueKey !== "NBA" && leagueKey !== "NCAAB")
+        !leagueKey || leagueKey !== "NBA"
           ? "ALL"
-          : (leagueKey as "NBA" | "NCAAB"),
+          : (leagueKey as "NBA"),
       maxEvents: 2,
       lookaheadHours: 18,
       dryRun: false

@@ -1,6 +1,6 @@
 import type { ProviderResult } from "./provider-types";
 
-export type SportCode = "NFL" | "NCAAF" | "NBA" | "NCAAB" | "MLB" | "NHL" | "MMA";
+export type SportCode = "NFL" | "NCAAF" | "NBA" | "MLB" | "NHL" | "MMA";
 
 export type MarketType =
   | "moneyline"

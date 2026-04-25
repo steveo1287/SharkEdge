@@ -983,7 +983,7 @@ export async function getMatchupTrendCards(args: {
     return [];
   }
 
-  const isTeamLeague = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"].includes(args.leagueKey);
+  const isTeamLeague = ["NBA", "MLB", "NHL", "NFL", "NCAAF"].includes(args.leagueKey);
   const candidateEntries = (
     await Promise.all(
       subjects.flatMap((subject) => {

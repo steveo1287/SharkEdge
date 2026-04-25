@@ -51,8 +51,6 @@ type NormalizedIngestMarketRow = {
 const SPORT_MAP: Record<string, { sport: SportCode; leagueKey: string }> = {
   nba: { sport: "BASKETBALL", leagueKey: "NBA" },
   basketball_nba: { sport: "BASKETBALL", leagueKey: "NBA" },
-  ncaab: { sport: "BASKETBALL", leagueKey: "NCAAB" },
-  basketball_ncaab: { sport: "BASKETBALL", leagueKey: "NCAAB" },
   mlb: { sport: "BASEBALL", leagueKey: "MLB" },
   baseball_mlb: { sport: "BASEBALL", leagueKey: "MLB" },
   nhl: { sport: "HOCKEY", leagueKey: "NHL" },

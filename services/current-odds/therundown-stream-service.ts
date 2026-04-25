@@ -19,14 +19,13 @@ if (!global.sharkedgeTheRundownStreamEnvLoaded) {
 
 const WS_URL = process.env.THERUNDOWN_WS_URL?.trim() || "wss://therundown.io/api/v2/ws/markets";
 const MARKET_IDS = "1,2,3";
-const SUPPORTED_LEAGUES = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"] as const;
+const SUPPORTED_LEAGUES = ["NBA", "MLB", "NHL", "NFL", "NCAAF"] as const;
 type SupportedLeagueKey = (typeof SUPPORTED_LEAGUES)[number];
 const SPORT_IDS: Record<SupportedLeagueKey, number> = {
   NCAAF: 1,
   NFL: 2,
   MLB: 3,
   NBA: 4,
-  NCAAB: 5,
   NHL: 6
 };
 

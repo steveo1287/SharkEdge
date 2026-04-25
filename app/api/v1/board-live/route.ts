@@ -6,7 +6,6 @@ import { getLiveBoardPageData } from "@/services/odds/live-board-data";
 
 const SUPPORTED_LEAGUES = new Set<LeagueKey>([
   "NBA",
-  "NCAAB",
   "MLB",
   "NHL",
   "NFL",

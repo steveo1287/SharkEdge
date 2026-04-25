@@ -23,7 +23,7 @@ if (!global.sharkedgeBackendIngestEnvLoaded) {
   global.sharkedgeBackendIngestEnvLoaded = true;
 }
 
-const SUPPORTED_LEAGUES = new Set<LeagueKey>(["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"]);
+const SUPPORTED_LEAGUES = new Set<LeagueKey>(["NBA", "MLB", "NHL", "NFL", "NCAAF"]);
 
 type BackendBoardSource = "theoddsapi" | "scraper" | "therundown";
 

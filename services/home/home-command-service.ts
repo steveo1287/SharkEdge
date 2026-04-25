@@ -25,7 +25,6 @@ export type HomeDeskDateKey = "today" | "tomorrow" | "upcoming";
 export const HOME_LEAGUE_ITEMS = [
   { key: "ALL", label: "All Sports" },
   { key: "NBA", label: "NBA" },
-  { key: "NCAAB", label: "NCAAB" },
   { key: "MLB", label: "MLB" },
   { key: "NHL", label: "NHL" },
   { key: "NFL", label: "NFL" },

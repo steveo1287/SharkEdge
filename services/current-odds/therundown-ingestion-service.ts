@@ -20,7 +20,7 @@ if (!global.sharkedgeTheRundownIngestEnvLoaded) {
   global.sharkedgeTheRundownIngestEnvLoaded = true;
 }
 
-const SUPPORTED_LEAGUES = new Set<LeagueKey>(["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"]);
+const SUPPORTED_LEAGUES = new Set<LeagueKey>(["NBA", "MLB", "NHL", "NFL", "NCAAF"]);
 
 function normalizeName(value: string) {
   return (value ?? "")

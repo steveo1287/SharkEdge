@@ -24,11 +24,10 @@ const ODDS_API_KEY = process.env.ODDS_API_KEY?.trim() || "";
 const ODDS_API_TIMEOUT_MS = 6_000;
 const ODDS_API_CACHE_TTL_MS = 4 * 60_000; // 4 min (conservative for free tier)
 
-const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
+const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "MLB", "NHL", "NFL", "NCAAF"];
 
 const LEAGUE_TO_SPORT_KEY: Record<LeagueKey, string> = {
   NBA: "basketball_nba",
-  NCAAB: "basketball_ncaab",
   MLB: "baseball_mlb",
   NHL: "icehockey_nhl",
   NFL: "americanfootball_nfl",

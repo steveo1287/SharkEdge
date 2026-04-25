@@ -42,7 +42,6 @@ function getDefaultSubscriptionState(): SubscriptionState {
 export function buildDefaultNotificationPreferences(): NotificationPreferencesView {
   const allSports = {
     NBA: true,
-    NCAAB: true,
     MLB: true,
     NHL: true,
     NFL: true,

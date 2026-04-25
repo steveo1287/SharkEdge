@@ -18,7 +18,6 @@ function toNullableJsonInput(value: unknown) {
 function getSportIdForLeague(key: string) {
   switch (key) {
     case "NBA":
-    case "NCAAB":
       return "sport_basketball";
     case "MLB":
       return "sport_baseball";
@@ -187,7 +186,6 @@ async function main() {
         },
         sportPreferences: {
           NBA: true,
-          NCAAB: true,
           MLB: true,
           NHL: true,
           NFL: true,

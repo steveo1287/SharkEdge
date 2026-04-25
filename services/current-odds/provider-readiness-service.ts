@@ -25,7 +25,7 @@ if (!global.sharkedgeProviderReadinessEnvLoaded) {
 const BACKEND_PROVIDER_TIMEOUT_MS = 2_500;
 const SOFT_STALE_MINUTES = 15;
 const HARD_STALE_MINUTES = 45;
-const DEFAULT_LEAGUES: LeagueKey[] = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
+const DEFAULT_LEAGUES: LeagueKey[] = ["NBA", "MLB", "NHL", "NFL", "NCAAF"];
 
 type ReadinessState = "READY" | "DEGRADED" | "NOT_CONFIGURED" | "ERROR";
 

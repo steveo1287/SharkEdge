@@ -16,7 +16,6 @@ export const SPORT_CODES = [
 
 export const LEAGUE_KEYS = [
   "NBA",
-  "NCAAB",
   "MLB",
   "NHL",
   "NFL",

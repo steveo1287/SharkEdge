@@ -10,7 +10,6 @@ type BoardMarketKey = "spread" | "moneyline" | "total";
 export const BOARD_LEAGUE_ITEMS = [
   "ALL",
   "NBA",
-  "NCAAB",
   "MLB",
   "NHL",
   "NFL",

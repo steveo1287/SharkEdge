@@ -17,7 +17,6 @@ type TrendsDashboardProps = {
 
 const TREND_LEAGUE_OPTIONS = [
   { leagueKey: "NBA", leagueLabel: "NBA" },
-  { leagueKey: "NCAAB", leagueLabel: "NCAAB" },
   { leagueKey: "MLB", leagueLabel: "MLB" },
   { leagueKey: "NHL", leagueLabel: "NHL" },
   { leagueKey: "NFL", leagueLabel: "NFL" },

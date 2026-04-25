@@ -427,7 +427,6 @@ export async function syncLeagueEventCatalog(leagueKey: SupportedLeagueKey) {
 export async function syncSupportedEventCatalog() {
   const leagues = [
     "NBA",
-    "NCAAB",
     "MLB",
     "NHL",
     "NFL",

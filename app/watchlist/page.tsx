@@ -82,7 +82,6 @@ export default async function WatchlistPage({ searchParams }: PageProps) {
           <select name="league" defaultValue={filters.league} className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white">
             <option value="ALL">All leagues</option>
             <option value="NBA">NBA</option>
-            <option value="NCAAB">NCAAB</option>
             <option value="MLB">MLB</option>
             <option value="NHL">NHL</option>
             <option value="NFL">NFL</option>

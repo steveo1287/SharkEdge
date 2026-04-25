@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 
-type SupportedLeague = "NBA" | "NCAAB" | "MLB" | "NFL" | "NCAAF";
+type SupportedLeague = "NBA" | "MLB" | "NFL" | "NCAAF";
 type SmokeArgs = {
   league: SupportedLeague;
   date: string;
@@ -12,7 +12,6 @@ type SmokeArgs = {
 
 const SPORT_BY_LEAGUE: Record<SupportedLeague, string> = {
   NBA: "basketball",
-  NCAAB: "basketball",
   MLB: "baseball",
   NFL: "football",
   NCAAF: "football"
@@ -39,7 +38,7 @@ function parseArgs(argv: string[]): SmokeArgs {
 
   const league = (raw.get("league")?.toUpperCase() ?? "NBA") as SupportedLeague;
   if (!(league in SPORT_BY_LEAGUE)) {
-    throw new Error(`Unsupported league '${league}'. Use NBA, NCAAB, MLB, NFL, or NCAAF.`);
+    throw new Error(`Unsupported league '${league}'. Use NBA, MLB, NFL, or NCAAF.`);
   }
 
   const date = raw.get("date") ?? new Date().toISOString().slice(0, 10).replace(/-/g, "");

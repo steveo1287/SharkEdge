@@ -11,7 +11,6 @@ loadEnvConfig(process.cwd());
 
 const DEFAULT_LEAGUES: LeagueKey[] = [
   "NBA",
-  "NCAAB",
   "MLB",
   "NHL",
   "NFL",
@@ -19,10 +18,9 @@ const DEFAULT_LEAGUES: LeagueKey[] = [
   "UFC",
   "BOXING"
 ];
-const ALLOWED_LEAGUES = new Set<LeagueKey>(["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]);
+const ALLOWED_LEAGUES = new Set<LeagueKey>(["NBA", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]);
 const LEAGUE_TO_SPORT_KEY: Partial<Record<LeagueKey, string>> = {
   NBA: "basketball_nba",
-  NCAAB: "basketball_ncaab",
   MLB: "baseball_mlb",
   NHL: "icehockey_nhl",
   NFL: "americanfootball_nfl",

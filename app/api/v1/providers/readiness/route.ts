@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import type { LeagueKey } from "@/lib/types/domain";
 import { getLiveOddsReadinessReport } from "@/services/current-odds/provider-readiness-service";
 
-const SUPPORTED_LEAGUES = new Set<LeagueKey>(["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]);
+const SUPPORTED_LEAGUES = new Set<LeagueKey>(["NBA", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"]);
 
 function parseLeagues(request: Request) {
   const { searchParams } = new URL(request.url);

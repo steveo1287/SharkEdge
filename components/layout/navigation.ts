@@ -129,7 +129,6 @@ export const LEAGUE_NAV_ITEMS: LeagueNavItem[] = [
   { href: "/leagues/mlb",   label: "MLB",    leagueKey: "MLB",    description: "MLB baseball hub." },
   { href: "/leagues/nhl",   label: "NHL",    leagueKey: "NHL",    description: "NHL hockey hub." },
   { href: "/leagues/nfl",   label: "NFL",    leagueKey: "NFL",    description: "NFL football hub." },
-  { href: "/leagues/ncaab", label: "NCAAB",  leagueKey: "NCAAB",  description: "College basketball." },
   { href: "/leagues/ncaaf", label: "NCAAF",  leagueKey: "NCAAF",  description: "College football." },
   { href: "/leagues/ufc",   label: "UFC",    leagueKey: "UFC",    description: "UFC fight hub." },
   { href: "/leagues/boxing",label: "Boxing", leagueKey: "BOXING", description: "Boxing market desk." }
@@ -137,7 +136,7 @@ export const LEAGUE_NAV_ITEMS: LeagueNavItem[] = [
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const LEAGUE_DISPLAY_NAMES: Record<string, string> = {
-  NBA: "NBA", NCAAB: "NCAA Basketball", MLB: "MLB",
+  NBA: "NBA", MLB: "MLB",
   NHL: "NHL", NFL: "NFL", NCAAF: "College Football",
   UFC: "UFC", BOXING: "Boxing"
 };

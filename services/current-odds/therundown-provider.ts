@@ -25,7 +25,6 @@ const THERUNDOWN_MARKET_IDS = "1,2,3";
 const THERUNDOWN_OFFSET_MINUTES = "300";
 const THERUNDOWN_SUPPORTED_LEAGUES: LeagueKey[] = [
   "NBA",
-  "NCAAB",
   "MLB",
   "NHL",
   "NFL",
@@ -41,7 +40,6 @@ const THERUNDOWN_CIRCUIT_FAILURE_THRESHOLD = 3;
 const THERUNDOWN_CIRCUIT_OPEN_MS = 10 * 60_000;
 const THERUNDOWN_LEAGUE_SPORT_KEYS: Partial<Record<LeagueKey, string>> = {
   NBA: "basketball_nba",
-  NCAAB: "basketball_ncaab",
   MLB: "baseball_mlb",
   NHL: "icehockey_nhl",
   NFL: "americanfootball_nfl",
@@ -52,7 +50,6 @@ const THERUNDOWN_SPORT_IDS: Record<Exclude<LeagueKey, "UFC" | "BOXING">, number>
   NFL: 2,
   MLB: 3,
   NBA: 4,
-  NCAAB: 5,
   NHL: 6
 };
 

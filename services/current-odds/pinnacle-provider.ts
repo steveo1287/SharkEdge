@@ -23,7 +23,7 @@ const PINNACLE_BASE_URL = "https://api.pinnacle.com/v3";
 const PINNACLE_TIMEOUT_MS = 8_000;
 const PINNACLE_CACHE_TTL_MS = 2 * 60_000; // 2 min (Pinnacle updates frequently)
 
-const SUPPORTED_LEAGUES: LeagueKey[] = ["NFL", "NBA", "MLB", "NHL", "NCAAB", "NCAAF", "UFC"];
+const SUPPORTED_LEAGUES: LeagueKey[] = ["NFL", "NBA", "MLB", "NHL", "NCAAF", "UFC"];
 
 type PinnacleLeagueId = 1 | 4 | 6 | 12 | 15 | 16 | 99;
 
@@ -31,7 +31,6 @@ const LEAGUE_TO_PINNACLE_ID: Record<LeagueKey, PinnacleLeagueId> = {
   NFL: 1,
   NCAAF: 15,
   NBA: 4,
-  NCAAB: 16,
   MLB: 12,
   NHL: 6,
   UFC: 99 as PinnacleLeagueId,
