@@ -1,24 +1,19 @@
 import type { LeagueKey } from "@/lib/types/domain";
-
-import { oddsharvesterDirectProvider } from "./oddsharvester-direct-provider";
 import type { BookFeedProvider, BookFeedProviderKey } from "./book-feed-provider-types";
 
 /**
- * Book feed providers registry - OPEN-SOURCE ONLY
+ * Book feed providers registry.
  *
- * Primary data sources:
- * - OddsHarvester: Direct CLI-based odds scraper (https://github.com/jordantete/OddsHarvester)
- *   Installation: pip install oddsharvester
+ * OddsHarvester data is PUSHED to /api/ingest/odds by the Python push script
+ * (scripts/local_oddsharvester_push.py), not pulled here. The odds-refresh-worker
+ * runs currentMarketStateJob and recomputeEdgeSignals against data already in the DB.
  *
- * Removed paid/rate-limited providers:
- * - OddsAPI (the-odds-api.com) - paid service with rate limits
- * - TheRundown - paid historical odds service
- * - Pinnacle - paid premium lines
- * - TheSportsDB - rate-limited free tier
- * - External backend service (shark-odds-1.onrender.com) - replaced with direct CLI integration
+ * To populate odds data:
+ *   pip install oddsharvester
+ *   SHARKEDGE_BACKEND_URL=https://app.sharkedge.com SHARKEDGE_API_KEY=<key> python scripts/local_oddsharvester_push.py
  */
 
-const BOOK_FEED_PROVIDERS: BookFeedProvider[] = [oddsharvesterDirectProvider];
+const BOOK_FEED_PROVIDERS: BookFeedProvider[] = [];
 
 export function getBookFeedProviders() {
   return BOOK_FEED_PROVIDERS;
