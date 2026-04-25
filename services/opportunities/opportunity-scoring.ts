@@ -17,6 +17,8 @@ type BuildOpportunityScoreArgs = {
   sourceQualityScore?: number;
   marketEfficiencyScore?: number;
   edgeDecayPenalty?: number;
+  simVerdictScore?: number;
+  trendVerdictScore?: number;
   truthCalibrationScoreDelta?: number;
   reasonCalibrationScoreDelta?: number;
   marketPathScoreDelta?: number;
@@ -160,6 +162,40 @@ function buildMarketEfficiencyScore(args: BuildOpportunityScoreArgs) {
   return clamp(args.marketEfficiencyScore ?? 0, -8, 8);
 }
 
+function buildSimulationScore(args: BuildOpportunityScoreArgs) {
+  const simScore = args.simVerdictScore ?? 0;
+  if (simScore <= 20) {
+    return -3;
+  }
+  if (simScore <= 40) {
+    return -1;
+  }
+  if (simScore <= 60) {
+    return 0;
+  }
+  if (simScore <= 75) {
+    return 4;
+  }
+  return 8;
+}
+
+function buildTrendScore(args: BuildOpportunityScoreArgs) {
+  const trendScore = args.trendVerdictScore ?? 0;
+  if (trendScore <= 25) {
+    return -2;
+  }
+  if (trendScore <= 45) {
+    return 0;
+  }
+  if (trendScore <= 65) {
+    return 2;
+  }
+  if (trendScore <= 80) {
+    return 4;
+  }
+  return 6;
+}
+
 function buildDecayPenalty(args: BuildOpportunityScoreArgs) {
   return clamp((args.edgeDecayPenalty ?? 0) * 0.55, 0, 24);
 }
@@ -178,6 +214,8 @@ export function buildOpportunityScore(
   const support = buildSupportScore(args);
   const sourceQuality = buildSourceQualityScore(args);
   const marketEfficiency = buildMarketEfficiencyScore(args);
+  const simulation = buildSimulationScore(args);
+  const trends = buildTrendScore(args);
   const edgeDecayPenalty = buildDecayPenalty(args);
   const truthCalibration = clamp(args.truthCalibrationScoreDelta ?? 0, -8, 6);
   const reasonCalibration = clamp(args.reasonCalibrationScoreDelta ?? 0, -5, 5);
@@ -203,6 +241,8 @@ export function buildOpportunityScore(
     support +
     sourceQuality +
     marketEfficiency +
+    simulation +
+    trends +
     truthCalibration +
     reasonCalibration +
     marketPath +
@@ -224,6 +264,8 @@ export function buildOpportunityScore(
       support: round(support),
       sourceQuality: round(sourceQuality),
       marketEfficiency: round(marketEfficiency),
+      simulation: round(simulation),
+      trends: round(trends),
       edgeDecay: -round(edgeDecayPenalty),
       truthCalibration: round(truthCalibration),
       reasonCalibration: round(reasonCalibration),

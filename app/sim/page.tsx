@@ -40,10 +40,32 @@ export default async function SimPage() {
   return (
     <div className="min-h-screen">
       <div className="sticky top-0 z-30 border-b border-bone/[0.06] bg-ink/90 backdrop-blur-xl">
-        <div className="mx-auto max-w-[1400px] px-4 py-3 sm:px-6">
-          <h1 className="font-display text-[17px] font-semibold tracking-[-0.01em] text-text-primary">
-            Simulation Board
-          </h1>
+        <div className="mx-auto max-w-[1400px] px-4 sm:px-6">
+          <div className="flex items-center justify-between py-3">
+            <h1 className="font-display text-[17px] font-semibold tracking-[-0.01em] text-text-primary">
+              Simulation Board
+            </h1>
+            <div className="flex gap-1">
+              <Link
+                href="/sim"
+                className="rounded-lg px-3 py-1.5 text-[12px] font-semibold uppercase tracking-[0.1em] text-text-primary hover:bg-bone/[0.08] transition-colors"
+              >
+                Board
+              </Link>
+              <Link
+                href="/sim/ab-test"
+                className="rounded-lg px-3 py-1.5 text-[12px] font-semibold uppercase tracking-[0.1em] text-bone/70 hover:bg-bone/[0.08] transition-colors"
+              >
+                A/B Test
+              </Link>
+              <Link
+                href="/sim/calibration"
+                className="rounded-lg px-3 py-1.5 text-[12px] font-semibold uppercase tracking-[0.1em] text-bone/70 hover:bg-bone/[0.08] transition-colors"
+              >
+                Calibration
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
 
