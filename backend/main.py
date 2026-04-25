@@ -279,6 +279,11 @@ LAST_SCRAPER_REFRESH_ATTEMPT_AT = 0.0
 
 
 def get_api_key() -> str:
+    # Keep third-party odds APIs disabled by default in production.
+    # To opt in explicitly, set ODDS_API_ENABLED=true.
+    odds_api_enabled = os.getenv("ODDS_API_ENABLED", "false").strip().lower() == "true"
+    if not odds_api_enabled:
+        return ""
     return os.getenv("ODDS_API_KEY", "").strip()
 
 
