@@ -55,7 +55,7 @@ RUN npm ci --include=dev --ignore-scripts || true
 
 COPY . .
 RUN npx prisma generate
-RUN pip3 install --no-cache-dir selenium requests webdriver-manager
+RUN pip3 install --no-cache-dir selenium requests webdriver-manager "oddsharvester @ git+https://github.com/jordantete/OddsHarvester.git"
 
 ENV CHROME_BIN=/usr/bin/chromium
 

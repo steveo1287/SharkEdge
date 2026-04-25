@@ -98,7 +98,7 @@ if (-not (Test-Path '.env.local-oddsharvester') -and (Test-Path '.env.local-odds
 
 Write-Host 'Installing local worker dependencies...'
 & $venvPython -m pip install --upgrade pip
-& $venvPython -m pip install requests oddsharvester
+& $venvPython -m pip install requests "oddsharvester @ git+https://github.com/jordantete/OddsHarvester.git"
 $env:PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT = '180000'
 & $venvPython -m playwright install chromium
 if ($LASTEXITCODE -ne 0) {

@@ -32,7 +32,7 @@ $env:PATH = "$(Join-Path $repoRoot '.venv\Scripts');$env:PATH"
 
 & $venvPython -m pip show requests oddsharvester *> $null
 if ($LASTEXITCODE -ne 0) {
-  & $venvPython -m pip install requests oddsharvester
+  & $venvPython -m pip install requests "oddsharvester @ git+https://github.com/jordantete/OddsHarvester.git"
 }
 
 & $venvPython .\scripts\local_oddsharvester_push.py

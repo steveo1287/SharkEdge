@@ -88,7 +88,7 @@ function ensureCliPresent() {
 
   if (check.error || check.status !== 0) {
     throw new Error(
-      "oddsharvester CLI is not installed. Install it first with 'pip install oddsharvester'."
+      "oddsharvester CLI is not installed. Install it first with 'pip install \"oddsharvester @ git+https://github.com/jordantete/OddsHarvester.git\"'."
     );
   }
 }

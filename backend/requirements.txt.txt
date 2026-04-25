@@ -1,7 +1,7 @@
  fastapi
 uvicorn
 python-dotenv
-oddsharvester
+oddsharvester @ git+https://github.com/jordantete/OddsHarvester.git
 requests
 selenium
 playwright

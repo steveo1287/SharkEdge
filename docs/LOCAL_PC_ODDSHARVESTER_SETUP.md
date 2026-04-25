@@ -36,7 +36,7 @@ That script will:
 
 1. install Python 3.12 with `winget` if needed
 2. create `.venv`
-3. install `requests` and `oddsharvester`
+3. install `requests` and `oddsharvester` from `https://github.com/jordantete/OddsHarvester`
 4. install Playwright Chromium
 5. create `.env.local-oddsharvester` from the example if it is missing
 
