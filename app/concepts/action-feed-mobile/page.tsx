@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 
 import { LineMovementChart } from "@/components/charts/line-movement-chart";
