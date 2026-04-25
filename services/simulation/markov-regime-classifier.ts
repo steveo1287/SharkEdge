@@ -109,7 +109,7 @@ export class MarkovRegimeClassifier {
       confidence = Math.min((squarenessScore - sharpnessScore) / 100, 1);
       reasoning.push(
         `Public money dominant (squareness: ${squarenessScore})`,
-        `Sticky lines (${sharpnessIndicators.linestickyness.toFixed(2)})`,
+        `Sticky lines (${squarenessIndicators.linestickyness.toFixed(2)})`,
         `Mass market patterns present (${squarenessIndicators.massMarketPatterns.toFixed(2)})`
       );
     } else {
@@ -146,32 +146,32 @@ export class MarkovRegimeClassifier {
     // Consensus width: how tight are the consensus lines across books?
     // Proxy: if market anchor spread is very narrow, sharp money tightening it
     const spreadWidth = Math.abs(
-      (input.marketAnchor?.spreadHome ?? 0) - (sim.projectedSpread ?? 0)
+      (input.marketAnchor?.spreadHome ?? 0) - (sim.projectedSpreadHome ?? 0)
     );
     const consensusWidth = Math.max(0, 3 - spreadWidth); // tight lines = high value
 
     // Line movement velocity: sharp money creates fast line movement
-    // Proxy: model confidence (if model is very certain, sharp money moved lines to it)
-    const modelConfidence = sim.confidence ?? 0.5;
-    const lineMovementVelocity = modelConfidence > 0.7 ? 1.5 : modelConfidence < 0.4 ? 0.3 : 0.8;
+    // Proxy: if model has high confidence vs ratings prior, suggests sharp money moved it
+    const priorConfidence = input.ratingsPrior?.confidence ?? 0.5;
+    const modelWinProbConfidence = Math.abs(sim.winProbHome - 0.5) > 0.15 ? 1.5 : 0.8;
+    const lineMovementVelocity = priorConfidence > 0.7 ? 1.5 : priorConfidence < 0.4 ? 0.3 : modelWinProbConfidence;
 
     // Bookmaker disagreement (lower = sharper, more consensus)
-    // Proxy: use ratings std dev as proxy for market disagreement
-    const homeRating = input.home.ratings?.expectedValue ?? 50;
-    const awayRating = input.away.ratings?.expectedValue ?? 50;
-    const ratingDiff = Math.abs(homeRating - awayRating);
-    const bookmakerDisagreement = Math.max(0, 15 - ratingDiff) / 15; // normalized 0-1
+    // Proxy: use ratings confidence as proxy for market disagreement
+    const homeRatingConfidence = input.home.ratings?.confidence ?? 0.5;
+    const awayRatingConfidence = input.away.ratings?.confidence ?? 0.5;
+    const avgRatingConfidence = (homeRatingConfidence + awayRatingConfidence) / 2;
+    const bookmakerDisagreement = (1 - avgRatingConfidence) * 10; // high confidence = low disagreement
 
     // Prior deviation: sharp markets should align with ratings priors
-    const priorDeviation = Math.abs(
-      (input.ratingsPrior?.expectedHomeWinProbability ?? 0.5) -
-        (sim.homeWinProbability ?? 0.5)
-    );
+    const priorWinProb = input.ratingsPrior?.home?.overall ?? 50;
+    const modelWinProb = sim.projectedHomeScore / (sim.projectedHomeScore + sim.projectedAwayScore + 0.01);
+    const priorDeviation = Math.abs(priorWinProb / 100 - modelWinProb);
 
     return {
       consensusWidth: Math.min(consensusWidth, 3),
       lineMovementVelocity,
-      bookmakerDisagreement: bookmakerDisagreement * 10,
+      bookmakerDisagreement,
       priorDeviation: priorDeviation * 10
     };
   }
@@ -189,13 +189,15 @@ export class MarkovRegimeClassifier {
       (totalRemainder < 0.2 || totalRemainder > 0.8 ? 1 : 0.3);
 
     // Linestickiness: lines not moving = square market
-    // Proxy: if model is uncertain, lines aren't moving (public setting prices)
-    const modelUncertainty = 1 - (sim.confidence ?? 0.5);
-    const linestickyness = modelUncertainty > 0.5 ? 8 : modelUncertainty > 0.3 ? 4 : 2;
+    // Proxy: if model and market differ significantly, lines aren't moving much
+    const modelTotalProj = sim.projectedTotal;
+    const marketTotal = input.marketAnchor?.total ?? modelTotalProj;
+    const totalDiff = Math.abs(modelTotalProj - marketTotal);
+    const linestickyness = totalDiff < 2 ? 8 : totalDiff < 4 ? 4 : 2;
 
     // Mass market patterns: moneyline/spread correlation
     // Square markets show predictable correlations (favorites favored on both lines)
-    const mlFavorite = (sim.homeWinProbability ?? 0.5) > 0.55;
+    const mlFavorite = sim.winProbHome > 0.55;
     const spreadFavorite = (input.marketAnchor?.spreadHome ?? 0) < -1;
     const massMarketPatterns = mlFavorite === spreadFavorite ? 8 : 3;
 
@@ -212,18 +214,20 @@ export class MarkovRegimeClassifier {
   ): MarkovRegimeState["conflictIndicators"] {
     // Market vs model disagreement
     const marketImpliedML = this.getMarketImpliedWinProb(input);
-    const modelML = sim.homeWinProbability ?? 0.5;
+    const modelML = sim.winProbHome;
     const marketOddsDeviation = Math.abs(marketImpliedML - modelML) * 10;
 
     // Bookmaker divergence: different books price differently
-    // Proxy: use rating uncertainty as proxy
-    const homeUncertainty = input.home.ratings?.uncertainty ?? 0.1;
-    const awayUncertainty = input.away.ratings?.uncertainty ?? 0.1;
-    const bookmakerDivergence = (homeUncertainty + awayUncertainty) * 5;
+    // Proxy: use volatility of team ratings as proxy for disagreement
+    const homeVolatility = input.home.ratings?.volatility ?? 0.1;
+    const awayVolatility = input.away.ratings?.volatility ?? 0.1;
+    const bookmakerDivergence = (homeVolatility + awayVolatility) * 5;
 
     // Rating unconfidence: low confidence in team ratings = conflicted market
-    const ratingConfidence = sim.confidence ?? 0.5;
-    const ratingUnconfidence = 1 - ratingConfidence;
+    const homeRatingConfidence = input.home.ratings?.confidence ?? 0.5;
+    const awayRatingConfidence = input.away.ratings?.confidence ?? 0.5;
+    const avgRatingConfidence = (homeRatingConfidence + awayRatingConfidence) / 2;
+    const ratingUnconfidence = 1 - avgRatingConfidence;
 
     return {
       marketOddsDeviation: Math.min(marketOddsDeviation, 10),
