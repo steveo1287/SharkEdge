@@ -14,3 +14,7 @@ Runtime mapping:
 - `odds-worker` -> `npm run worker:odds-refresh`
 
 The `deploy/railway/` Dockerfiles remain in the repo for explicit service-path targeting if Railway service-level Dockerfile selection is enabled in your workspace later.
+
+Additional dedicated worker Dockerfile:
+
+- OddsHarvester Python worker: `deploy/railway/Dockerfile.oddsharvester-worker`

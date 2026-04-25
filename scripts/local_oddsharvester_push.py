@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -589,6 +590,13 @@ def post_payload(payload: dict[str, Any]) -> PostResult:
 
 
 def main() -> None:
+    parsed_host = (urlparse(BACKEND_URL).hostname or "").lower()
+    if parsed_host in {"app.sharkedge.com", "www.app.sharkedge.com"}:
+        raise RuntimeError(
+            "SHARKEDGE_BACKEND_URL points to the frontend domain. "
+            "Use a backend ingest target (for Railway internal routing, e.g. http://sharkedge-web:3000)."
+        )
+
     total_games = 0
     total_posts = 0
     failures: list[str] = []

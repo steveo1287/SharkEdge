@@ -16,6 +16,7 @@ env:
   RAILWAY_WEB_SERVICE: ${{ vars.RAILWAY_WEB_SERVICE || 'sharkedge-web' }}
   RAILWAY_WORKER_ODDS_SERVICE: ${{ vars.RAILWAY_WORKER_ODDS_SERVICE || 'odds-worker' }}
   RAILWAY_WORKER_TRENDS_SERVICE: ${{ vars.RAILWAY_WORKER_TRENDS_SERVICE || 'trends-worker' }}
+  RAILWAY_WORKER_ODDSHARVESTER_SERVICE: ${{ vars.RAILWAY_WORKER_ODDSHARVESTER_SERVICE || '' }}
 
 jobs:
   test:
@@ -104,6 +105,10 @@ jobs:
             railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_WORKER_TRENDS_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
           fi
 
+          if [ -n "${RAILWAY_WORKER_ODDSHARVESTER_SERVICE:-}" ]; then
+            railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_WORKER_ODDSHARVESTER_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
+          fi
+
       - name: Health check
         env:
           HEALTHCHECK_URL: ${{ vars.PRODUCTION_HEALTHCHECK_URL || '' }}
@@ -183,3 +188,4 @@ jobs:
           echo "Web service: $RAILWAY_WEB_SERVICE"
           echo "Odds worker: $RAILWAY_WORKER_ODDS_SERVICE"
           echo "Trends worker: ${RAILWAY_WORKER_TRENDS_SERVICE:-<skipped>}"
+          echo "OddsHarvester worker: ${RAILWAY_WORKER_ODDSHARVESTER_SERVICE:-<skipped>}"
