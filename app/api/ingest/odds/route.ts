@@ -111,7 +111,7 @@ export async function POST(request: Request) {
 
   try {
     const result = await upsertOddsIngestPayload({
-      sport: data.sport,
+      sport: data.sportKey ?? data.sport,
       eventKey: data.eventKey,
       homeTeam: data.homeTeam,
       awayTeam: data.awayTeam,
