@@ -10,7 +10,6 @@ import {
   hasCurrentOddsBackendBaseUrl
 } from "./backend-url";
 import type { CurrentOddsBoardResponse } from "./provider-types";
-import { therundownCurrentOddsProvider } from "./therundown-provider";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -276,67 +275,6 @@ export async function probeBackendBoardProvider(): Promise<BoardProviderReadines
   };
 }
 
-export async function probeTheRundownBoardProvider(): Promise<BoardProviderReadiness> {
-  const checkedAt = new Date().toISOString();
-  const hasApiKey = Boolean(process.env.THERUNDOWN_API_KEY?.trim());
-
-  if (!hasApiKey) {
-    return {
-      providerKey: therundownCurrentOddsProvider.key,
-      label: therundownCurrentOddsProvider.label,
-      state: "NOT_CONFIGURED",
-      configured: false,
-      checkedAt,
-      generatedAt: null,
-      freshnessMinutes: null,
-      errors: [],
-      warnings: ["THERUNDOWN_API_KEY is not configured in this runtime."],
-      providerMode: "therundown",
-      sportsCount: 0,
-      gameCount: 0,
-      sourceUrl: null
-    };
-  }
-
-  const payload = await therundownCurrentOddsProvider.fetchBoard();
-  if (!payload) {
-    return {
-      providerKey: therundownCurrentOddsProvider.key,
-      label: therundownCurrentOddsProvider.label,
-      state: "ERROR",
-      configured: true,
-      checkedAt,
-      generatedAt: null,
-      freshnessMinutes: null,
-      errors: ["TheRundown current-odds request failed or returned empty payload."],
-      warnings: ["TheRundown is configured but not returning a usable current board."],
-      providerMode: "therundown",
-      sportsCount: 0,
-      gameCount: 0,
-      sourceUrl: null
-    };
-  }
-
-  const warnings = buildBoardWarnings(payload);
-  const sportsCount = payload.sports?.length ?? 0;
-  const gameCount = payload.sports?.reduce((sum, sport) => sum + sport.games.length, 0) ?? 0;
-
-  return {
-    providerKey: therundownCurrentOddsProvider.key,
-    label: therundownCurrentOddsProvider.label,
-    state: deriveBoardProviderState(payload, warnings),
-    configured: Boolean(payload.configured),
-    checkedAt,
-    generatedAt: payload.generated_at ?? null,
-    freshnessMinutes: getFreshnessMinutes(payload.generated_at),
-    errors: payload.errors ?? [],
-    warnings,
-    providerMode: payload.provider_mode ?? payload.provider ?? null,
-    sportsCount,
-    gameCount,
-    sourceUrl: null
-  };
-}
 
 function scoreBoardProvider(provider: BoardProviderReadiness) {
   if (provider.state === "ERROR" || provider.state === "NOT_CONFIGURED") {
