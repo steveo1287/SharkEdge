@@ -163,36 +163,22 @@ function buildMarketEfficiencyScore(args: BuildOpportunityScoreArgs) {
 }
 
 function buildSimulationScore(args: BuildOpportunityScoreArgs) {
-  const simScore = args.simVerdictScore ?? 0;
-  if (simScore <= 20) {
-    return -3;
-  }
-  if (simScore <= 40) {
-    return -1;
-  }
-  if (simScore <= 60) {
-    return 0;
-  }
-  if (simScore <= 75) {
-    return 4;
-  }
+  if (args.simVerdictScore == null) return 0;
+  const simScore = args.simVerdictScore;
+  if (simScore <= 20) return -3;
+  if (simScore <= 40) return -1;
+  if (simScore <= 60) return 0;
+  if (simScore <= 75) return 4;
   return 8;
 }
 
 function buildTrendScore(args: BuildOpportunityScoreArgs) {
-  const trendScore = args.trendVerdictScore ?? 0;
-  if (trendScore <= 25) {
-    return -2;
-  }
-  if (trendScore <= 45) {
-    return 0;
-  }
-  if (trendScore <= 65) {
-    return 2;
-  }
-  if (trendScore <= 80) {
-    return 4;
-  }
+  if (args.trendVerdictScore == null) return 0;
+  const trendScore = args.trendVerdictScore;
+  if (trendScore <= 25) return -2;
+  if (trendScore <= 45) return 0;
+  if (trendScore <= 65) return 2;
+  if (trendScore <= 80) return 4;
   return 6;
 }
 
