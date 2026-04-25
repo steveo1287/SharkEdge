@@ -38,9 +38,16 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
   const awayLogo = getTeamLogoUrl(leagueKey, game.awayTeam.abbreviation);
   const homeLogo = getTeamLogoUrl(leagueKey, game.homeTeam.abbreviation);
 
+  const edgeColor: Record<string, string> = {
+    Elite: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+    Strong: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30",
+    Watchlist: "bg-sky-500/10 text-sky-400 border-sky-500/30",
+    Pass: "bg-bone/5 text-bone/50 border-bone/20"
+  };
+
   return (
     <Link href={game.detailHref ?? `/game/${game.id}`} className="block">
-      <div className="group grid grid-cols-[1fr_auto] gap-x-4 gap-y-0 rounded-xl border border-bone/[0.07] bg-surface px-4 py-3 transition-colors hover:border-aqua/25 hover:bg-panel">
+      <div className="group grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-0 rounded-xl border border-bone/[0.07] bg-surface px-4 py-3 transition-colors hover:border-aqua/25 hover:bg-panel">
         <div className="grid gap-2.5">
           <div className="flex items-center gap-2.5">
             <TeamBadge
@@ -81,6 +88,13 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
             <span className="text-bone/40 uppercase tracking-widest">O/U</span>
             <span className="font-mono tabular-nums text-aqua">{game.total.lineLabel || "—"}</span>
           </div>
+        </div>
+
+        <div className="flex flex-col items-end justify-center gap-1.5 border-l border-bone/[0.06] pl-3 min-w-[90px]">
+          <div className={`rounded border px-2 py-1 text-[11px] font-semibold uppercase tracking-widest ${edgeColor[game.edgeScore.label]}`}>
+            {game.edgeScore.score}
+          </div>
+          <div className="text-[10px] text-bone/40 uppercase tracking-widest">{game.edgeScore.label}</div>
         </div>
       </div>
     </Link>
@@ -165,11 +179,16 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
                 {totalGames} games
               </span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="live-dot" />
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-bone/50">
-                Refreshes every 5 min
-              </span>
+            <div className="flex items-center gap-3">
+              <Link href="/sim/ab-test" className="rounded-lg border border-bone/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-bone/60 transition-colors hover:border-aqua/40 hover:text-aqua/80 hover:bg-aqua/5">
+                A/B Test
+              </Link>
+              <div className="flex items-center gap-1.5">
+                <span className="live-dot" />
+                <span className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-bone/50">
+                  Refreshes every 5 min
+                </span>
+              </div>
             </div>
           </div>
 
