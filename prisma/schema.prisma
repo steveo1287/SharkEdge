@@ -369,6 +369,8 @@ model Event {
   watchlistItems             WatchlistItem[]
   alertRules                 AlertRule[]
   explanationSnapshots       EdgeExplanationSnapshot[]
+  simulationCaches           SimulationCache[]
+  verdictAbTests             VerdictAbTest[]
   createdAt                  DateTime                    @default(now())
   updatedAt                  DateTime                    @updatedAt
 

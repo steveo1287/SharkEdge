@@ -187,9 +187,9 @@ export class ABTestingFramework {
           eventId: data.eventId,
           testName: data.testName,
           variant: data.variant,
-          controlVerdict: data.controlVerdict,
+          controlVerdict: data.controlVerdict as any,
           controlConfidence: data.controlConfidence,
-          treatmentVerdict: data.treatmentVerdict,
+          treatmentVerdict: data.treatmentVerdict as any,
           treatmentConfidence: data.treatmentConfidence,
           metadataJson: {
             regime: data.regime

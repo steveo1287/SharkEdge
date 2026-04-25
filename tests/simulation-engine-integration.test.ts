@@ -129,8 +129,8 @@ async function runTests() {
     seed: 12345
   };
 
-  const baselineForRegime = simulateContextualGame(regimeInput);
-  const regime = await markovRegimeClassifier.classifyRegime(regimeInput, baselineForRegime);
+  const baselineForRegime = simulateContextualGame(regimeInput as any);
+  const regime = await markovRegimeClassifier.classifyRegime(regimeInput as any, baselineForRegime);
 
   console.log(`  ✓ Classification: ${regime.classification}`);
   console.log(`  ✓ Confidence: ${(regime.confidence * 100).toFixed(1)}%`);
@@ -145,7 +145,7 @@ async function runTests() {
 
   // Test 3: Variance enhancement
   console.log("Test 3: Regime-aware variance enhancement");
-  const enhanced = await enhanceSimulationWithRegime(baselineForRegime, regimeInput, regime, false);
+  const enhanced = await enhanceSimulationWithRegime(baselineForRegime, regimeInput as any, regime, false);
 
   console.log(`  ✓ Baseline std dev: ${baselineForRegime.distribution.totalStdDev.toFixed(2)}`);
   console.log(`  ✓ Enhanced std dev: ${enhanced.distribution.totalStdDev.toFixed(2)}`);
@@ -198,9 +198,9 @@ async function runTests() {
 
   // Test 5: Full pipeline integration
   console.log("Test 5: Full simulation pipeline");
-  const pipeline1 = simulateContextualGame(regimeInput);
-  const pipeline2 = await markovRegimeClassifier.classifyRegime(regimeInput, pipeline1);
-  const pipeline3 = await enhanceSimulationWithRegime(pipeline1, regimeInput, pipeline2, false);
+  const pipeline1 = simulateContextualGame(regimeInput as any);
+  const pipeline2 = await markovRegimeClassifier.classifyRegime(regimeInput as any, pipeline1);
+  const pipeline3 = await enhanceSimulationWithRegime(pipeline1, regimeInput as any, pipeline2, false);
 
   console.log(`  ✓ Baseline home win prob: ${(pipeline1.winProbHome * 100).toFixed(1)}%`);
   console.log(`  ✓ Enhanced home win prob: ${(pipeline3.winProbHome * 100).toFixed(1)}%`);
