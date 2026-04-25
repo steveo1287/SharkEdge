@@ -70,6 +70,8 @@ import { getMarketPathRole } from "@/services/market/market-path-service";
 import { simulateContextualGame, type ContextualGameSimulationInput } from "@/services/simulation/contextual-game-sim";
 import { buildGameSimVerdict } from "@/services/simulation/sim-verdict-engine";
 import { buildOpportunityTrendIntelligence } from "@/services/trends/opportunity-trend-intelligence";
+import { abTestingFramework } from "@/services/simulation/ab-testing-framework";
+import { markovRegimeClassifier } from "@/services/simulation/markov-regime-classifier";
 
 const neutralTruthCalibrationResolver = createOpportunityTruthCalibrationResolver();
 const neutralMarketPathResolver = createOpportunityMarketPathResolver();
@@ -238,6 +240,70 @@ function getSimulationVerdictScore(args: {
   }
 }
 
+async function recordVerdictForABTest(args: {
+  eventId: string;
+  leagueKey: string;
+  homeTeamName?: string | null;
+  awayTeamName?: string | null;
+  simVerdict?: {
+    homeScore: number;
+    awayScore: number;
+    spreadHome: number;
+    winProbHome: number;
+  } | null;
+}): Promise<void> {
+  try {
+    if (!args.homeTeamName || !args.awayTeamName || !args.simVerdict) {
+      return;
+    }
+
+    const testName = "regime-aware-variance-v1";
+    const variant = abTestingFramework.assignVariant(testName, args.eventId);
+
+    if (variant !== "treatment") {
+      return; // Only track treatment variants
+    }
+
+    const baseVerdict = {
+      projectedHomeScore: args.simVerdict.homeScore,
+      projectedAwayScore: args.simVerdict.awayScore,
+      projectedSpread: args.simVerdict.spreadHome,
+      winProbHome: args.simVerdict.winProbHome
+    };
+
+    const simInput: ContextualGameSimulationInput = {
+      leagueKey: args.leagueKey,
+      home: {
+        teamName: args.homeTeamName,
+        offense: 100,
+        defense: 100,
+        pace: 100
+      },
+      away: {
+        teamName: args.awayTeamName,
+        offense: 100,
+        defense: 100,
+        pace: 100
+      },
+      samples: 1000
+    };
+
+    const baselineSimulation = simulateContextualGame(simInput);
+    const regime = await markovRegimeClassifier.classifyRegime(simInput, baselineSimulation);
+
+    await abTestingFramework.getTestVerdict(
+      args.eventId,
+      testName,
+      baseVerdict,
+      simInput,
+      baselineSimulation,
+      regime
+    );
+  } catch (error) {
+    console.error("[VerdictABTest]", error instanceof Error ? error.message : String(error));
+  }
+}
+
 type BaseOpportunityArgs = {
   id: string;
   kind: OpportunityKind;
@@ -282,6 +348,7 @@ type BaseOpportunityArgs = {
   awayTeamName?: string | null;
   simVerdictScore?: number | null;
   trendVerdictScore?: number | null;
+  abTestVariant?: "control" | "treatment" | null;
 };
 
 function buildOpportunity(args: BaseOpportunityArgs): OpportunityView {
@@ -846,6 +913,26 @@ export function buildGameMarketOpportunity(
     underOdds: game.total.bestOdds ?? undefined
   });
 
+  const abTestVariant = abTestingFramework.assignVariant(
+    "regime-aware-variance-v1",
+    game.id
+  );
+
+  recordVerdictForABTest({
+    eventId: game.id,
+    leagueKey: game.leagueKey,
+    homeTeamName: game.homeTeam.name,
+    awayTeamName: game.awayTeam.name,
+    simVerdict: simVerdictScore !== null ? {
+      homeScore: 100,
+      awayScore: 100,
+      spreadHome: 0,
+      winProbHome: 0.5
+    } : null
+  }).catch((err) => {
+    console.error("[buildGameMarketOpportunity] AB test recording failed:", err);
+  });
+
   return buildOpportunity({
     id: `${game.id}:${marketType}`,
     kind: marketLabelToKind(marketType),
@@ -892,7 +979,8 @@ export function buildGameMarketOpportunity(
     timingReplayResolver,
     homeTeamName: game.homeTeam.name,
     awayTeamName: game.awayTeam.name,
-    simVerdictScore
+    simVerdictScore,
+    abTestVariant
   });
 }
 
