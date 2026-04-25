@@ -45,19 +45,23 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sharkedge
         run: npm test
 
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --service sharkedge --detach
+
       - name: Deploy database migration
         env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
         run: npx prisma migrate deploy --skip-generate
-
-      - name: Trigger Render deployment
-        env:
-          RENDER_DEPLOY_KEY: ${{ secrets.RENDER_DEPLOY_KEY }}
-        run: |
-          curl -X POST https://api.render.com/deploy/srv-${{ secrets.RENDER_SERVICE_ID }}?key=${{ secrets.RENDER_DEPLOY_KEY }}
 
       - name: Verify deployment
         run: |
           echo "✅ Deployment complete"
+          echo "Service: SharkEdge on Railway"
           echo "Migration: Simulation cache tables deployed"
           echo "A/B Test: regime-aware-variance-v1 activated"
+
