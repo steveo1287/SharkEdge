@@ -101,6 +101,8 @@ type PersistedBoardFeed = {
 function toGameStatus(value: string): GameStatus {
   switch (value) {
     case "PREGAME":
+    case "SCHEDULED":
+      return "PREGAME";
     case "LIVE":
     case "FINAL":
     case "POSTPONED":
@@ -111,9 +113,120 @@ function toGameStatus(value: string): GameStatus {
   }
 }
 
+function numericValue(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function usableOdds(value: unknown) {
+  const numeric = numericValue(value);
+  return numeric !== null && numeric !== 0 ? numeric : null;
+}
+
+function marketTypeOf(market: any) {
+  return String(market?.marketType ?? "").toLowerCase();
+}
+
+function marketsByType(markets: any[], marketType: "moneyline" | "spread" | "total") {
+  return (markets ?? []).filter((market) => marketTypeOf(market) === marketType);
+}
+
+function bestNumeric(values: unknown[]) {
+  const numbers = values.map(usableOdds).filter((value): value is number => value !== null);
+  if (!numbers.length) return 0;
+  return numbers.sort((left, right) => right - left)[0] ?? 0;
+}
+
+function getBestMarketOdds(markets: any[], marketType: "moneyline" | "spread" | "total") {
+  const typed = marketsByType(markets, marketType);
+  if (!typed.length) return 0;
+
+  if (marketType === "moneyline") {
+    return bestNumeric(
+      typed.flatMap((market) => [
+        market.bestAwayOddsAmerican,
+        market.bestHomeOddsAmerican,
+        market.bestOddsAmerican,
+        market.currentOdds,
+        market.oddsAmerican
+      ])
+    );
+  }
+
+  if (marketType === "spread") {
+    return bestNumeric(
+      typed.flatMap((market) => [
+        market.bestAwayOddsAmerican,
+        market.bestHomeOddsAmerican,
+        market.bestOddsAmerican,
+        market.currentOdds,
+        market.oddsAmerican
+      ])
+    );
+  }
+
+  return bestNumeric(
+    typed.flatMap((market) => [
+      market.bestOverOddsAmerican,
+      market.bestUnderOddsAmerican,
+      market.bestOddsAmerican,
+      market.currentOdds,
+      market.oddsAmerican
+    ])
+  );
+}
+
+function getConsensusLine(markets: any[], marketType: "spread" | "total") {
+  const typed = marketsByType(markets, marketType);
+  for (const market of typed) {
+    const line = numericValue(market.consensusLineValue) ?? numericValue(market.currentLine) ?? numericValue(market.line);
+    if (line !== null) return line;
+  }
+  return null;
+}
+
+function getBookCount(markets: any[]) {
+  const books = new Set<string>();
+  for (const market of markets ?? []) {
+    const key =
+      market?.sportsbook?.key ??
+      market?.sportsbook?.name ??
+      market?.sportsbookId ??
+      market?.bestHomeBook?.key ??
+      market?.bestAwayBook?.key ??
+      market?.bestOverBook?.key ??
+      market?.bestUnderBook?.key;
+    if (key) books.add(String(key));
+  }
+  return Math.max(books.size, markets.length ? 1 : 0);
+}
+
+function getParticipantNames(event: PersistedBoardFeed["events"][number]) {
+  const participants = event.participants ?? [];
+  const away = participants.find((p: any) => p.role === "AWAY")?.competitor;
+  const home = participants.find((p: any) => p.role === "HOME")?.competitor;
+  if (away && home) {
+    return { away, home };
+  }
+
+  const [nameAway, nameHome] = String(event.name ?? "").split(" @ ");
+  return {
+    away: away ?? nameAway ?? "Away",
+    home: home ?? nameHome ?? "Home"
+  };
+}
+
+function hasRenderableOdds(data: BoardPageData | null) {
+  if (!data) return false;
+  return data.sportSections.some((section) =>
+    section.games.some(
+      (game) => game.moneyline.bestOdds || game.spread.bestOdds || game.total.bestOdds
+    )
+  );
+}
+
 async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPageData | null> {
   const leagueKey = filters.league === "ALL" ? undefined : filters.league;
-  const board = (await getBoardFeed(leagueKey)) as PersistedBoardFeed;
+  const board = (await getBoardFeed(leagueKey, { skipCache: true })) as PersistedBoardFeed;
 
   const grouped = new Map<string, any[]>();
   for (const event of board.events) {
@@ -131,13 +244,12 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
     const events = grouped.get(section.leagueKey) ?? [];
 
     const games: GameCardView[] = events.map((event) => {
-      const participants = event.participants ?? [];
-      const away = participants.find((p: any) => p.role === "AWAY")?.competitor ?? "Away";
-      const home = participants.find((p: any) => p.role === "HOME")?.competitor ?? "Home";
-
-      const moneylineState = (event.markets ?? []).find((m: any) => m.marketType === "moneyline");
-      const spreadState = (event.markets ?? []).find((m: any) => m.marketType === "spread");
-      const totalState = (event.markets ?? []).find((m: any) => m.marketType === "total");
+      const { away, home } = getParticipantNames(event);
+      const moneylineOdds = getBestMarketOdds(event.markets, "moneyline");
+      const spreadOdds = getBestMarketOdds(event.markets, "spread");
+      const totalOdds = getBestMarketOdds(event.markets, "total");
+      const spreadLine = getConsensusLine(event.markets, "spread");
+      const totalLine = getConsensusLine(event.markets, "total");
 
       return {
         id: event.id,
@@ -159,43 +271,28 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
         },
         startTime: event.startTime,
         status: toGameStatus(event.status),
-        venue: "Live market state",
+        venue: "OddsHarvester market state",
         selectedBook: null,
-        bestBookCount: 1,
+        bestBookCount: getBookCount(event.markets),
         moneyline: {
           label: "Moneyline",
           lineLabel: "Moneyline",
           bestBook: "Best available",
-          bestOdds:
-            moneylineState?.bestAwayOddsAmerican ??
-            moneylineState?.bestHomeOddsAmerican ??
-            0,
+          bestOdds: moneylineOdds,
           movement: 0
         },
         spread: {
           label: "Spread",
-          lineLabel:
-            typeof spreadState?.consensusLineValue === "number"
-              ? String(spreadState.consensusLineValue)
-              : "—",
+          lineLabel: typeof spreadLine === "number" ? String(spreadLine) : "—",
           bestBook: "Best available",
-          bestOdds:
-            spreadState?.bestAwayOddsAmerican ??
-            spreadState?.bestHomeOddsAmerican ??
-            0,
+          bestOdds: spreadOdds,
           movement: 0
         },
         total: {
           label: "Total",
-          lineLabel:
-            typeof totalState?.consensusLineValue === "number"
-              ? `O/U ${totalState.consensusLineValue}`
-              : "—",
+          lineLabel: typeof totalLine === "number" ? `O/U ${totalLine}` : "—",
           bestBook: "Best available",
-          bestOdds:
-            totalState?.bestOverOddsAmerican ??
-            totalState?.bestUnderOddsAmerican ??
-            0,
+          bestOdds: totalOdds,
           movement: 0
         },
         edgeScore: {
@@ -231,10 +328,10 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
     },
     liveMessage: null,
     source: "live",
-    sourceNote: "Board is rendering from persisted live market inventory.",
+    sourceNote: "Board is rendering from OddsHarvester-ingested market inventory.",
     providerHealth: buildProviderHealth({
       source: "live",
-      healthySummary: "Board is rendering from persisted live market inventory.",
+      healthySummary: "Board is rendering from OddsHarvester-ingested market inventory.",
       degradedSummary: "Board inventory is partially available.",
       fallbackSummary: "Board is using persisted live market inventory fallback.",
       offlineSummary: "Persisted live market inventory is unavailable."
@@ -247,6 +344,19 @@ export async function getBoardPageData(filters: BoardFilters): Promise<BoardPage
     timeoutMs: LIVE_BOARD_TIMEOUT_MS,
     fallback: null
   });
+
+  if (hasRenderableOdds(dbData)) {
+    return dbData;
+  }
+
+  const liveData = await withTimeoutFallback(getLiveBoardPageData(filters), {
+    timeoutMs: LIVE_BOARD_TIMEOUT_MS,
+    fallback: null
+  });
+
+  if (hasRenderableOdds(liveData)) {
+    return liveData;
+  }
 
   if (dbData) {
     return dbData;
