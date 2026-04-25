@@ -3,6 +3,8 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { buildMlbEventProjection, buildMlbPlayerPropProjections } from "@/services/modeling/mlb-game-sim-service";
 import { simulateContextualGame } from "@/services/simulation/contextual-game-sim";
+import { enhanceSimulationWithRegime } from "@/services/simulation/advanced-mc-engine";
+import { markovRegimeClassifier } from "@/services/simulation/markov-regime-classifier";
 import {
   buildCoachTendencyProfile,
   buildEventIntangibleProfile,
@@ -444,7 +446,7 @@ export async function buildEventProjectionFromHistory(eventId: string) {
   );
   const weather = inferWeatherTotalFactor(event.league.key, event.venue, event.metadataJson);
 
-  const simulation = simulateContextualGame({
+  const simulationInput = {
     leagueKey: event.league.key,
     home: {
       teamName: homeTeam.name,
@@ -488,7 +490,13 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     interactionContext,
     samples: event.league.key.includes("NFL") ? 3000 : 2500,
     seed: event.id.length * 37 + event.league.key.length * 101
-  });
+  };
+
+  const baselineSimulation = simulateContextualGame(simulationInput);
+
+  // Classify market regime and enhance simulation
+  const regime = await markovRegimeClassifier.classifyRegime(simulationInput, baselineSimulation);
+  const simulation = await enhanceSimulationWithRegime(baselineSimulation, simulationInput, regime, true);
 
   return {
     modelKey: `contextual-sim-${event.league.key.toLowerCase()}`,
@@ -531,7 +539,15 @@ export async function buildEventProjectionFromHistory(eventId: string) {
         away: awayIntangibles
       },
       interactionContext,
-      simulation
+      regime: {
+        classification: simulation.regime.classification,
+        confidence: simulation.regime.confidence,
+        reasoning: simulation.regime.reasoning
+      },
+      simulation: {
+        baseline: baselineSimulation,
+        enhanced: simulation
+      }
     }
   };
 }

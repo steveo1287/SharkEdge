@@ -369,6 +369,8 @@ model Event {
   watchlistItems             WatchlistItem[]
   alertRules                 AlertRule[]
   explanationSnapshots       EdgeExplanationSnapshot[]
+  simulationCaches           SimulationCache[]
+  verdictAbTests             VerdictAbTest[]
   createdAt                  DateTime                    @default(now())
   updatedAt                  DateTime                    @updatedAt
 
@@ -1424,4 +1426,85 @@ model EdgeExplanationSnapshot {
   @@index([eventId, createdAt])
   @@index([resolvedAt])
   @@map("edge_explanation_snapshots")
+}
+
+model SimulationCache {
+  id                String   @id @default(cuid())
+  eventId           String
+  leagueKey         String
+  inputHash         String   @unique // Hash of simulation input for quick lookup
+  
+  // Baseline simulation
+  baselineSimulation Json
+  
+  // Market regime
+  regimeClassification String
+  regimeConfidence Float
+  regimeReasoning Json
+  
+  // Enhanced simulation
+  enhancedSimulation Json
+  varianceAdjustment Float
+  
+  // Metadata
+  simulationModel String @default("v3") // Model version
+  executionTimeMs Int
+  deepDiveRun Boolean @default(false)
+  
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  
+  @@index([eventId, createdAt])
+  @@index([leagueKey, createdAt])
+  @@index([regimeClassification])
+  @@index([expiresAt])
+  @@map("simulation_cache")
+}
+
+model VerdictAbTest {
+  id                String   @id @default(cuid())
+  eventId           String
+  
+  // Test configuration
+  testName          String   // e.g., "regime-aware-variance-v1"
+  variant           String   // "control" or "treatment"
+  
+  // Baseline verdict (control group)
+  controlVerdict Json
+  controlConfidence Float
+  
+  // Treatment verdict (enhanced with regime)
+  treatmentVerdict Json
+  treatmentConfidence Float
+  
+  // Outcome tracking
+  outcomePredictionHome Float? // Predicted home score
+  outcomePredictionAway Float? // Predicted away score
+  actualHomeScore Float?
+  actualAwayScore Float?
+  
+  // Metrics
+  verdictAccuracy Float? // 1.0 if correct, 0.0 if wrong
+  homeWinAccuracy Float? // How close prediction was to actual win prob
+  spreadAccuracy Float? // Point spread accuracy
+  totalAccuracy Float? // Over/under accuracy
+  
+  // Status
+  resolved Boolean @default(false)
+  winnerVariant String? // "control" or "treatment" based on metrics
+  
+  metadataJson Json?
+  createdAt DateTime @default(now())
+  resolvedAt DateTime?
+  
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  
+  @@index([testName, createdAt])
+  @@index([variant, resolved])
+  @@index([eventId, createdAt])
+  @@index([resolved, resolvedAt])
+  @@map("verdict_ab_tests")
 }
