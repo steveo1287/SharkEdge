@@ -1,4 +1,5 @@
 import { buildAdvancedNbaFeatures } from "@/services/simulation/nba-advanced-feature-engine";
+import { getNbaDecisionContext } from "@/services/simulation/nba-decision-context";
 import { compareNbaProfilesReal } from "@/services/simulation/nba-team-analytics";
 import { getNbaLineupImpact } from "@/services/simulation/nba-player-impact";
 
@@ -12,7 +13,7 @@ export type NbaIntelFactor = {
 };
 
 export type NbaIntelResult = {
-  modelVersion: "nba-intel-v3";
+  modelVersion: "nba-intel-v4";
   awayTeam: string;
   homeTeam: string;
   projectedHomeEdge: number;
@@ -44,36 +45,48 @@ function strength(score: number): NbaIntelResult["factorStrength"] {
 }
 
 export async function buildNbaIntel(awayTeam: string, homeTeam: string): Promise<NbaIntelResult> {
-  const [comparison, awayImpact, homeImpact] = await Promise.all([
+  const [comparison, awayImpact, homeImpact, decisionContext] = await Promise.all([
     compareNbaProfilesReal(awayTeam, homeTeam),
     getNbaLineupImpact(awayTeam),
-    getNbaLineupImpact(homeTeam)
+    getNbaLineupImpact(homeTeam),
+    getNbaDecisionContext(awayTeam, homeTeam)
   ]);
 
   const advanced = buildAdvancedNbaFeatures({ comparison, awayImpact, homeImpact });
-  const factors: NbaIntelFactor[] = advanced.features.map((item) => ({
-    key: item.key,
-    label: item.label,
-    value: item.value,
-    weight: item.sideWeight,
-    contribution: item.sideContribution,
-    explanation: item.explanation
-  }));
+  const factors: NbaIntelFactor[] = [
+    ...advanced.features.map((item) => ({
+      key: item.key,
+      label: item.label,
+      value: item.value,
+      weight: item.sideWeight,
+      contribution: item.sideContribution,
+      explanation: item.explanation
+    })),
+    {
+      key: "decision_context",
+      label: "Decision-context edge",
+      value: decisionContext.decisionEdge,
+      weight: 1,
+      contribution: decisionContext.decisionEdge,
+      explanation: "Schedule, travel, referee, public bias, sharp split, matchup mechanics, bench, and game-script context."
+    }
+  ];
 
-  const projectedHomeEdge = advanced.sideEdge;
-  const projectedTotalShift = advanced.totalEdge;
-  const volatilityIndex = advanced.volatilityEdge;
+  const projectedHomeEdge = rounded(advanced.sideEdge + decisionContext.decisionEdge);
+  const projectedTotalShift = rounded(advanced.totalEdge + decisionContext.totalContextEdge);
+  const volatilityIndex = rounded(clamp(advanced.volatilityEdge * decisionContext.volatilityContext, 0.72, 2));
+  const combinedModelRisk = rounded(advanced.modelRiskPenalty + Math.max(0, decisionContext.volatilityContext - 1) * 6 + decisionContext.garbageTimeRisk * 3 + decisionContext.blowoutRisk * 2);
   const factorAgreement = factors.filter((item) => Math.sign(item.contribution) === Math.sign(projectedHomeEdge) && Math.abs(item.contribution) >= 0.35).length;
   const confidenceScore = rounded(
     clamp(
-      48 + Math.abs(projectedHomeEdge) * 3.8 + factorAgreement * 2.2 + (advanced.dataCompleteness - 65) * 0.18 - advanced.modelRiskPenalty,
-      24,
-      92
+      48 + Math.abs(projectedHomeEdge) * 3.6 + factorAgreement * 2.1 + (advanced.dataCompleteness - 65) * 0.18 + decisionContext.confidenceAdjustment - combinedModelRisk,
+      20,
+      94
     )
   );
 
   return {
-    modelVersion: "nba-intel-v3",
+    modelVersion: "nba-intel-v4",
     awayTeam,
     homeTeam,
     projectedHomeEdge,
@@ -81,15 +94,16 @@ export async function buildNbaIntel(awayTeam: string, homeTeam: string): Promise
     volatilityIndex,
     confidenceScore,
     factorStrength: strength(confidenceScore),
-    dataSource: `${comparison.away.source}/${comparison.home.source}+lineups+advanced-features`,
+    dataSource: `${comparison.away.source}/${comparison.home.source}+lineups+advanced-features+decision-context:${decisionContext.source}`,
     dataCompleteness: advanced.dataCompleteness,
     correlationRisk: advanced.correlationRisk,
-    modelRiskPenalty: advanced.modelRiskPenalty,
+    modelRiskPenalty: combinedModelRisk,
     factors,
     notes: [
       homeImpact.summary,
       awayImpact.summary,
-      ...advanced.notes
+      ...advanced.notes,
+      ...decisionContext.notes
     ]
   };
 }
