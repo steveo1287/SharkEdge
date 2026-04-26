@@ -63,6 +63,26 @@ const SPORT_MAP: Record<string, { sport: SportCode; leagueKey: string }> = {
   boxing: { sport: "BOXING", leagueKey: "BOXING" }
 };
 
+const SPORT_PROFILE_DEFAULTS: Record<SportCode, { key: string; name: string; category: string }> = {
+  BASKETBALL: { key: "basketball", name: "Basketball", category: "Team Sports" },
+  BASEBALL: { key: "baseball", name: "Baseball", category: "Team Sports" },
+  HOCKEY: { key: "hockey", name: "Hockey", category: "Team Sports" },
+  FOOTBALL: { key: "football", name: "Football", category: "Team Sports" },
+  MMA: { key: "mma", name: "MMA", category: "Combat Sports" },
+  BOXING: { key: "boxing", name: "Boxing", category: "Combat Sports" },
+  OTHER: { key: "other", name: "Other", category: "Other" }
+};
+
+const LEAGUE_NAME_MAP: Record<string, string> = {
+  NBA: "NBA",
+  MLB: "MLB",
+  NHL: "NHL",
+  NFL: "NFL",
+  NCAAF: "NCAAF",
+  UFC: "UFC",
+  BOXING: "Boxing"
+};
+
 function normalizeToken(value: string | null | undefined) {
   return (value ?? "")
     .toLowerCase()
@@ -111,14 +131,43 @@ function resolveSportAndLeague(payload: IngestPayload) {
 
 async function ensureSportLeague(payload: IngestPayload) {
   const resolved = resolveSportAndLeague(payload);
-  const league = await prisma.league.findUnique({
+
+  const sportDefaults = SPORT_PROFILE_DEFAULTS[resolved.sport];
+  const sportProfile = await prisma.sport.upsert({
+    where: { key: sportDefaults.key },
+    update: {
+      key: sportDefaults.key,
+      name: sportDefaults.name,
+      code: resolved.sport,
+      category: sportDefaults.category
+    },
+    create: {
+      key: sportDefaults.key,
+      name: sportDefaults.name,
+      code: resolved.sport,
+      category: sportDefaults.category
+    }
+  });
+
+  const leagueName = LEAGUE_NAME_MAP[resolved.leagueKey] ?? resolved.leagueKey;
+  const league = await prisma.league.upsert({
     where: { key: resolved.leagueKey },
+    update: {
+      name: leagueName,
+      sport: resolved.sport,
+      isActive: true,
+      sportId: sportProfile.id
+    },
+    create: {
+      key: resolved.leagueKey,
+      name: leagueName,
+      sport: resolved.sport,
+      isActive: true,
+      sportId: sportProfile.id
+    },
     include: { sportProfile: true }
   });
-  if (!league || !league.sportId) {
-    throw new Error(`League ${resolved.leagueKey} is missing from the database.`);
-  }
-  return { sportId: league.sportId, league };
+  return { sportId: sportProfile.id, league };
 }
 
 function buildEventName(payload: IngestPayload) {
