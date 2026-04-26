@@ -1,3 +1,4 @@
+import { buildAdvancedNbaFeatures } from "@/services/simulation/nba-advanced-feature-engine";
 import { compareNbaProfilesReal } from "@/services/simulation/nba-team-analytics";
 import { getNbaLineupImpact } from "@/services/simulation/nba-player-impact";
 
@@ -11,7 +12,7 @@ export type NbaIntelFactor = {
 };
 
 export type NbaIntelResult = {
-  modelVersion: "nba-intel-v2";
+  modelVersion: "nba-intel-v3";
   awayTeam: string;
   homeTeam: string;
   projectedHomeEdge: number;
@@ -20,6 +21,9 @@ export type NbaIntelResult = {
   confidenceScore: number;
   factorStrength: "elite" | "strong" | "medium" | "thin";
   dataSource: string;
+  dataCompleteness: number;
+  correlationRisk: number;
+  modelRiskPenalty: number;
   factors: NbaIntelFactor[];
   notes: string[];
 };
@@ -32,10 +36,6 @@ function rounded(value: number, digits = 2) {
   return Number(value.toFixed(digits));
 }
 
-function factor(args: Omit<NbaIntelFactor, "contribution">): NbaIntelFactor {
-  return { ...args, contribution: rounded(args.value * args.weight) };
-}
-
 function strength(score: number): NbaIntelResult["factorStrength"] {
   if (score >= 72) return "elite";
   if (score >= 61) return "strong";
@@ -44,62 +44,52 @@ function strength(score: number): NbaIntelResult["factorStrength"] {
 }
 
 export async function buildNbaIntel(awayTeam: string, homeTeam: string): Promise<NbaIntelResult> {
-  const [c, awayImpact, homeImpact] = await Promise.all([
+  const [comparison, awayImpact, homeImpact] = await Promise.all([
     compareNbaProfilesReal(awayTeam, homeTeam),
     getNbaLineupImpact(awayTeam),
     getNbaLineupImpact(homeTeam)
   ]);
 
-  const lineupEdge = homeImpact.availabilityPenalty - awayImpact.availabilityPenalty;
+  const advanced = buildAdvancedNbaFeatures({ comparison, awayImpact, homeImpact });
+  const factors: NbaIntelFactor[] = advanced.features.map((item) => ({
+    key: item.key,
+    label: item.label,
+    value: item.value,
+    weight: item.sideWeight,
+    contribution: item.sideContribution,
+    explanation: item.explanation
+  }));
 
-  const factors: NbaIntelFactor[] = [
-    factor({ key: "offense", label: "Offensive efficiency edge", value: rounded(c.offensiveEdge), weight: 0.9, explanation: "Home offensive rating advantage." }),
-    factor({ key: "defense", label: "Defensive resistance edge", value: rounded(c.defensiveEdge), weight: 0.72, explanation: "Home defense vs opponent scoring." }),
-    factor({ key: "efg", label: "Shot quality edge", value: rounded(c.efgEdge), weight: 0.68, explanation: "eFG% gap." }),
-    factor({ key: "turnovers", label: "Turnover edge", value: rounded(c.turnoverEdge), weight: 0.48, explanation: "Possession pressure." }),
-    factor({ key: "rebounds", label: "Rebounding edge", value: rounded(c.reboundEdge), weight: 0.36, explanation: "Extra possessions." }),
-    factor({ key: "lineup", label: "Lineup / injury edge", value: rounded(-lineupEdge), weight: 1.1, explanation: "Impact of unavailable players." }),
-    factor({ key: "form", label: "Recent form", value: rounded(c.formEdge), weight: 0.42, explanation: "Momentum." })
-  ];
-
-  const projectedHomeEdge = rounded(factors.reduce((sum, f) => sum + f.contribution, 0));
-
-  const totalShift = rounded(
-    (c.paceAverage - 98.5) * 1.6 +
-    c.offensiveEdge * 0.55 +
-    c.efgEdge * 0.52 -
-    (homeImpact.offensivePenalty + awayImpact.offensivePenalty) * 0.4
-  );
-
-  const volatilityIndex = rounded(
-    clamp(
-      c.threePointVolatility +
-      (homeImpact.volatilityBoost - 1) +
-      (awayImpact.volatilityBoost - 1),
-      0.75,
-      1.8
-    )
-  );
-
+  const projectedHomeEdge = advanced.sideEdge;
+  const projectedTotalShift = advanced.totalEdge;
+  const volatilityIndex = advanced.volatilityEdge;
+  const factorAgreement = factors.filter((item) => Math.sign(item.contribution) === Math.sign(projectedHomeEdge) && Math.abs(item.contribution) >= 0.35).length;
   const confidenceScore = rounded(
     clamp(
-      50 + Math.abs(projectedHomeEdge) * 4 - (volatilityIndex - 1) * 15 - (homeImpact.activeCoreHealth < 70 ? 8 : 0),
-      28,
-      90
+      48 + Math.abs(projectedHomeEdge) * 3.8 + factorAgreement * 2.2 + (advanced.dataCompleteness - 65) * 0.18 - advanced.modelRiskPenalty,
+      24,
+      92
     )
   );
 
   return {
-    modelVersion: "nba-intel-v2",
+    modelVersion: "nba-intel-v3",
     awayTeam,
     homeTeam,
     projectedHomeEdge,
-    projectedTotalShift: totalShift,
+    projectedTotalShift,
     volatilityIndex,
     confidenceScore,
     factorStrength: strength(confidenceScore),
-    dataSource: `${c.away.source}/${c.home.source}+lineups`,
+    dataSource: `${comparison.away.source}/${comparison.home.source}+lineups+advanced-features`,
+    dataCompleteness: advanced.dataCompleteness,
+    correlationRisk: advanced.correlationRisk,
+    modelRiskPenalty: advanced.modelRiskPenalty,
     factors,
-    notes: [homeImpact.summary, awayImpact.summary]
+    notes: [
+      homeImpact.summary,
+      awayImpact.summary,
+      ...advanced.notes
+    ]
   };
 }
