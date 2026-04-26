@@ -10,7 +10,6 @@ import { buildProviderHealth } from "@/services/providers/provider-health";
 import { withTimeoutFallback } from "@/lib/utils/async";
 import { getBoardVisibleLeagues, buildBoardSportSections } from "@/services/events/live-score-service";
 import { getBoardFeed } from "@/services/market-data/market-data-service";
-import { getLiveBoardPageData } from "@/services/odds/live-board-data";
 
 const LIVE_BOARD_TIMEOUT_MS = 15_000;
 
@@ -219,7 +218,10 @@ function hasRenderableOdds(data: BoardPageData | null) {
   if (!data) return false;
   return data.sportSections.some((section) =>
     section.games.some(
-      (game) => game.moneyline.bestOdds || game.spread.bestOdds || game.total.bestOdds
+      (game) =>
+        game.moneyline.bestOdds != null ||
+        game.spread.bestOdds != null ||
+        game.total.bestOdds != null
     )
   );
 }
@@ -349,15 +351,8 @@ export async function getBoardPageData(filters: BoardFilters): Promise<BoardPage
     return dbData;
   }
 
-  const liveData = await withTimeoutFallback(getLiveBoardPageData(filters), {
-    timeoutMs: LIVE_BOARD_TIMEOUT_MS,
-    fallback: null
-  });
-
-  if (liveData && hasRenderableOdds(liveData)) {
-    return liveData;
-  }
-
+  // DB returned data but no renderable odds — still prefer it over mock so real
+  // scoreboard context is shown rather than a completely empty page.
   if (dbData) {
     return dbData;
   }
