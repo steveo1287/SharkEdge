@@ -21,7 +21,10 @@ if (!global.sharkedgeProviderReadinessEnvLoaded) {
   global.sharkedgeProviderReadinessEnvLoaded = true;
 }
 
-const BACKEND_PROVIDER_TIMEOUT_MS = 2_500;
+const BACKEND_PROVIDER_TIMEOUT_MS = Number.parseInt(
+  process.env.BACKEND_PROVIDER_TIMEOUT_MS?.trim() || "10000",
+  10
+);
 const SOFT_STALE_MINUTES = 15;
 const HARD_STALE_MINUTES = 45;
 const DEFAULT_LEAGUES: LeagueKey[] = ["NBA", "MLB", "NHL", "NFL", "NCAAF"];
