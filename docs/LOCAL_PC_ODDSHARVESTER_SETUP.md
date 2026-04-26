@@ -21,7 +21,7 @@ POST_TO_BACKEND=true
 ODDSHARVESTER_TIMEOUT_SECONDS=120
 ODDSHARVESTER_HEADLESS=true
 BEST_EFFORT_CONTINUE=true
-ENABLED_SPORT_KEYS=basketball_nba,baseball_mlb
+ENABLED_SPORT_KEYS=football_epl,basketball_nba,baseball_mlb
 ```
 
 ## One-time bootstrap

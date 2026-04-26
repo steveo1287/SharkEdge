@@ -49,6 +49,9 @@ type NormalizedIngestMarketRow = {
 };
 
 const SPORT_MAP: Record<string, { sport: SportCode; leagueKey: string }> = {
+  football_epl: { sport: "OTHER", leagueKey: "EPL" },
+  england_premier_league: { sport: "OTHER", leagueKey: "EPL" },
+  epl: { sport: "OTHER", leagueKey: "EPL" },
   nba: { sport: "BASKETBALL", leagueKey: "NBA" },
   basketball_nba: { sport: "BASKETBALL", leagueKey: "NBA" },
   mlb: { sport: "BASEBALL", leagueKey: "MLB" },
@@ -74,6 +77,7 @@ const SPORT_PROFILE_DEFAULTS: Record<SportCode, { key: string; name: string; cat
 };
 
 const LEAGUE_NAME_MAP: Record<string, string> = {
+  EPL: "Premier League",
   NBA: "NBA",
   MLB: "MLB",
   NHL: "NHL",

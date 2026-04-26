@@ -17,6 +17,13 @@ import requests
 
 SPORTS = [
     {
+        "key": "football_epl",
+        "sport": "football",
+        "league": "england-premier-league",
+        "markets": "1x2",
+        "title": "EPL",
+    },
+    {
         "key": "basketball_nba",
         "sport": "basketball",
         "league": "nba",
