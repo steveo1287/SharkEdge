@@ -86,7 +86,7 @@ function toDashboardCard(card: PublishedTrendCard, filters: TrendFilters): Trend
     sampleSize: card.sampleSize,
     dateRange: getWindowLabel(filters),
     note: card.description || card.railReason || whyNow,
-    explanation: card.railReason || card.sourceTrend?.note || card.description,
+    explanation: card.railReason || card.description || whyNow,
     whyItMatters: whyNow,
     caution:
       card.warning ||
