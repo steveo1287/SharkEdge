@@ -2,6 +2,8 @@ import type { LeagueKey } from "@/lib/types/domain";
 import { getMlbLineupLock } from "@/services/simulation/mlb-lineup-locks";
 import { getMlbTeamPlayerSummary } from "@/services/simulation/mlb-player-model";
 import { compareMlbProfiles, type MlbMatchupComparison } from "@/services/simulation/mlb-team-analytics";
+import { governMlbProjection, type MlbGovernorFeatures } from "@/services/simulation/mlb-intelligence-governor";
+import { getCachedMlbCalibrationConformal, applyMlbCalibration, applyMlbConformalDecision } from "@/services/simulation/mlb-calibration-conformal";
 
 type SimProjectionInput = { id: string; label: string; startTime: string; status: string; leagueKey: LeagueKey; leagueLabel: string };
 
@@ -10,7 +12,7 @@ type SimProjection = {
   distribution: { avgAway: number; avgHome: number; homeWinPct: number; awayWinPct: number };
   read: string;
   nbaIntel: { modelVersion: string; dataSource: string } | null;
-  mlbIntel?: { modelVersion: "mlb-intel-v3"; dataSource: string; homeEdge: number; projectedTotal: number; volatilityIndex: number; factors: Array<{ label: string; value: number }> } | null;
+  mlbIntel?: { modelVersion: "mlb-intel-v4"; dataSource: string; homeEdge: number; projectedTotal: number; volatilityIndex: number; factors: Array<{ label: string; value: number }>; governor?: { source: string; confidence: number; noBet: boolean; tier: string; reasons: string[] }; calibration?: { calibratedHomeWinPct: number; correction: number; ece: number | null }; uncertainty?: { interval: { low: number; high: number; p90Low: number; p90High: number } | null; penalty: number; reason: string } } | null;
 };
 
 function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, value)); }
@@ -29,12 +31,14 @@ async function buildMlbIntel(matchup: { away: string; home: string }, comparison
   const homeEdge = Number((comparison.offensiveEdge * 0.2 + comparison.powerEdge * 0.13 + comparison.plateDisciplineEdge * 0.13 + comparison.startingPitchingEdge * 0.28 + comparison.bullpenEdge * 0.3 + comparison.defenseEdge * 0.1 + comparison.fatigueEdge * 0.14 + comparison.formEdge * 0.1 + playerOffenseEdge * 0.42 + playerPitchingEdge * 0.48 + availabilityEdge * 0.28 + lockBoost).toFixed(2));
   const projectedTotal = Number((comparison.runEnvironment * 2 + comparison.parkWeatherEdge * 0.26 + Math.abs(comparison.powerEdge) * 0.14 + Math.abs(playerOffenseEdge) * 0.18 - Math.max(0, comparison.startingPitchingEdge + playerPitchingEdge) * 0.1 + (homePlayers.bullpenFatigue + awayPlayers.bullpenFatigue) * 0.28).toFixed(2));
   const volatilityIndex = Number(Math.max(0.7, Math.min(2.25, comparison.volatilityIndex * playerVolatility * lock.volatilityAdjustment)).toFixed(2));
+  const features: MlbGovernorFeatures = { teamEdge: comparison.offensiveEdge + comparison.powerEdge, playerEdge: playerOffenseEdge, statcastEdge: comparison.powerEdge, weatherEdge: comparison.parkWeatherEdge, pitcherEdge: comparison.startingPitchingEdge + playerPitchingEdge, bullpenEdge: comparison.bullpenEdge, lockEdge: lockBoost, parkEdge: comparison.parkWeatherEdge, formEdge: comparison.formEdge, totalWeatherEdge: comparison.parkWeatherEdge, totalStatcastEdge: comparison.powerEdge, totalPitchingEdge: comparison.startingPitchingEdge + playerPitchingEdge, totalParkEdge: comparison.parkWeatherEdge, totalBullpenEdge: comparison.bullpenEdge };
   return {
-    modelVersion: "mlb-intel-v3" as const,
+    modelVersion: "mlb-intel-v4" as const,
     dataSource: `${comparison.away.source}/${comparison.home.source}+team-analytics+player-model:${awayPlayers.source}/${homePlayers.source}+locks:${lock.source}`,
     homeEdge,
     projectedTotal,
     volatilityIndex,
+    features,
     factors: [
       { label: "Team offense", value: comparison.offensiveEdge },
       { label: "Team power", value: comparison.powerEdge },
@@ -58,13 +62,19 @@ export async function buildSimProjection(input: SimProjectionInput): Promise<Sim
   const mlbComparison = input.leagueKey === "MLB" ? await compareMlbProfiles(matchup.away, matchup.home) : null;
   const mlbIntel = mlbComparison ? await buildMlbIntel(matchup, mlbComparison) : null;
   if (mlbIntel) {
-    const total = clamp(mlbIntel.projectedTotal, 5.4, 14.5);
+    const rulesTotal = clamp(mlbIntel.projectedTotal, 5.4, 14.5);
+    const rulesHomeWinPct = clamp(0.51 + mlbIntel.homeEdge / 8.5, 0.3, 0.75);
+    const governed = await governMlbProjection({ rulesHomeWinPct, rulesProjectedTotal: rulesTotal, volatilityIndex: mlbIntel.volatilityIndex, features: mlbIntel.features });
+    const calibration = await getCachedMlbCalibrationConformal();
+    const calibrated = applyMlbCalibration(calibration ?? null, governed.homeWinPct);
+    const conformal = applyMlbConformalDecision(calibration ?? null, { probability: calibrated.calibratedProbability, projectedTotal: governed.projectedTotal, confidence: governed.confidence });
+    const finalHomeWinPct = clamp(calibrated.calibratedProbability, 0.24, 0.78);
+    const finalAwayWinPct = 1 - finalHomeWinPct;
+    const total = clamp(governed.projectedTotal, 5.4, 14.5);
     const homeExpected = clamp(total / 2 + 0.2 + mlbIntel.homeEdge * 0.4, 1.2, 11.5);
     const awayExpected = clamp(total - homeExpected, 1.2, 11.5);
-    const homeWinPct = clamp(0.51 + mlbIntel.homeEdge / 8.5, 0.3, 0.75);
-    const awayWinPct = 1 - homeWinPct;
-    const read = homeWinPct >= 0.57 ? `${matchup.home} rate as the stronger MLB side behind team + player pitching/lineup edge. ${mlbIntel.dataSource}.` : awayWinPct >= 0.57 ? `${matchup.away} rate as the stronger MLB side behind team + player pitching/lineup edge. ${mlbIntel.dataSource}.` : `MLB matchup projects tight. Run environment ${total.toFixed(1)}, volatility ${mlbIntel.volatilityIndex}. ${mlbIntel.dataSource}.`;
-    return { matchup, distribution: { avgAway: Number(awayExpected.toFixed(2)), avgHome: Number(homeExpected.toFixed(2)), homeWinPct: Number(homeWinPct.toFixed(3)), awayWinPct: Number(awayWinPct.toFixed(3)) }, read, nbaIntel: null, mlbIntel };
+    const read = governed.noBet ? `PASS: model confidence is not strong enough. ${conformal.reason}` : finalHomeWinPct >= finalAwayWinPct ? `${matchup.home} cleared ${governed.tier.toUpperCase()} tier after governor/calibration checks.` : `${matchup.away} cleared ${governed.tier.toUpperCase()} tier after governor/calibration checks.`;
+    return { matchup, distribution: { avgAway: Number(awayExpected.toFixed(2)), avgHome: Number(homeExpected.toFixed(2)), homeWinPct: Number(finalHomeWinPct.toFixed(3)), awayWinPct: Number(finalAwayWinPct.toFixed(3)) }, read, nbaIntel: null, mlbIntel: { ...mlbIntel, projectedTotal: total, governor: { source: governed.source, confidence: conformal.calibratedConfidence, noBet: governed.noBet || conformal.calibratedConfidence < 0.6, tier: conformal.calibratedConfidence < 0.6 ? "pass" : governed.tier, reasons: [...governed.reasons, conformal.reason] }, calibration: { calibratedHomeWinPct: finalHomeWinPct, correction: calibrated.correction, ece: calibration?.ok ? calibration.ece : null }, uncertainty: { interval: conformal.interval, penalty: conformal.uncertaintyPenalty, reason: conformal.reason } } };
   }
   const awayJitter = (seeded(seed, 1) - 0.5) * (input.leagueKey === "NBA" ? 18 : 2.2);
   const homeJitter = (seeded(seed, 2) - 0.5) * (input.leagueKey === "NBA" ? 18 : 2.2);
