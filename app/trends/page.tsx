@@ -1,7 +1,7 @@
 import { TrendsDashboard } from "@/components/trends/trends-dashboard";
 import type { TrendFilters, TrendMode } from "@/lib/types/domain";
 import { trendFiltersSchema } from "@/lib/validation/filters";
-import { getTrendDashboard } from "@/services/trends/query-engine";
+import { getTrendDashboardSafe } from "@/services/trends/get-trend-dashboard-safe";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +49,7 @@ export default async function TrendsPage({ searchParams }: PageProps) {
   const savedTrendId = readValue(resolved, "savedTrendId")?.trim() ?? null;
   const mode = readMode(readValue(resolved, "mode"));
 
-  const view = await getTrendDashboard(filters, {
+  const view = await getTrendDashboardSafe(filters, {
     mode,
     aiQuery,
     savedTrendId

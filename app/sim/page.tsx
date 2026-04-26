@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { getSimBoardFeed } from "@/services/sim/sim-board-service";
+import { getSimBoardFeedSafe } from "@/services/sim/get-sim-board-safe";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -35,7 +35,7 @@ function recommendationTone(value: string) {
 }
 
 export default async function SimPage() {
-  const data = await getSimBoardFeed();
+  const data = await getSimBoardFeedSafe();
 
   return (
     <div className="min-h-screen">
