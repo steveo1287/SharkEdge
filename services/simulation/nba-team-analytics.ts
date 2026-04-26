@@ -12,7 +12,7 @@ export type NbaTeamAnalyticsProfile = {
   freeThrowRate: number;
   recentForm: number;
   restTravel: number;
-  source?: "real" | "override" | "synthetic";
+  source?: "nba-stats-api" | "sportsdataverse" | "real" | "override" | "synthetic";
 };
 
 export type NbaMatchupComparison = {
@@ -34,25 +34,46 @@ type RawNbaTeamStats = Partial<NbaTeamAnalyticsProfile> & {
   team?: string;
   name?: string;
   teamName?: string;
+  team_name?: string;
+  display_name?: string;
   offRtg?: number;
+  off_rating?: number;
+  offensive_rating?: number;
+  OFF_RATING?: number;
   defRtg?: number;
+  def_rating?: number;
+  defensive_rating?: number;
+  DEF_RATING?: number;
   pace?: number;
+  PACE?: number;
   efg?: number;
   efgPct?: number;
+  efg_pct?: number;
+  EFG_PCT?: number;
   threePointRate?: number;
   threePointAttemptRate?: number;
+  fg3a_rate?: number;
+  three_pa_rate?: number;
   tovPct?: number;
   turnoverPct?: number;
+  tov_pct?: number;
+  TM_TOV_PCT?: number;
   rebPct?: number;
   reboundPct?: number;
+  reb_pct?: number;
+  REB_PCT?: number;
   ftr?: number;
   freeThrowRate?: number;
+  ft_rate?: number;
+  FTA_RATE?: number;
   form?: number;
   recentForm?: number;
+  recent_form?: number;
   restTravel?: number;
+  rest_travel?: number;
 };
 
-const NBA_STATS_CACHE_KEY = "nba:team-analytics:real-feed:v1";
+const NBA_STATS_CACHE_KEY = "nba:team-analytics:merged-feed:v2";
 const NBA_STATS_CACHE_TTL_SECONDS = 60 * 60 * 12;
 
 export function normalizeNbaTeam(value: string) {
@@ -79,6 +100,11 @@ function num(...values: unknown[]) {
     if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
   }
   return null;
+}
+
+function asPercent(value: number | null, fallback: number) {
+  if (value === null) return fallback;
+  return value <= 1 ? Number((value * 100).toFixed(2)) : value;
 }
 
 const TEAM_OVERRIDES: Record<string, Partial<NbaTeamAnalyticsProfile>> = {
@@ -119,49 +145,73 @@ function syntheticProfile(teamName: string): NbaTeamAnalyticsProfile {
   return override ? { ...synthetic, ...override, source: "override" } : synthetic;
 }
 
-function normalizeRawProfile(raw: RawNbaTeamStats): NbaTeamAnalyticsProfile | null {
-  const teamName = raw.teamName ?? raw.team ?? raw.name;
+function normalizeRawProfile(raw: RawNbaTeamStats, source: NbaTeamAnalyticsProfile["source"]): NbaTeamAnalyticsProfile | null {
+  const teamName = raw.teamName ?? raw.team ?? raw.name ?? raw.team_name ?? raw.display_name;
   if (!teamName) return null;
   const fallback = syntheticProfile(teamName);
   return {
     teamName,
-    offensiveRating: num(raw.offensiveRating, raw.offRtg) ?? fallback.offensiveRating,
-    defensiveRating: num(raw.defensiveRating, raw.defRtg) ?? fallback.defensiveRating,
-    pace: num(raw.pace) ?? fallback.pace,
-    efgPct: num(raw.efgPct, raw.efg) ?? fallback.efgPct,
-    threePointAttemptRate: num(raw.threePointAttemptRate, raw.threePointRate) ?? fallback.threePointAttemptRate,
-    turnoverPct: num(raw.turnoverPct, raw.tovPct) ?? fallback.turnoverPct,
-    reboundPct: num(raw.reboundPct, raw.rebPct) ?? fallback.reboundPct,
-    freeThrowRate: num(raw.freeThrowRate, raw.ftr) ?? fallback.freeThrowRate,
-    recentForm: num(raw.recentForm, raw.form) ?? fallback.recentForm,
-    restTravel: num(raw.restTravel) ?? fallback.restTravel,
-    source: "real"
+    offensiveRating: num(raw.offensiveRating, raw.offRtg, raw.off_rating, raw.offensive_rating, raw.OFF_RATING) ?? fallback.offensiveRating,
+    defensiveRating: num(raw.defensiveRating, raw.defRtg, raw.def_rating, raw.defensive_rating, raw.DEF_RATING) ?? fallback.defensiveRating,
+    pace: num(raw.pace, raw.PACE) ?? fallback.pace,
+    efgPct: asPercent(num(raw.efgPct, raw.efg, raw.efg_pct, raw.EFG_PCT), fallback.efgPct),
+    threePointAttemptRate: asPercent(num(raw.threePointAttemptRate, raw.threePointRate, raw.fg3a_rate, raw.three_pa_rate), fallback.threePointAttemptRate),
+    turnoverPct: asPercent(num(raw.turnoverPct, raw.tovPct, raw.tov_pct, raw.TM_TOV_PCT), fallback.turnoverPct),
+    reboundPct: asPercent(num(raw.reboundPct, raw.rebPct, raw.reb_pct, raw.REB_PCT), fallback.reboundPct),
+    freeThrowRate: asPercent(num(raw.freeThrowRate, raw.ftr, raw.ft_rate, raw.FTA_RATE), fallback.freeThrowRate),
+    recentForm: num(raw.recentForm, raw.form, raw.recent_form) ?? fallback.recentForm,
+    restTravel: num(raw.restTravel, raw.rest_travel) ?? fallback.restTravel,
+    source
   };
 }
 
-async function fetchRealProfiles() {
-  const configuredUrl = process.env.NBA_TEAM_STATS_URL?.trim();
-  if (!configuredUrl) return null;
+function rowsFromBody(body: any): RawNbaTeamStats[] {
+  if (Array.isArray(body)) return body;
+  if (Array.isArray(body?.teams)) return body.teams;
+  if (Array.isArray(body?.data)) return body.data;
+  if (Array.isArray(body?.resultSets?.[0]?.rowSet) && Array.isArray(body?.resultSets?.[0]?.headers)) {
+    const headers = body.resultSets[0].headers;
+    return body.resultSets[0].rowSet.map((row: unknown[]) => Object.fromEntries(headers.map((header: string, index: number) => [header, row[index]])));
+  }
+  return [];
+}
 
+async function fetchProfilesFromUrl(url: string | undefined, source: NbaTeamAnalyticsProfile["source"]) {
+  if (!url?.trim()) return {} as Record<string, NbaTeamAnalyticsProfile>;
+  try {
+    const response = await fetch(url.trim(), { cache: "no-store" });
+    if (!response.ok) return {};
+    const body = await response.json();
+    const profiles: Record<string, NbaTeamAnalyticsProfile> = {};
+    for (const row of rowsFromBody(body)) {
+      const profile = normalizeRawProfile(row, source);
+      if (profile) profiles[normalizeNbaTeam(profile.teamName)] = profile;
+    }
+    return profiles;
+  } catch {
+    return {};
+  }
+}
+
+async function fetchRealProfiles() {
   const cached = await readHotCache<Record<string, NbaTeamAnalyticsProfile>>(NBA_STATS_CACHE_KEY);
   if (cached) return cached;
 
-  try {
-    const response = await fetch(configuredUrl, { cache: "no-store" });
-    if (!response.ok) return null;
-    const body = await response.json();
-    const rows: RawNbaTeamStats[] = Array.isArray(body) ? body : Array.isArray(body?.teams) ? body.teams : [];
-    const profiles: Record<string, NbaTeamAnalyticsProfile> = {};
-    for (const row of rows) {
-      const profile = normalizeRawProfile(row);
-      if (profile) profiles[normalizeNbaTeam(profile.teamName)] = profile;
-    }
-    if (Object.keys(profiles).length) {
-      await writeHotCache(NBA_STATS_CACHE_KEY, profiles, NBA_STATS_CACHE_TTL_SECONDS);
-      return profiles;
-    }
-  } catch {
-    return null;
+  const [sportsDataverse, nbaStatsApi, generic] = await Promise.all([
+    fetchProfilesFromUrl(process.env.SPORTSDATAVERSE_NBA_TEAM_STATS_URL, "sportsdataverse"),
+    fetchProfilesFromUrl(process.env.NBA_STATS_API_TEAM_STATS_URL, "nba-stats-api"),
+    fetchProfilesFromUrl(process.env.NBA_TEAM_STATS_URL, "real")
+  ]);
+
+  const merged = {
+    ...generic,
+    ...sportsDataverse,
+    ...nbaStatsApi
+  } satisfies Record<string, NbaTeamAnalyticsProfile>;
+
+  if (Object.keys(merged).length) {
+    await writeHotCache(NBA_STATS_CACHE_KEY, merged, NBA_STATS_CACHE_TTL_SECONDS);
+    return merged;
   }
   return null;
 }
