@@ -202,6 +202,7 @@ async function resolveLeagueScoreboard(leagueKey: SupportedLeagueKey): Promise<S
 export async function buildBoardSportSections(args: {
   selectedLeague: "ALL" | LeagueKey;
   gamesByLeague: Partial<Record<LeagueKey, GameCardView[]>>;
+  maxScoreboardGames?: number | null;
 }) {
   const visibleSports =
     args.selectedLeague === "ALL"
@@ -225,9 +226,11 @@ export async function buildBoardSportSections(args: {
       const matchedGames = (args.gamesByLeague[sport.leagueKey] ?? []).map((game) =>
         applyScoreState(game, matchEventToGame(game, scoreboard.events))
       );
-      const scoreboardPreview = scoreboard.events
-        .slice(0, 4)
-        .map((event) => toScoreboardPreview(event));
+      const scoreboardEvents =
+        typeof args.maxScoreboardGames === "number" && args.maxScoreboardGames > 0
+          ? scoreboard.events.slice(0, args.maxScoreboardGames)
+          : scoreboard.events;
+      const scoreboardPreview = scoreboardEvents.map((event) => toScoreboardPreview(event));
 
       let adapterState: BoardSportSectionView["adapterState"] = "COMING_SOON";
       if (sport.status === "LIVE") {
