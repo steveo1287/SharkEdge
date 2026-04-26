@@ -43,7 +43,7 @@ async function getGameDetails(gameId: string) {
         );
         return data.games.find((g) => g.id === gameId) ?? null;
       })(),
-      { timeoutMs: 2000, fallback: null }
+      { timeoutMs: 5000, fallback: null }
     );
     return boardData;
   } catch {
