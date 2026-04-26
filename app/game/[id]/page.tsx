@@ -3,108 +3,20 @@ import { notFound } from "next/navigation";
 
 import { SimulationIntelligencePanel } from "@/components/event/simulation-intelligence-panel";
 import { SimulationWorkbench } from "@/components/event/simulation-workbench";
-import { SimVerdictPanel } from "@/components/event/sim-verdict-panel";
+import { SharkVerdictPanel } from "@/components/event/shark-verdict-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { withTimeoutFallback } from "@/lib/utils/async";
 import { getBoardPageData, parseBoardFilters } from "@/services/odds/board-service";
 import { loadPersistedSimCalibrationProfiles } from "@/services/simulation/sim-calibration-report-service";
 import { buildEventSimulationView } from "@/services/simulation/simulation-view-service";
-import { buildMarketImpliedAnalysis, type MarketImpliedAnalysis } from "@/services/simulation/market-implied-analysis";
+import { buildSharkVerdict } from "@/services/verdict/shark-verdict-service";
 
 export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ id: string }>;
 };
-
-function formatProb(value: number | null | undefined) {
-  if (typeof value !== "number") return "—";
-  return `${(value * 100).toFixed(1)}%`;
-}
-
-function MarketImpliedPanel({ analysis }: { analysis: MarketImpliedAnalysis }) {
-  return (
-    <section className="grid gap-3">
-      <div>
-        <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-amber-400">
-          Market Implied Analysis
-        </div>
-        <h2 className="mt-1 font-display text-[20px] font-semibold tracking-[-0.01em] text-text-primary">
-          Consensus Market Probabilities
-        </h2>
-        <p className="mt-1 text-[12px] text-bone/45">{analysis.dataWarning}</p>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        {analysis.moneyline && (
-          <div className="rounded-xl border border-bone/[0.07] bg-surface p-4">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-bone/45">Moneyline (No-Vig)</p>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <div>
-                <p className="text-[10px] text-bone/40">Away Win</p>
-                <p className="font-mono text-[20px] text-text-primary">{formatProb(analysis.moneyline.awayWinProb)}</p>
-                <p className="text-[11px] text-bone/40">{analysis.moneyline.bestAwayOdds != null ? (analysis.moneyline.bestAwayOdds > 0 ? `+${analysis.moneyline.bestAwayOdds}` : analysis.moneyline.bestAwayOdds) : "—"}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-bone/40">Home Win</p>
-                <p className="font-mono text-[20px] text-aqua">{formatProb(analysis.moneyline.homeWinProb)}</p>
-                <p className="text-[11px] text-bone/40">{analysis.moneyline.bestHomeOdds != null ? (analysis.moneyline.bestHomeOdds > 0 ? `+${analysis.moneyline.bestHomeOdds}` : analysis.moneyline.bestHomeOdds) : "—"}</p>
-              </div>
-            </div>
-            <p className="mt-2 text-[10px] text-bone/30">Hold: {formatProb(analysis.moneyline.hold)}</p>
-          </div>
-        )}
-
-        {analysis.spread && (
-          <div className="rounded-xl border border-bone/[0.07] bg-surface p-4">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-bone/45">Spread</p>
-            <p className="mt-2 font-mono text-[24px] text-text-primary">
-              {analysis.spread.line > 0 ? `+${analysis.spread.line}` : analysis.spread.line}
-            </p>
-            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-              <div>
-                <p className="text-bone/40">Home Cover</p>
-                <p className="font-mono text-text-primary">{formatProb(analysis.spread.homeCoverProb)}</p>
-              </div>
-              <div>
-                <p className="text-bone/40">Away Cover</p>
-                <p className="font-mono text-text-primary">{formatProb(analysis.spread.awayCoverProb)}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {analysis.total && (
-          <div className="rounded-xl border border-bone/[0.07] bg-surface p-4">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-bone/45">Total</p>
-            <p className="mt-2 font-mono text-[24px] text-aqua">{analysis.total.line}</p>
-            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-              <div>
-                <p className="text-bone/40">Over</p>
-                <p className="font-mono text-text-primary">{formatProb(analysis.total.overProb)}</p>
-              </div>
-              <div>
-                <p className="text-bone/40">Under</p>
-                <p className="font-mono text-text-primary">{formatProb(analysis.total.underProb)}</p>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="flex items-center gap-3 rounded-xl border border-amber-500/20 bg-amber-500/[0.04] px-4 py-3">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-500">
-          {analysis.freshness === "stale" ? "⚠️ Stale" : "Market"}
-        </span>
-        <span className="text-[11px] text-bone/45">
-          {analysis.booksCount} book{analysis.booksCount !== 1 ? "s" : ""} in consensus
-          {analysis.updatedAt ? ` · Updated ${new Date(analysis.updatedAt).toLocaleTimeString()}` : ""}
-        </span>
-      </div>
-    </section>
-  );
-}
 
 function formatTime(dateStr: string) {
   return new Date(dateStr).toLocaleTimeString("en-US", {
@@ -131,12 +43,8 @@ async function getGameDetails(gameId: string) {
         );
         return data.games.find((g) => g.id === gameId) ?? null;
       })(),
-      {
-        timeoutMs: 2000,
-        fallback: null
-      }
+      { timeoutMs: 2000, fallback: null }
     );
-
     return boardData;
   } catch {
     return null;
@@ -146,15 +54,10 @@ async function getGameDetails(gameId: string) {
 async function getSimulation(gameId: string) {
   try {
     await loadPersistedSimCalibrationProfiles();
-
-    const sim = await withTimeoutFallback(
-      buildEventSimulationView(gameId),
-      {
-        timeoutMs: 3000,
-        fallback: null
-      }
-    );
-    return sim;
+    return await withTimeoutFallback(buildEventSimulationView(gameId), {
+      timeoutMs: 3000,
+      fallback: null
+    });
   } catch {
     return null;
   }
@@ -163,18 +66,30 @@ async function getSimulation(gameId: string) {
 export default async function GameDetailPage({ params }: PageProps) {
   const { id } = await params;
 
-  const [game, simulation, marketImplied] = await Promise.all([
+  const [game, simulation] = await Promise.all([
     getGameDetails(id),
-    getSimulation(id),
-    buildMarketImpliedAnalysis(id).catch(() => null)
+    getSimulation(id)
   ]);
 
   if (!game) {
     notFound();
   }
 
+  const homeTeam = game.homeTeam.name;
+  const awayTeam = game.awayTeam.name;
+  const leagueKey = game.leagueKey ?? "UNKNOWN";
+
+  const sharkVerdict = await buildSharkVerdict(
+    id,
+    homeTeam,
+    awayTeam,
+    leagueKey,
+    simulation?.gameSimVerdict ?? null
+  ).catch(() => null);
+
   return (
     <div className="grid gap-6">
+      {/* Hero header */}
       <div className="hero-shell p-5 sm:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -182,25 +97,23 @@ export default async function GameDetailPage({ params }: PageProps) {
               Live Game
             </div>
             <h1 className="mt-2 font-display text-[28px] font-semibold tracking-[-0.01em] text-text-primary sm:text-[32px]">
-              {game.awayTeam.name} @ {game.homeTeam.name}
+              {awayTeam} @ {homeTeam}
             </h1>
             <div className="mt-2 text-[13px] text-bone/70">{formatTime(game.startTime)}</div>
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge tone={getStatusBadgeTone(game.status)}>{game.status}</Badge>
             {game.leagueKey && (
-              <Badge tone="muted">
-                {game.leagueKey.toUpperCase()}
-              </Badge>
+              <Badge tone="muted">{game.leagueKey.toUpperCase()}</Badge>
             )}
           </div>
         </div>
       </div>
 
-      {simulation?.gameSimVerdict && (
-        <SimVerdictPanel verdict={simulation.gameSimVerdict} />
-      )}
+      {/* Unified Shark Verdict — shows for any game that has odds data */}
+      {sharkVerdict && <SharkVerdictPanel verdict={sharkVerdict} />}
 
+      {/* Deep sim panels — only when Monte Carlo ran */}
       {simulation && (
         <>
           <SimulationIntelligencePanel simulation={simulation} />
@@ -208,10 +121,7 @@ export default async function GameDetailPage({ params }: PageProps) {
         </>
       )}
 
-      {!simulation && marketImplied && (
-        <MarketImpliedPanel analysis={marketImplied} />
-      )}
-
+      {/* Live odds strip */}
       <section className="grid gap-3">
         <div>
           <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">
@@ -230,7 +140,9 @@ export default async function GameDetailPage({ params }: PageProps) {
             <div className="mt-3">
               <div className="text-[11px] text-bone/50">{game.moneyline.bestBook}</div>
               <div className="mt-1 font-mono text-[16px] font-semibold text-mint">
-                {game.moneyline.bestOdds ? `${game.moneyline.bestOdds > 0 ? "+" : ""}${game.moneyline.bestOdds}` : "—"}
+                {game.moneyline.bestOdds
+                  ? `${game.moneyline.bestOdds > 0 ? "+" : ""}${game.moneyline.bestOdds}`
+                  : "—"}
               </div>
             </div>
             {game.moneyline.movement !== 0 && (
@@ -277,14 +189,14 @@ export default async function GameDetailPage({ params }: PageProps) {
       </section>
 
       <div className="flex flex-wrap justify-center gap-3">
-        {simulation ? (
+        {simulation && (
           <Link
             href="/sim"
             className="rounded-md border border-aqua/25 bg-aqua/[0.06] px-4 py-2.5 text-[12.5px] font-semibold text-aqua transition-colors hover:border-aqua/40 hover:bg-aqua/[0.10]"
           >
             ← Back to Simulator Studio
           </Link>
-        ) : null}
+        )}
         <Link
           href="/board"
           className="rounded-md border border-bone/[0.10] bg-surface px-4 py-2.5 text-[12.5px] font-semibold text-bone/70 transition-colors hover:border-aqua/25 hover:text-aqua"

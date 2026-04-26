@@ -12,6 +12,10 @@
     {
       "path": "/api/internal/cron/sim-calibration",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/internal/cron/stats-ingest",
+      "schedule": "0 8 * * *"
     }
   ]
 }
