@@ -3,15 +3,34 @@ import { NextResponse } from "next/server";
 import { getPublishedTrendFeed } from "@/lib/trends/publisher";
 import { trendFiltersSchema } from "@/lib/validation/filters";
 import { createTrendDefinition, listTrendDefinitions } from "@/services/trends/trend-foundation";
+import { buildTrendSignals } from "@/services/trends/trends-engine";
 import { filterConditionsSchema } from "@/types/trends";
+import type { LeagueKey } from "@/lib/types/domain";
 
+export const runtime = "nodejs";
+export const maxDuration = 20;
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const SIGNAL_LEAGUES: Array<"ALL" | LeagueKey> = ["ALL", "MLB", "NBA", "NHL", "NFL", "NCAAF", "UFC", "BOXING"];
+function parseSignalLeague(value: string | null): "ALL" | LeagueKey {
+  const upper = String(value ?? "ALL").toUpperCase();
+  return SIGNAL_LEAGUES.includes(upper as "ALL" | LeagueKey) ? upper as "ALL" | LeagueKey : "ALL";
+}
 
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
-    const filters = trendFiltersSchema.parse(Object.fromEntries(url.searchParams.entries()));
     const mode = url.searchParams.get("mode");
+
+    if (mode === "signals" || url.searchParams.has("league")) {
+      const league = parseSignalLeague(url.searchParams.get("league"));
+      const includeResearch = url.searchParams.get("research") !== "false";
+      const payload = await buildTrendSignals({ league, includeResearch });
+      return NextResponse.json(payload, { status: 200 });
+    }
+
+    const filters = trendFiltersSchema.parse(Object.fromEntries(url.searchParams.entries()));
 
     if (mode === "definitions") {
       const page = Number(url.searchParams.get("page") ?? "1");
