@@ -3,6 +3,7 @@ export type SupportedDiscoverySide = "home" | "away" | "over" | "under";
 export type ConditionOperator = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "between" | "is_true" | "is_false";
 export type ConfidenceTier = "A" | "B" | "C";
 export type TrendTimingPhase = "EARLY" | "BUILDING" | "PEAK" | "LATE" | "DEAD";
+export type TimingState = TrendTimingPhase;
 
 export type HistoricalBetOpportunity = {
   rowId: string;

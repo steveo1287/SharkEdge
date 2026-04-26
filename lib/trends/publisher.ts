@@ -1527,11 +1527,7 @@ export async function getPublishedTrendFeed(filters?: Partial<TrendFilters> | nu
     overlooked: sections.find((section) => section.category === "Overlooked Angles")?.cards ?? [],
     meta: {
       count: cards.length,
-      sampleWarning:
-        cards.find((card) => card.warning)?.warning ??
-        (cards.length === 0
-          ? "No trend sample is available yet. Odds and results need more ingestion cycles before trend cards can score."
-          : null)
+      sampleWarning: cards.find((card) => card.warning)?.warning ?? null
     }
   };
 }

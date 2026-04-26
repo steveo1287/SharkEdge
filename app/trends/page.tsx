@@ -1,37 +1,59 @@
-import Link from "next/link";
-
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
-import { EmptyState } from "@/components/ui/empty-state";
-import { SectionTitle } from "@/components/ui/section-title";
-import { buildTrendSignals, type TrendSignal } from "@/services/trends/trends-engine";
-import { getCachedOddsQuota } from "@/services/odds/odds-quota-service";
-import type { LeagueKey } from "@/lib/types/domain";
+import { TrendsDashboard } from "@/components/trends/trends-dashboard";
+import type { TrendFilters, TrendMode } from "@/lib/types/domain";
+import { trendFiltersSchema } from "@/lib/validation/filters";
+import { getTrendDashboard } from "@/services/trends/query-engine";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-type PageProps = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
-const LEAGUES: Array<"ALL" | LeagueKey> = ["ALL", "MLB", "NBA", "NHL", "NFL", "NCAAF", "UFC", "BOXING"];
-const ICONS: Record<string, string> = { ALL: "◎", MLB: "⚾", NBA: "🏀", NHL: "🏒", NFL: "🏈", NCAAF: "🏈", UFC: "🥊", BOXING: "🥊" };
-function readParam(params: Record<string, string | string[] | undefined>, key: string) { const value = params[key]; return Array.isArray(value) ? value[0] : value; }
-function parseLeague(value?: string): "ALL" | LeagueKey { const upper = String(value ?? "ALL").toUpperCase(); return LEAGUES.includes(upper as "ALL" | LeagueKey) ? upper as "ALL" | LeagueKey : "ALL"; }
-function pct(value: number) { return `${(value * 100).toFixed(1)}%`; }
-function edge(value: number | null) { return value == null ? "—" : `${value > 0 ? "+" : ""}${Number(value).toFixed(Math.abs(value) < 1 ? 2 : 1)}`; }
-function gradeTone(grade: TrendSignal["grade"]) { if (grade === "A") return "success" as const; if (grade === "B") return "premium" as const; if (grade === "Pass") return "danger" as const; return "muted" as const; }
-function riskClass(risk: TrendSignal["risk"]) { if (risk === "low") return "text-emerald-300"; if (risk === "medium") return "text-amber-300"; return "text-red-300"; }
-function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) { return <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4"><div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</div><div className="mt-2 text-2xl font-semibold text-white">{value}</div>{sub ? <div className="mt-1 text-xs text-slate-400">{sub}</div> : null}</div>; }
-function LeagueSwitch({ active, counts }: { active: "ALL" | LeagueKey; counts: Record<string, number> }) { return <div className="flex gap-2 overflow-x-auto rounded-2xl border border-white/10 bg-slate-950/40 p-2">{LEAGUES.map((league) => <Link key={league} href={league === "ALL" ? "/trends" : `/trends?league=${league}`} className={`shrink-0 rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] ${active === league ? "border-sky-400/40 bg-sky-500/15 text-sky-100" : "border-white/10 bg-white/[0.025] text-slate-300 hover:border-sky-400/30"}`}>{ICONS[league]} {league} <span className="ml-1 text-slate-500">{counts[league] ?? 0}</span></Link>)}</div>; }
-function TrendCard({ signal }: { signal: TrendSignal }) { return <Card className="surface-panel h-full p-5 transition hover:border-sky-400/25 hover:bg-white/[0.03]"><div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-slate-500"><span>{ICONS[signal.league] ?? "📊"}</span><span>{signal.league}</span><span>·</span><span>{signal.category}</span><span>·</span><span>{signal.source}</span></div><h3 className="mt-3 font-display text-2xl font-semibold text-white">{signal.title}</h3></div><Badge tone={gradeTone(signal.grade)}>{signal.grade}</Badge></div><p className="mt-4 text-sm leading-6 text-slate-300">{signal.angle}</p>{signal.matchup ? <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs text-slate-400">{signal.matchup.away} @ {signal.matchup.home}</div> : null}<div className="mt-5 grid grid-cols-3 gap-3"><Tile label="Confidence" value={pct(signal.confidence)} sub={signal.source} /><Tile label="Edge" value={edge(signal.edge)} sub={signal.market ?? "market"} /><Tile label="Risk" value={signal.risk.toUpperCase()} sub={signal.sample ? `n=${signal.sample}` : "live"} /></div>{signal.hitRate != null ? <div className="mt-3 rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-slate-300">Research hit rate <span className="font-semibold text-white">{signal.hitRate.toFixed(1)}%</span>{signal.sample ? ` across ${signal.sample} samples` : ""}.</div> : null}<div className="mt-4 grid gap-2">{signal.notes.slice(0, 3).map((note, index) => <div key={`${signal.id}-${index}`} className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs leading-5 text-slate-400">{note}</div>)}</div><div className="mt-5 flex flex-wrap gap-3"><Link href={signal.actionHref} className="rounded-full bg-sky-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-950 hover:bg-sky-400">Open</Link><Link href={`/sim?league=${signal.league}`} className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200 hover:border-sky-400/30">Sim lane</Link></div></Card>; }
+type PageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+function readValue(
+  searchParams: Record<string, string | string[] | undefined>,
+  key: string
+) {
+  const value = searchParams[key];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function buildFilters(searchParams: Record<string, string | string[] | undefined>) {
+  try {
+    return trendFiltersSchema.parse({
+      sport: readValue(searchParams, "sport"),
+      league: readValue(searchParams, "league"),
+      market: readValue(searchParams, "market"),
+      sportsbook: readValue(searchParams, "sportsbook"),
+      side: readValue(searchParams, "side"),
+      subject: readValue(searchParams, "subject"),
+      team: readValue(searchParams, "team"),
+      player: readValue(searchParams, "player"),
+      fighter: readValue(searchParams, "fighter"),
+      opponent: readValue(searchParams, "opponent"),
+      window: readValue(searchParams, "window"),
+      sample: readValue(searchParams, "sample")
+    });
+  } catch {
+    return trendFiltersSchema.parse({}) as TrendFilters;
+  }
+}
+
+function readMode(value: string | undefined): TrendMode {
+  return value === "power" ? "power" : "simple";
+}
 
 export default async function TrendsPage({ searchParams }: PageProps) {
-  const params = (await searchParams) ?? {};
-  const league = parseLeague(readParam(params, "league"));
-  const [data, quota] = await Promise.all([buildTrendSignals({ league, includeResearch: true }), getCachedOddsQuota()]);
-  const counts = data.signals.reduce<Record<string, number>>((acc, signal) => { acc[signal.league] = (acc[signal.league] ?? 0) + 1; acc.ALL = (acc.ALL ?? 0) + 1; return acc; }, { ALL: 0 });
-  const attack = data.signals.filter((signal) => signal.grade === "A" || signal.grade === "B").length;
-  const live = data.signals.filter((signal) => signal.source !== "research-pattern").length;
-  const avgConfidence = data.signals.length ? data.signals.reduce((sum, signal) => sum + signal.confidence, 0) / data.signals.length : 0;
+  const resolved = (await searchParams) ?? {};
+  const filters = buildFilters(resolved);
+  const aiQuery = readValue(resolved, "q")?.trim() ?? "";
+  const savedTrendId = readValue(resolved, "savedTrendId")?.trim() ?? null;
+  const mode = readMode(readValue(resolved, "mode"));
 
-  return <div className="space-y-7"><section className="surface-panel-strong p-6 xl:p-8"><div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr] xl:items-end"><div><div className="section-kicker">SharkEdge Trends Lab</div><div className="mt-3 max-w-4xl font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">Live model trends, research angles, and market-aware signals.</div><div className="mt-4 max-w-3xl text-sm leading-7 text-slate-300">Trends now digest the sim engine, sportsbook edge detector, governor confidence, and research patterns. Use this as the scouting board before opening a matchup page.</div><div className="mt-5"><LeagueSwitch active={league} counts={counts} /></div></div><div className="grid gap-3 sm:grid-cols-2"><Tile label="Signals" value={String(data.counts.total)} sub={`${live} live · ${data.counts.research} research`} /><Tile label="A/B grades" value={String(attack)} sub="Potential action list" /><Tile label="Avg confidence" value={pct(avgConfidence)} sub="Signal board" /><Tile label="Odds quota" value={quota?.status ?? "UNKNOWN"} sub={quota?.remaining == null ? "No cached quota" : `${quota.remaining} remaining`} /></div></div></section><section className="grid gap-4"><SectionTitle eyebrow="Trend board" title={league === "ALL" ? "All signal trends" : `${league} signal trends`} description="Live cards are generated from current matchups. Research cards stay available when markets are quiet." />{data.signals.length ? <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">{data.signals.map((signal) => <TrendCard key={signal.id} signal={signal} />)}</div> : <EmptyState title="No trends available" description="No live or research signals are available for this league yet." />}</section></div>;
+  const view = await getTrendDashboard(filters, {
+    mode,
+    aiQuery,
+    savedTrendId
+  });
+
+  return <TrendsDashboard data={view} />;
 }

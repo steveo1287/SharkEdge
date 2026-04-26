@@ -10,6 +10,7 @@ const SPORT_KEYWORDS: Array<{
   league?: TrendFilters["league"];
 }> = [
   { pattern: /\bnba\b/i, sport: "BASKETBALL", league: "NBA" },
+  { pattern: /\bncaab\b|\bcollege basketball\b|\bmens college basketball\b/i, sport: "BASKETBALL" },
   { pattern: /\bmlb\b|\bbaseball\b/i, sport: "BASEBALL", league: "MLB" },
   { pattern: /\bnhl\b|\bhockey\b/i, sport: "HOCKEY", league: "NHL" },
   { pattern: /\bnfl\b/i, sport: "FOOTBALL", league: "NFL" },
@@ -39,6 +40,9 @@ const MARKET_KEYWORDS: Array<{
 
 export const TREND_QUERY_EXAMPLES = [
   "Show me NBA road underdogs after a loss",
+  "Find NCAAB under trends with at least 20 games",
+  "Compare Cubs vs Cardinals totals with weather context",
+  'Show player points prop tape for "Jalen Brunson" vs "Tyrese Maxey"',
   "Show today's NHL games matching over systems",
   "Show UFC fighters with finish trends"
 ] as const;
@@ -68,6 +72,9 @@ function parseSample(input: string) {
 }
 
 function parseOpponent(input: string) {
+  const quotedMatch = input.match(/\b(?:vs|versus|against)\s+"([^"]+)"/i);
+  if (quotedMatch?.[1]) return quotedMatch[1].trim();
+
   const match = input.match(/\b(?:vs|versus|against)\s+([a-z0-9 .'-]+)/i);
   return match?.[1]?.trim() ?? null;
 }
@@ -156,6 +163,12 @@ export function parseTrendAiQuery(
 
   if (/after a loss|off a loss/i.test(trimmed)) {
     unresolved.push("after a loss");
+  }
+  if (/\bweather\b|\bwind\b|\brain\b|\bcold\b|\bheat\b|\bhumidity\b|\broof\b/i.test(trimmed)) {
+    unresolved.push("live weather bucket");
+  }
+  if (/\bplayer\s+vs\s+player\b|\bprop tape\b/i.test(trimmed)) {
+    unresolved.push("player-vs-player stat settlement");
   }
   if (/last \d+ seasons?/i.test(trimmed)) {
     unresolved.push("season-level slicing");

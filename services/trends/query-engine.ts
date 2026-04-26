@@ -13,6 +13,7 @@ import type {
 } from "@/lib/types/domain";
 import { buildMatchupHref } from "@/lib/utils/matchups";
 import { trendFiltersSchema } from "@/lib/validation/filters";
+import { inferVenueWeatherJoinFromContext } from "@/services/weather/venue-station-join";
 
 import { buildTrendExplanation, parseTrendAiQuery } from "./ai-query";
 import { getTodayTrendMatches } from "./matching-games";
@@ -72,6 +73,7 @@ type HistoricalRow = {
   marketType: TrendFilters["market"];
   marketLabel: string;
   selection: string;
+  playerName: string | null;
   side: string | null;
   sportsbookName: string;
   participantNames: string[];
@@ -116,10 +118,14 @@ type RecentFormRow = {
   league: LeagueKey;
   sport: SportCode;
   eventExternalId: string | null;
+  eventLabel: string;
+  startTime: Date;
+  venue: string | null;
   participantNames: string[];
   participants: Array<{
     competitorId: string;
     name: string;
+    role: "HOME" | "AWAY" | "COMPETITOR_A" | "COMPETITOR_B" | "UNKNOWN";
   }>;
   winnerCompetitorId: string | null;
   margin: number | null;
@@ -372,14 +378,30 @@ function resolveSummary(event: any) {
 
 function matchesFilters(
   filters: TrendFilters,
-  args: { participantNames: string[]; selection: string; marketLabel: string; sportsbookName?: string }
+  args: { participantNames: string[]; selection: string; marketLabel: string; sportsbookName?: string; playerName?: string | null }
 ) {
   const activeSubject = normalizeText(getActiveSubject(filters));
   const haystack = [
     ...args.participantNames.map((name) => normalizeText(name)),
     normalizeText(args.selection),
-    normalizeText(args.marketLabel)
+    normalizeText(args.marketLabel),
+    normalizeText(args.playerName)
   ];
+
+  const player = normalizeText(filters.player);
+  if (player && !haystack.some((value) => value.includes(player))) {
+    return false;
+  }
+
+  const team = normalizeText(filters.team);
+  if (team && !args.participantNames.some((name) => normalizeText(name).includes(team))) {
+    return false;
+  }
+
+  const fighter = normalizeText(filters.fighter);
+  if (fighter && !haystack.some((value) => value.includes(fighter))) {
+    return false;
+  }
 
   if (activeSubject && !haystack.some((value) => value.includes(activeSubject))) {
     return false;
@@ -617,10 +639,10 @@ async function buildBacktestedMarketCards(args: {
 
     let bucketLabel: string | null = null;
     if (row.marketType === "spread") {
-      if (!["HOME", "AWAY"].includes(row.roleBucket)) continue;
+      if (!["HOME", "AWAY", "FAVORITE", "UNDERDOG"].includes(row.roleBucket)) continue;
       bucketLabel = bucketSpreadLine(row.closingLine);
     } else if (row.marketType === "moneyline") {
-      if (!["HOME", "AWAY"].includes(row.roleBucket)) continue;
+      if (!["HOME", "AWAY", "FAVORITE", "UNDERDOG"].includes(row.roleBucket)) continue;
       bucketLabel = bucketMoneylineOdds(row.closingOddsAmerican);
     } else if (row.marketType === "total") {
       if (!["OVER", "UNDER"].includes(row.roleBucket)) continue;
@@ -728,6 +750,232 @@ async function buildBacktestedMarketCards(args: {
   );
 }
 
+
+function getParticipantByName(row: RecentFormRow, name: string) {
+  const normalized = normalizeText(name);
+  return row.participants.find((participant) => normalizeText(participant.name).includes(normalized)) ?? null;
+}
+
+function getHomeAway(row: RecentFormRow) {
+  const home = row.participants.find((participant) => participant.role === "HOME") ?? row.participants[0] ?? null;
+  const away = row.participants.find((participant) => participant.role === "AWAY") ?? row.participants[1] ?? null;
+  return { home, away };
+}
+
+function buildHeadToHeadCard(args: {
+  filters: TrendFilters;
+  rows: RecentFormRow[];
+  activeSubject: string;
+}): TrendCardView | null {
+  const opponent = args.filters.opponent.trim();
+  if (!args.activeSubject || !opponent) return null;
+
+  const rows = args.rows.filter(
+    (row) => getParticipantByName(row, args.activeSubject) && getParticipantByName(row, opponent)
+  );
+  if (!rows.length) {
+    return createCard({
+      id: "head-to-head-context",
+      title: "Team vs team tape",
+      sampleSize: 0,
+      hitRate: null,
+      roi: null,
+      value: "No sample",
+      note: `No stored finals found for ${args.activeSubject} vs ${opponent} inside this window.`,
+      tone: "muted",
+      window: args.filters.window
+    });
+  }
+
+  const wins = rows.filter((row) => {
+    const subject = getParticipantByName(row, args.activeSubject);
+    return subject?.competitorId === row.winnerCompetitorId;
+  }).length;
+  const losses = rows.length - wins;
+  const signedMargins = rows
+    .map((row) => {
+      const subject = getParticipantByName(row, args.activeSubject);
+      if (!subject || typeof row.margin !== "number") return null;
+      return subject.competitorId === row.winnerCompetitorId ? row.margin : -row.margin;
+    })
+    .filter((value): value is number => typeof value === "number");
+  const avgSignedMargin = signedMargins.length ? average(signedMargins) : null;
+  const avgTotal = average(rows.map((row) => row.totalPoints).filter((value): value is number => typeof value === "number"));
+
+  return createCard({
+    id: "head-to-head-context",
+    title: `${args.activeSubject} vs ${opponent}`,
+    sampleSize: rows.length,
+    hitRate: Number(((wins / rows.length) * 100).toFixed(1)),
+    roi: null,
+    value: `${wins}-${losses}`,
+    note: [
+      `Stored head-to-head finals inside ${formatDateWindow(args.filters.window).toLowerCase()}.`,
+      avgSignedMargin !== null ? `Avg margin ${formatSigned(avgSignedMargin, 1)}.` : null,
+      avgTotal ? `Avg total ${avgTotal.toFixed(1)}.` : null
+    ]
+      .filter(Boolean)
+      .join(" "),
+    href:
+      rows[0]?.eventExternalId && rows[0]?.league
+        ? buildMatchupHref(rows[0].league, rows[0].eventExternalId)
+        : null,
+    tone: rows.length >= args.filters.sample ? "success" : "premium",
+    window: args.filters.window
+  });
+}
+
+function isPlayerMarket(marketType: TrendFilters["market"]) {
+  return marketType.startsWith("player_");
+}
+
+function averageLine(rows: HistoricalRow[]) {
+  return average(rows.map((row) => row.closingLine).filter((value): value is number => typeof value === "number"));
+}
+
+function averageOdds(rows: HistoricalRow[]) {
+  return average(rows.map((row) => row.closingOddsAmerican).filter((value) => Number.isFinite(value)));
+}
+
+function buildPlayerMarketComparisonCard(args: {
+  filters: TrendFilters;
+  historicalRows: HistoricalRow[];
+  activeSubject: string;
+}): TrendCardView | null {
+  const playerName = args.filters.player || (args.filters.market.startsWith("player_") ? args.activeSubject : "");
+  if (!playerName && !args.filters.market.startsWith("player_")) return null;
+
+  const playerRows = args.historicalRows.filter(
+    (row) => isPlayerMarket(row.marketType) && normalizeText(row.playerName ?? row.selection).includes(normalizeText(playerName))
+  );
+  const opponentName = args.filters.opponent.trim();
+  const opponentRows = opponentName
+    ? args.historicalRows.filter(
+        (row) => isPlayerMarket(row.marketType) && normalizeText(row.playerName ?? row.selection).includes(normalizeText(opponentName))
+      )
+    : [];
+  const focusedRows = opponentRows.length ? [...playerRows, ...opponentRows] : playerRows;
+  if (!focusedRows.length) return null;
+
+  const playerAvgLine = averageLine(playerRows);
+  const opponentAvgLine = averageLine(opponentRows);
+  const avgPrice = averageOdds(focusedRows);
+  const primaryLabel = playerName || "Player props";
+
+  return createCard({
+    id: "player-market-comparison",
+    title: opponentRows.length ? `${primaryLabel} vs ${opponentName} prop tape` : `${primaryLabel} prop tape`,
+    sampleSize: focusedRows.length,
+    hitRate: null,
+    roi: null,
+    value:
+      playerAvgLine && opponentAvgLine
+        ? `${playerAvgLine.toFixed(1)} vs ${opponentAvgLine.toFixed(1)}`
+        : playerAvgLine
+          ? `${playerAvgLine.toFixed(1)} avg line`
+          : `${focusedRows.length} rows`,
+    note: [
+      "Compares stored player prop market shape before firing on a narrative.",
+      avgPrice ? `Avg price ${formatSigned(avgPrice, 0)}.` : null,
+      opponentRows.length ? "Use with stat-result coverage before treating this as predictive." : null
+    ]
+      .filter(Boolean)
+      .join(" "),
+    href: `/trends?market=${args.filters.market}&player=${encodeURIComponent(playerName)}`,
+    tone: opponentRows.length ? "brand" : "premium",
+    window: args.filters.window
+  });
+}
+
+function buildMarketStackCard(args: {
+  filters: TrendFilters;
+  historicalRows: HistoricalRow[];
+}): TrendCardView | null {
+  const groups = ["spread", "moneyline", "total"].map((marketType) => {
+    const rows = args.historicalRows.filter((row) => row.marketType === marketType && row.outcome !== "UNAVAILABLE");
+    const hitRate = getHitRate(rows);
+    const roi = getHistoricalRoi(rows);
+    const score = buildSystemScore({
+      sampleSize: rows.length,
+      hitRate,
+      roi,
+      avgMovement: average(rows.map((row) => Math.abs(row.movementValue ?? 0)))
+    });
+    return { marketType, rows, hitRate, roi, score };
+  });
+
+  const eligible = groups.filter((group) => group.rows.length >= Math.max(5, Math.min(args.filters.sample, 20)));
+  if (!eligible.length) return null;
+
+  const best = eligible.sort((left, right) => right.score - left.score)[0];
+  return createCard({
+    id: "market-stack-rank",
+    title: "Spread / ML / total stack",
+    sampleSize: best.rows.length,
+    hitRate: best.hitRate,
+    roi: best.roi,
+    value: getMarketLabel(best.marketType),
+    note: eligible
+      .map((group) => `${getMarketLabel(group.marketType)} ${group.roi !== null ? `${formatSigned(group.roi, 1)}% ROI` : `${group.hitRate ?? 0}% hit`} (${group.rows.length})`)
+      .join(" · "),
+    href: buildSystemHref(args.filters, best.marketType as TrendFilters["market"], "ALL"),
+    tone: best.roi !== null && best.roi > 0 ? "success" : "brand",
+    window: args.filters.window
+  });
+}
+
+function buildWeatherVenueCard(args: {
+  filters: TrendFilters;
+  rows: RecentFormRow[];
+}): TrendCardView | null {
+  const supportedRows = args.rows.filter((row) => ["MLB", "NFL", "NCAAF"].includes(row.league));
+  if (!supportedRows.length) return null;
+
+  const joins = supportedRows.slice(0, 200).map((row) => {
+    const { home, away } = getHomeAway(row);
+    return inferVenueWeatherJoinFromContext({
+      league: row.league,
+      eventLabel: row.eventLabel,
+      homeTeam: home?.name ?? null,
+      awayTeam: away?.name ?? null,
+      venue: row.venue,
+      searchTexts: [row.eventLabel]
+    });
+  });
+
+  const outdoor = joins.filter((join) => join.weatherExposure === "OUTDOOR" || join.weatherExposure === "MIXED");
+  const highWind = joins.filter((join) => join.windSensitivity === "HIGH");
+  const joined = joins.filter((join) => join.venueJoinStatus === "JOINED" || join.venueJoinStatus === "PAYLOAD_ONLY");
+  const topNote = joins.find((join) => join.parkFactorNote)?.parkFactorNote ?? null;
+
+  return createCard({
+    id: "weather-venue-context",
+    title: "Weather / venue factor",
+    sampleSize: joins.length,
+    hitRate: null,
+    roi: null,
+    value: outdoor.length ? `${outdoor.length} outdoor` : "Mostly muted",
+    note: [
+      `${joined.length}/${joins.length} venue joins across weather-sensitive leagues.`,
+      highWind.length ? `${highWind.length} high-wind-sensitivity spot${highWind.length === 1 ? "" : "s"}.` : null,
+      topNote
+    ]
+      .filter(Boolean)
+      .join(" "),
+    tone: highWind.length ? "premium" : outdoor.length ? "brand" : "muted",
+    window: args.filters.window
+  });
+}
+
+function compactCards(cards: Array<TrendCardView | null>) {
+  const seen = new Set<string>();
+  return cards.filter((card): card is TrendCardView => {
+    if (!card || seen.has(card.id)) return false;
+    seen.add(card.id);
+    return true;
+  });
+}
+
 async function fetchSourceRows(filters: TrendFilters) {
   const windowStart = getWindowStart(filters.window);
 
@@ -754,6 +1002,7 @@ async function fetchSourceRows(filters: TrendFilters) {
             eventResult: true
           }
         },
+        player: { select: { name: true } },
         snapshots: { orderBy: { capturedAt: "asc" } }
       },
       orderBy: { updatedAt: "desc" },
@@ -830,6 +1079,7 @@ export async function getTrendQueryResult(
           marketType: market.marketType,
           marketLabel: market.marketLabel,
           selection: market.selection,
+          playerName: market.player?.name ?? null,
           side: market.side,
           sportsbookName: market.sportsbook?.name ?? "Historical feed",
           participantNames: market.event.participants.map(
@@ -894,10 +1144,14 @@ export async function getTrendQueryResult(
           league: event.league.key as LeagueKey,
           sport: event.league.sport as SportCode,
           eventExternalId: event.externalEventId,
+          eventLabel: event.name,
+          startTime: event.startTime,
+          venue: event.venue ?? null,
           participantNames: event.participants.map((participant: any) => participant.competitor.name),
           participants: event.participants.map((participant: any) => ({
             competitorId: participant.competitor.id,
-            name: participant.competitor.name
+            name: participant.competitor.name,
+            role: participant.role
           })),
           winnerCompetitorId: summary.winnerCompetitorId,
           margin: summary.margin,
@@ -1072,7 +1326,17 @@ export async function getTrendQueryResult(
       })
     ];
 
-    const cards = backtestedCards.length ? backtestedCards : fallbackCards;
+    const contextCards = compactCards([
+      buildHeadToHeadCard({ filters, rows: recentFormRows, activeSubject }),
+      buildPlayerMarketComparisonCard({ filters, historicalRows, activeSubject }),
+      buildMarketStackCard({ filters, historicalRows }),
+      buildWeatherVenueCard({ filters, rows: recentFormRows })
+    ]);
+    const cards = compactCards([
+      ...contextCards,
+      ...backtestedCards,
+      ...fallbackCards
+    ]);
 
     const movementRows = historicalRows
       .filter((row) => typeof row.movementValue === "number")
@@ -1087,23 +1351,40 @@ export async function getTrendQueryResult(
         href: row.eventExternalId ? buildMatchupHref(row.league, row.eventExternalId) : null
       }));
 
-    const segmentRows = [
-      ...new Map(
-        historicalRows.map((row) => [
-          `market:${row.marketType}`,
-          {
-            label: `MARKET | ${row.marketType}`,
-            rows: historicalRows.filter((entry) => entry.marketType === row.marketType)
-          }
-        ])
-      ).values()
-    ]
+    const segmentGroups = new Map<string, { label: string; rows: HistoricalRow[] }>();
+    for (const row of historicalRows) {
+      const marketKey = `market:${row.marketType}`;
+      const marketGroup = segmentGroups.get(marketKey);
+      if (marketGroup) {
+        marketGroup.rows.push(row);
+      } else {
+        segmentGroups.set(marketKey, { label: `MARKET | ${row.marketType}`, rows: [row] });
+      }
+
+      const sideKey = `side:${row.marketType}:${row.roleBucket}`;
+      const sideGroup = segmentGroups.get(sideKey);
+      if (sideGroup) {
+        sideGroup.rows.push(row);
+      } else {
+        segmentGroups.set(sideKey, {
+          label: `ANGLE | ${getMarketLabel(row.marketType)} ${humanizeRoleBucket(row.roleBucket)}`,
+          rows: [row]
+        });
+      }
+    }
+
+    const segmentRows = [...segmentGroups.values()]
       .filter((entry) => entry.rows.length >= filters.sample)
-      .map((entry) => ({
-        label: entry.label,
-        movement: `${(getHistoricalRoi(entry.rows) ?? 0) > 0 ? "+" : ""}${(getHistoricalRoi(entry.rows) ?? 0).toFixed(1)}% ROI`,
-        note: `${entry.rows.length} historical row${entry.rows.length === 1 ? "" : "s"}`
-      }));
+      .sort((left, right) => Math.abs(getHistoricalRoi(right.rows) ?? 0) - Math.abs(getHistoricalRoi(left.rows) ?? 0))
+      .slice(0, 12)
+      .map((entry) => {
+        const roi = getHistoricalRoi(entry.rows) ?? 0;
+        return {
+          label: entry.label,
+          movement: `${roi > 0 ? "+" : ""}${roi.toFixed(1)}% ROI`,
+          note: `${entry.rows.length} historical row${entry.rows.length === 1 ? "" : "s"}`
+        };
+      });
 
     const sampleNote =
       !historicalRows.length && !settledBets.length

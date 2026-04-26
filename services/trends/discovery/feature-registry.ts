@@ -55,5 +55,39 @@ export const trendFeatureRegistry: FeatureDefinition[] = [
     field: "opponentName",
     group: "opponent",
     type: "categorical"
+  },
+  {
+    field: "weatherBucket",
+    group: "weather",
+    type: "categorical",
+    allowedValues: ["indoor", "outdoor", "wind", "rain", "cold", "heat", "humidity", "unknown"]
+  },
+  {
+    field: "windBucket",
+    group: "weather",
+    type: "categorical",
+    allowedValues: ["calm", "moderate", "windy", "extreme", "unknown"]
+  },
+  {
+    field: "weatherExposure",
+    group: "venue_weather",
+    type: "categorical",
+    allowedValues: ["INDOOR", "OUTDOOR", "MIXED", "UNKNOWN"]
+  },
+  {
+    field: "roofType",
+    group: "venue_weather",
+    type: "categorical",
+    allowedValues: ["OPEN_AIR", "RETRACTABLE", "FIXED_DOME", "UNKNOWN"]
+  },
+  {
+    field: "playerName",
+    group: "player",
+    type: "categorical"
+  },
+  {
+    field: "opponentPlayerName",
+    group: "player_vs_player",
+    type: "categorical"
   }
 ];
