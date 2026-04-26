@@ -1,6 +1,7 @@
 import Link from "next/link";
 
-import { getSimBoardFeedSafe } from "@/services/sim/get-sim-board-safe";
+import { withTimeoutFallback } from "@/lib/utils/async";
+import { getSimBoardFeed, type SimBoardFeed } from "@/services/sim/sim-board-service";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -35,41 +36,78 @@ function recommendationTone(value: string) {
 }
 
 export default async function SimPage() {
-  const data = await getSimBoardFeedSafe();
+  const fallbackData: SimBoardFeed = {
+    generatedAt: new Date().toISOString(),
+    summary: {
+      totalEvents: 0,
+      projectedEvents: 0,
+      signalEvents: 0,
+      marketReadyEvents: 0,
+      attackableEvents: 0
+    },
+    events: [],
+    setup: {
+      status: "degraded",
+      title: "Simulator timed out",
+      detail: "Live simulator query took too long and was short-circuited for page stability.",
+      steps: [
+        "Verify database latency and connection pool health.",
+        "Re-run workers to refresh current-market-state and edge signals."
+      ]
+    }
+  };
+
+  let data: SimBoardFeed = fallbackData;
+  try {
+    data = await withTimeoutFallback(getSimBoardFeed(), {
+      timeoutMs: 4500,
+      fallback: fallbackData
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    data = {
+      ...fallbackData,
+      setup: {
+        status: "degraded",
+        title: "Simulator failed to load",
+        detail: message,
+        steps: [
+          "Check database connectivity and migration state.",
+          "Check simulator query logs for failing relation/column lookups."
+        ]
+      }
+    };
+  }
 
   return (
     <div className="min-h-screen">
       <div className="sticky top-0 z-30 border-b border-bone/[0.06] bg-ink/90 backdrop-blur-xl">
-        <div className="mx-auto max-w-[1400px] px-4 sm:px-6">
-          <div className="flex items-center justify-between py-3">
-            <h1 className="font-display text-[17px] font-semibold tracking-[-0.01em] text-text-primary">
-              Simulation Board
-            </h1>
-            <div className="flex gap-1">
-              <Link
-                href="/sim"
-                className="rounded-lg px-3 py-1.5 text-[12px] font-semibold uppercase tracking-[0.1em] text-text-primary hover:bg-bone/[0.08] transition-colors"
-              >
-                Board
-              </Link>
-              <Link
-                href="/sim/ab-test"
-                className="rounded-lg px-3 py-1.5 text-[12px] font-semibold uppercase tracking-[0.1em] text-bone/70 hover:bg-bone/[0.08] transition-colors"
-              >
-                A/B Test
-              </Link>
-              <Link
-                href="/sim/calibration"
-                className="rounded-lg px-3 py-1.5 text-[12px] font-semibold uppercase tracking-[0.1em] text-bone/70 hover:bg-bone/[0.08] transition-colors"
-              >
-                Calibration
-              </Link>
-            </div>
-          </div>
+        <div className="mx-auto max-w-[1400px] px-4 py-3 sm:px-6">
+          <h1 className="font-display text-[17px] font-semibold tracking-[-0.01em] text-text-primary">
+            Simulation Board
+          </h1>
         </div>
       </div>
 
       <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
+        {data.setup?.status !== "ready" ? (
+          <div className="mb-6 rounded-xl border border-amber-500/20 bg-amber-500/[0.05] p-4">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-amber-500">
+              {data.setup?.title ?? "Simulator degraded"}
+            </p>
+            {data.setup?.detail ? (
+              <p className="mt-2 text-[12px] text-amber-200/80">{data.setup.detail}</p>
+            ) : null}
+            {Array.isArray(data.setup?.steps) && data.setup.steps.length > 0 ? (
+              <div className="mt-2 space-y-1 text-[12px] text-amber-200/80">
+                {data.setup.steps.map((step: string, idx: number) => (
+                  <p key={idx}>{step}</p>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <div className="rounded-xl border border-bone/[0.07] bg-surface p-4">
             <p className="text-[11px] uppercase tracking-[0.18em] text-bone/45">Events</p>

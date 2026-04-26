@@ -1,7 +1,58 @@
-import { prisma } from "@/lib/db/prisma";
+import { getServerDatabaseResolution, hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 
 type SimRecommendation = "ATTACK" | "WATCH" | "BUILDING" | "PASS";
 type SimConfidenceBand = "HIGH" | "MEDIUM" | "LOW";
+type SimSetupStatus = "ready" | "blocked" | "degraded";
+
+export type SimBoardFeed = {
+  generatedAt: string;
+  summary: {
+    totalEvents: number;
+    projectedEvents: number;
+    signalEvents: number;
+    marketReadyEvents: number;
+    attackableEvents: number;
+  };
+  events: Array<{
+    id: string;
+    eventKey: string | null;
+    league: string;
+    name: string;
+    startTime: string;
+    status: string;
+    participants: Array<{
+      role: string;
+      competitor: string;
+    }>;
+    projection: unknown;
+    markets: unknown[];
+    topSignals: Array<{
+      edgeScore: number | null;
+      evPercent: number | null;
+      selectionCompetitor: unknown;
+      player: unknown;
+      sportsbook: unknown;
+      marketType: string;
+      side: string | null;
+    }>;
+    diagnostics: {
+      hasProjection: boolean;
+      signalCount: number;
+      bestEdgeScore: number | null;
+      bestEvPercent: number | null;
+      marketCount: number;
+      smartScore: number;
+      confidenceBand: SimConfidenceBand;
+      recommendation: SimRecommendation;
+    };
+  }>;
+  setup: {
+    status: SimSetupStatus;
+    title: string;
+    detail: string | null;
+    steps: string[];
+  };
+};
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -45,49 +96,102 @@ function getRecommendation(args: {
   return "BUILDING";
 }
 
-export async function getSimBoardFeed(leagueKey?: string) {
-  const events = await prisma.event.findMany({
-    where: {
-      ...(leagueKey ? { league: { key: leagueKey } } : {}),
-      startTime: {
-        gte: new Date(Date.now() - 1000 * 60 * 60 * 12),
-        lte: new Date(Date.now() + 1000 * 60 * 60 * 48)
-      }
-    },
-    include: {
-      league: true,
-      participants: { include: { competitor: true } },
-      currentMarketStates: {
-        include: {
-          selectionCompetitor: true,
-          player: true,
-          bestHomeBook: true,
-          bestAwayBook: true,
-          bestOverBook: true,
-          bestUnderBook: true
-        } as any
+export async function getSimBoardFeed(leagueKey?: string): Promise<SimBoardFeed> {
+  if (!hasUsableServerDatabaseUrl()) {
+    const resolution = getServerDatabaseResolution();
+    return {
+      generatedAt: new Date().toISOString(),
+      summary: {
+        totalEvents: 0,
+        projectedEvents: 0,
+        signalEvents: 0,
+        marketReadyEvents: 0,
+        attackableEvents: 0
       },
-      eventProjections: {
-        orderBy: {
-          modelRun: {
-            createdAt: "desc"
-          }
+      events: [],
+      setup: {
+        status: "blocked",
+        title: "Simulator needs a database connection",
+        detail: "Simulation cards load from event, projection, market-state, and signal tables.",
+        steps: [
+          "Set DATABASE_URL, POSTGRES_PRISMA_URL, or POSTGRES_URL in the runtime.",
+          "Run npx prisma migrate deploy.",
+          `Active DB source: ${resolution.key ?? "none"}.`
+        ]
+      }
+    };
+  }
+
+  let events;
+  try {
+    events = await prisma.event.findMany({
+      where: {
+        ...(leagueKey ? { league: { key: leagueKey } } : {}),
+        startTime: {
+          gte: new Date(Date.now() - 1000 * 60 * 60 * 12),
+          lte: new Date(Date.now() + 1000 * 60 * 60 * 48)
+        }
+      },
+      include: {
+        league: true,
+        participants: { include: { competitor: true } },
+        currentMarketStates: {
+          include: {
+            selectionCompetitor: true,
+            player: true,
+            bestHomeBook: true,
+            bestAwayBook: true,
+            bestOverBook: true,
+            bestUnderBook: true
+          } as any
         },
-        take: 1
+        eventProjections: {
+          orderBy: {
+            modelRun: {
+              createdAt: "desc"
+            }
+          },
+          take: 1
+        },
+        edgeSignals: {
+          where: { isActive: true },
+          include: {
+            selectionCompetitor: true,
+            player: true,
+            sportsbook: true
+          } as any,
+          orderBy: [{ edgeScore: "desc" }, { evPercent: "desc" }],
+          take: 5
+        }
       },
-      edgeSignals: {
-        where: { isActive: true },
-        include: {
-          selectionCompetitor: true,
-          player: true,
-          sportsbook: true
-        } as any,
-        orderBy: [{ edgeScore: "desc" }, { evPercent: "desc" }],
-        take: 5
+      orderBy: { startTime: "asc" }
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[sim-board] failed to load simulator events", { leagueKey, message });
+
+    return {
+      generatedAt: new Date().toISOString(),
+      summary: {
+        totalEvents: 0,
+        projectedEvents: 0,
+        signalEvents: 0,
+        marketReadyEvents: 0,
+        attackableEvents: 0
+      },
+      events: [],
+      setup: {
+        status: "degraded",
+        title: "Simulator is temporarily degraded",
+        detail: "The simulator query failed. Board cards are hidden until this query path recovers.",
+        steps: [
+          "Verify simulator tables and columns are migrated in the active database.",
+          "Check Prisma logs for the exact relation/column failure.",
+          `Latest error: ${message}`
+        ]
       }
-    },
-    orderBy: { startTime: "asc" }
-  });
+    };
+  }
 
   const mappedEvents = events
     .map((event) => {
@@ -172,6 +276,12 @@ export async function getSimBoardFeed(leagueKey?: string) {
       marketReadyEvents: mappedEvents.filter((event) => event.diagnostics.marketCount > 0).length,
       attackableEvents: mappedEvents.filter((event) => event.diagnostics.recommendation === "ATTACK").length
     },
-    events: mappedEvents.map(({ sortScore, ...event }) => event)
+    events: mappedEvents.map(({ sortScore, ...event }) => event),
+    setup: {
+        status: "ready",
+        title: "Simulator ready",
+        detail: null,
+        steps: []
+    }
   };
 }
