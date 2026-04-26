@@ -58,6 +58,18 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function readWindowHours(envKey: string, fallback: number) {
+  const raw = process.env[envKey];
+  if (!raw) {
+    return fallback;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
 function getConfidenceBand(score: number): SimConfidenceBand {
   if (score >= 75) return "HIGH";
   if (score >= 45) return "MEDIUM";
@@ -97,6 +109,9 @@ function getRecommendation(args: {
 }
 
 export async function getSimBoardFeed(leagueKey?: string): Promise<SimBoardFeed> {
+  const lookbackHours = readWindowHours("SIM_BOARD_LOOKBACK_HOURS", 36);
+  const lookaheadHours = readWindowHours("SIM_BOARD_LOOKAHEAD_HOURS", 72);
+
   if (!hasUsableServerDatabaseUrl()) {
     const resolution = getServerDatabaseResolution();
     return {
@@ -128,8 +143,8 @@ export async function getSimBoardFeed(leagueKey?: string): Promise<SimBoardFeed>
       where: {
         ...(leagueKey ? { league: { key: leagueKey } } : {}),
         startTime: {
-          gte: new Date(Date.now() - 1000 * 60 * 60 * 12),
-          lte: new Date(Date.now() + 1000 * 60 * 60 * 48)
+          gte: new Date(Date.now() - 1000 * 60 * 60 * lookbackHours),
+          lte: new Date(Date.now() + 1000 * 60 * 60 * lookaheadHours)
         }
       },
       include: {
