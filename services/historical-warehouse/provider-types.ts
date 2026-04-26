@@ -5,6 +5,8 @@ export type FreeHistoricalSourceKey =
   | "sportsdataverse_nba"
   | "sportsdataverse_ncaab"
   | "sportsdataverse_ncaaf"
+  | "sportsdataverse_nhl"
+  | "sportsdataverse_mlb"
   | "mlb_statsapi"
   | "lahman"
   | "nhl_public_api";

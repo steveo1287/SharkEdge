@@ -252,7 +252,7 @@ async function importPersistedGames(sourceKey: FreeHistoricalSourceKey, games: S
 }
 
 function mapSportsDataverseGame(args: {
-  leagueKey: "NBA" | "NCAAF";
+  leagueKey: "NBA" | "NCAAF" | "NHL" | "MLB";
   sportCode: SupportedSportCode;
   sourceKey: FreeHistoricalSourceKey;
   row: CsvRecord;
@@ -305,7 +305,7 @@ function mapSportsDataverseGame(args: {
 }
 
 async function importSportsDataverseGames(args: {
-  leagueKey: "NBA" | "NCAAF";
+  leagueKey: "NBA" | "NCAAF" | "NHL" | "MLB";
   sourceKey: FreeHistoricalSourceKey;
   url: string;
   startDate: Date;
@@ -319,7 +319,11 @@ async function importSportsDataverseGames(args: {
       timeoutMs: 45_000
     })
   );
-  const sportCode: SupportedSportCode = args.leagueKey === "NCAAF" ? "FOOTBALL" : "BASKETBALL";
+  const sportCode: SupportedSportCode =
+    args.leagueKey === "NCAAF" ? "FOOTBALL" :
+    args.leagueKey === "NHL" ? "HOCKEY" :
+    args.leagueKey === "MLB" ? "BASEBALL" :
+    "BASKETBALL";
   const games = rows
     .map((row) =>
       mapSportsDataverseGame({
@@ -542,6 +546,12 @@ export async function importFreeHistoricalWarehouse(
   const ncaafUrl =
     process.env.SPORTSDATAVERSE_NCAAF_URL?.trim() ||
     "https://raw.githubusercontent.com/sportsdataverse/cfbfastR-data/main/schedules/cfb_games_info.csv";
+  const nhlUrl =
+    process.env.SPORTSDATAVERSE_NHL_URL?.trim() ||
+    "https://raw.githubusercontent.com/sportsdataverse/fastRhockey-nhl-data/main/nhl_schedule_master.csv";
+  const mlbUrl =
+    process.env.SPORTSDATAVERSE_MLB_URL?.trim() ||
+    "https://raw.githubusercontent.com/sportsdataverse/baseballr-data/main/mlb_schedule_master.csv";
 
   for (const leagueKey of targetLeagues) {
     let result: FreeHistoricalLeagueResult | null = null;
@@ -581,6 +591,14 @@ export async function importFreeHistoricalWarehouse(
       );
     } else if (leagueKey === "MLB") {
       await importLahmanTeamInfo().catch(() => false);
+      // SportsDataverse baseballr data supplements the authoritative MLB Stats API
+      await importSportsDataverseGames({
+        leagueKey: "MLB",
+        sourceKey: "sportsdataverse_mlb",
+        url: mlbUrl,
+        startDate,
+        endDate
+      }).catch(() => undefined);
       result = await buildLeagueImportResult(
         "MLB",
         "mlb_statsapi",
@@ -588,6 +606,16 @@ export async function importFreeHistoricalWarehouse(
         await importMlbGames(startDate, endDate)
       );
     } else if (leagueKey === "NHL") {
+      // SportsDataverse fastRhockey data covers multi-season history;
+      // NHL public API handles recent seasons per-team.
+      // Run both — upsertProviderEvent deduplicates by externalEventId.
+      await importSportsDataverseGames({
+        leagueKey: "NHL",
+        sourceKey: "sportsdataverse_nhl",
+        url: nhlUrl,
+        startDate,
+        endDate
+      }).catch(() => undefined);
       result = await buildLeagueImportResult(
         "NHL",
         "nhl_public_api",
