@@ -214,6 +214,75 @@ function getParticipantNames(event: PersistedBoardFeed["events"][number]) {
   };
 }
 
+function buildScoreboardFallbackGame(args: {
+  sectionLeagueKey: GameCardView["leagueKey"];
+  item: {
+    id: string;
+    label: string;
+    status: string;
+    startTime: string;
+    detailHref?: string;
+  };
+}): GameCardView | null {
+  const [awayRaw, homeRaw] = String(args.item.label ?? "").split(" @ ");
+  const away = awayRaw?.trim();
+  const home = homeRaw?.trim();
+  if (!away || !home) {
+    return null;
+  }
+
+  return {
+    id: args.item.id,
+    externalEventId: args.item.id,
+    leagueKey: args.sectionLeagueKey,
+    awayTeam: {
+      id: `away:${args.item.id}`,
+      leagueId: args.sectionLeagueKey,
+      name: away,
+      abbreviation: away.slice(0, 3).toUpperCase(),
+      externalIds: {}
+    },
+    homeTeam: {
+      id: `home:${args.item.id}`,
+      leagueId: args.sectionLeagueKey,
+      name: home,
+      abbreviation: home.slice(0, 3).toUpperCase(),
+      externalIds: {}
+    },
+    startTime: args.item.startTime,
+    status: toGameStatus(args.item.status),
+    venue: "Live scoreboard fallback",
+    selectedBook: null,
+    bestBookCount: 0,
+    moneyline: {
+      label: "Moneyline",
+      lineLabel: "Pending",
+      bestBook: "Awaiting odds",
+      bestOdds: 0,
+      movement: 0
+    },
+    spread: {
+      label: "Spread",
+      lineLabel: "Pending",
+      bestBook: "Awaiting odds",
+      bestOdds: 0,
+      movement: 0
+    },
+    total: {
+      label: "Total",
+      lineLabel: "Pending",
+      bestBook: "Awaiting odds",
+      bestOdds: 0,
+      movement: 0
+    },
+    edgeScore: {
+      score: 0,
+      label: "Pass"
+    },
+    detailHref: args.item.detailHref ?? `/game/${args.item.id}`
+  };
+}
+
 function hasRenderableOdds(data: BoardPageData | null) {
   if (!data) return false;
   return data.sportSections.some((section) =>
@@ -245,7 +314,7 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
   const patchedSections = sportSections.map((section) => {
     const events = grouped.get(section.leagueKey) ?? [];
 
-    const games: GameCardView[] = events.map((event) => {
+    const dbGames: GameCardView[] = events.map((event) => {
       const { away, home } = getParticipantNames(event);
       const moneylineOdds = getBestMarketOdds(event.markets, "moneyline");
       const spreadOdds = getBestMarketOdds(event.markets, "spread");
@@ -285,14 +354,14 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
         },
         spread: {
           label: "Spread",
-          lineLabel: typeof spreadLine === "number" ? String(spreadLine) : "—",
+          lineLabel: typeof spreadLine === "number" ? String(spreadLine) : "--",
           bestBook: "Best available",
           bestOdds: spreadOdds,
           movement: 0
         },
         total: {
           label: "Total",
-          lineLabel: typeof totalLine === "number" ? `O/U ${totalLine}` : "—",
+          lineLabel: typeof totalLine === "number" ? `O/U ${totalLine}` : "--",
           bestBook: "Best available",
           bestOdds: totalOdds,
           movement: 0
@@ -304,6 +373,26 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
         detailHref: `/game/${event.id}`
       };
     });
+
+    const fallbackGames =
+      dbGames.length > 0
+        ? []
+        : section.scoreboard
+            .map((item) =>
+              buildScoreboardFallbackGame({
+                sectionLeagueKey: section.leagueKey,
+                item: {
+                  id: item.id,
+                  label: item.label,
+                  status: item.status,
+                  startTime: item.startTime,
+                  detailHref: item.detailHref
+                }
+              })
+            )
+            .filter((game): game is GameCardView => Boolean(game));
+
+    const games = dbGames.length > 0 ? dbGames : fallbackGames;
 
     return {
       ...section,

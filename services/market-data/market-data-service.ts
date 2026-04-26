@@ -836,7 +836,7 @@ export async function getBoardFeed(
     where: {
       ...(leagueKey ? { league: { key: leagueKey } } : {}),
       startTime: {
-        gte: new Date(Date.now() - 1000 * 60 * 60 * 12),
+        gte: new Date(Date.now() - 1000 * 60 * 60 * 24),
         lte: new Date(Date.now() + 1000 * 60 * 60 * 48)
       }
     },
@@ -871,12 +871,12 @@ export async function getBoardFeed(
 
   const rawEventMarkets = eventIds.length
     ? await prisma.eventMarket.findMany({
-        where: {
-          eventId: { in: eventIds },
-          updatedAt: {
-            gte: new Date(Date.now() - 1000 * 60 * 60 * 6)
-          }
-        },
+      where: {
+        eventId: { in: eventIds },
+        updatedAt: {
+          gte: new Date(Date.now() - 1000 * 60 * 60 * 24)
+        }
+      },
         include: {
           sportsbook: true,
           selectionCompetitor: true,
