@@ -34,9 +34,14 @@ function formatOdds(v: number | null | undefined) {
   return v > 0 ? `+${v}` : `${v}`;
 }
 
+function hasOdds(game: BoardSportSectionView["games"][number]) {
+  return Boolean(game.moneyline.bestOdds || game.spread.bestOdds || game.total.bestOdds);
+}
+
 function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["games"][number]; leagueKey: LeagueKey }) {
   const awayLogo = getTeamLogoUrl(leagueKey, game.awayTeam.abbreviation);
   const homeLogo = getTeamLogoUrl(leagueKey, game.homeTeam.abbreviation);
+  const oddsReady = hasOdds(game);
 
   const edgeColor: Record<string, string> = {
     Elite: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
@@ -91,10 +96,21 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
         </div>
 
         <div className="flex flex-col items-end justify-center gap-1.5 border-l border-bone/[0.06] pl-3 min-w-[90px]">
-          <div className={`rounded border px-2 py-1 text-[11px] font-semibold uppercase tracking-widest ${edgeColor[game.edgeScore.label]}`}>
-            {game.edgeScore.score}
-          </div>
-          <div className="text-[10px] text-bone/40 uppercase tracking-widest">{game.edgeScore.label}</div>
+          {oddsReady ? (
+            <>
+              <div className={`rounded border px-2 py-1 text-[11px] font-semibold uppercase tracking-widest ${edgeColor[game.edgeScore.label]}`}>
+                {game.edgeScore.score}
+              </div>
+              <div className="text-[10px] text-bone/40 uppercase tracking-widest">{game.edgeScore.label}</div>
+            </>
+          ) : (
+            <>
+              <div className="rounded border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-amber-300">
+                Pending
+              </div>
+              <div className="text-[10px] text-bone/40 uppercase tracking-widest">odds</div>
+            </>
+          )}
         </div>
       </div>
     </Link>
@@ -102,10 +118,9 @@ function CompactGameRow({ game, leagueKey }: { game: BoardSportSectionView["game
 }
 
 function LeagueSection({ section, providerHealth }: { section: BoardSportSectionView; providerHealth: ProviderHealthView }) {
-  const gamesWithOdds = section.games.filter(
-    (g) => g.moneyline.bestOdds || g.spread.bestOdds || g.total.bestOdds
-  );
-  if (gamesWithOdds.length === 0 && section.scoreboard.length === 0) return null;
+  const displayGames = section.games;
+  const gamesWithOdds = displayGames.filter(hasOdds);
+  if (displayGames.length === 0 && section.scoreboard.length === 0) return null;
 
   const healthColor = {
     HEALTHY: "border-aqua/20 bg-aqua/[0.04] text-aqua",
@@ -122,22 +137,22 @@ function LeagueSection({ section, providerHealth }: { section: BoardSportSection
           {section.leagueLabel}
         </h2>
         <span className="rounded-full bg-bone/[0.08] px-2.5 py-0.5 font-mono text-[11px] tabular-nums text-bone/55">
-          {gamesWithOdds.length}
+          {displayGames.length} games · {gamesWithOdds.length} priced
         </span>
         <div className={`ml-auto rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.18em] ${healthColor}`}>
           {providerHealth.label}
         </div>
       </div>
 
-      {gamesWithOdds.length > 0 ? (
+      {displayGames.length > 0 ? (
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
-          {gamesWithOdds.map((game) => (
+          {displayGames.map((game) => (
             <CompactGameRow key={game.id} game={game} leagueKey={section.leagueKey} />
           ))}
         </div>
       ) : (
         <div className="rounded-xl border border-bone/[0.06] bg-surface px-4 py-3 text-[13px] text-bone/40">
-          <p className="mb-1">No live odds available for this window.</p>
+          <p className="mb-1">No games available for this window.</p>
           <p className="text-[12px] text-bone/30">{providerHealth.summary}</p>
           {providerHealth.freshnessMinutes !== null && (
             <p className="mt-1 text-[11px] text-bone/25">Last update: {providerHealth.freshnessLabel}</p>
@@ -161,10 +176,8 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
     (s) => s.games.length > 0 || s.scoreboard.length > 0
   );
 
-  const totalGames = data.sportSections.reduce(
-    (n, s) => n + s.games.filter((g) => g.moneyline.bestOdds || g.spread.bestOdds || g.total.bestOdds).length,
-    0
-  );
+  const totalGames = data.sportSections.reduce((n, s) => n + s.games.length, 0);
+  const pricedGames = data.sportSections.reduce((n, s) => n + s.games.filter(hasOdds).length, 0);
 
   return (
     <div className="min-h-screen">
@@ -176,7 +189,7 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
                 Live Odds Board
               </h1>
               <span className="rounded-full border border-aqua/20 bg-aqua/[0.06] px-2.5 py-0.5 font-mono text-[11px] tabular-nums text-aqua">
-                {totalGames} games
+                {totalGames} games · {pricedGames} priced
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -194,9 +207,8 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
 
           <div className="no-scrollbar mt-2.5 flex gap-1.5 overflow-x-auto pb-0.5">
             {activeSections.map((section) => {
-              const count = section.games.filter(
-                (g) => g.moneyline.bestOdds || g.spread.bestOdds || g.total.bestOdds
-              ).length;
+              const count = section.games.length;
+              const priced = section.games.filter(hasOdds).length;
               return (
                 <a
                   key={section.leagueKey}
@@ -205,7 +217,7 @@ export default async function BoardPage({ searchParams }: BoardPageProps) {
                 >
                   <span>{LEAGUE_ICONS[section.leagueKey]}</span>
                   <span>{section.leagueKey}</span>
-                  {count > 0 && <span className="font-mono tabular-nums text-bone/40">{count}</span>}
+                  {count > 0 && <span className="font-mono tabular-nums text-bone/40">{priced}/{count}</span>}
                 </a>
               );
             })}
