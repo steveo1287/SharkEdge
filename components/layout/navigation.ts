@@ -125,13 +125,9 @@ export const SECONDARY_NAV_ITEMS: NavItem[] = [
 ];
 
 export const LEAGUE_NAV_ITEMS: LeagueNavItem[] = [
-  { href: "/leagues/nba",   label: "NBA",    leagueKey: "NBA",    description: "NBA league hub." },
-  { href: "/leagues/mlb",   label: "MLB",    leagueKey: "MLB",    description: "MLB baseball hub." },
-  { href: "/leagues/nhl",   label: "NHL",    leagueKey: "NHL",    description: "NHL hockey hub." },
-  { href: "/leagues/nfl",   label: "NFL",    leagueKey: "NFL",    description: "NFL football hub." },
-  { href: "/leagues/ncaaf", label: "NCAAF",  leagueKey: "NCAAF",  description: "College football." },
-  { href: "/leagues/ufc",   label: "UFC",    leagueKey: "UFC",    description: "UFC fight hub." },
-  { href: "/leagues/boxing",label: "Boxing", leagueKey: "BOXING", description: "Boxing market desk." }
+  // League nav items are disabled pending league hub page implementation
+  // Users can filter by league via query params on /board, /games, /trends, /props
+  // TODO: Implement /leagues/[leagueKey]/page.tsx as aggregated league hub
 ];
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────

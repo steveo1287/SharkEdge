@@ -62,7 +62,7 @@ SPORTS = [
 
 BACKEND_URL = os.getenv("SHARKEDGE_BACKEND_URL", "").rstrip("/")
 INGEST_URL = f"{BACKEND_URL}/api/ingest/odds" if BACKEND_URL else ""
-API_KEY = os.getenv("SHARKEDGE_API_KEY", "").strip()
+API_KEY = os.getenv("INTERNAL_API_KEY", "").strip()
 ODDSHARVESTER_COMMAND = os.getenv("ODDSHARVESTER_COMMAND", "python -m oddsharvester").strip()
 ODDSHARVESTER_TIMEOUT_SECONDS = int(os.getenv("ODDSHARVESTER_TIMEOUT_SECONDS", "120"))
 ODDSHARVESTER_HEADLESS = os.getenv("ODDSHARVESTER_HEADLESS", "true").strip().lower() not in {"0", "false", "no", "off"}
