@@ -1,3 +1,5 @@
+import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
+
 export type NbaTeamAnalyticsProfile = {
   teamName: string;
   offensiveRating: number;
@@ -10,9 +12,50 @@ export type NbaTeamAnalyticsProfile = {
   freeThrowRate: number;
   recentForm: number;
   restTravel: number;
+  source?: "real" | "override" | "synthetic";
 };
 
-function normalizeTeam(value: string) {
+export type NbaMatchupComparison = {
+  away: NbaTeamAnalyticsProfile;
+  home: NbaTeamAnalyticsProfile;
+  offensiveEdge: number;
+  defensiveEdge: number;
+  paceAverage: number;
+  efgEdge: number;
+  threePointVolatility: number;
+  turnoverEdge: number;
+  reboundEdge: number;
+  freeThrowEdge: number;
+  restTravelEdge: number;
+  formEdge: number;
+};
+
+type RawNbaTeamStats = Partial<NbaTeamAnalyticsProfile> & {
+  team?: string;
+  name?: string;
+  teamName?: string;
+  offRtg?: number;
+  defRtg?: number;
+  pace?: number;
+  efg?: number;
+  efgPct?: number;
+  threePointRate?: number;
+  threePointAttemptRate?: number;
+  tovPct?: number;
+  turnoverPct?: number;
+  rebPct?: number;
+  reboundPct?: number;
+  ftr?: number;
+  freeThrowRate?: number;
+  form?: number;
+  recentForm?: number;
+  restTravel?: number;
+};
+
+const NBA_STATS_CACHE_KEY = "nba:team-analytics:real-feed:v1";
+const NBA_STATS_CACHE_TTL_SECONDS = 60 * 60 * 12;
+
+export function normalizeNbaTeam(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
 }
 
@@ -28,6 +71,14 @@ function seedUnit(seed: number) {
 
 function range(seed: number, min: number, max: number) {
   return Number((min + seedUnit(seed) * (max - min)).toFixed(2));
+}
+
+function num(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  }
+  return null;
 }
 
 const TEAM_OVERRIDES: Record<string, Partial<NbaTeamAnalyticsProfile>> = {
@@ -47,8 +98,8 @@ const TEAM_OVERRIDES: Record<string, Partial<NbaTeamAnalyticsProfile>> = {
   washingtonwizards: { offensiveRating: 110.8, defensiveRating: 119.4, pace: 101.1, turnoverPct: 14.4, recentForm: -2.4 }
 };
 
-export function getNbaTeamAnalyticsProfile(teamName: string): NbaTeamAnalyticsProfile {
-  const key = normalizeTeam(teamName);
+function syntheticProfile(teamName: string): NbaTeamAnalyticsProfile {
+  const key = normalizeNbaTeam(teamName);
   const seed = hashString(key);
   const synthetic: NbaTeamAnalyticsProfile = {
     teamName,
@@ -61,15 +112,71 @@ export function getNbaTeamAnalyticsProfile(teamName: string): NbaTeamAnalyticsPr
     reboundPct: range(seed >>> 7, 48.2, 53.0),
     freeThrowRate: range(seed >>> 8, 18.2, 25.5),
     recentForm: range(seed >>> 9, -3.5, 4.5),
-    restTravel: range(seed >>> 10, -2.5, 2.8)
+    restTravel: range(seed >>> 10, -2.5, 2.8),
+    source: "synthetic"
   };
-
-  return { ...synthetic, ...(TEAM_OVERRIDES[key] ?? {}) };
+  const override = TEAM_OVERRIDES[key];
+  return override ? { ...synthetic, ...override, source: "override" } : synthetic;
 }
 
-export function compareNbaProfiles(awayTeam: string, homeTeam: string) {
-  const away = getNbaTeamAnalyticsProfile(awayTeam);
-  const home = getNbaTeamAnalyticsProfile(homeTeam);
+function normalizeRawProfile(raw: RawNbaTeamStats): NbaTeamAnalyticsProfile | null {
+  const teamName = raw.teamName ?? raw.team ?? raw.name;
+  if (!teamName) return null;
+  const fallback = syntheticProfile(teamName);
+  return {
+    teamName,
+    offensiveRating: num(raw.offensiveRating, raw.offRtg) ?? fallback.offensiveRating,
+    defensiveRating: num(raw.defensiveRating, raw.defRtg) ?? fallback.defensiveRating,
+    pace: num(raw.pace) ?? fallback.pace,
+    efgPct: num(raw.efgPct, raw.efg) ?? fallback.efgPct,
+    threePointAttemptRate: num(raw.threePointAttemptRate, raw.threePointRate) ?? fallback.threePointAttemptRate,
+    turnoverPct: num(raw.turnoverPct, raw.tovPct) ?? fallback.turnoverPct,
+    reboundPct: num(raw.reboundPct, raw.rebPct) ?? fallback.reboundPct,
+    freeThrowRate: num(raw.freeThrowRate, raw.ftr) ?? fallback.freeThrowRate,
+    recentForm: num(raw.recentForm, raw.form) ?? fallback.recentForm,
+    restTravel: num(raw.restTravel) ?? fallback.restTravel,
+    source: "real"
+  };
+}
+
+async function fetchRealProfiles() {
+  const configuredUrl = process.env.NBA_TEAM_STATS_URL?.trim();
+  if (!configuredUrl) return null;
+
+  const cached = await readHotCache<Record<string, NbaTeamAnalyticsProfile>>(NBA_STATS_CACHE_KEY);
+  if (cached) return cached;
+
+  try {
+    const response = await fetch(configuredUrl, { cache: "no-store" });
+    if (!response.ok) return null;
+    const body = await response.json();
+    const rows: RawNbaTeamStats[] = Array.isArray(body) ? body : Array.isArray(body?.teams) ? body.teams : [];
+    const profiles: Record<string, NbaTeamAnalyticsProfile> = {};
+    for (const row of rows) {
+      const profile = normalizeRawProfile(row);
+      if (profile) profiles[normalizeNbaTeam(profile.teamName)] = profile;
+    }
+    if (Object.keys(profiles).length) {
+      await writeHotCache(NBA_STATS_CACHE_KEY, profiles, NBA_STATS_CACHE_TTL_SECONDS);
+      return profiles;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export function getNbaTeamAnalyticsProfile(teamName: string): NbaTeamAnalyticsProfile {
+  return syntheticProfile(teamName);
+}
+
+export async function getNbaTeamAnalyticsProfileReal(teamName: string): Promise<NbaTeamAnalyticsProfile> {
+  const realProfiles = await fetchRealProfiles();
+  const real = realProfiles?.[normalizeNbaTeam(teamName)];
+  return real ?? syntheticProfile(teamName);
+}
+
+function compareProfiles(away: NbaTeamAnalyticsProfile, home: NbaTeamAnalyticsProfile): NbaMatchupComparison {
   return {
     away,
     home,
@@ -84,4 +191,16 @@ export function compareNbaProfiles(awayTeam: string, homeTeam: string) {
     restTravelEdge: home.restTravel - away.restTravel,
     formEdge: home.recentForm - away.recentForm
   };
+}
+
+export function compareNbaProfiles(awayTeam: string, homeTeam: string): NbaMatchupComparison {
+  return compareProfiles(getNbaTeamAnalyticsProfile(awayTeam), getNbaTeamAnalyticsProfile(homeTeam));
+}
+
+export async function compareNbaProfilesReal(awayTeam: string, homeTeam: string): Promise<NbaMatchupComparison> {
+  const [away, home] = await Promise.all([
+    getNbaTeamAnalyticsProfileReal(awayTeam),
+    getNbaTeamAnalyticsProfileReal(homeTeam)
+  ]);
+  return compareProfiles(away, home);
 }
