@@ -422,6 +422,7 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
     sourceNote: "Board is rendering from OddsHarvester-ingested market inventory.",
     providerHealth: buildProviderHealth({
       source: "live",
+      generatedAt: board.generatedAt,
       healthySummary: "Board is rendering from OddsHarvester-ingested market inventory.",
       degradedSummary: "Board inventory is partially available.",
       fallbackSummary: "Board is using persisted live market inventory fallback.",
