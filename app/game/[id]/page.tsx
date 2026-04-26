@@ -3,13 +3,14 @@ import { notFound } from "next/navigation";
 
 import { SimulationIntelligencePanel } from "@/components/event/simulation-intelligence-panel";
 import { SimulationWorkbench } from "@/components/event/simulation-workbench";
-import { SimVerdictPanel } from "@/components/event/sim-verdict-panel";
+import { SharkVerdictPanel } from "@/components/event/shark-verdict-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { withTimeoutFallback } from "@/lib/utils/async";
 import { getBoardPageData, parseBoardFilters } from "@/services/odds/board-service";
 import { loadPersistedSimCalibrationProfiles } from "@/services/simulation/sim-calibration-report-service";
 import { buildEventSimulationView } from "@/services/simulation/simulation-view-service";
+import { buildSharkVerdict } from "@/services/verdict/shark-verdict-service";
 
 export const dynamic = "force-dynamic";
 
@@ -42,12 +43,8 @@ async function getGameDetails(gameId: string) {
         );
         return data.games.find((g) => g.id === gameId) ?? null;
       })(),
-      {
-        timeoutMs: 2000,
-        fallback: null
-      }
+      { timeoutMs: 2000, fallback: null }
     );
-
     return boardData;
   } catch {
     return null;
@@ -57,15 +54,10 @@ async function getGameDetails(gameId: string) {
 async function getSimulation(gameId: string) {
   try {
     await loadPersistedSimCalibrationProfiles();
-
-    const sim = await withTimeoutFallback(
-      buildEventSimulationView(gameId),
-      {
-        timeoutMs: 3000,
-        fallback: null
-      }
-    );
-    return sim;
+    return await withTimeoutFallback(buildEventSimulationView(gameId), {
+      timeoutMs: 3000,
+      fallback: null
+    });
   } catch {
     return null;
   }
@@ -83,8 +75,21 @@ export default async function GameDetailPage({ params }: PageProps) {
     notFound();
   }
 
+  const homeTeam = game.homeTeam.name;
+  const awayTeam = game.awayTeam.name;
+  const leagueKey = game.leagueKey ?? "UNKNOWN";
+
+  const sharkVerdict = await buildSharkVerdict(
+    id,
+    homeTeam,
+    awayTeam,
+    leagueKey,
+    simulation?.gameSimVerdict ?? null
+  ).catch(() => null);
+
   return (
     <div className="grid gap-6">
+      {/* Hero header */}
       <div className="hero-shell p-5 sm:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -92,25 +97,23 @@ export default async function GameDetailPage({ params }: PageProps) {
               Live Game
             </div>
             <h1 className="mt-2 font-display text-[28px] font-semibold tracking-[-0.01em] text-text-primary sm:text-[32px]">
-              {game.awayTeam.name} @ {game.homeTeam.name}
+              {awayTeam} @ {homeTeam}
             </h1>
             <div className="mt-2 text-[13px] text-bone/70">{formatTime(game.startTime)}</div>
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge tone={getStatusBadgeTone(game.status)}>{game.status}</Badge>
             {game.leagueKey && (
-              <Badge tone="muted">
-                {game.leagueKey.toUpperCase()}
-              </Badge>
+              <Badge tone="muted">{game.leagueKey.toUpperCase()}</Badge>
             )}
           </div>
         </div>
       </div>
 
-      {simulation?.gameSimVerdict && (
-        <SimVerdictPanel verdict={simulation.gameSimVerdict} />
-      )}
+      {/* Unified Shark Verdict — shows for any game that has odds data */}
+      {sharkVerdict && <SharkVerdictPanel verdict={sharkVerdict} />}
 
+      {/* Deep sim panels — only when Monte Carlo ran */}
       {simulation && (
         <>
           <SimulationIntelligencePanel simulation={simulation} />
@@ -118,6 +121,7 @@ export default async function GameDetailPage({ params }: PageProps) {
         </>
       )}
 
+      {/* Live odds strip */}
       <section className="grid gap-3">
         <div>
           <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">
@@ -136,7 +140,9 @@ export default async function GameDetailPage({ params }: PageProps) {
             <div className="mt-3">
               <div className="text-[11px] text-bone/50">{game.moneyline.bestBook}</div>
               <div className="mt-1 font-mono text-[16px] font-semibold text-mint">
-                {game.moneyline.bestOdds ? `${game.moneyline.bestOdds > 0 ? "+" : ""}${game.moneyline.bestOdds}` : "—"}
+                {game.moneyline.bestOdds
+                  ? `${game.moneyline.bestOdds > 0 ? "+" : ""}${game.moneyline.bestOdds}`
+                  : "—"}
               </div>
             </div>
             {game.moneyline.movement !== 0 && (
@@ -183,14 +189,14 @@ export default async function GameDetailPage({ params }: PageProps) {
       </section>
 
       <div className="flex flex-wrap justify-center gap-3">
-        {simulation ? (
+        {simulation && (
           <Link
             href="/sim"
             className="rounded-md border border-aqua/25 bg-aqua/[0.06] px-4 py-2.5 text-[12.5px] font-semibold text-aqua transition-colors hover:border-aqua/40 hover:bg-aqua/[0.10]"
           >
             ← Back to Simulator Studio
           </Link>
-        ) : null}
+        )}
         <Link
           href="/board"
           className="rounded-md border border-bone/[0.10] bg-surface px-4 py-2.5 text-[12.5px] font-semibold text-bone/70 transition-colors hover:border-aqua/25 hover:text-aqua"
