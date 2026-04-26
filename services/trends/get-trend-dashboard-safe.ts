@@ -3,180 +3,104 @@ import type {
   TrendCardView,
   TrendDashboardView,
   TrendFilters,
-  TrendInsightCard,
   TrendMetricCard,
   TrendMode,
   TrendTableRow
 } from "@/lib/types/domain";
-import {
-  getPublishedTrendFeed,
-  type PublishedTrendCard,
-  type PublishedTrendSection
-} from "@/lib/trends/publisher";
+import { getPublishedTrendFeed, type PublishedTrendCard } from "@/lib/trends/publisher";
 
 import { buildFallbackTrendDashboard } from "./fallback-dashboard";
 import { getTrendDashboard } from "./query-engine";
 
-function formatPercent(value: number | null | undefined, digits = 1) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? `${value > 0 ? "+" : ""}${value.toFixed(digits)}%`
-    : null;
+function pct(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value > 0 ? "+" : ""}${value.toFixed(1)}%` : null;
 }
 
-function formatHitRate(value: number | null | undefined) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? `${value.toFixed(1)}%`
-    : null;
+function hit(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(1)}%` : null;
 }
 
-function formatUnits(value: number | null | undefined) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? `${value > 0 ? "+" : ""}${value.toFixed(1)}u`
-    : null;
-}
-
-function getWindowLabel(filters: TrendFilters) {
+function windowLabel(filters: TrendFilters) {
   if (filters.window === "all") return "Full stored range";
   if (filters.window === "365d") return "Last 365 days";
   if (filters.window === "90d") return "Last 90 days";
   return "Last 30 days";
 }
 
-function getQuerySummary(filters: TrendFilters) {
+function summary(filters: TrendFilters) {
   return [
-    filters.league !== "ALL" ? filters.league : filters.sport !== "ALL" ? filters.sport : "All sports",
-    filters.market !== "ALL" ? filters.market.replace(/_/g, " ") : "all markets",
-    filters.side !== "ALL" ? filters.side.toLowerCase() : null,
+    filters.league !== "ALL" ? filters.league : filters.sport,
+    filters.market,
+    filters.side,
     filters.team || filters.player || filters.fighter || filters.subject || null,
-    filters.opponent ? `vs ${filters.opponent}` : null,
     filters.window
-  ]
-    .filter(Boolean)
-    .join(" | ");
+  ].filter(Boolean).join(" | ");
 }
 
-function cardTone(card: PublishedTrendCard): TrendCardView["tone"] {
-  if (card.category === "Most Profitable" || card.category === "CLV-Backed") return "success";
-  if (card.category === "Highest Win Rate" || card.category === "Best of Board") return "brand";
+function tone(card: PublishedTrendCard): TrendCardView["tone"] {
+  if (card.confidence === "strong" || card.category === "Most Profitable") return "success";
+  if (card.confidence === "moderate" || card.category === "Highest Win Rate") return "brand";
   if (card.category === "Totals" || card.category === "Schedule Edges") return "premium";
-  if (card.confidence === "strong") return "success";
-  if (card.confidence === "moderate") return "brand";
   return "muted";
 }
 
-function toDashboardCard(card: PublishedTrendCard, filters: TrendFilters): TrendCardView {
-  const profit = formatUnits(card.profitUnits);
-  const hitRate = formatHitRate(card.hitRate);
-  const roi = formatPercent(card.roi);
-  const primaryValue =
-    card.primaryMetricValue ||
-    profit ||
-    hitRate ||
-    roi ||
-    card.record ||
-    String(card.sampleSize);
-  const whyNow = card.whyNow.length ? card.whyNow.join(" · ") : "Published trend from the SharkEdge trend feed.";
+function toCard(card: PublishedTrendCard, filters: TrendFilters): TrendCardView {
+  const hitRate = hit(card.hitRate);
+  const roi = pct(card.roi);
+  const value = card.primaryMetricValue || hitRate || roi || card.record || String(card.sampleSize);
+  const whyNow = card.whyNow.length ? card.whyNow.join(" · ") : card.description;
 
   return {
     id: card.id,
     title: card.title,
-    value: primaryValue,
+    value,
     hitRate,
     roi,
     sampleSize: card.sampleSize,
-    dateRange: getWindowLabel(filters),
-    note: card.description || card.railReason || whyNow,
-    explanation: card.railReason || card.description || whyNow,
+    dateRange: windowLabel(filters),
+    note: card.description || card.railReason,
+    explanation: card.railReason || card.description,
     whyItMatters: whyNow,
-    caution:
-      card.warning ||
-      (card.sampleSize < Math.max(5, filters.sample)
-        ? "Small sample: use as context until more stored rows support the angle."
-        : "Trend context is not a standalone bet. Confirm price, matchup, injuries, and market movement."),
+    caution: card.warning || "Use as one signal with market context.",
     href: card.href,
-    tone: cardTone(card),
-    todayMatches: card.todayMatches ?? []
+    tone: tone(card),
+    todayMatches: []
   };
 }
 
-function dedupePublishedCards(cards: PublishedTrendCard[]) {
+function dedupe(cards: PublishedTrendCard[]) {
   const seen = new Set<string>();
-  const result: PublishedTrendCard[] = [];
-
-  for (const card of cards) {
+  return cards.filter((card) => {
     const key = card.id || `${card.title}:${card.href}`;
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return false;
     seen.add(key);
-    result.push(card);
-  }
-
-  return result;
+    return true;
+  });
 }
 
-function buildMetrics(cards: PublishedTrendCard[]): TrendMetricCard[] {
-  const withRoi = cards.filter((card) => typeof card.roi === "number");
-  const withHitRate = cards.filter((card) => typeof card.hitRate === "number");
-  const activeMatches = cards.reduce((total, card) => total + (card.todayMatches?.length ?? 0), 0);
-  const bestRoi = withRoi.sort((left, right) => (right.roi ?? -999) - (left.roi ?? -999))[0];
-  const bestHitRate = withHitRate.sort((left, right) => (right.hitRate ?? -999) - (left.hitRate ?? -999))[0];
+function metrics(cards: PublishedTrendCard[]): TrendMetricCard[] {
+  const bestRoi = [...cards].filter((card) => typeof card.roi === "number").sort((a, b) => (b.roi ?? -999) - (a.roi ?? -999))[0];
+  const bestHit = [...cards].filter((card) => typeof card.hitRate === "number").sort((a, b) => (b.hitRate ?? -999) - (a.hitRate ?? -999))[0];
+  const sourceMatches = cards.reduce((total, card) => total + (card.todayMatches?.length ?? 0), 0);
 
   return [
-    {
-      label: "Published trends",
-      value: String(cards.length),
-      note: "Cards adapted from the live SharkEdge published trend feed."
-    },
-    {
-      label: "Live qualifiers",
-      value: String(activeMatches),
-      note: activeMatches > 0 ? "Today's board matches attached to trend cards." : "No live qualifiers attached yet."
-    },
-    {
-      label: "Best ROI",
-      value: bestRoi && typeof bestRoi.roi === "number" ? formatPercent(bestRoi.roi) ?? "N/A" : "N/A",
-      note: bestRoi ? bestRoi.title : "No ROI-backed card in this filter."
-    },
-    {
-      label: "Best hit rate",
-      value: bestHitRate && typeof bestHitRate.hitRate === "number" ? formatHitRate(bestHitRate.hitRate) ?? "N/A" : "N/A",
-      note: bestHitRate ? bestHitRate.title : "No hit-rate card in this filter."
-    }
+    { label: "Published trends", value: String(cards.length), note: "Loaded from the published trend feed." },
+    { label: "Source qualifiers", value: String(sourceMatches), note: "Current qualifiers reported by the feed." },
+    { label: "Best ROI", value: bestRoi ? pct(bestRoi.roi) ?? "N/A" : "N/A", note: bestRoi?.title ?? "No ROI card." },
+    { label: "Best hit rate", value: bestHit ? hit(bestHit.hitRate) ?? "N/A" : "N/A", note: bestHit?.title ?? "No hit-rate card." }
   ];
 }
 
-function buildInsights(cards: PublishedTrendCard[]): TrendInsightCard[] {
-  return cards.slice(0, 4).map((card) => ({
-    id: `published-insight-${card.id}`,
-    title: card.title,
-    value: card.primaryMetricValue || card.record,
-    note: card.description || card.railReason,
-    tone: cardTone(card)
-  }));
-}
-
-function buildMovementRows(cards: PublishedTrendCard[]): TrendTableRow[] {
+function rows(cards: PublishedTrendCard[]): TrendTableRow[] {
   return cards.slice(0, 8).map((card) => ({
     label: `${card.leagueLabel} ${card.marketLabel}`,
     movement: card.primaryMetricValue || card.record,
-    note: card.whyNow.length ? card.whyNow.join(" · ") : card.description,
+    note: card.description,
     href: card.href
   }));
 }
 
-function buildSegmentRows(sections: PublishedTrendSection[]): TrendTableRow[] {
-  return sections.slice(0, 8).map((section) => {
-    const cards = section.cards ?? [];
-    const best = [...cards].sort((left, right) => right.rankingScore - left.rankingScore)[0];
-    return {
-      label: section.category,
-      movement: best ? best.primaryMetricValue || best.record : `${cards.length} cards`,
-      note: best ? best.railReason || best.description : "Published trend rail",
-      href: best?.href ?? "/trends"
-    };
-  });
-}
-
-async function buildPublishedTrendDashboard(
+async function publishedDashboard(
   filters: TrendFilters,
   options?: { mode?: TrendMode; aiQuery?: string },
   existing?: TrendDashboardView | null
@@ -184,16 +108,13 @@ async function buildPublishedTrendDashboard(
   try {
     const feed = await getPublishedTrendFeed(filters);
     const sections = Array.isArray(feed.sections) ? feed.sections : [];
-    const cards = dedupePublishedCards([
+    const cards = dedupe([
       ...(Array.isArray(feed.featured) ? feed.featured : []),
       ...sections.flatMap((section) => section.cards ?? []),
       ...(Array.isArray(feed.overlooked) ? feed.overlooked : [])
-    ]).filter((card) => card.sampleSize >= 0);
+    ]);
 
     if (!cards.length) return null;
-
-    const todayMatches = cards.flatMap((card) => card.todayMatches ?? []);
-    const querySummary = getQuerySummary(filters);
 
     return {
       setup: null,
@@ -201,28 +122,34 @@ async function buildPublishedTrendDashboard(
       aiQuery: options?.aiQuery ?? existing?.aiQuery ?? "",
       aiHelper: existing?.aiHelper ?? null,
       explanation: existing?.explanation ?? {
-        headline: `${cards.length} published trend${cards.length === 1 ? "" : "s"} loaded`,
-        whyItMatters:
-          "The dashboard is using the published trend feed, which is the same trend source powering homepage rails and trend API responses.",
-        caution:
-          "Some cards may be published feed signals instead of full backtest cards when the deeper historical query engine returns no rows.",
-        queryLogic: querySummary
+        headline: `${cards.length} published trends loaded`,
+        whyItMatters: "The page is populated from the published trend feed.",
+        caution: "Current-match objects are not attached until normalized for this dashboard.",
+        queryLogic: summary(filters)
       },
       filters,
-      cards: cards.map((card) => toDashboardCard(card, filters)),
-      metrics: buildMetrics(cards),
-      insights: buildInsights(cards),
-      movementRows: buildMovementRows(cards),
-      segmentRows: buildSegmentRows(sections),
-      todayMatches,
-      todayMatchesNote: todayMatches.length
-        ? `${todayMatches.length} live qualifier${todayMatches.length === 1 ? "" : "s"} attached to published trends.`
-        : "Published trends loaded. No live qualifiers attached to the current filter yet.",
+      cards: cards.map((card) => toCard(card, filters)),
+      metrics: metrics(cards),
+      insights: cards.slice(0, 4).map((card) => ({
+        id: `published-${card.id}`,
+        title: card.title,
+        value: card.primaryMetricValue || card.record,
+        note: card.description,
+        tone: tone(card)
+      })),
+      movementRows: rows(cards),
+      segmentRows: sections.slice(0, 8).map((section) => ({
+        label: section.category,
+        movement: `${section.cards.length} cards`,
+        note: section.cards[0]?.railReason ?? "Published trend section",
+        href: section.cards[0]?.href ?? "/trends"
+      })),
+      todayMatches: [],
+      todayMatchesNote: "Trend cards loaded. Current-match normalization is pending.",
       savedSystems: existing?.savedSystems ?? [],
       savedTrendName: existing?.savedTrendName ?? "",
-      sourceNote:
-        "Loaded from the SharkEdge published trend feed because this view must stay populated even when the deeper backtest engine has no renderable cards.",
-      querySummary,
+      sourceNote: "Loaded from the SharkEdge published trend feed.",
+      querySummary: summary(filters),
       sampleNote: existing?.sampleNote ?? null
     };
   } catch {
@@ -230,45 +157,23 @@ async function buildPublishedTrendDashboard(
   }
 }
 
-function hasRenderableTrendCards(view: TrendDashboardView | null | undefined) {
+function hasCards(view: TrendDashboardView | null | undefined) {
   return Boolean(view && !view.setup && Array.isArray(view.cards) && view.cards.length > 0);
 }
 
 export async function getTrendDashboardSafe(
   filters: TrendFilters,
-  options?: {
-    mode?: TrendMode;
-    aiQuery?: string;
-    savedTrendId?: string | null;
-  }
+  options?: { mode?: TrendMode; aiQuery?: string; savedTrendId?: string | null }
 ): Promise<TrendDashboardView> {
   if (!hasUsableServerDatabaseUrl()) {
-    const published = await buildPublishedTrendDashboard(filters, options);
-    return published ?? buildFallbackTrendDashboard(filters, options);
+    return (await publishedDashboard(filters, options)) ?? buildFallbackTrendDashboard(filters, options);
   }
 
   try {
-    const dashboard = await getTrendDashboard(filters, options);
-
-    if (hasRenderableTrendCards(dashboard)) {
-      return dashboard;
-    }
-
-    const published = await buildPublishedTrendDashboard(filters, options, dashboard);
-    return published ?? buildFallbackTrendDashboard(filters, options);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    if (
-      /database|postgres|prisma|migrate|relation.*does not exist|P202[12]/i.test(
-        message
-      )
-    ) {
-      const published = await buildPublishedTrendDashboard(filters, options);
-      return published ?? buildFallbackTrendDashboard(filters, options);
-    }
-
-    const published = await buildPublishedTrendDashboard(filters, options);
-    return published ?? buildFallbackTrendDashboard(filters, options);
+    const view = await getTrendDashboard(filters, options);
+    if (hasCards(view)) return view;
+    return (await publishedDashboard(filters, options, view)) ?? buildFallbackTrendDashboard(filters, options);
+  } catch {
+    return (await publishedDashboard(filters, options)) ?? buildFallbackTrendDashboard(filters, options);
   }
 }
