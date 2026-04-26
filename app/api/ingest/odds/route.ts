@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { upsertOddsIngestPayload } from "@/services/market-data/market-data-service";
+import { recomputeCurrentMarketState, recomputeEdgeSignals } from "@/services/edges/edge-engine";
 
 // Accepts the OddsHarvester push script payload format and normalizes it
 // to the internal ingest schema before writing to the database.
@@ -120,6 +121,16 @@ export async function POST(request: Request) {
       sourceMeta: data.sourceMeta,
       lines
     });
+
+    // Fire-and-forget: recompute market state then edge signals after ingest
+    // Sequential: market state must complete before edge signals read from it.
+    // Does not block the response. Failures are logged only.
+    const { eventId } = result;
+    recomputeCurrentMarketState(eventId)
+      .then(() => recomputeEdgeSignals(eventId))
+      .catch((err) => {
+        console.error("[ingest/odds] post-ingest recompute failed", eventId, err instanceof Error ? err.message : err);
+      });
 
     return NextResponse.json({ ok: true, result });
   } catch (error) {

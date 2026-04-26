@@ -10,12 +10,101 @@ import { withTimeoutFallback } from "@/lib/utils/async";
 import { getBoardPageData, parseBoardFilters } from "@/services/odds/board-service";
 import { loadPersistedSimCalibrationProfiles } from "@/services/simulation/sim-calibration-report-service";
 import { buildEventSimulationView } from "@/services/simulation/simulation-view-service";
+import { buildMarketImpliedAnalysis, type MarketImpliedAnalysis } from "@/services/simulation/market-implied-analysis";
 
 export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ id: string }>;
 };
+
+function formatProb(value: number | null | undefined) {
+  if (typeof value !== "number") return "—";
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function MarketImpliedPanel({ analysis }: { analysis: MarketImpliedAnalysis }) {
+  return (
+    <section className="grid gap-3">
+      <div>
+        <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-amber-400">
+          Market Implied Analysis
+        </div>
+        <h2 className="mt-1 font-display text-[20px] font-semibold tracking-[-0.01em] text-text-primary">
+          Consensus Market Probabilities
+        </h2>
+        <p className="mt-1 text-[12px] text-bone/45">{analysis.dataWarning}</p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        {analysis.moneyline && (
+          <div className="rounded-xl border border-bone/[0.07] bg-surface p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-bone/45">Moneyline (No-Vig)</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] text-bone/40">Away Win</p>
+                <p className="font-mono text-[20px] text-text-primary">{formatProb(analysis.moneyline.awayWinProb)}</p>
+                <p className="text-[11px] text-bone/40">{analysis.moneyline.bestAwayOdds != null ? (analysis.moneyline.bestAwayOdds > 0 ? `+${analysis.moneyline.bestAwayOdds}` : analysis.moneyline.bestAwayOdds) : "—"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-bone/40">Home Win</p>
+                <p className="font-mono text-[20px] text-aqua">{formatProb(analysis.moneyline.homeWinProb)}</p>
+                <p className="text-[11px] text-bone/40">{analysis.moneyline.bestHomeOdds != null ? (analysis.moneyline.bestHomeOdds > 0 ? `+${analysis.moneyline.bestHomeOdds}` : analysis.moneyline.bestHomeOdds) : "—"}</p>
+              </div>
+            </div>
+            <p className="mt-2 text-[10px] text-bone/30">Hold: {formatProb(analysis.moneyline.hold)}</p>
+          </div>
+        )}
+
+        {analysis.spread && (
+          <div className="rounded-xl border border-bone/[0.07] bg-surface p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-bone/45">Spread</p>
+            <p className="mt-2 font-mono text-[24px] text-text-primary">
+              {analysis.spread.line > 0 ? `+${analysis.spread.line}` : analysis.spread.line}
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+              <div>
+                <p className="text-bone/40">Home Cover</p>
+                <p className="font-mono text-text-primary">{formatProb(analysis.spread.homeCoverProb)}</p>
+              </div>
+              <div>
+                <p className="text-bone/40">Away Cover</p>
+                <p className="font-mono text-text-primary">{formatProb(analysis.spread.awayCoverProb)}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {analysis.total && (
+          <div className="rounded-xl border border-bone/[0.07] bg-surface p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-bone/45">Total</p>
+            <p className="mt-2 font-mono text-[24px] text-aqua">{analysis.total.line}</p>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+              <div>
+                <p className="text-bone/40">Over</p>
+                <p className="font-mono text-text-primary">{formatProb(analysis.total.overProb)}</p>
+              </div>
+              <div>
+                <p className="text-bone/40">Under</p>
+                <p className="font-mono text-text-primary">{formatProb(analysis.total.underProb)}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3 rounded-xl border border-amber-500/20 bg-amber-500/[0.04] px-4 py-3">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-500">
+          {analysis.freshness === "stale" ? "⚠️ Stale" : "Market"}
+        </span>
+        <span className="text-[11px] text-bone/45">
+          {analysis.booksCount} book{analysis.booksCount !== 1 ? "s" : ""} in consensus
+          {analysis.updatedAt ? ` · Updated ${new Date(analysis.updatedAt).toLocaleTimeString()}` : ""}
+        </span>
+      </div>
+    </section>
+  );
+}
 
 function formatTime(dateStr: string) {
   return new Date(dateStr).toLocaleTimeString("en-US", {
@@ -74,9 +163,10 @@ async function getSimulation(gameId: string) {
 export default async function GameDetailPage({ params }: PageProps) {
   const { id } = await params;
 
-  const [game, simulation] = await Promise.all([
+  const [game, simulation, marketImplied] = await Promise.all([
     getGameDetails(id),
-    getSimulation(id)
+    getSimulation(id),
+    buildMarketImpliedAnalysis(id).catch(() => null)
   ]);
 
   if (!game) {
@@ -116,6 +206,10 @@ export default async function GameDetailPage({ params }: PageProps) {
           <SimulationIntelligencePanel simulation={simulation} />
           <SimulationWorkbench simulation={simulation} />
         </>
+      )}
+
+      {!simulation && marketImplied && (
+        <MarketImpliedPanel analysis={marketImplied} />
       )}
 
       <section className="grid gap-3">
