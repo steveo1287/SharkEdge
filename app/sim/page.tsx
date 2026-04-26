@@ -12,41 +12,456 @@ export const revalidate = 0;
 
 type PageProps = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
 type SimGame = ScoreboardPreviewView & { leagueKey: LeagueKey; leagueLabel: string };
-type TrendModifier = { title: string; league: LeagueKey; category: "Schedule" | "Form" | "Totals" | "Home/Away" | "Matchup"; hitRate: number; confidence: "A" | "B" | "C"; totalShift: number; homeWinShift: number; volatilityShift: number; note: string };
-type SimOutcome = { homeScore: number; awayScore: number; total: number; spreadHome: number; homeWin: boolean };
-type SimDistribution = { runs: number; homeWinPct: number; awayWinPct: number; avgHome: number; avgAway: number; avgTotal: number; medianTotal: number; medianSpreadHome: number; homeBlowoutPct: number; awayBlowoutPct: number; oneScorePct: number; totalLow: number; totalHigh: number };
-type SmartInsight = { label: string; tone: "strong" | "watch" | "avoid" | "neutral"; detail: string };
 type Confidence = "A" | "B" | "C";
 type Pace = "Fast" | "Neutral" | "Slow";
 type Volatility = "High" | "Medium" | "Low";
 type UpsetRisk = "High" | "Medium" | "Low";
-type Projection = { homeScore: number; awayScore: number; homeWinPct: number; awayWinPct: number; total: number; spreadHome: number; confidence: Confidence; lean: string; pace: Pace; volatility: Volatility; upsetRisk: UpsetRisk; totalBand: { low: number; high: number }; spreadBand: { low: number; high: number }; modelTags: string[]; read: string; appliedTrends: TrendModifier[]; distribution: SimDistribution; insights: SmartInsight[] };
+type InsightTone = "strong" | "watch" | "avoid" | "neutral";
 
-const LEAGUE_ICONS: Record<LeagueKey, string> = { NBA: "🏀", MLB: "⚾", NHL: "🏒", NFL: "🏈", NCAAF: "🏈", UFC: "🥊", BOXING: "🥊" };
-const BASE_SCORING: Partial<Record<LeagueKey, { home: number; away: number; variance: number; baselineTotal: number }>> = { NBA: { home: 113, away: 109, variance: 8, baselineTotal: 222 }, MLB: { home: 5, away: 4, variance: 2, baselineTotal: 9 }, NHL: { home: 3.2, away: 2.9, variance: 1.2, baselineTotal: 6.1 }, NFL: { home: 24, away: 21, variance: 6, baselineTotal: 45 }, NCAAF: { home: 31, away: 27, variance: 9, baselineTotal: 58 }, UFC: { home: 1, away: 1, variance: 1, baselineTotal: 2 }, BOXING: { home: 1, away: 1, variance: 1, baselineTotal: 2 } };
+type TrendModifier = {
+  title: string;
+  league: LeagueKey;
+  category: "Schedule" | "Form" | "Totals" | "Home/Away" | "Matchup";
+  hitRate: number;
+  confidence: Confidence;
+  totalShift: number;
+  homeWinShift: number;
+  volatilityShift: number;
+  note: string;
+};
+
+type SimOutcome = {
+  homeScore: number;
+  awayScore: number;
+  total: number;
+  spreadHome: number;
+  homeWin: boolean;
+};
+
+type SimDistribution = {
+  runs: number;
+  homeWinPct: number;
+  awayWinPct: number;
+  avgHome: number;
+  avgAway: number;
+  avgTotal: number;
+  medianTotal: number;
+  medianSpreadHome: number;
+  homeBlowoutPct: number;
+  awayBlowoutPct: number;
+  oneScorePct: number;
+  totalLow: number;
+  totalHigh: number;
+};
+
+type SmartInsight = { label: string; tone: InsightTone; detail: string };
+
+type NbaAnalytics = {
+  offensiveEfficiency: number;
+  defensiveResistance: number;
+  paceIndex: number;
+  efgEdge: number;
+  threePointVariance: number;
+  turnoverPressure: number;
+  reboundEdge: number;
+  freeThrowPressure: number;
+  restTravelEdge: number;
+  clutchVolatility: number;
+};
+
+type Projection = {
+  homeScore: number;
+  awayScore: number;
+  homeWinPct: number;
+  awayWinPct: number;
+  total: number;
+  spreadHome: number;
+  confidence: Confidence;
+  lean: string;
+  pace: Pace;
+  volatility: Volatility;
+  upsetRisk: UpsetRisk;
+  totalBand: { low: number; high: number };
+  spreadBand: { low: number; high: number };
+  modelTags: string[];
+  read: string;
+  appliedTrends: TrendModifier[];
+  distribution: SimDistribution;
+  insights: SmartInsight[];
+  nbaAnalytics?: NbaAnalytics;
+};
+
+const LEAGUE_ICONS: Record<LeagueKey, string> = {
+  NBA: "🏀",
+  MLB: "⚾",
+  NHL: "🏒",
+  NFL: "🏈",
+  NCAAF: "🏈",
+  UFC: "🥊",
+  BOXING: "🥊"
+};
+
+const BASE_SCORING: Partial<Record<LeagueKey, { home: number; away: number; variance: number; baselineTotal: number }>> = {
+  NBA: { home: 113, away: 109, variance: 8, baselineTotal: 222 },
+  MLB: { home: 5, away: 4, variance: 2, baselineTotal: 9 },
+  NHL: { home: 3.2, away: 2.9, variance: 1.2, baselineTotal: 6.1 },
+  NFL: { home: 24, away: 21, variance: 6, baselineTotal: 45 },
+  NCAAF: { home: 31, away: 27, variance: 9, baselineTotal: 58 },
+  UFC: { home: 1, away: 1, variance: 1, baselineTotal: 2 },
+  BOXING: { home: 1, away: 1, variance: 1, baselineTotal: 2 }
+};
+
 const TREND_MODIFIERS: TrendModifier[] = [
-  { title: "Home rest edge", league: "NBA", category: "Schedule", hitRate: 58.4, confidence: "B", totalShift: 0, homeWinShift: 0.018, volatilityShift: -0.05, note: "Small home-side stability boost." }, { title: "Pace compression under", league: "NBA", category: "Totals", hitRate: 60.1, confidence: "B", totalShift: -4.5, homeWinShift: 0, volatilityShift: -0.03, note: "Pulls high totals toward baseline." }, { title: "Series game two response", league: "MLB", category: "Form", hitRate: 54.7, confidence: "C", totalShift: 0.2, homeWinShift: 0.01, volatilityShift: 0.02, note: "Light home-response nudge." }, { title: "Low total bullpen stress", league: "MLB", category: "Totals", hitRate: 57.9, confidence: "B", totalShift: 0.4, homeWinShift: 0, volatilityShift: 0.08, note: "Raises variance when bullpen stress matters." }, { title: "Road back-to-back fade", league: "NHL", category: "Schedule", hitRate: 59.3, confidence: "B", totalShift: -0.1, homeWinShift: 0.025, volatilityShift: -0.02, note: "Supports rested home side." }, { title: "Tight total pressure", league: "NHL", category: "Matchup", hitRate: 56.6, confidence: "C", totalShift: -0.2, homeWinShift: 0, volatilityShift: 0.05, note: "Tight game volatility tag." }, { title: "Division home dog resistance", league: "NFL", category: "Home/Away", hitRate: 57.2, confidence: "B", totalShift: -1.2, homeWinShift: 0.018, volatilityShift: 0.04, note: "Narrows separation in divisional-style scripts." }, { title: "Low-total favorite grind", league: "NFL", category: "Totals", hitRate: 59.8, confidence: "B", totalShift: -2.4, homeWinShift: 0.01, volatilityShift: -0.04, note: "Supports slower, lower-band outcomes." }, { title: "Road letdown spot", league: "NCAAF", category: "Schedule", hitRate: 55.9, confidence: "C", totalShift: 1.5, homeWinShift: 0.014, volatilityShift: 0.09, note: "College variance warning." }, { title: "Decision profile pressure", league: "UFC", category: "Matchup", hitRate: 61.5, confidence: "B", totalShift: 0, homeWinShift: 0.012, volatilityShift: -0.06, note: "Stabilizes fight outcome range." }
+  { title: "Home rest edge", league: "NBA", category: "Schedule", hitRate: 58.4, confidence: "B", totalShift: 0, homeWinShift: 0.018, volatilityShift: -0.05, note: "Small home-side stability boost." },
+  { title: "Pace compression under", league: "NBA", category: "Totals", hitRate: 60.1, confidence: "B", totalShift: -4.5, homeWinShift: 0, volatilityShift: -0.03, note: "Pulls high totals toward baseline." },
+  { title: "Series game two response", league: "MLB", category: "Form", hitRate: 54.7, confidence: "C", totalShift: 0.2, homeWinShift: 0.01, volatilityShift: 0.02, note: "Light home-response nudge." },
+  { title: "Low total bullpen stress", league: "MLB", category: "Totals", hitRate: 57.9, confidence: "B", totalShift: 0.4, homeWinShift: 0, volatilityShift: 0.08, note: "Raises variance when bullpen stress matters." },
+  { title: "Road back-to-back fade", league: "NHL", category: "Schedule", hitRate: 59.3, confidence: "B", totalShift: -0.1, homeWinShift: 0.025, volatilityShift: -0.02, note: "Supports rested home side." },
+  { title: "Tight total pressure", league: "NHL", category: "Matchup", hitRate: 56.6, confidence: "C", totalShift: -0.2, homeWinShift: 0, volatilityShift: 0.05, note: "Tight game volatility tag." },
+  { title: "Division home dog resistance", league: "NFL", category: "Home/Away", hitRate: 57.2, confidence: "B", totalShift: -1.2, homeWinShift: 0.018, volatilityShift: 0.04, note: "Narrows separation in divisional-style scripts." },
+  { title: "Low-total favorite grind", league: "NFL", category: "Totals", hitRate: 59.8, confidence: "B", totalShift: -2.4, homeWinShift: 0.01, volatilityShift: -0.04, note: "Supports slower, lower-band outcomes." },
+  { title: "Road letdown spot", league: "NCAAF", category: "Schedule", hitRate: 55.9, confidence: "C", totalShift: 1.5, homeWinShift: 0.014, volatilityShift: 0.09, note: "College variance warning." },
+  { title: "Decision profile pressure", league: "UFC", category: "Matchup", hitRate: 61.5, confidence: "B", totalShift: 0, homeWinShift: 0.012, volatilityShift: -0.06, note: "Stabilizes fight outcome range." }
 ];
-function normalizeSearchParam(value: string | string[] | undefined) { return Array.isArray(value) ? value[0] : value; }
-function hashString(value: string) { let hash = 0; for (let i = 0; i < value.length; i += 1) hash = (hash * 31 + value.charCodeAt(i)) >>> 0; return hash; }
-function seedUnit(seed: number) { return (seed % 1000) / 1000; }
-function seededOffset(seed: number, range: number) { return (seedUnit(seed) - 0.5) * range * 2; }
-function roundScore(value: number, leagueKey: LeagueKey) { return leagueKey === "MLB" || leagueKey === "NHL" ? Math.max(0, Number(value.toFixed(1))) : Math.max(0, Math.round(value)); }
-function roundModelValue(value: number, leagueKey: LeagueKey) { return leagueKey === "MLB" || leagueKey === "NHL" ? Number(value.toFixed(1)) : Math.round(value); }
-function parseMatchup(label: string) { const [away, home] = label.split(" @ ").map((part) => part?.trim()).filter(Boolean); return { away: away ?? "Away", home: home ?? "Home" }; }
-function formatStartTime(value: string) { const date = new Date(value); if (Number.isNaN(date.getTime())) return "Time TBD"; return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date); }
-function getStatusTone(status: string) { if (status === "LIVE") return "success" as const; if (status === "FINAL") return "neutral" as const; if (status === "POSTPONED" || status === "CANCELED") return "danger" as const; return "muted" as const; }
-function flattenScoreboardGames(sections: BoardSportSectionView[]): SimGame[] { return sections.flatMap((section) => section.scoreboard.map((game) => ({ ...game, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel }))); }
-function getApplicableTrends(game: SimGame, seed: number) { const leagueTrends = TREND_MODIFIERS.filter((trend) => trend.league === game.leagueKey); return leagueTrends.filter((_, index) => seedUnit(seed >>> (index + 1)) > 0.28).slice(0, 2); }
-function median(values: number[]) { const sorted = [...values].sort((a, b) => a - b); return sorted[Math.floor(sorted.length / 2)] ?? 0; }
-function pct(count: number, total: number) { return total ? count / total : 0; }
-function barWidth(value: number) { return `${Math.max(3, Math.min(100, value * 100)).toFixed(1)}%`; }
-function rangePosition(value: number, low: number, high: number) { const span = Math.max(1, high - low); return `${Math.max(0, Math.min(100, ((value - low) / span) * 100)).toFixed(1)}%`; }
-function VisualBar({ label, value, rightLabel }: { label: string; value: number; rightLabel: string }) { return <div className="grid gap-1.5"><div className="flex justify-between text-[0.62rem] uppercase tracking-[0.16em] text-slate-500"><span>{label}</span><span>{rightLabel}</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-sky-400/70" style={{ width: barWidth(value) }} /></div></div>; }
-function RangeVisual({ low, high, marker, label }: { low: number; high: number; marker: number; label: string }) { return <div className="grid gap-1.5"><div className="flex justify-between text-[0.62rem] uppercase tracking-[0.16em] text-slate-500"><span>{label}</span><span>{low} — {high}</span></div><div className="relative h-2 rounded-full bg-slate-800"><div className="absolute top-1/2 h-4 w-1 -translate-y-1/2 rounded-full bg-sky-300" style={{ left: rangePosition(marker, low, high) }} /></div></div>; }
-function insightClass(tone: SmartInsight["tone"]) { if (tone === "strong") return "border-emerald-400/20 bg-emerald-500/[0.06] text-emerald-200"; if (tone === "watch") return "border-amber-400/20 bg-amber-500/[0.06] text-amber-200"; if (tone === "avoid") return "border-red-400/20 bg-red-500/[0.06] text-red-200"; return "border-white/10 bg-white/[0.03] text-slate-300"; }
-function buildSmartInsights(projection: Omit<Projection, "insights">): SmartInsight[] { const d = projection.distribution; const insights: SmartInsight[] = []; if ((d.homeWinPct >= 0.58 || d.awayWinPct >= 0.58) && projection.confidence !== "C") insights.push({ label: "Strong directional lean", tone: "strong", detail: `${projection.lean} wins a clear majority of the 100-run distribution.` }); if (projection.volatility === "High" || d.oneScorePct >= 0.48) insights.push({ label: "Chaos / tight-game profile", tone: "watch", detail: "High volatility or tight-game frequency makes this a lower-certainty setup." }); if (projection.appliedTrends.length >= 2 && projection.confidence !== "C") insights.push({ label: "Trend-supported read", tone: "strong", detail: "Multiple trend modifiers align with the simulation instead of fighting it." }); if (d.homeBlowoutPct >= 0.24 || d.awayBlowoutPct >= 0.24) insights.push({ label: "Blowout tail exists", tone: "watch", detail: "The distribution has a meaningful lopsided-outcome tail." }); if (projection.volatility === "High" && projection.confidence === "C") insights.push({ label: "Avoid forcing it", tone: "avoid", detail: "Model spread is wide and confidence is low. Better as a watchlist game." }); if (!insights.length) insights.push({ label: "Neutral research spot", tone: "neutral", detail: "No major edge or danger flag. Use as baseline context." }); return insights.slice(0, 3); }
-function buildDistribution(game: SimGame, homeScore: number, awayScore: number, trendTotalShift: number, trendHomeWinShift: number, varianceSeed: number): SimDistribution { const base = BASE_SCORING[game.leagueKey] ?? { home: 24, away: 21, variance: 6, baselineTotal: 45 }; const runs = 100; const outcomes: SimOutcome[] = Array.from({ length: runs }, (_, index) => { const runSeed = hashString(`${game.id}:${index}:multi-run`); const vol = (0.7 + varianceSeed * 0.9) * base.variance; const home = roundScore(homeScore + seededOffset(runSeed, vol) + trendHomeWinShift * base.variance * 0.8, game.leagueKey); const away = roundScore(awayScore + seededOffset(runSeed >>> 4, vol) - trendHomeWinShift * base.variance * 0.4, game.leagueKey); const total = Number((home + away + trendTotalShift * 0.15).toFixed(1)); const spreadHome = Number((home - away).toFixed(1)); return { homeScore: home, awayScore: away, total, spreadHome, homeWin: spreadHome >= 0 }; }); const totals = outcomes.map((o) => o.total); const spreads = outcomes.map((o) => o.spreadHome); const homeWins = outcomes.filter((o) => o.homeWin).length; const blowoutLine = game.leagueKey === "MLB" || game.leagueKey === "NHL" ? 2 : 10; const oneScoreLine = game.leagueKey === "MLB" || game.leagueKey === "NHL" ? 1.5 : 7; return { runs, homeWinPct: pct(homeWins, runs), awayWinPct: pct(runs - homeWins, runs), avgHome: Number((outcomes.reduce((s, o) => s + o.homeScore, 0) / runs).toFixed(1)), avgAway: Number((outcomes.reduce((s, o) => s + o.awayScore, 0) / runs).toFixed(1)), avgTotal: Number((outcomes.reduce((s, o) => s + o.total, 0) / runs).toFixed(1)), medianTotal: median(totals), medianSpreadHome: median(spreads), homeBlowoutPct: pct(outcomes.filter((o) => o.spreadHome >= blowoutLine).length, runs), awayBlowoutPct: pct(outcomes.filter((o) => o.spreadHome <= -blowoutLine).length, runs), oneScorePct: pct(outcomes.filter((o) => Math.abs(o.spreadHome) <= oneScoreLine).length, runs), totalLow: Math.min(...totals), totalHigh: Math.max(...totals) }; }
-function buildFallbackProjection(game: SimGame): Projection { const matchup = parseMatchup(game.label); const base = BASE_SCORING[game.leagueKey] ?? { home: 24, away: 21, variance: 6, baselineTotal: 45 }; const seed = hashString(`${game.id}:${game.leagueKey}:${game.label}:${game.startTime}`); const appliedTrends = getApplicableTrends(game, seed); const trendTotalShift = appliedTrends.reduce((sum, trend) => sum + trend.totalShift, 0); const trendHomeWinShift = appliedTrends.reduce((sum, trend) => sum + trend.homeWinShift, 0); const trendVolatilityShift = appliedTrends.reduce((sum, trend) => sum + trend.volatilityShift, 0); const paceSeed = seedUnit(seed >>> 5); const formSeed = seedUnit(seed >>> 9); const varianceSeed = Math.max(0, Math.min(1, seedUnit(seed >>> 13) + trendVolatilityShift)); const homeEdge = 0.6 + seedUnit(seed >>> 17) * 0.9; const paceMultiplier = paceSeed > 0.68 ? 1.045 : paceSeed < 0.32 ? 0.955 : 1; const formSwing = (formSeed - 0.5) * base.variance; const homeRaw = base.home * paceMultiplier + homeEdge + seededOffset(seed, base.variance * 0.55) + formSwing * 0.35 + trendTotalShift / 2; const awayRaw = base.away * paceMultiplier + seededOffset(seed >>> 3, base.variance * 0.55) - formSwing * 0.25 + trendTotalShift / 2; const homeScore = roundScore(homeRaw, game.leagueKey); const awayScore = roundScore(awayRaw, game.leagueKey); const diff = Number((homeScore - awayScore).toFixed(1)); const total = Number((homeScore + awayScore).toFixed(1)); const totalDelta = total - base.baselineTotal; const homeWinPct = Math.max(0.31, Math.min(0.74, 0.52 + diff / Math.max(30, base.baselineTotal * 0.8) + trendHomeWinShift)); const volatility: Volatility = varianceSeed > 0.72 ? "High" : varianceSeed < 0.28 ? "Low" : "Medium"; const pace: Pace = paceSeed > 0.68 ? "Fast" : paceSeed < 0.32 ? "Slow" : "Neutral"; const upsetRisk: UpsetRisk = Math.abs(diff) <= base.variance * 0.35 ? "High" : Math.abs(diff) <= base.variance * 0.7 ? "Medium" : "Low"; const confidence: Confidence = appliedTrends.some((trend) => trend.confidence === "B") && upsetRisk !== "High" && volatility !== "High" ? "A" : upsetRisk === "Low" && volatility !== "High" ? "A" : upsetRisk === "High" || volatility === "High" ? "C" : "B"; const bandWidth = volatility === "High" ? base.variance * 1.25 : volatility === "Low" ? base.variance * 0.55 : base.variance * 0.85; const distribution = buildDistribution(game, homeScore, awayScore, trendTotalShift, trendHomeWinShift, varianceSeed); const modelTags = [`100-run sim`, `${pace} pace`, `${volatility} volatility`, `${upsetRisk} upset risk`, totalDelta > base.variance * 0.4 ? "Total leans high" : totalDelta < -base.variance * 0.4 ? "Total leans low" : "Total near baseline", appliedTrends.length ? `${appliedTrends.length} trend modifier${appliedTrends.length === 1 ? "" : "s"}` : "No trend modifier"]; const baseProjection: Omit<Projection, "insights"> = { homeScore, awayScore, homeWinPct, awayWinPct: 1 - homeWinPct, total, spreadHome: diff, confidence, lean: diff >= 0 ? matchup.home : matchup.away, pace, volatility, upsetRisk, totalBand: { low: roundModelValue(total - bandWidth, game.leagueKey), high: roundModelValue(total + bandWidth, game.leagueKey) }, spreadBand: { low: roundModelValue(diff - bandWidth * 0.45, game.leagueKey), high: roundModelValue(diff + bandWidth * 0.45, game.leagueKey) }, modelTags, appliedTrends, distribution, read: confidence === "A" ? "Cleaner model separation with trend support. The 100-run distribution supports the primary lean." : confidence === "B" ? "Usable lean. Distribution and trend context support continued matchup research." : "Volatile setup. The distribution is wide; treat this as a research prompt." }; return { ...baseProjection, insights: buildSmartInsights(baseProjection) }; }
-function ProjectionCard({ game, selected }: { game: SimGame; selected: boolean }) { const matchup = parseMatchup(game.label); const projection = buildFallbackProjection(game); const d = projection.distribution; return <Card className={`surface-panel h-full p-5 transition hover:border-sky-400/25 hover:bg-white/[0.03] ${selected ? "border-sky-400/35 bg-sky-500/[0.06]" : ""}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2 text-[0.66rem] uppercase tracking-[0.22em] text-slate-500"><span>{LEAGUE_ICONS[game.leagueKey]}</span><span>{game.leagueKey}</span></div><div className="mt-3 font-display text-2xl font-semibold text-white">{matchup.away} @ {matchup.home}</div><div className="mt-2 text-sm text-slate-400">{formatStartTime(game.startTime)}</div></div><Badge tone={getStatusTone(game.status)}>{game.status}</Badge></div><div className="mt-5 rounded-2xl border border-white/8 bg-slate-950/45 p-4"><div className="mb-3 text-[0.64rem] uppercase tracking-[0.18em] text-slate-500">Smart insights</div><div className="grid gap-2">{projection.insights.map((insight) => <div key={insight.label} className={`rounded-xl border p-3 text-sm ${insightClass(insight.tone)}`}><div className="font-semibold">{insight.label}</div><div className="mt-1 opacity-80">{insight.detail}</div></div>)}</div></div><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-2xl border border-white/8 bg-slate-950/55 p-4"><div className="text-[0.64rem] uppercase tracking-[0.18em] text-slate-500">Away avg</div><div className="mt-2 text-3xl font-semibold text-white">{d.avgAway}</div><div className="mt-1 text-sm text-slate-400">{matchup.away}</div></div><div className="rounded-2xl border border-white/8 bg-slate-950/55 p-4"><div className="text-[0.64rem] uppercase tracking-[0.18em] text-slate-500">Home avg</div><div className="mt-2 text-3xl font-semibold text-white">{d.avgHome}</div><div className="mt-1 text-sm text-slate-400">{matchup.home}</div></div></div><div className="mt-5 rounded-2xl border border-white/8 bg-slate-950/45 p-4"><div className="mb-3 text-[0.64rem] uppercase tracking-[0.18em] text-slate-500">Visual distribution</div><div className="grid gap-3"><VisualBar label="Home win" value={d.homeWinPct} rightLabel={`${(d.homeWinPct * 100).toFixed(1)}%`} /><VisualBar label="Away win" value={d.awayWinPct} rightLabel={`${(d.awayWinPct * 100).toFixed(1)}%`} /><VisualBar label="Tight game" value={d.oneScorePct} rightLabel={`${(d.oneScorePct * 100).toFixed(1)}%`} /><RangeVisual label="Total range" low={d.totalLow} high={d.totalHigh} marker={d.medianTotal} /></div></div><div className="mt-5 grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-white/8 bg-slate-950/40 p-3"><div className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">Home win</div><div className="mt-1 text-sm font-semibold text-white">{(d.homeWinPct * 100).toFixed(1)}%</div></div><div className="rounded-xl border border-white/8 bg-slate-950/40 p-3"><div className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">Median total</div><div className="mt-1 text-sm font-semibold text-white">{d.medianTotal}</div></div><div className="rounded-xl border border-white/8 bg-slate-950/40 p-3"><div className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">Conf</div><div className="mt-1 text-sm font-semibold text-white">{projection.confidence}</div></div></div><div className="mt-4 flex flex-wrap gap-2">{projection.modelTags.map((tag) => <span key={tag} className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{tag}</span>)}</div>{projection.appliedTrends.length ? <div className="mt-4 grid gap-2">{projection.appliedTrends.map((trend) => <div key={trend.title} className="rounded-xl border border-sky-400/15 bg-sky-500/[0.04] p-3 text-sm text-slate-300"><div className="font-semibold text-sky-200">{trend.title} · {trend.hitRate.toFixed(1)}%</div><div className="mt-1 text-slate-400">{trend.note}</div></div>)}</div> : null}<div className="mt-5 rounded-[1.1rem] border border-white/8 bg-slate-950/55 px-4 py-3 text-sm leading-6 text-slate-300">{projection.read}</div><div className="mt-5 flex flex-wrap gap-3"><Link href={`/game/${game.id}`} className="rounded-full bg-sky-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400">Open game</Link><Link href={`/trends?league=${encodeURIComponent(game.leagueKey)}`} className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25">Trends</Link></div></Card>; }
-export default async function SimPage({ searchParams }: PageProps) { const resolved = (await searchParams) ?? {}; const selectedGameId = normalizeSearchParam(resolved.gameId); const selectedLeague = normalizeSearchParam(resolved.league); const sections = await buildBoardSportSections({ selectedLeague: "ALL", gamesByLeague: {} }); const allGames = flattenScoreboardGames(sections); const games = selectedLeague ? allGames.filter((game) => game.leagueKey === selectedLeague.toUpperCase()) : allGames; const selectedGame = selectedGameId ? allGames.find((game) => game.id === selectedGameId) ?? null : games[0] ?? null; const selectedProjection = selectedGame ? buildFallbackProjection(selectedGame) : null; const selectedMatchup = selectedGame ? parseMatchup(selectedGame.label) : null; return <div className="grid gap-8"><section className="surface-panel-strong px-6 py-6 xl:px-8 xl:py-8"><div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr] xl:items-end"><div className="grid gap-4"><div className="section-kicker">Simulator studio</div><div className="max-w-4xl font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">Smart simulation insights.</div><div className="max-w-3xl text-base leading-8 text-slate-300">The simulator now interprets each 100-run distribution and flags strong leans, chaos profiles, blowout tails, trend support, and avoid spots.</div><div className="flex flex-wrap gap-3"><Link href="/games" className="rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400">Pick from games</Link><Link href="/trends" className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25">View trends</Link></div></div><div className="grid gap-3 rounded-[1.55rem] border border-white/8 bg-[#09131f]/85 p-5 text-sm text-slate-300"><div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Current run</div>{selectedGame && selectedProjection && selectedMatchup ? <><div className="font-display text-2xl font-semibold text-white">{selectedMatchup.away} @ {selectedMatchup.home}</div><div className="grid gap-2">{selectedProjection.insights.slice(0, 2).map((insight) => <div key={insight.label} className={`rounded-xl border p-3 text-sm ${insightClass(insight.tone)}`}><div className="font-semibold">{insight.label}</div><div className="mt-1 opacity-80">{insight.detail}</div></div>)}</div><VisualBar label="Home win" value={selectedProjection.distribution.homeWinPct} rightLabel={`${(selectedProjection.distribution.homeWinPct * 100).toFixed(1)}%`} /><div className="rounded-[1.1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">Average score: {selectedMatchup.away} {selectedProjection.distribution.avgAway}, {selectedMatchup.home} {selectedProjection.distribution.avgHome}. {selectedProjection.read}</div></> : <div className="rounded-[1.1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">No scoreboard games are available right now.</div>}</div></div></section><section className="grid gap-4"><SectionTitle eyebrow="League filters" title="Choose a simulation lane" description="Filter the simulator board by league, or run from the full scoreboard slate." /><div className="flex flex-wrap gap-2"><Link href="/sim" className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300 transition hover:border-sky-400/25 hover:text-white">All · {allGames.length}</Link>{sections.map((section) => <Link key={section.leagueKey} href={`/sim?league=${encodeURIComponent(section.leagueKey)}`} className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300 transition hover:border-sky-400/25 hover:text-white">{LEAGUE_ICONS[section.leagueKey]} {section.leagueKey} · {section.scoreboard.length}</Link>)}</div></section>{games.length ? <section className="grid gap-4"><SectionTitle eyebrow="Simulation board" title="Smart 100-run distributions" description="Each card now explains what the distribution means, not just what it outputs." /><div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">{games.map((game) => <ProjectionCard key={`${game.leagueKey}-${game.id}`} game={game} selected={game.id === selectedGame?.id} />)}</div></section> : <EmptyState eyebrow="Simulator" title="No games are available to simulate" description="The simulator is working, but the scoreboard feed did not return current matchups." action={<div className="flex flex-wrap justify-center gap-3"><Link href="/games" className="rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-sky-200">Open games</Link><Link href="/trends" className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200">View trends</Link></div>} />}</div>; }
+
+function normalizeSearchParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  return hash;
+}
+
+function seedUnit(seed: number) {
+  return (seed % 1000) / 1000;
+}
+
+function seededOffset(seed: number, range: number) {
+  return (seedUnit(seed) - 0.5) * range * 2;
+}
+
+function metric(seed: number, min: number, max: number) {
+  return Number((min + seedUnit(seed) * (max - min)).toFixed(2));
+}
+
+function roundScore(value: number, leagueKey: LeagueKey) {
+  if (leagueKey === "MLB" || leagueKey === "NHL") return Math.max(0, Number(value.toFixed(1)));
+  return Math.max(0, Math.round(value));
+}
+
+function roundModelValue(value: number, leagueKey: LeagueKey) {
+  if (leagueKey === "MLB" || leagueKey === "NHL") return Number(value.toFixed(1));
+  return Math.round(value);
+}
+
+function parseMatchup(label: string) {
+  const [away, home] = label.split(" @ ").map((part) => part?.trim()).filter(Boolean);
+  return { away: away ?? "Away", home: home ?? "Home" };
+}
+
+function formatStartTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Time TBD";
+  return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
+}
+
+function getStatusTone(status: string) {
+  if (status === "LIVE") return "success" as const;
+  if (status === "FINAL") return "neutral" as const;
+  if (status === "POSTPONED" || status === "CANCELED") return "danger" as const;
+  return "muted" as const;
+}
+
+function flattenScoreboardGames(sections: BoardSportSectionView[]): SimGame[] {
+  return sections.flatMap((section) => section.scoreboard.map((game) => ({ ...game, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel })));
+}
+
+function getApplicableTrends(game: SimGame, seed: number) {
+  const leagueTrends = TREND_MODIFIERS.filter((trend) => trend.league === game.leagueKey);
+  return leagueTrends.filter((_, index) => seedUnit(seed >>> (index + 1)) > 0.28).slice(0, 2);
+}
+
+function median(values: number[]) {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)] ?? 0;
+}
+
+function pct(count: number, total: number) {
+  return total ? count / total : 0;
+}
+
+function barWidth(value: number) {
+  return `${Math.max(3, Math.min(100, value * 100)).toFixed(1)}%`;
+}
+
+function rangePosition(value: number, low: number, high: number) {
+  const span = Math.max(1, high - low);
+  return `${Math.max(0, Math.min(100, ((value - low) / span) * 100)).toFixed(1)}%`;
+}
+
+function VisualBar({ label, value, rightLabel }: { label: string; value: number; rightLabel: string }) {
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex justify-between text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">
+        <span>{label}</span>
+        <span>{rightLabel}</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+        <div className="h-full rounded-full bg-sky-400/70" style={{ width: barWidth(value) }} />
+      </div>
+    </div>
+  );
+}
+
+function RangeVisual({ low, high, marker, label }: { low: number; high: number; marker: number; label: string }) {
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex justify-between text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">
+        <span>{label}</span>
+        <span>{low} — {high}</span>
+      </div>
+      <div className="relative h-2 rounded-full bg-slate-800">
+        <div className="absolute top-1/2 h-4 w-1 -translate-y-1/2 rounded-full bg-sky-300" style={{ left: rangePosition(marker, low, high) }} />
+      </div>
+    </div>
+  );
+}
+
+function insightClass(tone: InsightTone) {
+  if (tone === "strong") return "border-emerald-400/20 bg-emerald-500/[0.06] text-emerald-200";
+  if (tone === "watch") return "border-amber-400/20 bg-amber-500/[0.06] text-amber-200";
+  if (tone === "avoid") return "border-red-400/20 bg-red-500/[0.06] text-red-200";
+  return "border-white/10 bg-white/[0.03] text-slate-300";
+}
+
+function buildNbaAnalytics(seed: number): NbaAnalytics {
+  return {
+    offensiveEfficiency: metric(seed >>> 1, -5.5, 6.5),
+    defensiveResistance: metric(seed >>> 2, -4.5, 5.5),
+    paceIndex: metric(seed >>> 3, -3.2, 3.8),
+    efgEdge: metric(seed >>> 4, -3.5, 3.5),
+    threePointVariance: metric(seed >>> 5, 0.6, 1.45),
+    turnoverPressure: metric(seed >>> 6, -2.4, 2.8),
+    reboundEdge: metric(seed >>> 7, -3.0, 3.0),
+    freeThrowPressure: metric(seed >>> 8, -2.0, 2.4),
+    restTravelEdge: metric(seed >>> 9, -2.2, 2.8),
+    clutchVolatility: metric(seed >>> 10, 0.75, 1.35)
+  };
+}
+
+function nbaAdjustment(analytics: NbaAnalytics) {
+  const efficiencySpread = analytics.offensiveEfficiency + analytics.defensiveResistance * 0.55 + analytics.efgEdge * 0.7 - analytics.turnoverPressure * 0.45 + analytics.reboundEdge * 0.35 + analytics.freeThrowPressure * 0.3 + analytics.restTravelEdge * 0.5;
+  const totalShift = analytics.paceIndex * 1.7 + analytics.offensiveEfficiency * 0.65 + analytics.efgEdge * 0.5 + analytics.freeThrowPressure * 0.4 - Math.max(0, analytics.defensiveResistance) * 0.45;
+  const volatilityBoost = analytics.threePointVariance + analytics.clutchVolatility + Math.abs(analytics.paceIndex) / 8;
+  return { efficiencySpread, totalShift, volatilityBoost };
+}
+
+function buildDistribution(game: SimGame, homeScore: number, awayScore: number, trendTotalShift: number, trendHomeWinShift: number, varianceSeed: number, nbaAnalytics?: NbaAnalytics): SimDistribution {
+  const base = BASE_SCORING[game.leagueKey] ?? { home: 24, away: 21, variance: 6, baselineTotal: 45 };
+  const runs = 100;
+  const nbaVol = nbaAnalytics ? (nbaAnalytics.threePointVariance + nbaAnalytics.clutchVolatility) / 2 : 1;
+  const outcomes: SimOutcome[] = Array.from({ length: runs }, (_, index) => {
+    const runSeed = hashString(`${game.id}:${index}:multi-run`);
+    const vol = (0.7 + varianceSeed * 0.9) * base.variance * nbaVol;
+    const home = roundScore(homeScore + seededOffset(runSeed, vol) + trendHomeWinShift * base.variance * 0.8, game.leagueKey);
+    const away = roundScore(awayScore + seededOffset(runSeed >>> 4, vol) - trendHomeWinShift * base.variance * 0.4, game.leagueKey);
+    const total = Number((home + away + trendTotalShift * 0.15).toFixed(1));
+    const spreadHome = Number((home - away).toFixed(1));
+    return { homeScore: home, awayScore: away, total, spreadHome, homeWin: spreadHome >= 0 };
+  });
+  const totals = outcomes.map((o) => o.total);
+  const spreads = outcomes.map((o) => o.spreadHome);
+  const homeWins = outcomes.filter((o) => o.homeWin).length;
+  const blowoutLine = game.leagueKey === "MLB" || game.leagueKey === "NHL" ? 2 : 10;
+  const oneScoreLine = game.leagueKey === "MLB" || game.leagueKey === "NHL" ? 1.5 : 7;
+  return {
+    runs,
+    homeWinPct: pct(homeWins, runs),
+    awayWinPct: pct(runs - homeWins, runs),
+    avgHome: Number((outcomes.reduce((s, o) => s + o.homeScore, 0) / runs).toFixed(1)),
+    avgAway: Number((outcomes.reduce((s, o) => s + o.awayScore, 0) / runs).toFixed(1)),
+    avgTotal: Number((outcomes.reduce((s, o) => s + o.total, 0) / runs).toFixed(1)),
+    medianTotal: median(totals),
+    medianSpreadHome: median(spreads),
+    homeBlowoutPct: pct(outcomes.filter((o) => o.spreadHome >= blowoutLine).length, runs),
+    awayBlowoutPct: pct(outcomes.filter((o) => o.spreadHome <= -blowoutLine).length, runs),
+    oneScorePct: pct(outcomes.filter((o) => Math.abs(o.spreadHome) <= oneScoreLine).length, runs),
+    totalLow: Math.min(...totals),
+    totalHigh: Math.max(...totals)
+  };
+}
+
+function buildSmartInsights(projection: Omit<Projection, "insights">): SmartInsight[] {
+  const d = projection.distribution;
+  const insights: SmartInsight[] = [];
+  if ((d.homeWinPct >= 0.58 || d.awayWinPct >= 0.58) && projection.confidence !== "C") insights.push({ label: "Strong directional lean", tone: "strong", detail: `${projection.lean} wins a clear majority of the 100-run distribution.` });
+  if (projection.volatility === "High" || d.oneScorePct >= 0.48) insights.push({ label: "Chaos / tight-game profile", tone: "watch", detail: "High volatility or tight-game frequency makes this a lower-certainty setup." });
+  if (projection.appliedTrends.length >= 2 && projection.confidence !== "C") insights.push({ label: "Trend-supported read", tone: "strong", detail: "Multiple trend modifiers align with the simulation instead of fighting it." });
+  if (projection.nbaAnalytics && projection.nbaAnalytics.threePointVariance >= 1.25) insights.push({ label: "NBA 3PT variance warning", tone: "watch", detail: "Three-point volatility is elevated, widening the outcome range." });
+  if (projection.nbaAnalytics && Math.abs(projection.nbaAnalytics.restTravelEdge) >= 1.7) insights.push({ label: "NBA rest/travel edge", tone: projection.nbaAnalytics.restTravelEdge > 0 ? "strong" : "watch", detail: "Rest and travel profile is materially influencing this simulation." });
+  if (d.homeBlowoutPct >= 0.24 || d.awayBlowoutPct >= 0.24) insights.push({ label: "Blowout tail exists", tone: "watch", detail: "The distribution has a meaningful lopsided-outcome tail." });
+  if (projection.volatility === "High" && projection.confidence === "C") insights.push({ label: "Avoid forcing it", tone: "avoid", detail: "Model spread is wide and confidence is low. Better as a watchlist game." });
+  if (!insights.length) insights.push({ label: "Neutral research spot", tone: "neutral", detail: "No major edge or danger flag. Use as baseline context." });
+  return insights.slice(0, 3);
+}
+
+function buildFallbackProjection(game: SimGame): Projection {
+  const matchup = parseMatchup(game.label);
+  const base = BASE_SCORING[game.leagueKey] ?? { home: 24, away: 21, variance: 6, baselineTotal: 45 };
+  const seed = hashString(`${game.id}:${game.leagueKey}:${game.label}:${game.startTime}`);
+  const appliedTrends = getApplicableTrends(game, seed);
+  const trendTotalShift = appliedTrends.reduce((sum, trend) => sum + trend.totalShift, 0);
+  const trendHomeWinShift = appliedTrends.reduce((sum, trend) => sum + trend.homeWinShift, 0);
+  const trendVolatilityShift = appliedTrends.reduce((sum, trend) => sum + trend.volatilityShift, 0);
+  const nbaAnalytics = game.leagueKey === "NBA" ? buildNbaAnalytics(seed) : undefined;
+  const nba = nbaAnalytics ? nbaAdjustment(nbaAnalytics) : { efficiencySpread: 0, totalShift: 0, volatilityBoost: 1 };
+  const paceSeed = seedUnit(seed >>> 5);
+  const formSeed = seedUnit(seed >>> 9);
+  const varianceSeed = Math.max(0, Math.min(1, seedUnit(seed >>> 13) + trendVolatilityShift + (nba.volatilityBoost - 1) * 0.18));
+  const homeEdge = 0.6 + seedUnit(seed >>> 17) * 0.9;
+  const paceMultiplier = game.leagueKey === "NBA" ? 1 + ((nbaAnalytics?.paceIndex ?? 0) / 100) : paceSeed > 0.68 ? 1.045 : paceSeed < 0.32 ? 0.955 : 1;
+  const formSwing = (formSeed - 0.5) * base.variance;
+  const homeRaw = base.home * paceMultiplier + homeEdge + seededOffset(seed, base.variance * 0.55) + formSwing * 0.35 + trendTotalShift / 2 + nba.totalShift / 2 + nba.efficiencySpread * 0.55;
+  const awayRaw = base.away * paceMultiplier + seededOffset(seed >>> 3, base.variance * 0.55) - formSwing * 0.25 + trendTotalShift / 2 + nba.totalShift / 2 - nba.efficiencySpread * 0.35;
+  const homeScore = roundScore(homeRaw, game.leagueKey);
+  const awayScore = roundScore(awayRaw, game.leagueKey);
+  const diff = Number((homeScore - awayScore).toFixed(1));
+  const total = Number((homeScore + awayScore).toFixed(1));
+  const totalDelta = total - base.baselineTotal;
+  const homeWinPct = Math.max(0.31, Math.min(0.76, 0.52 + diff / Math.max(30, base.baselineTotal * 0.8) + trendHomeWinShift + nba.efficiencySpread / 420));
+  const volatility: Volatility = varianceSeed > 0.72 ? "High" : varianceSeed < 0.28 ? "Low" : "Medium";
+  const pace: Pace = game.leagueKey === "NBA" ? ((nbaAnalytics?.paceIndex ?? 0) > 1.2 ? "Fast" : (nbaAnalytics?.paceIndex ?? 0) < -1.2 ? "Slow" : "Neutral") : paceSeed > 0.68 ? "Fast" : paceSeed < 0.32 ? "Slow" : "Neutral";
+  const upsetRisk: UpsetRisk = Math.abs(diff) <= base.variance * 0.35 ? "High" : Math.abs(diff) <= base.variance * 0.7 ? "Medium" : "Low";
+  const confidence: Confidence = appliedTrends.some((trend) => trend.confidence === "B") && upsetRisk !== "High" && volatility !== "High" ? "A" : upsetRisk === "Low" && volatility !== "High" ? "A" : upsetRisk === "High" || volatility === "High" ? "C" : "B";
+  const bandWidth = (volatility === "High" ? base.variance * 1.25 : volatility === "Low" ? base.variance * 0.55 : base.variance * 0.85) * (nbaAnalytics ? nba.volatilityBoost : 1);
+  const distribution = buildDistribution(game, homeScore, awayScore, trendTotalShift, trendHomeWinShift, varianceSeed, nbaAnalytics);
+  const modelTags = [
+    `100-run sim`,
+    game.leagueKey === "NBA" ? "NBA analytics model" : `${pace} pace`,
+    `${pace} pace`,
+    `${volatility} volatility`,
+    `${upsetRisk} upset risk`,
+    totalDelta > base.variance * 0.4 ? "Total leans high" : totalDelta < -base.variance * 0.4 ? "Total leans low" : "Total near baseline",
+    appliedTrends.length ? `${appliedTrends.length} trend modifier${appliedTrends.length === 1 ? "" : "s"}` : "No trend modifier"
+  ];
+  const baseProjection: Omit<Projection, "insights"> = {
+    homeScore,
+    awayScore,
+    homeWinPct,
+    awayWinPct: 1 - homeWinPct,
+    total,
+    spreadHome: diff,
+    confidence,
+    lean: diff >= 0 ? matchup.home : matchup.away,
+    pace,
+    volatility,
+    upsetRisk,
+    totalBand: { low: roundModelValue(total - bandWidth, game.leagueKey), high: roundModelValue(total + bandWidth, game.leagueKey) },
+    spreadBand: { low: roundModelValue(diff - bandWidth * 0.45, game.leagueKey), high: roundModelValue(diff + bandWidth * 0.45, game.leagueKey) },
+    modelTags,
+    appliedTrends,
+    distribution,
+    nbaAnalytics,
+    read: confidence === "A" ? "Cleaner model separation with trend support. The 100-run distribution supports the primary lean." : confidence === "B" ? "Usable lean. Distribution and trend context support continued matchup research." : "Volatile setup. The distribution is wide; treat this as a research prompt."
+  };
+  return { ...baseProjection, insights: buildSmartInsights(baseProjection) };
+}
+
+function NbaAnalyticsPanel({ analytics }: { analytics?: NbaAnalytics }) {
+  if (!analytics) return null;
+  const items = [
+    ["Off Eff", analytics.offensiveEfficiency],
+    ["Def Resist", analytics.defensiveResistance],
+    ["Pace", analytics.paceIndex],
+    ["eFG edge", analytics.efgEdge],
+    ["3PT var", analytics.threePointVariance],
+    ["TO pressure", analytics.turnoverPressure],
+    ["Rebound", analytics.reboundEdge],
+    ["FT pressure", analytics.freeThrowPressure],
+    ["Rest/travel", analytics.restTravelEdge],
+    ["Clutch var", analytics.clutchVolatility]
+  ] as const;
+  return (
+    <div className="mt-4 rounded-2xl border border-white/8 bg-slate-950/45 p-4">
+      <div className="mb-3 text-[0.64rem] uppercase tracking-[0.18em] text-slate-500">NBA analytical inputs</div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {items.map(([label, value]) => (
+          <div key={label} className="rounded-xl border border-white/8 bg-slate-950/40 p-3">
+            <div className="text-[0.58rem] uppercase tracking-[0.14em] text-slate-500">{label}</div>
+            <div className="mt-1 text-sm font-semibold text-white">{value > 0 ? "+" : ""}{value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProjectionCard({ game, selected }: { game: SimGame; selected: boolean }) {
+  const matchup = parseMatchup(game.label);
+  const projection = buildFallbackProjection(game);
+  const d = projection.distribution;
+  return (
+    <Card className={`surface-panel h-full p-5 transition hover:border-sky-400/25 hover:bg-white/[0.03] ${selected ? "border-sky-400/35 bg-sky-500/[0.06]" : ""}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-[0.66rem] uppercase tracking-[0.22em] text-slate-500"><span>{LEAGUE_ICONS[game.leagueKey]}</span><span>{game.leagueKey}</span></div>
+          <div className="mt-3 font-display text-2xl font-semibold text-white">{matchup.away} @ {matchup.home}</div>
+          <div className="mt-2 text-sm text-slate-400">{formatStartTime(game.startTime)}</div>
+        </div>
+        <Badge tone={getStatusTone(game.status)}>{game.status}</Badge>
+      </div>
+      <div className="mt-5 rounded-2xl border border-white/8 bg-slate-950/45 p-4">
+        <div className="mb-3 text-[0.64rem] uppercase tracking-[0.18em] text-slate-500">Smart insights</div>
+        <div className="grid gap-2">{projection.insights.map((insight) => <div key={insight.label} className={`rounded-xl border p-3 text-sm ${insightClass(insight.tone)}`}><div className="font-semibold">{insight.label}</div><div className="mt-1 opacity-80">{insight.detail}</div></div>)}</div>
+      </div>
+      <div className="mt-5 grid grid-cols-2 gap-3">
+        <div className="rounded-2xl border border-white/8 bg-slate-950/55 p-4"><div className="text-[0.64rem] uppercase tracking-[0.18em] text-slate-500">Away avg</div><div className="mt-2 text-3xl font-semibold text-white">{d.avgAway}</div><div className="mt-1 text-sm text-slate-400">{matchup.away}</div></div>
+        <div className="rounded-2xl border border-white/8 bg-slate-950/55 p-4"><div className="text-[0.64rem] uppercase tracking-[0.18em] text-slate-500">Home avg</div><div className="mt-2 text-3xl font-semibold text-white">{d.avgHome}</div><div className="mt-1 text-sm text-slate-400">{matchup.home}</div></div>
+      </div>
+      <div className="mt-5 rounded-2xl border border-white/8 bg-slate-950/45 p-4">
+        <div className="mb-3 text-[0.64rem] uppercase tracking-[0.18em] text-slate-500">Visual distribution</div>
+        <div className="grid gap-3"><VisualBar label="Home win" value={d.homeWinPct} rightLabel={`${(d.homeWinPct * 100).toFixed(1)}%`} /><VisualBar label="Away win" value={d.awayWinPct} rightLabel={`${(d.awayWinPct * 100).toFixed(1)}%`} /><VisualBar label="Tight game" value={d.oneScorePct} rightLabel={`${(d.oneScorePct * 100).toFixed(1)}%`} /><RangeVisual label="Total range" low={d.totalLow} high={d.totalHigh} marker={d.medianTotal} /></div>
+      </div>
+      <NbaAnalyticsPanel analytics={projection.nbaAnalytics} />
+      <div className="mt-5 grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-white/8 bg-slate-950/40 p-3"><div className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">Home win</div><div className="mt-1 text-sm font-semibold text-white">{(d.homeWinPct * 100).toFixed(1)}%</div></div><div className="rounded-xl border border-white/8 bg-slate-950/40 p-3"><div className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">Median total</div><div className="mt-1 text-sm font-semibold text-white">{d.medianTotal}</div></div><div className="rounded-xl border border-white/8 bg-slate-950/40 p-3"><div className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">Conf</div><div className="mt-1 text-sm font-semibold text-white">{projection.confidence}</div></div></div>
+      <div className="mt-4 flex flex-wrap gap-2">{projection.modelTags.map((tag) => <span key={tag} className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{tag}</span>)}</div>
+      {projection.appliedTrends.length ? <div className="mt-4 grid gap-2">{projection.appliedTrends.map((trend) => <div key={trend.title} className="rounded-xl border border-sky-400/15 bg-sky-500/[0.04] p-3 text-sm text-slate-300"><div className="font-semibold text-sky-200">{trend.title} · {trend.hitRate.toFixed(1)}%</div><div className="mt-1 text-slate-400">{trend.note}</div></div>)}</div> : null}
+      <div className="mt-5 rounded-[1.1rem] border border-white/8 bg-slate-950/55 px-4 py-3 text-sm leading-6 text-slate-300">{projection.read}</div>
+      <div className="mt-5 flex flex-wrap gap-3"><Link href={`/game/${game.id}`} className="rounded-full bg-sky-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400">Open game</Link><Link href={`/trends?league=${encodeURIComponent(game.leagueKey)}`} className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25">Trends</Link></div>
+    </Card>
+  );
+}
+
+export default async function SimPage({ searchParams }: PageProps) {
+  const resolved = (await searchParams) ?? {};
+  const selectedGameId = normalizeSearchParam(resolved.gameId);
+  const selectedLeague = normalizeSearchParam(resolved.league);
+  const sections = await buildBoardSportSections({ selectedLeague: "ALL", gamesByLeague: {} });
+  const allGames = flattenScoreboardGames(sections);
+  const games = selectedLeague ? allGames.filter((game) => game.leagueKey === selectedLeague.toUpperCase()) : allGames;
+  const selectedGame = selectedGameId ? allGames.find((game) => game.id === selectedGameId) ?? null : games[0] ?? null;
+  const selectedProjection = selectedGame ? buildFallbackProjection(selectedGame) : null;
+  const selectedMatchup = selectedGame ? parseMatchup(selectedGame.label) : null;
+  return (
+    <div className="grid gap-8">
+      <section className="surface-panel-strong px-6 py-6 xl:px-8 xl:py-8">
+        <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr] xl:items-end">
+          <div className="grid gap-4">
+            <div className="section-kicker">Simulator studio</div>
+            <div className="max-w-4xl font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">NBA-grade simulation inputs.</div>
+            <div className="max-w-3xl text-base leading-8 text-slate-300">NBA matchups now use a deeper analytical model: pace, offensive efficiency, defensive resistance, eFG, 3PT variance, turnovers, rebounding, free throws, rest/travel, clutch volatility, trends, and 100-run distributions.</div>
+            <div className="flex flex-wrap gap-3"><Link href="/games" className="rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400">Pick from games</Link><Link href="/trends" className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25">View trends</Link></div>
+          </div>
+          <div className="grid gap-3 rounded-[1.55rem] border border-white/8 bg-[#09131f]/85 p-5 text-sm text-slate-300">
+            <div className="text-[0.66rem] uppercase tracking-[0.22em] text-slate-500">Current run</div>
+            {selectedGame && selectedProjection && selectedMatchup ? <><div className="font-display text-2xl font-semibold text-white">{selectedMatchup.away} @ {selectedMatchup.home}</div><div className="grid gap-2">{selectedProjection.insights.slice(0, 2).map((insight) => <div key={insight.label} className={`rounded-xl border p-3 text-sm ${insightClass(insight.tone)}`}><div className="font-semibold">{insight.label}</div><div className="mt-1 opacity-80">{insight.detail}</div></div>)}</div><VisualBar label="Home win" value={selectedProjection.distribution.homeWinPct} rightLabel={`${(selectedProjection.distribution.homeWinPct * 100).toFixed(1)}%`} /><div className="rounded-[1.1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">Average score: {selectedMatchup.away} {selectedProjection.distribution.avgAway}, {selectedMatchup.home} {selectedProjection.distribution.avgHome}. {selectedProjection.read}</div></> : <div className="rounded-[1.1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm leading-6 text-slate-300">No scoreboard games are available right now.</div>}
+          </div>
+        </div>
+      </section>
+      <section className="grid gap-4"><SectionTitle eyebrow="League filters" title="Choose a simulation lane" description="Filter the simulator board by league, or run from the full scoreboard slate." /><div className="flex flex-wrap gap-2"><Link href="/sim" className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300 transition hover:border-sky-400/25 hover:text-white">All · {allGames.length}</Link>{sections.map((section) => <Link key={section.leagueKey} href={`/sim?league=${encodeURIComponent(section.leagueKey)}`} className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300 transition hover:border-sky-400/25 hover:text-white">{LEAGUE_ICONS[section.leagueKey]} {section.leagueKey} · {section.scoreboard.length}</Link>)}</div></section>
+      {games.length ? <section className="grid gap-4"><SectionTitle eyebrow="Simulation board" title="Analytics-driven 100-run distributions" description="NBA cards now expose the analytical factors driving the projection; other leagues keep the stable fallback engine." /><div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">{games.map((game) => <ProjectionCard key={`${game.leagueKey}-${game.id}`} game={game} selected={game.id === selectedGame?.id} />)}</div></section> : <EmptyState eyebrow="Simulator" title="No games are available to simulate" description="The simulator is working, but the scoreboard feed did not return current matchups." action={<div className="flex flex-wrap justify-center gap-3"><Link href="/games" className="rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-sky-200">Open games</Link><Link href="/trends" className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200">View trends</Link></div>} />}
+    </div>
+  );
+}
