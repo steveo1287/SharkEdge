@@ -27,6 +27,7 @@ function round(value: number, digits = 4) { return Number(value.toFixed(digits))
 function quantile(values: number[], q: number) { if (!values.length) return 0; const sorted = [...values].sort((a, b) => a - b); const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1)); return sorted[index]; }
 function validRows(rows: any[]): TrainingRow[] { return rows.filter((row) => typeof row.homeScore === "number" && typeof row.awayScore === "number" && FEATURES.every((feature) => typeof row[feature] === "number")); }
 function binIndex(probability: number, binCount: number) { return Math.min(binCount - 1, Math.max(0, Math.floor(probability * binCount))); }
+function featureMap(row: TrainingRow): Record<string, number> { return Object.fromEntries(FEATURES.map((feature) => [feature, row[feature]])); }
 
 export async function trainMlbCalibrationConformal(limit = 1000): Promise<MlbCalibrationModel> {
   const ml = await getCachedMlbMlModel();
@@ -42,7 +43,7 @@ export async function trainMlbCalibrationConformal(limit = 1000): Promise<MlbCal
   const sideScores: number[] = [];
   const totalResiduals: number[] = [];
   for (const row of rows) {
-    const scored = scoreMlbMlModel(ml, row);
+    const scored = scoreMlbMlModel(ml, featureMap(row));
     const p = scored.homeWinProbability;
     const actual = row.homeScore > row.awayScore ? 1 : 0;
     rawBins[binIndex(p, binCount)].preds.push(p);
