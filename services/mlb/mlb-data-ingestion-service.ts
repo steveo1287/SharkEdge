@@ -2,6 +2,7 @@ import { fetchMlbGameData } from "./sources/mlb-stats-api";
 import { fetchSavantData } from "./sources/savant-adapter";
 import { fetchFangraphsSplits } from "./sources/fangraphs-adapter";
 import { fetchWeather } from "./sources/weather-adapter";
+import { fetchOpponentStrikeoutRate } from "./sources/opponent-splits-adapter";
 
 function derivePA(spot?: number | null) {
   const s = spot ?? 5;
@@ -18,10 +19,11 @@ export async function buildMlbEliteContext(input: {
 }) {
   const game = await fetchMlbGameData(input);
 
-  const [savant, splits, weather] = await Promise.all([
+  const [savant, splits, weather, opponent] = await Promise.all([
     fetchSavantData(input.playerName),
     fetchFangraphsSplits(input.playerName),
-    fetchWeather(game?.venue ?? undefined)
+    fetchWeather(game?.venue ?? undefined),
+    fetchOpponentStrikeoutRate(input.opponent)
   ]);
 
   return {
@@ -39,6 +41,7 @@ export async function buildMlbEliteContext(input: {
     vsHandKRate: splits?.kRateVsHand ?? null,
 
     pitcherKRate: game?.pitcherKRate ?? null,
+    opponentKRate: opponent?.opponentKRate ?? null,
     pitchCount: game?.pitchCount ?? null,
 
     parkFactor: splits?.parkFactor ?? 1,
