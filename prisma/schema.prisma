@@ -1534,3 +1534,16 @@ model SimPrediction {
   @@index([league, createdAt])
   @@map("sim_predictions")
 }
+
+model SimTuning {
+  id        String   @id @default(cuid())
+  scope     String   @unique // "global", "player_points", "player_rebounds", etc.
+  params    Json     // { calibrationScale, varianceScale, matchupWeight, paceWeight }
+  brierScore Float?  // validation error (lower is better)
+  sampleSize Int @default(0)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([scope])
+  @@map("sim_tuning")
+}

@@ -18,6 +18,10 @@
       "schedule": "*/30 * * * *"
     },
     {
+      "path": "/api/jobs/auto-tune",
+      "schedule": "0 2 * * *"
+    },
+    {
       "path": "/api/mlb/refresh",
       "schedule": "0 */6 * * *"
     }
