@@ -1,6 +1,5 @@
 import type { LeagueKey } from "@/lib/types/domain";
-
-type TeamSide = "away" | "home";
+import { compareNbaIntelligence } from "@/services/simulation/nba-intelligence-model";
 
 type FlexibleRow = Record<string, unknown>;
 
@@ -8,11 +7,11 @@ export type RealityFactor = {
   label: string;
   value: number;
   weight: number;
-  source: "team" | "player" | "advanced" | "rating" | "context";
+  source: "team" | "player" | "advanced" | "rating" | "context" | "history";
 };
 
 export type RealitySimIntel = {
-  modelVersion: "reality-sim-v1";
+  modelVersion: "reality-sim-v1" | "nba-intel-v1";
   dataSource: string;
   homeEdge: number;
   projectedTotal: number;
@@ -26,6 +25,7 @@ export type RealitySimIntel = {
     advancedPower: number;
     gameRatingPower: number;
     contextPower: number;
+    historyPower?: number;
   };
 };
 
@@ -71,7 +71,6 @@ type GameRating = {
 };
 
 const TEAM_URLS: Partial<Record<LeagueKey, string[]>> = {
-  NBA: ["NBA_TEAM_ANALYTICS_URL", "TEAM_ANALYTICS_URL", "SIM_TEAM_STATS_URL"],
   NHL: ["NHL_TEAM_ANALYTICS_URL", "TEAM_ANALYTICS_URL", "SIM_TEAM_STATS_URL"],
   NFL: ["NFL_TEAM_ANALYTICS_URL", "TEAM_ANALYTICS_URL", "SIM_TEAM_STATS_URL"],
   NCAAF: ["NCAAF_TEAM_ANALYTICS_URL", "TEAM_ANALYTICS_URL", "SIM_TEAM_STATS_URL"],
@@ -80,7 +79,6 @@ const TEAM_URLS: Partial<Record<LeagueKey, string[]>> = {
 };
 
 const PLAYER_URLS: Partial<Record<LeagueKey, string[]>> = {
-  NBA: ["NBA_PLAYER_ANALYTICS_URL", "PLAYER_ANALYTICS_URL", "SIM_PLAYER_STATS_URL"],
   NHL: ["NHL_PLAYER_ANALYTICS_URL", "PLAYER_ANALYTICS_URL", "SIM_PLAYER_STATS_URL"],
   NFL: ["NFL_PLAYER_ANALYTICS_URL", "PLAYER_ANALYTICS_URL", "SIM_PLAYER_STATS_URL"],
   NCAAF: ["NCAAF_PLAYER_ANALYTICS_URL", "PLAYER_ANALYTICS_URL", "SIM_PLAYER_STATS_URL"],
@@ -89,13 +87,16 @@ const PLAYER_URLS: Partial<Record<LeagueKey, string[]>> = {
 };
 
 const RATING_URLS: Partial<Record<LeagueKey, string[]>> = {
-  NBA: ["NBA_GAME_RATINGS_URL", "GAME_RATINGS_URL", "VIDEO_GAME_RATINGS_URL"],
   NHL: ["NHL_GAME_RATINGS_URL", "GAME_RATINGS_URL", "VIDEO_GAME_RATINGS_URL"],
   NFL: ["NFL_GAME_RATINGS_URL", "GAME_RATINGS_URL", "VIDEO_GAME_RATINGS_URL"],
   NCAAF: ["NCAAF_GAME_RATINGS_URL", "GAME_RATINGS_URL", "VIDEO_GAME_RATINGS_URL"],
   UFC: ["UFC_GAME_RATINGS_URL", "GAME_RATINGS_URL", "VIDEO_GAME_RATINGS_URL"],
   BOXING: ["BOXING_GAME_RATINGS_URL", "GAME_RATINGS_URL", "VIDEO_GAME_RATINGS_URL"]
 };
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
 
 function normalizeName(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -301,19 +302,12 @@ function edge(left: number, right: number, scale = 1) {
 
 function sportWeights(league: LeagueKey) {
   switch (league) {
-    case "NBA":
-      return { team: 0.32, player: 0.3, advanced: 0.18, rating: 0.12, context: 0.08, totalBase: 224, totalScale: 5.8, winScale: 13.2 };
-    case "NFL":
-      return { team: 0.31, player: 0.25, advanced: 0.19, rating: 0.12, context: 0.13, totalBase: 45, totalScale: 2.2, winScale: 11.5 };
-    case "NCAAF":
-      return { team: 0.32, player: 0.21, advanced: 0.17, rating: 0.13, context: 0.17, totalBase: 53, totalScale: 3.1, winScale: 12.6 };
-    case "NHL":
-      return { team: 0.29, player: 0.23, advanced: 0.23, rating: 0.1, context: 0.15, totalBase: 6.1, totalScale: 0.42, winScale: 10.4 };
+    case "NFL": return { team: 0.31, player: 0.25, advanced: 0.19, rating: 0.12, context: 0.13, totalBase: 45, totalScale: 2.2 };
+    case "NCAAF": return { team: 0.32, player: 0.21, advanced: 0.17, rating: 0.13, context: 0.17, totalBase: 53, totalScale: 3.1 };
+    case "NHL": return { team: 0.29, player: 0.23, advanced: 0.23, rating: 0.1, context: 0.15, totalBase: 6.1, totalScale: 0.42 };
     case "UFC":
-    case "BOXING":
-      return { team: 0.24, player: 0.36, advanced: 0.18, rating: 0.15, context: 0.07, totalBase: 0, totalScale: 0, winScale: 12.8 };
-    default:
-      return { team: 0.3, player: 0.25, advanced: 0.2, rating: 0.12, context: 0.13, totalBase: 10, totalScale: 1, winScale: 12 };
+    case "BOXING": return { team: 0.24, player: 0.36, advanced: 0.18, rating: 0.15, context: 0.07, totalBase: 0, totalScale: 0 };
+    default: return { team: 0.3, player: 0.25, advanced: 0.2, rating: 0.12, context: 0.13, totalBase: 10, totalScale: 1 };
   }
 }
 
@@ -321,8 +315,33 @@ function addFactor(factors: RealityFactor[], label: string, value: number, weigh
   factors.push({ label, value: Number(value.toFixed(2)), weight, source });
 }
 
+function buildNbaRealityIntel(nba: Awaited<ReturnType<typeof compareNbaIntelligence>>): RealitySimIntel {
+  return {
+    modelVersion: nba.modelVersion,
+    dataSource: nba.dataSource,
+    homeEdge: nba.homeEdge,
+    projectedTotal: nba.projectedTotal,
+    volatilityIndex: nba.volatilityIndex,
+    confidence: nba.confidence,
+    modules: nba.modules,
+    ratingBlend: nba.ratingBlend,
+    factors: nba.factors.map((factor) => ({
+      label: factor.label,
+      value: factor.value,
+      weight: factor.weight ?? 0.04,
+      source: factor.source ?? "advanced"
+    }))
+  };
+}
+
 export async function buildRealitySimIntel(league: LeagueKey, matchup: { away: string; home: string }): Promise<RealitySimIntel | null> {
   if (league === "MLB") return null;
+
+  if (league === "NBA") {
+    const nba = await compareNbaIntelligence(matchup.away, matchup.home);
+    return buildNbaRealityIntel(nba);
+  }
+
   const weights = sportWeights(league);
   const [teamRows, playerRows, ratingRows] = await Promise.all([
     fetchRows(firstUrl(TEAM_URLS[league])),
@@ -359,19 +378,15 @@ export async function buildRealitySimIntel(league: LeagueKey, matchup: { away: s
   const homeEdge = Number(factors.reduce((sum, factor) => sum + factor.value * factor.weight, 0).toFixed(2));
   const totalTempo = ((awayTeam.pace + homeTeam.pace) / 2 - (league === "NHL" || league === "UFC" || league === "BOXING" ? 1 : 100));
   const offenseTotal = Math.abs(awayTeam.offense - 100) + Math.abs(homeTeam.offense - 100);
-  const volatilityIndex = Number(Math.max(0.78, Math.min(2.05, 1 + Math.abs(homeEdge) / 18 + (awayPlayers.volatility + homePlayers.volatility) / 12 + Math.abs(health) / 18)).toFixed(2));
+  const volatilityIndex = Number(clamp(1 + Math.abs(homeEdge) / 18 + (awayPlayers.volatility + homePlayers.volatility) / 12 + Math.abs(health) / 18, 0.78, 2.05).toFixed(2));
   const projectedTotal = league === "UFC" || league === "BOXING"
     ? 0
     : Number(Math.max(league === "NHL" ? 3.8 : 24, weights.totalBase + totalTempo * weights.totalScale + offenseTotal * 0.08 + (awayTeam.injuryDrag + homeTeam.injuryDrag) * -0.2).toFixed(1));
-  const confidence = Number(Math.max(0.48, Math.min(0.86, 0.56 + Math.abs(homeEdge) / 30 - (volatilityIndex - 1) * 0.06 + (teamRows ? 0.025 : 0) + (playerRows ? 0.025 : 0) + (ratingRows ? 0.015 : 0))).toFixed(3));
+  const confidence = Number(clamp(0.56 + Math.abs(homeEdge) / 30 - (volatilityIndex - 1) * 0.06 + (teamRows ? 0.025 : 0) + (playerRows ? 0.025 : 0) + (ratingRows ? 0.015 : 0), 0.48, 0.86).toFixed(3));
 
   return {
     modelVersion: "reality-sim-v1",
-    dataSource: [
-      teamRows ? "team:real" : "team:synthetic",
-      playerRows ? "player:real" : "player:synthetic",
-      ratingRows ? "ratings:real" : "ratings:synthetic"
-    ].join("+"),
+    dataSource: [teamRows ? "team:real" : "team:synthetic", playerRows ? "player:real" : "player:synthetic", ratingRows ? "ratings:real" : "ratings:synthetic"].join("+"),
     homeEdge,
     projectedTotal,
     volatilityIndex,
