@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 import { DEFAULT_TUNING, SimTuningParams } from "./sim-tuning";
 
 function avg(arr: number[]) {
