@@ -57,6 +57,19 @@ const LEAGUE_CONFIG: Record<string, LeagueRatingConfig> = {
     defenseScale: 3.4,
     tempoScale: 0.95
   },
+  NCAAB: {
+    takePlayers: 9,
+    offenseKeys: ["points", "PTS", "assists", "AST", "threes", "FG3M", "3PM"],
+    defenseKeys: ["rebounds", "REB", "steals", "STL", "blocks", "BLK"],
+    tempoKeys: ["minutes", "MIN", "pace", "possessions"],
+    overallKeys: ["overall", "ovr", "overallRating", "rating_2k"],
+    offenseBaseline: 18,
+    defenseBaseline: 7,
+    tempoBaseline: 26,
+    offenseScale: 1.65,
+    defenseScale: 3.7,
+    tempoScale: 0.9
+  },
   NFL: {
     takePlayers: 14,
     offenseKeys: ["passing_yards", "pass_yds", "rushing_yards", "rush_yds", "receiving_yards", "rec_yds", "touchdowns", "TD"],
@@ -108,6 +121,48 @@ const LEAGUE_CONFIG: Record<string, LeagueRatingConfig> = {
     offenseScale: 4.2,
     defenseScale: 3.0,
     tempoScale: 1.0
+  },
+  UFC: {
+    takePlayers: 1,
+    offenseKeys: [
+      "sig_strikes_landed_per_min",
+      "slpm",
+      "knockdowns_per_15",
+      "kd_avg",
+      "sub_attempts_per_15",
+      "sub_avg",
+      "takedowns_per_15",
+      "td_avg"
+    ],
+    defenseKeys: [
+      "sig_strikes_absorbed_per_min",
+      "sapm",
+      "takedown_defense",
+      "td_def",
+      "durability",
+      "chin_rating",
+      "fight_iq"
+    ],
+    tempoKeys: [
+      "pace",
+      "engagement_rate",
+      "attempts_per_minute",
+      "control_time_ratio",
+      "control_share"
+    ],
+    overallKeys: [
+      "ufc_game_rating",
+      "ea_ufc_overall",
+      "overall",
+      "ovr",
+      "overallRating"
+    ],
+    offenseBaseline: 3.8,
+    defenseBaseline: 3.1,
+    tempoBaseline: 1.0,
+    offenseScale: 8.8,
+    defenseScale: 7.6,
+    tempoScale: 30
   }
 };
 
