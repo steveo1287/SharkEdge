@@ -1,41 +1,87 @@
 import { buildPlayerSimV2, type PlayerSimV2Input, type PlayerSimV2Output } from "./player-sim-v2";
+import { buildNbaMinutesUsageProjection, type NbaMinutesUsageInput } from "./nba-minutes-usage-model";
 import { applyPlayerAdaptiveAdjustment } from "./sim-adaptive-layer";
 import { buildMarketIntelligenceSignal } from "./sim-market-intelligence-layer";
 import { buildClvSharpSignal } from "./sim-clv-sharp-layer";
 import { buildBetSizingRecommendation } from "./sim-bankroll-sizing-engine";
 import type { SimTuningParams } from "./sim-tuning";
 
-export function buildAdaptivePlayerSimV2(
-  input: PlayerSimV2Input & {
-    market?: {
-      averageOdds?: number | null;
-      bestAvailableOdds?: number | null;
-      lineMovement?: number | null;
-      bookCount?: number | null;
-      marketDeltaAmerican?: number | null;
-      expectedValuePct?: number | null;
-      side?: string | null;
-    };
-    clv?: {
-      entryOdds?: number | null;
-      currentOdds?: number | null;
-      closingOdds?: number | null;
-      entryLine?: number | null;
-      currentLine?: number | null;
-      closingLine?: number | null;
-    };
-    bankroll?: number;
-  },
-  tuning?: SimTuningParams
-): PlayerSimV2Output & { betSizing?: any } {
-  const base = buildPlayerSimV2(input, tuning);
+export type AdaptiveSimInput = PlayerSimV2Input & {
+  nbaContext?: NbaMinutesUsageInput;
+  market?: {
+    averageOdds?: number | null;
+    bestAvailableOdds?: number | null;
+    lineMovement?: number | null;
+    bookCount?: number | null;
+    marketDeltaAmerican?: number | null;
+    expectedValuePct?: number | null;
+    side?: string | null;
+  };
+  clv?: {
+    entryOdds?: number | null;
+    currentOdds?: number | null;
+    closingOdds?: number | null;
+    entryLine?: number | null;
+    currentLine?: number | null;
+    closingLine?: number | null;
+  };
+  bankroll?: number;
+};
 
-  let workingInput = { ...input };
-  let reasons: string[] = [...base.reasons];
-  let riskFlags: string[] = [...base.riskFlags];
+export function buildAdaptivePlayerSimV2(
+  input: AdaptiveSimInput,
+  tuning?: SimTuningParams
+): PlayerSimV2Output & { betSizing?: any; nbaRoleAnalysis?: any } {
+  let workingInput: PlayerSimV2Input = { ...input };
+  let reasons: string[] = [];
+  let riskFlags: string[] = [];
+
+  // Step 1: Project NBA minutes + usage (CORE)
+  let nbaRoleAnalysis = null;
+  if (input.nbaContext) {
+    nbaRoleAnalysis = buildNbaMinutesUsageProjection(input.nbaContext);
+
+    // Override minutes and usage with projections
+    workingInput.minutes = nbaRoleAnalysis.projectedMinutes;
+    workingInput.usageRate = nbaRoleAnalysis.projectedUsageRate;
+
+    // Feed reasoning
+    reasons.unshift(...nbaRoleAnalysis.minutesReasons);
+    reasons.unshift(...nbaRoleAnalysis.usageReasons);
+    riskFlags.push(...nbaRoleAnalysis.riskFlags);
+  }
+
+  // Step 2: Run base V2 with projected minutes/usage
+  const base = buildPlayerSimV2(workingInput, tuning);
+
+  // Preserve base reasons
+  reasons.unshift(...base.reasons);
   let confidence = base.confidence;
 
-  // Adaptive
+  // Adjust confidence based on role tier and minutes uncertainty
+  if (nbaRoleAnalysis) {
+    const minuteConfidencePenalty = (1 - nbaRoleAnalysis.minutesConfidence) * 0.1;
+    confidence = Math.max(0.2, confidence - minuteConfidencePenalty);
+
+    // LOW/OUT roles should significantly suppress confidence
+    if (nbaRoleAnalysis.roleTier === "OUT") {
+      return {
+        ...base,
+        decision: "PASS",
+        confidence: 0.1,
+        reasons: ["Player OUT - no play"],
+        riskFlags: ["Out of game"],
+        nbaRoleAnalysis
+      };
+    }
+
+    if (nbaRoleAnalysis.roleTier === "LOW") {
+      confidence *= 0.6;
+      riskFlags.push("Low-tier role minutes - high volatility");
+    }
+  }
+
+  // Step 3: Adaptive adjustments
   if (input.trend && input.trend.longAvg > 0) {
     const adaptive = applyPlayerAdaptiveAdjustment(base.rawMean, {
       playerId: input.player,
@@ -44,15 +90,10 @@ export function buildAdaptivePlayerSimV2(
       longAvg: input.trend.longAvg
     });
 
-    workingInput = {
-      ...workingInput,
-      usageRate: Math.max(0.01, workingInput.usageRate * adaptive.adjustmentFactor)
-    };
-
     reasons.unshift(`Adaptive blend (${(adaptive.weights.recentWeight * 100).toFixed(0)}% recent)`);
   }
 
-  // Market
+  // Step 4: Market intelligence
   let marketSignal = null;
   if (input.market) {
     marketSignal = buildMarketIntelligenceSignal({
@@ -68,11 +109,10 @@ export function buildAdaptivePlayerSimV2(
 
     reasons.unshift(...marketSignal.reasons);
     riskFlags.push(...marketSignal.riskFlags);
-
     confidence = Math.max(0, Math.min(0.95, confidence + marketSignal.confidenceShift));
   }
 
-  // CLV
+  // Step 5: CLV signal
   let clvSignal = null;
   if (input.clv || input.market) {
     clvSignal = buildClvSharpSignal({
@@ -81,52 +121,36 @@ export function buildAdaptivePlayerSimV2(
       closingOdds: input.clv?.closingOdds,
       entryLine: input.clv?.entryLine,
       currentLine: input.clv?.currentLine ?? input.line,
-      closingLine: input.clv?.closingLine,
-      lineMovement: input.market?.lineMovement,
-      marketDeltaAmerican: input.market?.marketDeltaAmerican,
-      bookCount: input.market?.bookCount,
-      side: input.market?.side
+      closingLine: input.clv?.closingLine
     });
 
-    reasons.unshift(...clvSignal.reasons);
-    riskFlags.push(...clvSignal.riskFlags);
-
-    confidence = Math.max(0, Math.min(0.95, confidence + clvSignal.confidenceShift));
+    if (clvSignal.sharp) {
+      reasons.unshift(`Sharp money detected (${clvSignal.direction})`);
+      confidence = Math.min(0.95, confidence + 0.08);
+    }
+    if (clvSignal.riskFlags?.length) {
+      riskFlags.push(...clvSignal.riskFlags);
+    }
   }
 
-  const rerun = buildPlayerSimV2(workingInput, tuning);
-
-  let finalProbability = rerun.calibratedProbability;
-
-  if (marketSignal) finalProbability += marketSignal.probabilityShift;
-  if (clvSignal) finalProbability += clvSignal.probabilityShift;
-
-  finalProbability = Math.max(0.01, Math.min(0.99, finalProbability));
-
-  const implied = rerun.calibratedProbability - rerun.edgePct / 100;
-  const edge = (finalProbability - implied) * 100;
-
-  let betSizing = undefined;
-
-  if (input.bankroll && input.bankroll > 0) {
+  // Step 6: Bet sizing
+  let betSizing = null;
+  if (input.bankroll && base.edgePct > 1) {
     betSizing = buildBetSizingRecommendation({
       bankroll: input.bankroll,
-      oddsAmerican: input.odds,
-      probability: finalProbability,
+      edgePct: base.edgePct,
       confidence,
-      edgePct: edge,
-      decision: rerun.decision,
-      riskFlags
+      odds: input.odds,
+      nbaRoleTier: nbaRoleAnalysis?.roleTier
     });
   }
 
   return {
-    ...rerun,
-    calibratedProbability: Number(finalProbability.toFixed(5)),
-    edgePct: Number(edge.toFixed(4)),
-    confidence: Number(confidence.toFixed(4)),
-    reasons,
+    ...base,
+    reasons: Array.from(new Set(reasons)), // Deduplicate
     riskFlags,
-    betSizing
+    confidence: Math.max(0.2, Math.min(0.95, confidence)),
+    betSizing,
+    nbaRoleAnalysis
   };
 }
