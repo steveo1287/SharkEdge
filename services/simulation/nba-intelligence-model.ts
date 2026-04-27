@@ -28,6 +28,23 @@ export type NbaIntel = {
 
 type Row = Record<string, unknown>;
 
+type PlayerAccumulator = {
+  starPower: number;
+  usageCreation: number;
+  onOffImpact: number;
+  spacing: number;
+  playmaking: number;
+  rimPressure: number;
+  rebounding: number;
+  perimeterDefense: number;
+  rimProtection: number;
+  depthPower: number;
+  availability: number;
+  fatigue: number;
+  volatility: number;
+  weight: number;
+};
+
 type NbaTeamProfile = {
   teamName: string;
   source: "real" | "synthetic";
@@ -262,7 +279,7 @@ function playerSummaryFromRows(rows: Row[] | null, teamName: string): NbaPlayerP
   const matched = (rows ?? []).filter((row) => normalizeName(text(row.teamName, row.team, row.team_name, row.TEAM_NAME) ?? "") === key);
   if (!matched.length) return base;
 
-  const totals = matched.reduce((acc, row, index) => {
+  const totals = matched.reduce<PlayerAccumulator>((acc, row, index) => {
     const weight = Math.max(0.4, num(row.minutes ?? row.projectedMinutes ?? row.usage ?? row.roleWeight, index < 5 ? 3 : 1));
     const impact = num(row.impactRating ?? row.epm ?? row.raptor ?? row.bpm ?? row.lebron ?? row.onOff ?? row.plusMinus, 0);
     acc.starPower += num(row.starPower ?? row.starRating ?? row.topPlayerImpact ?? row.usageImpact, impact) * weight;
