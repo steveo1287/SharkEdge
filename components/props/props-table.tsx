@@ -13,7 +13,8 @@ import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
 import { buildPropBetIntent, buildWagerMathView } from "@/lib/utils/bet-intelligence";
 import { resolveMatchupHref } from "@/lib/utils/entity-routing";
 import { buildPropOpportunity } from "@/services/opportunities/opportunity-service";
-import { buildPlayerSimProjection } from "@/services/simulation/player-sim-engine";
+import { buildPlayerSimV2 } from "@/services/simulation/player-sim-v2";
+import { getSimTuning } from "@/services/simulation/get-sim-tuning";
 
 type PropsTableProps = {
   props: PropCardView[];
@@ -100,29 +101,30 @@ function buildSimHref(prop: PropCardView, simPropType: SimPropType) {
   return `/sim/players?${params.toString()}`;
 }
 
-function buildLiveSimEdge(prop: PropCardView) {
+async function buildLiveSimEdge(prop: PropCardView) {
   const simPropType = toPlayerSimPropType(prop.marketType);
   const bookOdds = prop.bestAvailableOddsAmerican ?? prop.oddsAmerican;
-  const projection = buildPlayerSimProjection({
+  const tuning = await getSimTuning();
+  const minutes = typeof prop.minutes === "number" ? prop.minutes : 34;
+
+  const sim = buildPlayerSimV2({
     player: prop.player.name,
     propType: simPropType,
     line: prop.line,
+    odds: bookOdds,
     teamTotal: estimateTeamTotal(prop),
+    minutes,
     usageRate: estimateUsageRate(prop, simPropType),
-    opponentFactor: typeof prop.matchupRank === "number" ? Math.max(0.86, Math.min(1.14, 1 + (50 - prop.matchupRank) / 500)) : 1,
-    bookOdds
-  });
+    opponentRank: typeof prop.matchupRank === "number" ? prop.matchupRank : undefined,
+  }, tuning);
 
   const side = String(prop.side ?? "").toLowerCase();
-  const sideProbability = side.includes("under") ? projection.underPct : projection.overPct;
-  const sideEdgePct = side.includes("under")
-    ? (projection.underPct - (projection.overPct - projection.edgePct / 100)) * 100
-    : projection.edgePct;
-  const displayEdge = Number.isFinite(sideEdgePct) ? sideEdgePct : projection.edgePct;
-  const label = displayEdge >= 5 ? "Attack" : displayEdge >= 1.5 ? "Watch" : "Pass";
+  const sideProbability = side.includes("under") ? 1 - sim.calibratedProbability : sim.calibratedProbability;
+  const displayEdge = sim.edgePct;
+  const label = sim.decision;
 
   return {
-    projection,
+    projection: sim,
     simPropType,
     href: buildSimHref(prop, simPropType),
     displayEdge,
@@ -131,7 +133,11 @@ function buildLiveSimEdge(prop: PropCardView) {
   };
 }
 
-export function PropsTable({ props }: PropsTableProps) {
+export async function PropsTable({ props }: PropsTableProps) {
+  // Pre-compute sim edges for all props
+  const simEdges = await Promise.all(props.map(prop => buildLiveSimEdge(prop)));
+  const simEdgeMap = new Map(props.map((prop, i) => [prop.id, simEdges[i]]));
+
   return (
     <DataTable
       columns={[
@@ -258,7 +264,8 @@ export function PropsTable({ props }: PropsTableProps) {
           </div>
         </div>,
         (() => {
-          const sim = buildLiveSimEdge(prop);
+          const sim = simEdgeMap.get(prop.id);
+          if (!sim) return <div>Sim unavailable</div>;
           const positive = sim.displayEdge > 0;
           return (
             <div key={`${prop.id}-sim-edge`} className="min-w-[116px]">

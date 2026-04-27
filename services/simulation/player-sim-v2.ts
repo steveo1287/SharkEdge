@@ -1,3 +1,5 @@
+import { DEFAULT_TUNING, SimTuningParams } from "./sim-tuning";
+
 export type PlayerSimV2Input = {
   player: string;
   propType: string;
@@ -108,21 +110,21 @@ export function baselineMean(input: PlayerSimV2Input) {
   return teamTotal * usageRate;
 }
 
-export function applyAdjustments(mean: number, input: PlayerSimV2Input) {
+export function applyAdjustments(mean: number, input: PlayerSimV2Input, tuning: SimTuningParams = DEFAULT_TUNING) {
   let adjusted = Math.max(0, mean);
   const reasons: string[] = [];
 
   if (typeof input.opponentRank === "number" && Number.isFinite(input.opponentRank)) {
     const rank = Math.max(1, Math.min(30, input.opponentRank));
     const adj = (15 - rank) * 0.01;
-    adjusted *= 1 + adj;
-    reasons.push(`Matchup adj ${adj >= 0 ? "+" : ""}${adj.toFixed(2)}`);
+    adjusted *= 1 + adj * tuning.matchupWeight;
+    reasons.push(`Matchup adj ${(adj * tuning.matchupWeight) >= 0 ? "+" : ""}${(adj * tuning.matchupWeight).toFixed(2)}`);
   }
 
   if (typeof input.pace === "number" && Number.isFinite(input.pace)) {
     const paceAdj = (input.pace - 100) * 0.01;
-    adjusted *= 1 + paceAdj;
-    reasons.push(`Pace adj ${paceAdj >= 0 ? "+" : ""}${paceAdj.toFixed(2)}`);
+    adjusted *= 1 + paceAdj * tuning.paceWeight;
+    reasons.push(`Pace adj ${(paceAdj * tuning.paceWeight) >= 0 ? "+" : ""}${(paceAdj * tuning.paceWeight).toFixed(2)}`);
   }
 
   if (typeof input.recentForm === "number" && Number.isFinite(input.recentForm) && input.recentForm !== 0) {
@@ -136,11 +138,11 @@ export function applyAdjustments(mean: number, input: PlayerSimV2Input) {
   return { adjusted, reasons };
 }
 
-export function simulate(mean: number, line: number, input: PlayerSimV2Input) {
+export function simulate(mean: number, line: number, input: PlayerSimV2Input, tuning: SimTuningParams = DEFAULT_TUNING) {
   const sims = Math.max(1000, Math.min(input.sims ?? 5000, 25000));
   const propType = normalizePropType(input.propType);
   const varianceScale = propType === "Strikeouts" || propType === "Outs" ? 0.22 : propType === "Threes" ? 0.34 : 0.25;
-  const std = Math.max(0.2, mean * varianceScale);
+  const std = Math.max(0.2, mean * varianceScale * tuning.varianceScale);
   const seedSource = input.seed ?? `${input.player}:${propType}:${line}:${mean}:${input.odds}:${input.teamTotal}:${input.minutes}:${input.usageRate}`;
   const random = seededRandom(hashString(seedSource));
   let over = 0;
@@ -170,11 +172,11 @@ export function decide(edge: number, confidence: number): PlayerSimV2Output["dec
   return "PASS";
 }
 
-export function buildPlayerSimV2(input: PlayerSimV2Input): PlayerSimV2Output {
+export function buildPlayerSimV2(input: PlayerSimV2Input, tuning: SimTuningParams = DEFAULT_TUNING): PlayerSimV2Output {
   const rawMean = baselineMean(input);
-  const { adjusted, reasons } = applyAdjustments(rawMean, input);
-  const { probability, simCount } = simulate(adjusted, input.line, input);
-  const calibrated = calibrate(probability);
+  const { adjusted, reasons } = applyAdjustments(rawMean, input, tuning);
+  const { probability, simCount } = simulate(adjusted, input.line, input, tuning);
+  const calibrated = calibrate(probability) * tuning.calibrationScale;
   const implied = americanToProb(input.odds);
   const edge = (calibrated - implied) * 100;
   const confidence = Math.min(0.9, 0.55 + Math.abs(edge) / 20);
