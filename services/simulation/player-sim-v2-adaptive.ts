@@ -1,6 +1,7 @@
 import { buildPlayerSimV2, type PlayerSimV2Input, type PlayerSimV2Output } from "./player-sim-v2";
 import { applyPlayerAdaptiveAdjustment } from "./sim-adaptive-layer";
 import { buildMarketIntelligenceSignal } from "./sim-market-intelligence-layer";
+import { buildClvSharpSignal } from "./sim-clv-sharp-layer";
 import type { SimTuningParams } from "./sim-tuning";
 
 export function buildAdaptivePlayerSimV2(
@@ -13,6 +14,14 @@ export function buildAdaptivePlayerSimV2(
       marketDeltaAmerican?: number | null;
       expectedValuePct?: number | null;
       side?: string | null;
+    };
+    clv?: {
+      entryOdds?: number | null;
+      currentOdds?: number | null;
+      closingOdds?: number | null;
+      entryLine?: number | null;
+      currentLine?: number | null;
+      closingLine?: number | null;
     };
   },
   tuning?: SimTuningParams
@@ -68,13 +77,39 @@ export function buildAdaptivePlayerSimV2(
     confidence = Math.max(0, Math.min(0.95, confidence + marketSignal.confidenceShift));
   }
 
-  // Re-run core sim after adaptive + market adjustments
+  // ===== CLV + SHARP MONEY LAYER =====
+  let clvSignal = null;
+  if (input.clv || input.market) {
+    clvSignal = buildClvSharpSignal({
+      entryOdds: input.clv?.entryOdds,
+      currentOdds: input.clv?.currentOdds ?? input.odds,
+      closingOdds: input.clv?.closingOdds,
+      entryLine: input.clv?.entryLine,
+      currentLine: input.clv?.currentLine ?? input.line,
+      closingLine: input.clv?.closingLine,
+      lineMovement: input.market?.lineMovement,
+      marketDeltaAmerican: input.market?.marketDeltaAmerican,
+      bookCount: input.market?.bookCount,
+      side: input.market?.side
+    });
+
+    reasons.unshift(...clvSignal.reasons);
+    riskFlags.push(...clvSignal.riskFlags);
+
+    confidence = Math.max(0, Math.min(0.95, confidence + clvSignal.confidenceShift));
+  }
+
+  // Re-run core sim after adjustments
   const rerun = buildPlayerSimV2(workingInput, tuning);
 
   let finalProbability = rerun.calibratedProbability;
 
   if (marketSignal) {
     finalProbability = Math.max(0.01, Math.min(0.99, finalProbability + marketSignal.probabilityShift));
+  }
+
+  if (clvSignal) {
+    finalProbability = Math.max(0.01, Math.min(0.99, finalProbability + clvSignal.probabilityShift));
   }
 
   const implied = rerun.calibratedProbability - rerun.edgePct / 100;
