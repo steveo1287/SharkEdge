@@ -1,4 +1,4 @@
-import { TrendsDashboardV2 } from "@/components/trends/trends-dashboard-v2";
+import { TrendsDashboardV3 } from "@/components/trends/trends-dashboard-v3";
 import type { TrendFilters, TrendMode } from "@/lib/types/domain";
 import { trendFiltersSchema } from "@/lib/validation/filters";
 import { getTrendDashboardSafe } from "@/services/trends/get-trend-dashboard-safe";
@@ -55,5 +55,5 @@ export default async function TrendsPage({ searchParams }: PageProps) {
     savedTrendId
   });
 
-  return <TrendsDashboardV2 data={view} />;
+  return <TrendsDashboardV3 data={view} />;
 }
