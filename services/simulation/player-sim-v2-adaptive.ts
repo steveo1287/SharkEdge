@@ -1,5 +1,6 @@
 import { buildPlayerSimV2, type PlayerSimV2Input, type PlayerSimV2Output } from "./player-sim-v2";
 import { buildNbaMinutesUsageProjection, type NbaMinutesUsageInput } from "./nba-minutes-usage-model";
+import { getNbaPlayerProjectionContext } from "@/services/nba/nba-player-projection-context-service";
 import { applyPlayerAdaptiveAdjustment } from "./sim-adaptive-layer";
 import { buildMarketIntelligenceSignal } from "./sim-market-intelligence-layer";
 import { buildClvSharpSignal } from "./sim-clv-sharp-layer";
@@ -28,18 +29,28 @@ export type AdaptiveSimInput = PlayerSimV2Input & {
   bankroll?: number;
 };
 
-export function buildAdaptivePlayerSimV2(
+export async function buildAdaptivePlayerSimV2(
   input: AdaptiveSimInput,
   tuning?: SimTuningParams
-): PlayerSimV2Output & { betSizing?: any; nbaRoleAnalysis?: any } {
+): Promise<PlayerSimV2Output & { betSizing?: any; nbaRoleAnalysis?: any }> {
   let workingInput: PlayerSimV2Input = { ...input };
   let reasons: string[] = [];
   let riskFlags: string[] = [];
 
   // Step 1: Project NBA minutes + usage (CORE)
   let nbaRoleAnalysis = null;
-  if (input.nbaContext) {
-    nbaRoleAnalysis = buildNbaMinutesUsageProjection(input.nbaContext);
+  let nbaContext = input.nbaContext;
+
+  // Fetch live context from DataBallr if not provided
+  if (!nbaContext) {
+    nbaContext = await getNbaPlayerProjectionContext({
+      playerName: input.player,
+      propType: input.propType
+    });
+  }
+
+  if (nbaContext) {
+    nbaRoleAnalysis = buildNbaMinutesUsageProjection(nbaContext);
 
     // Override minutes and usage with projections
     workingInput.minutes = nbaRoleAnalysis.projectedMinutes;
