@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 import type { MarketType } from "@prisma/client";
 
 function extractStat(statsJson: any, propType: MarketType): number | null {
@@ -45,7 +45,7 @@ function determineResult(
   line: number,
   actual: number
 ): "WIN" | "LOSS" | "PUSH" {
-  const tolerance = 0.01; // Allow floating point comparison tolerance
+  const tolerance = 0.01;
 
   if (Math.abs(actual - line) < tolerance) {
     return "PUSH";
@@ -70,11 +70,8 @@ export async function settleSimPredictions() {
 
   for (const pred of openPredictions) {
     try {
-      if (!pred.playerId || !pred.eventId) {
-        continue;
-      }
+      if (!pred.playerId || !pred.eventId) continue;
 
-      // Find the player's game stats for this event
       const stat = await prisma.playerGameStat.findFirst({
         where: {
           playerId: pred.playerId,
@@ -82,15 +79,13 @@ export async function settleSimPredictions() {
         }
       });
 
-      if (!stat) {
-        continue; // Game not settled yet
-      }
+      if (!stat) continue;
 
       const statsJson = typeof stat.statsJson === "string" ? JSON.parse(stat.statsJson) : stat.statsJson;
       const actual = extractStat(statsJson, pred.propType);
 
       if (actual === null) {
-        errors.push(`Cannot extract ${pred.propType} from stats for ${pred.playerName}`);
+        errors.push(`Cannot extract ${pred.propType} for ${pred.playerName}`);
         continue;
       }
 
@@ -107,7 +102,7 @@ export async function settleSimPredictions() {
 
       settledCount++;
     } catch (error) {
-      errors.push(`Error settling prediction ${pred.id}: ${error instanceof Error ? error.message : String(error)}`);
+      errors.push(`Error settling ${pred.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -116,101 +111,4 @@ export async function settleSimPredictions() {
     totalOpen: openPredictions.length,
     errors
   };
-}
-
-export async function calibrateSimulationByPropType() {
-  const settled = await prisma.simPrediction.findMany({
-    where: { result: { not: "OPEN" } }
-  });
-
-  const byPropType = new Map<string, any[]>();
-
-  for (const pred of settled) {
-    if (!byPropType.has(pred.propType)) {
-      byPropType.set(pred.propType, []);
-    }
-    byPropType.get(pred.propType)!.push(pred);
-  }
-
-  const calibration: Record<string, any> = {};
-
-  for (const [propType, preds] of byPropType) {
-    const wins = preds.filter((p) => p.result === "WIN").length;
-    const losses = preds.filter((p) => p.result === "LOSS").length;
-    const pushes = preds.filter((p) => p.result === "PUSH").length;
-    const total = wins + losses + pushes;
-
-    const simAverage = preds.reduce((sum, p) => sum + (p.side.toLowerCase() === "over" ? p.simOverPct : p.simUnderPct), 0) / preds.length;
-    const actualHitRate = wins / total;
-    const calibrationDelta = actualHitRate - simAverage;
-
-    calibration[propType] = {
-      sampleSize: total,
-      hitRate: actualHitRate,
-      simAverage,
-      calibrationDelta,
-      wins,
-      losses,
-      pushes
-    };
-  }
-
-  return calibration;
-}
-
-export async function getTopEdgeOpportunities(limit = 10) {
-  const settled = await prisma.simPrediction.findMany({
-    where: { result: "WIN" },
-    orderBy: { edgePct: "desc" },
-    take: limit
-  });
-
-  return settled.map((p) => ({
-    playerName: p.playerName,
-    propType: p.propType,
-    line: p.line,
-    side: p.side,
-    edge: p.edgePct,
-    confidence: p.confidence,
-    actualValue: p.actualValue
-  }));
-}
-
-export async function getCalibrationBuckets(propType?: string) {
-  const where = propType ? { propType } : {};
-  const settled = await prisma.simPrediction.findMany({
-    where: { ...where, result: { not: "OPEN" } }
-  });
-
-  // Group by confidence buckets
-  const buckets: Record<string, { count: number; wins: number; losses: number; hitRate: number }> = {
-    "0.55-0.60": { count: 0, wins: 0, losses: 0, hitRate: 0 },
-    "0.60-0.70": { count: 0, wins: 0, losses: 0, hitRate: 0 },
-    "0.70-0.80": { count: 0, wins: 0, losses: 0, hitRate: 0 },
-    "0.80-0.90": { count: 0, wins: 0, losses: 0, hitRate: 0 }
-  };
-
-  for (const pred of settled) {
-    let bucket: string;
-    if (pred.confidence < 0.60) bucket = "0.55-0.60";
-    else if (pred.confidence < 0.70) bucket = "0.60-0.70";
-    else if (pred.confidence < 0.80) bucket = "0.70-0.80";
-    else bucket = "0.80-0.90";
-
-    buckets[bucket].count++;
-    if (pred.result === "WIN") {
-      buckets[bucket].wins++;
-    } else if (pred.result === "LOSS") {
-      buckets[bucket].losses++;
-    }
-  }
-
-  // Calculate hit rates
-  for (const bucket of Object.values(buckets)) {
-    if (bucket.count > 0) {
-      bucket.hitRate = bucket.wins / bucket.count;
-    }
-  }
-
-  return buckets;
 }
