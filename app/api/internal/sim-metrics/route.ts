@@ -3,11 +3,6 @@ import {
   getPredictionMetrics,
   getOpenPredictions
 } from "@/services/simulation/sim-tracking-service";
-import {
-  calibrateSimulationByPropType,
-  getTopEdgeOpportunities,
-  getCalibrationBuckets
-} from "@/services/simulation/sim-settlement-service";
 import { ensureInternalApiAccess } from "@/lib/utils/internal-api";
 
 export async function GET(request: Request) {
@@ -19,14 +14,10 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const league = url.searchParams.get("league") || undefined;
-    const propType = url.searchParams.get("propType") || undefined;
 
-    const [metrics, openCount, calibration, topEdges, buckets] = await Promise.all([
+    const [metrics, openCount] = await Promise.all([
       getPredictionMetrics(league),
-      getOpenPredictions().then((p) => p.length),
-      calibrateSimulationByPropType(),
-      getTopEdgeOpportunities(15),
-      getCalibrationBuckets(propType)
+      getOpenPredictions().then((p) => p.length)
     ]);
 
     return NextResponse.json({
@@ -34,9 +25,6 @@ export async function GET(request: Request) {
         ...metrics,
         openPredictions: openCount
       },
-      calibration: propType ? { [propType]: calibration[propType] } : calibration,
-      topEdges,
-      confidenceBuckets: buckets,
       generatedAt: new Date().toISOString()
     });
   } catch (error) {

@@ -3,8 +3,16 @@ import { getPropsExplorerData } from "@/services/odds/props-service";
 
 export async function GET() {
   try {
-    const data = await getPropsExplorerData({ league: "NBA" });
-    const props = data.cards ?? [];
+    const data = await getPropsExplorerData({
+      league: "NBA",
+      marketType: "ALL",
+      team: "",
+      player: "",
+      sportsbook: "",
+      valueFlag: "all",
+      sortBy: "best_price"
+    });
+    const props = data.props ?? [];
 
     const result = await batchBuildNbaSimCache(props);
 

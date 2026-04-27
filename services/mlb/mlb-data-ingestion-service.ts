@@ -24,8 +24,8 @@ export async function buildMlbEliteContext(input: {
     fetchSavantData(input.playerName),
     fetchFangraphsSplits(input.playerName),
     fetchWeather(game?.venue ?? undefined),
-    fetchOpponentStrikeoutRate(input.opponent),
-    buildWeightedLineupK(input.opponent)
+    fetchOpponentStrikeoutRate(input.opponent ?? undefined),
+    buildWeightedLineupK(input.opponent ?? undefined)
   ]);
 
   return {
