@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SectionTitle } from "@/components/ui/section-title";
 import { PropsTable } from "@/components/props/props-table";
+import { PlayerSimExposurePanel } from "@/components/props/player-sim-exposure-panel";
 import type { PropCardView } from "@/lib/types/domain";
 
 function pct(value: number | null | undefined) {
@@ -76,9 +77,9 @@ function TopPlayCard({ prop, rank }: { prop: PropCardView; rank: number }) {
       </div>
 
       <div className="mt-4 flex gap-2">
-        <Link href={`/sim/players?league=${prop.leagueKey}&player=${encodeURIComponent(prop.player.name)}&prop=${encodeURIComponent(prop.marketType)}&line=${prop.line}`} className="rounded-md border border-aqua/30 bg-aqua/10 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-aqua">
+        <a href="#player-sims" className="rounded-md border border-aqua/30 bg-aqua/10 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-aqua">
           Sim
-        </Link>
+        </a>
         <Link href="/nba-edge" className="rounded-md border border-bone/[0.12] bg-panel px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-bone/65">
           Engine
         </Link>
@@ -125,6 +126,7 @@ export function PropsTradingTerminal({
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <a href="#player-sims" className="rounded-md border border-aqua/35 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-aqua">Player Sims</a>
             <Link href="/nba-edge" className="rounded-md border border-aqua/35 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-aqua">NBA Edge</Link>
             <Link href="/api/jobs/nba-batch-sim" className="rounded-md border border-bone/[0.12] bg-panel px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-bone/75">Refresh Sims</Link>
             <Badge tone="muted">{providerLabel}</Badge>
@@ -150,6 +152,8 @@ export function PropsTradingTerminal({
           <Card className="surface-panel p-6 text-sm text-bone/55">No top opportunities available for this filter set.</Card>
         )}
       </section>
+
+      <PlayerSimExposurePanel props={props} />
 
       <section className="grid gap-4 xl:grid-cols-[1fr_360px]">
         <Card className="surface-panel p-5">
