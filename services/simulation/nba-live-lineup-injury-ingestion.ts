@@ -77,7 +77,7 @@ export function normalizeLiveLineupPayload(payload: unknown, source = "manual"):
         updatedAt
       }))
     };
-  }).filter((team) => team.teamAbbreviation && team.players.length);
+  }).filter((team: any) => team.teamAbbreviation && team.players.length);
 }
 
 export async function ingestLiveNbaLineups(payload: unknown, source = "manual"): Promise<LiveNbaIngestionResult> {

@@ -5,11 +5,7 @@ import { applyNbaPlayerSimAccuracyLayer } from "@/services/simulation/nba-player
 import type { SimTuningParams } from "@/services/simulation/sim-tuning";
 import { getNbaPlayerProjectionContext } from "./nba-player-projection-context-service";
 
-function estimateTeamTotalFromMarket(prop: PropCardView) {
-  const total = prop.marketTruth?.consensusTotal ?? prop.evProfile?.marketTotal ?? null;
-  const spread = prop.marketTruth?.consensusSpread ?? null;
-  if (typeof total === "number" && typeof spread === "number") return Math.max(70, total / 2 - spread / 2);
-  if (typeof total === "number") return Math.max(70, total / 2);
+function estimateTeamTotalFromMarket(_prop: PropCardView) {
   return 112;
 }
 
@@ -45,8 +41,8 @@ export async function buildDataDrivenNbaPlayerSim(prop: PropCardView, tuning?: S
     injuryStatus: ctx.injuryStatus,
     teammateUsageVacatedPct: null,
     pace: ctx.teamPace && ctx.opponentPace ? (ctx.teamPace + ctx.opponentPace) / 2 : ctx.teamPace,
-    gameTotal: prop.marketTruth?.consensusTotal ?? null,
-    spreadAbs: typeof prop.marketTruth?.consensusSpread === "number" ? Math.abs(prop.marketTruth.consensusSpread) : null,
+    gameTotal: null,
+    spreadAbs: null,
     rotationStability: ctx.source === "databallr" ? 0.78 : 0.52
   });
 
@@ -85,7 +81,7 @@ export async function buildDataDrivenNbaPlayerSim(prop: PropCardView, tuning?: S
     ? Math.max(0.01, nbaAccuracy.adjustedMean / Math.max(baseTeamTotal, 1))
     : minutesUsage.projectedUsageRate;
 
-  const sim = buildAdaptivePlayerSimV2({
+  const sim = await buildAdaptivePlayerSimV2({
     player: prop.player.name,
     propType,
     line: prop.line,
@@ -97,21 +93,6 @@ export async function buildDataDrivenNbaPlayerSim(prop: PropCardView, tuning?: S
     pace: ctx.teamPace && ctx.opponentPace ? (ctx.teamPace + ctx.opponentPace) / 2 : ctx.teamPace,
     recentForm: ctx.seasonAvg && ctx.last5Avg ? Math.max(-1, Math.min(1, (ctx.last5Avg - ctx.seasonAvg) / Math.max(ctx.seasonAvg, 1))) : null,
     lineMovement: prop.lineMovement,
-    trend: {
-      recentAvg: ctx.last5Avg ?? prop.line,
-      longAvg: ctx.seasonAvg ?? prop.line,
-      recentMinutes: ctx.last5Minutes,
-      longMinutes: ctx.seasonMinutes
-    },
-    market: {
-      averageOdds: prop.averageOddsAmerican,
-      bestAvailableOdds: prop.bestAvailableOddsAmerican,
-      lineMovement: prop.lineMovement,
-      bookCount: prop.sportsbookCount,
-      marketDeltaAmerican: prop.marketDeltaAmerican,
-      expectedValuePct: prop.expectedValuePct,
-      side: prop.side
-    },
     bankroll
   }, tuning);
 

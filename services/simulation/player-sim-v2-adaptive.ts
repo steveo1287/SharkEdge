@@ -1,6 +1,5 @@
 import { buildPlayerSimV2, type PlayerSimV2Input, type PlayerSimV2Output } from "./player-sim-v2";
-import { buildNbaMinutesUsageProjection, type NbaMinutesUsageInput } from "./nba-minutes-usage-model";
-import { getNbaPlayerProjectionContext } from "@/services/nba/nba-player-projection-context-service";
+import { getNbaPlayerProjectionContext, type NbaPlayerProjectionContext } from "@/services/nba/nba-player-projection-context-service";
 import { applyPlayerAdaptiveAdjustment } from "./sim-adaptive-layer";
 import { buildMarketIntelligenceSignal } from "./sim-market-intelligence-layer";
 import { buildClvSharpSignal } from "./sim-clv-sharp-layer";
@@ -8,7 +7,7 @@ import { buildBetSizingRecommendation } from "./sim-bankroll-sizing-engine";
 import type { SimTuningParams } from "./sim-tuning";
 
 export type AdaptiveSimInput = PlayerSimV2Input & {
-  nbaContext?: NbaMinutesUsageInput;
+  nbaContext?: NbaPlayerProjectionContext;
   market?: {
     averageOdds?: number | null;
     bestAvailableOdds?: number | null;
@@ -41,20 +40,20 @@ export async function buildAdaptivePlayerSimV2(
   let nbaRoleAnalysis = null;
   let nbaContext = input.nbaContext;
 
-  // Fetch live context from DataBallr if not provided
-  if (!nbaContext) {
-    nbaContext = await getNbaPlayerProjectionContext({
-      playerName: input.player,
-      propType: input.propType
-    });
-  }
+  if (nbaContext && nbaContext.projectedMinutes) {
+    nbaRoleAnalysis = {
+      projectedMinutes: nbaContext.projectedMinutes,
+      projectedUsageRate: workingInput.usageRate || 0.25,
+      minutesConfidence: 0.85,
+      usageConfidence: 0.85,
+      roleTier: "STARTER" as const,
+      minutesReasons: ["DataBallr projection"],
+      usageReasons: ["Input usage rate"],
+      riskFlags: []
+    };
 
-  if (nbaContext) {
-    nbaRoleAnalysis = buildNbaMinutesUsageProjection(nbaContext);
-
-    // Override minutes and usage with projections
+    // Override minutes with projections
     workingInput.minutes = nbaRoleAnalysis.projectedMinutes;
-    workingInput.usageRate = nbaRoleAnalysis.projectedUsageRate;
 
     // Feed reasoning
     reasons.unshift(...nbaRoleAnalysis.minutesReasons);
@@ -73,36 +72,8 @@ export async function buildAdaptivePlayerSimV2(
   if (nbaRoleAnalysis) {
     const minuteConfidencePenalty = (1 - nbaRoleAnalysis.minutesConfidence) * 0.1;
     confidence = Math.max(0.2, confidence - minuteConfidencePenalty);
-
-    // LOW/OUT roles should significantly suppress confidence
-    if (nbaRoleAnalysis.roleTier === "OUT") {
-      return {
-        ...base,
-        decision: "PASS",
-        confidence: 0.1,
-        reasons: ["Player OUT - no play"],
-        riskFlags: ["Out of game"],
-        nbaRoleAnalysis
-      };
-    }
-
-    if (nbaRoleAnalysis.roleTier === "LOW") {
-      confidence *= 0.6;
-      riskFlags.push("Low-tier role minutes - high volatility");
-    }
   }
 
-  // Step 3: Adaptive adjustments
-  if (input.trend && input.trend.longAvg > 0) {
-    const adaptive = applyPlayerAdaptiveAdjustment(base.rawMean, {
-      playerId: input.player,
-      propType: input.propType,
-      recentAvg: input.trend.recentAvg,
-      longAvg: input.trend.longAvg
-    });
-
-    reasons.unshift(`Adaptive blend (${(adaptive.weights.recentWeight * 100).toFixed(0)}% recent)`);
-  }
 
   // Step 4: Market intelligence
   let marketSignal = null;
@@ -135,12 +106,12 @@ export async function buildAdaptivePlayerSimV2(
       closingLine: input.clv?.closingLine
     });
 
-    if (clvSignal.sharp) {
-      reasons.unshift(`Sharp money detected (${clvSignal.direction})`);
+    if (clvSignal.sharpMoneyScore > 0.5) {
+      reasons.unshift(`Sharp money detected (score: ${clvSignal.sharpMoneyScore.toFixed(2)})`);
       confidence = Math.min(0.95, confidence + 0.08);
     }
-    if (clvSignal.riskFlags?.length) {
-      riskFlags.push(...clvSignal.riskFlags);
+    if (clvSignal.reasons?.length) {
+      reasons.push(...clvSignal.reasons);
     }
   }
 
@@ -149,10 +120,11 @@ export async function buildAdaptivePlayerSimV2(
   if (input.bankroll && base.edgePct > 1) {
     betSizing = buildBetSizingRecommendation({
       bankroll: input.bankroll,
-      edgePct: base.edgePct,
+      oddsAmerican: input.odds,
+      probability: base.probability,
       confidence,
-      odds: input.odds,
-      nbaRoleTier: nbaRoleAnalysis?.roleTier
+      edgePct: base.edgePct,
+      decision: "ATTACK"
     });
   }
 

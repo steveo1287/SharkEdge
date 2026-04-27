@@ -326,14 +326,14 @@ export async function getTrendDashboardSafe(
   options?: { mode?: TrendMode; aiQuery?: string; savedTrendId?: string | null }
 ): Promise<TrendDashboardView> {
   if (!hasUsableServerDatabaseUrl()) {
-    return (await publishedDashboard(filters, options)) ?? buildFallbackTrendDashboard(filters, options);
+    return (await publishedDashboard(filters, options)) ?? buildFallbackTrendDashboard(filters);
   }
 
   try {
     const view = await getTrendDashboard(filters, options);
     if (hasCards(view)) return view;
-    return (await publishedDashboard(filters, options, view)) ?? buildFallbackTrendDashboard(filters, options);
+    return (await publishedDashboard(filters, options, view)) ?? buildFallbackTrendDashboard(filters);
   } catch {
-    return (await publishedDashboard(filters, options)) ?? buildFallbackTrendDashboard(filters, options);
+    return (await publishedDashboard(filters, options)) ?? buildFallbackTrendDashboard(filters);
   }
 }
