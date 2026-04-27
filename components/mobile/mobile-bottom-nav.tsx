@@ -6,11 +6,11 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 
 const NAV_ITEMS = [
-  { href: "/",       label: "Desk",   icon: "home" },
-  { href: "/board",  label: "Board",  icon: "board" },
-  { href: "/games",  label: "Games",  icon: "games" },
-  { href: "/trends", label: "Trends", icon: "trends" },
-  { href: "/bets",   label: "Book",   icon: "bets" }
+  { href: "/",       label: "Desk",  icon: "home" },
+  { href: "/board",  label: "Board", icon: "board" },
+  { href: "/sim",    label: "Sim",   icon: "sim" },
+  { href: "/trends", label: "Trend", icon: "trends" },
+  { href: "/props",  label: "Props", icon: "props" }
 ] as const;
 
 function MobileNavIcon({ type, active }: { type: (typeof NAV_ITEMS)[number]["icon"]; active: boolean }) {
@@ -33,10 +33,10 @@ function MobileNavIcon({ type, active }: { type: (typeof NAV_ITEMS)[number]["ico
     </svg>
   );
 
-  if (type === "games") return (
+  if (type === "sim") return (
     <svg viewBox="0 0 24 24" className={s} fill="none">
-      <rect x="3" y="5" width="18" height="16" rx="1" stroke={color} strokeWidth={sw}/>
-      <path d="M3 9h18M8 5V3M16 5V3" stroke={color} strokeWidth={sw} strokeLinecap="round"/>
+      <path d="M4 5h6v6H4zM14 5h6v6h-6zM4 15h6v4H4z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/>
+      <path d="M14 17h6M17 14v6" stroke={color} strokeWidth={sw} strokeLinecap="round"/>
     </svg>
   );
 
@@ -49,8 +49,8 @@ function MobileNavIcon({ type, active }: { type: (typeof NAV_ITEMS)[number]["ico
 
   return (
     <svg viewBox="0 0 24 24" className={s} fill="none">
-      <rect x="3" y="6" width="18" height="14" rx="1" stroke={color} strokeWidth={sw}/>
-      <path d="M3 10h18M8 10V6M16 10V6" stroke={color} strokeWidth={sw} strokeLinecap="round"/>
+      <circle cx="12" cy="7.5" r="3.25" stroke={color} strokeWidth={sw}/>
+      <path d="M5.5 20c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5" stroke={color} strokeWidth={sw} strokeLinecap="round"/>
     </svg>
   );
 }
