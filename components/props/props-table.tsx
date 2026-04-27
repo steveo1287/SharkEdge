@@ -25,44 +25,50 @@ function displayOdds(value: number | null | undefined) {
 }
 
 async function buildLiveSimEdge(prop: PropCardView) {
-  const bookOdds = prop.bestAvailableOddsAmerican ?? prop.oddsAmerican;
-  const tuning = await getSimTuning();
+  try {
+    const bookOdds = prop.bestAvailableOddsAmerican ?? prop.oddsAmerican;
+    const tuning = await getSimTuning();
 
-  const sim = await getOrBuildCachedSim({
-    propId: prop.id,
-    playerName: prop.player.name,
-    propType: String(prop.marketType),
-    line: prop.line,
-    odds: bookOdds,
-    teamTotal: 110,
-    minutes: 34,
-    usageRate: 0.24,
-    matchupRank: typeof prop.matchupRank === "number" ? prop.matchupRank : undefined,
-    tuning,
-    prop
-  });
+    const sim = await getOrBuildCachedSim({
+      propId: prop.id,
+      playerName: prop.player.name,
+      propType: String(prop.marketType),
+      line: prop.line,
+      odds: bookOdds,
+      teamTotal: 110,
+      minutes: 34,
+      usageRate: 0.24,
+      matchupRank: typeof prop.matchupRank === "number" ? prop.matchupRank : undefined,
+      tuning,
+      prop
+    });
 
-  const lineDelta = sim.adjustedMean - prop.line;
-  const lean = Math.abs(lineDelta) < 0.05 ? "PUSH" : lineDelta > 0 ? "OVER" : "UNDER";
-  const leanProbability = lean === "UNDER" ? 1 - sim.calibratedProbability : sim.calibratedProbability;
+    const lineDelta = sim.adjustedMean - prop.line;
+    const lean = Math.abs(lineDelta) < 0.05 ? "PUSH" : lineDelta > 0 ? "OVER" : "UNDER";
+    const leanProbability = lean === "UNDER" ? 1 - sim.calibratedProbability : lean === "OVER" ? sim.calibratedProbability : 0.5;
 
-  return {
-    projection: sim,
-    adjustedMean: sim.adjustedMean,
-    rawMean: sim.rawMean,
-    lineDelta,
-    lean,
-    leanProbability,
-    displayEdge: sim.edgePct,
-    fairOdds: sim.fairOdds,
-    confidence: sim.confidence,
-    label: sim.decision,
-    reasons: sim.reasons ?? [],
-    riskFlags: sim.riskFlags ?? []
-  };
+    return {
+      projection: sim,
+      adjustedMean: sim.adjustedMean,
+      rawMean: sim.rawMean,
+      lineDelta,
+      lean,
+      leanProbability,
+      displayEdge: sim.edgePct,
+      fairOdds: sim.fairOdds,
+      confidence: sim.confidence,
+      label: sim.decision,
+      reasons: sim.reasons ?? [],
+      riskFlags: sim.riskFlags ?? []
+    };
+  } catch {
+    return null;
+  }
 }
 
-function renderSimCell(prop: PropCardView, sim: Awaited<ReturnType<typeof buildLiveSimEdge>> | undefined) {
+type LiveSimEdge = NonNullable<Awaited<ReturnType<typeof buildLiveSimEdge>>>;
+
+function renderSimCell(prop: PropCardView, sim: LiveSimEdge | null | undefined) {
   if (!sim) {
     return (
       <div key={`${prop.id}-sim-edge`} className="min-w-[150px]">
@@ -103,8 +109,8 @@ function renderSimCell(prop: PropCardView, sim: Awaited<ReturnType<typeof buildL
 }
 
 export async function PropsTable({ props }: PropsTableProps) {
-  const simEdges = await Promise.all(props.map(prop => buildLiveSimEdge(prop)));
-  const simEdgeMap = new Map(props.map((prop, i) => [prop.id, simEdges[i]]));
+  const simEdges = await Promise.all(props.map((prop) => buildLiveSimEdge(prop)));
+  const simEdgeMap = new Map(props.map((prop, i) => [prop.id, simEdges[i] ?? null]));
 
   return (
     <DataTable
