@@ -1,8 +1,7 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 import { buildAdaptivePlayerSimV2 } from "./player-sim-v2-adaptive";
 import { getSimTuning } from "./get-sim-tuning";
 import { setCachedSim } from "./sim-cache";
-import type { SimTuningParams } from "./sim-tuning";
 
 export type PrecomputeMetrics = {
   total: number;
@@ -18,9 +17,8 @@ async function isGameTime(): Promise<boolean> {
   const hour = now.getUTCHours();
   const day = now.getUTCDay();
 
-  // Games typically 5pm-2am UTC (12pm-9pm ET)
   const inGameWindow = hour >= 21 || hour < 7;
-  const isWeekday = day >= 1 && day <= 5; // Mon-Fri in UTC are Tue-Sat ET
+  const isWeekday = day >= 1 && day <= 5;
 
   return inGameWindow && isWeekday;
 }
@@ -34,7 +32,6 @@ export async function precomputeActivePropSims(): Promise<PrecomputeMetrics> {
     const tuning = await getSimTuning();
     const gameTime = await isGameTime();
 
-    // Fetch all live props
     const props = await prisma.propCardView.findMany({
       where: {
         supportStatus: "LIVE",
@@ -54,7 +51,7 @@ export async function precomputeActivePropSims(): Promise<PrecomputeMetrics> {
         recentHitRate: true,
         leagueKey: true
       },
-      take: 50 // Limit to avoid timeout on first run
+      take: 50
     });
 
     for (const prop of props) {
