@@ -107,6 +107,14 @@ This enforces:
 - post-deploy probes for `/api/v1/board` and `/api/v1/providers/readiness`
 - automatic rollback to previous ready deployment if probes fail
 
+For automatic deploys on every push to `main` (and `work` while migration is in progress), configure GitHub Actions secrets and rely on `.github/workflows/deploy-vercel.yml`:
+
+- `VERCEL_TOKEN`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
+
+Once those are set, commits to tracked branches will deploy to Vercel production without manual CLI steps.
+
 ## Environment Variables
 
 - `DATABASE_URL`
