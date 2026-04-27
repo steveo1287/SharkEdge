@@ -105,7 +105,7 @@ function buildTravelProxyScore(args: {
 }
 
 export async function refreshEventParticipantContextWarehouse(args?: EventContextRefreshArgs) {
-  const leagues = args?.leagues?.length ? args.leagues : ["NBA", "MLB", "NHL", "NFL", "NCAAF"];
+  const leagues = args?.leagues?.length ? args.leagues : ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
   const windowStart = getWindowStart(args?.days);
 
   const events = await prisma.event.findMany({

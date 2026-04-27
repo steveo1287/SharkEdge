@@ -57,11 +57,37 @@ export type ABTestDashboard = {
   }[];
 };
 
+type VerdictAbTestRow = {
+  id: string;
+  eventId: string;
+  variant: string;
+  metadataJson: unknown;
+  controlVerdict: unknown;
+  treatmentVerdict: unknown;
+  actualHomeScore: number | null;
+  actualAwayScore: number | null;
+  verdictAccuracy: number | null;
+  totalAccuracy: number | null;
+  winnerVariant: string | null;
+  resolved: boolean;
+  resolvedAt: Date | null;
+  createdAt: Date;
+};
+
+function getVerdictAbTestDelegate() {
+  return (prisma as unknown as { verdictAbTest?: { findMany: (args: unknown) => Promise<VerdictAbTestRow[]> } })
+    .verdictAbTest;
+}
+
 export async function getABTestDashboard(): Promise<ABTestDashboard> {
   try {
     const testName = "regime-aware-variance-v1";
+    const delegate = getVerdictAbTestDelegate();
+    if (!delegate) {
+      throw new Error("verdictAbTest delegate is unavailable in this runtime.");
+    }
 
-    const allTests = await prisma.verdictAbTest.findMany({
+    const allTests = await delegate.findMany({
       where: { testName },
       select: {
         id: true,
@@ -83,29 +109,29 @@ export async function getABTestDashboard(): Promise<ABTestDashboard> {
       take: 1000
     });
 
-    const resolved = allTests.filter((t) => t.resolved);
-    const pending = allTests.filter((t) => !t.resolved);
+    const resolved = allTests.filter((t: VerdictAbTestRow) => t.resolved);
+    const pending = allTests.filter((t: VerdictAbTestRow) => !t.resolved);
 
-    const controlTests = resolved.filter((t) => t.variant === "control");
-    const treatmentTests = resolved.filter((t) => t.variant === "treatment");
+    const controlTests = resolved.filter((t: VerdictAbTestRow) => t.variant === "control");
+    const treatmentTests = resolved.filter((t: VerdictAbTestRow) => t.variant === "treatment");
 
     const controlErrors = controlTests
-      .map((t) => t.totalAccuracy ?? 0)
-      .filter((e) => typeof e === "number");
+      .map((t: VerdictAbTestRow) => t.totalAccuracy ?? 0)
+      .filter((e: number) => typeof e === "number");
     const treatmentErrors = treatmentTests
-      .map((t) => t.totalAccuracy ?? 0)
-      .filter((e) => typeof e === "number");
+      .map((t: VerdictAbTestRow) => t.totalAccuracy ?? 0)
+      .filter((e: number) => typeof e === "number");
 
     const controlAvgError =
       controlErrors.length > 0
-        ? controlErrors.reduce((a, b) => a + b, 0) / controlErrors.length
+        ? controlErrors.reduce((a: number, b: number) => a + b, 0) / controlErrors.length
         : 0;
     const treatmentAvgError =
       treatmentErrors.length > 0
-        ? treatmentErrors.reduce((a, b) => a + b, 0) / treatmentErrors.length
+        ? treatmentErrors.reduce((a: number, b: number) => a + b, 0) / treatmentErrors.length
         : 0;
 
-    const treatmentWins = resolved.filter((t) => t.winnerVariant === "treatment").length;
+    const treatmentWins = resolved.filter((t: VerdictAbTestRow) => t.winnerVariant === "treatment").length;
     const treatmentWinRate = resolved.length > 0 ? treatmentWins / resolved.length : 0;
 
     const improvementPct =
@@ -147,7 +173,7 @@ export async function getABTestDashboard(): Promise<ABTestDashboard> {
     const leagueMetricsMap = new Map<LeagueKey, ABTestLeagueMetrics>();
 
     for (const test of resolved) {
-      const metadata = test.metadataJson as any;
+      const metadata = (test.metadataJson ?? {}) as Record<string, unknown>;
       const regime = metadata?.regime ?? "UNKNOWN";
       const eventId = test.eventId;
 
@@ -178,11 +204,11 @@ export async function getABTestDashboard(): Promise<ABTestDashboard> {
       (a, b) => b.resolvedTests - a.resolvedTests
     );
 
-    const recentTests = allTests.slice(0, 50).map((t) => ({
+    const recentTests = allTests.slice(0, 50).map((t: VerdictAbTestRow) => ({
       eventId: t.eventId,
       testName,
       variant: t.variant as "control" | "treatment",
-      regime: ((t.metadataJson as any)?.regime ?? null) as string | null,
+      regime: (((t.metadataJson as Record<string, unknown> | null)?.regime as string | undefined) ?? null) as string | null,
       controlError: t.controlVerdict && t.actualHomeScore !== null ? (t.totalAccuracy as number) : null,
       treatmentError: t.treatmentVerdict && t.actualHomeScore !== null ? (t.totalAccuracy as number) : null,
       winner: (!t.resolved ? "pending" : t.verdictAccuracy === 0.5 ? "tie" : (t.winnerVariant as "control" | "treatment")) as "control" | "treatment" | "pending" | "tie",

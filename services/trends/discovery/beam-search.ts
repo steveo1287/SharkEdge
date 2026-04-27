@@ -3,13 +3,6 @@ import { expandConditionCombos } from "./combo-builder";
 import { scoreTrendCandidate } from "./candidate-scorer";
 import type { CandidateTrendSystem, HistoricalBetOpportunity, TrendCondition, TrendDiscoveryConfig } from "../types";
 
-function getConditionSignature(conditions: TrendCondition[]) {
-  return conditions
-    .map((condition) => `${condition.group}:${condition.label}`)
-    .sort()
-    .join("|");
-}
-
 export function runBeamSearch(args: {
   rows: HistoricalBetOpportunity[];
   league: string;
@@ -21,22 +14,9 @@ export function runBeamSearch(args: {
 }) {
   let beam: TrendCondition[][] = args.atoms.map((atom) => [atom]);
   const accepted: CandidateTrendSystem[] = [];
-  const evaluatedSignatures = new Set<string>();
-  let hypothesesTested = 0;
 
   for (let depth = 1; depth <= args.config.maxConditions; depth += 1) {
-    const uniqueBeam = beam.filter((conditions) => {
-      const signature = getConditionSignature(conditions);
-      if (evaluatedSignatures.has(signature)) {
-        return false;
-      }
-      evaluatedSignatures.add(signature);
-      return true;
-    });
-
-    hypothesesTested += uniqueBeam.length;
-
-    const evaluated = uniqueBeam.map((conditions) => {
+    const evaluated = beam.map((conditions) => {
       const scored = scoreTrendCandidate(args.rows, conditions);
       const sampleSize = scored.metrics.sampleSize;
       if (sampleSize < args.config.minSample) {
@@ -48,10 +28,7 @@ export function runBeamSearch(args: {
       if (scored.recentSampleSize < args.config.minRecentSample) {
         return null;
       }
-      const id = [args.league, args.marketType, args.side, ...conditions.map((condition) => condition.label)]
-        .join(":")
-        .replace(/\s+/g, "-")
-        .toLowerCase();
+      const id = [args.league, args.marketType, args.side, ...conditions.map((condition) => condition.label)].join(":").replace(/\s+/g, "-").toLowerCase();
       const warnings: string[] = [];
       if ((scored.metrics.avgClv ?? 0) < 0) {
         warnings.push("Negative average CLV.");
@@ -99,8 +76,5 @@ export function runBeamSearch(args: {
     );
   }
 
-  return {
-    accepted,
-    hypothesesTested
-  };
+  return accepted;
 }

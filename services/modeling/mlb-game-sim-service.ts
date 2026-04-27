@@ -1,8 +1,12 @@
-import { buildMlbSourceNativeContext } from "@/services/modeling/mlb-source-native-context";
+import { buildMlbSourceNativeContext, type MlbSourceNativeContext } from "@/services/modeling/mlb-source-native-context";
 import {
   applyMlbSourceAwareResimulation,
   recalibrateMlbMarketOutputs
 } from "@/services/modeling/mlb-source-aware-resimulation";
+import {
+  getCachedMlbBacktestWeights,
+  type MlbModelWeights
+} from "@/services/simulation/mlb-backtesting-engine";
 
 type TeamRole = "HOME" | "AWAY";
 
@@ -430,6 +434,83 @@ function getRestFactor(context: {
   if ((context.gamesLast7 ?? 0) >= 7) factor -= 0.01;
   factor -= clamp(density, 0, 1.5) * 0.01;
   return clamp(factor, 0.96, 1.03);
+}
+
+function buildBacktestEdgeAdjustments(args: {
+  home: TeamRunContext;
+  away: TeamRunContext;
+  sourceNativeContext: MlbSourceNativeContext;
+  parkFactor: number;
+  weatherRunFactor: number;
+  homeStarterRunsAllowedPer9: number;
+  awayStarterRunsAllowedPer9: number;
+  homeBullpenRunsAllowedPer9: number;
+  awayBullpenRunsAllowedPer9: number;
+  weights: MlbModelWeights;
+}) {
+  const teamEdge = args.home.offenseFactor - args.away.offenseFactor;
+  const playerEdge = (args.sourceNativeContext.home.lineupStrength - args.sourceNativeContext.away.lineupStrength) / 100;
+  const statcastEdge = (args.sourceNativeContext.home.lineupPowerScore - args.sourceNativeContext.away.lineupPowerScore) / 100;
+  const weatherEdge = args.weatherRunFactor - 1;
+  const pitcherEdge = (args.awayStarterRunsAllowedPer9 - args.homeStarterRunsAllowedPer9) / 6;
+  const bullpenEdge = (args.awayBullpenRunsAllowedPer9 - args.homeBullpenRunsAllowedPer9) / 6;
+  const lockEdge = (args.sourceNativeContext.home.starterConfidence - args.sourceNativeContext.away.starterConfidence) / 100;
+  const parkEdge = args.parkFactor - 1;
+  const formEdge = args.home.restFactor - args.away.restFactor;
+
+  const totalWeatherEdge = weatherEdge;
+  const totalStatcastEdge =
+    (args.sourceNativeContext.home.lineupPowerScore + args.sourceNativeContext.away.lineupPowerScore - 100) / 100;
+  const totalPitchingEdge =
+    ((args.homeStarterRunsAllowedPer9 + args.awayStarterRunsAllowedPer9) / 2 - 4.35) / 4.35;
+  const totalParkEdge = parkEdge;
+  const totalBullpenEdge =
+    ((args.homeBullpenRunsAllowedPer9 + args.awayBullpenRunsAllowedPer9) / 2 - 4.35) / 4.35;
+
+  const weightedHomeEdge = clamp(
+    teamEdge * args.weights.side.team +
+      playerEdge * args.weights.side.player +
+      statcastEdge * args.weights.side.statcast +
+      weatherEdge * args.weights.side.weather +
+      pitcherEdge * args.weights.side.pitcher +
+      bullpenEdge * args.weights.side.bullpen +
+      lockEdge * args.weights.side.lock +
+      parkEdge * args.weights.side.park +
+      formEdge * args.weights.side.form,
+    -1.25,
+    1.25
+  );
+
+  const weightedTotalEdge = clamp(
+    totalWeatherEdge * args.weights.total.weather +
+      totalStatcastEdge * args.weights.total.statcast +
+      totalPitchingEdge * args.weights.total.pitching +
+      totalParkEdge * args.weights.total.park +
+      totalBullpenEdge * args.weights.total.bullpen,
+    -1.25,
+    1.25
+  );
+
+  return {
+    weightedHomeEdge,
+    weightedTotalEdge,
+    raw: {
+      teamEdge: round(teamEdge, 4),
+      playerEdge: round(playerEdge, 4),
+      statcastEdge: round(statcastEdge, 4),
+      weatherEdge: round(weatherEdge, 4),
+      pitcherEdge: round(pitcherEdge, 4),
+      bullpenEdge: round(bullpenEdge, 4),
+      lockEdge: round(lockEdge, 4),
+      parkEdge: round(parkEdge, 4),
+      formEdge: round(formEdge, 4),
+      totalWeatherEdge: round(totalWeatherEdge, 4),
+      totalStatcastEdge: round(totalStatcastEdge, 4),
+      totalPitchingEdge: round(totalPitchingEdge, 4),
+      totalParkEdge: round(totalParkEdge, 4),
+      totalBullpenEdge: round(totalBullpenEdge, 4)
+    }
+  };
 }
 
 function buildHalfInningRate(args: {
@@ -937,13 +1018,32 @@ export async function buildMlbEventProjection(eventId: string) {
         : `Venue-aware run environment baseline ${sourceNativeContext.venue.baselineRunFactor.toFixed(3)} at ${sourceNativeContext.venue.venueName ?? venue ?? "venue"}; live forecast still needs game-day joins.`
   };
 
+  const backtestWeights = await getCachedMlbBacktestWeights();
+  const backtestEdges = buildBacktestEdgeAdjustments({
+    home,
+    away,
+    sourceNativeContext,
+    parkFactor,
+    weatherRunFactor: weather.runFactor,
+    homeStarterRunsAllowedPer9: home.starter?.runsAllowedPer9 ?? 4.35,
+    awayStarterRunsAllowedPer9: away.starter?.runsAllowedPer9 ?? 4.35,
+    homeBullpenRunsAllowedPer9: home.bullpenRunsAllowedPer9,
+    awayBullpenRunsAllowedPer9: away.bullpenRunsAllowedPer9,
+    weights: backtestWeights
+  });
+
+  const homeBacktestFactor = clamp(1 + backtestEdges.weightedHomeEdge * 0.06, 0.9, 1.1);
+  const awayBacktestFactor = clamp(1 - backtestEdges.weightedHomeEdge * 0.06, 0.9, 1.1);
+  const totalBacktestFactor = clamp(1 + backtestEdges.weightedTotalEdge * 0.05, 0.9, 1.1);
+
   const baseInput: MlbSimulationInput = {
     home: {
       teamName: home.teamName,
       offenseFactor: clamp(
         home.offenseFactor *
           (1 + (sourceNativeContext.home.lineupStrength - 50) * 0.0025) *
-          (1 + (sourceNativeContext.away.bullpenFreshness < 45 ? 0.015 : 0)),
+          (1 + (sourceNativeContext.away.bullpenFreshness < 45 ? 0.015 : 0)) *
+          homeBacktestFactor,
         0.72,
         1.45
       ),
@@ -964,7 +1064,8 @@ export async function buildMlbEventProjection(eventId: string) {
       offenseFactor: clamp(
         away.offenseFactor *
           (1 + (sourceNativeContext.away.lineupStrength - 50) * 0.0025) *
-          (1 + (sourceNativeContext.home.bullpenFreshness < 45 ? 0.015 : 0)),
+          (1 + (sourceNativeContext.home.bullpenFreshness < 45 ? 0.015 : 0)) *
+          awayBacktestFactor,
         0.72,
         1.45
       ),
@@ -987,6 +1088,8 @@ export async function buildMlbEventProjection(eventId: string) {
     weather,
     seed: hashSeed(`${resolved.event.id}:${resolved.event.startTime.toISOString()}:${venue ?? "neutral"}`)
   };
+
+  baseInput.weather.runFactor = clamp(baseInput.weather.runFactor * totalBacktestFactor, 0.9, 1.15);
 
   const resimInput = applyMlbSourceAwareResimulation(baseInput, sourceNativeContext);
   const rawSimulation = simulateMlbGame(resimInput);
@@ -1085,6 +1188,13 @@ export async function buildMlbEventProjection(eventId: string) {
       },
       firstFive: simulation.firstFive,
       diagnostics: simulation.diagnostics
+      ,
+      backtest: {
+        weights: backtestWeights,
+        weightedHomeEdge: round(backtestEdges.weightedHomeEdge, 4),
+        weightedTotalEdge: round(backtestEdges.weightedTotalEdge, 4),
+        rawEdges: backtestEdges.raw
+      }
     }
   };
 }

@@ -144,7 +144,7 @@ function getMovementGames(games: GameCardView[]) {
       );
       return rightMove - leftMove;
     })
-    .slice(0, 3);
+    .slice(0, 6);
 }
 
 function getVerifiedGames(
@@ -162,7 +162,7 @@ function getVerifiedGames(
     ).values()
   );
 
-  return (rankedGames.length ? rankedGames : games.filter(isVerifiedGame)).slice(0, 4);
+  return (rankedGames.length ? rankedGames : games.filter(isVerifiedGame)).slice(0, 8);
 }
 
 function buildLiveDeskState(boardData: BoardPageData) {
@@ -224,7 +224,7 @@ export async function getHomeCommandData(
 
   const [boardData, topProps] = await Promise.all([
     oddsService.getBoardPageData(boardFilters),
-    propsService.getTopPlayCards(4)
+    propsService.getTopPlayCards(6)
   ]);
 
   const [
@@ -274,9 +274,9 @@ export async function getHomeCommandData(
   const topActionables = rankOpportunities([
     ...opportunitySnapshot.boardTop,
     ...opportunitySnapshot.propsTop
-  ]).slice(0, 2);
+  ]).slice(0, 6);
 
-  await recordSurfacedOpportunities(topActionables, "home_command", {
+  await recordSurfacedOpportunities(topActionables.slice(0, 3), "home_command", {
     primaryCount: 1,
     metadata: {
       selectedLeague,
@@ -307,7 +307,7 @@ export async function getHomeCommandData(
     ),
     topProps,
     topActionables,
-    decisionWindows: opportunitySnapshot.timingWindows.slice(0, 2),
-    traps: opportunitySnapshot.traps.slice(0, 2)
+    decisionWindows: opportunitySnapshot.timingWindows.slice(0, 4),
+    traps: opportunitySnapshot.traps.slice(0, 4)
   };
 }

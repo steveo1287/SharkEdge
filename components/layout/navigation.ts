@@ -68,7 +68,7 @@ export const MAIN_NAV_ITEMS: NavItem[] = [
     icon: NAV_ICONS.props
   },
   {
-    href: "/game/sim",
+    href: "/sim",
     label: "Simulator",
     description: "Run game simulations, model outcomes, and stress-test lines.",
     icon: NAV_ICONS.sim,
@@ -125,14 +125,19 @@ export const SECONDARY_NAV_ITEMS: NavItem[] = [
 ];
 
 export const LEAGUE_NAV_ITEMS: LeagueNavItem[] = [
-  // League nav items are disabled pending league hub page implementation
-  // Users can filter by league via query params on /board, /games, /trends, /props
-  // TODO: Implement /leagues/[leagueKey]/page.tsx as aggregated league hub
+  { href: "/leagues/nba",   label: "NBA",    leagueKey: "NBA",    description: "NBA league hub." },
+  { href: "/leagues/mlb",   label: "MLB",    leagueKey: "MLB",    description: "MLB baseball hub." },
+  { href: "/leagues/nhl",   label: "NHL",    leagueKey: "NHL",    description: "NHL hockey hub." },
+  { href: "/leagues/nfl",   label: "NFL",    leagueKey: "NFL",    description: "NFL football hub." },
+  { href: "/leagues/ncaab", label: "NCAAB",  leagueKey: "NCAAB",  description: "College basketball." },
+  { href: "/leagues/ncaaf", label: "NCAAF",  leagueKey: "NCAAF",  description: "College football." },
+  { href: "/leagues/ufc",   label: "UFC",    leagueKey: "UFC",    description: "UFC fight hub." },
+  { href: "/leagues/boxing",label: "Boxing", leagueKey: "BOXING", description: "Boxing market desk." }
 ];
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const LEAGUE_DISPLAY_NAMES: Record<string, string> = {
-  NBA: "NBA", MLB: "MLB",
+  NBA: "NBA", NCAAB: "NCAA Basketball", MLB: "MLB",
   NHL: "NHL", NFL: "NFL", NCAAF: "College Football",
   UFC: "UFC", BOXING: "Boxing"
 };
@@ -174,7 +179,7 @@ export function getRouteMeta(pathname: string) {
     { match: (v: string) => isActivePath(v, "/board"),          eyebrow: "Market Board",    title: "Board",          subtitle: "Verified pricing across all sportsbooks." },
     { match: (v: string) => isActivePath(v, "/games") || v.startsWith("/game/"), eyebrow: "Games", title: "Games", subtitle: "Full slate with matchup detail and game routing." },
     { match: (v: string) => isActivePath(v, "/props"),          eyebrow: "Props Lab",       title: "Props",          subtitle: "Player markets — price, movement, and EV context." },
-    { match: (v: string) => isActivePath(v, "/game/sim"),       eyebrow: "Simulation Engine", title: "Simulator",    subtitle: "Model outcomes and stress-test lines." },
+    { match: (v: string) => isActivePath(v, "/sim") || isActivePath(v, "/game/sim"), eyebrow: "Simulation Engine", title: "Simulator", subtitle: "Model outcomes and stress-test lines." },
     { match: (v: string) => isActivePath(v, "/players"),        eyebrow: "Research",        title: "Players",        subtitle: "Player form, workload, and prop-pressure context." },
     { match: (v: string) => isActivePath(v, "/teams"),          eyebrow: "Research",        title: "Teams",          subtitle: "Schedule spot, recent form, and board pressure." },
     { match: (v: string) => isActivePath(v, "/trends"),         eyebrow: "Trends Engine",   title: "Trends",         subtitle: "Historical systems, active matches, and validation signals." },

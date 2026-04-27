@@ -2,12 +2,8 @@
   "framework": "nextjs",
   "crons": [
     {
-      "path": "/api/internal/cron/odds-health",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/internal/cron/odds-refresh",
-      "schedule": "*/2 * * * *"
+      "path": "/api/jobs/odds-snapshot",
+      "schedule": "0 15,17,19,21,23,0,1,2,3,4,5,6 * * *"
     },
     {
       "path": "/api/internal/cron/sim-calibration",
@@ -16,6 +12,10 @@
     {
       "path": "/api/internal/cron/stats-ingest",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/mlb/refresh",
+      "schedule": "0 */6 * * *"
     }
   ]
 }

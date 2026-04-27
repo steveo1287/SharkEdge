@@ -217,6 +217,81 @@ function SectionHeader({
   );
 }
 
+function CommandHero({ home, topEdge, edgeLabel }: { home: Awaited<ReturnType<typeof getHomeCommandData>>; topEdge: any; edgeLabel: string }) {
+  return (
+    <section className="rounded-xl border border-aqua/20 bg-surface p-5 shadow-[0_0_40px_rgba(0,210,255,0.06)]">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div>
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-aqua">SharkEdge Market Pulse</div>
+          <h1 className="mt-2 font-display text-[28px] font-semibold tracking-[-0.03em] text-text-primary">Today’s Edge Command Center</h1>
+          <p className="mt-2 max-w-3xl text-[13px] leading-6 text-bone/60">
+            {home.verifiedGames.length} verified games · {home.topActionables.length} live edges · {home.movementGames.length} moving markets · {home.traps.length} trap flags · {home.liveDeskFreshnessLabel}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link href={topEdge ? `/game/${topEdge.eventId}` : "/board"} className="rounded-md border border-aqua/40 bg-aqua/10 px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-aqua hover:bg-aqua/15">Open Best Play</Link>
+          <Link href="/board" className="rounded-md border border-bone/[0.12] bg-panel px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-bone/80 hover:border-aqua/30 hover:text-aqua">Full Board</Link>
+          <Link href="/trends" className="rounded-md border border-bone/[0.12] bg-panel px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-bone/80 hover:border-aqua/30 hover:text-aqua">Trends</Link>
+        </div>
+      </div>
+      <div className="mt-5 rounded-lg border border-bone/[0.08] bg-panel p-4">
+        <div className="text-[10.5px] font-semibold uppercase tracking-[0.10em] text-bone/50">Top actionable</div>
+        <div className="mt-1 text-[18px] font-semibold text-text-primary">{edgeLabel}</div>
+        <div className="mt-2 text-[12.5px] leading-5 text-bone/60">
+          {topEdge ? topEdge.reasonSummary : "No edge cleared the threshold. Use the watch list, line movement desk, and trends until a number becomes playable."}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MiniOpportunityList({ title, tone, items, empty, cta }: { title: string; tone: "play" | "watch" | "avoid"; items: any[]; empty: string; cta?: string }) {
+  const toneClass = tone === "play" ? "text-mint" : tone === "avoid" ? "text-crimson" : "text-aqua";
+  return (
+    <div className="rounded-lg border border-bone/[0.08] bg-surface p-4">
+      <div className={`mb-3 text-[10.5px] font-semibold uppercase tracking-[0.10em] ${toneClass}`}>{title}</div>
+      <div className="grid gap-2">
+        {items.length ? items.slice(0, 3).map((opp) => (
+          <Link key={`${title}-${opp.id}`} href={`/game/${opp.eventId}`} className="focusable rounded-md border border-bone/[0.06] bg-panel p-3 transition-colors hover:border-aqua/25">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0 truncate text-[13px] font-medium text-text-primary">{opp.selectionLabel}</div>
+              <span className="shrink-0 rounded-sm border border-bone/[0.10] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/60">{opp.league}</span>
+            </div>
+            <div className="mt-1.5 text-[11.5px] leading-snug text-bone/55">{tone === "avoid" ? (opp.whatCouldKillIt?.[0] ?? opp.reasonSummary) : opp.reasonSummary}</div>
+          </Link>
+        )) : (
+          <div className="rounded-md border border-bone/[0.06] bg-panel p-3 text-[11.5px] leading-5 text-bone/45">{empty}</div>
+        )}
+        {cta && <Link href={cta} className="pt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-bone/50 hover:text-aqua">Open desk →</Link>}
+      </div>
+    </div>
+  );
+}
+
+function TrendMatchRail({ cards }: { cards: PublishedTrendCard[] }) {
+  return (
+    <section>
+      <SectionHeader eyebrow="Today’s Trend Matches" title="Systems connected to live games" href="/trends" hrefLabel="All trends" />
+      <div className="mt-3 grid gap-3 xl:grid-cols-2">
+        {cards.length ? cards.slice(0, 4).map((card) => (
+          <Link key={`trend-match-${card.id}`} href={card.href} className="focusable rounded-lg border border-bone/[0.08] bg-surface p-4 transition-colors hover:border-aqua/25">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">{card.leagueLabel} · {card.marketLabel}</span>
+              <span className="font-mono text-[11px] font-semibold text-mint">{card.record}</span>
+            </div>
+            <div className="mt-2 text-[13px] font-semibold leading-snug text-text-primary">{card.title}</div>
+            <div className="mt-2 text-[11.5px] leading-5 text-bone/55">
+              {card.todayMatches.length ? `${card.todayMatches.length} live matchup${card.todayMatches.length === 1 ? "" : "s"} qualify today.` : "Historical signal ready; no live matchup attached yet."}
+            </div>
+          </Link>
+        )) : (
+          <div className="xl:col-span-2 rounded-lg border border-bone/[0.08] bg-surface p-6 text-[12px] text-bone/50">No trend-to-game matches are available for this league yet. Open Trends to scan broader systems.</div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default async function HomePage({ searchParams }: HomePageProps) {
   const resolvedSearch = (await searchParams) ?? {};
@@ -238,6 +313,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
   return (
     <div className="grid gap-6">
+      <CommandHero home={home} topEdge={topEdge} edgeLabel={edgeLabel} />
 
       {/* ── MOBILE RAIL ──────────────────────────────────────────────────── */}
       <div className="xl:hidden">
@@ -347,33 +423,13 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         {/* Left column */}
         <div className="grid gap-6">
 
-          {/* ── TOP PLAYS ──────────────────────────────────────────────── */}
+          {/* ── PLAY / WATCH / AVOID ─────────────────────────────────── */}
           <section>
-            <SectionHeader
-              eyebrow="Best Edges Right Now"
-              title="Top Plays"
-              href="/board"
-              hrefLabel="Open board"
-            />
-            <div className="mt-3 grid gap-3 xl:grid-cols-2">
-              {home.topActionables.length > 0 ? (
-                home.topActionables.slice(0, 4).map((opportunity) => (
-                  <OpportunitySpotlightCard
-                    key={opportunity.id}
-                    opportunity={opportunity}
-                    href={`/game/${opportunity.eventId}`}
-                    ctaLabel={opportunity.kind === "prop" ? "Open prop" : "Open matchup"}
-                  />
-                ))
-              ) : (
-                <div className="col-span-2 rounded-lg border border-bone/[0.08] bg-surface p-8 text-center">
-                  <div className="text-[13px] font-medium text-text-primary">No edges cleared the threshold right now</div>
-                  <div className="mt-2 text-[12px] text-bone/50">The engine refuses to force picks. Check back as lines move.</div>
-                  <Link href="/board" className="mt-5 inline-block rounded-md border border-bone/[0.12] bg-panel px-4 py-2 text-[12px] font-medium uppercase tracking-[0.08em] text-bone/80 transition-colors hover:border-aqua/40 hover:text-aqua">
-                    Browse the board →
-                  </Link>
-                </div>
-              )}
+            <SectionHeader eyebrow="Decision Desk" title="Play / Watch / Avoid" href="/board" hrefLabel="Open board" />
+            <div className="mt-3 grid gap-3 xl:grid-cols-3">
+              <MiniOpportunityList title="Play Now" tone="play" items={home.decisionWindows.length ? home.decisionWindows : home.topActionables} empty="No immediate bet-now windows. The engine is waiting for a cleaner number." cta="/board" />
+              <MiniOpportunityList title="Watch List" tone="watch" items={home.topActionables.filter((opp) => !home.decisionWindows.some((win) => win.id === opp.id))} empty="No secondary watches yet. Use line movement below to track developing spots." cta="/board?sort=movement" />
+              <MiniOpportunityList title="Avoid / Traps" tone="avoid" items={home.traps} empty="No trap flags are dominating the desk." cta="/board" />
             </div>
           </section>
 
@@ -402,88 +458,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             </section>
           )}
 
-          {/* ── TRENDS ─────────────────────────────────────────────────── */}
-          {trendFeed.featured.length > 0 && (
-            <section>
-              <SectionHeader
-                eyebrow="Trends Engine"
-                title="Active Signals"
-                href="/trends"
-                hrefLabel="All trends"
-              />
-              <div className="mobile-scroll-row hide-scrollbar mt-3">
-                {trendFeed.featured.map((card) => (
-                  <MobileTrendCard key={card.id} card={card} featured={false} />
-                ))}
-              </div>
-            </section>
-          )}
+          <TrendMatchRail cards={trendFeed.featured} />
 
-          {/* ── DECISION DESK ───────────────────────────────────────────── */}
-          <section>
-            <SectionHeader
-              eyebrow="Decision Support"
-              title="Bet Now Windows & Traps"
-            />
-            <div className="mt-3 grid gap-3 xl:grid-cols-2">
-              {/* Bet now */}
-              <div className="rounded-lg border border-bone/[0.08] bg-surface p-4">
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="live-dot" />
-                  <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-mint">
-                    Bet Now Windows
-                  </span>
-                </div>
-                <div className="grid gap-2">
-                  {home.decisionWindows.length > 0 ? (
-                    home.decisionWindows.map((opp) => (
-                      <Link
-                        key={`${opp.id}-window`}
-                        href={`/game/${opp.eventId}`}
-                        className="focusable group rounded-md border border-bone/[0.06] bg-panel p-3 transition-colors hover:border-mint/30"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="text-[13px] font-medium text-text-primary">{opp.selectionLabel}</div>
-                          <span className="rounded-sm border border-bone/[0.10] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/60">{opp.league}</span>
-                        </div>
-                        <div className="mt-1.5 text-[11.5px] leading-snug text-bone/55">{opp.reasonSummary}</div>
-                      </Link>
-                    ))
-                  ) : (
-                    <div className="rounded-md border border-bone/[0.06] bg-panel p-3 text-[11.5px] text-bone/45">
-                      No immediate bet-now windows right now.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Traps */}
-              <div className="rounded-lg border border-bone/[0.08] bg-surface p-4">
-                <div className="mb-3 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-crimson">
-                  Trap Desk
-                </div>
-                <div className="grid gap-2">
-                  {home.traps.length > 0 ? (
-                    home.traps.slice(0, 3).map((opp) => (
-                      <div
-                        key={`${opp.id}-trap`}
-                        className="focusable rounded-md border border-[rgba(255,77,94,0.18)] bg-[rgba(255,77,94,0.04)] p-3"
-                      >
-                        <div className="text-[13px] font-medium text-text-primary">{opp.selectionLabel}</div>
-                        <div className="mt-1.5 text-[11.5px] leading-snug text-[rgba(255,77,94,0.80)]">
-                          {opp.whatCouldKillIt?.[0] ?? opp.reasonSummary}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="rounded-md border border-bone/[0.06] bg-panel p-3 text-[11.5px] text-bone/45">
-                      No trap flags are dominating the desk.
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </section>
         </div>
 
         {/* Right column */}

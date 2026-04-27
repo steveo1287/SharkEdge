@@ -32,6 +32,28 @@ export type ABTestResult = {
   confidence: number;
 };
 
+type VerdictAbTestRuntimeRow = {
+  id: string;
+  eventId: string;
+  variant: "control" | "treatment";
+  controlVerdict: unknown;
+  treatmentVerdict: unknown;
+  totalAccuracy: number | null;
+  spreadAccuracy: number | null;
+  winnerVariant: "control" | "treatment" | null;
+  resolved: boolean;
+};
+
+function getVerdictAbTestDelegate() {
+  return (prisma as unknown as {
+    verdictAbTest?: {
+      create: (args: unknown) => Promise<unknown>;
+      findMany: (args: unknown) => Promise<VerdictAbTestRuntimeRow[]>;
+      update: (args: unknown) => Promise<unknown>;
+    };
+  }).verdictAbTest;
+}
+
 /**
  * Manages A/B tests for simulation engine improvements
  */
@@ -182,7 +204,11 @@ export class ABTestingFramework {
     regime: string;
   }): Promise<void> {
     try {
-      await prisma.verdictAbTest.create({
+      const delegate = getVerdictAbTestDelegate();
+      if (!delegate) {
+        return;
+      }
+      await delegate.create({
         data: {
           eventId: data.eventId,
           testName: data.testName,
@@ -211,8 +237,12 @@ export class ABTestingFramework {
     awayScore: number
   ): Promise<void> {
     try {
+      const delegate = getVerdictAbTestDelegate();
+      if (!delegate) {
+        return;
+      }
       // Find all unresolved tests for this event
-      const tests = await prisma.verdictAbTest.findMany({
+      const tests = await delegate.findMany({
         where: { eventId, resolved: false }
       });
 
@@ -233,7 +263,7 @@ export class ABTestingFramework {
         const treatmentSpreadError = Math.abs(treatment.projectedSpread - actualSpread);
 
         // Update test with outcomes
-        await prisma.verdictAbTest.update({
+        await delegate.update({
           where: { id: test.id },
           data: {
             actualHomeScore: homeScore,
@@ -264,17 +294,28 @@ export class ABTestingFramework {
     avgControlAccuracy: number;
     avgTreatmentAccuracy: number;
   }> {
-    const tests = await prisma.verdictAbTest.findMany({
+    const delegate = getVerdictAbTestDelegate();
+    if (!delegate) {
+      return {
+        totalTests: 0,
+        resolved: 0,
+        treatmentWinRate: 0,
+        avgControlAccuracy: 0,
+        avgTreatmentAccuracy: 0
+      };
+    }
+
+    const tests = await delegate.findMany({
       where: { testName, resolved: true }
     });
 
-    const treatmentWins = tests.filter((t) => t.winnerVariant === "treatment").length;
+    const treatmentWins = tests.filter((t: VerdictAbTestRuntimeRow) => t.winnerVariant === "treatment").length;
     const controlAccuracies = tests
-      .filter((t) => t.variant === "control")
-      .map((t) => t.totalAccuracy ?? 0);
+      .filter((t: VerdictAbTestRuntimeRow) => t.variant === "control")
+      .map((t: VerdictAbTestRuntimeRow) => t.totalAccuracy ?? 0);
     const treatmentAccuracies = tests
-      .filter((t) => t.variant === "treatment")
-      .map((t) => t.totalAccuracy ?? 0);
+      .filter((t: VerdictAbTestRuntimeRow) => t.variant === "treatment")
+      .map((t: VerdictAbTestRuntimeRow) => t.totalAccuracy ?? 0);
 
     return {
       totalTests: tests.length,
@@ -282,11 +323,11 @@ export class ABTestingFramework {
       treatmentWinRate: tests.length ? treatmentWins / tests.length : 0,
       avgControlAccuracy:
         controlAccuracies.length
-          ? controlAccuracies.reduce((a, b) => a + b) / controlAccuracies.length
+          ? controlAccuracies.reduce((a: number, b: number) => a + b) / controlAccuracies.length
           : 0,
       avgTreatmentAccuracy:
         treatmentAccuracies.length
-          ? treatmentAccuracies.reduce((a, b) => a + b) / treatmentAccuracies.length
+          ? treatmentAccuracies.reduce((a: number, b: number) => a + b) / treatmentAccuracies.length
           : 0
     };
   }

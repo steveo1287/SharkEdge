@@ -10,6 +10,7 @@ import { buildProviderHealth } from "@/services/providers/provider-health";
 import { withTimeoutFallback } from "@/lib/utils/async";
 import { getBoardVisibleLeagues, buildBoardSportSections } from "@/services/events/live-score-service";
 import { getBoardFeed } from "@/services/market-data/market-data-service";
+import { overlayTheOddsApiSnapshot } from "@/services/odds/the-odds-api-board-overlay";
 
 const LIVE_BOARD_TIMEOUT_MS = 15_000;
 
@@ -36,7 +37,7 @@ async function getMockBoardPageData(filters: BoardFilters): Promise<BoardPageDat
     gamesByLeague: {}
   });
 
-  return {
+  return applyOddsOverlayToBoardData({
     filters,
     availableDates: Array.from(
       new Set(
@@ -76,7 +77,7 @@ async function getMockBoardPageData(filters: BoardFilters): Promise<BoardPageDat
       offlineSummary:
         "Persisted live market inventory is offline in this runtime, so only support-aware scoreboard context is being shown."
     })
-  };
+  });
 }
 
 type PersistedBoardFeed = {
@@ -214,6 +215,75 @@ function getParticipantNames(event: PersistedBoardFeed["events"][number]) {
   };
 }
 
+function buildScoreboardFallbackGame(args: {
+  sectionLeagueKey: GameCardView["leagueKey"];
+  item: {
+    id: string;
+    label: string;
+    status: string;
+    startTime: string;
+    detailHref?: string;
+  };
+}): GameCardView | null {
+  const [awayRaw, homeRaw] = String(args.item.label ?? "").split(" @ ");
+  const away = awayRaw?.trim();
+  const home = homeRaw?.trim();
+  if (!away || !home) {
+    return null;
+  }
+
+  return {
+    id: args.item.id,
+    externalEventId: args.item.id,
+    leagueKey: args.sectionLeagueKey,
+    awayTeam: {
+      id: `away:${args.item.id}`,
+      leagueId: args.sectionLeagueKey,
+      name: away,
+      abbreviation: away.slice(0, 3).toUpperCase(),
+      externalIds: {}
+    },
+    homeTeam: {
+      id: `home:${args.item.id}`,
+      leagueId: args.sectionLeagueKey,
+      name: home,
+      abbreviation: home.slice(0, 3).toUpperCase(),
+      externalIds: {}
+    },
+    startTime: args.item.startTime,
+    status: toGameStatus(args.item.status),
+    venue: "Live scoreboard fallback",
+    selectedBook: null,
+    bestBookCount: 0,
+    moneyline: {
+      label: "Moneyline",
+      lineLabel: "Pending",
+      bestBook: "Awaiting odds",
+      bestOdds: 0,
+      movement: 0
+    },
+    spread: {
+      label: "Spread",
+      lineLabel: "Pending",
+      bestBook: "Awaiting odds",
+      bestOdds: 0,
+      movement: 0
+    },
+    total: {
+      label: "Total",
+      lineLabel: "Pending",
+      bestBook: "Awaiting odds",
+      bestOdds: 0,
+      movement: 0
+    },
+    edgeScore: {
+      score: 0,
+      label: "Pass"
+    },
+    detailHref: args.item.detailHref ?? `/game/${args.item.id}`
+  };
+}
+
 function hasRenderableOdds(data: BoardPageData | null) {
   if (!data) return false;
   return data.sportSections.some((section) =>
@@ -224,6 +294,18 @@ function hasRenderableOdds(data: BoardPageData | null) {
         game.total.bestOdds != null
     )
   );
+}
+
+async function applyOddsOverlayToBoardData(data: BoardPageData): Promise<BoardPageData> {
+  const overlaidGames = await overlayTheOddsApiSnapshot(data.games);
+  return {
+    ...data,
+    games: overlaidGames,
+    sportSections: data.sportSections.map((section) => ({
+      ...section,
+      games: overlaidGames.filter((game) => game.leagueKey === section.leagueKey)
+    }))
+  };
 }
 
 async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPageData | null> {
@@ -245,7 +327,7 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
   const patchedSections = sportSections.map((section) => {
     const events = grouped.get(section.leagueKey) ?? [];
 
-    const games: GameCardView[] = events.map((event) => {
+    const dbGames: GameCardView[] = events.map((event) => {
       const { away, home } = getParticipantNames(event);
       const moneylineOdds = getBestMarketOdds(event.markets, "moneyline");
       const spreadOdds = getBestMarketOdds(event.markets, "spread");
@@ -285,14 +367,14 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
         },
         spread: {
           label: "Spread",
-          lineLabel: typeof spreadLine === "number" ? String(spreadLine) : "—",
+          lineLabel: typeof spreadLine === "number" ? String(spreadLine) : "--",
           bestBook: "Best available",
           bestOdds: spreadOdds,
           movement: 0
         },
         total: {
           label: "Total",
-          lineLabel: typeof totalLine === "number" ? `O/U ${totalLine}` : "—",
+          lineLabel: typeof totalLine === "number" ? `O/U ${totalLine}` : "--",
           bestBook: "Best available",
           bestOdds: totalOdds,
           movement: 0
@@ -304,6 +386,26 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
         detailHref: `/game/${event.id}`
       };
     });
+
+    const fallbackGames =
+      dbGames.length > 0
+        ? []
+        : section.scoreboard
+            .map((item) =>
+              buildScoreboardFallbackGame({
+                sectionLeagueKey: section.leagueKey,
+                item: {
+                  id: item.id,
+                  label: item.label,
+                  status: item.status,
+                  startTime: item.startTime,
+                  detailHref: item.detailHref
+                }
+              })
+            )
+            .filter((game): game is GameCardView => Boolean(game));
+
+    const games = dbGames.length > 0 ? dbGames : fallbackGames;
 
     return {
       ...section,
@@ -333,6 +435,7 @@ async function getDbBackedBoardPageData(filters: BoardFilters): Promise<BoardPag
     sourceNote: "Board is rendering from OddsHarvester-ingested market inventory.",
     providerHealth: buildProviderHealth({
       source: "live",
+      generatedAt: board.generatedAt,
       healthySummary: "Board is rendering from OddsHarvester-ingested market inventory.",
       degradedSummary: "Board inventory is partially available.",
       fallbackSummary: "Board is using persisted live market inventory fallback.",
@@ -348,13 +451,11 @@ export async function getBoardPageData(filters: BoardFilters): Promise<BoardPage
   });
 
   if (dbData && hasRenderableOdds(dbData)) {
-    return dbData;
+    return applyOddsOverlayToBoardData(dbData);
   }
 
-  // DB returned data but no renderable odds — still prefer it over mock so real
-  // scoreboard context is shown rather than a completely empty page.
   if (dbData) {
-    return dbData;
+    return applyOddsOverlayToBoardData(dbData);
   }
 
   return getMockBoardPageData(filters);

@@ -2,9 +2,8 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
 import { buildMlbEventProjection, buildMlbPlayerPropProjections } from "@/services/modeling/mlb-game-sim-service";
+import { buildUfcEventProjection } from "@/services/modeling/ufc-fight-sim-service";
 import { simulateContextualGame } from "@/services/simulation/contextual-game-sim";
-import { enhanceSimulationWithRegime } from "@/services/simulation/advanced-mc-engine";
-import { markovRegimeClassifier } from "@/services/simulation/markov-regime-classifier";
 import {
   buildCoachTendencyProfile,
   buildEventIntangibleProfile,
@@ -55,31 +54,18 @@ function getCurrentMarketAnchor(
     marketType: string;
     period: string;
     consensusLineValue: number | null;
-    bestHomeOddsAmerican?: number | null;
-    bestAwayOddsAmerican?: number | null;
-    bestOverOddsAmerican?: number | null;
-    bestUnderOddsAmerican?: number | null;
   }>
 ) {
-  const fullGameMoneyline = states.find(
-    (state) => state.marketType === "moneyline" && state.period === "full_game"
-  ) ?? null;
   const fullGameTotal = states.find(
     (state) => state.marketType === "total" && state.period === "full_game"
-  ) ?? null;
+  )?.consensusLineValue ?? null;
   const fullGameSpread = states.find(
     (state) => state.marketType === "spread" && state.period === "full_game"
-  ) ?? null;
+  )?.consensusLineValue ?? null;
 
   return {
-    total: fullGameTotal?.consensusLineValue ?? null,
-    spreadHome: fullGameSpread?.consensusLineValue ?? null,
-    homeMoneylineOdds: fullGameMoneyline?.bestHomeOddsAmerican ?? null,
-    awayMoneylineOdds: fullGameMoneyline?.bestAwayOddsAmerican ?? null,
-    homeSpreadOdds: fullGameSpread?.bestHomeOddsAmerican ?? null,
-    awaySpreadOdds: fullGameSpread?.bestAwayOddsAmerican ?? null,
-    overOdds: fullGameTotal?.bestOverOddsAmerican ?? null,
-    underOdds: fullGameTotal?.bestUnderOddsAmerican ?? null
+    total: fullGameTotal,
+    spreadHome: fullGameSpread
   };
 }
 
@@ -158,6 +144,7 @@ function inferWeatherTotalFactor(leagueKey: string, venue: string | null | undef
 function buildSportFeatureSet(sportKey: string) {
   switch (sportKey) {
     case "NBA":
+    case "NCAAB":
       return {
         offense: ["points", "PTS", "points_per_game"],
         defense: ["opp_points", "oppPTS", "points_allowed"],
@@ -263,11 +250,7 @@ export async function buildEventProjectionFromHistory(eventId: string) {
         select: {
           marketType: true,
           period: true,
-          consensusLineValue: true,
-          bestHomeOddsAmerican: true,
-          bestAwayOddsAmerican: true,
-          bestOverOddsAmerican: true,
-          bestUnderOddsAmerican: true
+          consensusLineValue: true
         }
       },
       participants: {
@@ -297,6 +280,13 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     const mlbProjection = await buildMlbEventProjection(eventId);
     if (mlbProjection) {
       return mlbProjection;
+    }
+  }
+
+  if (event.league.key === "UFC") {
+    const ufcProjection = await buildUfcEventProjection(eventId);
+    if (ufcProjection) {
+      return ufcProjection;
     }
   }
 
@@ -437,21 +427,17 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     event.currentMarketStates.map((state) => ({
       marketType: state.marketType,
       period: state.period,
-      consensusLineValue: state.consensusLineValue,
-      bestHomeOddsAmerican: state.bestHomeOddsAmerican,
-      bestAwayOddsAmerican: state.bestAwayOddsAmerican,
-      bestOverOddsAmerican: state.bestOverOddsAmerican,
-      bestUnderOddsAmerican: state.bestUnderOddsAmerican
+      consensusLineValue: state.consensusLineValue
     }))
   );
   const weather = inferWeatherTotalFactor(event.league.key, event.venue, event.metadataJson);
 
-  const simulationInput = {
+  const simulation = simulateContextualGame({
     leagueKey: event.league.key,
     home: {
       teamName: homeTeam.name,
       offense: homeOffense,
-      defense: homeDefense > 0 ? homeDefense : awayDefense,
+      defense: awayDefense > 0 ? awayDefense : homeDefense,
       pace,
       recentForm: homeContext?.recentMargin ?? 0,
       recentWinRate: homeContext?.recentWinRate ?? null,
@@ -467,7 +453,7 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     away: {
       teamName: awayTeam.name,
       offense: awayOffense,
-      defense: awayDefense > 0 ? awayDefense : homeDefense,
+      defense: homeDefense > 0 ? homeDefense : awayDefense,
       pace,
       recentForm: awayContext?.recentMargin ?? 0,
       recentWinRate: awayContext?.recentWinRate ?? null,
@@ -490,13 +476,7 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     interactionContext,
     samples: event.league.key.includes("NFL") ? 3000 : 2500,
     seed: event.id.length * 37 + event.league.key.length * 101
-  };
-
-  const baselineSimulation = simulateContextualGame(simulationInput);
-
-  // Classify market regime and enhance simulation
-  const regime = await markovRegimeClassifier.classifyRegime(simulationInput, baselineSimulation);
-  const simulation = await enhanceSimulationWithRegime(baselineSimulation, simulationInput, regime, true);
+  });
 
   return {
     modelKey: `contextual-sim-${event.league.key.toLowerCase()}`,
@@ -539,15 +519,7 @@ export async function buildEventProjectionFromHistory(eventId: string) {
         away: awayIntangibles
       },
       interactionContext,
-      regime: {
-        classification: simulation.regime.classification,
-        confidence: simulation.regime.confidence,
-        reasoning: simulation.regime.reasoning
-      },
-      simulation: {
-        baseline: baselineSimulation,
-        enhanced: simulation
-      }
+      simulation
     }
   };
 }

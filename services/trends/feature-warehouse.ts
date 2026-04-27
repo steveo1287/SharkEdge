@@ -834,7 +834,7 @@ export async function refreshTrendFeatureWarehouse(args?: {
   leagues?: string[];
   days?: number;
 }) {
-  const leagues = args?.leagues?.length ? args.leagues : ["NBA", "MLB", "NHL", "NFL", "NCAAF"];
+  const leagues = args?.leagues?.length ? args.leagues : ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF"];
   const window: TrendFilters["window"] =
     typeof args?.days === "number" && args.days <= 30 ? "30d" : typeof args?.days === "number" && args.days <= 90 ? "90d" : "365d";
 
