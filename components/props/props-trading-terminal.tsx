@@ -16,6 +16,15 @@ function odds(value: number | null | undefined) {
   return value > 0 ? `+${value}` : String(value);
 }
 
+function playerMatchupHref(prop: PropCardView) {
+  const params = new URLSearchParams({
+    league: prop.leagueKey,
+    gameId: prop.gameId,
+    player: prop.player.name
+  });
+  return `/sim/players?${params.toString()}`;
+}
+
 function getDecision(prop: PropCardView) {
   const ev = prop.expectedValuePct ?? 0;
   const books = prop.sportsbookCount ?? 1;
@@ -43,6 +52,7 @@ function TerminalMetric({ label, value, sub }: { label: string; value: string; s
 
 function TopPlayCard({ prop, rank }: { prop: PropCardView; rank: number }) {
   const decision = getDecision(prop);
+  const matchupHref = playerMatchupHref(prop);
 
   return (
     <Card className="surface-panel p-4">
@@ -76,9 +86,12 @@ function TopPlayCard({ prop, rank }: { prop: PropCardView; rank: number }) {
         {prop.supportNote ?? prop.analyticsSummary?.reason ?? "Market context available."}
       </div>
 
-      <div className="mt-4 flex gap-2">
-        <a href="#player-sims" className="rounded-md border border-aqua/30 bg-aqua/10 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-aqua">
-          Sim
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Link href={matchupHref} className="rounded-md border border-aqua/30 bg-aqua/10 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-aqua">
+          Matchup Sim
+        </Link>
+        <a href="#player-sims" className="rounded-md border border-bone/[0.12] bg-panel px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-bone/65">
+          Row Sim
         </a>
         <Link href="/nba-edge" className="rounded-md border border-bone/[0.12] bg-panel px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-bone/65">
           Engine
@@ -122,11 +135,12 @@ export function PropsTradingTerminal({
               Edge board. Signal first. Noise last.
             </h1>
             <p className="mt-4 max-w-3xl text-sm leading-7 text-bone/65">
-              Live prop markets ranked like a trading desk: best price, EV, market depth, sim path, and execution tools surfaced before the full table.
+              Live prop markets ranked like a trading desk: best price, EV, market depth, row-level sim, and full player matchup box-score projections surfaced before the dense table.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <a href="#player-sims" className="rounded-md border border-aqua/35 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-aqua">Player Sims</a>
+            <Link href="/sim/players?league=NBA" className="rounded-md border border-aqua/35 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-aqua">Player Matchups</Link>
+            <a href="#player-sims" className="rounded-md border border-aqua/35 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-aqua">Row Sims</a>
             <Link href="/nba-edge" className="rounded-md border border-aqua/35 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-aqua">NBA Edge</Link>
             <Link href="/api/jobs/nba-batch-sim" className="rounded-md border border-bone/[0.12] bg-panel px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-bone/75">Refresh Sims</Link>
             <Badge tone="muted">{providerLabel}</Badge>
@@ -179,7 +193,7 @@ export function PropsTradingTerminal({
           <div className="section-kicker">Feed Note</div>
           <p className="mt-3 text-sm leading-7 text-bone/60">{sourceNote}</p>
           <div className="mt-4 grid gap-2 text-xs text-bone/50">
-            <div>Use NBA Edge to inspect the full data-driven model stack.</div>
+            <div>Use Player Matchups to inspect the full projected box score for both teams.</div>
             <div>Use Refresh Sims before slate lock to warm the batch cache.</div>
           </div>
         </Card>
