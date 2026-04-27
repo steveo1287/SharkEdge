@@ -13,7 +13,7 @@ import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
 import { buildPropBetIntent, buildWagerMathView } from "@/lib/utils/bet-intelligence";
 import { resolveMatchupHref } from "@/lib/utils/entity-routing";
 import { buildPropOpportunity } from "@/services/opportunities/opportunity-service";
-import { buildPlayerSimV2 } from "@/services/simulation/player-sim-v2";
+import { getOrBuildCachedSim } from "@/services/simulation/get-or-build-cached-sim";
 import { getSimTuning } from "@/services/simulation/get-sim-tuning";
 
 type PropsTableProps = {
@@ -107,16 +107,19 @@ async function buildLiveSimEdge(prop: PropCardView) {
   const tuning = await getSimTuning();
   const minutes = typeof prop.minutes === "number" ? prop.minutes : 34;
 
-  const sim = buildPlayerSimV2({
-    player: prop.player.name,
+  const sim = await getOrBuildCachedSim({
+    propId: prop.id,
+    playerId: prop.playerId,
+    playerName: prop.player.name,
     propType: simPropType,
     line: prop.line,
     odds: bookOdds,
     teamTotal: estimateTeamTotal(prop),
     minutes,
     usageRate: estimateUsageRate(prop, simPropType),
-    opponentRank: typeof prop.matchupRank === "number" ? prop.matchupRank : undefined,
-  }, tuning);
+    matchupRank: typeof prop.matchupRank === "number" ? prop.matchupRank : undefined,
+    tuning
+  });
 
   const side = String(prop.side ?? "").toLowerCase();
   const sideProbability = side.includes("under") ? 1 - sim.calibratedProbability : sim.calibratedProbability;
