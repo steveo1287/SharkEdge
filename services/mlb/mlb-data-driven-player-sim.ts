@@ -1,4 +1,5 @@
 import { buildMlbEliteContext } from "./mlb-data-ingestion-service";
+import { buildMlbPitcherStrikeoutOutsModel } from "./mlb-pitcher-strikeout-outs-model";
 
 function poisson(mean: number, line: number) {
   let prob = 0;
@@ -22,48 +23,40 @@ export async function buildDataDrivenMlbPlayerSim(prop: any) {
     opponent: prop.opponent?.abbreviation
   });
 
-  const quality =
-    ctx.xwOBA ??
-    ctx.vsHandWoba ??
-    0.32;
+  const isPitcherProp =
+    prop.marketType.toLowerCase().includes("strikeout") ||
+    prop.marketType.toLowerCase().includes("out");
 
-  const mean =
-    ctx.projectedPA *
-    quality *
-    ctx.parkFactor *
-    ctx.windFactor *
-    ctx.tempFactor;
-
-  const prob = poisson(mean, prop.line);
-  const edge = (prob - 0.5) * 100;
-  const confidence = Math.min(0.9, 0.55 + Math.abs(edge) / 20);
-
-  return {
-    probability: prob,
-    edgePct: edge,
-    confidence,
-    decision: edge > 5 ? "ATTACK" : edge > 2 ? "WATCH" : "PASS",
-    fairOdds:
-      prob > 0.5
-        ? -Math.round((prob / (1 - prob)) * 100)
-        : Math.round(((1 - prob) / prob) * 100),
-    betSizing: {
-      stakePct: Math.min(0.05, edge / 100)
-    },
-    reasons: [
-      `PA ${ctx.projectedPA}`,
-      `Quality ${quality.toFixed(3)}`
-    ],
-    dataContext: ctx
-  };
-}
-
-export async function buildDataDrivenMlbPlayerSim(prop: any) {
-  const ctx = await buildMlbEliteContext({
-    playerName: prop.player.name,
-    team: prop.team?.abbreviation,
-    opponent: prop.opponent?.abbreviation
-  });
+  if (isPitcherProp) {
+    const pitcherModel = buildMlbPitcherStrikeoutOutsModel({
+      pitcherName: prop.player.name,
+      line: prop.line,
+      propType: prop.marketType,
+      pitcherKRate: ctx.pitcherKRate,
+      opponentKRate: ctx.vsHandKRate,
+      pitchCountAvg: ctx.pitchCount,
+      weatherRunFactor: ctx.tempFactor
+    });
+    const edge = (pitcherModel.overProbability - 0.5) * 100;
+    const confidence = Math.min(0.9, 0.55 + Math.abs(edge) / 20);
+    return {
+      probability: pitcherModel.overProbability,
+      edgePct: edge,
+      confidence,
+      decision: edge > 5 ? "ATTACK" : edge > 2 ? "WATCH" : "PASS",
+      fairOdds:
+        pitcherModel.overProbability > 0.5
+          ? -Math.round((pitcherModel.overProbability / (1 - pitcherModel.overProbability)) * 100)
+          : Math.round(((1 - pitcherModel.overProbability) / pitcherModel.overProbability) * 100),
+      betSizing: {
+        stakePct: Math.min(0.05, edge / 100)
+      },
+      reasons: pitcherModel.reasons,
+      riskFlags: pitcherModel.riskFlags,
+      ladder: pitcherModel.ladder,
+      dataContext: ctx
+    };
+  }
 
   const quality =
     ctx.xwOBA ??
@@ -97,7 +90,6 @@ export async function buildDataDrivenMlbPlayerSim(prop: any) {
       `PA ${ctx.projectedPA}`,
       `Quality ${quality.toFixed(3)}`
     ],
->>>>>>> f4018bb (Add data-driven MLB player simulation with Poisson model)
     dataContext: ctx
   };
 }
