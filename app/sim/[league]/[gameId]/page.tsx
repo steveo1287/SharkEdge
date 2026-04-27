@@ -343,6 +343,7 @@ export default async function SimMatchupPage({ params }: PageProps) {
         </div>
         <div className="mt-5 flex flex-wrap gap-3">
           <Link href={`/sim?league=${league}`} className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">Back to {league}</Link>
+          {league === "NBA" ? <Link href="/sim/players?league=NBA" className="rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-sky-200">Player matchups</Link> : null}
           <Link href="/sim" className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">All leagues</Link>
         </div>
       </section>
@@ -382,4 +383,3 @@ export default async function SimMatchupPage({ params }: PageProps) {
     </div>
   );
 }
-
