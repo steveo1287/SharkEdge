@@ -42,6 +42,29 @@ function summary(filters: TrendFilters) {
   ].filter(Boolean).join(" | ");
 }
 
+function americanFromProbability(probability: number) {
+  if (!Number.isFinite(probability) || probability <= 0 || probability >= 1) return null;
+  const raw = probability >= 0.5
+    ? -Math.round((probability / (1 - probability)) * 100)
+    : Math.round(((1 - probability) / probability) * 100);
+  return raw > 0 ? `+${raw}` : String(raw);
+}
+
+function fairPriceNote(card: PublishedTrendCard) {
+  if (typeof card.hitRate === "number" && Number.isFinite(card.hitRate) && card.hitRate > 0 && card.hitRate < 100) {
+    const fair = americanFromProbability(card.hitRate / 100);
+    return fair ? `Fair-price checkpoint: need ${fair} or better by stored hit rate.` : null;
+  }
+
+  if (typeof card.roi === "number" && Number.isFinite(card.roi)) {
+    return card.roi > 0
+      ? `Price checkpoint: keep current odds better than market average; stored ROI is ${pct(card.roi)}.`
+      : `Price checkpoint: stored ROI is ${pct(card.roi)}, so do not chase a worse number.`;
+  }
+
+  return null;
+}
+
 function smartScore(card: PublishedTrendCard) {
   const base = Number.isFinite(card.rankingScore) ? card.rankingScore : 0;
   const sample = Math.min(card.sampleSize, 75) * 2;
@@ -52,6 +75,36 @@ function smartScore(card: PublishedTrendCard) {
   const current = Math.min(card.todayMatches.length, 4) * 35;
   const confidence = card.confidence === "strong" ? 75 : card.confidence === "moderate" ? 38 : 8;
   return Math.round(base + sample + hitRate + roi + profit + tags + current + confidence);
+}
+
+function actionGate(card: PublishedTrendCard, filters: TrendFilters) {
+  const score = smartScore(card);
+  const hasCurrent = card.todayMatches.length > 0;
+  const hasSample = card.sampleSize >= Math.max(5, filters.sample || 1);
+  const hasMarketSupport = card.intelligenceTags.length > 0 || card.category === "CLV-Backed";
+  const hasPositiveReturn =
+    (typeof card.roi === "number" && card.roi > 0) ||
+    (typeof card.profitUnits === "number" && card.profitUnits > 0) ||
+    (typeof card.hitRate === "number" && card.hitRate >= 56);
+
+  if (hasCurrent && score >= 720 && hasSample && hasPositiveReturn) return "REVIEW LIVE PRICE";
+  if (score >= 640 && hasSample && (hasMarketSupport || hasPositiveReturn)) return "WATCH FOR PRICE";
+  if (score >= 560) return "CONTEXT ONLY";
+  return "RESEARCH ONLY";
+}
+
+function killSwitches(card: PublishedTrendCard, filters: TrendFilters) {
+  const flags: string[] = [];
+  const sampleFloor = Math.max(5, filters.sample || 1);
+
+  if (card.warning) flags.push(card.warning);
+  if (card.sampleSize < sampleFloor) flags.push(`sample below ${sampleFloor}`);
+  if (!card.todayMatches.length) flags.push("no current board qualifier");
+  if (!card.intelligenceTags.length) flags.push("no CLV/market tag support");
+  if (typeof card.roi === "number" && card.roi <= 0) flags.push("non-positive stored ROI");
+  if (typeof card.hitRate === "number" && card.hitRate < 52) flags.push("thin hit-rate edge");
+
+  return flags.length ? `Kill switches: ${flags.slice(0, 3).join("; ")}.` : "Kill switches: stale price, late injury/news change, lineup change, or odds moving through the fair checkpoint.";
 }
 
 function smartGrade(card: PublishedTrendCard) {
@@ -71,9 +124,10 @@ function tone(card: PublishedTrendCard): TrendCardView["tone"] {
   return "muted";
 }
 
-function normalizeMatches(card: PublishedTrendCard): TrendMatchView[] {
+function normalizeMatches(card: PublishedTrendCard, filters: TrendFilters): TrendMatchView[] {
   return card.todayMatches.slice(0, 4).map((match) => {
     const date = match.startTime.slice(0, 10);
+    const priceNote = fairPriceNote(card);
     return {
       id: `${card.id}:${match.id}`,
       sport: match.sport,
@@ -83,8 +137,12 @@ function normalizeMatches(card: PublishedTrendCard): TrendMatchView[] {
       status: "PREGAME",
       stateDetail: null,
       matchingLogic: `${card.leagueLabel} | ${card.marketLabel} | ${card.category}`,
-      recommendedBetLabel: card.marketLabel === "Trend" ? null : `${card.marketLabel} trend qualifier`,
-      oddsContext: card.primaryMetricValue ? `${card.primaryMetricLabel}: ${card.primaryMetricValue}` : null,
+      recommendedBetLabel: actionGate(card, filters),
+      oddsContext: [
+        card.primaryMetricValue ? `${card.primaryMetricLabel}: ${card.primaryMetricValue}` : null,
+        priceNote,
+        `SmartScore ${smartScore(card)}`
+      ].filter(Boolean).join(" · "),
       matchupHref: match.href,
       boardHref: match.league === "UFC" || match.league === "BOXING" ? null : `/?league=${match.league}&date=${date}`,
       propsHref: card.marketLabel.toLowerCase().includes("player") ? `/props?league=${match.league}` : null,
@@ -93,18 +151,25 @@ function normalizeMatches(card: PublishedTrendCard): TrendMatchView[] {
   });
 }
 
-function smartNote(card: PublishedTrendCard) {
+function smartNote(card: PublishedTrendCard, filters: TrendFilters) {
   const parts = [
     card.description,
+    `Action Gate: ${actionGate(card, filters)}`,
     `SmartScore ${smartScore(card)}`,
+    fairPriceNote(card),
     card.intelligenceTags.length ? `Tags: ${card.intelligenceTags.join(", ")}` : null,
     card.todayMatches.length ? `${card.todayMatches.length} live qualifier${card.todayMatches.length === 1 ? "" : "s"}` : null
   ].filter(Boolean);
   return parts.join(". ");
 }
 
-function smartWhy(card: PublishedTrendCard) {
-  const parts = [...card.whyNow, ...card.intelligenceTags.slice(0, 3)].filter(Boolean);
+function smartWhy(card: PublishedTrendCard, filters: TrendFilters) {
+  const parts = [
+    `Action Gate: ${actionGate(card, filters)}`,
+    ...card.whyNow,
+    ...card.intelligenceTags.slice(0, 3),
+    fairPriceNote(card)
+  ].filter(Boolean);
   return parts.length ? parts.join(" · ") : card.railReason || card.description;
 }
 
@@ -125,13 +190,13 @@ function toCard(card: PublishedTrendCard, filters: TrendFilters): TrendCardView 
     roi,
     sampleSize: card.sampleSize,
     dateRange: `${windowLabel(filters)} · ${card.leagueLabel} · ${card.marketLabel}`,
-    note: smartNote(card),
+    note: smartNote(card, filters),
     explanation: `${card.railReason} Ranked by publisher score, sample, hit rate, ROI, profit, live qualifiers, and intelligence tags.`,
-    whyItMatters: smartWhy(card),
-    caution: card.warning || "Use as a ranked signal with current context.",
+    whyItMatters: smartWhy(card, filters),
+    caution: killSwitches(card, filters),
     href: card.href,
     tone: tone(card),
-    todayMatches: normalizeMatches(card)
+    todayMatches: normalizeMatches(card, filters)
   };
 }
 
@@ -159,26 +224,26 @@ function smartSort(cards: PublishedTrendCard[]) {
   return [...cards].sort((left, right) => smartScore(right) - smartScore(left));
 }
 
-function metrics(cards: PublishedTrendCard[]): TrendMetricCard[] {
+function metrics(cards: PublishedTrendCard[], filters: TrendFilters): TrendMetricCard[] {
   const sorted = smartSort(cards);
   const top = sorted[0];
   const bestRoi = [...cards].filter((card) => typeof card.roi === "number").sort((a, b) => (b.roi ?? -999) - (a.roi ?? -999))[0];
   const liveMatches = cards.reduce((total, card) => total + (card.todayMatches?.length ?? 0), 0);
-  const tagCount = new Set(cards.flatMap((card) => card.intelligenceTags)).size;
+  const reviewCount = cards.filter((card) => actionGate(card, filters) === "REVIEW LIVE PRICE").length;
 
   return [
     { label: "Top SmartScore", value: top ? String(smartScore(top)) : "N/A", note: top?.title ?? "No card." },
-    { label: "Ranked trends", value: String(cards.length), note: "Sorted by score, sample, market tags, and qualifiers." },
-    { label: "Live qualifiers", value: String(liveMatches), note: "Current games now attach to trend cards." },
-    { label: "Signal tags", value: String(tagCount), note: bestRoi ? `Best ROI: ${bestRoi.title} ${pct(bestRoi.roi) ?? ""}`.trim() : "Market and schedule tags." }
+    { label: "Review gates", value: String(reviewCount), note: "Trends with current qualifiers and enough support to check live price." },
+    { label: "Live qualifiers", value: String(liveMatches), note: "Current games attached to trend cards." },
+    { label: "Best ROI", value: bestRoi ? pct(bestRoi.roi) ?? "N/A" : "N/A", note: bestRoi ? `${bestRoi.title}. ${fairPriceNote(bestRoi) ?? "Check current odds."}` : "No ROI card." }
   ];
 }
 
-function rows(cards: PublishedTrendCard[]): TrendTableRow[] {
+function rows(cards: PublishedTrendCard[], filters: TrendFilters): TrendTableRow[] {
   return smartSort(cards).slice(0, 10).map((card) => ({
     label: `${card.leagueLabel} ${card.marketLabel}`,
-    movement: `Score ${smartScore(card)}`,
-    note: [card.title, card.primaryMetricValue, `${card.todayMatches.length} live`, ...card.whyNow, ...card.intelligenceTags.slice(0, 2)].filter(Boolean).join(" · "),
+    movement: actionGate(card, filters),
+    note: [card.title, `Score ${smartScore(card)}`, card.primaryMetricValue, fairPriceNote(card), ...card.whyNow, ...card.intelligenceTags.slice(0, 2)].filter(Boolean).join(" · "),
     href: card.href
   }));
 }
@@ -203,7 +268,8 @@ async function publishedDashboard(
     if (!cards.length) return null;
 
     const top = cards[0];
-    const allMatches = dedupeMatches(cards.flatMap(normalizeMatches));
+    const allMatches = dedupeMatches(cards.flatMap((card) => normalizeMatches(card, filters)));
+    const reviewCount = cards.filter((card) => actionGate(card, filters) === "REVIEW LIVE PRICE").length;
 
     return {
       setup: null,
@@ -211,38 +277,38 @@ async function publishedDashboard(
       aiQuery: options?.aiQuery ?? existing?.aiQuery ?? "",
       aiHelper: existing?.aiHelper ?? null,
       explanation: existing?.explanation ?? {
-        headline: `${cards.length} smart-ranked trend${cards.length === 1 ? "" : "s"} loaded`,
-        whyItMatters: `${top.title} leads with SmartScore ${smartScore(top)}. ${smartWhy(top)}`,
-        caution: "SmartScore ranks trends for review; it is not a standalone decision engine.",
+        headline: `${cards.length} smart-ranked trend${cards.length === 1 ? "" : "s"} loaded · ${reviewCount} review gate${reviewCount === 1 ? "" : "s"}`,
+        whyItMatters: `${top.title} leads with SmartScore ${smartScore(top)}. ${smartWhy(top, filters)}`,
+        caution: `${killSwitches(top, filters)} SmartScore ranks trends for review; it is not a standalone decision engine.`,
         queryLogic: summary(filters)
       },
       filters,
       cards: cards.map((card) => toCard(card, filters)),
-      metrics: metrics(cards),
+      metrics: metrics(cards, filters),
       insights: cards.slice(0, 4).map((card) => ({
         id: `published-${card.id}`,
         title: card.title,
-        value: `Score ${smartScore(card)}`,
-        note: [card.description, `${card.todayMatches.length} live`, ...card.intelligenceTags.slice(0, 3)].filter(Boolean).join(" · "),
+        value: actionGate(card, filters),
+        note: [card.description, `Score ${smartScore(card)}`, fairPriceNote(card), ...card.intelligenceTags.slice(0, 3)].filter(Boolean).join(" · "),
         tone: tone(card)
       })),
-      movementRows: rows(cards),
+      movementRows: rows(cards, filters),
       segmentRows: sections.slice(0, 8).map((section) => {
         const best = smartSort(section.cards ?? [])[0];
         return {
           label: section.category,
-          movement: best ? `Best ${smartScore(best)}` : `${section.cards.length} cards`,
-          note: best ? `${best.title} · ${best.todayMatches.length} live · ${best.railReason}` : "Published trend section",
+          movement: best ? actionGate(best, filters) : `${section.cards.length} cards`,
+          note: best ? `${best.title} · Score ${smartScore(best)} · ${best.todayMatches.length} live · ${best.railReason}` : "Published trend section",
           href: best?.href ?? "/trends"
         };
       }),
       todayMatches: allMatches,
       todayMatchesNote: allMatches.length
-        ? `${allMatches.length} live trend qualifier${allMatches.length === 1 ? "" : "s"} attached to the dashboard.`
+        ? `${allMatches.length} live trend qualifier${allMatches.length === 1 ? "" : "s"} attached to the dashboard. Action gates now tell you whether to review, watch, or research only.`
         : "Trend cards loaded. No current games qualify for this filter yet.",
       savedSystems: existing?.savedSystems ?? [],
       savedTrendName: existing?.savedTrendName ?? "",
-      sourceNote: "Loaded from the SharkEdge published trend feed and smart-ranked by sample, ROI, hit rate, profit, live qualifiers, and intelligence tags.",
+      sourceNote: "Loaded from the SharkEdge published trend feed and ranked by sample, ROI, hit rate, profit, live qualifiers, intelligence tags, action gate, and fair-price checkpoint.",
       querySummary: summary(filters),
       sampleNote: qualified.length ? existing?.sampleNote ?? null : `No cards cleared the ${sampleFloor}+ sample filter, so showing strongest available trends.`
     };
