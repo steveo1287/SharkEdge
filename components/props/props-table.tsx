@@ -4,13 +4,25 @@ import { DataTable } from "@/components/ui/data-table";
 import type { PropCardView } from "@/lib/types/domain";
 import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
 import { buildPropBetIntent } from "@/lib/utils/bet-intelligence";
-import { buildPropOpportunity } from "@/services/opportunities/opportunity-service";
 import { getOrBuildCachedSim } from "@/services/simulation/get-or-build-cached-sim";
 import { getSimTuning } from "@/services/simulation/get-sim-tuning";
 
 type PropsTableProps = {
   props: PropCardView[];
 };
+
+function signed(value: number, digits = 1) {
+  return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
+}
+
+function pct(value: number, digits = 1) {
+  return `${(value * 100).toFixed(digits)}%`;
+}
+
+function displayOdds(value: number | null | undefined) {
+  if (typeof value !== "number") return "--";
+  return formatAmericanOdds(value);
+}
 
 async function buildLiveSimEdge(prop: PropCardView) {
   const bookOdds = prop.bestAvailableOddsAmerican ?? prop.oddsAmerican;
@@ -30,11 +42,64 @@ async function buildLiveSimEdge(prop: PropCardView) {
     prop
   });
 
+  const lineDelta = sim.adjustedMean - prop.line;
+  const lean = Math.abs(lineDelta) < 0.05 ? "PUSH" : lineDelta > 0 ? "OVER" : "UNDER";
+  const leanProbability = lean === "UNDER" ? 1 - sim.calibratedProbability : sim.calibratedProbability;
+
   return {
     projection: sim,
+    adjustedMean: sim.adjustedMean,
+    rawMean: sim.rawMean,
+    lineDelta,
+    lean,
+    leanProbability,
     displayEdge: sim.edgePct,
-    label: sim.decision
+    fairOdds: sim.fairOdds,
+    confidence: sim.confidence,
+    label: sim.decision,
+    reasons: sim.reasons ?? [],
+    riskFlags: sim.riskFlags ?? []
   };
+}
+
+function renderSimCell(prop: PropCardView, sim: Awaited<ReturnType<typeof buildLiveSimEdge>> | undefined) {
+  if (!sim) {
+    return (
+      <div key={`${prop.id}-sim-edge`} className="min-w-[150px]">
+        <div className="text-sm font-semibold text-bone/70">Sim unavailable</div>
+        <div className="text-xs text-bone/45">Projection cache did not return a result.</div>
+      </div>
+    );
+  }
+
+  const positive = sim.displayEdge > 0;
+  const meanPositive = sim.lineDelta > 0;
+  const primaryReason = sim.reasons[0] ?? "Baseline projection only; richer context inputs pending.";
+
+  return (
+    <div key={`${prop.id}-sim-edge`} className="min-w-[190px]">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={positive ? "font-mono text-sm font-semibold text-emerald-300" : "font-mono text-sm font-semibold text-rose-300"}>
+          {signed(sim.displayEdge)}%
+        </span>
+        <span className="rounded-sm border border-bone/[0.08] bg-panel px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/65">
+          {sim.label}
+        </span>
+        <span className={meanPositive ? "text-xs font-semibold text-emerald-300" : "text-xs font-semibold text-amber-300"}>
+          {sim.lean}
+        </span>
+      </div>
+      <div className="mt-1 text-xs text-bone/55">
+        Mean {sim.adjustedMean.toFixed(1)} · Δ {signed(sim.lineDelta)} · {pct(sim.leanProbability)}
+      </div>
+      <div className="mt-1 text-xs text-bone/45">
+        Fair {displayOdds(sim.fairOdds)} · Conf {pct(sim.confidence, 0)}
+      </div>
+      <div className="mt-1 max-w-[220px] truncate text-[11px] text-bone/40" title={primaryReason}>
+        {primaryReason}
+      </div>
+    </div>
+  );
 }
 
 export async function PropsTable({ props }: PropsTableProps) {
@@ -48,7 +113,7 @@ export async function PropsTable({ props }: PropsTableProps) {
         "Matchup",
         "Market",
         "Best Price",
-        "Sim Edge",
+        "Sim Expectation",
         "Actions"
       ]}
       rows={props.map((prop) => [
@@ -69,21 +134,7 @@ export async function PropsTable({ props }: PropsTableProps) {
             {formatAmericanOdds(prop.bestAvailableOddsAmerican ?? prop.oddsAmerican)}
           </div>
         </div>,
-        (() => {
-          const sim = simEdgeMap.get(prop.id);
-          if (!sim) return <div>Sim unavailable</div>;
-          const positive = sim.displayEdge > 0;
-          return (
-            <div key={`${prop.id}-sim-edge`} className="min-w-[116px]">
-              <div className={positive ? "font-mono text-sm font-semibold text-emerald-300" : "font-mono text-sm font-semibold text-rose-300"}>
-                {sim.displayEdge > 0 ? "+" : ""}{sim.displayEdge.toFixed(1)}%
-              </div>
-              <div className="text-xs text-slate-500">
-                {sim.label}
-              </div>
-            </div>
-          );
-        })(),
+        renderSimCell(prop, simEdgeMap.get(prop.id)),
         <div key={`${prop.id}-actions`} className="flex gap-2">
           <Link
             href={`/game/${prop.gameId}`}
