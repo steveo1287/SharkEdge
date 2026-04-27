@@ -148,6 +148,8 @@ This enforces:
   Ledger CRUD, shaping, and performance aggregation.
 - `app/api/ledger/bets`
   Route handlers for create, update, archive, and delete.
+- `lib/prisma.ts`
+  Shared Prisma client import used by simulation and API service modules.
 
 ## Future Hooks
 
