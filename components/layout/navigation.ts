@@ -73,6 +73,13 @@ export const MAIN_NAV_ITEMS: NavItem[] = [
     description: "Run game simulations, model outcomes, and stress-test lines.",
     icon: NAV_ICONS.sim,
     badge: "SIM"
+  },
+  {
+    href: "/nba-edge",
+    label: "NBA Edge",
+    description: "Data-driven NBA prop engine with sims, context, and execution.",
+    icon: NAV_ICONS.performance,
+    badge: "EDGE"
   }
 ];
 
@@ -188,7 +195,8 @@ export function getRouteMeta(pathname: string) {
     { match: (v: string) => isActivePath(v, "/performance"),    eyebrow: "Analytics",       title: "Performance",    subtitle: "CLV, units, and what's actually working." },
     { match: (v: string) => isActivePath(v, "/alerts"),         eyebrow: "Notifications",   title: "Alerts",         subtitle: "Movement and threshold alerts." },
     { match: (v: string) => isActivePath(v, "/providers"),      eyebrow: "Data Health",     title: "Providers",      subtitle: "Feed freshness and data source status." },
-    { match: (v: string) => isActivePath(v, "/content") || v.startsWith("/stories/"), eyebrow: "Content", title: "Coverage", subtitle: "Betting-native news and analysis." }
+    { match: (v: string) => isActivePath(v, "/content") || v.startsWith("/stories/"), eyebrow: "Content", title: "Coverage", subtitle: "Betting-native news and analysis." },
+    { match: (v: string) => isActivePath(v, "/nba-edge"), eyebrow: "NBA Edge", title: "NBA Edge", subtitle: "Data-driven NBA prop engine with full modeling pipeline." }
   ];
 
   return (
