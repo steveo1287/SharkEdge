@@ -24,6 +24,15 @@ function displayOdds(value: number | null | undefined) {
   return formatAmericanOdds(value);
 }
 
+function playerMatchupHref(prop: PropCardView) {
+  const params = new URLSearchParams({
+    league: prop.leagueKey,
+    gameId: prop.gameId,
+    player: prop.player.name
+  });
+  return `/sim/players?${params.toString()}`;
+}
+
 async function buildLiveSimEdge(prop: PropCardView) {
   try {
     const bookOdds = prop.bestAvailableOddsAmerican ?? prop.oddsAmerican;
@@ -141,7 +150,13 @@ export async function PropsTable({ props }: PropsTableProps) {
           </div>
         </div>,
         renderSimCell(prop, simEdgeMap.get(prop.id)),
-        <div key={`${prop.id}-actions`} className="flex gap-2">
+        <div key={`${prop.id}-actions`} className="flex flex-wrap gap-2">
+          <Link
+            href={playerMatchupHref(prop)}
+            className="concept-chip concept-chip-muted"
+          >
+            Matchup Sim
+          </Link>
           <Link
             href={`/game/${prop.gameId}`}
             className="concept-chip concept-chip-muted"
