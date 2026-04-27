@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
-// Build timestamp: 2026-04-18T14:12:00Z - Forces production rebuild with new board design
-const BUILD_ID = "prod-2026-04-18-14-12-new-board-design";
+// Build timestamp: 2026-04-27T17:13:00Z - Force Vercel pickup of sim engine fixes
+const BUILD_ID = "prod-2026-04-27-17-13-sim-engine-fixes";
 
 const nextConfig: NextConfig = {
   images: {
