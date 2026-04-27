@@ -227,7 +227,7 @@ function normalizeEspnRosterPlayer(row: any, team: EspnTeamRef, index: number): 
     threePointGravity: clamp(seededRange(`${seedBase}:3g`, threeBase - 3, threeBase + 3), 0, 10),
     defensiveVersatility: clamp(seededRange(`${seedBase}:vers`, 2, 9), 0, 10),
     pointOfAttackDefense: clamp(seededRange(`${seedBase}:poa`, guard ? 4 : 2, guard ? 9 : 7), 0, 10),
-    rimProtection: clamp(seededRange(`${seedBase}:rimpro", big ? 4 : 0, big ? 10 : 4), 0, 10),
+    rimProtection: clamp(seededRange(`${seedBase}:rimpro`, big ? 4 : 0, big ? 10 : 4), 0, 10),
     clutchImpact: seededRange(`${seedBase}:clutch`, -2, 4),
     fatigueRisk: seededRange(`${seedBase}:fatigue`, 0, 0.65),
     source: "espn-roster"
