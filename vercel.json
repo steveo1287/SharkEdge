@@ -14,6 +14,10 @@
       "schedule": "0 8 * * *"
     },
     {
+      "path": "/api/internal/cron/settle-sim-predictions",
+      "schedule": "*/30 * * * *"
+    },
+    {
       "path": "/api/mlb/refresh",
       "schedule": "0 */6 * * *"
     }

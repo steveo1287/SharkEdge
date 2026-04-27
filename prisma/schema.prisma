@@ -1508,3 +1508,29 @@ model VerdictAbTest {
   @@index([resolved, resolvedAt])
   @@map("verdict_ab_tests")
 }
+
+model SimPrediction {
+  id            String   @id @default(cuid())
+  eventId       String
+  eventMarketId String?
+  playerId      String?
+  league        String
+  playerName    String
+  propType      MarketType
+  side          String
+  line          Float
+  bookOdds      Int
+  simOverPct    Float
+  simUnderPct   Float
+  edgePct       Float
+  confidence    Float
+  result        BetResult @default(OPEN)
+  actualValue   Float?
+  settledAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([eventId, playerId])
+  @@index([result, createdAt])
+  @@index([league, createdAt])
+  @@map("sim_predictions")
+}
