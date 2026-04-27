@@ -1,5 +1,6 @@
 import { buildMlbEliteContext } from "./mlb-data-ingestion-service";
 import { buildMlbPitcherStrikeoutOutsModel } from "./mlb-pitcher-strikeout-outs-model";
+import { buildMlbBullpenLateInningModel } from "./mlb-bullpen-late-inning-model";
 
 function poisson(mean: number, line: number) {
   let prob = 0;
@@ -63,16 +64,29 @@ export async function buildDataDrivenMlbPlayerSim(prop: any) {
     ctx.vsHandWoba ??
     0.32;
 
-  const mean =
+  let mean =
     ctx.projectedPA *
     quality *
     ctx.parkFactor *
     ctx.windFactor *
     ctx.tempFactor;
 
-  const prob = poisson(mean, prop.line);
+  const bullpen = buildMlbBullpenLateInningModel({
+    team: prop.team?.abbreviation,
+    opponent: prop.opponent?.abbreviation,
+    marketType: prop.marketType,
+    baseMean: mean,
+    projectedPA: ctx.projectedPA
+  });
+  mean = bullpen.adjustedMean;
+
+  let prob = poisson(mean, prop.line);
+  prob = Math.max(0.001, Math.min(0.999, prob + bullpen.probabilityShift));
   const edge = (prob - 0.5) * 100;
-  const confidence = Math.min(0.9, 0.55 + Math.abs(edge) / 20);
+  const confidence = Math.min(
+    0.9,
+    0.55 + Math.abs(edge) / 20 + bullpen.confidenceShift
+  );
 
   return {
     probability: prob,
@@ -88,8 +102,10 @@ export async function buildDataDrivenMlbPlayerSim(prop: any) {
     },
     reasons: [
       `PA ${ctx.projectedPA}`,
-      `Quality ${quality.toFixed(3)}`
+      `Quality ${quality.toFixed(3)}`,
+      ...bullpen.reasons
     ],
+    riskFlags: bullpen.riskFlags,
     dataContext: ctx
   };
 }
