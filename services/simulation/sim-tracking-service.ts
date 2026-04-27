@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db/prisma";
 import type { MarketType } from "@prisma/client";
 
 export type SimPredictionInput = {
@@ -80,7 +80,6 @@ export async function getPredictionMetrics(league?: string) {
 
   const hitRate = wins / (wins + losses + pushes);
 
-  // Simple ROI calculation (assumes -110 odds)
   const roiBasis = losses + pushes;
   const riskAmount = roiBasis * 110;
   const winAmount = wins * 100;
