@@ -16,21 +16,259 @@ type PageProps = { params: Promise<{ league: string; gameId: string }> };
 type SimGame = { id: string; label: string; startTime: string; status: string; leagueKey: LeagueKey; leagueLabel: string };
 type Projection = Awaited<ReturnType<typeof buildSimProjection>>;
 type EdgeResult = Awaited<ReturnType<typeof buildMlbEdges>>["edges"][number];
+
+type DisplayFactor = {
+  label: string;
+  value: number;
+  weight?: number;
+  source?: string;
+};
+
 const VALID_LEAGUES: LeagueKey[] = ["MLB", "NBA", "NHL", "NFL", "NCAAF", "UFC", "BOXING"];
-function decodeLeague(value: string): LeagueKey | null { const upper = value.toUpperCase(); return VALID_LEAGUES.includes(upper as LeagueKey) ? upper as LeagueKey : null; }
-function pct(value: number) { return `${(value * 100).toFixed(1)}%`; }
-function plus(value: number) { return `${value > 0 ? "+" : ""}${Number(value).toFixed(Math.abs(value) < 1 ? 2 : 1)}`; }
-function tone(status: string) { if (status === "LIVE") return "success" as const; if (status === "FINAL") return "neutral" as const; if (status === "POSTPONED" || status === "CANCELED") return "danger" as const; return "muted" as const; }
-function formatTime(value: string) { const date = new Date(value); if (Number.isNaN(date.getTime())) return "TBD"; return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date); }
-function barWidth(value: number) { return `${Math.max(2, Math.min(100, value * 100)).toFixed(1)}%`; }
-function factorClass(value: number) { return value >= 0 ? "text-emerald-300" : "text-red-300"; }
-function americanToProbability(odds: number | null | undefined) { if (typeof odds !== "number" || !Number.isFinite(odds) || odds === 0) return null; return odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100); }
-function decision(projection: Projection) { const gov = projection.mlbIntel?.governor; if (gov?.noBet || gov?.tier === "pass") return { label: "PASS", cls: "border-red-400/30 bg-red-500/10 text-red-200" }; if (gov?.tier === "attack") return { label: "ATTACK", cls: "border-emerald-400/30 bg-emerald-500/10 text-emerald-200" }; if (gov?.tier === "watch") return { label: "WATCH", cls: "border-amber-400/30 bg-amber-500/10 text-amber-200" }; const edge = Math.abs(projection.distribution.homeWinPct - 0.5); return edge >= 0.08 ? { label: "ATTACK", cls: "border-emerald-400/30 bg-emerald-500/10 text-emerald-200" } : edge >= 0.045 ? { label: "WATCH", cls: "border-amber-400/30 bg-amber-500/10 text-amber-200" } : { label: "PASS", cls: "border-slate-500/30 bg-slate-500/10 text-slate-300" }; }
-function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) { return <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4"><div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</div><div className="mt-2 text-2xl font-semibold text-white">{value}</div>{sub ? <div className="mt-1 text-xs text-slate-400">{sub}</div> : null}</div>; }
-function WinBar({ label, value }: { label: string; value: number }) { return <div className="space-y-1.5"><div className="flex justify-between text-xs text-slate-400"><span>{label}</span><span>{pct(value)}</span></div><div className="h-2 rounded-full bg-slate-800"><div className="h-full rounded-full bg-sky-400" style={{ width: barWidth(value) }} /></div></div>; }
-function Factor({ label, value }: { label: string; value: number }) { return <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs"><span className="text-slate-400">{label}</span><span className={`font-semibold ${factorClass(value)}`}>{plus(value)}</span></div>; }
-function MarketPanel({ edge }: { edge?: EdgeResult | null }) { if (!edge) return <Card className="surface-panel p-5"><div className="text-[10px] uppercase tracking-[0.18em] text-amber-200">Sportsbook edge</div><div className="mt-2 text-sm text-amber-100">No sportsbook line matched this game. Set MLB_SPORTSBOOK_LINES_URL or ODDS_MARKET_URL.</div></Card>; const homeMarket = americanToProbability(edge.market?.homeMoneyline); const awayMarket = americanToProbability(edge.market?.awayMoneyline); return <Card className="surface-panel p-5"><div className="flex justify-between gap-3"><div><div className="text-[10px] uppercase tracking-[0.18em] text-emerald-200">Sportsbook edge</div><div className="mt-1 text-sm text-slate-300">{edge.sportsbook} · model vs market</div></div>{edge.signal ? <div className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">{edge.signal.strength.toUpperCase()}</div> : null}</div><div className="mt-4 grid gap-3 md:grid-cols-3"><Tile label="Home ML" value={edge.market?.homeMoneyline == null ? "—" : String(edge.market.homeMoneyline)} sub={homeMarket == null ? "No market" : `Market ${pct(homeMarket)} · Model ${pct(edge.projection.distribution.homeWinPct)}`} /><Tile label="Away ML" value={edge.market?.awayMoneyline == null ? "—" : String(edge.market.awayMoneyline)} sub={awayMarket == null ? "No market" : `Market ${pct(awayMarket)} · Model ${pct(edge.projection.distribution.awayWinPct)}`} /><Tile label="Total" value={edge.market?.total == null ? "—" : String(edge.market.total)} sub={edge.edges.totalRuns == null ? "No edge" : `Model edge ${plus(edge.edges.totalRuns)}`} /></div><div className="mt-4 grid gap-2 md:grid-cols-3"><Factor label="Home edge" value={edge.edges.homeMoneyline ?? 0} /><Factor label="Away edge" value={edge.edges.awayMoneyline ?? 0} /><Factor label="Total edge" value={edge.edges.totalRuns ?? 0} /></div></Card>; }
-function GovernorPanel({ projection }: { projection: Projection }) { const intel = projection.mlbIntel; const gov = intel?.governor; const cal = intel?.calibration; const unc = intel?.uncertainty; if (!intel) return null; return <Card className="surface-panel p-5"><div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Governor + uncertainty</div><div className="mt-4 grid gap-3 md:grid-cols-4"><Tile label="Confidence" value={gov ? pct(gov.confidence) : "—"} sub={gov?.noBet ? "No bet" : "Action gate"} /><Tile label="Calibrated home" value={cal ? pct(cal.calibratedHomeWinPct) : "—"} sub={cal ? `Correction ${plus(cal.correction)}` : "No calibration"} /><Tile label="ECE" value={cal?.ece == null ? "—" : cal.ece.toFixed(3)} sub="Calibration" /><Tile label="Volatility" value={String(intel.volatilityIndex)} sub="Chaos index" /></div>{unc?.interval ? <div className="mt-4 rounded-xl border border-sky-400/15 bg-sky-500/[0.06] p-3 text-sm text-slate-300">80% total range: <span className="font-semibold text-white">{unc.interval.low} – {unc.interval.high}</span><br />90% range: <span className="font-semibold text-white">{unc.interval.p90Low} – {unc.interval.p90High}</span><div className="mt-2 text-xs text-slate-400">Penalty {plus(unc.penalty)} · {unc.reason}</div></div> : null}{gov?.reasons?.length ? <div className="mt-4 grid gap-2">{gov.reasons.map((reason, index) => <div key={`${reason}-${index}`} className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs leading-5 text-slate-400">{reason}</div>)}</div> : null}</Card>; }
+
+function decodeLeague(value: string): LeagueKey | null {
+  const upper = value.toUpperCase();
+  return VALID_LEAGUES.includes(upper as LeagueKey) ? upper as LeagueKey : null;
+}
+
+function pct(value: number) {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function plus(value: number) {
+  return `${value > 0 ? "+" : ""}${Number(value).toFixed(Math.abs(value) < 1 ? 2 : 1)}`;
+}
+
+function tone(status: string) {
+  if (status === "LIVE") return "success" as const;
+  if (status === "FINAL") return "neutral" as const;
+  if (status === "POSTPONED" || status === "CANCELED") return "danger" as const;
+  return "muted" as const;
+}
+
+function formatTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "TBD";
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function barWidth(value: number) {
+  return `${Math.max(2, Math.min(100, value * 100)).toFixed(1)}%`;
+}
+
+function factorClass(value: number) {
+  return value >= 0 ? "text-emerald-300" : "text-red-300";
+}
+
+function americanToProbability(odds: number | null | undefined) {
+  if (typeof odds !== "number" || !Number.isFinite(odds) || odds === 0) return null;
+  return odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100);
+}
+
+function projectionConfidence(projection: Projection) {
+  return projection.mlbIntel?.governor?.confidence ?? projection.realityIntel?.confidence ?? null;
+}
+
+function decision(projection: Projection) {
+  const gov = projection.mlbIntel?.governor;
+  if (gov?.noBet || gov?.tier === "pass") return { label: "PASS", cls: "border-red-400/30 bg-red-500/10 text-red-200" };
+  if (gov?.tier === "attack") return { label: "ATTACK", cls: "border-emerald-400/30 bg-emerald-500/10 text-emerald-200" };
+  if (gov?.tier === "watch") return { label: "WATCH", cls: "border-amber-400/30 bg-amber-500/10 text-amber-200" };
+
+  const confidence = projection.realityIntel?.confidence ?? 0;
+  const edge = Math.abs(projection.distribution.homeWinPct - 0.5);
+  if (projection.realityIntel && edge >= 0.08 && confidence >= 0.62) return { label: "ATTACK", cls: "border-emerald-400/30 bg-emerald-500/10 text-emerald-200" };
+  if (projection.realityIntel && edge >= 0.045 && confidence >= 0.55) return { label: "WATCH", cls: "border-amber-400/30 bg-amber-500/10 text-amber-200" };
+  return edge >= 0.08
+    ? { label: "ATTACK", cls: "border-emerald-400/30 bg-emerald-500/10 text-emerald-200" }
+    : edge >= 0.045
+      ? { label: "WATCH", cls: "border-amber-400/30 bg-amber-500/10 text-amber-200" }
+      : { label: "PASS", cls: "border-slate-500/30 bg-slate-500/10 text-slate-300" };
+}
+
+function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div className="mt-2 text-2xl font-semibold text-white">{value}</div>
+      {sub ? <div className="mt-1 text-xs text-slate-400">{sub}</div> : null}
+    </div>
+  );
+}
+
+function WinBar({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex justify-between text-xs text-slate-400">
+        <span>{label}</span>
+        <span>{pct(value)}</span>
+      </div>
+      <div className="h-2 rounded-full bg-slate-800">
+        <div className="h-full rounded-full bg-sky-400" style={{ width: barWidth(value) }} />
+      </div>
+    </div>
+  );
+}
+
+function Factor({ label, value, weight, source }: DisplayFactor) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-slate-400">{label}</span>
+        <span className={`font-semibold ${factorClass(value)}`}>{plus(value)}</span>
+      </div>
+      {typeof weight === "number" || source ? (
+        <div className="mt-1 flex justify-between gap-3 text-[10px] uppercase tracking-[0.14em] text-slate-600">
+          <span>{source ?? "model"}</span>
+          {typeof weight === "number" ? <span>weight {(weight * 100).toFixed(0)}%</span> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MarketPanel({ edge }: { edge?: EdgeResult | null }) {
+  if (!edge) {
+    return (
+      <Card className="surface-panel p-5">
+        <div className="text-[10px] uppercase tracking-[0.18em] text-amber-200">Sportsbook edge</div>
+        <div className="mt-2 text-sm text-amber-100">No sportsbook line matched this game. Set MLB_SPORTSBOOK_LINES_URL or ODDS_MARKET_URL.</div>
+      </Card>
+    );
+  }
+  const homeMarket = americanToProbability(edge.market?.homeMoneyline);
+  const awayMarket = americanToProbability(edge.market?.awayMoneyline);
+  return (
+    <Card className="surface-panel p-5">
+      <div className="flex justify-between gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.18em] text-emerald-200">Sportsbook edge</div>
+          <div className="mt-1 text-sm text-slate-300">{edge.sportsbook} · model vs market</div>
+        </div>
+        {edge.signal ? <div className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">{edge.signal.strength.toUpperCase()}</div> : null}
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <Tile label="Home ML" value={edge.market?.homeMoneyline == null ? "—" : String(edge.market.homeMoneyline)} sub={homeMarket == null ? "No market" : `Market ${pct(homeMarket)} · Model ${pct(edge.projection.distribution.homeWinPct)}`} />
+        <Tile label="Away ML" value={edge.market?.awayMoneyline == null ? "—" : String(edge.market.awayMoneyline)} sub={awayMarket == null ? "No market" : `Market ${pct(awayMarket)} · Model ${pct(edge.projection.distribution.awayWinPct)}`} />
+        <Tile label="Total" value={edge.market?.total == null ? "—" : String(edge.market.total)} sub={edge.edges.totalRuns == null ? "No edge" : `Model edge ${plus(edge.edges.totalRuns)}`} />
+      </div>
+      <div className="mt-4 grid gap-2 md:grid-cols-3">
+        <Factor label="Home edge" value={edge.edges.homeMoneyline ?? 0} />
+        <Factor label="Away edge" value={edge.edges.awayMoneyline ?? 0} />
+        <Factor label="Total edge" value={edge.edges.totalRuns ?? 0} />
+      </div>
+    </Card>
+  );
+}
+
+function GovernorPanel({ projection }: { projection: Projection }) {
+  const intel = projection.mlbIntel;
+  const gov = intel?.governor;
+  const cal = intel?.calibration;
+  const unc = intel?.uncertainty;
+  if (!intel) return null;
+  return (
+    <Card className="surface-panel p-5">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Governor + uncertainty</div>
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <Tile label="Confidence" value={gov ? pct(gov.confidence) : "—"} sub={gov?.noBet ? "No bet" : "Action gate"} />
+        <Tile label="Calibrated home" value={cal ? pct(cal.calibratedHomeWinPct) : "—"} sub={cal ? `Correction ${plus(cal.correction)}` : "No calibration"} />
+        <Tile label="ECE" value={cal?.ece == null ? "—" : cal.ece.toFixed(3)} sub="Calibration" />
+        <Tile label="Volatility" value={String(intel.volatilityIndex)} sub="Chaos index" />
+      </div>
+      {unc?.interval ? (
+        <div className="mt-4 rounded-xl border border-sky-400/15 bg-sky-500/[0.06] p-3 text-sm text-slate-300">
+          80% total range: <span className="font-semibold text-white">{unc.interval.low} – {unc.interval.high}</span>
+          <br />90% range: <span className="font-semibold text-white">{unc.interval.p90Low} – {unc.interval.p90High}</span>
+          <div className="mt-2 text-xs text-slate-400">Penalty {plus(unc.penalty)} · {unc.reason}</div>
+        </div>
+      ) : null}
+      {gov?.reasons?.length ? (
+        <div className="mt-4 grid gap-2">
+          {gov.reasons.map((reason, index) => <div key={`${reason}-${index}`} className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs leading-5 text-slate-400">{reason}</div>)}
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+function RealityEnginePanel({ projection }: { projection: Projection }) {
+  const intel = projection.realityIntel;
+  if (!intel) return null;
+  const realModules = intel.modules.filter((module) => module.status === "real").length;
+  const syntheticModules = intel.modules.length - realModules;
+  const strongest = [...intel.factors].sort((left, right) => Math.abs(right.value * right.weight) - Math.abs(left.value * left.weight)).slice(0, 6);
+
+  return (
+    <Card className="surface-panel p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.18em] text-sky-300">Reality Engine</div>
+          <div className="mt-2 text-2xl font-semibold text-white">Team + player + analytics + ratings stack</div>
+          <div className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{intel.dataSource}</div>
+        </div>
+        <div className="rounded-full border border-sky-400/30 bg-sky-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-sky-100">{intel.modelVersion}</div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-5">
+        <Tile label="Home edge" value={plus(intel.homeEdge)} sub="Weighted model edge" />
+        <Tile label="Confidence" value={pct(intel.confidence)} sub="Reality score" />
+        <Tile label="Volatility" value={String(intel.volatilityIndex)} sub="Upset/variance risk" />
+        <Tile label="Projected total" value={intel.projectedTotal ? String(intel.projectedTotal) : "—"} sub="Tempo + efficiency" />
+        <Tile label="Real feeds" value={`${realModules}/${intel.modules.length}`} sub={syntheticModules ? `${syntheticModules} synthetic` : "All real"} />
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+        <div className="rounded-2xl border border-white/10 bg-slate-950/45 p-4">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Module status</div>
+          <div className="mt-3 grid gap-2">
+            {intel.modules.map((module) => (
+              <div key={module.label} className="rounded-xl border border-white/10 bg-white/[0.025] p-3 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold text-white">{module.label}</span>
+                  <span className={module.status === "real" ? "text-emerald-300" : "text-amber-200"}>{module.status.toUpperCase()}</span>
+                </div>
+                <div className="mt-1 leading-5 text-slate-400">{module.note}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-slate-950/45 p-4">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Blend breakdown</div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <Factor label="Team power" value={intel.ratingBlend.teamPower} />
+            <Factor label="Player power" value={intel.ratingBlend.playerPower} />
+            <Factor label="Advanced analytics" value={intel.ratingBlend.advancedPower} />
+            <Factor label="Video-game ratings" value={intel.ratingBlend.gameRatingPower} />
+            <Factor label="Venue/rest/context" value={intel.ratingBlend.contextPower} />
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-sky-400/15 bg-sky-500/[0.05] p-4">
+        <div className="text-[10px] uppercase tracking-[0.18em] text-sky-200/80">Top weighted drivers</div>
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {strongest.map((factor) => (
+            <Factor key={`${factor.label}:${factor.source}`} label={factor.label} value={factor.value} weight={factor.weight} source={factor.source} />
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function displayFactors(projection: Projection): DisplayFactor[] {
+  const mlb = projection.mlbIntel?.factors ?? [];
+  if (mlb.length) return mlb;
+  return projection.realityIntel?.factors ?? [];
+}
 
 export default async function SimMatchupPage({ params }: PageProps) {
   const resolved = await params;
@@ -48,9 +286,65 @@ export default async function SimMatchupPage({ params }: PageProps) {
   const edge = edgeData.edges.find((item) => item.gameId === game.id) ?? null;
   const dec = decision(projection);
   const intel = projection.mlbIntel;
+  const reality = projection.realityIntel;
+  const modelVersion = intel?.modelVersion ?? reality?.modelVersion ?? projection.nbaIntel?.modelVersion ?? "fallback";
+  const dataSource = intel?.dataSource ?? reality?.dataSource ?? projection.nbaIntel?.dataSource ?? "synthetic/fallback";
   const favorite = projection.distribution.homeWinPct >= projection.distribution.awayWinPct ? projection.matchup.home : projection.matchup.away;
   const favoritePct = Math.max(projection.distribution.homeWinPct, projection.distribution.awayWinPct);
-  const factors = [...(intel?.factors ?? [])].sort((left, right) => Math.abs(right.value) - Math.abs(left.value));
+  const factors = displayFactors(projection).sort((left, right) => Math.abs(right.value * (right.weight ?? 1)) - Math.abs(left.value * (left.weight ?? 1)));
+  const confidence = projectionConfidence(projection);
+  const projectedTotal = intel?.projectedTotal ?? reality?.projectedTotal ?? Number(projection.distribution.avgAway + projection.distribution.avgHome).toFixed(1);
 
-  return <div className="space-y-6"><section className="surface-panel-strong p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="section-kicker">{league} matchup engine</div><div className="mt-3 font-display text-4xl font-semibold tracking-tight text-white">{projection.matchup.away} @ {projection.matchup.home}</div><div className="mt-3 text-sm text-slate-400">{formatTime(game.startTime)} · {intel?.modelVersion ?? projection.nbaIntel?.modelVersion ?? "fallback"} · {intel?.dataSource ?? projection.nbaIntel?.dataSource ?? "synthetic/fallback"}</div></div><div className="flex items-center gap-2"><Badge tone={tone(game.status)}>{game.status}</Badge><span className={`rounded-full border px-3 py-1 text-xs font-semibold tracking-[0.14em] ${dec.cls}`}>{dec.label}</span></div></div><div className="mt-5 flex flex-wrap gap-3"><Link href={`/sim?league=${league}`} className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">Back to {league}</Link><Link href="/sim" className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">All leagues</Link></div></section><section className="grid gap-4 md:grid-cols-5"><Tile label="Lean" value={favorite} sub={pct(favoritePct)} /><Tile label="Away projection" value={String(projection.distribution.avgAway)} sub={projection.matchup.away} /><Tile label="Home projection" value={String(projection.distribution.avgHome)} sub={projection.matchup.home} /><Tile label="Projected total" value={String(intel?.projectedTotal ?? Number(projection.distribution.avgAway + projection.distribution.avgHome).toFixed(1))} sub="Model output" /><Tile label="Confidence" value={intel?.governor ? pct(intel.governor.confidence) : "—"} sub={intel?.governor?.noBet ? "No bet" : "Action gate"} /></section><section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]"><Card className="surface-panel p-5"><SectionTitle title="Win distribution" description="Final model probability after available adjustments." /><div className="mt-4"><WinBar label={projection.matchup.home} value={projection.distribution.homeWinPct} /></div><div className="mt-3"><WinBar label={projection.matchup.away} value={projection.distribution.awayWinPct} /></div><div className="mt-4 rounded-xl border border-white/10 bg-white/[0.025] p-3 text-sm leading-6 text-slate-300">{projection.read}</div></Card><Card className="surface-panel p-5"><SectionTitle title="Factor stack" description="Full engine inputs sorted by impact." />{factors.length ? <div className="mt-4 grid gap-2 md:grid-cols-2">{factors.map((factor) => <Factor key={factor.label} label={factor.label} value={factor.value} />)}</div> : <div className="mt-4 text-sm text-slate-400">No sport-specific factor stack is available for this league yet.</div>}</Card></section><GovernorPanel projection={projection} />{league === "MLB" ? <MarketPanel edge={edge} /> : null}</div>;
+  return (
+    <div className="space-y-6">
+      <section className="surface-panel-strong p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="section-kicker">{league} matchup engine</div>
+            <div className="mt-3 font-display text-4xl font-semibold tracking-tight text-white">{projection.matchup.away} @ {projection.matchup.home}</div>
+            <div className="mt-3 text-sm text-slate-400">{formatTime(game.startTime)} · {modelVersion} · {dataSource}</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge tone={tone(game.status)}>{game.status}</Badge>
+            <span className={`rounded-full border px-3 py-1 text-xs font-semibold tracking-[0.14em] ${dec.cls}`}>{dec.label}</span>
+          </div>
+        </div>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <Link href={`/sim?league=${league}`} className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">Back to {league}</Link>
+          <Link href="/sim" className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">All leagues</Link>
+        </div>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-5">
+        <Tile label="Lean" value={favorite} sub={pct(favoritePct)} />
+        <Tile label="Away projection" value={String(projection.distribution.avgAway)} sub={projection.matchup.away} />
+        <Tile label="Home projection" value={String(projection.distribution.avgHome)} sub={projection.matchup.home} />
+        <Tile label="Projected total" value={String(projectedTotal)} sub="Model output" />
+        <Tile label="Confidence" value={confidence == null ? "—" : pct(confidence)} sub={intel?.governor?.noBet ? "No bet" : reality ? "Reality engine" : "Action gate"} />
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
+        <Card className="surface-panel p-5">
+          <SectionTitle title="Win distribution" description="Final model probability after available adjustments." />
+          <div className="mt-4"><WinBar label={projection.matchup.home} value={projection.distribution.homeWinPct} /></div>
+          <div className="mt-3"><WinBar label={projection.matchup.away} value={projection.distribution.awayWinPct} /></div>
+          <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.025] p-3 text-sm leading-6 text-slate-300">{projection.read}</div>
+        </Card>
+        <Card className="surface-panel p-5">
+          <SectionTitle title="Factor stack" description="Full engine inputs sorted by weighted impact." />
+          {factors.length ? (
+            <div className="mt-4 grid gap-2 md:grid-cols-2">
+              {factors.map((factor) => <Factor key={`${factor.label}:${factor.source ?? "model"}`} label={factor.label} value={factor.value} weight={factor.weight} source={factor.source} />)}
+            </div>
+          ) : (
+            <div className="mt-4 text-sm text-slate-400">No sport-specific factor stack is available for this league yet.</div>
+          )}
+        </Card>
+      </section>
+
+      <RealityEnginePanel projection={projection} />
+      <GovernorPanel projection={projection} />
+      {league === "MLB" ? <MarketPanel edge={edge} /> : null}
+    </div>
+  );
 }
