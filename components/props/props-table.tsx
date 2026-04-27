@@ -8,15 +8,18 @@ import {
   getOpportunityTrapLine,
   OpportunityBadgeRow
 } from "@/components/intelligence/opportunity-badges";
-import type { PropCardView } from "@/lib/types/domain";
+import type { PropCardView, PropMarketType } from "@/lib/types/domain";
 import { formatAmericanOdds, formatMarketType } from "@/lib/formatters/odds";
 import { buildPropBetIntent, buildWagerMathView } from "@/lib/utils/bet-intelligence";
 import { resolveMatchupHref } from "@/lib/utils/entity-routing";
 import { buildPropOpportunity } from "@/services/opportunities/opportunity-service";
+import { buildPlayerSimProjection } from "@/services/simulation/player-sim-engine";
 
 type PropsTableProps = {
   props: PropCardView[];
 };
+
+type SimPropType = "Points" | "Rebounds" | "Assists" | "Threes" | "Strikeouts" | "Outs" | "Prop";
 
 function renderValueFlag(flag: PropCardView["valueFlag"]) {
   if (!flag || flag === "NONE") {
@@ -36,6 +39,98 @@ function buildPropSparkline(prop: PropCardView) {
   ].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 }
 
+function toPlayerSimPropType(marketType: PropMarketType): SimPropType {
+  switch (marketType) {
+    case "player_points":
+      return "Points";
+    case "player_rebounds":
+      return "Rebounds";
+    case "player_assists":
+      return "Assists";
+    case "player_threes":
+      return "Threes";
+    case "player_pitcher_strikeouts":
+      return "Strikeouts";
+    case "player_pitcher_outs":
+      return "Outs";
+    default:
+      return "Prop";
+  }
+}
+
+function estimateTeamTotal(prop: PropCardView) {
+  if (prop.leagueKey === "NBA") return 112;
+  if (prop.leagueKey === "NCAAB") return 72;
+  if (prop.leagueKey === "NFL") return 23;
+  if (prop.leagueKey === "NCAAF") return 30;
+  if (prop.leagueKey === "NHL") return 3.1;
+  if (prop.leagueKey === "MLB") return 4.5;
+  return 1;
+}
+
+function estimateUsageRate(prop: PropCardView, simPropType: SimPropType) {
+  const hitRate = typeof prop.recentHitRate === "number" ? prop.recentHitRate : null;
+  const matchupBoost = typeof prop.matchupRank === "number" ? Math.max(-0.04, Math.min(0.04, (50 - prop.matchupRank) / 1000)) : 0;
+  const base =
+    simPropType === "Points" ? 0.24 :
+    simPropType === "Rebounds" ? 0.18 :
+    simPropType === "Assists" ? 0.16 :
+    simPropType === "Threes" ? 0.10 :
+    simPropType === "Strikeouts" ? 1.08 :
+    simPropType === "Outs" ? 1.02 :
+    0.20;
+  const formBoost = hitRate == null ? 0 : Math.max(-0.05, Math.min(0.05, hitRate - 0.5));
+  return Math.max(0.05, base + formBoost + matchupBoost);
+}
+
+function buildSimHref(prop: PropCardView, simPropType: SimPropType) {
+  const params = new URLSearchParams({
+    league: prop.leagueKey,
+    prop: simPropType,
+    player: prop.player.name,
+    line: String(prop.line),
+    odds: String(prop.bestAvailableOddsAmerican ?? prop.oddsAmerican),
+    propId: prop.id
+  });
+
+  if (prop.gameId) params.set("gameId", prop.gameId);
+  if (prop.team?.abbreviation) params.set("team", prop.team.abbreviation);
+  if (prop.opponent?.abbreviation) params.set("opponent", prop.opponent.abbreviation);
+
+  return `/sim/players?${params.toString()}`;
+}
+
+function buildLiveSimEdge(prop: PropCardView) {
+  const simPropType = toPlayerSimPropType(prop.marketType);
+  const bookOdds = prop.bestAvailableOddsAmerican ?? prop.oddsAmerican;
+  const projection = buildPlayerSimProjection({
+    player: prop.player.name,
+    propType: simPropType,
+    line: prop.line,
+    teamTotal: estimateTeamTotal(prop),
+    usageRate: estimateUsageRate(prop, simPropType),
+    opponentFactor: typeof prop.matchupRank === "number" ? Math.max(0.86, Math.min(1.14, 1 + (50 - prop.matchupRank) / 500)) : 1,
+    bookOdds
+  });
+
+  const side = String(prop.side ?? "").toLowerCase();
+  const sideProbability = side.includes("under") ? projection.underPct : projection.overPct;
+  const sideEdgePct = side.includes("under")
+    ? (projection.underPct - (projection.overPct - projection.edgePct / 100)) * 100
+    : projection.edgePct;
+  const displayEdge = Number.isFinite(sideEdgePct) ? sideEdgePct : projection.edgePct;
+  const label = displayEdge >= 5 ? "Attack" : displayEdge >= 1.5 ? "Watch" : "Pass";
+
+  return {
+    projection,
+    simPropType,
+    href: buildSimHref(prop, simPropType),
+    displayEdge,
+    sideProbability,
+    label
+  };
+}
+
 export function PropsTable({ props }: PropsTableProps) {
   return (
     <DataTable
@@ -48,6 +143,7 @@ export function PropsTable({ props }: PropsTableProps) {
         "Opportunity",
         "Trend",
         "Market",
+        "Sim Edge",
         "Actions"
       ]}
       rows={props.map((prop) => [
@@ -161,6 +257,26 @@ export function PropsTable({ props }: PropsTableProps) {
               : ""}
           </div>
         </div>,
+        (() => {
+          const sim = buildLiveSimEdge(prop);
+          const positive = sim.displayEdge > 0;
+          return (
+            <div key={`${prop.id}-sim-edge`} className="min-w-[116px]">
+              <div className={positive ? "font-mono text-sm font-semibold text-emerald-300" : "font-mono text-sm font-semibold text-rose-300"}>
+                {sim.displayEdge > 0 ? "+" : ""}{sim.displayEdge.toFixed(1)}%
+              </div>
+              <div className="text-xs text-slate-500">
+                {sim.label} | {sim.simPropType}
+              </div>
+              <div className="text-xs text-slate-500">
+                Sim {((sim.sideProbability ?? 0) * 100).toFixed(1)}% | fair {formatAmericanOdds(sim.projection.fairOdds)}
+              </div>
+              <Link href={sim.href} className="mt-1 inline-flex rounded-md border border-sky-400/25 bg-sky-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.10em] text-sky-300 hover:bg-sky-500/15">
+                Sim Edge
+              </Link>
+            </div>
+          );
+        })(),
         <div key={`${prop.id}-actions`} className="flex gap-2">
           <div className="hidden min-w-[88px] items-center justify-end lg:flex">
             <MarketSparkline values={buildPropSparkline(prop)} compact />
