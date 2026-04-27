@@ -2,6 +2,7 @@ import { buildPlayerSimV2, type PlayerSimV2Input, type PlayerSimV2Output } from 
 import { applyPlayerAdaptiveAdjustment } from "./sim-adaptive-layer";
 import { buildMarketIntelligenceSignal } from "./sim-market-intelligence-layer";
 import { buildClvSharpSignal } from "./sim-clv-sharp-layer";
+import { buildBetSizingRecommendation } from "./sim-bankroll-sizing-engine";
 import type { SimTuningParams } from "./sim-tuning";
 
 export function buildAdaptivePlayerSimV2(
@@ -23,9 +24,10 @@ export function buildAdaptivePlayerSimV2(
       currentLine?: number | null;
       closingLine?: number | null;
     };
+    bankroll?: number;
   },
   tuning?: SimTuningParams
-): PlayerSimV2Output {
+): PlayerSimV2Output & { betSizing?: any } {
   const base = buildPlayerSimV2(input, tuning);
 
   let workingInput = { ...input };
@@ -33,31 +35,24 @@ export function buildAdaptivePlayerSimV2(
   let riskFlags: string[] = [...base.riskFlags];
   let confidence = base.confidence;
 
-  // ===== ADAPTIVE PLAYER LAYER =====
+  // Adaptive
   if (input.trend && input.trend.longAvg > 0) {
     const adaptive = applyPlayerAdaptiveAdjustment(base.rawMean, {
       playerId: input.player,
       propType: input.propType,
       recentAvg: input.trend.recentAvg,
-      longAvg: input.trend.longAvg,
-      recentMinutes: input.trend.recentMinutes ?? null,
-      longMinutes: input.trend.longMinutes ?? null
+      longAvg: input.trend.longAvg
     });
 
     workingInput = {
       ...workingInput,
-      usageRate: Math.max(0.01, workingInput.usageRate * adaptive.adjustmentFactor),
-      seed: `${input.seed ?? input.player}:adaptive:${adaptive.adjustmentFactor.toFixed(4)}`
+      usageRate: Math.max(0.01, workingInput.usageRate * adaptive.adjustmentFactor)
     };
 
     reasons.unshift(`Adaptive blend (${(adaptive.weights.recentWeight * 100).toFixed(0)}% recent)`);
-
-    if (adaptive.weights.volatility > 0.28) {
-      riskFlags.push("Elevated player volatility");
-    }
   }
 
-  // ===== MARKET INTELLIGENCE LAYER =====
+  // Market
   let marketSignal = null;
   if (input.market) {
     marketSignal = buildMarketIntelligenceSignal({
@@ -77,7 +72,7 @@ export function buildAdaptivePlayerSimV2(
     confidence = Math.max(0, Math.min(0.95, confidence + marketSignal.confidenceShift));
   }
 
-  // ===== CLV + SHARP MONEY LAYER =====
+  // CLV
   let clvSignal = null;
   if (input.clv || input.market) {
     clvSignal = buildClvSharpSignal({
@@ -99,21 +94,31 @@ export function buildAdaptivePlayerSimV2(
     confidence = Math.max(0, Math.min(0.95, confidence + clvSignal.confidenceShift));
   }
 
-  // Re-run core sim after adjustments
   const rerun = buildPlayerSimV2(workingInput, tuning);
 
   let finalProbability = rerun.calibratedProbability;
 
-  if (marketSignal) {
-    finalProbability = Math.max(0.01, Math.min(0.99, finalProbability + marketSignal.probabilityShift));
-  }
+  if (marketSignal) finalProbability += marketSignal.probabilityShift;
+  if (clvSignal) finalProbability += clvSignal.probabilityShift;
 
-  if (clvSignal) {
-    finalProbability = Math.max(0.01, Math.min(0.99, finalProbability + clvSignal.probabilityShift));
-  }
+  finalProbability = Math.max(0.01, Math.min(0.99, finalProbability));
 
   const implied = rerun.calibratedProbability - rerun.edgePct / 100;
   const edge = (finalProbability - implied) * 100;
+
+  let betSizing = undefined;
+
+  if (input.bankroll && input.bankroll > 0) {
+    betSizing = buildBetSizingRecommendation({
+      bankroll: input.bankroll,
+      oddsAmerican: input.odds,
+      probability: finalProbability,
+      confidence,
+      edgePct: edge,
+      decision: rerun.decision,
+      riskFlags
+    });
+  }
 
   return {
     ...rerun,
@@ -122,6 +127,6 @@ export function buildAdaptivePlayerSimV2(
     confidence: Number(confidence.toFixed(4)),
     reasons,
     riskFlags,
-    modelVersion: "player-sim-v2"
+    betSizing
   };
 }
