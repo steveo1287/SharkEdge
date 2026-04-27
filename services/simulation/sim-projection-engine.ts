@@ -1,6 +1,7 @@
 import type { LeagueKey } from "@/lib/types/domain";
 import { getMlbLineupLock } from "@/services/simulation/mlb-lineup-locks";
 import { getMlbTeamPlayerSummary } from "@/services/simulation/mlb-player-model";
+import { compareMlbPlayerHistory } from "@/services/simulation/mlb-player-history";
 import { compareMlbProfiles, type MlbMatchupComparison } from "@/services/simulation/mlb-team-analytics";
 import { compareMlbRatings } from "@/services/simulation/mlb-ratings-blend";
 import { governMlbProjection, type MlbGovernorFeatures } from "@/services/simulation/mlb-intelligence-governor";
@@ -15,7 +16,7 @@ type SimProjection = {
   read: string;
   nbaIntel: { modelVersion: string; dataSource: string } | null;
   realityIntel?: RealitySimIntel | null;
-  mlbIntel?: { modelVersion: "mlb-intel-v5"; dataSource: string; homeEdge: number; projectedTotal: number; volatilityIndex: number; factors: Array<{ label: string; value: number }>; governor?: { source: string; confidence: number; noBet: boolean; tier: string; reasons: string[] }; calibration?: { calibratedHomeWinPct: number; correction: number; ece: number | null }; uncertainty?: { interval: { low: number; high: number; p90Low: number; p90High: number } | null; penalty: number; reason: string } } | null;
+  mlbIntel?: { modelVersion: "mlb-intel-v6"; dataSource: string; homeEdge: number; projectedTotal: number; volatilityIndex: number; factors: Array<{ label: string; value: number }>; governor?: { source: string; confidence: number; noBet: boolean; tier: string; reasons: string[] }; calibration?: { calibratedHomeWinPct: number; correction: number; ece: number | null }; uncertainty?: { interval: { low: number; high: number; p90Low: number; p90High: number } | null; penalty: number; reason: string } } | null;
 };
 
 function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, value)); }
@@ -26,11 +27,12 @@ function leagueBaseline(leagueKey: LeagueKey) { switch (leagueKey) { case "NBA":
 function scoreDecimals(leagueKey: LeagueKey) { return leagueKey === "NBA" || leagueKey === "NFL" || leagueKey === "NCAAF" ? 1 : 2; }
 
 async function buildMlbIntel(matchup: { away: string; home: string }, comparison: MlbMatchupComparison) {
-  const [awayPlayers, homePlayers, lock, ratings] = await Promise.all([
+  const [awayPlayers, homePlayers, lock, ratings, history] = await Promise.all([
     getMlbTeamPlayerSummary(matchup.away),
     getMlbTeamPlayerSummary(matchup.home),
     getMlbLineupLock(matchup.away, matchup.home),
-    compareMlbRatings(matchup.away, matchup.home)
+    compareMlbRatings(matchup.away, matchup.home),
+    compareMlbPlayerHistory(matchup.away, matchup.home)
   ]);
 
   const playerOffenseEdge = Number((homePlayers.offensivePlayerBoost - awayPlayers.offensivePlayerBoost).toFixed(2));
@@ -39,12 +41,20 @@ async function buildMlbIntel(matchup: { away: string; home: string }, comparison
   const availabilityEdge = Number((awayPlayers.availabilityDrag - homePlayers.availabilityDrag).toFixed(2));
   const lockBoost = Number(((lock.lockScore - 0.5) * 1.2).toFixed(2));
 
-  // Ratings are intentionally light-touch. They help close/tie-break spots and add realism, but core baseball metrics still dominate.
   const ratingsEdge = Number((ratings.ratingEdge * 0.18).toFixed(2));
   const ratingsPitchingEdge = Number((ratings.pitchingRatingEdge * 0.08).toFixed(2));
   const ratingsLineupEdge = Number((ratings.lineupRatingEdge * 0.07).toFixed(2));
   const ratingsStarDepthEdge = Number((ratings.starDepthEdge * 0.06).toFixed(2));
   const ratingsFieldingEdge = Number((ratings.fieldingRatingEdge * 0.05).toFixed(2));
+
+  // Recent form/history is bounded. It can clarify how this matchup may play out, but it cannot overpower pitching/bullpen fundamentals.
+  const historyEdge = Number((history.historyEdge * 0.34).toFixed(2));
+  const hitterHistoryEdge = Number((history.hitterHistoryEdge * 0.16).toFixed(2));
+  const pitcherHistoryEdge = Number((history.pitcherHistoryEdge * 0.18).toFixed(2));
+  const recentPlayerFormEdge = Number((history.recentFormEdge * 0.18).toFixed(2));
+  const bullpenHistoryEdge = Number((history.bullpenHistoryEdge * 0.14).toFixed(2));
+  const platoonHistoryEdge = Number((history.platoonHistoryEdge * 0.1).toFixed(2));
+  const contactTrendEdge = Number((history.contactTrendEdge * 0.08).toFixed(2));
 
   const homeEdge = Number((
     comparison.offensiveEdge * 0.2 +
@@ -54,7 +64,7 @@ async function buildMlbIntel(matchup: { away: string; home: string }, comparison
     comparison.bullpenEdge * 0.3 +
     comparison.defenseEdge * 0.1 +
     comparison.fatigueEdge * 0.14 +
-    comparison.formEdge * 0.1 +
+    comparison.formEdge * 0.16 +
     playerOffenseEdge * 0.42 +
     playerPitchingEdge * 0.48 +
     availabilityEdge * 0.28 +
@@ -63,7 +73,14 @@ async function buildMlbIntel(matchup: { away: string; home: string }, comparison
     ratingsPitchingEdge +
     ratingsLineupEdge +
     ratingsStarDepthEdge +
-    ratingsFieldingEdge
+    ratingsFieldingEdge +
+    historyEdge +
+    hitterHistoryEdge +
+    pitcherHistoryEdge +
+    recentPlayerFormEdge +
+    bullpenHistoryEdge +
+    platoonHistoryEdge +
+    contactTrendEdge
   ).toFixed(2));
 
   const projectedTotal = Number((
@@ -71,36 +88,38 @@ async function buildMlbIntel(matchup: { away: string; home: string }, comparison
     comparison.parkWeatherEdge * 0.26 +
     Math.abs(comparison.powerEdge) * 0.14 +
     Math.abs(playerOffenseEdge) * 0.18 -
-    Math.max(0, comparison.startingPitchingEdge + playerPitchingEdge) * 0.1 +
+    Math.max(0, comparison.startingPitchingEdge + playerPitchingEdge + pitcherHistoryEdge) * 0.1 +
     (homePlayers.bullpenFatigue + awayPlayers.bullpenFatigue) * 0.28 +
-    ratings.ratingRunEnvironment * 0.42
+    ratings.ratingRunEnvironment * 0.42 +
+    Math.abs(history.recentFormEdge) * 0.08 +
+    Math.abs(history.contactTrendEdge) * 0.06
   ).toFixed(2));
 
   const volatilityIndex = Number(Math.max(
     0.7,
-    Math.min(2.25, comparison.volatilityIndex * playerVolatility * lock.volatilityAdjustment * (1 + ratings.ratingConfidence * 0.25))
+    Math.min(2.25, comparison.volatilityIndex * playerVolatility * lock.volatilityAdjustment * (1 + ratings.ratingConfidence * 0.25 + history.historyConfidence * 0.28))
   ).toFixed(2));
 
   const features: MlbGovernorFeatures = {
-    teamEdge: comparison.offensiveEdge + comparison.powerEdge + ratingsLineupEdge,
-    playerEdge: playerOffenseEdge + ratingsStarDepthEdge,
-    statcastEdge: comparison.powerEdge,
+    teamEdge: comparison.offensiveEdge + comparison.powerEdge + ratingsLineupEdge + recentPlayerFormEdge,
+    playerEdge: playerOffenseEdge + ratingsStarDepthEdge + hitterHistoryEdge + contactTrendEdge,
+    statcastEdge: comparison.powerEdge + contactTrendEdge,
     weatherEdge: comparison.parkWeatherEdge,
-    pitcherEdge: comparison.startingPitchingEdge + playerPitchingEdge + ratingsPitchingEdge,
-    bullpenEdge: comparison.bullpenEdge,
+    pitcherEdge: comparison.startingPitchingEdge + playerPitchingEdge + ratingsPitchingEdge + pitcherHistoryEdge,
+    bullpenEdge: comparison.bullpenEdge + bullpenHistoryEdge,
     lockEdge: lockBoost,
     parkEdge: comparison.parkWeatherEdge,
-    formEdge: comparison.formEdge + ratings.clutchRatingEdge * 0.04,
+    formEdge: comparison.formEdge + ratings.clutchRatingEdge * 0.04 + recentPlayerFormEdge,
     totalWeatherEdge: comparison.parkWeatherEdge,
-    totalStatcastEdge: comparison.powerEdge,
-    totalPitchingEdge: comparison.startingPitchingEdge + playerPitchingEdge + ratingsPitchingEdge,
+    totalStatcastEdge: comparison.powerEdge + contactTrendEdge,
+    totalPitchingEdge: comparison.startingPitchingEdge + playerPitchingEdge + ratingsPitchingEdge + pitcherHistoryEdge,
     totalParkEdge: comparison.parkWeatherEdge,
-    totalBullpenEdge: comparison.bullpenEdge
+    totalBullpenEdge: comparison.bullpenEdge + bullpenHistoryEdge
   };
 
   return {
-    modelVersion: "mlb-intel-v5" as const,
-    dataSource: `${comparison.away.source}/${comparison.home.source}+team-analytics+player-model:${awayPlayers.source}/${homePlayers.source}+ratings:${ratings.away.source}/${ratings.home.source}+locks:${lock.source}`,
+    modelVersion: "mlb-intel-v6" as const,
+    dataSource: `${comparison.away.source}/${comparison.home.source}+team-analytics+player-model:${awayPlayers.source}/${homePlayers.source}+history:${history.away.source}/${history.home.source}+ratings:${ratings.away.source}/${ratings.home.source}+locks:${lock.source}`,
     homeEdge,
     projectedTotal,
     volatilityIndex,
@@ -111,6 +130,7 @@ async function buildMlbIntel(matchup: { away: string; home: string }, comparison
       { label: "Plate discipline", value: comparison.plateDisciplineEdge },
       { label: "Starting pitching", value: comparison.startingPitchingEdge },
       { label: "Bullpen", value: comparison.bullpenEdge },
+      { label: "Recent team form", value: comparison.formEdge },
       { label: "Player offense", value: playerOffenseEdge },
       { label: "Player pitching", value: playerPitchingEdge },
       { label: "Availability", value: availabilityEdge },
@@ -122,7 +142,15 @@ async function buildMlbIntel(matchup: { away: string; home: string }, comparison
       { label: "Ratings pitching", value: ratingsPitchingEdge },
       { label: "Ratings star/depth", value: ratingsStarDepthEdge },
       { label: "Ratings fielding", value: ratingsFieldingEdge },
-      ...ratings.factors.map((factor) => ({ label: factor.label, value: factor.value }))
+      { label: "History overall", value: historyEdge },
+      { label: "History hitter vs starter", value: hitterHistoryEdge },
+      { label: "History pitcher vs lineup", value: pitcherHistoryEdge },
+      { label: "Recent player form", value: recentPlayerFormEdge },
+      { label: "Recent bullpen form", value: bullpenHistoryEdge },
+      { label: "Platoon history", value: platoonHistoryEdge },
+      { label: "Hard contact trend", value: contactTrendEdge },
+      ...ratings.factors.map((factor) => ({ label: factor.label, value: factor.value })),
+      ...history.factors.map((factor) => ({ label: factor.label, value: factor.value }))
     ]
   };
 }
@@ -165,8 +193,8 @@ export async function buildSimProjection(input: SimProjectionInput): Promise<Sim
     const read = governed.noBet
       ? `PASS: model confidence is not strong enough. ${conformal.reason}`
       : finalHomeWinPct >= finalAwayWinPct
-        ? `${matchup.home} cleared ${governed.tier.toUpperCase()} tier after governor/calibration checks. MLB v5 includes light team/player ratings as a realism/tie-break layer.`
-        : `${matchup.away} cleared ${governed.tier.toUpperCase()} tier after governor/calibration checks. MLB v5 includes light team/player ratings as a realism/tie-break layer.`;
+        ? `${matchup.home} cleared ${governed.tier.toUpperCase()} tier after governor/calibration checks. MLB v6 includes recent player history/form as a bounded context layer.`
+        : `${matchup.away} cleared ${governed.tier.toUpperCase()} tier after governor/calibration checks. MLB v6 includes recent player history/form as a bounded context layer.`;
     return { matchup, distribution: { avgAway: Number(awayExpected.toFixed(2)), avgHome: Number(homeExpected.toFixed(2)), homeWinPct: Number(finalHomeWinPct.toFixed(3)), awayWinPct: Number(finalAwayWinPct.toFixed(3)) }, read, nbaIntel: null, realityIntel: null, mlbIntel: { ...mlbIntel, projectedTotal: total, governor: { source: governed.source, confidence: conformal.calibratedConfidence, noBet: governed.noBet || conformal.calibratedConfidence < 0.6, tier: conformal.calibratedConfidence < 0.6 ? "pass" : governed.tier, reasons: [...governed.reasons, conformal.reason] }, calibration: { calibratedHomeWinPct: finalHomeWinPct, correction: calibrated.correction, ece: calibration?.ok ? calibration.ece : null }, uncertainty: { interval: conformal.interval, penalty: conformal.uncertaintyPenalty, reason: conformal.reason } } };
   }
 
