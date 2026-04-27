@@ -3,6 +3,7 @@ import type {
   TrendCardView,
   TrendDashboardView,
   TrendFilters,
+  TrendMatchView,
   TrendMetricCard,
   TrendMode,
   TrendTableRow
@@ -70,12 +71,34 @@ function tone(card: PublishedTrendCard): TrendCardView["tone"] {
   return "muted";
 }
 
+function normalizeMatches(card: PublishedTrendCard): TrendMatchView[] {
+  return card.todayMatches.slice(0, 4).map((match) => {
+    const date = match.startTime.slice(0, 10);
+    return {
+      id: `${card.id}:${match.id}`,
+      sport: match.sport,
+      leagueKey: match.league,
+      eventLabel: match.matchup,
+      startTime: match.startTime,
+      status: "PREGAME",
+      stateDetail: null,
+      matchingLogic: `${card.leagueLabel} | ${card.marketLabel} | ${card.category}`,
+      recommendedBetLabel: card.marketLabel === "Trend" ? null : `${card.marketLabel} trend qualifier`,
+      oddsContext: card.primaryMetricValue ? `${card.primaryMetricLabel}: ${card.primaryMetricValue}` : null,
+      matchupHref: match.href,
+      boardHref: match.league === "UFC" || match.league === "BOXING" ? null : `/?league=${match.league}&date=${date}`,
+      propsHref: card.marketLabel.toLowerCase().includes("player") ? `/props?league=${match.league}` : null,
+      supportNote: match.tag
+    };
+  });
+}
+
 function smartNote(card: PublishedTrendCard) {
   const parts = [
     card.description,
     `SmartScore ${smartScore(card)}`,
     card.intelligenceTags.length ? `Tags: ${card.intelligenceTags.join(", ")}` : null,
-    card.todayMatches.length ? `${card.todayMatches.length} source qualifier${card.todayMatches.length === 1 ? "" : "s"}` : null
+    card.todayMatches.length ? `${card.todayMatches.length} live qualifier${card.todayMatches.length === 1 ? "" : "s"}` : null
   ].filter(Boolean);
   return parts.join(". ");
 }
@@ -103,12 +126,12 @@ function toCard(card: PublishedTrendCard, filters: TrendFilters): TrendCardView 
     sampleSize: card.sampleSize,
     dateRange: `${windowLabel(filters)} · ${card.leagueLabel} · ${card.marketLabel}`,
     note: smartNote(card),
-    explanation: `${card.railReason} Ranked by publisher score, sample, hit rate, ROI, profit, current qualifiers, and intelligence tags.`,
+    explanation: `${card.railReason} Ranked by publisher score, sample, hit rate, ROI, profit, live qualifiers, and intelligence tags.`,
     whyItMatters: smartWhy(card),
     caution: card.warning || "Use as a ranked signal with current context.",
     href: card.href,
     tone: tone(card),
-    todayMatches: []
+    todayMatches: normalizeMatches(card)
   };
 }
 
@@ -116,6 +139,16 @@ function dedupe(cards: PublishedTrendCard[]) {
   const seen = new Set<string>();
   return cards.filter((card) => {
     const key = card.id || `${card.title}:${card.href}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function dedupeMatches(matches: TrendMatchView[]) {
+  const seen = new Set<string>();
+  return matches.filter((match) => {
+    const key = match.id;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -130,13 +163,13 @@ function metrics(cards: PublishedTrendCard[]): TrendMetricCard[] {
   const sorted = smartSort(cards);
   const top = sorted[0];
   const bestRoi = [...cards].filter((card) => typeof card.roi === "number").sort((a, b) => (b.roi ?? -999) - (a.roi ?? -999))[0];
-  const sourceMatches = cards.reduce((total, card) => total + (card.todayMatches?.length ?? 0), 0);
+  const liveMatches = cards.reduce((total, card) => total + (card.todayMatches?.length ?? 0), 0);
   const tagCount = new Set(cards.flatMap((card) => card.intelligenceTags)).size;
 
   return [
     { label: "Top SmartScore", value: top ? String(smartScore(top)) : "N/A", note: top?.title ?? "No card." },
     { label: "Ranked trends", value: String(cards.length), note: "Sorted by score, sample, market tags, and qualifiers." },
-    { label: "Source qualifiers", value: String(sourceMatches), note: "Current qualifiers reported by the feed." },
+    { label: "Live qualifiers", value: String(liveMatches), note: "Current games now attach to trend cards." },
     { label: "Signal tags", value: String(tagCount), note: bestRoi ? `Best ROI: ${bestRoi.title} ${pct(bestRoi.roi) ?? ""}`.trim() : "Market and schedule tags." }
   ];
 }
@@ -145,7 +178,7 @@ function rows(cards: PublishedTrendCard[]): TrendTableRow[] {
   return smartSort(cards).slice(0, 10).map((card) => ({
     label: `${card.leagueLabel} ${card.marketLabel}`,
     movement: `Score ${smartScore(card)}`,
-    note: [card.title, card.primaryMetricValue, ...card.whyNow, ...card.intelligenceTags.slice(0, 2)].filter(Boolean).join(" · "),
+    note: [card.title, card.primaryMetricValue, `${card.todayMatches.length} live`, ...card.whyNow, ...card.intelligenceTags.slice(0, 2)].filter(Boolean).join(" · "),
     href: card.href
   }));
 }
@@ -170,6 +203,7 @@ async function publishedDashboard(
     if (!cards.length) return null;
 
     const top = cards[0];
+    const allMatches = dedupeMatches(cards.flatMap(normalizeMatches));
 
     return {
       setup: null,
@@ -189,7 +223,7 @@ async function publishedDashboard(
         id: `published-${card.id}`,
         title: card.title,
         value: `Score ${smartScore(card)}`,
-        note: [card.description, ...card.intelligenceTags.slice(0, 3)].filter(Boolean).join(" · "),
+        note: [card.description, `${card.todayMatches.length} live`, ...card.intelligenceTags.slice(0, 3)].filter(Boolean).join(" · "),
         tone: tone(card)
       })),
       movementRows: rows(cards),
@@ -198,15 +232,17 @@ async function publishedDashboard(
         return {
           label: section.category,
           movement: best ? `Best ${smartScore(best)}` : `${section.cards.length} cards`,
-          note: best ? `${best.title} · ${best.railReason}` : "Published trend section",
+          note: best ? `${best.title} · ${best.todayMatches.length} live · ${best.railReason}` : "Published trend section",
           href: best?.href ?? "/trends"
         };
       }),
-      todayMatches: [],
-      todayMatchesNote: "Trend cards loaded. Source qualifiers are counted in the score until match objects are normalized.",
+      todayMatches: allMatches,
+      todayMatchesNote: allMatches.length
+        ? `${allMatches.length} live trend qualifier${allMatches.length === 1 ? "" : "s"} attached to the dashboard.`
+        : "Trend cards loaded. No current games qualify for this filter yet.",
       savedSystems: existing?.savedSystems ?? [],
       savedTrendName: existing?.savedTrendName ?? "",
-      sourceNote: "Loaded from the SharkEdge published trend feed and smart-ranked by sample, ROI, hit rate, profit, qualifiers, and intelligence tags.",
+      sourceNote: "Loaded from the SharkEdge published trend feed and smart-ranked by sample, ROI, hit rate, profit, live qualifiers, and intelligence tags.",
       querySummary: summary(filters),
       sampleNote: qualified.length ? existing?.sampleNote ?? null : `No cards cleared the ${sampleFloor}+ sample filter, so showing strongest available trends.`
     };
