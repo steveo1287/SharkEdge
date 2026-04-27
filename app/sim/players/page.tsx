@@ -11,7 +11,11 @@ import type { BoardSportSectionView, LeagueKey } from "@/lib/types/domain";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type SearchParams = { league?: string | string[] };
+type SearchParams = {
+  league?: string | string[];
+  gameId?: string | string[];
+  player?: string | string[];
+};
 type PageProps = { searchParams?: Promise<SearchParams> };
 type SimGame = { id: string; label: string; startTime: string; status: string; leagueKey: LeagueKey; leagueLabel: string };
 type Projection = Awaited<ReturnType<typeof buildSimProjection>>;
@@ -20,10 +24,26 @@ type MatchupRow = { game: SimGame; projection: Projection };
 
 const PLAYER_MATCHUP_LEAGUES: LeagueKey[] = ["NBA"];
 
+function param(value: string | string[] | undefined) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw ? decodeURIComponent(raw).trim() : null;
+}
+
 function selectedLeague(value: string | string[] | undefined): LeagueKey {
   const raw = Array.isArray(value) ? value[0] : value;
   const upper = String(raw ?? "NBA").toUpperCase();
   return PLAYER_MATCHUP_LEAGUES.includes(upper as LeagueKey) ? (upper as LeagueKey) : "NBA";
+}
+
+function normalizeName(value: string | null | undefined) {
+  return String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function playerMatches(row: PlayerProjection, focusPlayer: string | null) {
+  if (!focusPlayer) return false;
+  const rowName = normalizeName(row.playerName);
+  const focus = normalizeName(focusPlayer);
+  return Boolean(focus && (rowName === focus || rowName.includes(focus) || focus.includes(rowName)));
 }
 
 function flatten(sections: BoardSportSectionView[]): SimGame[] {
@@ -79,10 +99,15 @@ function playerRank(row: PlayerProjection) {
   return row.projectedMinutes * 0.65 + row.projectedPoints * 0.55 + row.projectedAssists * 0.35 + row.projectedRebounds * 0.24 + row.confidence * 12;
 }
 
-function teamRows(rows: PlayerProjection[], side: "away" | "home") {
+function teamRows(rows: PlayerProjection[], side: "away" | "home", focusPlayer: string | null = null) {
   return rows
     .filter((row) => row.teamSide === side)
-    .sort((left, right) => playerRank(right) - playerRank(left));
+    .sort((left, right) => {
+      const leftFocus = playerMatches(left, focusPlayer) ? 1 : 0;
+      const rightFocus = playerMatches(right, focusPlayer) ? 1 : 0;
+      if (leftFocus !== rightFocus) return rightFocus - leftFocus;
+      return playerRank(right) - playerRank(left);
+    });
 }
 
 function sum(rows: PlayerProjection[], selector: (row: PlayerProjection) => number) {
@@ -99,7 +124,56 @@ function TeamTotalTile({ label, value, sub }: { label: string; value: string; su
   );
 }
 
-function PlayerBoxScoreTable({ title, rows }: { title: string; rows: PlayerProjection[] }) {
+function PlayerFocusPanel({ player, game }: { player: PlayerProjection; game: SimGame }) {
+  const pra = player.projectedPoints + player.projectedRebounds + player.projectedAssists;
+  const bestProp = player.propHitProbabilities.points ?? player.propHitProbabilities.assists ?? player.propHitProbabilities.rebounds ?? player.propHitProbabilities.threes ?? null;
+
+  return (
+    <Card className="border border-sky-400/30 bg-sky-500/[0.06] p-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-sky-200/80">Focused player from prop board</div>
+          <div className="mt-2 text-2xl font-semibold text-white">{player.playerName}</div>
+          <div className="mt-1 text-sm text-slate-400">{player.teamName} · {game.label} · {formatTime(game.startTime)}</div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-5 lg:min-w-[620px]">
+          <TeamTotalTile label="Minutes" value={num(player.projectedMinutes)} />
+          <TeamTotalTile label="Points" value={num(player.projectedPoints)} />
+          <TeamTotalTile label="Reb" value={num(player.projectedRebounds)} />
+          <TeamTotalTile label="Ast" value={num(player.projectedAssists)} />
+          <TeamTotalTile label="PRA" value={num(pra)} />
+        </div>
+      </div>
+      <div className="mt-3 grid gap-2 lg:grid-cols-3">
+        <div className="rounded-xl border border-white/10 bg-slate-950/40 p-3 text-xs text-slate-300">
+          <div className="mb-1 text-slate-100">Floor / Median / Ceiling</div>
+          <div>PTS {num(player.floor.points)} / {num(player.projectedPoints)} / {num(player.ceiling.points)}</div>
+          <div>REB {num(player.floor.rebounds)} / {num(player.projectedRebounds)} / {num(player.ceiling.rebounds)}</div>
+          <div>AST {num(player.floor.assists)} / {num(player.projectedAssists)} / {num(player.ceiling.assists)}</div>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-slate-950/40 p-3 text-xs text-slate-300">
+          <div className="mb-1 text-slate-100">Best prop read</div>
+          {bestProp ? (
+            <>
+              <div>{bestProp.recommendedSide} line {num(bestProp.line)}</div>
+              <div>O {pct(bestProp.overProbability)} / U {pct(bestProp.underProbability)}</div>
+              <div>Edge to line {plus(bestProp.edgeToLine)}</div>
+            </>
+          ) : (
+            <div>No matched market line on this player yet.</div>
+          )}
+        </div>
+        <div className="rounded-xl border border-white/10 bg-slate-950/40 p-3 text-xs text-slate-300">
+          <div className="mb-1 text-slate-100">Why / risk</div>
+          <div>{player.whyLikely[0] ?? "Role and possession context support the median projection."}</div>
+          <div className="mt-1 text-slate-500">{player.whyNotLikely[0] ?? "No major downside flags from current context stack."}</div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function PlayerBoxScoreTable({ title, rows, focusPlayer }: { title: string; rows: PlayerProjection[]; focusPlayer: string | null }) {
   const totals = {
     minutes: sum(rows, (row) => row.projectedMinutes),
     points: sum(rows, (row) => row.projectedPoints),
@@ -134,10 +208,14 @@ function PlayerBoxScoreTable({ title, rows }: { title: string; rows: PlayerProje
           <tbody>
             {rows.map((row) => {
               const pra = row.projectedPoints + row.projectedRebounds + row.projectedAssists;
+              const focused = playerMatches(row, focusPlayer);
               return (
-                <tr key={`${row.teamName}:${row.playerName}`} className="border-b border-white/5 last:border-none">
+                <tr key={`${row.teamName}:${row.playerName}`} className={focused ? "border-b border-sky-400/20 bg-sky-500/[0.08]" : "border-b border-white/5 last:border-none"}>
                   <td className="px-3 py-2">
-                    <div className="font-semibold text-white">{row.playerName}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-white">{row.playerName}</span>
+                      {focused ? <Badge tone="brand">FOCUS</Badge> : null}
+                    </div>
                     <div className="text-[10px] text-slate-500">{row.status} · {row.source}</div>
                   </td>
                   <td className="px-3 py-2 text-right font-mono text-slate-200">{num(row.projectedMinutes)}</td>
@@ -167,7 +245,7 @@ function PlayerBoxScoreTable({ title, rows }: { title: string; rows: PlayerProje
   );
 }
 
-function PlayerVsPlayerPanel({ awayRows, homeRows }: { awayRows: PlayerProjection[]; homeRows: PlayerProjection[] }) {
+function PlayerVsPlayerPanel({ awayRows, homeRows, focusPlayer }: { awayRows: PlayerProjection[]; homeRows: PlayerProjection[]; focusPlayer: string | null }) {
   const pairs = Array.from({ length: Math.max(awayRows.length, homeRows.length) }, (_, index) => ({
     away: awayRows[index],
     home: homeRows[index]
@@ -188,8 +266,9 @@ function PlayerVsPlayerPanel({ awayRows, homeRows }: { awayRows: PlayerProjectio
         {pairs.map((pair, index) => {
           const awayPra = pair.away ? pair.away.projectedPoints + pair.away.projectedRebounds + pair.away.projectedAssists : 0;
           const homePra = pair.home ? pair.home.projectedPoints + pair.home.projectedRebounds + pair.home.projectedAssists : 0;
+          const focused = Boolean((pair.away && playerMatches(pair.away, focusPlayer)) || (pair.home && playerMatches(pair.home, focusPlayer)));
           return (
-            <div key={`pair-${index}`} className="grid gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs md:grid-cols-[1fr_auto_1fr] md:items-center">
+            <div key={`pair-${index}`} className={focused ? "grid gap-2 rounded-xl border border-sky-400/25 bg-sky-500/[0.07] p-3 text-xs md:grid-cols-[1fr_auto_1fr] md:items-center" : "grid gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs md:grid-cols-[1fr_auto_1fr] md:items-center"}>
               <div>
                 <div className="font-semibold text-white">{pair.away?.playerName ?? "—"}</div>
                 <div className="mt-1 text-slate-400">{pair.away ? `${num(pair.away.projectedPoints)} pts · ${num(awayPra)} PRA · ${num(pair.away.projectedMinutes)} min` : "No player"}</div>
@@ -209,18 +288,20 @@ function PlayerVsPlayerPanel({ awayRows, homeRows }: { awayRows: PlayerProjectio
   );
 }
 
-function MatchupBoxScoreCard({ row }: { row: MatchupRow }) {
+function MatchupBoxScoreCard({ row, focusPlayer, focusedGameId }: { row: MatchupRow; focusPlayer: string | null; focusedGameId: string | null }) {
   const { game, projection } = row;
   const players = projection.nbaIntel?.playerStatProjections ?? [];
-  const awayRows = teamRows(players, "away");
-  const homeRows = teamRows(players, "home");
+  const awayRows = teamRows(players, "away", focusPlayer);
+  const homeRows = teamRows(players, "home", focusPlayer);
   const awayPoints = sum(awayRows, (player) => player.projectedPoints);
   const homePoints = sum(homeRows, (player) => player.projectedPoints);
   const detailHref = `/sim/${game.leagueKey.toLowerCase()}/${encodeURIComponent(game.id)}`;
   const tier = projection.nbaIntel?.tier ?? "pass";
+  const focusedPlayer = players.find((player) => playerMatches(player, focusPlayer)) ?? null;
+  const focusedGame = Boolean(focusedGameId && game.id === focusedGameId);
 
   return (
-    <section className="grid gap-4 rounded-3xl border border-white/10 bg-white/[0.025] p-4">
+    <section className={focusedGame ? "grid gap-4 rounded-3xl border border-sky-400/30 bg-sky-500/[0.045] p-4" : "grid gap-4 rounded-3xl border border-white/10 bg-white/[0.025] p-4"}>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{game.leagueKey} · {formatTime(game.startTime)}</div>
@@ -230,11 +311,14 @@ function MatchupBoxScoreCard({ row }: { row: MatchupRow }) {
         <div className="flex flex-wrap gap-2 lg:justify-end">
           <Badge tone={tone(game.status)}>{game.status}</Badge>
           <Badge tone={decisionTone(tier)}>{tier.toUpperCase()}</Badge>
+          {focusedGame ? <Badge tone="brand">MATCHED PROP</Badge> : null}
           <Link href={detailHref} className="rounded-full border border-sky-400/35 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-sky-200 hover:bg-sky-500/15">
             Open full sim
           </Link>
         </div>
       </div>
+
+      {focusedPlayer ? <PlayerFocusPanel player={focusedPlayer} game={game} /> : null}
 
       <div className="grid gap-3 md:grid-cols-5">
         <TeamTotalTile label="Away score" value={num(projection.distribution.avgAway)} sub={projection.matchup.away} />
@@ -244,12 +328,12 @@ function MatchupBoxScoreCard({ row }: { row: MatchupRow }) {
         <TeamTotalTile label="Confidence" value={pct(projection.nbaIntel?.confidence, 0)} sub={`${projection.nbaIntel?.playerStatProjections.length ?? 0} player rows`} />
       </div>
 
-      <PlayerVsPlayerPanel awayRows={awayRows} homeRows={homeRows} />
+      <PlayerVsPlayerPanel awayRows={awayRows} homeRows={homeRows} focusPlayer={focusPlayer} />
 
       {players.length ? (
         <div className="grid gap-4 xl:grid-cols-2">
-          <PlayerBoxScoreTable title={projection.matchup.away} rows={awayRows} />
-          <PlayerBoxScoreTable title={projection.matchup.home} rows={homeRows} />
+          <PlayerBoxScoreTable title={projection.matchup.away} rows={awayRows} focusPlayer={focusPlayer} />
+          <PlayerBoxScoreTable title={projection.matchup.home} rows={homeRows} focusPlayer={focusPlayer} />
         </div>
       ) : (
         <Card className="surface-panel p-5 text-sm leading-6 text-slate-400">
@@ -263,7 +347,13 @@ function MatchupBoxScoreCard({ row }: { row: MatchupRow }) {
 export default async function SimPlayersPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const activeLeague = selectedLeague(params?.league);
-  const sections = await buildBoardSportSections({ selectedLeague: activeLeague, gamesByLeague: {}, maxScoreboardGames: 6 });
+  const focusedGameId = param(params?.gameId);
+  const focusPlayer = param(params?.player);
+  const sections = await buildBoardSportSections({
+    selectedLeague: activeLeague,
+    gamesByLeague: {},
+    maxScoreboardGames: focusedGameId ? null : 6
+  });
   const games = flatten(sections);
   const rows: MatchupRow[] = await Promise.all(
     games.map(async (game) => ({
@@ -271,9 +361,13 @@ export default async function SimPlayersPage({ searchParams }: PageProps) {
       projection: await buildSimProjection(game)
     }))
   );
-  const playerRows = rows.reduce((total, row) => total + (row.projection.nbaIntel?.playerStatProjections.length ?? 0), 0);
-  const attack = rows.filter((row) => row.projection.nbaIntel?.tier === "attack").length;
-  const watch = rows.filter((row) => row.projection.nbaIntel?.tier === "watch").length;
+  const displayedRows = focusedGameId ? rows.filter((row) => row.game.id === focusedGameId) : rows;
+  const focusedPlayerRow = displayedRows
+    .flatMap((row) => row.projection.nbaIntel?.playerStatProjections.map((player) => ({ player, game: row.game })) ?? [])
+    .find((item) => playerMatches(item.player, focusPlayer)) ?? null;
+  const playerRows = displayedRows.reduce((total, row) => total + (row.projection.nbaIntel?.playerStatProjections.length ?? 0), 0);
+  const attack = displayedRows.filter((row) => row.projection.nbaIntel?.tier === "attack").length;
+  const watch = displayedRows.filter((row) => row.projection.nbaIntel?.tier === "watch").length;
 
   return (
     <div className="space-y-6">
@@ -285,19 +379,36 @@ export default async function SimPlayersPage({ searchParams }: PageProps) {
               Projected box scores for every player in the matchup.
             </h1>
             <p className="mt-4 max-w-4xl text-sm leading-7 text-bone/65">
-              This page now uses the same live matchup simulation stack as Sim HQ. No mock player rows: each card pulls actual scoreboard matchups, runs the game projection, then expands both rosters into projected points, rebounds, assists, threes, PRA, confidence, and player-vs-player ladders.
+              This page uses the same live matchup simulation stack as Sim HQ. Prop links can now open the exact game and highlight the player, then show both teams’ projected points, rebounds, assists, threes, PRA, confidence, and player-vs-player ladder.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link href="/sim?league=NBA" className="rounded-md border border-aqua/35 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-aqua">Sim HQ</Link>
             <Link href="/props?league=NBA" className="rounded-md border border-bone/[0.12] bg-panel px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-bone/75">NBA Props</Link>
             <Link href="/nba-edge" className="rounded-md border border-bone/[0.12] bg-panel px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-bone/75">NBA Edge</Link>
+            {focusedGameId || focusPlayer ? <Link href="/sim/players?league=NBA" className="rounded-md border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-sky-200">Clear Focus</Link> : null}
           </div>
         </div>
       </section>
 
+      {focusedGameId || focusPlayer ? (
+        <Card className="border border-sky-400/25 bg-sky-500/[0.05] p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-200/80">Prop drilldown active</div>
+              <div className="mt-1 text-sm text-slate-300">
+                {focusedPlayerRow
+                  ? `Focused on ${focusedPlayerRow.player.playerName} in ${focusedPlayerRow.game.label}.`
+                  : `Focused query loaded${focusPlayer ? ` for ${focusPlayer}` : ""}. Matching player rows will highlight when available.`}
+              </div>
+            </div>
+            <Link href="/sim/players?league=NBA" className="rounded-full border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-200">Show full slate</Link>
+          </div>
+        </Card>
+      ) : null}
+
       <section className="grid gap-3 md:grid-cols-4">
-        <TeamTotalTile label="Matchups" value={String(rows.length)} sub={`${activeLeague} active slate`} />
+        <TeamTotalTile label="Matchups" value={String(displayedRows.length)} sub={`${activeLeague} active slate`} />
         <TeamTotalTile label="Player rows" value={String(playerRows)} sub="Projected box-score entries" />
         <TeamTotalTile label="Attack / Watch" value={`${attack} / ${watch}`} sub="NBA governor tiers" />
         <TeamTotalTile label="Runs" value="10k" sub="Per-player simulation depth" />
@@ -308,10 +419,17 @@ export default async function SimPlayersPage({ searchParams }: PageProps) {
           title="NBA player matchup board"
           description="Open a full sim for the game-level model, or use these tables to read the expected player box score and matchup ladder directly."
         />
-        {rows.length ? (
-          rows.map((row) => <MatchupBoxScoreCard key={`${row.game.leagueKey}:${row.game.id}`} row={row} />)
+        {displayedRows.length ? (
+          displayedRows.map((row) => (
+            <MatchupBoxScoreCard
+              key={`${row.game.leagueKey}:${row.game.id}`}
+              row={row}
+              focusPlayer={focusPlayer}
+              focusedGameId={focusedGameId}
+            />
+          ))
         ) : (
-          <EmptyState title="No NBA matchups available" description="The scoreboard provider did not return active NBA games for the current slate." />
+          <EmptyState title="No matching NBA matchup available" description="The scoreboard provider did not return an active NBA game matching this prop link." />
         )}
       </section>
     </div>
