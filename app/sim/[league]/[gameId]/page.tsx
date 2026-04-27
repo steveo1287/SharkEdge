@@ -25,6 +25,16 @@ type DisplayFactor = {
 };
 
 const VALID_LEAGUES: LeagueKey[] = ["MLB", "NBA", "NHL", "NFL", "NCAAF", "UFC", "BOXING"];
+const MLB_HISTORY_LABELS = [
+  "History overall",
+  "History hitter vs starter",
+  "History pitcher vs lineup",
+  "Recent player form",
+  "Recent bullpen form",
+  "Platoon history",
+  "Hard contact trend",
+  "Recent team form"
+];
 
 function decodeLeague(value: string): LeagueKey | null {
   const upper = value.toUpperCase();
@@ -133,6 +143,21 @@ function Factor({ label, value, weight, source }: DisplayFactor) {
   );
 }
 
+function getFactor(factors: DisplayFactor[], label: string) {
+  return factors.find((factor) => factor.label === label) ?? null;
+}
+
+function sumFactors(factors: DisplayFactor[]) {
+  return Number(factors.reduce((total, factor) => total + factor.value, 0).toFixed(2));
+}
+
+function historyRead(factors: DisplayFactor[]) {
+  const total = sumFactors(factors);
+  if (total >= 0.75) return "History layer leans home.";
+  if (total <= -0.75) return "History layer leans away.";
+  return "History layer is close; use it as context, not a primary edge.";
+}
+
 function MarketPanel({ edge }: { edge?: EdgeResult | null }) {
   if (!edge) {
     return (
@@ -162,6 +187,74 @@ function MarketPanel({ edge }: { edge?: EdgeResult | null }) {
         <Factor label="Home edge" value={edge.edges.homeMoneyline ?? 0} />
         <Factor label="Away edge" value={edge.edges.awayMoneyline ?? 0} />
         <Factor label="Total edge" value={edge.edges.totalRuns ?? 0} />
+      </div>
+    </Card>
+  );
+}
+
+function MlbMatchupHistoryPanel({ factors }: { factors: DisplayFactor[] }) {
+  const historyFactors = MLB_HISTORY_LABELS
+    .map((label) => getFactor(factors, label))
+    .filter((factor): factor is DisplayFactor => Boolean(factor));
+
+  if (!historyFactors.length) return null;
+
+  const total = sumFactors(historyFactors);
+  const batterStarter = getFactor(historyFactors, "History hitter vs starter");
+  const pitcherLineup = getFactor(historyFactors, "History pitcher vs lineup");
+  const recentPlayer = getFactor(historyFactors, "Recent player form");
+  const bullpen = getFactor(historyFactors, "Recent bullpen form");
+  const platoon = getFactor(historyFactors, "Platoon history");
+  const hardContact = getFactor(historyFactors, "Hard contact trend");
+
+  return (
+    <Card className="surface-panel p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.18em] text-amber-200">MLB Matchup History</div>
+          <div className="mt-2 text-2xl font-semibold text-white">Recent form + player history layer</div>
+          <div className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+            This panel isolates the short-term and matchup-history context so it does not get buried in the full model stack. Positive numbers lean home; negative numbers lean away.
+          </div>
+        </div>
+        <div className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] ${total >= 0 ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-200" : "border-red-400/30 bg-red-500/10 text-red-200"}`}>
+          {plus(total)} net
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <Tile label="History lean" value={total >= 0 ? "Home" : "Away"} sub={historyRead(historyFactors)} />
+        <Tile label="Batter vs starter" value={batterStarter ? plus(batterStarter.value) : "—"} sub="Lineup history vs projected starter" />
+        <Tile label="Pitcher vs lineup" value={pitcherLineup ? plus(pitcherLineup.value) : "—"} sub="Starter history vs opponent bats" />
+        <Tile label="Recent form" value={recentPlayer ? plus(recentPlayer.value) : "—"} sub="Recent hitter/pitcher trend" />
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+        <div className="rounded-2xl border border-white/10 bg-slate-950/45 p-4">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">History signals</div>
+          <div className="mt-3 grid gap-2">
+            {historyFactors.map((factor) => <Factor key={factor.label} label={factor.label} value={factor.value} />)}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-amber-300/15 bg-amber-400/[0.04] p-4">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-amber-200/80">How to use it</div>
+          <div className="mt-3 grid gap-3 text-sm leading-6 text-slate-300">
+            <div>
+              <span className="font-semibold text-white">Confirm, do not override.</span> Player history should support the pitcher/bullpen/lineup model. It should not beat the main baseball engine by itself.
+            </div>
+            <div>
+              <span className="font-semibold text-white">Most useful in close games.</span> It matters most when the win distribution is tight or the market price is near fair.
+            </div>
+            <div>
+              <span className="font-semibold text-white">Watch for traps.</span> Small-sample BvP, cold weather, lineup scratches, or late pitcher changes can kill this layer fast.
+            </div>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            <Factor label="Bullpen form" value={bullpen?.value ?? 0} />
+            <Factor label="Platoon edge" value={platoon?.value ?? 0} />
+            <Factor label="Hard-contact trend" value={hardContact?.value ?? 0} />
+          </div>
+        </div>
       </div>
     </Card>
   );
@@ -342,6 +435,7 @@ export default async function SimMatchupPage({ params }: PageProps) {
         </Card>
       </section>
 
+      {league === "MLB" ? <MlbMatchupHistoryPanel factors={factors} /> : null}
       <RealityEnginePanel projection={projection} />
       <GovernorPanel projection={projection} />
       {league === "MLB" ? <MarketPanel edge={edge} /> : null}
