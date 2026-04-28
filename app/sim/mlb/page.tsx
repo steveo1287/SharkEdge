@@ -13,7 +13,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
-import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
+import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
 import { getCachedMlbMlModel } from "@/services/simulation/mlb-ml-training-engine";
 import { getCachedMlbCalibrationConformal } from "@/services/simulation/mlb-calibration-conformal";
 import type { BoardSportSectionView, LeagueKey } from "@/lib/types/domain";
