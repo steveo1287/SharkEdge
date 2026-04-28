@@ -7,11 +7,18 @@ import {
   setCalibrationProfileOverrides,
   summarizeCalibrationBuckets
 } from "@/services/simulation/sim-calibration";
+import { americanToImpliedProbability, removeTwoWayVig } from "@/services/simulation/probability-math";
 
 type ProbabilityRecord = {
   predicted: number;
   actual: 0 | 1;
   market?: number | null;
+};
+
+type WinnerAccuracySummary = {
+  accuracy: number | null;
+  correct: number;
+  sample: number;
 };
 
 type DeltaRecord = {
@@ -31,6 +38,13 @@ export type LeagueCalibrationPayload = {
     marketBrier: number | null;
     modelLogLoss: number;
     marketLogLoss: number | null;
+    modelWinnerAccuracy: number | null;
+    marketWinnerAccuracy: number | null;
+    winnerAccuracyDelta: number | null;
+    modelWinnerCorrect: number;
+    marketWinnerCorrect: number;
+    highConfidenceWinnerAccuracy: number | null;
+    highConfidenceWinnerSample: number;
     buckets: Array<{ bucket: string; predicted: number; actual: number; count: number }>;
   };
   guardrails: {
@@ -163,6 +177,36 @@ function getPropActualValue(marketType: string, statsJson: unknown) {
   }
 }
 
+function summarizeWinnerAccuracy(records: ProbabilityRecord[], key: "predicted" | "market", confidenceFloor = 0): WinnerAccuracySummary {
+  let correct = 0;
+  let sample = 0;
+
+  for (const record of records) {
+    const probability = record[key];
+    if (typeof probability !== "number") {
+      continue;
+    }
+
+    const confidence = Math.abs(probability - 0.5) * 2;
+    if (confidence < confidenceFloor) {
+      continue;
+    }
+
+    sample += 1;
+    const pickedHome = probability >= 0.5;
+    const actualHome = record.actual === 1;
+    if (pickedHome === actualHome) {
+      correct += 1;
+    }
+  }
+
+  return {
+    accuracy: sample > 0 ? correct / sample : null,
+    correct,
+    sample
+  };
+}
+
 function buildGuardrails(metrics: LeagueCalibrationPayload["metrics"]) {
   const warnings: string[] = [];
 
@@ -205,6 +249,9 @@ function buildProfile(leagueKey: string, args: {
   const marketBrier = marketMoneylineRecords.length > 0 ? brierScore(marketMoneylineRecords) : null;
   const modelLogLoss = logLoss(args.moneylineRecords);
   const marketLogLoss = marketMoneylineRecords.length > 0 ? logLoss(marketMoneylineRecords) : null;
+  const modelWinner = summarizeWinnerAccuracy(args.moneylineRecords, "predicted");
+  const marketWinner = summarizeWinnerAccuracy(args.moneylineRecords, "market");
+  const highConfidenceWinner = summarizeWinnerAccuracy(args.moneylineRecords, "predicted", 0.2);
 
   const marketBlend = marketBrier !== null
     ? clamp(base.marketBlend + Math.max(0, modelBrier - marketBrier) * 1.8, 0.05, 0.35)
@@ -213,6 +260,7 @@ function buildProfile(leagueKey: string, args: {
   const profile: CalibrationProfile = {
     neutralShrink: clamp(1 - moneylineSlope, 0.04, 0.28),
     marketBlend,
+    moneylineTemperature: clamp((base.moneylineTemperature ?? 1.08) + Math.max(0, modelBrier - 0.22) * 2.5, 0.85, 1.35),
     spreadDeltaShrink: clamp(spreadSlope, 0.45, 1),
     totalDeltaShrink: clamp(totalSlope, 0.45, 1),
     propProbShrink: clamp(1 - propSlope, 0.05, 0.35),
@@ -228,6 +276,16 @@ function buildProfile(leagueKey: string, args: {
     marketBrier,
     modelLogLoss,
     marketLogLoss,
+    modelWinnerAccuracy: modelWinner.accuracy,
+    marketWinnerAccuracy: marketWinner.accuracy,
+    winnerAccuracyDelta:
+      modelWinner.accuracy !== null && marketWinner.accuracy !== null
+        ? modelWinner.accuracy - marketWinner.accuracy
+        : null,
+    modelWinnerCorrect: modelWinner.correct,
+    marketWinnerCorrect: marketWinner.correct,
+    highConfidenceWinnerAccuracy: highConfidenceWinner.accuracy,
+    highConfidenceWinnerSample: highConfidenceWinner.sample,
     buckets: summarizeCalibrationBuckets(args.moneylineRecords)
   };
 
@@ -306,10 +364,18 @@ export async function fitAndPersistSimCalibrationProfiles() {
           market.marketType === "moneyline" &&
           (market.selectionCompetitorId === homeCompetitorId || market.side === "HOME")
       );
+      const awayMoneyline = event.markets.find(
+        (market) =>
+          market.marketType === "moneyline" &&
+          market.id !== homeMoneyline?.id &&
+          (market.selectionCompetitorId !== homeCompetitorId || market.side === "AWAY")
+      );
       const actualHomeWin = result.winnerCompetitorId === homeCompetitorId ? 1 : 0;
       const market = homeMoneyline ? (() => {
-        const odds = getClosingOdds(homeMoneyline);
-        return odds ? Math.abs(odds) / (Math.abs(odds) + 100) : null;
+        const homeOdds = getClosingOdds(homeMoneyline);
+        const awayOdds = awayMoneyline ? getClosingOdds(awayMoneyline) : null;
+        const noVig = removeTwoWayVig(homeOdds, awayOdds);
+        return noVig?.left ?? americanToImpliedProbability(homeOdds);
       })() : null;
 
       leagueRecords.moneylineRecords.push({
