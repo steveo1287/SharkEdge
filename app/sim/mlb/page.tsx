@@ -34,43 +34,19 @@ function flatten(sections: BoardSportSectionView[]): SimGame[] {
   );
 }
 
-function formatTime(value: string) {
-  return formatLongDate(value);
-}
-
-function pct(value: number | null | undefined, digits = 1) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
-  return `${(value * 100).toFixed(digits)}%`;
-}
-
-function num(value: number | null | undefined, digits = 2) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
-  return value.toFixed(digits);
-}
-
-function plus(value: number | null | undefined, digits = 2) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
-  return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
-}
-
-function tierRank(tier: DecisionTier | string | undefined) {
-  if (tier === "attack") return 4;
-  if (tier === "watch") return 3;
-  if (tier === "thin") return 2;
-  return 1;
-}
+function formatTime(value: string) { return formatLongDate(value); }
+function pct(value: number | null | undefined, digits = 1) { if (typeof value !== "number" || !Number.isFinite(value)) return "--"; return `${(value * 100).toFixed(digits)}%`; }
+function num(value: number | null | undefined, digits = 2) { if (typeof value !== "number" || !Number.isFinite(value)) return "--"; return value.toFixed(digits); }
+function plus(value: number | null | undefined, digits = 2) { if (typeof value !== "number" || !Number.isFinite(value)) return "--"; return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`; }
+function tierRank(tier: DecisionTier | string | undefined) { if (tier === "attack") return 4; if (tier === "watch") return 3; if (tier === "thin") return 2; return 1; }
+function factorTeamLabel(row: Row, value: number) { if (Math.abs(value) < 0.01) return "neutral"; return value > 0 ? `favors ${row.projection.matchup.home}` : `favors ${row.projection.matchup.away}`; }
 
 function bestMarket(row: Row) {
   const edge = row.edge;
   if (edge?.signal) return edge.signal;
   const total = edge?.edges.totalRuns;
   if (typeof total === "number") {
-    return {
-      market: total > 0 ? "over" : "under",
-      team: null,
-      edge: Math.abs(total),
-      strength: Math.abs(total) >= 1 ? "strong" : Math.abs(total) >= 0.45 ? "watch" : "thin"
-    };
+    return { market: total > 0 ? "over" : "under", team: null, edge: Math.abs(total), strength: Math.abs(total) >= 1 ? "strong" : Math.abs(total) >= 0.45 ? "watch" : "thin" };
   }
   return null;
 }
@@ -88,9 +64,7 @@ function decisionTier(row: Row): DecisionTier {
 function winLean(projection: Projection) {
   const home = projection.distribution.homeWinPct;
   const away = projection.distribution.awayWinPct;
-  return home >= away
-    ? { team: projection.matchup.home, side: "HOME", pct: home, edge: home - away }
-    : { team: projection.matchup.away, side: "AWAY", pct: away, edge: away - home };
+  return home >= away ? { team: projection.matchup.home, side: "HOME", pct: home, edge: home - away } : { team: projection.matchup.away, side: "AWAY", pct: away, edge: away - home };
 }
 
 function dataSourceBadges(row: Row) {
@@ -103,9 +77,7 @@ function dataSourceBadges(row: Row) {
 }
 
 function topFactors(row: Row, limit = 4) {
-  return [...(row.projection.mlbIntel?.factors ?? [])]
-    .sort((left, right) => Math.abs(right.value) - Math.abs(left.value))
-    .slice(0, limit);
+  return [...(row.projection.mlbIntel?.factors ?? [])].sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).slice(0, limit);
 }
 
 function sortRows(rows: Row[]) {
@@ -152,8 +124,11 @@ function RowSummary({ row }: { row: Row }) {
 
       <div className="mt-4 grid gap-2">
         {factors.length ? factors.map((factor) => (
-          <div key={`${row.game.id}:${factor.label}`} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs">
-            <span className="truncate text-slate-300">{factor.label}</span>
+          <div key={`${row.game.id}:${factor.label}`} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs">
+            <div className="min-w-0">
+              <div className="truncate text-slate-300">{factor.label}</div>
+              <div className="mt-0.5 text-[10px] uppercase tracking-[0.12em] text-slate-500">{factorTeamLabel(row, factor.value)}</div>
+            </div>
             <span className={factor.value >= 0 ? "font-mono text-emerald-300" : "font-mono text-red-300"}>{plus(factor.value)}</span>
           </div>
         )) : <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs text-slate-500">No factor stack available.</div>}
@@ -232,11 +207,7 @@ export default async function MlbSimPage() {
         eyebrow="MLB Command Desk"
         title="Kill the spreadsheet. Surface the side, total, pitcher context, market match, and data quality first."
         description="This page is now a decision desk instead of a dense table. Top games get full scan cards; the rest of the slate drops into a compact ledger."
-        actions={[
-          { href: "/sim", label: "Sim Hub" },
-          { href: "/board#MLB", label: "MLB Board", tone: "primary" },
-          { href: "/mlb-edge", label: "Edge Lab" }
-        ]}
+        actions={[{ href: "/sim", label: "Sim Hub" }, { href: "/board#MLB", label: "MLB Board", tone: "primary" }, { href: "/mlb-edge", label: "Edge Lab" }]}
       >
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
           <SimMetricTile label="Games" value={String(rows.length)} sub="MLB slate" />
@@ -266,14 +237,7 @@ export default async function MlbSimPage() {
         </section>
       ) : null}
 
-      {rows.length ? (
-        <>
-          <PriorityStack rows={rows} />
-          <CompactLedger rows={rows} />
-        </>
-      ) : (
-        <EmptyState title="No MLB games available" description="The scoreboard provider did not return active MLB games for the current slate." />
-      )}
+      {rows.length ? <><PriorityStack rows={rows} /><CompactLedger rows={rows} /></> : <EmptyState title="No MLB games available" description="The scoreboard provider did not return active MLB games for the current slate." />}
     </div>
   );
 }
