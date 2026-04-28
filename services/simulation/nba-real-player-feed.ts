@@ -1,4 +1,5 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
+import { fetchBallDontLiePlayerFeed } from "@/services/nba/balldontlie-player-feed";
 import { fetchDataBallrPlayerFeed } from "@/services/nba/databallr-player-feed";
 import { normalizeNbaTeam } from "@/services/simulation/nba-team-analytics";
 
@@ -23,10 +24,10 @@ export type RealPlayerFeedRecord = {
   rimProtection: number;
   clutchImpact: number;
   fatigueRisk: number;
-  source: "databallr" | "espn-roster" | "nba-stats-api" | "lineup-feed" | "injury-feed" | "merged";
+  source: "databallr" | "balldontlie" | "espn-roster" | "nba-stats-api" | "lineup-feed" | "injury-feed" | "merged";
 };
 
-const CACHE_KEY = "nba:real-player-feed:v3";
+const CACHE_KEY = "nba:real-player-feed:v4";
 const CACHE_TTL_SECONDS = 60 * 60 * 2;
 const ESPN_TEAMS_URL = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams";
 
@@ -250,9 +251,10 @@ async function fetchSource(url: string | undefined, source: RealPlayerFeedRecord
 }
 
 function sourcePriority(source: RealPlayerFeedRecord["source"]) {
-  if (source === "injury-feed") return 6;
-  if (source === "lineup-feed") return 5;
-  if (source === "databallr") return 4;
+  if (source === "injury-feed") return 7;
+  if (source === "lineup-feed") return 6;
+  if (source === "databallr") return 5;
+  if (source === "balldontlie") return 4;
   if (source === "nba-stats-api") return 3;
   if (source === "espn-roster") return 2;
   return 1;
@@ -286,14 +288,15 @@ function mergeRecords(records: RealPlayerFeedRecord[]) {
 export async function getMergedRealPlayerFeed() {
   const cached = await readHotCache<RealPlayerFeedRecord[]>(CACHE_KEY);
   if (cached) return cached;
-  const [databallr, espnRoster, stats, lineup, injury] = await Promise.all([
+  const [databallr, balldontlie, espnRoster, stats, lineup, injury] = await Promise.all([
     fetchDataBallrPlayerFeed(),
+    fetchBallDontLiePlayerFeed(),
     fetchEspnRosterFeed(),
     fetchSource(process.env.NBA_STATS_API_PLAYER_PROFILE_URL ?? process.env.NBA_PLAYER_STATS_URL, "nba-stats-api"),
     fetchSource(process.env.NBA_LINEUP_PLAYER_PROFILE_URL ?? process.env.NBA_LINEUP_DATA_URL, "lineup-feed"),
     fetchSource(process.env.NBA_INJURY_PLAYER_PROFILE_URL ?? process.env.NBA_PLAYER_IMPACT_URL ?? process.env.NBA_INJURY_IMPACT_URL, "injury-feed")
   ]);
-  const merged = mergeRecords([...espnRoster, ...stats, ...databallr, ...lineup, ...injury]);
+  const merged = mergeRecords([...espnRoster, ...stats, ...balldontlie, ...databallr, ...lineup, ...injury]);
   if (merged.length) await writeHotCache(CACHE_KEY, merged, CACHE_TTL_SECONDS);
   return merged;
 }
