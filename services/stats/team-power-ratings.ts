@@ -129,13 +129,17 @@ function weightedAverage(values: Array<number | null | undefined>, decay = 0.86)
 
 function average(values: Array<number | null | undefined>) {
   const clean = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  return clean.length ? clean.reduce((sum, value) => sum + value, 0) / clean.length : null;
+  return clean.length ? clean.reduce((sum: number, value) => sum + value, 0) / clean.length : null;
+}
+
+function sumValues(values: Array<number | null | undefined>) {
+  return values.reduce((sum: number, value) => sum + (value ?? 0), 0);
 }
 
 function standardDeviation(values: number[]) {
   if (values.length < 2) return null;
   const mean = average(values) ?? 0;
-  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / Math.max(1, values.length - 1);
+  const variance = values.reduce((sum: number, value) => sum + (value - mean) ** 2, 0) / Math.max(1, values.length - 1);
   return Math.sqrt(variance);
 }
 
@@ -366,17 +370,17 @@ function buildProfile(team: {
   const weightedDefenseAllowed = weightedAverage(oppPointValues);
   const weightedMargin = weightedAverage(margins);
   const weightedPace = weightedAverage(possessions);
-  const totalPoints = pointValues.reduce((sum, value) => sum + (value ?? 0), 0);
-  const totalOppPoints = oppPointValues.reduce((sum, value) => sum + (value ?? 0), 0);
-  const totalPossessions = possessions.reduce((sum, value) => sum + (value ?? 0), 0);
-  const totalFga = fga.reduce((sum, value) => sum + (value ?? 0), 0);
-  const totalFgm = fgm.reduce((sum, value) => sum + (value ?? 0), 0);
-  const totalFg3m = fg3m.reduce((sum, value) => sum + (value ?? 0), 0);
-  const totalFta = fta.reduce((sum, value) => sum + (value ?? 0), 0);
-  const totalTurnovers = turnovers.reduce((sum, value) => sum + (value ?? 0), 0);
-  const totalOreb = oreb.reduce((sum, value) => sum + (value ?? 0), 0);
-  const totalRebounds = rebounds.reduce((sum, value) => sum + (value ?? 0), 0);
-  const totalOppRebounds = oppRebounds.reduce((sum, value) => sum + (value ?? 0), 0);
+  const totalPoints = sumValues(pointValues);
+  const totalOppPoints = sumValues(oppPointValues);
+  const totalPossessions = sumValues(possessions);
+  const totalFga = sumValues(fga);
+  const totalFgm = sumValues(fgm);
+  const totalFg3m = sumValues(fg3m);
+  const totalFta = sumValues(fta);
+  const totalTurnovers = sumValues(turnovers);
+  const totalOreb = sumValues(oreb);
+  const totalRebounds = sumValues(rebounds);
+  const totalOppRebounds = sumValues(oppRebounds);
   const offensiveRatingProxy = totalPossessions > 0 ? totalPoints / totalPossessions * 100 : weightedOffense;
   const defensiveRatingProxy = totalPossessions > 0 ? totalOppPoints / totalPossessions * 100 : weightedDefenseAllowed;
   const netRatingProxy = offensiveRatingProxy !== null && defensiveRatingProxy !== null ? offensiveRatingProxy - defensiveRatingProxy : weightedMargin;
