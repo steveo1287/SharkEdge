@@ -5,6 +5,7 @@ import { recomputeCurrentMarketState, recomputeEdgeSignals } from "@/services/ed
 import { ingestEventProjection, ingestPlayerProjection } from "@/services/market-data/market-data-service";
 import { applyMarketCalibrationToPlayerProjection } from "@/services/simulation/prop-projection-calibrator";
 import { evaluatePlayerProjectionReadiness } from "@/services/simulation/player-prop-readiness";
+import { applyNbaSynergyAdjustmentToProjection } from "@/services/simulation/nba-synergy-projection-adjuster";
 
 function isProjection(
   value: Awaited<ReturnType<typeof buildPlayerPropProjectionsForEvent>>[number]
@@ -31,16 +32,38 @@ export async function edgeRecomputeJob(eventId: string) {
     await ingestEventProjection(eventProjection);
   }
 
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    include: {
+      league: true,
+      participants: {
+        include: {
+          competitor: {
+            include: { team: true }
+          }
+        }
+      }
+    }
+  });
+
+  const homeTeam = event?.participants.find((participant) => participant.role === "HOME")?.competitor.team ?? null;
+  const awayTeam = event?.participants.find((participant) => participant.role === "AWAY")?.competitor.team ?? null;
+
   const playerProjections = await buildPlayerPropProjectionsForEvent(eventId);
   const validPlayerProjections = playerProjections.filter(isProjection);
   const playerIds = Array.from(new Set(validPlayerProjections.map((projection) => projection.playerId)));
   const players = playerIds.length
     ? await prisma.player.findMany({
         where: { id: { in: playerIds } },
-        select: { id: true, status: true }
+        include: {
+          team: {
+            select: { id: true, name: true, abbreviation: true }
+          }
+        }
       })
     : [];
   const playerStatusById = new Map(players.map((player) => [player.id, player.status]));
+  const playerById = new Map(players.map((player) => [player.id, player]));
   const recentStats = playerIds.length
     ? await prisma.playerGameStat.findMany({
         where: { playerId: { in: playerIds } },
@@ -64,6 +87,7 @@ export async function edgeRecomputeJob(eventId: string) {
   let calibratedPlayerProjectionCount = 0;
   let eligiblePlayerProjectionCount = 0;
   let skippedPlayerProjectionCount = 0;
+  let synergyAdjustedPlayerProjectionCount = 0;
   const skipReasons: Record<string, number> = {};
 
   for (const projection of validPlayerProjections) {
@@ -80,7 +104,21 @@ export async function edgeRecomputeJob(eventId: string) {
     }
 
     eligiblePlayerProjectionCount += 1;
-    const calibratedProjection = applyMarketCalibrationToPlayerProjection(readiness.projection);
+    const player = playerById.get(projection.playerId) ?? null;
+    const opponentTeam = player?.teamId === homeTeam?.id ? awayTeam : player?.teamId === awayTeam?.id ? homeTeam : null;
+    const synergyProjection = event?.league.key === "NBA"
+      ? await applyNbaSynergyAdjustmentToProjection({
+          projection: readiness.projection,
+          player,
+          opponentTeam
+        })
+      : readiness.projection;
+    const synergyMetadata = synergyProjection.metadata as Record<string, unknown> | undefined;
+    if (synergyMetadata?.synergyAdjusted === true) {
+      synergyAdjustedPlayerProjectionCount += 1;
+    }
+
+    const calibratedProjection = applyMarketCalibrationToPlayerProjection(synergyProjection);
     const metadata = calibratedProjection.metadata as Record<string, unknown> | undefined;
     if (metadata?.marketCalibrated === true) {
       calibratedPlayerProjectionCount += 1;
@@ -91,10 +129,6 @@ export async function edgeRecomputeJob(eventId: string) {
   await recomputeCurrentMarketState(eventId);
   await recomputeEdgeSignals(eventId);
 
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-    include: { league: true }
-  });
   if (event) {
     await invalidateHotCache("edges:v1:all");
     await invalidateHotCache(`event:v1:${event.id}`);
@@ -108,6 +142,7 @@ export async function edgeRecomputeJob(eventId: string) {
     removedExistingPlayerProjectionCount: removedExistingPlayerProjections.count,
     eligiblePlayerProjectionCount,
     skippedPlayerProjectionCount,
+    synergyAdjustedPlayerProjectionCount,
     calibratedPlayerProjectionCount,
     skipReasons
   };
