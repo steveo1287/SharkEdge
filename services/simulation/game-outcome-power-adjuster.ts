@@ -5,6 +5,7 @@ import { getCachedTeamPowerRating, type TeamPowerRatingProfile } from "@/service
 import { buildPlayerLockImpactForEvent } from "@/services/simulation/player-lock-impact";
 import { eloWinProbability, getCachedTeamElo } from "@/services/ratings/elo-rating-service";
 import { getLatestGameOutcomeCalibration } from "@/services/evaluation/game-outcome-calibration-service";
+import { buildMlbStarterAdjustedOutcome } from "@/services/simulation/mlb-starter-adjusted-outcome";
 
 type EventProjectionLike = {
   eventId: string;
@@ -181,14 +182,17 @@ function blendProbabilities(args: {
 export async function applyGameOutcomePowerAdjustment<T extends EventProjectionLike>(args: { projection: T; leagueKey: string; homeTeam: TeamContext; awayTeam: TeamContext }) {
   if (!args.homeTeam || !args.awayTeam) return args.projection;
 
-  const [homePower, awayPower, homeElo, awayElo, marketAnchor, calibration, playerLock] = await Promise.all([
+  const [homePower, awayPower, homeElo, awayElo, marketAnchor, calibration, playerLock, mlbStarter] = await Promise.all([
     getCachedTeamPowerRating(args.homeTeam.id),
     getCachedTeamPowerRating(args.awayTeam.id),
     getCachedTeamElo({ leagueKey: args.leagueKey, teamId: args.homeTeam.id }),
     getCachedTeamElo({ leagueKey: args.leagueKey, teamId: args.awayTeam.id }),
     getMarketAnchor(args.projection.eventId),
     getLatestGameOutcomeCalibration(args.leagueKey),
-    buildPlayerLockImpactForEvent({ eventId: args.projection.eventId, homeTeamId: args.homeTeam.id, awayTeamId: args.awayTeam.id, homeTeamName: args.homeTeam.name, awayTeamName: args.awayTeam.name })
+    buildPlayerLockImpactForEvent({ eventId: args.projection.eventId, homeTeamId: args.homeTeam.id, awayTeamId: args.awayTeam.id, homeTeamName: args.homeTeam.name, awayTeamName: args.awayTeam.name }),
+    args.leagueKey === "MLB"
+      ? buildMlbStarterAdjustedOutcome({ eventId: args.projection.eventId, homeTeamId: args.homeTeam.id, awayTeamId: args.awayTeam.id, homeTeamName: args.homeTeam.name, awayTeamName: args.awayTeam.name })
+      : Promise.resolve(null)
   ]);
 
   const calibrationRules = calibration?.rules ?? defaultCalibrationRules();
@@ -202,6 +206,8 @@ export async function applyGameOutcomePowerAdjustment<T extends EventProjectionL
   let awayScore = args.projection.projectedAwayScore;
   let totalPowerSpreadDelta = 0;
   let totalPowerTotalDelta = 0;
+  let starterSpreadDelta = 0;
+  let starterTotalDelta = 0;
   const drivers: string[] = [];
 
   if (power) {
@@ -211,8 +217,23 @@ export async function applyGameOutcomePowerAdjustment<T extends EventProjectionL
     drivers.push(`Team power delta home ${round(power.powerDelta, 3)}, spread adjustment ${round(power.spreadDelta * weight, 2)}.`);
   } else drivers.push("Team power rating unavailable; no power adjustment applied.");
 
-  const eloProb = homeElo && awayElo ? eloWinProbability({ homeElo: homeElo.rating, awayElo: awayElo.rating, homeFieldElo: homeFieldEloForLeague(args.leagueKey) }) : null;
-  const eloConfidence = homeElo && awayElo ? clamp((homeElo.games + awayElo.games) / 120, 0.1, 1) : 0;
+  if (mlbStarter?.available) {
+    const starterWeight = clamp(0.48 + mlbStarter.confidence * 0.28, 0.35, 0.76) * calibrationRules.confidenceScale;
+    starterSpreadDelta = mlbStarter.homeSpreadDelta * starterWeight;
+    starterTotalDelta = mlbStarter.totalDelta * starterWeight;
+    totalPowerSpreadDelta += starterSpreadDelta;
+    totalPowerTotalDelta += starterTotalDelta;
+    drivers.push(...mlbStarter.drivers.slice(0, 8));
+  } else if (args.leagueKey === "MLB") {
+    drivers.push("MLB starter-adjusted model unavailable; starter/run-environment deltas skipped.");
+  }
+
+  const eloProbBase = homeElo && awayElo ? eloWinProbability({ homeElo: homeElo.rating, awayElo: awayElo.rating, homeFieldElo: homeFieldEloForLeague(args.leagueKey) }) : null;
+  const eloProb = eloProbBase !== null && mlbStarter?.available
+    ? eloWinProbability({ homeElo: 1500 + mlbStarter.eloPointDelta, awayElo: 1500, homeFieldElo: (eloProbBase - 0.5) * 400 })
+    : eloProbBase;
+  const eloConfidenceBase = homeElo && awayElo ? clamp((homeElo.games + awayElo.games) / 120, 0.1, 1) : 0;
+  const eloConfidence = mlbStarter?.available ? clamp(eloConfidenceBase * 0.75 + mlbStarter.confidence * 0.25, 0.1, 1) : eloConfidenceBase;
   if (eloProb !== null && homeElo && awayElo) drivers.push(`Elo home win probability ${round(eloProb, 3)} from ${round(homeElo.rating, 1)} vs ${round(awayElo.rating, 1)}.`);
   else drivers.push("Elo rating unavailable; no Elo win-probability blend applied.");
 
@@ -249,15 +270,18 @@ export async function applyGameOutcomePowerAdjustment<T extends EventProjectionL
     metadata: {
       ...previousMetadata,
       gameOutcomePowerAdjusted: true,
-      gameOutcomeEnsembleVersion: "market_anchor_calibrated_v1",
+      gameOutcomeEnsembleVersion: "market_anchor_calibrated_starter_v1",
       teamPower: { home: homePower, away: awayPower, powerDelta: power },
+      mlbStarterAdjustedOutcome: mlbStarter,
       marketAnchor,
       gameOutcomeCalibration: { generatedAt: calibration?.generatedAt ?? null, sample: calibration?.sample ?? 0, rules: calibrationRules, warnings: calibration?.warnings ?? [] },
-      elo: { home: homeElo, away: awayElo, homeWinProbability: eloProb === null ? null : round(eloProb, 4), confidence: round(eloConfidence, 4), blend: round(ensemble.eloBlend, 4) },
+      elo: { home: homeElo, away: awayElo, homeWinProbability: eloProb === null ? null : round(eloProb, 4), baseHomeWinProbability: eloProbBase === null ? null : round(eloProbBase, 4), confidence: round(eloConfidence, 4), blend: round(ensemble.eloBlend, 4) },
       playerLock,
       gameOutcomeAdjustments: {
         powerSpreadDelta: round(totalPowerSpreadDelta, 3),
         powerTotalDelta: round(totalPowerTotalDelta, 3),
+        starterSpreadDelta: round(starterSpreadDelta, 3),
+        starterTotalDelta: round(starterTotalDelta, 3),
         playerLockSpreadDelta: round(lockSpreadDelta, 3),
         playerLockTotalDelta: round(lockTotalDelta, 3),
         spreadStdDev,
