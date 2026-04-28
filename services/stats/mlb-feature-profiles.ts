@@ -39,7 +39,7 @@ type MlbPitcherFeatureProfile = {
 };
 
 function toJson(value: unknown): Prisma.InputJsonValue {
-  return value as Prisma.InputJsonValue;
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
 function asRecord(value: unknown): JsonRecord {
@@ -106,6 +106,10 @@ function round(value: number | null, digits = 4) {
   return value === null || !Number.isFinite(value) ? null : Number(value.toFixed(digits));
 }
 
+function statcastPresence(rows: JsonRecord[]) {
+  return rows.map((row) => (Object.keys(statcast(row)).length ? 1 : null));
+}
+
 function buildTeamProfile(team: {
   id: string;
   name: string;
@@ -163,7 +167,7 @@ function buildTeamProfile(team: {
   const bullpenFatigueScore = clamp(score(avgBullpenInnings, 3.4, 3.5, true) * 0.55 + score(avgBullpenPitches, 30, 60, true) * 0.45, 0, 1);
   const runCreationScore = clamp(contactQualityScore * 0.46 + disciplineScore * 0.22 + platoonScore * 0.16 + recentFormScore * 0.16, 0, 1);
   const runPreventionScore = clamp(score(avgRunsAllowed, 4.45, 2.2, true) * 0.62 + bullpenFatigueScore * 0.24 + score(avgWhiffRate, 0.245, 0.18) * 0.14, 0, 1);
-  const dataQualityScore = clamp(coverage([...runs, ...runsAllowed]) * 0.28 + coverage(xwoba) * 0.22 + coverage([...bullpenInnings, ...bullpenPitches]) * 0.18 + coverage(weatherFactor) * 0.12 + coverage([...vsLeft, ...vsRight]) * 0.1 + coverage(playerSampleFromRows(rows)) * 0.1, 0, 1);
+  const dataQualityScore = clamp(coverage([...runs, ...runsAllowed]) * 0.28 + coverage(xwoba) * 0.22 + coverage([...bullpenInnings, ...bullpenPitches]) * 0.18 + coverage(weatherFactor) * 0.12 + coverage([...vsLeft, ...vsRight]) * 0.1 + coverage(statcastPresence(rows)) * 0.1, 0, 1);
 
   return {
     teamId: team.id,
@@ -199,10 +203,6 @@ function buildTeamProfile(team: {
     },
     updatedAt: new Date().toISOString()
   };
-}
-
-function playerSampleFromRows(rows: JsonRecord[]) {
-  return rows.map((row) => Object.keys(statcast(row)).length ? 1 : null);
 }
 
 function buildPitcherProfile(player: {
