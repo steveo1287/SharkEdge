@@ -1,7 +1,14 @@
 import Link from "next/link";
 
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
+import {
+  SimDataQualityBadges,
+  SimDecisionBadge,
+  SimMetricTile,
+  SimSignalCard,
+  SimStatusBadge,
+  SimTableShell,
+  SimWorkspaceHeader
+} from "@/components/sim/sim-ui";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
@@ -48,30 +55,11 @@ function plus(value: number | null | undefined, digits = 2) {
   return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
 }
 
-function tone(status: string) {
-  if (status === "LIVE") return "success" as const;
-  if (status === "FINAL") return "neutral" as const;
-  if (status === "POSTPONED" || status === "CANCELED") return "danger" as const;
-  return "muted" as const;
-}
-
-function tierTone(tier: string | undefined) {
-  if (tier === "attack") return "success" as const;
-  if (tier === "watch") return "premium" as const;
-  if (tier === "pass") return "danger" as const;
-  return "muted" as const;
-}
-
 function tierRank(tier: string | undefined) {
   if (tier === "attack") return 4;
   if (tier === "watch") return 3;
   if (tier === "thin") return 2;
   return 1;
-}
-
-function americanToProbability(odds: number | null | undefined) {
-  if (typeof odds !== "number" || !Number.isFinite(odds) || odds === 0) return null;
-  return odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100);
 }
 
 function winLean(projection: Projection) {
@@ -99,20 +87,10 @@ function topFactors(projection: Projection) {
 function dataSourceBadges(row: Row) {
   const source = row.projection.mlbIntel?.dataSource ?? "unknown";
   return {
-    player: source.includes("player-model:real") || source.includes("real/real") || !source.includes("synthetic") ? "real" : "synthetic",
-    lines: row.edge?.market ? "matched" : "missing",
-    calibration: row.projection.mlbIntel?.calibration?.ece == null ? "pending" : "calibrated"
+    player: source.includes("player-model:real") || source.includes("real/real") || !source.includes("synthetic") ? "real" as const : "synthetic" as const,
+    lines: row.edge?.market ? "matched" as const : "missing" as const,
+    calibration: row.projection.mlbIntel?.calibration?.ece == null ? "pending" as const : "calibrated" as const
   };
-}
-
-function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
-      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
-      <div className="mt-2 text-2xl font-semibold text-white">{value}</div>
-      {sub ? <div className="mt-1 text-xs text-slate-400">{sub}</div> : null}
-    </div>
-  );
 }
 
 function EdgeQueue({ rows }: { rows: Row[] }) {
@@ -124,59 +102,48 @@ function EdgeQueue({ rows }: { rows: Row[] }) {
   });
 
   return (
-    <Card className="surface-panel overflow-hidden">
-      <div className="border-b border-white/10 px-4 py-3">
-        <div className="text-sm font-semibold text-white">MLB decision queue</div>
-        <div className="mt-1 text-xs text-slate-500">Sorted by governor tier, edge strength, and market usefulness.</div>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-xs">
-          <thead className="border-b border-white/10 bg-white/[0.03] text-slate-400">
-            <tr>
-              <th className="px-3 py-2">Matchup</th>
-              <th className="px-3 py-2">Lean</th>
-              <th className="px-3 py-2 text-right">Win%</th>
-              <th className="px-3 py-2 text-right">Model edge</th>
-              <th className="px-3 py-2 text-right">Total</th>
-              <th className="px-3 py-2 text-right">Total edge</th>
-              <th className="px-3 py-2">Tier</th>
-              <th className="px-3 py-2">Data</th>
-              <th className="px-3 py-2 text-right">Open</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ordered.map((row) => {
-              const lean = winLean(row.projection);
-              const governor = row.projection.mlbIntel?.governor;
-              const tier = governor?.tier ?? "pass";
-              const badges = dataSourceBadges(row);
-              const href = `/sim/mlb/${encodeURIComponent(row.game.id)}`;
-              return (
-                <tr key={row.game.id} className="border-b border-white/5 last:border-none">
-                  <td className="px-3 py-3">
-                    <div className="font-semibold text-white">{row.projection.matchup.away} @ {row.projection.matchup.home}</div>
-                    <div className="mt-1 flex gap-2 text-[10px] text-slate-500"><span>{formatTime(row.game.startTime)}</span><Badge tone={tone(row.game.status)}>{row.game.status}</Badge></div>
-                  </td>
-                  <td className="px-3 py-3 text-slate-200">{lean.team}</td>
-                  <td className="px-3 py-3 text-right font-mono text-sky-200">{pct(lean.pct)}</td>
-                  <td className="px-3 py-3 text-right font-mono text-slate-200">{plus(row.projection.mlbIntel?.homeEdge)}</td>
-                  <td className="px-3 py-3 text-right font-mono text-slate-200">{num(row.projection.mlbIntel?.projectedTotal)}</td>
-                  <td className="px-3 py-3 text-right font-mono text-slate-200">{plus(row.edge?.edges.totalRuns)}</td>
-                  <td className="px-3 py-3"><Badge tone={tierTone(tier)}>{String(tier).toUpperCase()}</Badge></td>
-                  <td className="px-3 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      <Badge tone={badges.player === "real" ? "success" : "muted"}>{badges.player}</Badge>
-                      <Badge tone={badges.lines === "matched" ? "success" : "premium"}>{badges.lines}</Badge>
-                    </div>
-                  </td>
-                  <td className="px-3 py-3 text-right"><Link href={href} className="rounded-full bg-sky-500 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-950">Game</Link></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </Card>
+    <SimTableShell title="MLB decision queue" description="Sorted by governor tier, edge strength, and market usefulness.">
+      <table className="min-w-full text-left text-xs">
+        <thead className="border-b border-white/10 bg-white/[0.03] text-slate-400">
+          <tr>
+            <th className="px-3 py-2">Matchup</th>
+            <th className="px-3 py-2">Lean</th>
+            <th className="px-3 py-2 text-right">Win%</th>
+            <th className="px-3 py-2 text-right">Model edge</th>
+            <th className="px-3 py-2 text-right">Total</th>
+            <th className="px-3 py-2 text-right">Total edge</th>
+            <th className="px-3 py-2">Tier</th>
+            <th className="px-3 py-2">Data</th>
+            <th className="px-3 py-2 text-right">Open</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ordered.map((row) => {
+            const lean = winLean(row.projection);
+            const governor = row.projection.mlbIntel?.governor;
+            const tier = governor?.tier ?? "pass";
+            const badges = dataSourceBadges(row);
+            const href = `/sim/mlb/${encodeURIComponent(row.game.id)}`;
+            return (
+              <tr key={row.game.id} className="border-b border-white/5 last:border-none">
+                <td className="px-3 py-3">
+                  <div className="font-semibold text-white">{row.projection.matchup.away} @ {row.projection.matchup.home}</div>
+                  <div className="mt-1 flex gap-2 text-[10px] text-slate-500"><span>{formatTime(row.game.startTime)}</span><SimStatusBadge status={row.game.status} /></div>
+                </td>
+                <td className="px-3 py-3 text-slate-200">{lean.team}</td>
+                <td className="px-3 py-3 text-right font-mono text-sky-200">{pct(lean.pct)}</td>
+                <td className="px-3 py-3 text-right font-mono text-slate-200">{plus(row.projection.mlbIntel?.homeEdge)}</td>
+                <td className="px-3 py-3 text-right font-mono text-slate-200">{num(row.projection.mlbIntel?.projectedTotal)}</td>
+                <td className="px-3 py-3 text-right font-mono text-slate-200">{plus(row.edge?.edges.totalRuns)}</td>
+                <td className="px-3 py-3"><SimDecisionBadge tier={tier} /></td>
+                <td className="px-3 py-3"><SimDataQualityBadges playerSource={badges.player} marketSource={badges.lines} calibrationSource={badges.calibration} /></td>
+                <td className="px-3 py-3 text-right"><Link href={href} className="rounded-full bg-sky-500 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-950">Game</Link></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </SimTableShell>
   );
 }
 
@@ -196,18 +163,18 @@ function FactorCards({ rows }: { rows: Row[] }) {
         const governor = row.projection.mlbIntel?.governor;
         const market = bestMarket(row);
         return (
-          <Card key={row.game.id} className="surface-panel p-4">
+          <SimSignalCard key={row.game.id}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{formatTime(row.game.startTime)}</div>
                 <div className="mt-2 text-lg font-semibold text-white">{row.projection.matchup.away} @ {row.projection.matchup.home}</div>
               </div>
-              <Badge tone={tierTone(governor?.tier)}>{String(governor?.tier ?? "pass").toUpperCase()}</Badge>
+              <SimDecisionBadge tier={governor?.tier ?? "pass"} />
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <Tile label="Lean" value={lean.team} sub={pct(lean.pct)} />
-              <Tile label="Runs" value={`${num(row.projection.distribution.avgAway)} / ${num(row.projection.distribution.avgHome)}`} sub="Projected score" />
-              <Tile label="Market" value={market ? String(market.market).toUpperCase() : "--"} sub={market ? `edge ${num(market.edge)}` : "No line"} />
+              <SimMetricTile label="Lean" value={lean.team} sub={pct(lean.pct)} />
+              <SimMetricTile label="Runs" value={`${num(row.projection.distribution.avgAway)} / ${num(row.projection.distribution.avgHome)}`} sub="Projected score" />
+              <SimMetricTile label="Market" value={market ? String(market.market).toUpperCase() : "--"} sub={market ? `edge ${num(market.edge)}` : "No line"} />
             </div>
             <div className="mt-4 grid gap-2">
               {factors.map((factor) => (
@@ -221,7 +188,7 @@ function FactorCards({ rows }: { rows: Row[] }) {
               <div className="text-xs text-slate-500">{governor?.reasons?.[0] ?? row.projection.read}</div>
               <Link href={`/sim/mlb/${encodeURIComponent(row.game.id)}`} className="rounded-full border border-sky-400/30 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-sky-200">Open</Link>
             </div>
-          </Card>
+          </SimSignalCard>
         );
       })}
     </div>
@@ -246,28 +213,24 @@ export default async function MlbSimPage() {
 
   return (
     <div className="space-y-6">
-      <section className="surface-panel-strong p-6">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="section-kicker">MLB Edge Workspace</div>
-            <h1 className="mt-3 max-w-5xl font-display text-4xl font-semibold tracking-tight text-white">Sides, totals, pitching factors, and roster/projection feed quality in one board.</h1>
-            <p className="mt-4 max-w-4xl text-sm leading-7 text-bone/65">MLB is now separated from NBA. The board prioritizes actionable side/total reads, sportsbook-line matching, calibration state, and the MLB Data API player-model layer.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/sim" className="rounded-md border border-bone/[0.12] bg-panel px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-bone/75">Sim Hub</Link>
-            <Link href="/mlb-edge" className="rounded-md border border-aqua/35 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-aqua">MLB Edge</Link>
-            <Link href="/api/debug/mlb-data-api?team=Chicago%20Cubs" className="rounded-md border border-bone/[0.12] bg-panel px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-bone/75">Data Debug</Link>
-          </div>
-        </div>
-      </section>
+      <SimWorkspaceHeader
+        eyebrow="MLB Edge Workspace"
+        title="Sides, totals, pitching factors, and roster/projection feed quality in one board."
+        description="MLB is now separated from NBA. The board prioritizes actionable side/total reads, sportsbook-line matching, calibration state, and the MLB Data API player-model layer."
+        actions={[
+          { href: "/sim", label: "Sim Hub" },
+          { href: "/mlb-edge", label: "MLB Edge", tone: "primary" },
+          { href: "/api/debug/mlb-data-api?team=Chicago%20Cubs", label: "Data Debug" }
+        ]}
+      />
 
       <section className="grid gap-3 md:grid-cols-6">
-        <Tile label="Games" value={String(rows.length)} sub="MLB slate" />
-        <Tile label="Attack" value={String(attack)} sub="Governor cleared" />
-        <Tile label="Watch" value={String(watch)} sub="Conditional" />
-        <Tile label="Pass" value={String(pass)} sub="Filtered" />
-        <Tile label="Lines" value={`${lineCount}/${rows.length}`} sub="Matched markets" />
-        <Tile label="Data" value={`${realPlayerGames}/${rows.length}`} sub={`ML rows ${mlModel?.rows ?? 0}${calibration?.ok ? ` · ECE ${calibration.ece.toFixed(3)}` : ""}`} />
+        <SimMetricTile label="Games" value={String(rows.length)} sub="MLB slate" />
+        <SimMetricTile label="Attack" value={String(attack)} sub="Governor cleared" emphasis="strong" />
+        <SimMetricTile label="Watch" value={String(watch)} sub="Conditional" />
+        <SimMetricTile label="Pass" value={String(pass)} sub="Filtered" emphasis="muted" />
+        <SimMetricTile label="Lines" value={`${lineCount}/${rows.length}`} sub="Matched markets" />
+        <SimMetricTile label="Data" value={`${realPlayerGames}/${rows.length}`} sub={`ML rows ${mlModel?.rows ?? 0}${calibration?.ok ? ` · ECE ${calibration.ece.toFixed(3)}` : ""}`} />
       </section>
 
       {rows.length ? (
