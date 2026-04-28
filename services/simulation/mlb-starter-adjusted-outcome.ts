@@ -57,7 +57,13 @@ function readNumber(value: unknown): number | null {
 }
 
 function readString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return null;
+}
+
+function normalize(value: string | null | undefined) {
+  return (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -70,23 +76,17 @@ function round(value: number, digits = 4) {
 
 function maybeTeamProfile(value: unknown): MlbTeamFeatureProfile | null {
   const record = asRecord(value);
-  if (typeof record.teamId !== "string") return null;
-  return record as MlbTeamFeatureProfile;
+  return typeof record.teamId === "string" ? (record as MlbTeamFeatureProfile) : null;
 }
 
 function maybePitcherProfile(value: unknown): MlbPitcherFeatureProfile | null {
   const record = asRecord(value);
-  if (typeof record.playerId !== "string") return null;
-  return record as MlbPitcherFeatureProfile;
+  return typeof record.playerId === "string" ? (record as MlbPitcherFeatureProfile) : null;
 }
 
 async function getCachedTeamFeatureProfile(teamId: string) {
   const cached = await prisma.trendCache.findFirst({
-    where: {
-      cacheKey: `mlb_team_feature_profile:${teamId}`,
-      scope: "mlb_team_feature_profile",
-      expiresAt: { gt: new Date() }
-    },
+    where: { cacheKey: `mlb_team_feature_profile:${teamId}`, scope: "mlb_team_feature_profile", expiresAt: { gt: new Date() } },
     orderBy: { updatedAt: "desc" }
   });
   return maybeTeamProfile(cached?.payloadJson);
@@ -94,50 +94,25 @@ async function getCachedTeamFeatureProfile(teamId: string) {
 
 async function getCachedPitcherFeatureProfile(playerId: string) {
   const cached = await prisma.trendCache.findFirst({
-    where: {
-      cacheKey: `mlb_pitcher_feature_profile:${playerId}`,
-      scope: "mlb_pitcher_feature_profile",
-      expiresAt: { gt: new Date() }
-    },
+    where: { cacheKey: `mlb_pitcher_feature_profile:${playerId}`, scope: "mlb_pitcher_feature_profile", expiresAt: { gt: new Date() } },
     orderBy: { updatedAt: "desc" }
   });
   return maybePitcherProfile(cached?.payloadJson);
 }
 
 async function latestTeamProbablePitcher(teamId: string) {
-  const row = await prisma.teamGameStat.findFirst({
-    where: { teamId },
-    orderBy: { updatedAt: "desc" }
-  });
+  const row = await prisma.teamGameStat.findFirst({ where: { teamId }, orderBy: { updatedAt: "desc" } });
   const stats = asRecord(row?.statsJson);
-  return {
-    mlbId: readString(stats.probablePitcherId),
-    name: readString(stats.probablePitcherName)
-  };
+  return { mlbId: readString(stats.probablePitcherId), name: readString(stats.probablePitcherName) };
 }
 
-async function findPitcher(args: { teamId: string; mlbId: string | null; name: string | null }) {
-  if (args.mlbId) {
-    const byExternalId = await prisma.player.findFirst({
-      where: {
-        teamId: args.teamId,
-        externalIds: { path: ["mlb"], equals: args.mlbId }
-      }
-    });
-    if (byExternalId) return byExternalId;
-  }
-
-  if (args.name) {
-    const byName = await prisma.player.findFirst({
-      where: {
-        teamId: args.teamId,
-        name: { equals: args.name, mode: "insensitive" }
-      }
-    });
-    if (byName) return byName;
-  }
-
-  return null;
+async function findPitcher(args: { teamId: string; name: string | null }) {
+  if (!args.name) return null;
+  const exact = await prisma.player.findFirst({ where: { teamId: args.teamId, name: { equals: args.name, mode: "insensitive" } } });
+  if (exact) return exact;
+  const teamPlayers = await prisma.player.findMany({ where: { teamId: args.teamId }, take: 80 });
+  const wanted = normalize(args.name);
+  return teamPlayers.find((player) => normalize(player.name) === wanted || normalize(player.name).includes(wanted) || wanted.includes(normalize(player.name))) ?? null;
 }
 
 function pitcherStrength(profile: MlbPitcherFeatureProfile | null) {
@@ -160,10 +135,7 @@ function teamOffense(profile: MlbTeamFeatureProfile | null) {
   const platoon = readNumber(profile.platoonScore) ?? 0.5;
   const recent = readNumber(profile.recentFormScore) ?? 0.5;
   const quality = readNumber(profile.dataQualityScore) ?? 0.35;
-  return {
-    score: clamp(runCreation * 0.42 + contact * 0.22 + discipline * 0.14 + platoon * 0.12 + recent * 0.1, 0, 1),
-    quality: clamp(quality, 0, 1)
-  };
+  return { score: clamp(runCreation * 0.42 + contact * 0.22 + discipline * 0.14 + platoon * 0.12 + recent * 0.1, 0, 1), quality: clamp(quality, 0, 1) };
 }
 
 function bullpen(profile: MlbTeamFeatureProfile | null) {
@@ -171,22 +143,12 @@ function bullpen(profile: MlbTeamFeatureProfile | null) {
   const runPrevention = readNumber(profile.runPreventionScore) ?? 0.5;
   const fatigue = readNumber(profile.bullpenFatigueScore) ?? 0.5;
   const quality = readNumber(profile.dataQualityScore) ?? 0.35;
-  return {
-    score: clamp(runPrevention * 0.58 + fatigue * 0.42, 0, 1),
-    quality: clamp(quality, 0, 1)
-  };
+  return { score: clamp(runPrevention * 0.58 + fatigue * 0.42, 0, 1), quality: clamp(quality, 0, 1) };
 }
 
-function runAdjustment(args: {
-  offenseScore: number;
-  opposingStarterStrength: number | null;
-  opposingBullpenScore: number;
-}) {
+function runAdjustment(args: { offenseScore: number; opposingStarterStrength: number | null; opposingBullpenScore: number }) {
   const starter = args.opposingStarterStrength ?? 0.5;
-  const offensePressure = (args.offenseScore - 0.5) * 1.8;
-  const starterPressure = (0.5 - starter) * 1.45;
-  const bullpenPressure = (0.5 - args.opposingBullpenScore) * 0.95;
-  return clamp(offensePressure + starterPressure + bullpenPressure, -1.75, 1.75);
+  return clamp((args.offenseScore - 0.5) * 1.8 + (0.5 - starter) * 1.45 + (0.5 - args.opposingBullpenScore) * 0.95, -1.75, 1.75);
 }
 
 export async function buildMlbStarterAdjustedOutcome(args: {
@@ -196,6 +158,10 @@ export async function buildMlbStarterAdjustedOutcome(args: {
   homeTeamName: string;
   awayTeamName: string;
 }): Promise<MlbStarterAdjustedOutcome> {
+  void args.eventId;
+  void args.homeTeamName;
+  void args.awayTeamName;
+
   const [homeTeamProfile, awayTeamProfile, homeProbable, awayProbable] = await Promise.all([
     getCachedTeamFeatureProfile(args.homeTeamId),
     getCachedTeamFeatureProfile(args.awayTeamId),
@@ -204,8 +170,8 @@ export async function buildMlbStarterAdjustedOutcome(args: {
   ]);
 
   const [homePitcher, awayPitcher] = await Promise.all([
-    findPitcher({ teamId: args.homeTeamId, mlbId: homeProbable.mlbId, name: homeProbable.name }),
-    findPitcher({ teamId: args.awayTeamId, mlbId: awayProbable.mlbId, name: awayProbable.name })
+    findPitcher({ teamId: args.homeTeamId, name: homeProbable.name }),
+    findPitcher({ teamId: args.awayTeamId, name: awayProbable.name })
   ]);
 
   const [homePitcherProfile, awayPitcherProfile] = await Promise.all([
@@ -219,31 +185,19 @@ export async function buildMlbStarterAdjustedOutcome(args: {
   const awayOffense = teamOffense(awayTeamProfile);
   const homeBullpen = bullpen(homeTeamProfile);
   const awayBullpen = bullpen(awayTeamProfile);
-
-  const homeRunAdjustment = runAdjustment({
-    offenseScore: homeOffense.score,
-    opposingStarterStrength: awayStarter?.strength ?? null,
-    opposingBullpenScore: awayBullpen.score
-  });
-  const awayRunAdjustment = runAdjustment({
-    offenseScore: awayOffense.score,
-    opposingStarterStrength: homeStarter?.strength ?? null,
-    opposingBullpenScore: homeBullpen.score
-  });
-
+  const homeRunAdjustment = runAdjustment({ offenseScore: homeOffense.score, opposingStarterStrength: awayStarter?.strength ?? null, opposingBullpenScore: awayBullpen.score });
+  const awayRunAdjustment = runAdjustment({ offenseScore: awayOffense.score, opposingStarterStrength: homeStarter?.strength ?? null, opposingBullpenScore: homeBullpen.score });
   const homeSpreadDelta = clamp(homeRunAdjustment - awayRunAdjustment, -2.75, 2.75);
   const totalDelta = clamp(homeRunAdjustment + awayRunAdjustment, -3.5, 3.5);
   const profileQuality = (homeOffense.quality + awayOffense.quality + homeBullpen.quality + awayBullpen.quality) / 4;
   const starterQuality = ((homeStarter?.quality ?? 0) + (awayStarter?.quality ?? 0)) / 2;
   const confidence = clamp(profileQuality * 0.55 + starterQuality * 0.45, 0, 1);
   const eloPointDelta = clamp(homeSpreadDelta * 18, -65, 65);
-
   const drivers = [
     `MLB starter model home starter ${homeProbable.name ?? homePitcherProfile?.playerName ?? "unknown"}, away starter ${awayProbable.name ?? awayPitcherProfile?.playerName ?? "unknown"}.`,
     `Home run adjustment ${round(homeRunAdjustment, 2)}, away run adjustment ${round(awayRunAdjustment, 2)}.`,
     `Starter-adjusted spread delta ${round(homeSpreadDelta, 2)}, Elo-equivalent delta ${round(eloPointDelta, 1)}.`
   ];
-
   if (!homePitcherProfile) drivers.push("Home pitcher feature profile missing; starter strength defaulted.");
   if (!awayPitcherProfile) drivers.push("Away pitcher feature profile missing; starter strength defaulted.");
   if (!homeTeamProfile || !awayTeamProfile) drivers.push("One or both MLB team feature profiles missing; offense/bullpen inputs partially defaulted.");
