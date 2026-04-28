@@ -119,7 +119,7 @@ function playerName(player: RawPlayer) {
   const first = text(player.first_name, player.firstName);
   const last = text(player.last_name, player.lastName);
   const full = text(player.name, player.full_name, player.fullName, player.display_name, player.displayName);
-  return full ?? [first, last].filter(Boolean).join(" ").trim() || null;
+  return full ?? ([first, last].filter(Boolean).join(" ").trim() || null);
 }
 
 function teamName(player: RawPlayer) {
@@ -134,7 +134,7 @@ async function fetchSeasonAverages(playerIds: string[]) {
     season: season(),
     "player_ids[]": ids
   });
-  return rows(body);
+  return rows(body) as RawSeasonAverage[];
 }
 
 function averagePlayerId(row: RawSeasonAverage) {
@@ -198,7 +198,11 @@ export async function fetchBallDontLiePlayerFeed() {
     const players = await fetchPlayers();
     const playerIds = players.map(playerId).filter((id): id is string => Boolean(id));
     const averages = await fetchSeasonAverages(playerIds);
-    const averagesById = new Map(averages.map((average) => [averagePlayerId(average), average]));
+    const averagesById = new Map<string, RawSeasonAverage>();
+    for (const average of averages) {
+      const id = averagePlayerId(average);
+      if (id) averagesById.set(id, average);
+    }
     return players
       .map((player) => normalizedFromPlayer(player, averagesById.get(playerId(player) ?? "")))
       .filter((record): record is RealPlayerFeedRecord => Boolean(record))
@@ -218,7 +222,11 @@ export async function getBallDontLieDebugPayload(): Promise<BallDontLieDebugPayl
     const players = await fetchPlayers();
     const playerIds = players.map(playerId).filter((id): id is string => Boolean(id));
     const averages = await fetchSeasonAverages(playerIds);
-    const averagesById = new Map(averages.map((average) => [averagePlayerId(average), average]));
+    const averagesById = new Map<string, RawSeasonAverage>();
+    for (const average of averages) {
+      const id = averagePlayerId(average);
+      if (id) averagesById.set(id, average);
+    }
     const normalized = players
       .map((player) => normalizedFromPlayer(player, averagesById.get(playerId(player) ?? "")))
       .filter((record): record is RealPlayerFeedRecord => Boolean(record));
