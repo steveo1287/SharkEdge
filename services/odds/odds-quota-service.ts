@@ -47,7 +47,21 @@ async function cache(snapshot: QuotaSnapshot) {
 }
 
 export async function getCachedOddsQuota() {
-  return readHotCache<QuotaSnapshot>(QUOTA_CACHE_KEY);
+  const cached = await readHotCache<QuotaSnapshot>(QUOTA_CACHE_KEY);
+  return cached ? reconcileLimits(cached) : null;
+}
+
+function reconcileLimits(snapshot: QuotaSnapshot): QuotaSnapshot {
+  const state = classify(snapshot.used, snapshot.remaining);
+  return {
+    ...snapshot,
+    monthlyLimit: MONTHLY_LIMIT,
+    safeStop: SAFE_STOP,
+    dailyBudget: DAILY_BUDGET,
+    exhausted: state.exhausted,
+    safeStopped: state.safeStopped,
+    status: state.status
+  };
 }
 
 export async function checkOddsQuota(mode: "cached" | "sports-check" | "odds-probe" = "cached") {
