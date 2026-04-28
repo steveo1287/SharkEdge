@@ -6,54 +6,12 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 
 const NAV_ITEMS = [
-  { href: "/",        label: "Desk",  icon: "home" },
-  { href: "/board",   label: "Board", icon: "board" },
-  { href: "/sim/nba", label: "NBA",   icon: "sim" },
-  { href: "/sim/mlb", label: "MLB",   icon: "trends" },
-  { href: "/props",   label: "Props", icon: "props" }
+  { href: "/", label: "Desk" },
+  { href: "/board", label: "Board" },
+  { href: "/sim/nba", label: "NBA" },
+  { href: "/sim/mlb", label: "MLB" },
+  { href: "/sim/accuracy", label: "Grade" }
 ] as const;
-
-function MobileNavIcon({ type, active }: { type: (typeof NAV_ITEMS)[number]["icon"]; active: boolean }) {
-  const color = active ? "#22D3EE" : "rgba(232, 220, 196, 0.40)";
-  const s = "h-[17px] w-[17px]";
-  const sw = "1.25";
-
-  if (type === "home") return (
-    <svg viewBox="0 0 24 24" className={s} fill="none">
-      <path d="M3 12L12 4l9 8M5 10.5V20h5v-5h4v5h5V10.5" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  );
-
-  if (type === "board") return (
-    <svg viewBox="0 0 24 24" className={s} fill="none">
-      <rect x="3" y="3" width="8" height="8" rx="1" stroke={color} strokeWidth={sw}/>
-      <rect x="13" y="3" width="8" height="8" rx="1" stroke={color} strokeWidth={sw}/>
-      <rect x="3" y="13" width="8" height="8" rx="1" stroke={color} strokeWidth={sw}/>
-      <rect x="13" y="13" width="8" height="8" rx="1" stroke={color} strokeWidth={sw}/>
-    </svg>
-  );
-
-  if (type === "sim") return (
-    <svg viewBox="0 0 24 24" className={s} fill="none">
-      <path d="M4 5h6v6H4zM14 5h6v6h-6zM4 15h6v4H4z" stroke={color} strokeWidth={sw} strokeLinejoin="round"/>
-      <path d="M14 17h6M17 14v6" stroke={color} strokeWidth={sw} strokeLinecap="round"/>
-    </svg>
-  );
-
-  if (type === "trends") return (
-    <svg viewBox="0 0 24 24" className={s} fill="none">
-      <path d="M3 17l5-6 4 3 5-8 4 2" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M17 7h4v4" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  );
-
-  return (
-    <svg viewBox="0 0 24 24" className={s} fill="none">
-      <circle cx="12" cy="7.5" r="3.25" stroke={color} strokeWidth={sw}/>
-      <path d="M5.5 20c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5" stroke={color} strokeWidth={sw} strokeLinecap="round"/>
-    </svg>
-  );
-}
 
 export function MobileBottomNav() {
   const pathname = usePathname();
@@ -72,18 +30,9 @@ export function MobileBottomNav() {
                   active ? "text-aqua" : "text-bone/50 hover:text-bone/80"
                 )}
               >
-                <MobileNavIcon type={item.icon} active={active} />
-                <span
-                  className={cn(
-                    "text-[9px] font-semibold uppercase tracking-[0.08em]",
-                    active ? "text-aqua" : "text-bone/45"
-                  )}
-                >
-                  {item.label}
-                </span>
-                {active && (
-                  <span className="absolute top-0 left-1/2 h-[2px] w-5 -translate-x-1/2 bg-aqua" />
-                )}
+                <span className={cn("h-[17px] w-[17px] rounded-full border", active ? "border-aqua bg-aqua/15" : "border-bone/30")} />
+                <span className={cn("text-[9px] font-semibold uppercase tracking-[0.08em]", active ? "text-aqua" : "text-bone/45")}>{item.label}</span>
+                {active && <span className="absolute top-0 left-1/2 h-[2px] w-5 -translate-x-1/2 bg-aqua" />}
               </Link>
             </li>
           );
