@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import { americanToImplied } from "@/lib/odds";
+import { americanToImplied } from "@/lib/odds/index";
 import { normalCdf } from "@/services/simulation/probability-math";
 import { getCachedTeamPowerRating, type TeamPowerRatingProfile } from "@/services/stats/team-power-ratings";
 import { buildPlayerLockImpactForEvent } from "@/services/simulation/player-lock-impact";
