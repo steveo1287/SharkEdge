@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/db/prisma";
-import type { Prisma } from "@prisma/client";
 
 type FreezeClosingLinesInput = {
   leagueKey?: string | null;
@@ -21,10 +20,6 @@ function impliedFromAmerican(odds: number) {
   if (odds > 0) return 100 / (odds + 100);
   const abs = Math.abs(odds);
   return abs / (abs + 100);
-}
-
-function toJson(value: unknown): Prisma.InputJsonValue {
-  return value as Prisma.InputJsonValue;
 }
 
 function marketLine(market: { currentLine: number | null; line: number | null }) {
@@ -102,20 +97,8 @@ export async function freezeClosingLines(input: FreezeClosingLinesInput = {}): P
           closingLine: line,
           closingOdds: odds,
           currentLine: line,
-          currentOdds: odds,
-          metadataJson: toJson({
-            ...(typeof market.metadataJson === "object" && market.metadataJson !== null && !Array.isArray(market.metadataJson)
-              ? market.metadataJson
-              : {}),
-            closingFrozenAt: capturedAt.toISOString(),
-            closingFreezeSource: "internal_freeze_closing_lines",
-            closingFreezeEventStatus: event.status,
-            closingFreezeWindow: {
-              windowBeforeMinutes,
-              windowAfterMinutes
-            }
-          })
-        } as any
+          currentOdds: odds
+        }
       });
       marketsFrozen += 1;
     }
