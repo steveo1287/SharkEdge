@@ -46,6 +46,8 @@ type OddsSnapshotEvent = {
   }>;
 };
 
+type MarketSignal = { market: string; team: string | null; edge: number };
+
 function americanToProbability(odds: number | null | undefined) {
   if (typeof odds !== "number" || !Number.isFinite(odds) || odds === 0) return null;
   return odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100);
@@ -262,6 +264,33 @@ function findLineForGame(lines: SportsbookLine[], game: { id: string }, matchup:
     ?? lines.find((line) => line.homeTeam && line.awayTeam && looseTeamMatch(line.homeTeam, matchup.home) && looseTeamMatch(line.awayTeam, matchup.away));
 }
 
+function signalStrength(signal: MarketSignal, projection: Awaited<ReturnType<typeof buildSimProjection>>) {
+  const absEdge = Math.abs(signal.edge);
+  const governor = projection.mlbIntel?.governor;
+  const confidence = typeof governor?.confidence === "number" ? governor.confidence : 0;
+  const volatility = projection.mlbIntel?.volatilityIndex ?? 2;
+  const calibrated = projection.mlbIntel?.calibration?.ece != null;
+  const noBet = Boolean(governor?.noBet) || confidence < 0.6;
+
+  if (signal.market === "over" || signal.market === "under") {
+    if (noBet || volatility >= 1.65 || !calibrated) {
+      if (absEdge >= 2.25 && confidence >= 0.45 && volatility < 2.05) return "watch";
+      return "thin";
+    }
+    if (absEdge >= 1.35) return "strong";
+    if (absEdge >= 0.65) return "watch";
+    return "thin";
+  }
+
+  if (noBet || volatility >= 1.65) {
+    if (absEdge >= 0.075 && confidence >= 0.52) return "watch";
+    return "thin";
+  }
+  if (absEdge >= 0.05) return "strong";
+  if (absEdge >= 0.025) return "watch";
+  return "thin";
+}
+
 export async function buildMlbEdges() {
   const [sections, lines] = await Promise.all([buildBoardSportSections({ selectedLeague: "ALL", gamesByLeague: {} }), fetchLines()]);
   const mlbGames = sections.flatMap((section) => section.leagueKey === "MLB" ? section.scoreboard.map((game) => ({ ...game, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel })) : []);
@@ -278,7 +307,7 @@ export async function buildMlbEdges() {
       homeEdge == null ? null : { market: "home_ml", team: projection.matchup.home, edge: homeEdge },
       awayEdge == null ? null : { market: "away_ml", team: projection.matchup.away, edge: awayEdge },
       totalEdge == null ? null : { market: totalEdge > 0 ? "over" : "under", team: null, edge: Math.abs(totalEdge) }
-    ].filter(Boolean).sort((a: any, b: any) => Math.abs(b.edge) - Math.abs(a.edge))[0] as any;
+    ].filter((signal): signal is MarketSignal => Boolean(signal)).sort((a, b) => Math.abs(b.edge) - Math.abs(a.edge))[0] ?? null;
     edges.push({
       gameId: game.id,
       matchup: projection.matchup,
@@ -286,7 +315,7 @@ export async function buildMlbEdges() {
       projection,
       market: line ?? null,
       edges: { homeMoneyline: homeEdge, awayMoneyline: awayEdge, totalRuns: totalEdge },
-      signal: best ? { ...best, strength: Math.abs(best.edge) >= 0.05 ? "strong" : Math.abs(best.edge) >= 0.025 ? "watch" : "thin" } : null
+      signal: best ? { ...best, strength: signalStrength(best, projection) } : null
     });
   }
   return { ok: true, lineCount: lines.length, gameCount: mlbGames.length, edges };
