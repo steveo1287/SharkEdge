@@ -56,12 +56,37 @@ type MarketAudit = {
   reason: string;
 };
 
+const ML_FEATURE_KEYS = [
+  "teamEdge",
+  "playerEdge",
+  "statcastEdge",
+  "weatherEdge",
+  "pitcherEdge",
+  "bullpenEdge",
+  "lockEdge",
+  "parkEdge",
+  "formEdge",
+  "totalWeatherEdge",
+  "totalStatcastEdge",
+  "totalPitchingEdge",
+  "totalParkEdge",
+  "totalBullpenEdge"
+] as const;
+
 function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, value)); }
 function round(value: number, digits = 4) { return Number(value.toFixed(digits)); }
 function meanAbs(values: number[]) { return values.reduce((sum, value) => sum + Math.abs(value), 0) / Math.max(1, values.length); }
 function disagreement(a: number, b: number) { return Math.abs(a - b); }
 function sign(value: number, deadZone = 0.08) { if (value > deadZone) return 1; if (value < -deadZone) return -1; return 0; }
 function sideLabel(probability: number) { return probability >= 0.5 ? "home" : "away"; }
+
+function mlFeatureVector(features: MlbGovernorFeatures): Record<string, number> {
+  return Object.fromEntries(ML_FEATURE_KEYS.map((key) => [key, features[key]]));
+}
+
+function modelSignalStrength(features: MlbGovernorFeatures) {
+  return meanAbs(ML_FEATURE_KEYS.map((key) => features[key]));
+}
 
 function shrinkTowardCoinFlip(probability: number, strength: number) {
   return clamp(0.5 + (probability - 0.5) * strength, 0.39, 0.61);
@@ -195,7 +220,8 @@ function auditReasons(rawHomeWinPct: number, adjustedHomeWinPct: number, audit: 
 
 export async function governMlbProjection(input: { rulesHomeWinPct: number; rulesProjectedTotal: number; volatilityIndex: number; features: MlbGovernorFeatures }): Promise<MlbGovernedProjection> {
   const model = await getCachedMlbMlModel();
-  const signalStrength = meanAbs(Object.values(input.features).filter((value): value is number => typeof value === "number" && Number.isFinite(value)));
+  const modelFeatures = mlFeatureVector(input.features);
+  const signalStrength = modelSignalStrength(input.features);
   const audit = auditDirection(input.features, input.rulesHomeWinPct);
   const conservativeRulesHomeWinPct = shrinkTowardCoinFlip(input.rulesHomeWinPct, audit.reliability);
   const rulesMarket = auditMarket(conservativeRulesHomeWinPct, input.features);
@@ -223,7 +249,7 @@ export async function governMlbProjection(input: { rulesHomeWinPct: number; rule
     };
   }
 
-  const ml = scoreMlbMlModel(model, input.features);
+  const ml = scoreMlbMlModel(model, modelFeatures);
   const conservativeMlHomeWinPct = shrinkTowardCoinFlip(ml.homeWinProbability, clamp(model.rows >= 1000 ? 0.74 : model.rows >= 300 ? 0.64 : 0.54, 0.5, 0.76));
   const delta = disagreement(conservativeRulesHomeWinPct, conservativeMlHomeWinPct);
   const agreementBoost = clamp(0.07 - delta, -0.08, 0.05);
