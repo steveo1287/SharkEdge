@@ -4,6 +4,9 @@ type Props = {
   verdict: GameSimVerdict;
 };
 
+const MIN_MONEYLINE_MODEL_EDGE = 0.04;
+const MIN_EV_EDGE_PCT = 4;
+
 const RATING_STYLES: Record<VerdictRating, { label: string; bg: string; text: string; border: string }> = {
   STRONG_BET: { label: "Strong Bet", bg: "bg-mint/[0.08]", text: "text-mint", border: "border-mint/25" },
   LEAN: { label: "Lean", bg: "bg-aqua/[0.07]", text: "text-aqua", border: "border-aqua/20" },
@@ -26,7 +29,15 @@ function formatNumber(value: number) {
 }
 
 function isActionable(v: MarketVerdict) {
-  return v.side !== "NONE" && (v.rating === "STRONG_BET" || v.rating === "LEAN");
+  if (v.side === "NONE" || (v.rating !== "STRONG_BET" && v.rating !== "LEAN")) {
+    return false;
+  }
+
+  if (v.market === "moneyline") {
+    return typeof v.delta === "number" && v.delta >= MIN_MONEYLINE_MODEL_EDGE;
+  }
+
+  return typeof v.edgePct === "number" && v.edgePct >= MIN_EV_EDGE_PCT;
 }
 
 function getRecommendationLabel(verdict: GameSimVerdict, v: MarketVerdict) {
@@ -61,6 +72,7 @@ function getRecommendationLabel(verdict: GameSimVerdict, v: MarketVerdict) {
 }
 
 function getActionLabel(v: MarketVerdict) {
+  if (!isActionable(v)) return "Pass — edge below threshold";
   if (v.actionState === "BET_NOW") return "Bet now";
   if (v.actionState === "WAIT") return "Wait for a better number";
   if (v.actionState === "WATCH") return "Watchlist only";
@@ -81,7 +93,7 @@ function MarketVerdictRow({ verdict, v, isBestBet }: { verdict: GameSimVerdict; 
         <div className="flex items-center gap-2">
           {isBestBet ? (
             <span className="inline-flex items-center rounded-full border border-aqua/25 bg-aqua/[0.08] px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-aqua">
-              Best bet
+              Best edge
             </span>
           ) : null}
           <RatingBadge rating={v.rating} />
@@ -91,7 +103,7 @@ function MarketVerdictRow({ verdict, v, isBestBet }: { verdict: GameSimVerdict; 
       <div className="mt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-bone/45">
         Recommended play
       </div>
-      <div className={`mt-1 font-display text-[16px] font-semibold leading-snug ${s.text}`}>
+      <div className={`mt-1 font-display text-[16px] font-semibold leading-snug ${isActionable(v) ? s.text : "text-bone/55"}`}>
         {recommendation}
       </div>
       <div className="mt-1 text-[10px] uppercase tracking-widest text-bone/40">
@@ -106,8 +118,13 @@ function MarketVerdictRow({ verdict, v, isBestBet }: { verdict: GameSimVerdict; 
           EV {v.edgePct > 0 ? "+" : ""}{v.edgePct}% · edge {v.edgeScore} · kelly {v.kellyPct}%
         </div>
       )}
+      {v.market === "moneyline" && typeof v.delta === "number" ? (
+        <div className="mt-1 font-mono text-[10px] uppercase tracking-widest text-bone/40">
+          Model edge {(v.delta * 100).toFixed(1)}% · requires {(MIN_MONEYLINE_MODEL_EDGE * 100).toFixed(0)}%+
+        </div>
+      ) : null}
       <div className="mt-1 text-[10px] uppercase tracking-widest text-bone/40">
-        {v.actionState === "BET_NOW" ? "Act now" : v.actionState === "WAIT" ? "Wait" : v.actionState === "WATCH" ? "Watch" : "Pass"} · {v.timingState.replace(/_/g, " ").toLowerCase()}
+        {isActionable(v) ? (v.actionState === "BET_NOW" ? "Act now" : v.actionState === "WAIT" ? "Wait" : v.actionState === "WATCH" ? "Watch" : "Pass") : "Filtered"} · {v.timingState.replace(/_/g, " ").toLowerCase()}
       </div>
       <p className="mt-1.5 text-[11.5px] leading-[1.5] text-bone/65">{v.explanation}</p>
       {v.trapFlags.length > 0 && v.trapExplanation && (
@@ -121,11 +138,11 @@ function MarketVerdictRow({ verdict, v, isBestBet }: { verdict: GameSimVerdict; 
 
 export function SimVerdictPanel({ verdict }: Props) {
   const overall = verdict.overallVerdict;
-  const overallStyle = RATING_STYLES[overall.rating];
   const s = verdict.simSummary;
-  const bestBet = overall.bestBet;
+  const bestBet = overall.bestBet && isActionable(overall.bestBet) ? overall.bestBet : null;
+  const overallStyle = RATING_STYLES[bestBet?.rating ?? overall.rating];
   const bestBetRecommendation = bestBet ? getRecommendationLabel(verdict, bestBet) : "No playable edge right now";
-  const bestBetActionLabel = bestBet ? getActionLabel(bestBet) : "Pass";
+  const bestBetActionLabel = bestBet ? getActionLabel(bestBet) : "Pass — wait for +4% model edge or +4% EV";
 
   return (
     <section className="grid gap-4">
@@ -141,12 +158,12 @@ export function SimVerdictPanel({ verdict }: Props) {
       <div className={`rounded-xl border p-4 ${overallStyle.border} ${overallStyle.bg}`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <RatingBadge rating={overall.rating} />
+            <RatingBadge rating={bestBet?.rating ?? overall.rating} />
             <div className="mt-3 rounded-lg border border-bone/[0.08] bg-ink/40 p-3">
               <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-bone/45">
-                Best bet right now
+                Best playable edge
               </div>
-              <div className={`mt-1 font-display text-[18px] font-semibold leading-snug ${overallStyle.text}`}>
+              <div className={`mt-1 font-display text-[18px] font-semibold leading-snug ${bestBet ? overallStyle.text : "text-bone/55"}`}>
                 {bestBetRecommendation}
               </div>
               <div className="mt-1 text-[11px] uppercase tracking-widest text-bone/40">
@@ -154,7 +171,7 @@ export function SimVerdictPanel({ verdict }: Props) {
               </div>
             </div>
             <p className={`mt-3 font-display text-[15px] font-semibold leading-snug ${overallStyle.text}`}>
-              {overall.summary}
+              {bestBet ? overall.summary : "Model has leans, but none clear the playable-edge threshold."}
             </p>
             <p className="mt-1 text-[12.5px] text-bone/60">{overall.actionNote}</p>
           </div>
@@ -178,10 +195,10 @@ export function SimVerdictPanel({ verdict }: Props) {
             verdict={verdict}
             v={v}
             isBestBet={Boolean(
-              overall.bestBet &&
-              overall.bestBet.market === v.market &&
-              overall.bestBet.side === v.side &&
-              overall.bestBet.headline === v.headline
+              bestBet &&
+              bestBet.market === v.market &&
+              bestBet.side === v.side &&
+              bestBet.headline === v.headline
             )}
           />
         ))}
