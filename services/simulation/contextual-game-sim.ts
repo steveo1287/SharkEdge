@@ -1,3 +1,4 @@
+import { normalCdf } from "./probability-math";
 import type { EventGameRatingsPrior, TeamGameRatingsProfile } from "@/services/simulation/game-ratings-prior";
 import type {
   CoachTendencyProfile,
@@ -58,9 +59,13 @@ export type ContextualGameSimulationSummary = {
     totalStdDev: number;
     homeScoreStdDev: number;
     awayScoreStdDev: number;
+    spreadStdDev: number;
     p10Total: number;
     p50Total: number;
     p90Total: number;
+    p10SpreadHome: number;
+    p50SpreadHome: number;
+    p90SpreadHome: number;
   };
   drivers: string[];
   ratingsPrior: {
@@ -82,6 +87,7 @@ type SportConfig = {
 
 const SPORT_CONFIG: Record<string, SportConfig> = {
   NBA: { baseScore: 112, baseStdDev: 12.5, homeEdge: 2.6, paceBaseline: 99, totalBlendWeight: 0.18, spreadBlendWeight: 0.16 },
+  NCAAB: { baseScore: 74, baseStdDev: 10.8, homeEdge: 3.2, paceBaseline: 69, totalBlendWeight: 0.2, spreadBlendWeight: 0.18 },
   NFL: { baseScore: 23.5, baseStdDev: 9.6, homeEdge: 1.8, paceBaseline: 64, totalBlendWeight: 0.16, spreadBlendWeight: 0.16 },
   NCAAF: { baseScore: 28, baseStdDev: 11.4, homeEdge: 2.7, paceBaseline: 70, totalBlendWeight: 0.16, spreadBlendWeight: 0.16 },
   NHL: { baseScore: 3.1, baseStdDev: 1.55, homeEdge: 0.18, paceBaseline: 31, totalBlendWeight: 0.14, spreadBlendWeight: 0.14 },
@@ -251,11 +257,11 @@ export function simulateContextualGame(input: ContextualGameSimulationInput): Co
   }
 
   if (input.home.backToBack) {
-    homeMean -= input.leagueKey.includes("NBA") ? 1.7 : 0.7;
+    homeMean -= input.leagueKey.includes("NBA") || input.leagueKey.includes("NCAAB") ? 1.7 : 0.7;
     drivers.push("Home back-to-back penalty");
   }
   if (input.away.backToBack) {
-    awayMean -= input.leagueKey.includes("NBA") ? 1.7 : 0.7;
+    awayMean -= input.leagueKey.includes("NBA") || input.leagueKey.includes("NCAAB") ? 1.7 : 0.7;
     drivers.push("Away back-to-back penalty");
   }
   if (input.home.revengeSpot) {
@@ -337,10 +343,15 @@ export function simulateContextualGame(input: ContextualGameSimulationInput): Co
   }
 
   const totals = homeScores.map((score, index) => score + awayScores[index]);
+  const spreadsHome = homeScores.map((score, index) => score - awayScores[index]);
   const projectedHomeScore = average(homeScores);
   const projectedAwayScore = average(awayScores);
   projectedTotal = projectedHomeScore + projectedAwayScore;
   projectedSpreadHome = projectedHomeScore - projectedAwayScore;
+  const spreadStdDev = standardDeviation(spreadsHome);
+  const monteCarloWinProbHome = homeWins / samples;
+  const marginWinProbHome = normalCdf(projectedSpreadHome, 0, Math.max(0.25, spreadStdDev));
+  const winProbHome = clamp(monteCarloWinProbHome * 0.72 + marginWinProbHome * 0.28, 0.02, 0.98);
 
   return {
     engine: "contextual-monte-carlo-v2",
@@ -348,15 +359,19 @@ export function simulateContextualGame(input: ContextualGameSimulationInput): Co
     projectedAwayScore: round(projectedAwayScore),
     projectedTotal: round(projectedTotal),
     projectedSpreadHome: round(projectedSpreadHome),
-    winProbHome: round(homeWins / samples, 4),
-    winProbAway: round(1 - homeWins / samples, 4),
+    winProbHome: round(winProbHome, 4),
+    winProbAway: round(1 - winProbHome, 4),
     distribution: {
       totalStdDev: round(standardDeviation(totals)),
       homeScoreStdDev: round(standardDeviation(homeScores)),
       awayScoreStdDev: round(standardDeviation(awayScores)),
+      spreadStdDev: round(spreadStdDev),
       p10Total: round(percentile(totals, 0.1)),
       p50Total: round(percentile(totals, 0.5)),
-      p90Total: round(percentile(totals, 0.9))
+      p90Total: round(percentile(totals, 0.9)),
+      p10SpreadHome: round(percentile(spreadsHome, 0.1)),
+      p50SpreadHome: round(percentile(spreadsHome, 0.5)),
+      p90SpreadHome: round(percentile(spreadsHome, 0.9))
     },
     drivers: Array.from(new Set(drivers)),
     ratingsPrior: {
