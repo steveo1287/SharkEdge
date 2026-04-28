@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
+import { formatLongDate } from "@/lib/formatters/date";
 import { withTimeoutFallback } from "@/lib/utils/async";
 import { getBoardPageData, parseBoardFilters } from "@/services/odds/board-service";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
@@ -51,15 +52,7 @@ const LEAGUE_ICONS: Partial<Record<string, string>> = {
 };
 
 function formatTime(dateStr: string) {
-  const date = new Date(dateStr);
-  if (Number.isNaN(date.getTime())) return "Time TBD";
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  }).format(date);
+  return formatLongDate(dateStr) === "TBD" ? "Time TBD" : formatLongDate(dateStr);
 }
 
 function getStatusBadgeTone(status: string) {
