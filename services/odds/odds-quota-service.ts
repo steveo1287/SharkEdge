@@ -1,9 +1,9 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
 
 const QUOTA_CACHE_KEY = "odds:quota:last:v1";
-const MONTHLY_LIMIT = Number(process.env.ODDS_MONTHLY_LIMIT ?? 500);
-const SAFE_STOP = Number(process.env.ODDS_SAFE_STOP ?? 450);
-const DAILY_BUDGET = Number(process.env.ODDS_DAILY_BUDGET ?? 12);
+const MONTHLY_LIMIT = Number(process.env.ODDS_API_MONTHLY_LIMIT ?? process.env.ODDS_MONTHLY_LIMIT ?? 500);
+const SAFE_STOP = Number(process.env.ODDS_API_REGULAR_STOP_AT ?? process.env.ODDS_SAFE_STOP ?? 460);
+const DAILY_BUDGET = Number(process.env.ODDS_API_DAILY_REGULAR_LIMIT ?? process.env.ODDS_DAILY_BUDGET ?? 14);
 const BASE_URL = "https://api.the-odds-api.com/v4";
 
 type QuotaSnapshot = {

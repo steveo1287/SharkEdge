@@ -228,7 +228,20 @@ async function fetchSportOdds(sport: string, apiKey: string): Promise<SportFetch
 export async function getOddsApiBudget(): Promise<BudgetState> {
   const key = budgetKey();
   const existing = await readHotCache<BudgetState>(key);
-  if (existing?.month === monthKey()) return existing;
+  if (existing?.month === monthKey()) {
+    if (existing.limit === MONTHLY_LIMIT && existing.regularStopAt === REGULAR_STOP_AT) {
+      return existing;
+    }
+
+    const reconciled = {
+      ...existing,
+      limit: MONTHLY_LIMIT,
+      regularStopAt: REGULAR_STOP_AT,
+      updatedAt: new Date().toISOString()
+    };
+    await writeBudget(reconciled);
+    return reconciled;
+  }
 
   const fresh: BudgetState = {
     provider: PROVIDER,
@@ -245,7 +258,17 @@ export async function getOddsApiBudget(): Promise<BudgetState> {
 export async function getOddsApiDailyBudget(): Promise<DailyState> {
   const key = dailyKey();
   const existing = await readHotCache<DailyState>(key);
-  if (existing?.day === dayKey()) return existing;
+  if (existing?.day === dayKey()) {
+    if (existing.limit === DAILY_REGULAR_LIMIT) return existing;
+
+    const reconciled = {
+      ...existing,
+      limit: DAILY_REGULAR_LIMIT,
+      updatedAt: new Date().toISOString()
+    };
+    await writeDaily(reconciled);
+    return reconciled;
+  }
 
   const fresh: DailyState = {
     provider: PROVIDER,
