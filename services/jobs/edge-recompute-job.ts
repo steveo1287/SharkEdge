@@ -7,6 +7,7 @@ import { applyMarketCalibrationToPlayerProjection } from "@/services/simulation/
 import { evaluatePlayerProjectionReadiness } from "@/services/simulation/player-prop-readiness";
 import { applyNbaSynergyAdjustmentToProjection } from "@/services/simulation/nba-synergy-projection-adjuster";
 import { applyNbaMoneyballAdjustmentToProjection } from "@/services/simulation/nba-moneyball-projection-adjuster";
+import { getLatestModelTuningProfile } from "@/services/evaluation/model-tuning-service";
 
 function isProjection(
   value: Awaited<ReturnType<typeof buildPlayerPropProjectionsForEvent>>[number]
@@ -47,6 +48,9 @@ export async function edgeRecomputeJob(eventId: string) {
     }
   });
 
+  const tuningProfile = event?.league.key
+    ? await getLatestModelTuningProfile(event.league.key)
+    : null;
   const homeTeam = event?.participants.find((participant) => participant.role === "HOME")?.competitor.team ?? null;
   const awayTeam = event?.participants.find((participant) => participant.role === "AWAY")?.competitor.team ?? null;
 
@@ -90,6 +94,7 @@ export async function edgeRecomputeJob(eventId: string) {
   let skippedPlayerProjectionCount = 0;
   let moneyballAdjustedPlayerProjectionCount = 0;
   let synergyAdjustedPlayerProjectionCount = 0;
+  let tunedPlayerProjectionCount = 0;
   const skipReasons: Record<string, number> = {};
 
   for (const projection of validPlayerProjections) {
@@ -132,7 +137,11 @@ export async function edgeRecomputeJob(eventId: string) {
       synergyAdjustedPlayerProjectionCount += 1;
     }
 
-    const calibratedProjection = applyMarketCalibrationToPlayerProjection(synergyProjection);
+    const tuningRule = tuningProfile?.rules?.[projection.statKey] ?? tuningProfile?.defaultRule ?? null;
+    if (tuningRule) {
+      tunedPlayerProjectionCount += 1;
+    }
+    const calibratedProjection = applyMarketCalibrationToPlayerProjection(synergyProjection, { tuningRule });
     const metadata = calibratedProjection.metadata as Record<string, unknown> | undefined;
     if (metadata?.marketCalibrated === true) {
       calibratedPlayerProjectionCount += 1;
@@ -158,7 +167,9 @@ export async function edgeRecomputeJob(eventId: string) {
     skippedPlayerProjectionCount,
     moneyballAdjustedPlayerProjectionCount,
     synergyAdjustedPlayerProjectionCount,
+    tunedPlayerProjectionCount,
     calibratedPlayerProjectionCount,
+    tuningProfileApplied: Boolean(tuningProfile),
     skipReasons
   };
 }
