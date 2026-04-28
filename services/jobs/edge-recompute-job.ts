@@ -37,6 +37,10 @@ export async function edgeRecomputeJob(eventId: string) {
     }
   }
 
+  const removedExistingPlayerProjections = await prisma.playerProjection.deleteMany({
+    where: { eventId }
+  });
+
   let calibratedPlayerProjectionCount = 0;
   let eligiblePlayerProjectionCount = 0;
   let skippedPlayerProjectionCount = 0;
@@ -80,6 +84,7 @@ export async function edgeRecomputeJob(eventId: string) {
     eventId,
     eventProjectionBuilt: Boolean(eventProjection),
     playerProjectionCount: validPlayerProjections.length,
+    removedExistingPlayerProjectionCount: removedExistingPlayerProjections.count,
     eligiblePlayerProjectionCount,
     skippedPlayerProjectionCount,
     calibratedPlayerProjectionCount,
