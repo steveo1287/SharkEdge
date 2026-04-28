@@ -2,13 +2,16 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ensureInternalApiAccess } from "@/lib/utils/internal-api";
 import { ingestTeamStats } from "@/services/stats/team-stats-ingestion";
+import { ingestNbaAvailability } from "@/services/stats/nba-availability-ingestion";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const requestSchema = z.object({
   leagues: z.array(z.enum(["MLB", "NBA"])).optional(),
-  lookbackDays: z.number().int().min(1).max(60).optional()
+  lookbackDays: z.number().int().min(1).max(60).optional(),
+  includeAvailability: z.boolean().optional().default(true),
+  lookaheadDays: z.number().int().min(1).max(7).optional().default(3)
 });
 
 export async function POST(request: Request) {
@@ -30,10 +33,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const { leagues = ["MLB", "NBA"], lookbackDays = 14 } = parsed.data;
+  const { leagues = ["MLB", "NBA"], lookbackDays = 14, includeAvailability, lookaheadDays } = parsed.data;
 
   try {
     const results = await ingestTeamStats({ leagues, lookbackDays });
+    const availability = includeAvailability && leagues.includes("NBA")
+      ? await ingestNbaAvailability({ lookaheadDays })
+      : null;
 
     let totalOk = 0;
     for (const r of Object.values(results)) {
@@ -44,8 +50,11 @@ export async function POST(request: Request) {
       ok: true,
       leagues,
       lookbackDays,
+      includeAvailability,
+      lookaheadDays,
       totalRecordsWritten: totalOk,
-      results
+      results,
+      availability
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Stats ingest failed";
@@ -62,7 +71,9 @@ export async function GET() {
     auth: process.env.INTERNAL_API_KEY ? "x-api-key required" : "open (no INTERNAL_API_KEY set)",
     body: {
       leagues: "string[] — 'MLB' | 'NBA' (default: both)",
-      lookbackDays: "number — 1-60 (default: 14)"
+      lookbackDays: "number — 1-60 (default: 14)",
+      includeAvailability: "boolean — also ingest NBA availability/injuries (default: true)",
+      lookaheadDays: "number — 1-7 for upcoming availability scan (default: 3)"
     }
   });
 }
