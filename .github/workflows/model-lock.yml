@@ -1,0 +1,93 @@
+name: SharkEdge Model Lock
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Override production base URL"
+        required: false
+        type: string
+      league_key:
+        description: "League key to freeze"
+        required: false
+        default: "NBA"
+        type: string
+  schedule:
+    - cron: "*/15 * * * *"
+
+concurrency:
+  group: sharkedge-model-lock
+  cancel-in-progress: false
+
+jobs:
+  freeze-closing-lines:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Resolve endpoint
+        id: endpoint
+        shell: bash
+        run: |
+          BASE_URL="${{ inputs.base_url }}"
+          if [ -z "$BASE_URL" ]; then
+            BASE_URL="${{ secrets.SHARKEDGE_BASE_URL }}"
+          fi
+          if [ -z "$BASE_URL" ]; then
+            echo "Missing SHARKEDGE_BASE_URL secret or workflow input." >&2
+            exit 1
+          fi
+          BASE_URL="${BASE_URL%/}"
+          echo "url=$BASE_URL/api/internal/markets/freeze-closing" >> "$GITHUB_OUTPUT"
+
+      - name: Freeze closing lines near lock
+        shell: bash
+        env:
+          FREEZE_URL: ${{ steps.endpoint.outputs.url }}
+          INTERNAL_API_KEY: ${{ secrets.INTERNAL_API_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          LEAGUE_KEY: ${{ inputs.league_key || 'NBA' }}
+        run: |
+          AUTH_ARGS=()
+          if [ -n "$INTERNAL_API_KEY" ]; then
+            AUTH_ARGS=(-H "x-api-key: $INTERNAL_API_KEY")
+          elif [ -n "$CRON_SECRET" ]; then
+            AUTH_ARGS=(-H "Authorization: Bearer $CRON_SECRET")
+          else
+            echo "Missing INTERNAL_API_KEY or CRON_SECRET secret." >&2
+            exit 1
+          fi
+
+          RESPONSE=$(curl --fail-with-body --show-error --silent \
+            --request POST "$FREEZE_URL" \
+            "${AUTH_ARGS[@]}" \
+            -H "content-type: application/json" \
+            --data "{\"leagueKey\":\"$LEAGUE_KEY\",\"windowBeforeMinutes\":45,\"windowAfterMinutes\":120,\"force\":false}")
+
+          echo "$RESPONSE"
+          echo "$RESPONSE" | grep -q '"ok":true'
+
+      - name: Check model ops health
+        if: always()
+        shell: bash
+        env:
+          BASE_URL: ${{ inputs.base_url || secrets.SHARKEDGE_BASE_URL }}
+          INTERNAL_API_KEY: ${{ secrets.INTERNAL_API_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          BASE_URL="${BASE_URL%/}"
+          if [ -z "$BASE_URL" ]; then
+            exit 0
+          fi
+
+          AUTH_ARGS=()
+          if [ -n "$INTERNAL_API_KEY" ]; then
+            AUTH_ARGS=(-H "x-api-key: $INTERNAL_API_KEY")
+          elif [ -n "$CRON_SECRET" ]; then
+            AUTH_ARGS=(-H "Authorization: Bearer $CRON_SECRET")
+          else
+            exit 0
+          fi
+
+          curl --show-error --silent \
+            "$BASE_URL/api/internal/model-ops/health" \
+            "${AUTH_ARGS[@]}" || true
