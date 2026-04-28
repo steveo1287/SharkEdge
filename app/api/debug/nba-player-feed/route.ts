@@ -46,7 +46,8 @@ export async function GET(request: Request) {
       NBA_LINEUP_DATA_URL: configured("NBA_LINEUP_DATA_URL"),
       NBA_INJURY_PLAYER_PROFILE_URL: configured("NBA_INJURY_PLAYER_PROFILE_URL"),
       NBA_PLAYER_IMPACT_URL: configured("NBA_PLAYER_IMPACT_URL"),
-      NBA_INJURY_IMPACT_URL: configured("NBA_INJURY_IMPACT_URL")
+      NBA_INJURY_IMPACT_URL: configured("NBA_INJURY_IMPACT_URL"),
+      BALLDONTLIE_API_KEY: configured("BALLDONTLIE_API_KEY")
     },
     mergedFeed: {
       realFeedFlowing: feed.length > 0,
