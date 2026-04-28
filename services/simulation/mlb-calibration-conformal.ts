@@ -24,10 +24,18 @@ export type MlbCalibrationModel = {
 };
 
 function round(value: number, digits = 4) { return Number(value.toFixed(digits)); }
+function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, value)); }
 function quantile(values: number[], q: number) { if (!values.length) return 0; const sorted = [...values].sort((a, b) => a - b); const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1)); return sorted[index]; }
 function validRows(rows: any[]): TrainingRow[] { return rows.filter((row) => typeof row.homeScore === "number" && typeof row.awayScore === "number" && FEATURES.every((feature) => typeof row[feature] === "number")); }
 function binIndex(probability: number, binCount: number) { return Math.min(binCount - 1, Math.max(0, Math.floor(probability * binCount))); }
 function featureMap(row: TrainingRow): Record<string, number> { return Object.fromEntries(FEATURES.map((feature) => [feature, row[feature]])); }
+
+function calibrationCorrectionCap(model: MlbCalibrationModel, bin: CalibrationBin | null) {
+  if (!bin || bin.count < 8) return 0;
+  if (model.rows >= 1000 && bin.count >= 80 && model.ece <= 0.055) return 0.045;
+  if (model.rows >= 300 && bin.count >= 30 && model.ece <= 0.075) return 0.032;
+  return 0.022;
+}
 
 export async function trainMlbCalibrationConformal(limit = 1000): Promise<MlbCalibrationModel> {
   const ml = await getCachedMlbMlModel();
@@ -68,13 +76,17 @@ export async function getCachedMlbCalibrationConformal() { return readHotCache<M
 export function applyMlbCalibration(model: MlbCalibrationModel | null, probability: number) {
   if (!model?.ok) return { calibratedProbability: probability, correction: 0, bin: null as CalibrationBin | null };
   const bin = model.bins.find((item) => probability >= item.min && probability < item.max) ?? model.bins[model.bins.length - 1] ?? null;
-  const correction = bin && bin.count >= 5 ? bin.correction : 0;
-  const calibratedProbability = Math.max(0.05, Math.min(0.95, probability + correction));
+  const rawCorrection = bin && bin.count >= 5 ? bin.correction : 0;
+  const cap = calibrationCorrectionCap(model, bin);
+  const correction = clamp(rawCorrection, -cap, cap);
+  const calibratedProbability = clamp(probability + correction, 0.385, 0.615);
   return { calibratedProbability: round(calibratedProbability), correction: round(correction), bin };
 }
 
 export function applyMlbConformalDecision(model: MlbCalibrationModel | null, input: { probability: number; projectedTotal: number; confidence: number }) {
   if (!model?.ok) return { interval: null, uncertaintyPenalty: 0.08, calibratedConfidence: Math.max(0.1, input.confidence - 0.08), reason: "No conformal calibration available." };
-  const uncertaintyPenalty = Math.min(0.18, Math.max(0.02, model.ece + (model.sideConformalThreshold > 0.38 ? 0.05 : 0)));
-  return { interval: { low: round(input.projectedTotal - model.totalResidualP80, 3), high: round(input.projectedTotal + model.totalResidualP80, 3), p90Low: round(input.projectedTotal - model.totalResidualP90, 3), p90High: round(input.projectedTotal + model.totalResidualP90, 3) }, uncertaintyPenalty: round(uncertaintyPenalty), calibratedConfidence: round(Math.max(0.1, input.confidence - uncertaintyPenalty)), reason: `ECE ${model.ece}; total p80 residual ${model.totalResidualP80}.` };
+  const samplePenalty = model.rows < 300 ? 0.04 : model.rows < 1000 ? 0.025 : 0;
+  const thresholdPenalty = model.sideConformalThreshold > 0.38 ? 0.05 : 0;
+  const uncertaintyPenalty = Math.min(0.2, Math.max(0.025, model.ece + thresholdPenalty + samplePenalty));
+  return { interval: { low: round(input.projectedTotal - model.totalResidualP80, 3), high: round(input.projectedTotal + model.totalResidualP80, 3), p90Low: round(input.projectedTotal - model.totalResidualP90, 3), p90High: round(input.projectedTotal + model.totalResidualP90, 3) }, uncertaintyPenalty: round(uncertaintyPenalty), calibratedConfidence: round(Math.max(0.1, input.confidence - uncertaintyPenalty)), reason: `ECE ${model.ece}; total p80 residual ${model.totalResidualP80}; calibration correction capped for MLB winner reliability.` };
 }
