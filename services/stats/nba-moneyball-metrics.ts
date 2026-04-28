@@ -80,11 +80,11 @@ function stat(row: { statsJson: Prisma.JsonValue }, keys: string[]) {
 
 function average(values: Array<number | null | undefined>) {
   const clean = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  return clean.length ? clean.reduce((sum, value) => sum + value, 0) / clean.length : null;
+  return clean.length ? clean.reduce((sum: number, value) => sum + value, 0) / clean.length : null;
 }
 
 function sum(values: Array<number | null | undefined>) {
-  return values.reduce((total, value) => total + (typeof value === "number" && Number.isFinite(value) ? value : 0), 0);
+  return values.reduce((total: number, value) => total + (typeof value === "number" && Number.isFinite(value) ? value : 0), 0);
 }
 
 function weightedAverage(values: Array<number | null | undefined>, decay = 0.86) {
@@ -102,7 +102,7 @@ function weightedAverage(values: Array<number | null | undefined>, decay = 0.86)
 function standardDeviation(values: number[]) {
   if (values.length < 2) return null;
   const mean = average(values) ?? 0;
-  const variance = values.reduce((total, value) => total + (value - mean) ** 2, 0) / Math.max(1, values.length - 1);
+  const variance = values.reduce((total: number, value) => total + (value - mean) ** 2, 0) / Math.max(1, values.length - 1);
   return Math.sqrt(variance);
 }
 
