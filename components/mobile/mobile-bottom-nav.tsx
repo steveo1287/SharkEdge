@@ -6,11 +6,11 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 
 const NAV_ITEMS = [
-  { href: "/",       label: "Desk",  icon: "home" },
-  { href: "/board",  label: "Board", icon: "board" },
-  { href: "/sim",    label: "Sim",   icon: "sim" },
-  { href: "/trends", label: "Trend", icon: "trends" },
-  { href: "/props",  label: "Props", icon: "props" }
+  { href: "/",        label: "Desk",  icon: "home" },
+  { href: "/board",   label: "Board", icon: "board" },
+  { href: "/sim/nba", label: "NBA",   icon: "sim" },
+  { href: "/sim/mlb", label: "MLB",   icon: "trends" },
+  { href: "/props",   label: "Props", icon: "props" }
 ] as const;
 
 function MobileNavIcon({ type, active }: { type: (typeof NAV_ITEMS)[number]["icon"]; active: boolean }) {
