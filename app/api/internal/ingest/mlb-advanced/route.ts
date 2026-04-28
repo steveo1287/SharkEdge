@@ -4,6 +4,7 @@ import { ensureInternalApiAccess } from "@/lib/utils/internal-api";
 import { ingestMlbAdvancedStats } from "@/services/stats/mlb-advanced-ingestion";
 import { ingestMlbStatcastQuality } from "@/services/stats/mlb-statcast-ingestion";
 import { refreshTeamPowerRatings } from "@/services/stats/team-power-ratings";
+import { refreshMlbFeatureProfiles } from "@/services/stats/mlb-feature-profiles";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -13,6 +14,7 @@ const requestSchema = z.object({
   includeStatcast: z.boolean().optional().default(true),
   statcastLookbackDays: z.number().int().min(1).max(14).optional().default(7),
   refreshPowerRatings: z.boolean().optional().default(true),
+  refreshFeatureProfiles: z.boolean().optional().default(true),
   powerLookbackGames: z.number().int().min(5).max(30).optional().default(12)
 });
 
@@ -43,8 +45,11 @@ export async function POST(request: Request) {
     const powerRatings = parsed.data.refreshPowerRatings
       ? await refreshTeamPowerRatings({ leagueKey: "MLB", lookbackGames: parsed.data.powerLookbackGames })
       : null;
+    const featureProfiles = parsed.data.refreshFeatureProfiles
+      ? await refreshMlbFeatureProfiles({ lookbackGames: parsed.data.powerLookbackGames, qualityLookbackDays: parsed.data.lookbackDays })
+      : null;
 
-    return NextResponse.json({ ok: true, result, statcast, powerRatings });
+    return NextResponse.json({ ok: true, result, statcast, powerRatings, featureProfiles });
   } catch (err) {
     const message = err instanceof Error ? err.message : "MLB advanced ingest failed";
     console.error("[ingest/mlb-advanced]", message);
@@ -63,7 +68,8 @@ export async function GET() {
       includeStatcast: "boolean — enrich with Baseball Savant Statcast CSV quality metrics (default: true)",
       statcastLookbackDays: "number — 1-14 days of pitch-level Statcast data (default: 7)",
       refreshPowerRatings: "boolean — refresh MLB power ratings after enrichment (default: true)",
-      powerLookbackGames: "number — 5-30 recent games per team for power ratings (default: 12)"
+      refreshFeatureProfiles: "boolean — refresh MLB team/pitcher feature profiles after enrichment (default: true)",
+      powerLookbackGames: "number — 5-30 recent games per team for power ratings/profiles (default: 12)"
     }
   });
 }
