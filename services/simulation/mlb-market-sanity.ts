@@ -11,6 +11,12 @@ export type MlbNoVigMarket = {
   awayNoVigProbability: number | null;
   homeNoVigProbability: number | null;
   hold: number | null;
+  totalLine: number | null;
+  overOddsAmerican: number | null;
+  underOddsAmerican: number | null;
+  overNoVigProbability: number | null;
+  underNoVigProbability: number | null;
+  totalHold: number | null;
 };
 
 type BoardEvent = {
@@ -80,6 +86,19 @@ function noVig(homeOdds: number | null | undefined, awayOdds: number | null | un
   };
 }
 
+function noVigTotal(overOdds: number | null | undefined, underOdds: number | null | undefined) {
+  const over = americanToImplied(overOdds);
+  const under = americanToImplied(underOdds);
+  if (over == null || under == null) return null;
+  const total = over + under;
+  if (!Number.isFinite(total) || total <= 0) return null;
+  return {
+    overNoVigProbability: Number((over / total).toFixed(4)),
+    underNoVigProbability: Number((under / total).toFixed(4)),
+    totalHold: Number((total - 1).toFixed(4))
+  };
+}
+
 function marketTypeOf(market: any) {
   return String(market?.marketType ?? market?.type ?? market?.key ?? "").toLowerCase();
 }
@@ -103,6 +122,24 @@ function moneylineFor(markets: any[], side: "home" | "away") {
     .flatMap((market) => [market.currentOdds, market.oddsAmerican, market.bestOddsAmerican]));
 }
 
+function totalLineFor(markets: any[]) {
+  const typed = (markets ?? []).filter((market) => marketTypeOf(market).includes("total"));
+  return bestNumeric(typed.flatMap((market) => [market.consensusLineValue, market.currentLine, market.line, market.point]));
+}
+
+function totalOddsFor(markets: any[], side: "over" | "under") {
+  const typed = (markets ?? []).filter((market) => marketTypeOf(market).includes("total"));
+  const explicit = bestNumeric(typed.flatMap((market) => side === "over"
+    ? [market.bestOverOddsAmerican, market.overOddsAmerican, market.overOdds, market.currentOverOdds]
+    : [market.bestUnderOddsAmerican, market.underOddsAmerican, market.underOdds, market.currentUnderOdds]
+  ));
+  if (explicit !== null) return explicit;
+
+  return bestNumeric(typed
+    .filter((market) => String(market.side ?? market.selection ?? "").toLowerCase().includes(side))
+    .flatMap((market) => [market.currentOdds, market.oddsAmerican, market.bestOddsAmerican]));
+}
+
 function namesForBoardEvent(event: BoardEvent) {
   const away = event.participants?.find((participant) => String(participant.role ?? "").toUpperCase() === "AWAY")?.competitor;
   const home = event.participants?.find((participant) => String(participant.role ?? "").toUpperCase() === "HOME")?.competitor;
@@ -111,17 +148,76 @@ function namesForBoardEvent(event: BoardEvent) {
   return { away: away ?? fallbackAway ?? "", home: home ?? fallbackHome ?? "" };
 }
 
+function emptyMarket(awayTeam: string, homeTeam: string): MlbNoVigMarket {
+  return {
+    available: false,
+    source: "missing",
+    awayTeam,
+    homeTeam,
+    awayOddsAmerican: null,
+    homeOddsAmerican: null,
+    awayNoVigProbability: null,
+    homeNoVigProbability: null,
+    hold: null,
+    totalLine: null,
+    overOddsAmerican: null,
+    underOddsAmerican: null,
+    overNoVigProbability: null,
+    underNoVigProbability: null,
+    totalHold: null
+  };
+}
+
+function mergeMarket(args: {
+  source: string;
+  awayTeam: string;
+  homeTeam: string;
+  awayOddsAmerican: number | null;
+  homeOddsAmerican: number | null;
+  totalLine: number | null;
+  overOddsAmerican: number | null;
+  underOddsAmerican: number | null;
+}) {
+  const moneyline = noVig(args.homeOddsAmerican, args.awayOddsAmerican);
+  const total = noVigTotal(args.overOddsAmerican, args.underOddsAmerican);
+  if (!moneyline && !total && args.totalLine == null) return null;
+  return {
+    available: true,
+    source: args.source,
+    awayTeam: args.awayTeam,
+    homeTeam: args.homeTeam,
+    awayOddsAmerican: args.awayOddsAmerican,
+    homeOddsAmerican: args.homeOddsAmerican,
+    awayNoVigProbability: moneyline?.awayNoVigProbability ?? null,
+    homeNoVigProbability: moneyline?.homeNoVigProbability ?? null,
+    hold: moneyline?.hold ?? null,
+    totalLine: args.totalLine,
+    overOddsAmerican: args.overOddsAmerican,
+    underOddsAmerican: args.underOddsAmerican,
+    overNoVigProbability: total?.overNoVigProbability ?? null,
+    underNoVigProbability: total?.underNoVigProbability ?? null,
+    totalHold: total?.totalHold ?? null
+  } satisfies MlbNoVigMarket;
+}
+
 async function fromBoardFeed(awayTeam: string, homeTeam: string): Promise<MlbNoVigMarket | null> {
   try {
     const board = await getBoardFeed("MLB", { skipCache: true }) as { events?: BoardEvent[] };
     for (const event of board.events ?? []) {
       const names = namesForBoardEvent(event);
       if (gameKey(names.away, names.home) !== gameKey(awayTeam, homeTeam)) continue;
-      const homeOddsAmerican = moneylineFor(event.markets ?? [], "home");
-      const awayOddsAmerican = moneylineFor(event.markets ?? [], "away");
-      const priced = noVig(homeOddsAmerican, awayOddsAmerican);
-      if (!priced) continue;
-      return { available: true, source: "board-markets", awayTeam, homeTeam, awayOddsAmerican, homeOddsAmerican, ...priced };
+      const markets = event.markets ?? [];
+      const market = mergeMarket({
+        source: "board-markets",
+        awayTeam,
+        homeTeam,
+        awayOddsAmerican: moneylineFor(markets, "away"),
+        homeOddsAmerican: moneylineFor(markets, "home"),
+        totalLine: totalLineFor(markets),
+        overOddsAmerican: totalOddsFor(markets, "over"),
+        underOddsAmerican: totalOddsFor(markets, "under")
+      });
+      if (market) return market;
     }
   } catch {
     return null;
@@ -137,11 +233,20 @@ async function fromOddsSnapshot(awayTeam: string, homeTeam: string): Promise<Mlb
       if (!looseTeamMatch(event.away_team, awayTeam) || !looseTeamMatch(event.home_team, homeTeam)) continue;
       for (const bookmaker of event.bookmakers ?? []) {
         const h2h = bookmaker.markets?.find((market) => market.key === "h2h")?.outcomes ?? [];
-        const homeOddsAmerican = h2h.find((outcome) => looseTeamMatch(outcome.name, homeTeam))?.price ?? null;
-        const awayOddsAmerican = h2h.find((outcome) => looseTeamMatch(outcome.name, awayTeam))?.price ?? null;
-        const priced = noVig(homeOddsAmerican, awayOddsAmerican);
-        if (!priced) continue;
-        return { available: true, source: bookmaker.title || bookmaker.key || "odds-api-snapshot", awayTeam, homeTeam, awayOddsAmerican, homeOddsAmerican, ...priced };
+        const totals = bookmaker.markets?.find((market) => market.key === "totals")?.outcomes ?? [];
+        const over = totals.find((outcome) => String(outcome.name ?? "").toLowerCase().includes("over"));
+        const under = totals.find((outcome) => String(outcome.name ?? "").toLowerCase().includes("under"));
+        const market = mergeMarket({
+          source: bookmaker.title || bookmaker.key || "odds-api-snapshot",
+          awayTeam,
+          homeTeam,
+          awayOddsAmerican: h2h.find((outcome) => looseTeamMatch(outcome.name, awayTeam))?.price ?? null,
+          homeOddsAmerican: h2h.find((outcome) => looseTeamMatch(outcome.name, homeTeam))?.price ?? null,
+          totalLine: numeric(over?.point) ?? numeric(under?.point),
+          overOddsAmerican: over?.price ?? null,
+          underOddsAmerican: under?.price ?? null
+        });
+        if (market) return market;
       }
     }
   } catch {
@@ -155,15 +260,5 @@ export async function getMlbNoVigMarket(awayTeam: string, homeTeam: string): Pro
   if (board) return board;
   const snapshot = await fromOddsSnapshot(awayTeam, homeTeam);
   if (snapshot) return snapshot;
-  return {
-    available: false,
-    source: "missing",
-    awayTeam,
-    homeTeam,
-    awayOddsAmerican: null,
-    homeOddsAmerican: null,
-    awayNoVigProbability: null,
-    homeNoVigProbability: null,
-    hold: null
-  };
+  return emptyMarket(awayTeam, homeTeam);
 }
