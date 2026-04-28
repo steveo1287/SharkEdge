@@ -116,7 +116,7 @@ async function findOrCreateGame(args: {
 }) {
   const existing = await prisma.game.findUnique({ where: { externalEventId: args.externalEventId } });
   if (existing) {
-    const data: Record<string, unknown> = {
+    const data: Prisma.GameUncheckedUpdateInput = {
       homeTeamId: args.homeTeamId,
       awayTeamId: args.awayTeamId,
       startTime: args.startTime,
@@ -128,7 +128,7 @@ async function findOrCreateGame(args: {
     return { id: existing.id };
   }
 
-  const data: Record<string, unknown> = {
+  const data: Prisma.GameUncheckedCreateInput = {
     leagueId: args.leagueId,
     externalEventId: args.externalEventId,
     homeTeamId: args.homeTeamId,
