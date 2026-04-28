@@ -221,7 +221,7 @@ async function loadSettledEvents(args: { leagueKey?: string | null; lookbackDays
       league: true,
       eventResult: true,
       participants: { include: { competitor: true } },
-      eventProjections: { orderBy: { updatedAt: "desc" }, take: 1 }
+      eventProjections: { take: 1 }
     },
     orderBy: { startTime: "desc" },
     take: 1000
