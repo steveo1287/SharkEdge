@@ -8,6 +8,7 @@ import { evaluatePlayerProjectionReadiness } from "@/services/simulation/player-
 import { applyNbaSynergyAdjustmentToProjection } from "@/services/simulation/nba-synergy-projection-adjuster";
 import { applyNbaMoneyballAdjustmentToProjection } from "@/services/simulation/nba-moneyball-projection-adjuster";
 import { getLatestModelTuningProfile } from "@/services/evaluation/model-tuning-service";
+import { applyGameOutcomePowerAdjustment } from "@/services/simulation/game-outcome-power-adjuster";
 
 function isProjection(
   value: Awaited<ReturnType<typeof buildPlayerPropProjectionsForEvent>>[number]
@@ -29,11 +30,6 @@ function withPlayerStatus<T extends { playerId: string; metadata?: Record<string
 }
 
 export async function edgeRecomputeJob(eventId: string) {
-  const eventProjection = await buildEventProjectionFromHistory(eventId);
-  if (eventProjection) {
-    await ingestEventProjection(eventProjection);
-  }
-
   const event = await prisma.event.findUnique({
     where: { id: eventId },
     include: {
@@ -48,11 +44,26 @@ export async function edgeRecomputeJob(eventId: string) {
     }
   });
 
+  const homeTeam = event?.participants.find((participant) => participant.role === "HOME")?.competitor.team ?? null;
+  const awayTeam = event?.participants.find((participant) => participant.role === "AWAY")?.competitor.team ?? null;
+
+  const eventProjection = await buildEventProjectionFromHistory(eventId);
+  let gameOutcomePowerAdjusted = false;
+  if (eventProjection) {
+    const adjustedEventProjection = await applyGameOutcomePowerAdjustment({
+      projection: eventProjection,
+      leagueKey: event?.league.key ?? "",
+      homeTeam,
+      awayTeam
+    });
+    const metadata = adjustedEventProjection.metadata as Record<string, unknown> | undefined;
+    gameOutcomePowerAdjusted = metadata?.gameOutcomePowerAdjusted === true;
+    await ingestEventProjection(adjustedEventProjection);
+  }
+
   const tuningProfile = event?.league.key
     ? await getLatestModelTuningProfile(event.league.key)
     : null;
-  const homeTeam = event?.participants.find((participant) => participant.role === "HOME")?.competitor.team ?? null;
-  const awayTeam = event?.participants.find((participant) => participant.role === "AWAY")?.competitor.team ?? null;
 
   const playerProjections = await buildPlayerPropProjectionsForEvent(eventId);
   const validPlayerProjections = playerProjections.filter(isProjection);
@@ -161,6 +172,7 @@ export async function edgeRecomputeJob(eventId: string) {
   return {
     eventId,
     eventProjectionBuilt: Boolean(eventProjection),
+    gameOutcomePowerAdjusted,
     playerProjectionCount: validPlayerProjections.length,
     removedExistingPlayerProjectionCount: removedExistingPlayerProjections.count,
     eligiblePlayerProjectionCount,
