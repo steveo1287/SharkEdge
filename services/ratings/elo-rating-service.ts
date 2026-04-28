@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 
 type JsonRecord = Record<string, unknown>;
 
-type EloTeamRating = {
+export type EloTeamRating = {
   teamId: string;
   teamName: string;
   abbreviation: string;
@@ -15,7 +15,7 @@ type EloTeamRating = {
   lastGameAt: string | null;
 };
 
-type EloRunResult = {
+export type EloRunResult = {
   leagueKey: string;
   lookbackDays: number;
   baseRating: number;
@@ -36,6 +36,22 @@ function toJson(value: unknown): Prisma.InputJsonValue {
 
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {};
+}
+
+function asEloTeamRating(value: unknown): EloTeamRating | null {
+  const record = asRecord(value);
+  if (typeof record.teamId !== "string" || typeof record.rating !== "number") return null;
+  return {
+    teamId: record.teamId,
+    teamName: typeof record.teamName === "string" ? record.teamName : "Unknown",
+    abbreviation: typeof record.abbreviation === "string" ? record.abbreviation : "UNK",
+    rating: record.rating,
+    games: typeof record.games === "number" ? record.games : 0,
+    wins: typeof record.wins === "number" ? record.wins : 0,
+    losses: typeof record.losses === "number" ? record.losses : 0,
+    avgMargin: typeof record.avgMargin === "number" ? record.avgMargin : 0,
+    lastGameAt: typeof record.lastGameAt === "string" ? record.lastGameAt : null
+  };
 }
 
 function readNumber(value: unknown): number | null {
@@ -175,6 +191,8 @@ export async function rebuildEloRatings(args: {
     .filter((rating) => rating.games > 0)
     .sort((a, b) => b.rating - a.rating)
     .map((rating) => ({ ...rating, rating: Number(rating.rating.toFixed(2)), avgMargin: Number(rating.avgMargin.toFixed(3)) }));
+  const avgBrier = average(briers);
+  const avgLoss = average(losses);
   const result: EloRunResult = {
     leagueKey,
     lookbackDays,
@@ -183,8 +201,8 @@ export async function rebuildEloRatings(args: {
     kFactor,
     teamsRated: sortedRatings.length,
     gamesProcessed,
-    brier: average(briers) === null ? null : Number((average(briers) as number).toFixed(5)),
-    logLoss: average(losses) === null ? null : Number((average(losses) as number).toFixed(5)),
+    brier: avgBrier === null ? null : Number(avgBrier.toFixed(5)),
+    logLoss: avgLoss === null ? null : Number(avgLoss.toFixed(5)),
     accuracy: gamesProcessed ? Number((correct / gamesProcessed).toFixed(4)) : null,
     ratings: sortedRatings,
     generatedAt: new Date().toISOString()
@@ -234,7 +252,7 @@ export async function getCachedTeamElo(args: { leagueKey: string; teamId: string
     where: { cacheKey: `elo_team_rating:${args.leagueKey}:${args.teamId}`, scope: "elo_team_rating", expiresAt: { gt: new Date() } },
     orderBy: { updatedAt: "desc" }
   });
-  return cached?.payloadJson as EloTeamRating | null;
+  return asEloTeamRating(cached?.payloadJson);
 }
 
 export function eloWinProbability(args: { homeElo: number; awayElo: number; homeFieldElo?: number }) {
