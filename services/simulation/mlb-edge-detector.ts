@@ -186,7 +186,8 @@ function lineFromPersistedEvent(event: PersistedBoardFeed["events"][number]): Sp
 function linesFromSnapshotEvent(event: OddsSnapshotEvent): SportsbookLine[] {
   if (event.sport_key !== "baseball_mlb" || !event.home_team || !event.away_team) return [];
 
-  return (event.bookmakers ?? []).map((bookmaker) => {
+  const lines: SportsbookLine[] = [];
+  for (const bookmaker of event.bookmakers ?? []) {
     const markets = bookmaker.markets ?? [];
     const h2h = markets.find((market) => market.key === "h2h")?.outcomes ?? [];
     const totals = markets.find((market) => market.key === "totals")?.outcomes ?? [];
@@ -196,8 +197,8 @@ function linesFromSnapshotEvent(event: OddsSnapshotEvent): SportsbookLine[] {
     const under = totals.find((outcome) => String(outcome.name ?? "").toLowerCase().includes("under"));
     const total = validNumber(over?.point) ?? validNumber(under?.point);
 
-    if (homeMoneyline === null && awayMoneyline === null && total === null) return null;
-    return {
+    if (homeMoneyline === null && awayMoneyline === null && total === null) continue;
+    lines.push({
       gameId: event.id,
       awayTeam: event.away_team,
       homeTeam: event.home_team,
@@ -207,8 +208,10 @@ function linesFromSnapshotEvent(event: OddsSnapshotEvent): SportsbookLine[] {
       overPrice: over?.price ?? null,
       underPrice: under?.price ?? null,
       sportsbook: bookmaker.title || bookmaker.key || "The Odds API snapshot"
-    } satisfies SportsbookLine;
-  }).filter((line): line is SportsbookLine => Boolean(line));
+    });
+  }
+
+  return lines;
 }
 
 async function fetchExternalLines() {
