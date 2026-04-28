@@ -12,6 +12,19 @@ function isProjection(
   return value !== null;
 }
 
+function withPlayerStatus<T extends { playerId: string; metadata?: Record<string, unknown> | null }>(
+  projection: T,
+  playerStatusById: Map<string, string>
+): T {
+  return {
+    ...projection,
+    metadata: {
+      ...(projection.metadata ?? {}),
+      playerStatus: playerStatusById.get(projection.playerId) ?? "ACTIVE"
+    }
+  };
+}
+
 export async function edgeRecomputeJob(eventId: string) {
   const eventProjection = await buildEventProjectionFromHistory(eventId);
   if (eventProjection) {
@@ -21,6 +34,13 @@ export async function edgeRecomputeJob(eventId: string) {
   const playerProjections = await buildPlayerPropProjectionsForEvent(eventId);
   const validPlayerProjections = playerProjections.filter(isProjection);
   const playerIds = Array.from(new Set(validPlayerProjections.map((projection) => projection.playerId)));
+  const players = playerIds.length
+    ? await prisma.player.findMany({
+        where: { id: { in: playerIds } },
+        select: { id: true, status: true }
+      })
+    : [];
+  const playerStatusById = new Map(players.map((player) => [player.id, player.status]));
   const recentStats = playerIds.length
     ? await prisma.playerGameStat.findMany({
         where: { playerId: { in: playerIds } },
@@ -47,8 +67,9 @@ export async function edgeRecomputeJob(eventId: string) {
   const skipReasons: Record<string, number> = {};
 
   for (const projection of validPlayerProjections) {
+    const projectionWithStatus = withPlayerStatus(projection, playerStatusById);
     const readiness = evaluatePlayerProjectionReadiness(
-      projection,
+      projectionWithStatus,
       recentStatsByPlayerId.get(projection.playerId) ?? []
     );
 
