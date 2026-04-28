@@ -5,7 +5,7 @@ export type SupportedLeague = "NBA" | "NCAAB" | "NFL" | "NCAAF" | "NHL" | "MLB";
 export type CalibrationProfile = {
   neutralShrink: number;
   marketBlend: number;
-  moneylineTemperature: number;
+  moneylineTemperature?: number;
   spreadDeltaShrink: number;
   totalDeltaShrink: number;
   propProbShrink: number;
@@ -76,7 +76,7 @@ export function getCalibrationProfile(leagueKey: string): CalibrationProfile {
   return {
     ...base,
     ...profile,
-    moneylineTemperature: profile.moneylineTemperature ?? base.moneylineTemperature
+    moneylineTemperature: profile.moneylineTemperature ?? base.moneylineTemperature ?? DEFAULT_PROFILE.moneylineTemperature ?? 1
   };
 }
 
@@ -101,7 +101,7 @@ export function calibrateWinProbability(args: ProbabilityCalibrationArgs) {
   const variancePenalty = getVariancePenalty(args.totalStdDev, profile.stdBaseline);
   const confidenceModifier = getConfidenceModifier(args.ratingsConfidence);
 
-  const temperedRawProb = applyLogitTemperature(args.rawProb, profile.moneylineTemperature);
+  const temperedRawProb = applyLogitTemperature(args.rawProb, profile.moneylineTemperature ?? DEFAULT_PROFILE.moneylineTemperature ?? 1);
   let calibrated = 0.5 + (temperedRawProb - 0.5) * (1 - profile.neutralShrink) / variancePenalty;
 
   if (typeof args.marketImplied === "number") {
