@@ -5,8 +5,6 @@ import {
   rebuildModelEvaluationReport
 } from "@/services/evaluation/model-evaluation-service";
 
-type JsonRecord = Record<string, unknown>;
-
 type EvaluatedPropRecord = {
   statKey: string;
   result: "WIN" | "LOSS" | "PUSH" | "NO_LINE";
@@ -84,6 +82,13 @@ function asEvaluationReport(value: unknown): EvaluationReportLike | null {
   const report = value as Partial<EvaluationReportLike>;
   if (!report.playerProps || !Array.isArray(report.playerProps.records)) return null;
   return report as EvaluationReportLike;
+}
+
+function asTuningProfile(value: unknown): ModelTuningProfile | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const profile = value as Partial<ModelTuningProfile>;
+  if (!profile.generatedAt || !profile.rules || !profile.defaultRule) return null;
+  return profile as ModelTuningProfile;
 }
 
 function scoreHitRate(hitRate: number | null) {
@@ -285,17 +290,22 @@ export async function getCachedModelTuningProfile(args: { leagueKey?: string | n
     },
     orderBy: { updatedAt: "desc" }
   });
-  return cached?.payloadJson as ModelTuningProfile | null;
+  return asTuningProfile(cached?.payloadJson);
 }
 
 export async function getLatestModelTuningProfile(leagueKey?: string | null) {
-  const cached = await prisma.trendCache.findFirst({
+  const cachedProfiles = await prisma.trendCache.findMany({
     where: {
       scope: "model_tuning_profile",
-      ...(leagueKey ? { filterJson: { path: ["leagueKey"], equals: leagueKey } } : {}),
       expiresAt: { gt: new Date() }
     },
-    orderBy: { updatedAt: "desc" }
+    orderBy: { updatedAt: "desc" },
+    take: 25
   });
-  return cached?.payloadJson as ModelTuningProfile | null;
+
+  const profile = cachedProfiles
+    .map((cached) => asTuningProfile(cached.payloadJson))
+    .find((candidate) => candidate && (!leagueKey || candidate.leagueKey === leagueKey));
+
+  return profile ?? null;
 }
