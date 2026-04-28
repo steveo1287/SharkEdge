@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import type { MarketType, Prisma } from "@prisma/client";
 import {
-  americanToImpliedProbability,
   clampProbability,
   removeTwoWayVig
 } from "@/services/simulation/probability-math";
@@ -122,7 +121,7 @@ function avg(values: Array<number | null | undefined>) {
   return clean.length ? clean.reduce((sum, value) => sum + value, 0) / clean.length : null;
 }
 
-function rmse(values: Array<number | null | undefined>) {
+function rmseFromSquaredErrors(values: Array<number | null | undefined>) {
   const clean = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   return clean.length ? Math.sqrt(clean.reduce((sum, value) => sum + value, 0) / clean.length) : null;
 }
@@ -217,7 +216,7 @@ function findPropMarkets(markets: Array<{
   closingOdds: number | null;
 }>, playerId: string, statKey: string, line: number | null) {
   const candidates = markets.filter((market) => {
-    if (market.playerId !== playerId || market.marketType !== statKey) return false;
+    if (market.playerId !== playerId || String(market.marketType) !== statKey) return false;
     if (line === null) return true;
     const marketLine = market.closingLine ?? market.currentLine ?? market.line;
     return typeof marketLine === "number" && Math.abs(marketLine - line) < 0.01;
@@ -462,7 +461,7 @@ export async function rebuildModelEvaluationReport(args: { leagueKey?: string | 
       withLineSample: playerRecords.filter((record) => record.marketLine !== null).length,
       hitRate: settledPlayerRecords.length ? round(settledPlayerRecords.filter((record) => record.result === "WIN").length / settledPlayerRecords.length) : null,
       mae: round(avg(playerRecords.map((record) => record.absoluteError))),
-      rmse: round(rmse(playerRecords.map((record) => record.squaredError))),
+      rmse: round(rmseFromSquaredErrors(playerRecords.map((record) => record.squaredError))),
       brier: round(avg(playerRecords.map((record) => record.brier))),
       avgModelEdge: round(avg(playerRecords.map((record) => record.modelEdgeProbability))),
       avgClvLine: round(avg(playerRecords.map((record) => record.clvLine))),
