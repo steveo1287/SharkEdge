@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SectionTitle } from "@/components/ui/section-title";
+import { formatLongDate } from "@/lib/formatters/date";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
@@ -41,15 +42,7 @@ function tone(status: string) {
 }
 
 function formatTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "TBD";
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  }).format(date);
+  return formatLongDate(value);
 }
 
 function barWidth(value: number) {
