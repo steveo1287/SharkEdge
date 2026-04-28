@@ -100,6 +100,11 @@ type EvaluationReport = {
   };
 };
 
+type EventParticipantTeamRef = {
+  role: string;
+  competitor: { teamId: string | null };
+};
+
 function toJson(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
 }
@@ -255,19 +260,36 @@ function summarizeBuckets(records: PlayerPropEvaluationRecord[], bucketOf: (reco
     });
 }
 
+async function getEventParticipants(event: {
+  id: string;
+  participants?: EventParticipantTeamRef[];
+}) {
+  if (Array.isArray(event.participants)) return event.participants;
+
+  return prisma.eventParticipant.findMany({
+    where: { eventId: event.id },
+    select: {
+      role: true,
+      competitor: { select: { teamId: true } }
+    }
+  });
+}
+
 async function findGameForEvent(event: {
+  id: string;
   externalEventId: string | null;
   startTime: Date;
   leagueId: string;
-  participants: Array<{ role: string; competitor: { teamId: string | null } }>;
+  participants?: EventParticipantTeamRef[];
 }) {
   if (event.externalEventId) {
     const exact = await prisma.game.findUnique({ where: { externalEventId: event.externalEventId } });
     if (exact) return exact;
   }
 
-  const homeTeamId = event.participants.find((participant) => participant.role === "HOME")?.competitor.teamId ?? null;
-  const awayTeamId = event.participants.find((participant) => participant.role === "AWAY")?.competitor.teamId ?? null;
+  const participants = await getEventParticipants(event);
+  const homeTeamId = participants.find((participant) => String(participant.role) === "HOME")?.competitor.teamId ?? null;
+  const awayTeamId = participants.find((participant) => String(participant.role) === "AWAY")?.competitor.teamId ?? null;
   if (!homeTeamId || !awayTeamId) return null;
 
   const start = new Date(event.startTime.getTime() - 1000 * 60 * 60 * 18);
