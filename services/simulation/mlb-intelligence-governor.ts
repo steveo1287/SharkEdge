@@ -28,32 +28,108 @@ export type MlbGovernedProjection = {
   reasons: string[];
 };
 
+type DirectionAudit = {
+  agreement: number;
+  weightedAgreement: number;
+  criticalAgreement: number;
+  confirmedLock: boolean;
+  conflictPenalty: number;
+  reliability: number;
+  labels: string[];
+};
+
 function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, value)); }
 function round(value: number, digits = 4) { return Number(value.toFixed(digits)); }
 function meanAbs(values: number[]) { return values.reduce((sum, value) => sum + Math.abs(value), 0) / Math.max(1, values.length); }
 function disagreement(a: number, b: number) { return Math.abs(a - b); }
+function sign(value: number, deadZone = 0.08) { if (value > deadZone) return 1; if (value < -deadZone) return -1; return 0; }
+function sideLabel(probability: number) { return probability >= 0.5 ? "home" : "away"; }
 
 function shrinkTowardCoinFlip(probability: number, strength: number) {
-  return clamp(0.5 + (probability - 0.5) * strength, 0.38, 0.62);
+  return clamp(0.5 + (probability - 0.5) * strength, 0.39, 0.61);
 }
 
 function confidenceCapForVolatility(volatilityIndex: number) {
-  if (volatilityIndex >= 1.55) return 0.61;
-  if (volatilityIndex >= 1.35) return 0.64;
-  return 0.67;
+  if (volatilityIndex >= 1.55) return 0.59;
+  if (volatilityIndex >= 1.35) return 0.62;
+  return 0.65;
+}
+
+function auditDirection(features: MlbGovernorFeatures, rawHomeWinPct: number): DirectionAudit {
+  const target = rawHomeWinPct >= 0.5 ? 1 : -1;
+  const groups = [
+    { label: "team", value: features.teamEdge, weight: 0.8, critical: false },
+    { label: "player", value: features.playerEdge, weight: 1.25, critical: true },
+    { label: "starter", value: features.pitcherEdge, weight: 1.45, critical: true },
+    { label: "bullpen", value: features.bullpenEdge, weight: 1.2, critical: true },
+    { label: "statcast", value: features.statcastEdge, weight: 0.85, critical: false },
+    { label: "form", value: features.formEdge, weight: 0.65, critical: false },
+    { label: "lock", value: features.lockEdge, weight: 1.05, critical: true },
+    { label: "park/weather", value: features.weatherEdge + features.parkEdge, weight: 0.45, critical: false }
+  ];
+  const active = groups.filter((group) => sign(group.value) !== 0);
+  const critical = groups.filter((group) => group.critical && sign(group.value) !== 0);
+  const aligned = active.filter((group) => sign(group.value) === target);
+  const criticalAligned = critical.filter((group) => sign(group.value) === target);
+  const totalWeight = active.reduce((sum, group) => sum + group.weight, 0);
+  const alignedWeight = aligned.reduce((sum, group) => sum + group.weight, 0);
+  const agreement = active.length ? aligned.length / active.length : 0.5;
+  const weightedAgreement = totalWeight > 0 ? alignedWeight / totalWeight : 0.5;
+  const criticalAgreement = critical.length ? criticalAligned.length / critical.length : 0.5;
+  const confirmedLock = Math.abs(features.lockEdge) >= 0.12 && sign(features.lockEdge) === target;
+  const conflictPenalty = clamp((1 - weightedAgreement) * 0.32 + (1 - criticalAgreement) * 0.28 + (confirmedLock ? 0 : 0.09), 0, 0.42);
+  const reliability = clamp(0.25 + weightedAgreement * 0.38 + criticalAgreement * 0.24 + (confirmedLock ? 0.1 : 0), 0.22, 0.82);
+  return {
+    agreement: round(agreement, 3),
+    weightedAgreement: round(weightedAgreement, 3),
+    criticalAgreement: round(criticalAgreement, 3),
+    confirmedLock,
+    conflictPenalty: round(conflictPenalty, 3),
+    reliability: round(reliability, 3),
+    labels: aligned.map((group) => group.label)
+  };
+}
+
+function probabilityCap(input: { modelRows: number; volatilityIndex: number; audit: DirectionAudit }) {
+  let cap = input.modelRows >= 1000 ? 0.642 : input.modelRows >= 300 ? 0.628 : 0.612;
+  if (input.volatilityIndex >= 1.45) cap -= 0.022;
+  if (input.audit.weightedAgreement < 0.64) cap -= 0.03;
+  if (input.audit.criticalAgreement < 0.67) cap -= 0.035;
+  if (!input.audit.confirmedLock) cap -= 0.018;
+  return clamp(cap, 0.565, 0.645);
+}
+
+function shouldPass(input: { confidence: number; edgeFromCoin: number; delta?: number; audit: DirectionAudit; volatilityIndex: number }) {
+  if (input.confidence < 0.6) return true;
+  if (input.edgeFromCoin < 0.04) return true;
+  if (typeof input.delta === "number" && input.delta > 0.12) return true;
+  if (input.audit.weightedAgreement < 0.56) return true;
+  if (input.audit.criticalAgreement < 0.5) return true;
+  if (!input.audit.confirmedLock && input.edgeFromCoin >= 0.075) return true;
+  if (input.volatilityIndex >= 1.65 && input.edgeFromCoin < 0.065) return true;
+  return false;
+}
+
+function auditReasons(rawHomeWinPct: number, adjustedHomeWinPct: number, audit: DirectionAudit) {
+  return [
+    `Raw ${sideLabel(rawHomeWinPct)} lean ${round(rawHomeWinPct)} tightened to ${round(adjustedHomeWinPct)} after data-agreement gate.`,
+    `Direction agreement ${round(audit.weightedAgreement * 100, 1)}%; critical agreement ${round(audit.criticalAgreement * 100, 1)}%.`,
+    audit.confirmedLock ? "Starter/lineup lock supports the lean." : "Starter/lineup lock is not strong enough for an aggressive winner call.",
+    audit.labels.length ? `Aligned modules: ${audit.labels.join(", ")}.` : "No major modules aligned strongly enough."
+  ];
 }
 
 export async function governMlbProjection(input: { rulesHomeWinPct: number; rulesProjectedTotal: number; volatilityIndex: number; features: MlbGovernorFeatures }): Promise<MlbGovernedProjection> {
   const model = await getCachedMlbMlModel();
   const signalStrength = meanAbs(Object.values(input.features));
-  const reliability = clamp(signalStrength / 8, 0.35, 0.72);
-  const conservativeRulesHomeWinPct = shrinkTowardCoinFlip(input.rulesHomeWinPct, reliability);
-  const baseConfidence = clamp(0.45 + signalStrength / 18 - (input.volatilityIndex - 1) * 0.12, 0.25, 0.72);
+  const audit = auditDirection(input.features, input.rulesHomeWinPct);
+  const conservativeRulesHomeWinPct = shrinkTowardCoinFlip(input.rulesHomeWinPct, audit.reliability);
+  const baseConfidence = clamp(0.42 + signalStrength / 22 + audit.weightedAgreement * 0.14 + audit.criticalAgreement * 0.08 - audit.conflictPenalty - (input.volatilityIndex - 1) * 0.12, 0.22, 0.7);
 
   if (!model?.ok) {
     const edgeFromCoin = Math.abs(conservativeRulesHomeWinPct - 0.5);
-    const confidence = clamp(baseConfidence + edgeFromCoin * 0.32, 0.25, Math.min(0.66, confidenceCapForVolatility(input.volatilityIndex)));
-    const noBet = confidence < 0.59 || edgeFromCoin < 0.04;
+    const confidence = clamp(baseConfidence + edgeFromCoin * 0.28, 0.22, Math.min(0.64, confidenceCapForVolatility(input.volatilityIndex)));
+    const noBet = shouldPass({ confidence, edgeFromCoin, audit, volatilityIndex: input.volatilityIndex });
     return {
       source: "rules-only",
       homeWinPct: round(conservativeRulesHomeWinPct),
@@ -61,10 +137,10 @@ export async function governMlbProjection(input: { rulesHomeWinPct: number; rule
       projectedTotal: round(input.rulesProjectedTotal, 3),
       confidence: round(confidence),
       noBet,
-      tier: !noBet && confidence >= 0.65 ? "attack" : !noBet ? "watch" : "pass",
+      tier: !noBet && confidence >= 0.64 && edgeFromCoin >= 0.06 ? "attack" : !noBet ? "watch" : "pass",
       reasons: [
-        "ML model unavailable or undertrained; rules edge was shrunk toward 50/50 to avoid fake 70% MLB sides.",
-        `Raw rules ${round(input.rulesHomeWinPct)} adjusted to ${round(conservativeRulesHomeWinPct)}.`,
+        "ML model unavailable or undertrained; winner side requires data agreement instead of raw score stacking.",
+        ...auditReasons(input.rulesHomeWinPct, conservativeRulesHomeWinPct, audit),
         `Signal strength ${round(signalStrength, 3)}.`,
         `Volatility ${input.volatilityIndex}.`
       ]
@@ -72,18 +148,18 @@ export async function governMlbProjection(input: { rulesHomeWinPct: number; rule
   }
 
   const ml = scoreMlbMlModel(model, input.features);
-  const conservativeMlHomeWinPct = shrinkTowardCoinFlip(ml.homeWinProbability, clamp(model.rows >= 1000 ? 0.78 : model.rows >= 300 ? 0.68 : 0.56, 0.5, 0.8));
+  const conservativeMlHomeWinPct = shrinkTowardCoinFlip(ml.homeWinProbability, clamp(model.rows >= 1000 ? 0.74 : model.rows >= 300 ? 0.64 : 0.54, 0.5, 0.76));
   const delta = disagreement(conservativeRulesHomeWinPct, conservativeMlHomeWinPct);
-  const agreementBoost = clamp(0.08 - delta, -0.08, 0.06);
-  const mlWeight = clamp(model.rows >= 1000 ? 0.42 : model.rows >= 300 ? 0.34 : 0.24, 0.18, 0.45);
+  const agreementBoost = clamp(0.07 - delta, -0.08, 0.05);
+  const mlWeight = clamp(model.rows >= 1000 ? 0.4 : model.rows >= 300 ? 0.32 : 0.22, 0.18, 0.42);
   const rulesWeight = 1 - mlWeight;
   const blended = conservativeRulesHomeWinPct * rulesWeight + conservativeMlHomeWinPct * mlWeight;
-  const probabilityCap = input.volatilityIndex >= 1.45 ? 0.635 : model.rows >= 1000 ? 0.665 : 0.65;
-  const homeWinPct = clamp(blended, 1 - probabilityCap, probabilityCap);
+  const cap = probabilityCap({ modelRows: model.rows, volatilityIndex: input.volatilityIndex, audit });
+  const homeWinPct = clamp(blended, 1 - cap, cap);
   const projectedTotal = clamp(input.rulesProjectedTotal * 0.62 + ml.projectedTotal * 0.38, 4.5, 16.5);
   const edgeFromCoin = Math.abs(homeWinPct - 0.5);
-  const confidence = clamp(baseConfidence + edgeFromCoin * 0.38 + agreementBoost, 0.2, Math.min(0.76, confidenceCapForVolatility(input.volatilityIndex) + 0.06));
-  const noBet = confidence < 0.6 || edgeFromCoin < 0.04 || delta > 0.14;
+  const confidence = clamp(baseConfidence + edgeFromCoin * 0.34 + agreementBoost, 0.2, Math.min(0.73, confidenceCapForVolatility(input.volatilityIndex) + 0.045));
+  const noBet = shouldPass({ confidence, edgeFromCoin, delta, audit, volatilityIndex: input.volatilityIndex });
 
   return {
     source: "rules+ml",
@@ -92,13 +168,13 @@ export async function governMlbProjection(input: { rulesHomeWinPct: number; rule
     projectedTotal: round(projectedTotal, 3),
     confidence: round(confidence),
     noBet,
-    tier: !noBet && confidence >= 0.68 && edgeFromCoin >= 0.065 ? "attack" : !noBet ? "watch" : "pass",
+    tier: !noBet && confidence >= 0.67 && edgeFromCoin >= 0.065 && audit.weightedAgreement >= 0.68 && audit.criticalAgreement >= 0.67 ? "attack" : !noBet ? "watch" : "pass",
     reasons: [
-      `ML blend active with ${model.rows} rows, but MLB side probability is capped unless confirmed data supports a rare outlier.`,
-      `Raw rules ${round(input.rulesHomeWinPct)} adjusted to ${round(conservativeRulesHomeWinPct)} before blend.`,
+      `ML blend active with ${model.rows} rows; winner side must clear agreement, lock, volatility, and disagreement gates.`,
+      ...auditReasons(input.rulesHomeWinPct, homeWinPct, audit),
       `Rules/ML disagreement ${round(delta, 4)}.`,
-      `Signal strength ${round(signalStrength, 3)}.`,
-      noBet ? "Selective prediction gate says pass unless market offers extreme value." : "Projection cleared selective prediction gate."
+      `Probability cap ${round(cap)} from volatility/data agreement.`,
+      noBet ? "Selective prediction gate says pass unless market offers extreme value." : "Projection cleared tighter winner-selection gate."
     ]
   };
 }
