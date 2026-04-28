@@ -1,8 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
+import {
+  SimDecisionBadge,
+  SimMetricTile,
+  SimTableShell,
+  SimWorkspaceHeader
+} from "@/components/sim/sim-ui";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { calibrateNbaPlayerBoxScore } from "@/services/simulation/nba-box-score-calibration";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
@@ -28,16 +32,6 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
 }
 
-function tone(tier: string | undefined) {
-  if (tier === "attack") return "success" as const;
-  if (tier === "watch") return "premium" as const;
-  return "muted" as const;
-}
-
-function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4"><div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</div><div className="mt-2 text-2xl font-semibold text-white">{value}</div>{sub ? <div className="mt-1 text-xs text-slate-400">{sub}</div> : null}</div>;
-}
-
 export default async function NbaGameDetailPage({ params }: PageProps) {
   const { gameId } = await params;
   const decodedId = decodeURIComponent(gameId);
@@ -59,38 +53,32 @@ export default async function NbaGameDetailPage({ params }: PageProps) {
 
   return (
     <div className="space-y-6">
-      <section className="surface-panel-strong p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="section-kicker">NBA Game Sim</div>
-            <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight text-white">{projection.matchup.away} @ {projection.matchup.home}</h1>
-            <p className="mt-3 text-sm text-slate-400">{formatTime(game.startTime)} · {projection.read}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Badge tone={tone(projection.nbaIntel?.tier)}>{projection.nbaIntel?.tier?.toUpperCase() ?? "PASS"}</Badge>
-            <Link href="/sim/nba" className="rounded-md border border-bone/[0.12] bg-panel px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-bone/75">NBA Board</Link>
-            <Link href={`/sim/players?league=NBA&gameId=${encodeURIComponent(decodedId)}`} className="rounded-md border border-aqua/35 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-aqua">Player Box Score</Link>
-          </div>
-        </div>
-      </section>
+      <SimWorkspaceHeader
+        eyebrow="NBA Game Sim"
+        title={`${projection.matchup.away} @ ${projection.matchup.home}`}
+        description={`${formatTime(game.startTime)} · ${projection.read}`}
+        actions={[
+          { href: "/sim/nba", label: "NBA Board" },
+          { href: `/sim/players?league=NBA&gameId=${encodeURIComponent(decodedId)}`, label: "Player Box Score", tone: "primary" }
+        ]}
+      >
+        <div className="flex flex-wrap gap-2"><SimDecisionBadge tier={projection.nbaIntel?.tier ?? "pass"} /></div>
+      </SimWorkspaceHeader>
 
       <section className="grid gap-3 md:grid-cols-5">
-        <Tile label="Lean" value={lean} sub={pct(leanPct)} />
-        <Tile label="Score" value={`${num(projection.distribution.avgAway)} / ${num(projection.distribution.avgHome)}`} sub="Away / Home" />
-        <Tile label="Confidence" value={pct(projection.nbaIntel?.confidence, 0)} sub="Governor" />
-        <Tile label="Total" value={num(projection.nbaIntel?.projectedTotal)} sub="Projected" />
-        <Tile label="Players" value={String(projection.nbaIntel?.playerStatProjections.length ?? 0)} sub={projection.nbaIntel?.dataSource ?? "no NBA intel"} />
+        <SimMetricTile label="Lean" value={lean} sub={pct(leanPct)} emphasis="strong" />
+        <SimMetricTile label="Score" value={`${num(projection.distribution.avgAway)} / ${num(projection.distribution.avgHome)}`} sub="Away / Home" />
+        <SimMetricTile label="Confidence" value={pct(projection.nbaIntel?.confidence, 0)} sub="Governor" />
+        <SimMetricTile label="Total" value={num(projection.nbaIntel?.projectedTotal)} sub="Projected" />
+        <SimMetricTile label="Players" value={String(projection.nbaIntel?.playerStatProjections.length ?? 0)} sub={projection.nbaIntel?.dataSource ?? "no NBA intel"} />
       </section>
 
-      <Card className="surface-panel overflow-hidden">
-        <div className="border-b border-white/10 px-4 py-3 text-sm font-semibold text-white">Top calibrated player sims</div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-xs">
-            <thead className="border-b border-white/10 bg-white/[0.03] text-slate-400"><tr><th className="px-3 py-2">Player</th><th className="px-3 py-2 text-right">Min</th><th className="px-3 py-2 text-right">Pts</th><th className="px-3 py-2 text-right">Reb</th><th className="px-3 py-2 text-right">Ast</th><th className="px-3 py-2 text-right">Conf</th></tr></thead>
-            <tbody>{topPlayers.map((player) => <tr key={`${player.teamName}:${player.playerName}`} className="border-b border-white/5 last:border-none"><td className="px-3 py-2 font-semibold text-white">{player.playerName}<div className="text-[10px] text-slate-500">{player.teamName}</div></td><td className="px-3 py-2 text-right font-mono text-slate-200">{num(player.projectedMinutes)}</td><td className="px-3 py-2 text-right font-mono text-sky-200">{num(player.projectedPoints)}</td><td className="px-3 py-2 text-right font-mono text-slate-200">{num(player.projectedRebounds)}</td><td className="px-3 py-2 text-right font-mono text-slate-200">{num(player.projectedAssists)}</td><td className="px-3 py-2 text-right font-mono text-slate-200">{pct(player.confidence, 0)}</td></tr>)}</tbody>
-          </table>
-        </div>
-      </Card>
+      <SimTableShell title="Top calibrated player sims" description="Highest projected players after the team-total calibration pass.">
+        <table className="min-w-full text-left text-xs">
+          <thead className="border-b border-white/10 bg-white/[0.03] text-slate-400"><tr><th className="px-3 py-2">Player</th><th className="px-3 py-2 text-right">Min</th><th className="px-3 py-2 text-right">Pts</th><th className="px-3 py-2 text-right">Reb</th><th className="px-3 py-2 text-right">Ast</th><th className="px-3 py-2 text-right">Conf</th></tr></thead>
+          <tbody>{topPlayers.map((player) => <tr key={`${player.teamName}:${player.playerName}`} className="border-b border-white/5 last:border-none"><td className="px-3 py-2 font-semibold text-white">{player.playerName}<div className="text-[10px] text-slate-500">{player.teamName}</div></td><td className="px-3 py-2 text-right font-mono text-slate-200">{num(player.projectedMinutes)}</td><td className="px-3 py-2 text-right font-mono text-sky-200">{num(player.projectedPoints)}</td><td className="px-3 py-2 text-right font-mono text-slate-200">{num(player.projectedRebounds)}</td><td className="px-3 py-2 text-right font-mono text-slate-200">{num(player.projectedAssists)}</td><td className="px-3 py-2 text-right font-mono text-slate-200">{pct(player.confidence, 0)}</td></tr>)}</tbody>
+        </table>
+      </SimTableShell>
     </div>
   );
 }
