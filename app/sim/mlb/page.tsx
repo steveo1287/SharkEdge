@@ -11,6 +11,7 @@ import {
 } from "@/components/sim/sim-ui";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
+import { formatLongDate } from "@/lib/formatters/date";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
 import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
@@ -35,9 +36,7 @@ function flatten(sections: BoardSportSectionView[]): SimGame[] {
 }
 
 function formatTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "TBD";
-  return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
+  return formatLongDate(value);
 }
 
 function pct(value: number | null | undefined, digits = 1) {
