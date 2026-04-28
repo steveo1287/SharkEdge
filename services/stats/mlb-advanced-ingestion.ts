@@ -36,8 +36,8 @@ type MlbBoxscoreResponse = {
 
 type MlbBoxscoreTeam = {
   team?: { id?: number; name?: string; abbreviation?: string };
-  battingOrder?: number[];
-  pitchers?: number[];
+  battingOrder?: Array<number | string>;
+  pitchers?: Array<number | string>;
   players?: Record<string, MlbPlayerBoxscore>;
   teamStats?: {
     batting?: JsonRecord;
@@ -54,7 +54,6 @@ type MlbPlayerBoxscore = {
     pitching?: JsonRecord;
     fielding?: JsonRecord;
   };
-  gameStatus?: { isCurrentBatter?: boolean; isCurrentPitcher?: boolean };
 };
 
 type EnhancedResult = {
@@ -87,8 +86,17 @@ function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function normalizeToken(value: string | null | undefined) {
-  return (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+function idSet(values: Array<number | string> | undefined) {
+  return new Set(
+    (values ?? [])
+      .map((value) => readNumber(value))
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+  );
+}
+
+function firstSetValue(values: Set<number>) {
+  for (const value of values) return value;
+  return null;
 }
 
 function parseInnings(value: unknown) {
@@ -293,6 +301,10 @@ function calcOps(batting: JsonRecord) {
   return obp !== null && slg !== null ? Number((obp + slg).toFixed(4)) : readNumber(batting.ops);
 }
 
+function safeRate(numerator: number | null, denominator: number | null) {
+  return numerator !== null && denominator !== null && denominator > 0 ? numerator / denominator : null;
+}
+
 function teamContext(args: {
   side: "home" | "away";
   scheduleGame: MlbScheduleGame;
@@ -308,10 +320,11 @@ function teamContext(args: {
   const oppProbablePitcher = args.scheduleGame.teams?.[oppSide]?.probablePitcher ?? null;
   const weather = args.scheduleGame.weather;
   const hits = readNumber(batting.hits);
-  const walks = readNumber(batting.baseOnBalls);
   const totalBases = readNumber(batting.totalBases);
   const atBats = readNumber(batting.atBats);
-  const plateAppearances = readNumber(batting.plateAppearances) ?? null;
+  const plateAppearances = readNumber(batting.plateAppearances);
+  const battingStrikeouts = readNumber(batting.strikeOuts);
+  const battingWalks = readNumber(batting.baseOnBalls);
   const runs = readNumber(batting.runs);
   const oppRuns = readNumber(oppBatting.runs);
   const inningsPitched = parseInnings(pitching.inningsPitched);
@@ -326,8 +339,8 @@ function teamContext(args: {
   const obp = readNumber(batting.obp);
   const slg = readNumber(batting.slg);
   const iso = slg !== null && avg !== null ? Number((slg - avg).toFixed(4)) : null;
-  const strikeoutRate = plateAppearances !== null && plateAppearances > 0 ? readNumber(batting.strikeOuts)! / plateAppearances : null;
-  const walkRate = plateAppearances !== null && plateAppearances > 0 ? readNumber(batting.baseOnBalls)! / plateAppearances : null;
+  const strikeoutRate = safeRate(battingStrikeouts, plateAppearances);
+  const walkRate = safeRate(battingWalks, plateAppearances);
   const whip = inningsPitched !== null && inningsPitched > 0
     ? ((readNumber(pitching.hits) ?? 0) + (readNumber(pitching.baseOnBalls) ?? 0)) / inningsPitched
     : null;
@@ -346,8 +359,8 @@ function teamContext(args: {
     RA: oppRuns,
     hits,
     H: hits,
-    walks: readNumber(batting.baseOnBalls),
-    strikeouts: readNumber(batting.strikeOuts),
+    walks: battingWalks,
+    strikeouts: battingStrikeouts,
     homeRuns: readNumber(batting.homeRuns),
     HR: readNumber(batting.homeRuns),
     totalBases,
@@ -418,6 +431,7 @@ function playerStats(args: {
   const pitching = asRecord(args.player.stats?.pitching);
   const fielding = asRecord(args.player.stats?.fielding);
   const playerId = args.player.person?.id ?? null;
+  const firstPitcherId = firstSetValue(args.pitcherIds);
   const isPitcher = playerId !== null && args.pitcherIds.has(playerId);
   const innings = parseInnings(pitching.inningsPitched);
   const plateAppearances = readNumber(batting.plateAppearances);
@@ -431,7 +445,7 @@ function playerStats(args: {
   const ops = obp !== null && slg !== null ? Number((obp + slg).toFixed(4)) : readNumber(batting.ops);
   const iso = slg !== null && avg !== null ? Number((slg - avg).toFixed(4)) : null;
   const outsPitched = innings !== null ? Math.round(innings * 3) : null;
-  const starter = Boolean(playerId !== null && args.pitcherIds.values().next().value === playerId);
+  const starter = playerId !== null && firstPitcherId !== null && firstPitcherId === playerId;
 
   return {
     teamSide: args.teamSide,
@@ -585,10 +599,10 @@ async function enhanceOneGame(args: { leagueId: string; game: MlbScheduleGame })
     })
   ]);
 
-  const homePitcherIds = new Set((homeBox.pitchers ?? []).filter((id): id is number => typeof id === "number"));
-  const awayPitcherIds = new Set((awayBox.pitchers ?? []).filter((id): id is number => typeof id === "number"));
-  const homeBattingOrder = new Set((homeBox.battingOrder ?? []).filter((id): id is number => typeof id === "number"));
-  const awayBattingOrder = new Set((awayBox.battingOrder ?? []).filter((id): id is number => typeof id === "number"));
+  const homePitcherIds = idSet(homeBox.pitchers);
+  const awayPitcherIds = idSet(awayBox.pitchers);
+  const homeBattingOrder = idSet(homeBox.battingOrder);
+  const awayBattingOrder = idSet(awayBox.battingOrder);
   let playerRowsWritten = 0;
 
   for (const player of Object.values(homeBox.players ?? {})) {
