@@ -100,10 +100,10 @@ function playerImpact(player: PlayerWithStats) {
   const avgPoints = average(points);
   const avgAssists = average(assists);
   const avgRebounds = average(rebounds);
-  const totalFga = fga.reduce((sum, value) => sum + (value ?? 0), 0);
-  const totalFta = fta.reduce((sum, value) => sum + (value ?? 0), 0);
-  const totalTurnovers = turnovers.reduce((sum, value) => sum + (value ?? 0), 0);
-  const totalMinutes = minutes.reduce((sum, value) => sum + (value ?? 0), 0);
+  const totalFga = fga.reduce((sum: number, value) => sum + (value ?? 0), 0);
+  const totalFta = fta.reduce((sum: number, value) => sum + (value ?? 0), 0);
+  const totalTurnovers = turnovers.reduce((sum: number, value) => sum + (value ?? 0), 0);
+  const totalMinutes = minutes.reduce((sum: number, value) => sum + (value ?? 0), 0);
   const usageProxy = totalMinutes > 0 ? (totalFga + 0.44 * totalFta + totalTurnovers) / totalMinutes : 0;
   const starterRate = rows.length ? rows.filter((row) => row.starter).length / rows.length : 0;
   const productionValue = avgPoints * 0.055 + avgAssists * 0.07 + avgRebounds * 0.035;
