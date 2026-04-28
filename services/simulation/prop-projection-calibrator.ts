@@ -88,5 +88,5 @@ export function applyMarketCalibrationToPlayerProjection<T extends PlayerProject
       },
       drivers: Array.from(new Set([...previousDrivers, ...calibration.notes]))
     }
-  };
+  } as T;
 }
