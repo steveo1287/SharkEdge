@@ -49,7 +49,8 @@ export async function getSimQualityDashboard() {
         modelBeatsMarket:
           report.metrics.marketBrier !== null
             ? report.metrics.modelBrier < report.metrics.marketBrier
-            : null
+            : null,
+        winnerAccuracyDelta: report.metrics.winnerAccuracyDelta
       },
       rollingValidation: {
         last30dRuns: history30.length,
