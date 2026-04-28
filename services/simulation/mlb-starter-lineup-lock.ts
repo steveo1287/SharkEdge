@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/db/prisma";
-import type { Prisma } from "@prisma/client";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -50,10 +49,6 @@ export type MlbStarterLineupLock = {
   checkedAt: string;
   drivers: string[];
 };
-
-function toJson(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
-}
 
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {};
@@ -120,14 +115,9 @@ async function findScheduleGame(args: {
   awayTeam: { name: string; abbreviation: string; externalIds: unknown };
 }) {
   const date = fmtDate(args.eventStartTime);
-  const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${date}&hydrate=probablePitcher,team`;
-  const schedule = await fetchJson<ScheduleResponse>(url);
+  const schedule = await fetchJson<ScheduleResponse>(`https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${date}&hydrate=probablePitcher,team`);
   const games = (schedule?.dates ?? []).flatMap((day) => day.games ?? []);
-  return games.find((game) => {
-    const home = game.teams?.home;
-    const away = game.teams?.away;
-    return teamNameMatches(home, args.homeTeam) && teamNameMatches(away, args.awayTeam);
-  }) ?? null;
+  return games.find((game) => teamNameMatches(game.teams?.home, args.homeTeam) && teamNameMatches(game.teams?.away, args.awayTeam)) ?? null;
 }
 
 async function getBoxscore(gamePk: number) {
@@ -135,7 +125,11 @@ async function getBoxscore(gamePk: number) {
 }
 
 async function latestStoredProbable(teamId: string) {
-  const row = await prisma.teamGameStat.findFirst({ where: { teamId }, orderBy: { updatedAt: "desc" } });
+  const row = await prisma.teamGameStat.findFirst({
+    where: { teamId },
+    orderBy: { updatedAt: "desc" },
+    select: { statsJson: true, updatedAt: true }
+  });
   const stats = asRecord(row?.statsJson);
   return {
     name: readString(stats.probablePitcherName),
@@ -173,10 +167,10 @@ export async function buildMlbStarterLineupLock(args: {
   homeTeamId: string;
   awayTeamId: string;
 }): Promise<MlbStarterLineupLock> {
-  const event = await prisma.event.findUnique({ where: { id: args.eventId } });
-  const [homeTeam, awayTeam, homeStored, awayStored] = await Promise.all([
-    prisma.team.findUnique({ where: { id: args.homeTeamId } }),
-    prisma.team.findUnique({ where: { id: args.awayTeamId } }),
+  const [event, homeTeam, awayTeam, homeStored, awayStored] = await Promise.all([
+    prisma.event.findUnique({ where: { id: args.eventId }, select: { id: true, startTime: true } }),
+    prisma.team.findUnique({ where: { id: args.homeTeamId }, select: { name: true, abbreviation: true, externalIds: true } }),
+    prisma.team.findUnique({ where: { id: args.awayTeamId }, select: { name: true, abbreviation: true, externalIds: true } }),
     latestStoredProbable(args.homeTeamId),
     latestStoredProbable(args.awayTeamId)
   ]);
@@ -230,7 +224,7 @@ export async function buildMlbStarterLineupLock(args: {
   if (staleProbables) drivers.push(`Probable pitcher data is stale or incomplete; last stored update was ${hoursSinceStored.toFixed(1)} hours ago.`);
   if (openerRisk) drivers.push("Opener/bullpen-game risk detected because one or both current starters are missing/TBD.");
 
-  const result: MlbStarterLineupLock = {
+  return {
     eventId: args.eventId,
     gamePk: scheduleGame.gamePk,
     status,
@@ -251,23 +245,4 @@ export async function buildMlbStarterLineupLock(args: {
     checkedAt: new Date().toISOString(),
     drivers
   };
-
-  await prisma.trendCache.upsert({
-    where: { cacheKey: `mlb_starter_lineup_lock:${args.eventId}` },
-    update: {
-      scope: "mlb_starter_lineup_lock",
-      filterJson: toJson({ eventId: args.eventId, homeTeamId: args.homeTeamId, awayTeamId: args.awayTeamId }),
-      payloadJson: toJson(result),
-      expiresAt: new Date(Date.now() + 1000 * 60 * 20)
-    },
-    create: {
-      cacheKey: `mlb_starter_lineup_lock:${args.eventId}`,
-      scope: "mlb_starter_lineup_lock",
-      filterJson: toJson({ eventId: args.eventId, homeTeamId: args.homeTeamId, awayTeamId: args.awayTeamId }),
-      payloadJson: toJson(result),
-      expiresAt: new Date(Date.now() + 1000 * 60 * 20)
-    }
-  });
-
-  return result;
 }
