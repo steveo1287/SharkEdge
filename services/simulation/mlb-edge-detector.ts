@@ -1,6 +1,7 @@
 import { getBoardFeed } from "@/services/market-data/market-data-service";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
+import { readLatestOddsApiSnapshot, runOddsApiSnapshotPull } from "@/services/odds/the-odds-api-budget-service";
 
 type SportsbookLine = {
   gameId?: string;
@@ -29,6 +30,22 @@ type PersistedBoardFeed = {
   }>;
 };
 
+type OddsSnapshotEvent = {
+  id?: string;
+  sport_key?: string;
+  commence_time?: string;
+  home_team?: string;
+  away_team?: string;
+  bookmakers?: Array<{
+    key?: string;
+    title?: string;
+    markets?: Array<{
+      key?: string;
+      outcomes?: Array<{ name?: string; price?: number; point?: number | null }>;
+    }>;
+  }>;
+};
+
 function americanToProbability(odds: number | null | undefined) {
   if (typeof odds !== "number" || !Number.isFinite(odds) || odds === 0) return null;
   return odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100);
@@ -38,8 +55,35 @@ function validNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) && value !== 0 ? value : null;
 }
 
+function normalizeTeam(value: string | null | undefined) {
+  const normalized = String(value ?? "")
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+
+  const aliases: Record<string, string> = {
+    athletics: "sacramentoathletics",
+    oaklandathletics: "sacramentoathletics",
+    whitesox: "chicagowhitesox",
+    redsox: "bostonredsox",
+    bluejays: "torontobluejays",
+    dbacks: "arizonadiamondbacks",
+    diamondbacks: "arizonadiamondbacks"
+  };
+
+  return aliases[normalized] ?? normalized;
+}
+
 function key(home: string, away: string) {
-  return `${away.toLowerCase().replace(/[^a-z0-9]+/g, "")}@${home.toLowerCase().replace(/[^a-z0-9]+/g, "")}`;
+  return `${normalizeTeam(away)}@${normalizeTeam(home)}`;
+}
+
+function looseTeamMatch(left: string | null | undefined, right: string | null | undefined) {
+  const a = normalizeTeam(left);
+  const b = normalizeTeam(right);
+  if (!a || !b) return false;
+  return a === b || a.endsWith(b) || b.endsWith(a) || a.includes(b) || b.includes(a);
 }
 
 function parseMarketRows(body: any): SportsbookLine[] {
@@ -139,6 +183,34 @@ function lineFromPersistedEvent(event: PersistedBoardFeed["events"][number]): Sp
   };
 }
 
+function linesFromSnapshotEvent(event: OddsSnapshotEvent): SportsbookLine[] {
+  if (event.sport_key !== "baseball_mlb" || !event.home_team || !event.away_team) return [];
+
+  return (event.bookmakers ?? []).map((bookmaker) => {
+    const markets = bookmaker.markets ?? [];
+    const h2h = markets.find((market) => market.key === "h2h")?.outcomes ?? [];
+    const totals = markets.find((market) => market.key === "totals")?.outcomes ?? [];
+    const homeMoneyline = h2h.find((outcome) => looseTeamMatch(outcome.name, event.home_team))?.price ?? null;
+    const awayMoneyline = h2h.find((outcome) => looseTeamMatch(outcome.name, event.away_team))?.price ?? null;
+    const over = totals.find((outcome) => String(outcome.name ?? "").toLowerCase().includes("over"));
+    const under = totals.find((outcome) => String(outcome.name ?? "").toLowerCase().includes("under"));
+    const total = validNumber(over?.point) ?? validNumber(under?.point);
+
+    if (homeMoneyline === null && awayMoneyline === null && total === null) return null;
+    return {
+      gameId: event.id,
+      awayTeam: event.away_team,
+      homeTeam: event.home_team,
+      homeMoneyline,
+      awayMoneyline,
+      total,
+      overPrice: over?.price ?? null,
+      underPrice: under?.price ?? null,
+      sportsbook: bookmaker.title || bookmaker.key || "The Odds API snapshot"
+    } satisfies SportsbookLine;
+  }).filter((line): line is SportsbookLine => Boolean(line));
+}
+
 async function fetchExternalLines() {
   const url = process.env.MLB_SPORTSBOOK_LINES_URL?.trim() || process.env.ODDS_MARKET_URL?.trim();
   if (!url) return [] as SportsbookLine[];
@@ -160,24 +232,40 @@ async function fetchPersistedBoardLines() {
   }
 }
 
+async function fetchSnapshotLines() {
+  try {
+    const snapshot = await readLatestOddsApiSnapshot();
+    return ((snapshot?.events ?? []) as OddsSnapshotEvent[]).flatMap(linesFromSnapshotEvent);
+  } catch {
+    return [] as SportsbookLine[];
+  }
+}
+
 async function fetchLines() {
-  const [persisted, external] = await Promise.all([fetchPersistedBoardLines(), fetchExternalLines()]);
-  return [...persisted, ...external];
+  const [persisted, external, snapshot] = await Promise.all([fetchPersistedBoardLines(), fetchExternalLines(), fetchSnapshotLines()]);
+  const lines = [...persisted, ...external, ...snapshot];
+  if (lines.length > 0) return lines;
+
+  // Self-healing path: if the MLB sim page has games but no usable lines, run one guarded MLB pull.
+  // The budget service still enforces active hours, min interval, daily limit, and monthly reserve.
+  await runOddsApiSnapshotPull({ mode: "regular", sportsCsv: "baseball_mlb" }).catch(() => null);
+  const [refreshedPersisted, refreshedSnapshot] = await Promise.all([fetchPersistedBoardLines(), fetchSnapshotLines()]);
+  return [...refreshedPersisted, ...refreshedSnapshot];
+}
+
+function findLineForGame(lines: SportsbookLine[], game: { id: string }, matchup: { home: string; away: string }) {
+  return lines.find((line) => line.gameId && line.gameId === game.id)
+    ?? lines.find((line) => line.homeTeam && line.awayTeam && key(line.homeTeam, line.awayTeam) === key(matchup.home, matchup.away))
+    ?? lines.find((line) => line.homeTeam && line.awayTeam && looseTeamMatch(line.homeTeam, matchup.home) && looseTeamMatch(line.awayTeam, matchup.away));
 }
 
 export async function buildMlbEdges() {
   const [sections, lines] = await Promise.all([buildBoardSportSections({ selectedLeague: "ALL", gamesByLeague: {} }), fetchLines()]);
-  const lineByGame = new Map<string, SportsbookLine>();
-  for (const line of lines) {
-    if (line.gameId) lineByGame.set(line.gameId, line);
-    if (line.homeTeam && line.awayTeam) lineByGame.set(key(line.homeTeam, line.awayTeam), line);
-  }
-
   const mlbGames = sections.flatMap((section) => section.leagueKey === "MLB" ? section.scoreboard.map((game) => ({ ...game, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel })) : []);
   const edges = [];
   for (const game of mlbGames) {
     const projection = await buildSimProjection(game as any);
-    const line = lineByGame.get(game.id) ?? lineByGame.get(key(projection.matchup.home, projection.matchup.away));
+    const line = findLineForGame(lines, game, projection.matchup);
     const homeMarketProb = americanToProbability(line?.homeMoneyline ?? null);
     const awayMarketProb = americanToProbability(line?.awayMoneyline ?? null);
     const homeEdge = homeMarketProb == null ? null : Number((projection.distribution.homeWinPct - homeMarketProb).toFixed(4));
