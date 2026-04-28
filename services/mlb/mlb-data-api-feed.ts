@@ -114,10 +114,6 @@ function endpointUrl(endpoint: string, params: Record<string, string>) {
   return url;
 }
 
-function fantasyEndpointUrl(endpoint: string) {
-  return new URL(`${baseUrl()}/fantasylookup/json/json/named.${endpoint}.bam`);
-}
-
 async function fetchJson(url: URL) {
   const response = await fetch(url, {
     headers: { "User-Agent": "Mozilla/5.0 SharkEdge/1.5" },
@@ -167,7 +163,7 @@ function roleFrom(roster: RawRow, playerType: MlbPlayerProfile["playerType"], pr
   if (playerType === "starter" && (starter || projectedInnings >= 4.5)) return projectedInnings >= 5.5 ? "ace" : "starter";
   if (playerType === "reliever") return projectedInnings >= 0.8 ? "setup" : "closer";
   if (playerType === "hitter" && projectedPa >= 3) return "lineup";
-  if (position === "P") return "reliever";
+  if (position === "P") return "setup";
   if (projectedPa > 0) return "bench";
   return "unknown";
 }
