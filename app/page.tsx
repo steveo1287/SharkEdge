@@ -1,8 +1,6 @@
 import Link from "next/link";
 
 import { LiveEdgeBoardCard } from "@/components/board/live-edge-board-card";
-import { MobileTrendCard } from "@/components/home/mobile-trend-card";
-import { OpportunitySpotlightCard } from "@/components/intelligence/opportunity-spotlight-card";
 import { DiagnosticMetaStrip } from "@/components/intelligence/provider-diagnostic-shells";
 import { HorizontalEventRail } from "@/components/mobile/horizontal-event-rail";
 import { SectionTabs } from "@/components/mobile/section-tabs";
@@ -33,7 +31,7 @@ type SafeTrendFeed = {
 };
 
 const VALID_TREND_LEAGUES: Array<NonNullable<TrendFilters["league"]>> = [
-  "ALL","NBA","MLB","NHL","NFL","NCAAF","BOXING","UFC"
+  "ALL", "NBA", "MLB", "NHL", "NFL", "NCAAF", "BOXING", "UFC"
 ];
 
 function normalizeTrendLeague(value: string | null | undefined): NonNullable<TrendFilters["league"]> {
@@ -46,16 +44,7 @@ function normalizeTrendLeague(value: string | null | undefined): NonNullable<Tre
 function isValidTrendCard(card: unknown): card is PublishedTrendCard {
   if (!card || typeof card !== "object") return false;
   const v = card as Partial<PublishedTrendCard>;
-  return (
-    typeof v.id === "string" &&
-    typeof v.title === "string" &&
-    typeof v.href === "string" &&
-    typeof v.leagueLabel === "string" &&
-    typeof v.marketLabel === "string" &&
-    typeof v.confidence === "string" &&
-    typeof v.record === "string" &&
-    Array.isArray(v.todayMatches)
-  );
+  return typeof v.id === "string" && typeof v.title === "string" && typeof v.href === "string" && typeof v.leagueLabel === "string" && typeof v.marketLabel === "string" && typeof v.confidence === "string" && typeof v.record === "string" && Array.isArray(v.todayMatches);
 }
 
 function isValidTrendSection(section: unknown): section is PublishedTrendSection {
@@ -66,12 +55,15 @@ function isValidTrendSection(section: unknown): section is PublishedTrendSection
 
 async function getSafeTrendFeed(league: string): Promise<SafeTrendFeed> {
   try {
-    const safeLeague = normalizeTrendLeague(league);
-    const feed = await getPublishedTrendFeed({ league: safeLeague, window: "365d", sample: 5 });
+    const feed = await getPublishedTrendFeed({ league: normalizeTrendLeague(league), window: "365d", sample: 5 });
     return {
       featured: Array.isArray(feed?.featured) ? feed.featured.filter(isValidTrendCard).slice(0, 4) : [],
       sections: Array.isArray(feed?.sections)
-        ? feed.sections.filter(isValidTrendSection).map((s) => ({ ...s, cards: s.cards.filter(isValidTrendCard).slice(0, 5) })).filter((s) => s.cards.length > 0).slice(0, 2)
+        ? feed.sections
+            .filter(isValidTrendSection)
+            .map((section) => ({ ...section, cards: section.cards.filter(isValidTrendCard).slice(0, 4) }))
+            .filter((section) => section.cards.length > 0)
+            .slice(0, 2)
         : []
     };
   } catch {
@@ -79,551 +71,186 @@ async function getSafeTrendFeed(league: string): Promise<SafeTrendFeed> {
   }
 }
 
-// ─── Stat Bar ─────────────────────────────────────────────────────────────────
-function StatBar({ label, value, sub, href, tone = "default" }: {
-  label: string;
-  value: string | number;
-  sub?: string;
-  href?: string;
-  tone?: "default" | "green" | "blue" | "amber";
-}) {
+function StatTile({ label, value, sub, tone = "neutral" }: { label: string; value: string | number; sub: string; tone?: "neutral" | "aqua" | "green" | "amber" }) {
   const valueClass = {
-    default: "text-text-primary",
-    green:   "text-mint",
-    blue:    "text-aqua",
-    amber:   "text-bone"
+    neutral: "text-white",
+    aqua: "text-aqua",
+    green: "text-emerald-300",
+    amber: "text-amber-200"
   }[tone];
-
-  const inner = (
-    <div className="flex flex-col gap-1">
-      <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">{label}</div>
-      <div className={`display-number text-[22px] leading-none ${valueClass}`}>{value}</div>
-      {sub && <div className="text-[11px] text-bone/50">{sub}</div>}
-    </div>
-  );
-
-  if (href) {
-    return (
-      <Link href={href} className="focusable group block rounded-md border border-bone/[0.08] bg-surface px-4 py-3 transition-colors hover:border-bone/[0.14]">
-        {inner}
-      </Link>
-    );
-  }
-
   return (
-    <div className="rounded-md border border-bone/[0.08] bg-surface px-4 py-3">
-      {inner}
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div className={`mt-2 font-display text-3xl font-semibold tracking-tight ${valueClass}`}>{value}</div>
+      <div className="mt-1 text-xs text-slate-500">{sub}</div>
     </div>
   );
 }
 
-// ─── Quick Action ─────────────────────────────────────────────────────────────
-function QuickAction({ href, label, icon, description }: {
-  href: string;
-  label: string;
-  icon: string;
-  description: string;
-}) {
+function QuickLaunch({ href, title, detail, primary = false }: { href: string; title: string; detail: string; primary?: boolean }) {
   return (
-    <Link
-      href={href}
-      className="focusable group flex items-start gap-3 rounded-md border border-bone/[0.08] bg-surface p-4 transition-colors hover:border-aqua/25 hover:bg-aqua/[0.03]"
-    >
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-bone/[0.10] bg-panel text-bone/60 transition-colors group-hover:border-aqua/30 group-hover:text-aqua">
-        <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" dangerouslySetInnerHTML={{ __html: icon }} />
-      </div>
-      <div>
-        <div className="text-[13px] font-semibold text-text-primary">{label}</div>
-        <div className="mt-1 text-[11.5px] leading-snug text-bone/55">{description}</div>
-      </div>
-      <div className="ml-auto mt-0.5 text-bone/30 transition-colors group-hover:text-aqua">
-        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none">
-          <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </div>
+    <Link href={href} className={primary ? "rounded-2xl border border-aqua/30 bg-aqua/10 p-4 transition hover:bg-aqua/[0.14]" : "rounded-2xl border border-white/10 bg-white/[0.035] p-4 transition hover:border-aqua/35 hover:bg-aqua/[0.055]"}>
+      <div className={primary ? "text-[10px] font-semibold uppercase tracking-[0.18em] text-aqua" : "text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500"}>Launch</div>
+      <div className="mt-2 font-display text-xl font-semibold tracking-tight text-white">{title}</div>
+      <div className="mt-2 text-sm leading-5 text-slate-400">{detail}</div>
     </Link>
   );
 }
 
-// ─── Movement Row ─────────────────────────────────────────────────────────────
-function MovementRow({ label, league, direction, from, to, note }: {
-  label: string;
-  league: string;
-  direction: "up" | "down";
-  from?: string;
-  to: string;
-  note?: string;
-}) {
-  const hasFrom = typeof from === "string" && from.length > 0 && from !== "—";
+function DecisionCard({ title, tone, items, empty }: { title: string; tone: "play" | "watch" | "avoid"; items: Array<{ id: string; eventId: string; selectionLabel: string; league: string; reasonSummary: string; whatCouldKillIt?: string[] }>; empty: string }) {
+  const toneClass = tone === "play" ? "text-emerald-300" : tone === "avoid" ? "text-red-300" : "text-aqua";
   return (
-    <div className="flex items-center gap-3 border-b border-bone/[0.06] py-2.5 last:border-0">
-      <div
-        className={`flex h-5 w-5 shrink-0 items-center justify-center text-[11px] font-semibold ${
-          direction === "up" ? "text-mint" : "text-crimson"
-        }`}
-      >
-        {direction === "up" ? "▲" : "▼"}
+    <section className="rounded-[1.5rem] border border-white/10 bg-[#07111d]/85 p-4">
+      <div className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${toneClass}`}>{title}</div>
+      <div className="mt-4 grid gap-3">
+        {items.length ? items.slice(0, 3).map((opp) => (
+          <Link key={`${title}-${opp.id}`} href={`/game/${opp.eventId}`} className="rounded-2xl border border-white/10 bg-white/[0.035] p-3 transition hover:border-aqua/35">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 truncate font-semibold text-white">{opp.selectionLabel}</div>
+              <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{opp.league}</span>
+            </div>
+            <div className="mt-1.5 text-xs leading-5 text-slate-400">{tone === "avoid" ? (opp.whatCouldKillIt?.[0] ?? opp.reasonSummary) : opp.reasonSummary}</div>
+          </Link>
+        )) : (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-4 text-sm text-slate-500">{empty}</div>
+        )}
       </div>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[13px] font-medium text-text-primary">{label}</div>
-        {note && <div className="mt-0.5 text-[11px] text-bone/50">{note}</div>}
-      </div>
-      <div className="shrink-0 text-right">
-        {hasFrom ? (
-          <div className="font-mono text-[11px] text-bone/40 line-through tabular-nums">{from}</div>
-        ) : null}
-        <div
-          className={`font-mono text-[12.5px] font-semibold tabular-nums ${
-            direction === "up" ? "text-mint" : "text-crimson"
-          }`}
-        >
-          {to}
-        </div>
-      </div>
-      <div className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.10em] text-bone/50">
-        {league}
-      </div>
-    </div>
+    </section>
   );
 }
 
-// ─── Section Header ───────────────────────────────────────────────────────────
-function SectionHeader({
-  eyebrow,
-  title,
-  href,
-  hrefLabel = "View all"
-}: {
-  eyebrow: string;
-  title: string;
-  href?: string;
-  hrefLabel?: string;
-}) {
+function TrendCard({ card }: { card: PublishedTrendCard }) {
+  return (
+    <Link href={card.href} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 transition hover:border-aqua/35 hover:bg-aqua/[0.055]">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-aqua">{card.leagueLabel} · {card.marketLabel}</span>
+        <span className="font-mono text-xs font-semibold text-emerald-300">{card.record}</span>
+      </div>
+      <div className="mt-2 font-display text-lg font-semibold tracking-tight text-white">{card.title}</div>
+      <div className="mt-2 text-sm leading-5 text-slate-400">{card.todayMatches.length ? `${card.todayMatches.length} live matchups qualify today.` : "Historical system ready."}</div>
+    </Link>
+  );
+}
+
+function SectionTitle({ eyebrow, title, href }: { eyebrow: string; title: string; href?: string }) {
   return (
     <div className="flex items-end justify-between gap-4">
       <div>
-        <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">{eyebrow}</div>
-        <h2 className="mt-1 font-display text-[17px] font-semibold tracking-[-0.01em] text-text-primary">{title}</h2>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-aqua">{eyebrow}</div>
+        <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight text-white">{title}</h2>
       </div>
-      {href && (
-        <Link
-          href={href}
-          className="shrink-0 text-[11.5px] font-medium uppercase tracking-[0.08em] text-bone/50 transition-colors hover:text-aqua"
-        >
-          {hrefLabel} →
-        </Link>
-      )}
+      {href ? <Link href={href} className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 hover:text-aqua">Open →</Link> : null}
     </div>
   );
 }
 
-function CommandHero({ home, topEdge, edgeLabel }: { home: Awaited<ReturnType<typeof getHomeCommandData>>; topEdge: any; edgeLabel: string }) {
-  return (
-    <section className="rounded-xl border border-aqua/20 bg-surface p-5 shadow-[0_0_40px_rgba(0,210,255,0.06)]">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <div className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-aqua">SharkEdge Market Pulse</div>
-          <h1 className="mt-2 font-display text-[28px] font-semibold tracking-[-0.03em] text-text-primary">Today’s Edge Command Center</h1>
-          <p className="mt-2 max-w-3xl text-[13px] leading-6 text-bone/60">
-            {home.verifiedGames.length} verified games · {home.topActionables.length} live edges · {home.movementGames.length} moving markets · {home.traps.length} trap flags · {home.liveDeskFreshnessLabel}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link href={topEdge ? `/game/${topEdge.eventId}` : "/board"} className="rounded-md border border-aqua/40 bg-aqua/10 px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-aqua hover:bg-aqua/15">Open Best Play</Link>
-          <Link href="/board" className="rounded-md border border-bone/[0.12] bg-panel px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-bone/80 hover:border-aqua/30 hover:text-aqua">Full Board</Link>
-          <Link href="/trends" className="rounded-md border border-bone/[0.12] bg-panel px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-bone/80 hover:border-aqua/30 hover:text-aqua">Trends</Link>
-        </div>
-      </div>
-      <div className="mt-5 rounded-lg border border-bone/[0.08] bg-panel p-4">
-        <div className="text-[10.5px] font-semibold uppercase tracking-[0.10em] text-bone/50">Top actionable</div>
-        <div className="mt-1 text-[18px] font-semibold text-text-primary">{edgeLabel}</div>
-        <div className="mt-2 text-[12.5px] leading-5 text-bone/60">
-          {topEdge ? topEdge.reasonSummary : "No edge cleared the threshold. Use the watch list, line movement desk, and trends until a number becomes playable."}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function MiniOpportunityList({ title, tone, items, empty, cta }: { title: string; tone: "play" | "watch" | "avoid"; items: any[]; empty: string; cta?: string }) {
-  const toneClass = tone === "play" ? "text-mint" : tone === "avoid" ? "text-crimson" : "text-aqua";
-  return (
-    <div className="rounded-lg border border-bone/[0.08] bg-surface p-4">
-      <div className={`mb-3 text-[10.5px] font-semibold uppercase tracking-[0.10em] ${toneClass}`}>{title}</div>
-      <div className="grid gap-2">
-        {items.length ? items.slice(0, 3).map((opp) => (
-          <Link key={`${title}-${opp.id}`} href={`/game/${opp.eventId}`} className="focusable rounded-md border border-bone/[0.06] bg-panel p-3 transition-colors hover:border-aqua/25">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0 truncate text-[13px] font-medium text-text-primary">{opp.selectionLabel}</div>
-              <span className="shrink-0 rounded-sm border border-bone/[0.10] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/60">{opp.league}</span>
-            </div>
-            <div className="mt-1.5 text-[11.5px] leading-snug text-bone/55">{tone === "avoid" ? (opp.whatCouldKillIt?.[0] ?? opp.reasonSummary) : opp.reasonSummary}</div>
-          </Link>
-        )) : (
-          <div className="rounded-md border border-bone/[0.06] bg-panel p-3 text-[11.5px] leading-5 text-bone/45">{empty}</div>
-        )}
-        {cta && <Link href={cta} className="pt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-bone/50 hover:text-aqua">Open desk →</Link>}
-      </div>
-    </div>
-  );
-}
-
-function TrendMatchRail({ cards }: { cards: PublishedTrendCard[] }) {
-  return (
-    <section>
-      <SectionHeader eyebrow="Today’s Trend Matches" title="Systems connected to live games" href="/trends" hrefLabel="All trends" />
-      <div className="mt-3 grid gap-3 xl:grid-cols-2">
-        {cards.length ? cards.slice(0, 4).map((card) => (
-          <Link key={`trend-match-${card.id}`} href={card.href} className="focusable rounded-lg border border-bone/[0.08] bg-surface p-4 transition-colors hover:border-aqua/25">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">{card.leagueLabel} · {card.marketLabel}</span>
-              <span className="font-mono text-[11px] font-semibold text-mint">{card.record}</span>
-            </div>
-            <div className="mt-2 text-[13px] font-semibold leading-snug text-text-primary">{card.title}</div>
-            <div className="mt-2 text-[11.5px] leading-5 text-bone/55">
-              {card.todayMatches.length ? `${card.todayMatches.length} live matchup${card.todayMatches.length === 1 ? "" : "s"} qualify today.` : "Historical signal ready; no live matchup attached yet."}
-            </div>
-          </Link>
-        )) : (
-          <div className="xl:col-span-2 rounded-lg border border-bone/[0.08] bg-surface p-6 text-[12px] text-bone/50">No trend-to-game matches are available for this league yet. Open Trends to scan broader systems.</div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
 export default async function HomePage({ searchParams }: HomePageProps) {
   const resolvedSearch = (await searchParams) ?? {};
   const home = await getHomeCommandData(resolvedSearch);
   const trendFeed = await getSafeTrendFeed(home.focusedLeague);
-
-  const railItems = home.verifiedGames.slice(0, 8).map((game, i) => ({
+  const topEdge = home.topActionables[0];
+  const watchItems = home.topActionables.filter((opp) => !home.decisionWindows.some((item) => item.id === opp.id));
+  const railItems = home.verifiedGames.slice(0, 8).map((game, index) => ({
     id: game.id,
     label: `${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`,
     note: new Date(game.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
     href: game.detailHref ?? `/game/${game.id}`,
-    active: i === 0
+    active: index === 0
   }));
 
-  const topEdge = home.topActionables[0];
-  const edgeLabel = topEdge
-    ? `${topEdge.selectionLabel} — ${topEdge.league}`
-    : "No qualified edge right now";
-
   return (
-    <div className="grid gap-6">
-      <CommandHero home={home} topEdge={topEdge} edgeLabel={edgeLabel} />
+    <div className="grid gap-6 bg-[radial-gradient(circle_at_top_left,rgba(0,210,255,0.12),transparent_32rem)]">
+      <section className="rounded-[2rem] border border-aqua/25 bg-[radial-gradient(circle_at_top_left,rgba(0,210,255,0.16),transparent_28rem),#07111d] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.28)]">
+        <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr] xl:items-end">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-aqua">SharkEdge Command Center</div>
+            <h1 className="mt-3 font-display text-[44px] font-semibold tracking-[-0.055em] text-white xl:text-[58px]">Stop scrolling. Attack the slate.</h1>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-400">Best plays, market movement, trap flags, live games, trends, and sim launchers are now one command layer.</p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {HOME_LEAGUE_ITEMS.map((league) => (
+                <Link key={league.key} href={`/?league=${league.key}&date=${home.selectedDate}`} className={home.selectedLeague === league.key ? "rounded-full border border-aqua/40 bg-aqua/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-aqua" : "rounded-full border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400 hover:border-aqua/35 hover:text-aqua"}>{league.label}</Link>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-[1.5rem] border border-aqua/20 bg-aqua/[0.055] p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-aqua">Best play</div>
+              <Badge tone={getProviderHealthTone(home.deskStatusState)}>{home.deskStatusLabel}</Badge>
+            </div>
+            <div className="mt-3 font-display text-2xl font-semibold tracking-tight text-white">{topEdge ? topEdge.selectionLabel : "No qualified edge right now"}</div>
+            <p className="mt-2 text-sm leading-6 text-slate-400">{topEdge ? topEdge.reasonSummary : "The engine is waiting for a cleaner number. Use watch list, movement, and trends until a bet clears."}</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link href={topEdge ? `/game/${topEdge.eventId}` : "/board"} className="rounded-full bg-aqua px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-950">Open best play</Link>
+              <Link href="/board" className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-300 hover:border-aqua/35 hover:text-aqua">Full board</Link>
+            </div>
+          </div>
+        </div>
+      </section>
 
-      {/* ── MOBILE RAIL ──────────────────────────────────────────────────── */}
       <div className="xl:hidden">
         <div className="mobile-surface">
           <div className="mb-3 flex items-center justify-between">
-            <div>
-              <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">The Desk</div>
-              <h1 className="mt-1 font-display text-[20px] font-semibold tracking-[-0.01em] text-text-primary">Today's Market</h1>
-            </div>
-            <div className="flex items-center gap-1.5 rounded-sm border border-bone/[0.10] bg-surface px-2 py-1">
-              <span className="live-dot" />
-              <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/80">Live</span>
-            </div>
+            <div><div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">The Desk</div><h1 className="mt-1 font-display text-[20px] font-semibold tracking-[-0.01em] text-text-primary">Today's Market</h1></div>
+            <div className="flex items-center gap-1.5 rounded-sm border border-bone/[0.10] bg-surface px-2 py-1"><span className="live-dot" /><span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/80">Live</span></div>
           </div>
-
-          <SectionTabs
-            items={[
-              { label: "For You", active: true },
-              { label: home.selectedLeague === "ALL" ? "All Sports" : home.selectedLeague }
-            ]}
-          />
+          <SectionTabs items={[{ label: "For You", active: true }, { label: home.selectedLeague === "ALL" ? "All Sports" : home.selectedLeague }]} />
         </div>
-
-        {railItems.length ? (
-          <div className="mt-3">
-            <HorizontalEventRail items={railItems} />
-          </div>
-        ) : null}
+        {railItems.length ? <div className="mt-3"><HorizontalEventRail items={railItems} /></div> : null}
       </div>
 
-      {/* ── DESKTOP COMMAND HEADER ────────────────────────────────────────── */}
-      <div className="hidden xl:block">
-        {/* Top stats bar */}
-        <div className="grid grid-cols-5 gap-3 mb-6">
-          <StatBar
-            label="Games Today"
-            value={home.verifiedGames.length}
-            sub={formatHomeDateLabel(home.selectedDate)}
-            href="/games"
-          />
-          <StatBar
-            label="Live Edges"
-            value={home.topActionables.length}
-            sub="Cleared threshold"
-            href="/board"
-            tone="blue"
-          />
-          <StatBar
-            label="Live Watch"
-            value={home.liveDeskAvailable ? home.movementGames.length : "—"}
-            sub={home.liveDeskAvailable ? "Moving markets" : "Feed offline"}
-            tone={home.liveDeskAvailable ? "green" : "default"}
-          />
-          <StatBar
-            label="Trap Flags"
-            value={home.traps.length}
-            sub="Avoid these"
-            tone={home.traps.length > 0 ? "amber" : "default"}
-          />
-          <StatBar
-            label="Data Health"
-            value={home.liveDeskAvailable ? "Live" : "Static"}
-            sub={home.liveDeskFreshnessLabel ?? "Board mode"}
-            tone={home.liveDeskAvailable ? "green" : "default"}
-          />
-        </div>
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <StatTile label="Games" value={home.verifiedGames.length} sub={formatHomeDateLabel(home.selectedDate)} />
+        <StatTile label="Edges" value={home.topActionables.length} sub="cleared signals" tone="aqua" />
+        <StatTile label="Play now" value={home.decisionWindows.length} sub="timing windows" tone="green" />
+        <StatTile label="Movement" value={home.movementGames.length} sub={home.liveDeskAvailable ? "live markets" : "feed static"} tone="amber" />
+        <StatTile label="Traps" value={home.traps.length} sub="avoid flags" />
+      </section>
 
-        {/* League filter strip — segmented control, sharp squared chips */}
-        <div className="mb-4 flex items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-1">
-            <span className="mr-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/45">League</span>
-            {HOME_LEAGUE_ITEMS.map((league) => (
-              <Link
-                key={league.key}
-                href={`/?league=${league.key}&date=${home.selectedDate}`}
-                className={
-                  home.selectedLeague === league.key
-                    ? "rounded-sm border border-aqua/40 bg-aqua/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-aqua"
-                    : "rounded-sm border border-bone/[0.08] bg-transparent px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-bone/55 transition-colors hover:border-bone/[0.14] hover:text-bone/90"
-                }
-              >
-                {league.label}
-              </Link>
-            ))}
-          </div>
-          <div className="flex items-center gap-1">
-            {HOME_DESK_DATES.map((date) => (
-              <Link
-                key={date.key}
-                href={`/?league=${home.selectedLeague}&date=${date.key}`}
-                className={
-                  home.selectedDate === date.key
-                    ? "rounded-sm border border-bone/30 bg-bone/[0.08] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-primary"
-                    : "rounded-sm border border-bone/[0.06] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-bone/45 transition-colors hover:border-bone/[0.14] hover:text-bone/80"
-                }
-              >
-                {date.label}
-              </Link>
-            ))}
-          </div>
-        </div>
-      </div>
+      <section className="grid gap-3 md:grid-cols-3">
+        <DecisionCard title="Play now" tone="play" items={home.decisionWindows.length ? home.decisionWindows : home.topActionables} empty="No immediate windows. Wait for a cleaner number." />
+        <DecisionCard title="Watch list" tone="watch" items={watchItems} empty="No secondary watches. Check movement and trends." />
+        <DecisionCard title="Avoid / traps" tone="avoid" items={home.traps} empty="No major trap flags on the desk." />
+      </section>
 
-      {/* ── MAIN GRID ─────────────────────────────────────────────────────── */}
+      <section className="grid gap-3 lg:grid-cols-4">
+        <QuickLaunch href="/board" title="Live Board" detail="Odds, edge labels, movement, and matchup openers." primary />
+        <QuickLaunch href="/sim" title="Sim Studio" detail="NBA and MLB model workspaces built for decisions." />
+        <QuickLaunch href="/trends" title="Trends Engine" detail="Historical systems connected to live games." />
+        <QuickLaunch href={`/props?league=${home.focusedLeague}`} title="Props Lab" detail="Player markets and prop context." />
+      </section>
+
       <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
-
-        {/* Left column */}
         <div className="grid gap-6">
-
-          {/* ── PLAY / WATCH / AVOID ─────────────────────────────────── */}
-          <section>
-            <SectionHeader eyebrow="Decision Desk" title="Play / Watch / Avoid" href="/board" hrefLabel="Open board" />
-            <div className="mt-3 grid gap-3 xl:grid-cols-3">
-              <MiniOpportunityList title="Play Now" tone="play" items={home.decisionWindows.length ? home.decisionWindows : home.topActionables} empty="No immediate bet-now windows. The engine is waiting for a cleaner number." cta="/board" />
-              <MiniOpportunityList title="Watch List" tone="watch" items={home.topActionables.filter((opp) => !home.decisionWindows.some((win) => win.id === opp.id))} empty="No secondary watches yet. Use line movement below to track developing spots." cta="/board?sort=movement" />
-              <MiniOpportunityList title="Avoid / Traps" tone="avoid" items={home.traps} empty="No trap flags are dominating the desk." cta="/board" />
+          <section className="rounded-[1.5rem] border border-white/10 bg-[#07111d]/85 p-5">
+            <SectionTitle eyebrow="Today's slate" title="Verified games" href="/games" />
+            <div className="mt-4 grid gap-3 xl:grid-cols-2">
+              {home.verifiedGames.length ? home.verifiedGames.slice(0, 6).map((game) => <LiveEdgeBoardCard key={game.id} game={game} />) : <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-5 text-sm text-slate-500">No verified games returned for this window.</div>}
             </div>
           </section>
 
-          {/* ── VERIFIED GAMES ─────────────────────────────────────────── */}
-          {home.verifiedGames.length > 0 && (
-            <section>
-              <SectionHeader
-                eyebrow="Today's Slate"
-                title="Verified Games"
-                href="/games"
-                hrefLabel="Full slate"
-              />
-              <div className="mt-3 grid gap-3 xl:grid-cols-2">
-                {home.verifiedGames.slice(0, 6).map((game) => (
-                  <LiveEdgeBoardCard key={game.id} game={game} />
-                ))}
-              </div>
-              {home.verifiedGames.length > 6 && (
-                <Link href="/games" className="mt-3 flex items-center justify-center gap-2 rounded-md border border-bone/[0.08] py-2.5 text-[12px] font-medium uppercase tracking-[0.08em] text-bone/55 transition-colors hover:border-aqua/30 hover:text-aqua">
-                  +{home.verifiedGames.length - 6} more on the slate
-                  <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none">
-                    <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
-                  </svg>
-                </Link>
-              )}
-            </section>
-          )}
-
-          <TrendMatchRail cards={trendFeed.featured} />
-
+          <section className="rounded-[1.5rem] border border-white/10 bg-[#07111d]/85 p-5">
+            <SectionTitle eyebrow="Trend matches" title="Systems attached to today" href="/trends" />
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {trendFeed.featured.length ? trendFeed.featured.map((card) => <TrendCard key={card.id} card={card} />) : <div className="md:col-span-2 rounded-2xl border border-white/10 bg-white/[0.025] p-5 text-sm text-slate-500">No trend-to-game matches are available for this league yet.</div>}
+            </div>
+          </section>
         </div>
 
-        {/* Right column */}
-        <div className="hidden xl:grid xl:gap-5 xl:content-start">
-
-          {/* Live Watch Feed */}
-          <div className="rounded-lg border border-bone/[0.08] bg-surface p-4">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div>
-                <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">Live Watch</div>
-                <div className="mt-1 text-[14px] font-semibold text-text-primary">Line Movement</div>
-              </div>
-              {home.liveDeskAvailable ? (
-                <div className="flex items-center gap-1.5">
-                  <span className="live-dot" />
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/80">Live</span>
-                </div>
-              ) : (
-                <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-bone/40">Static</span>
-              )}
-            </div>
-
-            {home.liveDeskAvailable && home.movementGames.length > 0 ? (
-              <div>
-                {home.movementGames.slice(0, 5).map((game) => (
-                  <Link key={game.id} href={`/game/${game.id}`}>
-                    <MovementRow
-                      label={`${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`}
-                      league={game.leagueKey}
-                      direction={
-                        (game.spread?.movement ?? game.moneyline?.movement ?? 0) >= 0 ? "up" : "down"
-                      }
-                      to={game.spread?.lineLabel ?? game.moneyline?.lineLabel ?? "—"}
-                      note={game.spread?.movement ? `Spread moved ${Math.abs(game.spread.movement).toFixed(1)}` : undefined}
-                    />
-                  </Link>
-                ))}
-                {home.movementGames.length > 5 && (
-                  <Link href="/board?sort=movement" className="mt-2 block text-center text-[11px] font-semibold uppercase tracking-[0.08em] text-bone/45 transition-colors hover:text-aqua">
-                    +{home.movementGames.length - 5} more →
-                  </Link>
-                )}
-              </div>
-            ) : (
-              <div className="rounded-md border border-bone/[0.06] bg-panel p-4 text-center">
-                <div className="text-[11.5px] text-bone/45">
-                  {home.liveDeskMessage ?? "No qualified movement right now."}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Quick Access */}
-          <div>
-            <div className="mb-3 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">Quick Access</div>
-            <div className="grid gap-2">
-              <QuickAction
-                href="/board"
-                label="Live Board"
-                description="Full odds across all books"
-                icon={`<rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4" fill="none"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4" fill="none"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4" fill="none"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4" fill="none"/>`}
-              />
-              <QuickAction
-                href="/trends"
-                label="Trends Engine"
-                description="Historical systems with live matches"
-                icon={`<path d="M2 12l3.5-4 3 2.5L12 5l2 1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M11 5h3v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`}
-              />
-              <QuickAction
-                href={`/props?league=${home.focusedLeague}`}
-                label="Props Lab"
-                description="Player markets with EV context"
-                icon={`<circle cx="8" cy="5" r="2.5" stroke="currentColor" stroke-width="1.4" fill="none"/><path d="M3.5 14c0-2.485 2.015-4.5 4.5-4.5s4.5 2.015 4.5 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/>`}
-              />
-              <QuickAction
-                href="/sim"
-                label="Simulator Studio"
-                description="Model outcomes and stress-test lines"
-                icon={`<path d="M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3z" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linejoin="round"/><path d="M9 11h4M11 9v4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>`}
-              />
-            </div>
-          </div>
-
-          {/* Provider Health */}
-          <div className="rounded-lg border border-bone/[0.08] bg-surface p-4">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">Data Health</div>
-              <Badge tone={getProviderHealthTone(home.deskStatusState)}>{home.deskStatusLabel}</Badge>
-            </div>
-            <DiagnosticMetaStrip
-              items={[
-                `League: ${home.focusedLeague}`,
-                `Slate: ${formatHomeDateLabel(home.selectedDate)}`,
-                home.liveDeskFreshnessLabel,
-                typeof home.liveDeskFreshnessMinutes === "number"
-                  ? `${home.liveDeskFreshnessMinutes}m old`
-                  : null
-              ]}
-            />
-            <div className="mt-3 text-[11.5px] leading-[1.5] text-bone/50">
-              {home.deskSourceNote}
-            </div>
-            <Link href="/providers" className="mt-3 block text-[11px] font-semibold uppercase tracking-[0.08em] text-aqua transition-colors hover:text-aqua-hot">
-              Provider detail →
-            </Link>
-          </div>
-
-          {/* Additional trend sections */}
-          {trendFeed.sections.slice(0, 1).map((section) => (
-            <div key={section.category} className="rounded-lg border border-bone/[0.08] bg-surface p-4">
-              <div className="mb-3">
-                <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">Trend Rail</div>
-                <div className="mt-1 text-[14px] font-semibold text-text-primary">{section.category}</div>
-              </div>
-              <div className="grid gap-2">
-                {section.cards.slice(0, 3).map((card) => (
-                  <Link
-                    key={card.id}
-                    href={card.href}
-                    className="focusable group rounded-md border border-bone/[0.06] bg-panel p-3 transition-colors hover:border-aqua/25"
-                  >
-                    <div className="text-[12.5px] font-medium leading-snug text-text-primary">{card.title}</div>
-                    <div className="mt-1.5 flex items-center gap-2">
-                      <span className="font-mono text-[11px] font-semibold tabular-nums text-mint">{card.record}</span>
-                      <span className="text-bone/20">·</span>
-                      <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-bone/55">{card.leagueLabel}</span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-              <Link href="/trends" className="mt-3 block text-[11px] font-semibold uppercase tracking-[0.08em] text-bone/50 transition-colors hover:text-aqua">
-                More trends →
-              </Link>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── MOBILE EXTRAS ─────────────────────────────────────────────────── */}
-      <div className="xl:hidden">
-        {home.topActionables.length > 0 && (
-          <section className="grid gap-3">
-            <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">Top Edges</div>
-            {home.topActionables.slice(0, 2).map((opp) => (
-              <OpportunitySpotlightCard
-                key={opp.id}
-                opportunity={opp}
-                href={`/game/${opp.eventId}`}
-                ctaLabel={opp.kind === "prop" ? "Open prop" : "Open matchup"}
-              />
-            ))}
-          </section>
-        )}
-
-        {trendFeed.featured.length > 0 && (
-          <section className="grid gap-3">
-            <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-aqua">Active Signals</div>
-            <div className="mobile-scroll-row hide-scrollbar">
-              {trendFeed.featured.map((card) => (
-                <MobileTrendCard key={card.id} card={card} featured={false} />
-              ))}
+        <aside className="hidden xl:grid xl:content-start xl:gap-5">
+          <section className="rounded-[1.5rem] border border-white/10 bg-[#07111d]/85 p-4">
+            <div className="flex items-center justify-between gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-aqua">Market radar</div><h2 className="mt-1 font-display text-xl font-semibold tracking-tight text-white">Line movement</h2></div><span className="rounded-full border border-white/10 bg-white/[0.035] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{home.liveDeskFreshnessLabel}</span></div>
+            <div className="mt-4 grid gap-2">
+              {home.movementGames.length ? home.movementGames.slice(0, 5).map((game) => <Link key={game.id} href={`/game/${game.id}`} className="rounded-2xl border border-white/10 bg-white/[0.035] p-3 transition hover:border-aqua/35"><div className="flex items-center justify-between gap-3"><div className="font-semibold text-white">{game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}</div><div className="font-mono text-sm text-aqua">{game.spread?.lineLabel ?? game.moneyline?.lineLabel ?? "—"}</div></div><div className="mt-1 text-xs text-slate-500">{game.leagueKey} movement detected</div></Link>) : <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-4 text-sm text-slate-500">{home.liveDeskMessage ?? "No qualified movement right now."}</div>}
             </div>
           </section>
-        )}
+
+          <section className="rounded-[1.5rem] border border-white/10 bg-[#07111d]/85 p-4">
+            <div className="mb-3 flex items-center justify-between gap-2"><div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Data health</div><Badge tone={getProviderHealthTone(home.deskStatusState)}>{home.deskStatusLabel}</Badge></div>
+            <DiagnosticMetaStrip items={[`League: ${home.focusedLeague}`, `Slate: ${formatHomeDateLabel(home.selectedDate)}`, home.liveDeskFreshnessLabel, typeof home.liveDeskFreshnessMinutes === "number" ? `${home.liveDeskFreshnessMinutes}m old` : null]} />
+            <p className="mt-3 text-xs leading-5 text-slate-500">{home.deskSourceNote}</p>
+            <div className="mt-4 flex flex-wrap gap-2">{HOME_DESK_DATES.map((date) => <Link key={date.key} href={`/?league=${home.selectedLeague}&date=${date.key}`} className={home.selectedDate === date.key ? "rounded-full border border-aqua/40 bg-aqua/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-aqua" : "rounded-full border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400 hover:border-aqua/35 hover:text-aqua"}>{date.label}</Link>)}</div>
+          </section>
+        </aside>
       </div>
     </div>
   );
