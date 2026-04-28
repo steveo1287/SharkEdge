@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { buildMlbStarterLineupLock, type MlbStarterLineupLock } from "@/services/simulation/mlb-starter-lineup-lock";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -40,6 +41,7 @@ export type MlbStarterAdjustedOutcome = {
   homeSpreadDelta: number;
   totalDelta: number;
   eloPointDelta: number;
+  lineupLock: MlbStarterLineupLock | null;
   drivers: string[];
 };
 
@@ -151,6 +153,14 @@ function runAdjustment(args: { offenseScore: number; opposingStarterStrength: nu
   return clamp((args.offenseScore - 0.5) * 1.8 + (0.5 - starter) * 1.45 + (0.5 - args.opposingBullpenScore) * 0.95, -1.75, 1.75);
 }
 
+function lockAdjustedMultiplier(lock: MlbStarterLineupLock | null) {
+  if (!lock) return { starter: 0.55, lineup: 0.65, confidence: 0.45 };
+  if (lock.status === "CHANGED") return { starter: 0.18, lineup: lock.lineupTrustMultiplier, confidence: Math.min(lock.confidence, 0.3) };
+  if (lock.status === "STALE") return { starter: Math.min(lock.starterTrustMultiplier, 0.45), lineup: lock.lineupTrustMultiplier, confidence: Math.min(lock.confidence, 0.45) };
+  if (lock.openerRisk || lock.bullpenGameRisk) return { starter: Math.min(lock.starterTrustMultiplier, 0.5), lineup: lock.lineupTrustMultiplier, confidence: Math.min(lock.confidence, 0.55) };
+  return { starter: lock.starterTrustMultiplier, lineup: lock.lineupTrustMultiplier, confidence: lock.confidence };
+}
+
 export async function buildMlbStarterAdjustedOutcome(args: {
   eventId: string;
   homeTeamId: string;
@@ -158,20 +168,20 @@ export async function buildMlbStarterAdjustedOutcome(args: {
   homeTeamName: string;
   awayTeamName: string;
 }): Promise<MlbStarterAdjustedOutcome> {
-  void args.eventId;
   void args.homeTeamName;
   void args.awayTeamName;
 
-  const [homeTeamProfile, awayTeamProfile, homeProbable, awayProbable] = await Promise.all([
+  const [homeTeamProfile, awayTeamProfile, homeProbable, awayProbable, lineupLock] = await Promise.all([
     getCachedTeamFeatureProfile(args.homeTeamId),
     getCachedTeamFeatureProfile(args.awayTeamId),
     latestTeamProbablePitcher(args.homeTeamId),
-    latestTeamProbablePitcher(args.awayTeamId)
+    latestTeamProbablePitcher(args.awayTeamId),
+    buildMlbStarterLineupLock({ eventId: args.eventId, homeTeamId: args.homeTeamId, awayTeamId: args.awayTeamId })
   ]);
 
   const [homePitcher, awayPitcher] = await Promise.all([
-    findPitcher({ teamId: args.homeTeamId, name: homeProbable.name }),
-    findPitcher({ teamId: args.awayTeamId, name: awayProbable.name })
+    findPitcher({ teamId: args.homeTeamId, name: lineupLock.homeCurrentStarter ?? homeProbable.name }),
+    findPitcher({ teamId: args.awayTeamId, name: lineupLock.awayCurrentStarter ?? awayProbable.name })
   ]);
 
   const [homePitcherProfile, awayPitcherProfile] = await Promise.all([
@@ -179,41 +189,49 @@ export async function buildMlbStarterAdjustedOutcome(args: {
     awayPitcher ? getCachedPitcherFeatureProfile(awayPitcher.id) : Promise.resolve(null)
   ]);
 
+  const lockMult = lockAdjustedMultiplier(lineupLock);
   const homeStarter = pitcherStrength(homePitcherProfile);
   const awayStarter = pitcherStrength(awayPitcherProfile);
   const homeOffense = teamOffense(homeTeamProfile);
   const awayOffense = teamOffense(awayTeamProfile);
   const homeBullpen = bullpen(homeTeamProfile);
   const awayBullpen = bullpen(awayTeamProfile);
-  const homeRunAdjustment = runAdjustment({ offenseScore: homeOffense.score, opposingStarterStrength: awayStarter?.strength ?? null, opposingBullpenScore: awayBullpen.score });
-  const awayRunAdjustment = runAdjustment({ offenseScore: awayOffense.score, opposingStarterStrength: homeStarter?.strength ?? null, opposingBullpenScore: homeBullpen.score });
+  const trustedHomeStarterStrength = homeStarter ? 0.5 + (homeStarter.strength - 0.5) * lockMult.starter : null;
+  const trustedAwayStarterStrength = awayStarter ? 0.5 + (awayStarter.strength - 0.5) * lockMult.starter : null;
+  const homeRunAdjustmentRaw = runAdjustment({ offenseScore: homeOffense.score, opposingStarterStrength: trustedAwayStarterStrength, opposingBullpenScore: awayBullpen.score });
+  const awayRunAdjustmentRaw = runAdjustment({ offenseScore: awayOffense.score, opposingStarterStrength: trustedHomeStarterStrength, opposingBullpenScore: homeBullpen.score });
+  const homeRunAdjustment = homeRunAdjustmentRaw * lockMult.lineup;
+  const awayRunAdjustment = awayRunAdjustmentRaw * lockMult.lineup;
   const homeSpreadDelta = clamp(homeRunAdjustment - awayRunAdjustment, -2.75, 2.75);
   const totalDelta = clamp(homeRunAdjustment + awayRunAdjustment, -3.5, 3.5);
   const profileQuality = (homeOffense.quality + awayOffense.quality + homeBullpen.quality + awayBullpen.quality) / 4;
   const starterQuality = ((homeStarter?.quality ?? 0) + (awayStarter?.quality ?? 0)) / 2;
-  const confidence = clamp(profileQuality * 0.55 + starterQuality * 0.45, 0, 1);
-  const eloPointDelta = clamp(homeSpreadDelta * 18, -65, 65);
+  const confidence = clamp((profileQuality * 0.45 + starterQuality * 0.35 + lockMult.confidence * 0.2) * lockMult.lineup, 0, 1);
+  const eloPointDelta = clamp(homeSpreadDelta * 18 * lockMult.starter, -65, 65);
   const drivers = [
-    `MLB starter model home starter ${homeProbable.name ?? homePitcherProfile?.playerName ?? "unknown"}, away starter ${awayProbable.name ?? awayPitcherProfile?.playerName ?? "unknown"}.`,
+    `MLB starter model home starter ${lineupLock.homeCurrentStarter ?? homeProbable.name ?? homePitcherProfile?.playerName ?? "unknown"}, away starter ${lineupLock.awayCurrentStarter ?? awayProbable.name ?? awayPitcherProfile?.playerName ?? "unknown"}.`,
+    `Starter/lineup lock status ${lineupLock.status}; starter trust ${round(lockMult.starter, 2)}, lineup trust ${round(lockMult.lineup, 2)}.`,
     `Home run adjustment ${round(homeRunAdjustment, 2)}, away run adjustment ${round(awayRunAdjustment, 2)}.`,
     `Starter-adjusted spread delta ${round(homeSpreadDelta, 2)}, Elo-equivalent delta ${round(eloPointDelta, 1)}.`
   ];
+  drivers.push(...lineupLock.drivers.slice(0, 8));
   if (!homePitcherProfile) drivers.push("Home pitcher feature profile missing; starter strength defaulted.");
   if (!awayPitcherProfile) drivers.push("Away pitcher feature profile missing; starter strength defaulted.");
   if (!homeTeamProfile || !awayTeamProfile) drivers.push("One or both MLB team feature profiles missing; offense/bullpen inputs partially defaulted.");
 
   return {
-    available: Boolean(homeTeamProfile || awayTeamProfile || homePitcherProfile || awayPitcherProfile),
+    available: Boolean(homeTeamProfile || awayTeamProfile || homePitcherProfile || awayPitcherProfile || lineupLock.status !== "UNKNOWN"),
     confidence: Number(confidence.toFixed(4)),
-    homeStarterName: homeProbable.name ?? homePitcherProfile?.playerName ?? null,
-    awayStarterName: awayProbable.name ?? awayPitcherProfile?.playerName ?? null,
-    homeStarterStrength: homeStarter ? Number(homeStarter.strength.toFixed(4)) : null,
-    awayStarterStrength: awayStarter ? Number(awayStarter.strength.toFixed(4)) : null,
+    homeStarterName: lineupLock.homeCurrentStarter ?? homeProbable.name ?? homePitcherProfile?.playerName ?? null,
+    awayStarterName: lineupLock.awayCurrentStarter ?? awayProbable.name ?? awayPitcherProfile?.playerName ?? null,
+    homeStarterStrength: trustedHomeStarterStrength !== null ? Number(trustedHomeStarterStrength.toFixed(4)) : null,
+    awayStarterStrength: trustedAwayStarterStrength !== null ? Number(trustedAwayStarterStrength.toFixed(4)) : null,
     homeRunAdjustment: Number(homeRunAdjustment.toFixed(4)),
     awayRunAdjustment: Number(awayRunAdjustment.toFixed(4)),
     homeSpreadDelta: Number(homeSpreadDelta.toFixed(4)),
     totalDelta: Number(totalDelta.toFixed(4)),
     eloPointDelta: Number(eloPointDelta.toFixed(4)),
+    lineupLock,
     drivers
   };
 }
