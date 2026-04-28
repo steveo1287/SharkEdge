@@ -7,6 +7,10 @@
       "schedule": "0 15,17,19,21,23,1,3 * * *"
     },
     {
+      "path": "/api/internal/cron/model-lock",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/internal/cron/sim-calibration",
       "schedule": "0 */6 * * *"
     },
@@ -19,7 +23,7 @@
       "schedule": "*/30 * * * *"
     },
     {
-      "path": "/api/jobs/auto-tune",
+      "path": "/api/internal/cron/model-lab",
       "schedule": "0 2 * * *"
     },
     {
