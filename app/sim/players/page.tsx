@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
+import { calibrateNbaPlayerBoxScore } from "@/services/simulation/nba-box-score-calibration";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 import type { BoardSportSectionView, LeagueKey } from "@/lib/types/domain";
 
@@ -54,6 +55,22 @@ function flatten(sections: BoardSportSectionView[]): SimGame[] {
       leagueLabel: section.leagueLabel
     }))
   );
+}
+
+function withCalibratedNbaPlayers(projection: Projection): Projection {
+  const players = projection.nbaIntel?.playerStatProjections ?? [];
+  if (!projection.nbaIntel || !players.length) return projection;
+
+  return {
+    ...projection,
+    nbaIntel: {
+      ...projection.nbaIntel,
+      playerStatProjections: calibrateNbaPlayerBoxScore(players, {
+        awayPoints: projection.distribution.avgAway,
+        homePoints: projection.distribution.avgHome
+      })
+    }
+  };
 }
 
 function formatTime(value: string) {
@@ -173,7 +190,7 @@ function PlayerFocusPanel({ player, game }: { player: PlayerProjection; game: Si
   );
 }
 
-function PlayerBoxScoreTable({ title, rows, focusPlayer }: { title: string; rows: PlayerProjection[]; focusPlayer: string | null }) {
+function PlayerBoxScoreTable({ title, rows, focusPlayer, targetPoints }: { title: string; rows: PlayerProjection[]; focusPlayer: string | null; targetPoints: number }) {
   const totals = {
     minutes: sum(rows, (row) => row.projectedMinutes),
     points: sum(rows, (row) => row.projectedPoints),
@@ -187,9 +204,9 @@ function PlayerBoxScoreTable({ title, rows, focusPlayer }: { title: string; rows
       <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div>
           <div className="text-sm font-semibold text-white">{title}</div>
-          <div className="mt-0.5 text-[11px] text-slate-500">Projected player box score</div>
+          <div className="mt-0.5 text-[11px] text-slate-500">Calibrated projected player box score</div>
         </div>
-        <div className="text-right font-mono text-sm text-sky-200">{num(totals.points)} pts</div>
+        <div className="text-right font-mono text-sm text-sky-200">{num(totals.points)} / {num(targetPoints)} pts</div>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-xs">
@@ -323,7 +340,7 @@ function MatchupBoxScoreCard({ row, focusPlayer, focusedGameId }: { row: Matchup
       <div className="grid gap-3 md:grid-cols-5">
         <TeamTotalTile label="Away score" value={num(projection.distribution.avgAway)} sub={projection.matchup.away} />
         <TeamTotalTile label="Home score" value={num(projection.distribution.avgHome)} sub={projection.matchup.home} />
-        <TeamTotalTile label="Box pts" value={`${num(awayPoints)} / ${num(homePoints)}`} sub="Player sum" />
+        <TeamTotalTile label="Box pts" value={`${num(awayPoints)} / ${num(homePoints)}`} sub="Calibrated player sum" />
         <TeamTotalTile label="Game total" value={num(projection.nbaIntel?.projectedTotal ?? awayPoints + homePoints)} sub="Projection engine" />
         <TeamTotalTile label="Confidence" value={pct(projection.nbaIntel?.confidence, 0)} sub={`${projection.nbaIntel?.playerStatProjections.length ?? 0} player rows`} />
       </div>
@@ -332,8 +349,8 @@ function MatchupBoxScoreCard({ row, focusPlayer, focusedGameId }: { row: Matchup
 
       {players.length ? (
         <div className="grid gap-4 xl:grid-cols-2">
-          <PlayerBoxScoreTable title={projection.matchup.away} rows={awayRows} focusPlayer={focusPlayer} />
-          <PlayerBoxScoreTable title={projection.matchup.home} rows={homeRows} focusPlayer={focusPlayer} />
+          <PlayerBoxScoreTable title={projection.matchup.away} rows={awayRows} focusPlayer={focusPlayer} targetPoints={projection.distribution.avgAway} />
+          <PlayerBoxScoreTable title={projection.matchup.home} rows={homeRows} focusPlayer={focusPlayer} targetPoints={projection.distribution.avgHome} />
         </div>
       ) : (
         <Card className="surface-panel p-5 text-sm leading-6 text-slate-400">
@@ -358,7 +375,7 @@ export default async function SimPlayersPage({ searchParams }: PageProps) {
   const rows: MatchupRow[] = await Promise.all(
     games.map(async (game) => ({
       game,
-      projection: await buildSimProjection(game)
+      projection: withCalibratedNbaPlayers(await buildSimProjection(game))
     }))
   );
   const displayedRows = focusedGameId ? rows.filter((row) => row.game.id === focusedGameId) : rows;
@@ -379,7 +396,7 @@ export default async function SimPlayersPage({ searchParams }: PageProps) {
               Projected box scores for every player in the matchup.
             </h1>
             <p className="mt-4 max-w-4xl text-sm leading-7 text-bone/65">
-              This page uses the same live matchup simulation stack as Sim HQ. Prop links can now open the exact game and highlight the player, then show both teams’ projected points, rebounds, assists, threes, PRA, confidence, and player-vs-player ladder.
+              This page uses the same live matchup simulation stack as Sim HQ. Prop links can now open the exact game and highlight the player, then show both teams’ calibrated projected points, rebounds, assists, threes, PRA, confidence, and player-vs-player ladder.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -417,7 +434,7 @@ export default async function SimPlayersPage({ searchParams }: PageProps) {
       <section className="grid gap-4">
         <SectionTitle
           title="NBA player matchup board"
-          description="Open a full sim for the game-level model, or use these tables to read the expected player box score and matchup ladder directly."
+          description="Open a full sim for the game-level model, or use these tables to read the calibrated player box score and matchup ladder directly."
         />
         {displayedRows.length ? (
           displayedRows.map((row) => (
