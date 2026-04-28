@@ -3,6 +3,67 @@ import type { Prisma } from "@prisma/client";
 
 type JsonRecord = Record<string, unknown>;
 
+type TeamStatRow = {
+  statsJson: Prisma.JsonValue;
+  game?: {
+    startTime: Date;
+    homeTeamId: string;
+    awayTeamId: string;
+    venue: string | null;
+    scoreJson?: Prisma.JsonValue | null;
+    liveStateJson?: Prisma.JsonValue | null;
+  };
+};
+
+type SplitProfile = {
+  sampleSize: number;
+  offense: number | null;
+  defenseAllowed: number | null;
+  margin: number | null;
+  pace: number | null;
+  powerScore: number;
+};
+
+type NbaPowerDetails = {
+  homeAwaySplits: {
+    home: SplitProfile;
+    away: SplitProfile;
+  };
+  restSplits: {
+    zeroOrOneDay: SplitProfile;
+    twoPlusDays: SplitProfile;
+  };
+  windowBlend: {
+    last5: SplitProfile;
+    last10: SplitProfile;
+    season: SplitProfile;
+    blendedPowerScore: number;
+  };
+  fourFactors: {
+    effectiveFgPct: number | null;
+    turnoverRate: number | null;
+    reboundRate: number | null;
+    freeThrowRate: number | null;
+  };
+};
+
+type MlbPowerDetails = {
+  startingPitcherStrength: number;
+  bullpenStrength: number;
+  hittingVsHandedness: {
+    vsLeft: number | null;
+    vsRight: number | null;
+    available: boolean;
+  };
+  parkFactor: number;
+  weatherWindFactor: number;
+  defensiveEfficiency: number;
+  recentBullpenFatigue: number;
+  travelRest: number;
+  runCreationScore: number;
+  runPreventionScore: number;
+};
+
 export type TeamPowerRatingProfile = {
   teamId: string;
   teamName: string;
@@ -23,6 +84,8 @@ export type TeamPowerRatingProfile = {
   consistencyScore: number;
   powerScore: number;
   powerTier: "ELITE" | "STRONG" | "AVERAGE" | "WEAK" | "BAD";
+  nba?: NbaPowerDetails;
+  mlb?: MlbPowerDetails;
   updatedAt: string;
 };
 
@@ -98,36 +161,213 @@ function tier(powerScore: number): TeamPowerRatingProfile["powerTier"] {
   return "BAD";
 }
 
+function points(row: TeamStatRow) {
+  return stat(row, ["points", "PTS", "runs", "R", "goals", "G"]);
+}
+
+function oppPoints(row: TeamStatRow) {
+  return stat(row, ["opp_points", "oppPTS", "points_allowed", "runs_allowed", "RA", "goals_allowed", "GA"]);
+}
+
+function pace(row: TeamStatRow) {
+  return stat(row, ["possessions", "pace", "plays", "shots", "plate_appearances"]);
+}
+
+function rowMargin(row: TeamStatRow) {
+  const scored = points(row);
+  const allowed = oppPoints(row);
+  return scored !== null && allowed !== null ? scored - allowed : null;
+}
+
+function splitProfile(rows: TeamStatRow[], leagueKey: string): SplitProfile {
+  const offense = weightedAverage(rows.map(points));
+  const defenseAllowed = weightedAverage(rows.map(oppPoints));
+  const margin = weightedAverage(rows.map(rowMargin));
+  const weightedPace = weightedAverage(rows.map(pace));
+  const nbaLike = leagueKey === "NBA" || leagueKey === "NCAAB";
+  const nflLike = leagueKey === "NFL" || leagueKey === "NCAAF";
+  const baseline = nbaLike ? 114 : nflLike ? 23.5 : leagueKey === "MLB" ? 4.4 : 50;
+  const spread = nbaLike ? 16 : nflLike ? 14 : leagueKey === "MLB" ? 3 : 10;
+  const powerScore = clamp(
+    percentileish(offense, baseline, spread * 1.25) * 0.38 +
+    percentileish(defenseAllowed, baseline, spread * 1.25, true) * 0.34 +
+    percentileish(margin, 0, spread) * 0.28,
+    0,
+    1
+  );
+  return {
+    sampleSize: rows.length,
+    offense: round(offense),
+    defenseAllowed: round(defenseAllowed),
+    margin: round(margin),
+    pace: round(weightedPace),
+    powerScore: Number(powerScore.toFixed(4))
+  };
+}
+
+function daysBetween(left: Date, right: Date) {
+  return Math.abs(left.getTime() - right.getTime()) / (24 * 60 * 60 * 1000);
+}
+
+function buildNbaDetails(teamId: string, rows: TeamStatRow[], base: { effectiveFgPct: number | null; turnoverRate: number | null; reboundRate: number | null; freeThrowRate: number | null }): NbaPowerDetails | undefined {
+  if (!rows.length) return undefined;
+  const sorted = [...rows].sort((left, right) => right.game!.startTime.getTime() - left.game!.startTime.getTime());
+  const homeRows = sorted.filter((row) => row.game?.homeTeamId === teamId);
+  const awayRows = sorted.filter((row) => row.game?.awayTeamId === teamId);
+  const zeroOrOneDay: TeamStatRow[] = [];
+  const twoPlusDays: TeamStatRow[] = [];
+
+  sorted.forEach((row, index) => {
+    const next = sorted[index + 1];
+    if (!next?.game || !row.game) return;
+    const restDays = daysBetween(row.game.startTime, next.game.startTime);
+    if (restDays <= 1.5) zeroOrOneDay.push(row);
+    else twoPlusDays.push(row);
+  });
+
+  const last5 = sorted.slice(0, 5);
+  const last10 = sorted.slice(0, 10);
+  const season = sorted;
+  const last5Profile = splitProfile(last5, "NBA");
+  const last10Profile = splitProfile(last10, "NBA");
+  const seasonProfile = splitProfile(season, "NBA");
+  const blendedPowerScore = clamp(last5Profile.powerScore * 0.5 + last10Profile.powerScore * 0.3 + seasonProfile.powerScore * 0.2, 0, 1);
+
+  return {
+    homeAwaySplits: {
+      home: splitProfile(homeRows, "NBA"),
+      away: splitProfile(awayRows, "NBA")
+    },
+    restSplits: {
+      zeroOrOneDay: splitProfile(zeroOrOneDay, "NBA"),
+      twoPlusDays: splitProfile(twoPlusDays, "NBA")
+    },
+    windowBlend: {
+      last5: last5Profile,
+      last10: last10Profile,
+      season: seasonProfile,
+      blendedPowerScore: Number(blendedPowerScore.toFixed(4))
+    },
+    fourFactors: {
+      effectiveFgPct: round(base.effectiveFgPct),
+      turnoverRate: round(base.turnoverRate),
+      reboundRate: round(base.reboundRate),
+      freeThrowRate: round(base.freeThrowRate)
+    }
+  };
+}
+
+function metadataNumber(rows: TeamStatRow[], keys: string[]) {
+  return weightedAverage(rows.map((row) => {
+    const record = asRecord(row.statsJson);
+    for (const key of keys) {
+      const value = readNumber(record[key]);
+      if (value !== null) return value;
+    }
+    const game = asRecord(row.game?.scoreJson);
+    for (const key of keys) {
+      const value = readNumber(game[key]);
+      if (value !== null) return value;
+    }
+    const live = asRecord(row.game?.liveStateJson);
+    for (const key of keys) {
+      const value = readNumber(live[key]);
+      if (value !== null) return value;
+    }
+    return null;
+  }));
+}
+
+function buildMlbDetails(rows: TeamStatRow[], base: { weightedOffense: number | null; weightedDefenseAllowed: number | null; weightedMargin: number | null }): MlbPowerDetails | undefined {
+  if (!rows.length) return undefined;
+  const startingPitcherRaw = metadataNumber(rows, ["starterStrength", "startingPitcherStrength", "sp_strength", "starter_era_plus"]);
+  const bullpenRaw = metadataNumber(rows, ["bullpenStrength", "bullpen_score", "bullpenEraPlus", "reliefPitchingScore"]);
+  const vsLeft = metadataNumber(rows, ["wrcPlusVsLhp", "wRC+_vs_lhp", "opsVsLhp", "vsLeftScore"]);
+  const vsRight = metadataNumber(rows, ["wrcPlusVsRhp", "wRC+_vs_rhp", "opsVsRhp", "vsRightScore"]);
+  const parkRaw = metadataNumber(rows, ["parkFactor", "park_factor", "runParkFactor"]);
+  const weatherRaw = metadataNumber(rows, ["weatherRunFactor", "weatherWindFactor", "windRunFactor"]);
+  const defensiveRaw = metadataNumber(rows, ["defensiveEfficiency", "def_eff", "outsAboveAverage", "drs", "fieldingScore"]);
+  const bullpenUsage = metadataNumber(rows, ["bullpenInningsLast3", "reliefInningsLast3", "bullpenPitchesLast3", "relieverPitchesLast3"]);
+  const travelRestRaw = metadataNumber(rows, ["travelRestScore", "restTravelScore", "daysRest"]);
+  const runs = base.weightedOffense;
+  const runsAllowed = base.weightedDefenseAllowed;
+  const margin = base.weightedMargin;
+
+  const startingPitcherStrength = percentileish(startingPitcherRaw, 100, 40);
+  const bullpenStrength = bullpenRaw !== null ? percentileish(bullpenRaw, 100, 40) : percentileish(runsAllowed, 4.4, 2.2, true);
+  const parkFactor = parkRaw !== null ? clamp(parkRaw > 2 ? parkRaw / 100 : parkRaw, 0.75, 1.25) : 1;
+  const weatherWindFactor = weatherRaw !== null ? clamp(weatherRaw > 2 ? weatherRaw / 100 : weatherRaw, 0.85, 1.15) : 1;
+  const defensiveEfficiency = defensiveRaw !== null ? percentileish(defensiveRaw, 0, 20) : percentileish(runsAllowed, 4.4, 2.1, true);
+  const recentBullpenFatigue = bullpenUsage !== null ? percentileish(bullpenUsage, 12, 12) : 0.5;
+  const travelRest = travelRestRaw !== null ? percentileish(travelRestRaw, 1, 3) : 0.5;
+  const handednessAvailable = vsLeft !== null || vsRight !== null;
+  const handednessScore = average([vsLeft !== null ? percentileish(vsLeft, 100, 35) : null, vsRight !== null ? percentileish(vsRight, 100, 35) : null]);
+  const runCreationScore = clamp(
+    percentileish(runs, 4.4, 2.2) * 0.42 +
+    (handednessScore ?? 0.5) * 0.24 +
+    (parkFactor - 0.75) / 0.5 * 0.14 +
+    (weatherWindFactor - 0.85) / 0.3 * 0.08 +
+    percentileish(margin, 0, 3) * 0.12,
+    0,
+    1
+  );
+  const runPreventionScore = clamp(
+    percentileish(runsAllowed, 4.4, 2.2, true) * 0.28 +
+    startingPitcherStrength * 0.25 +
+    bullpenStrength * 0.2 +
+    defensiveEfficiency * 0.17 +
+    (1 - recentBullpenFatigue) * 0.1,
+    0,
+    1
+  );
+
+  return {
+    startingPitcherStrength: Number(startingPitcherStrength.toFixed(4)),
+    bullpenStrength: Number(bullpenStrength.toFixed(4)),
+    hittingVsHandedness: {
+      vsLeft: vsLeft !== null ? Number(percentileish(vsLeft, 100, 35).toFixed(4)) : null,
+      vsRight: vsRight !== null ? Number(percentileish(vsRight, 100, 35).toFixed(4)) : null,
+      available: handednessAvailable
+    },
+    parkFactor: Number(parkFactor.toFixed(4)),
+    weatherWindFactor: Number(weatherWindFactor.toFixed(4)),
+    defensiveEfficiency: Number(defensiveEfficiency.toFixed(4)),
+    recentBullpenFatigue: Number(recentBullpenFatigue.toFixed(4)),
+    travelRest: Number(travelRest.toFixed(4)),
+    runCreationScore: Number(runCreationScore.toFixed(4)),
+    runPreventionScore: Number(runPreventionScore.toFixed(4))
+  };
+}
+
 function buildProfile(team: {
   id: string;
   name: string;
   abbreviation: string;
   league: { key: string };
-  teamGameStats: Array<{ statsJson: Prisma.JsonValue }>;
+  teamGameStats: TeamStatRow[];
 }): TeamPowerRatingProfile | null {
   const rows = team.teamGameStats;
   if (rows.length < 3) return null;
 
-  const points = rows.map((row) => stat(row, ["points", "PTS", "runs", "R", "goals", "G"]));
-  const oppPoints = rows.map((row) => stat(row, ["opp_points", "oppPTS", "points_allowed", "runs_allowed", "RA", "goals_allowed", "GA"]));
-  const possessions = rows.map((row) => stat(row, ["possessions", "pace", "plays", "shots"]));
+  const pointValues = rows.map(points);
+  const oppPointValues = rows.map(oppPoints);
+  const possessions = rows.map(pace);
   const fga = rows.map((row) => stat(row, ["fieldGoalsAttempted", "FGA", "shotAttempts"]));
   const fgm = rows.map((row) => stat(row, ["fieldGoalsMade", "FGM", "shotsMade"]));
   const fg3m = rows.map((row) => stat(row, ["threes", "FG3M", "threePointMade"]));
   const fta = rows.map((row) => stat(row, ["freeThrowsAttempted", "FTA"]));
   const turnovers = rows.map((row) => stat(row, ["turnovers", "TO"]));
   const oreb = rows.map((row) => stat(row, ["offensiveRebounds", "OREB"]));
-  const margins = points.map((value, index) => {
-    const against = oppPoints[index];
-    return typeof value === "number" && typeof against === "number" ? value - against : null;
-  });
+  const rebounds = rows.map((row) => stat(row, ["rebounds", "REB", "totalRebounds"]));
+  const oppRebounds = rows.map((row) => stat(row, ["opp_rebounds", "oppREB", "opponentRebounds"]));
+  const margins = rows.map(rowMargin);
 
-  const weightedOffense = weightedAverage(points);
-  const weightedDefenseAllowed = weightedAverage(oppPoints);
+  const weightedOffense = weightedAverage(pointValues);
+  const weightedDefenseAllowed = weightedAverage(oppPointValues);
   const weightedMargin = weightedAverage(margins);
   const weightedPace = weightedAverage(possessions);
-  const totalPoints = points.reduce((sum, value) => sum + (value ?? 0), 0);
-  const totalOppPoints = oppPoints.reduce((sum, value) => sum + (value ?? 0), 0);
+  const totalPoints = pointValues.reduce((sum, value) => sum + (value ?? 0), 0);
+  const totalOppPoints = oppPointValues.reduce((sum, value) => sum + (value ?? 0), 0);
   const totalPossessions = possessions.reduce((sum, value) => sum + (value ?? 0), 0);
   const totalFga = fga.reduce((sum, value) => sum + (value ?? 0), 0);
   const totalFgm = fgm.reduce((sum, value) => sum + (value ?? 0), 0);
@@ -135,14 +375,17 @@ function buildProfile(team: {
   const totalFta = fta.reduce((sum, value) => sum + (value ?? 0), 0);
   const totalTurnovers = turnovers.reduce((sum, value) => sum + (value ?? 0), 0);
   const totalOreb = oreb.reduce((sum, value) => sum + (value ?? 0), 0);
+  const totalRebounds = rebounds.reduce((sum, value) => sum + (value ?? 0), 0);
+  const totalOppRebounds = oppRebounds.reduce((sum, value) => sum + (value ?? 0), 0);
   const offensiveRatingProxy = totalPossessions > 0 ? totalPoints / totalPossessions * 100 : weightedOffense;
   const defensiveRatingProxy = totalPossessions > 0 ? totalOppPoints / totalPossessions * 100 : weightedDefenseAllowed;
   const netRatingProxy = offensiveRatingProxy !== null && defensiveRatingProxy !== null ? offensiveRatingProxy - defensiveRatingProxy : weightedMargin;
   const effectiveFgPct = totalFga > 0 ? (totalFgm + 0.5 * totalFg3m) / totalFga : null;
   const freeThrowRate = totalFga > 0 ? totalFta / totalFga : null;
-  const turnoverPct = totalFga + 0.44 * totalFta + totalTurnovers > 0
+  const turnoverRate = totalFga + 0.44 * totalFta + totalTurnovers > 0
     ? totalTurnovers / (totalFga + 0.44 * totalFta + totalTurnovers)
     : null;
+  const reboundRate = totalRebounds + totalOppRebounds > 0 ? totalRebounds / (totalRebounds + totalOppRebounds) : null;
   const orebRateProxy = totalFga - totalFgm + totalOreb > 0 ? totalOreb / (totalFga - totalFgm + totalOreb) : null;
   const marginValues = margins.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   const marginStd = standardDeviation(marginValues);
@@ -159,25 +402,31 @@ function buildProfile(team: {
     0,
     1
   );
-  const ballSecurityScore = percentileish(turnoverPct, 0.13, 0.12, true);
-  const reboundScore = percentileish(orebRateProxy, 0.28, 0.24);
+  const ballSecurityScore = percentileish(turnoverRate, 0.13, 0.12, true);
+  const reboundScore = percentileish(reboundRate ?? orebRateProxy, 0.5, 0.18);
   const formScore = percentileish(weightedMargin, 0, marginSpread);
   const consistencyScore = marginStd === null ? 0.5 : clamp(1 - marginStd / Math.max(6, marginSpread), 0, 1);
   const offenseScore = percentileish(offensiveRatingProxy, scoringBaseline, marginSpread * 1.25);
   const defenseScore = percentileish(defensiveRatingProxy, scoringBaseline, marginSpread * 1.25, true);
   const paceScore = percentileish(weightedPace, paceBaseline, paceBaseline * 0.25);
-  const powerScore = clamp(
-    offenseScore * 0.23 +
-    defenseScore * 0.21 +
-    formScore * 0.2 +
-    shootingScore * 0.13 +
+  const mlb = leagueKey === "MLB" ? buildMlbDetails(rows, { weightedOffense, weightedDefenseAllowed, weightedMargin }) : undefined;
+  const nba = nbaLike ? buildNbaDetails(team.id, rows, { effectiveFgPct, turnoverRate, reboundRate, freeThrowRate }) : undefined;
+  const sportSpecificBoost = leagueKey === "MLB" && mlb
+    ? (mlb.runCreationScore * 0.18 + mlb.runPreventionScore * 0.2 + (1 - mlb.recentBullpenFatigue) * 0.05)
+    : nba
+      ? nba.windowBlend.blendedPowerScore * 0.18
+      : 0;
+  const genericBase =
+    offenseScore * 0.21 +
+    defenseScore * 0.2 +
+    formScore * 0.18 +
+    shootingScore * 0.12 +
     ballSecurityScore * 0.08 +
     reboundScore * 0.07 +
     consistencyScore * 0.05 +
-    paceScore * 0.03,
-    0,
-    1
-  );
+    paceScore * 0.03;
+  const sportSpecificWeight = leagueKey === "MLB" ? 0.25 : nba ? 0.18 : 0;
+  const powerScore = clamp(genericBase * (1 - sportSpecificWeight) + sportSpecificBoost, 0, 1);
 
   return {
     teamId: team.id,
@@ -199,6 +448,8 @@ function buildProfile(team: {
     consistencyScore: Number(consistencyScore.toFixed(4)),
     powerScore: Number(powerScore.toFixed(4)),
     powerTier: tier(powerScore),
+    nba,
+    mlb,
     updatedAt: new Date().toISOString()
   };
 }
@@ -212,7 +463,19 @@ export async function refreshTeamPowerRatings(args: { leagueKey?: string | null;
       league: { select: { key: true } },
       teamGameStats: {
         orderBy: { createdAt: "desc" },
-        take: lookbackGames
+        take: lookbackGames,
+        include: {
+          game: {
+            select: {
+              startTime: true,
+              homeTeamId: true,
+              awayTeamId: true,
+              venue: true,
+              scoreJson: true,
+              liveStateJson: true
+            }
+          }
+        }
       }
     }
   });
