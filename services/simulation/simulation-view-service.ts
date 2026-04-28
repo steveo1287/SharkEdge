@@ -183,9 +183,13 @@ function extractSimSummary(sim: Record<string, unknown>): ContextualGameSimulati
       totalStdDev: typeof dist.totalStdDev === "number" ? dist.totalStdDev : 0,
       homeScoreStdDev: typeof dist.homeScoreStdDev === "number" ? dist.homeScoreStdDev : 0,
       awayScoreStdDev: typeof dist.awayScoreStdDev === "number" ? dist.awayScoreStdDev : 0,
+      spreadStdDev: typeof dist.spreadStdDev === "number" ? dist.spreadStdDev : 12.5,
       p10Total: typeof dist.p10Total === "number" ? dist.p10Total : sim.projectedTotal - 10,
       p50Total: typeof dist.p50Total === "number" ? dist.p50Total : sim.projectedTotal,
       p90Total: typeof dist.p90Total === "number" ? dist.p90Total : sim.projectedTotal + 10,
+      p10SpreadHome: typeof dist.p10SpreadHome === "number" ? dist.p10SpreadHome : sim.projectedSpreadHome - 8,
+      p50SpreadHome: typeof dist.p50SpreadHome === "number" ? dist.p50SpreadHome : sim.projectedSpreadHome,
+      p90SpreadHome: typeof dist.p90SpreadHome === "number" ? dist.p90SpreadHome : sim.projectedSpreadHome + 8,
     },
     drivers: Array.isArray(sim.drivers)
       ? (sim.drivers as unknown[]).filter((d): d is string => typeof d === "string")
