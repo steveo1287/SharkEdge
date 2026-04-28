@@ -50,18 +50,6 @@ export const MAIN_NAV_ITEMS: NavItem[] = [
     icon: NAV_ICONS.board
   },
   {
-    href: "/games",
-    label: "Games",
-    description: "Full slate with matchup detail, scores, and game routing.",
-    icon: NAV_ICONS.games
-  },
-  {
-    href: "/trends",
-    label: "Trends",
-    description: "Historical systems, statistical validation, and live matches.",
-    icon: NAV_ICONS.trends
-  },
-  {
     href: "/props",
     label: "Props",
     description: "Player props market — price, role, movement, and EV context.",
@@ -69,17 +57,16 @@ export const MAIN_NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/sim",
-    label: "Simulator",
-    description: "Run game simulations, model outcomes, and stress-test lines.",
+    label: "Sim Hub",
+    description: "Simulation command desk that routes into focused NBA and MLB workspaces.",
     icon: NAV_ICONS.sim,
     badge: "SIM"
   },
   {
-    href: "/nba-edge",
-    label: "NBA Edge",
-    description: "Data-driven NBA prop engine with sims, context, and execution.",
-    icon: NAV_ICONS.performance,
-    badge: "EDGE"
+    href: "/trends",
+    label: "Trends",
+    description: "Historical systems, statistical validation, and live matches.",
+    icon: NAV_ICONS.trends
   }
 ];
 
@@ -111,6 +98,39 @@ export const RESEARCH_NAV_ITEMS: NavItem[] = [
 ];
 
 export const SECONDARY_NAV_ITEMS: NavItem[] = [
+  {
+    href: "/sim/nba",
+    label: "NBA Sim Desk",
+    description: "NBA sides, calibrated player sims, and prop drilldowns.",
+    icon: NAV_ICONS.sim,
+    badge: "NBA"
+  },
+  {
+    href: "/sim/mlb",
+    label: "MLB Edge Desk",
+    description: "MLB sides, totals, market edges, pitching and bullpen factors.",
+    icon: NAV_ICONS.performance,
+    badge: "MLB"
+  },
+  {
+    href: "/sim/players?league=NBA",
+    label: "NBA Players",
+    description: "Projected NBA player box scores and player-vs-player matchups.",
+    icon: NAV_ICONS.players
+  },
+  {
+    href: "/nba-edge",
+    label: "NBA Edge",
+    description: "Data-driven NBA prop engine with sims, context, and execution.",
+    icon: NAV_ICONS.performance,
+    badge: "EDGE"
+  },
+  {
+    href: "/mlb-edge",
+    label: "MLB Edge",
+    description: "MLB edge detector and market alignment layer.",
+    icon: NAV_ICONS.performance
+  },
   {
     href: "/bets",
     label: "My Bets",
@@ -162,11 +182,13 @@ export function getLeagueDisplayName(leagueKey: string | null | undefined) {
 
 export function isActivePath(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
+  if (href === "/sim") return pathname === "/sim";
   if (href === "/teams" && (pathname.startsWith("/leagues/") || pathname.startsWith("/team/"))) return true;
   if (href === "/games" && pathname.startsWith("/game/")) return true;
   if (href === "/content" && pathname.startsWith("/stories/")) return true;
   if (href.startsWith("/leagues/")) return pathname === href || pathname.startsWith(`${href}/`);
-  return pathname === href || pathname.startsWith(`${href}/`);
+  const cleanHref = href.split("?")[0] ?? href;
+  return pathname === cleanHref || pathname.startsWith(`${cleanHref}/`);
 }
 
 export function getRouteMeta(pathname: string) {
@@ -182,21 +204,25 @@ export function getRouteMeta(pathname: string) {
   }
 
   const routes = [
-    { match: (v: string) => v === "/",                          eyebrow: "Command Center",  title: "Today",          subtitle: "Live edges, movement, and the sharpest opportunities right now." },
-    { match: (v: string) => isActivePath(v, "/board"),          eyebrow: "Market Board",    title: "Board",          subtitle: "Verified pricing across all sportsbooks." },
+    { match: (v: string) => v === "/", eyebrow: "Command Center", title: "Today", subtitle: "Live edges, movement, and the sharpest opportunities right now." },
+    { match: (v: string) => isActivePath(v, "/board"), eyebrow: "Market Board", title: "Board", subtitle: "Verified pricing across all sportsbooks." },
     { match: (v: string) => isActivePath(v, "/games") || v.startsWith("/game/"), eyebrow: "Games", title: "Games", subtitle: "Full slate with matchup detail and game routing." },
-    { match: (v: string) => isActivePath(v, "/props"),          eyebrow: "Props Lab",       title: "Props",          subtitle: "Player markets — price, movement, and EV context." },
-    { match: (v: string) => isActivePath(v, "/sim") || isActivePath(v, "/game/sim"), eyebrow: "Simulation Engine", title: "Simulator", subtitle: "Model outcomes and stress-test lines." },
-    { match: (v: string) => isActivePath(v, "/players"),        eyebrow: "Research",        title: "Players",        subtitle: "Player form, workload, and prop-pressure context." },
-    { match: (v: string) => isActivePath(v, "/teams"),          eyebrow: "Research",        title: "Teams",          subtitle: "Schedule spot, recent form, and board pressure." },
-    { match: (v: string) => isActivePath(v, "/trends"),         eyebrow: "Trends Engine",   title: "Trends",         subtitle: "Historical systems, active matches, and validation signals." },
-    { match: (v: string) => isActivePath(v, "/watchlist"),      eyebrow: "My List",         title: "Watchlist",      subtitle: "Saved edges and tracked plays." },
-    { match: (v: string) => isActivePath(v, "/bets"),           eyebrow: "Bet Tracker",     title: "My Bets",        subtitle: "Your card, prices, and outcomes in one ledger." },
-    { match: (v: string) => isActivePath(v, "/performance"),    eyebrow: "Analytics",       title: "Performance",    subtitle: "CLV, units, and what's actually working." },
-    { match: (v: string) => isActivePath(v, "/alerts"),         eyebrow: "Notifications",   title: "Alerts",         subtitle: "Movement and threshold alerts." },
-    { match: (v: string) => isActivePath(v, "/providers"),      eyebrow: "Data Health",     title: "Providers",      subtitle: "Feed freshness and data source status." },
+    { match: (v: string) => isActivePath(v, "/props"), eyebrow: "Props Lab", title: "Props", subtitle: "Player markets — price, movement, and EV context." },
+    { match: (v: string) => v === "/sim", eyebrow: "Simulation Engine", title: "Sim Hub", subtitle: "Choose the correct model desk before drilling into a matchup." },
+    { match: (v: string) => isActivePath(v, "/sim/nba"), eyebrow: "NBA Sim Desk", title: "NBA Sim", subtitle: "Side reads, calibrated player sims, and prop drilldowns." },
+    { match: (v: string) => isActivePath(v, "/sim/mlb"), eyebrow: "MLB Edge Desk", title: "MLB Sim", subtitle: "Sides, totals, pitcher/bullpen factors, and market edge." },
+    { match: (v: string) => isActivePath(v, "/sim/players"), eyebrow: "NBA Player Sims", title: "Player Matchups", subtitle: "Projected box scores and player-vs-player matchup reads." },
+    { match: (v: string) => isActivePath(v, "/players"), eyebrow: "Research", title: "Players", subtitle: "Player form, workload, and prop-pressure context." },
+    { match: (v: string) => isActivePath(v, "/teams"), eyebrow: "Research", title: "Teams", subtitle: "Schedule spot, recent form, and board pressure." },
+    { match: (v: string) => isActivePath(v, "/trends"), eyebrow: "Trends Engine", title: "Trends", subtitle: "Historical systems, active matches, and validation signals." },
+    { match: (v: string) => isActivePath(v, "/watchlist"), eyebrow: "My List", title: "Watchlist", subtitle: "Saved edges and tracked plays." },
+    { match: (v: string) => isActivePath(v, "/bets"), eyebrow: "Bet Tracker", title: "My Bets", subtitle: "Your card, prices, and outcomes in one ledger." },
+    { match: (v: string) => isActivePath(v, "/performance"), eyebrow: "Analytics", title: "Performance", subtitle: "CLV, units, and what's actually working." },
+    { match: (v: string) => isActivePath(v, "/alerts"), eyebrow: "Notifications", title: "Alerts", subtitle: "Movement and threshold alerts." },
+    { match: (v: string) => isActivePath(v, "/providers"), eyebrow: "Data Health", title: "Providers", subtitle: "Feed freshness and data source status." },
     { match: (v: string) => isActivePath(v, "/content") || v.startsWith("/stories/"), eyebrow: "Content", title: "Coverage", subtitle: "Betting-native news and analysis." },
-    { match: (v: string) => isActivePath(v, "/nba-edge"), eyebrow: "NBA Edge", title: "NBA Edge", subtitle: "Data-driven NBA prop engine with full modeling pipeline." }
+    { match: (v: string) => isActivePath(v, "/nba-edge"), eyebrow: "NBA Edge", title: "NBA Edge", subtitle: "Data-driven NBA prop engine with full modeling pipeline." },
+    { match: (v: string) => isActivePath(v, "/mlb-edge"), eyebrow: "MLB Edge", title: "MLB Edge", subtitle: "Baseball market edge detector and model alignment." }
   ];
 
   return (
