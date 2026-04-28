@@ -1,4 +1,5 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
+import { fetchDataBallrPlayerFeed } from "@/services/nba/databallr-player-feed";
 import { normalizeNbaTeam } from "@/services/simulation/nba-team-analytics";
 
 export type RealPlayerFeedRecord = {
@@ -22,10 +23,10 @@ export type RealPlayerFeedRecord = {
   rimProtection: number;
   clutchImpact: number;
   fatigueRisk: number;
-  source: "espn-roster" | "nba-stats-api" | "lineup-feed" | "injury-feed" | "merged";
+  source: "databallr" | "espn-roster" | "nba-stats-api" | "lineup-feed" | "injury-feed" | "merged";
 };
 
-const CACHE_KEY = "nba:real-player-feed:v2";
+const CACHE_KEY = "nba:real-player-feed:v3";
 const CACHE_TTL_SECONDS = 60 * 60 * 2;
 const ESPN_TEAMS_URL = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams";
 
@@ -139,31 +140,19 @@ function normalizeEspnTeamEntry(entry: any): EspnTeamRef | null {
   const id = text(team?.id, team?.uid?.split?.(":")?.pop?.());
   const name = text(team?.displayName, team?.name, team?.location, team?.shortDisplayName);
   if (!id || !name) return null;
-  return {
-    id,
-    name,
-    abbreviation: text(team?.abbreviation) ?? null
-  };
+  return { id, name, abbreviation: text(team?.abbreviation) ?? null };
 }
 
 function extractEspnTeams(body: any): EspnTeamRef[] {
-  const candidates =
-    body?.sports?.[0]?.leagues?.[0]?.teams ??
-    body?.leagues?.[0]?.teams ??
-    body?.teams ??
-    [];
-  return Array.isArray(candidates)
-    ? candidates.map(normalizeEspnTeamEntry).filter((team): team is EspnTeamRef => Boolean(team))
-    : [];
+  const candidates = body?.sports?.[0]?.leagues?.[0]?.teams ?? body?.leagues?.[0]?.teams ?? body?.teams ?? [];
+  return Array.isArray(candidates) ? candidates.map(normalizeEspnTeamEntry).filter((team): team is EspnTeamRef => Boolean(team)) : [];
 }
 
 function flattenEspnRosterRows(body: any): any[] {
   if (Array.isArray(body?.athletes)) return body.athletes;
   if (Array.isArray(body?.team?.athletes)) return body.team.athletes;
   if (Array.isArray(body?.roster)) return body.roster;
-  if (Array.isArray(body?.groups)) {
-    return body.groups.flatMap((group: any) => Array.isArray(group?.athletes) ? group.athletes : []);
-  }
+  if (Array.isArray(body?.groups)) return body.groups.flatMap((group: any) => Array.isArray(group?.athletes) ? group.athletes : []);
   return [];
 }
 
@@ -174,14 +163,7 @@ function playerNameFromEspnAthlete(row: any) {
 
 function statusFromEspnAthlete(row: any): RealPlayerFeedRecord["status"] {
   const athlete = row?.athlete ?? row;
-  return statusFrom(
-    row?.status?.type?.description ??
-    row?.status?.type?.name ??
-    row?.status?.name ??
-    athlete?.status?.type?.description ??
-    athlete?.status?.name ??
-    "available"
-  );
+  return statusFrom(row?.status?.type?.description ?? row?.status?.type?.name ?? row?.status?.name ?? athlete?.status?.type?.description ?? athlete?.status?.name ?? "available");
 }
 
 function rosterRoleIndex(index: number) {
@@ -238,9 +220,7 @@ async function fetchEspnTeamRoster(team: EspnTeamRef) {
   const url = `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${encodeURIComponent(team.id)}/roster`;
   try {
     const body = await fetchJson(url);
-    return flattenEspnRosterRows(body)
-      .map((row, index) => normalizeEspnRosterPlayer(row, team, index))
-      .filter((row): row is RealPlayerFeedRecord => Boolean(row));
+    return flattenEspnRosterRows(body).map((row, index) => normalizeEspnRosterPlayer(row, team, index)).filter((row): row is RealPlayerFeedRecord => Boolean(row));
   } catch {
     return [] as RealPlayerFeedRecord[];
   }
@@ -270,8 +250,9 @@ async function fetchSource(url: string | undefined, source: RealPlayerFeedRecord
 }
 
 function sourcePriority(source: RealPlayerFeedRecord["source"]) {
-  if (source === "injury-feed") return 5;
-  if (source === "lineup-feed") return 4;
+  if (source === "injury-feed") return 6;
+  if (source === "lineup-feed") return 5;
+  if (source === "databallr") return 4;
   if (source === "nba-stats-api") return 3;
   if (source === "espn-roster") return 2;
   return 1;
@@ -305,13 +286,14 @@ function mergeRecords(records: RealPlayerFeedRecord[]) {
 export async function getMergedRealPlayerFeed() {
   const cached = await readHotCache<RealPlayerFeedRecord[]>(CACHE_KEY);
   if (cached) return cached;
-  const [espnRoster, stats, lineup, injury] = await Promise.all([
+  const [databallr, espnRoster, stats, lineup, injury] = await Promise.all([
+    fetchDataBallrPlayerFeed(),
     fetchEspnRosterFeed(),
     fetchSource(process.env.NBA_STATS_API_PLAYER_PROFILE_URL ?? process.env.NBA_PLAYER_STATS_URL, "nba-stats-api"),
     fetchSource(process.env.NBA_LINEUP_PLAYER_PROFILE_URL ?? process.env.NBA_LINEUP_DATA_URL, "lineup-feed"),
     fetchSource(process.env.NBA_INJURY_PLAYER_PROFILE_URL ?? process.env.NBA_PLAYER_IMPACT_URL ?? process.env.NBA_INJURY_IMPACT_URL, "injury-feed")
   ]);
-  const merged = mergeRecords([...espnRoster, ...stats, ...lineup, ...injury]);
+  const merged = mergeRecords([...espnRoster, ...stats, ...databallr, ...lineup, ...injury]);
   if (merged.length) await writeHotCache(CACHE_KEY, merged, CACHE_TTL_SECONDS);
   return merged;
 }
