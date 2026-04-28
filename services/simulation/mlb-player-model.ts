@@ -1,4 +1,5 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
+import { getMlbDataApiTeamPlayerProfiles } from "@/services/mlb/mlb-data-api-feed";
 import { normalizeMlbTeam } from "@/services/simulation/mlb-team-analytics";
 
 export type MlbPlayerProfile = {
@@ -52,7 +53,7 @@ export type MlbTeamPlayerSummary = {
   notes: string[];
 };
 
-const CACHE_KEY = "mlb:player-model:v1";
+const CACHE_KEY = "mlb:player-model:v2";
 const CACHE_TTL_SECONDS = 60 * 60 * 6;
 type RawPlayer = Record<string, unknown>;
 
@@ -150,7 +151,7 @@ function normalizeRaw(row: RawPlayer): MlbPlayerProfile | null {
   };
 }
 
-async function fetchProfiles() {
+async function fetchExternalProfiles() {
   const cached = await readHotCache<Record<string, MlbPlayerProfile[]>>(CACHE_KEY);
   if (cached) return cached;
   const url = process.env.MLB_PLAYER_ANALYTICS_URL?.trim() || process.env.MLB_PLAYER_STATS_URL?.trim();
@@ -175,6 +176,14 @@ async function fetchProfiles() {
   return null;
 }
 
+async function getPlayersForTeam(teamName: string) {
+  const dataApiProfiles = await getMlbDataApiTeamPlayerProfiles(teamName);
+  if (dataApiProfiles?.length) return dataApiProfiles;
+
+  const grouped = await fetchExternalProfiles();
+  return grouped?.[normalizeMlbTeam(teamName)] ?? syntheticPlayers(teamName);
+}
+
 function weighted(players: MlbPlayerProfile[], weight: (p: MlbPlayerProfile) => number, selector: (p: MlbPlayerProfile) => number) {
   const active = players.filter((p) => availabilityWeight(p.status) < 1);
   const totalWeight = active.reduce((sum, p) => sum + Math.max(0, weight(p)), 0);
@@ -183,8 +192,7 @@ function weighted(players: MlbPlayerProfile[], weight: (p: MlbPlayerProfile) => 
 }
 
 export async function getMlbTeamPlayerSummary(teamName: string): Promise<MlbTeamPlayerSummary> {
-  const grouped = await fetchProfiles();
-  const players = grouped?.[normalizeMlbTeam(teamName)] ?? syntheticPlayers(teamName);
+  const players = await getPlayersForTeam(teamName);
   const source = players.some((p) => p.source === "real") ? "real" : "synthetic";
   const hitters = players.filter((p) => p.playerType === "hitter" || p.playerType === "two-way");
   const pitchers = players.filter((p) => p.playerType === "starter" || p.playerType === "reliever" || p.playerType === "two-way");
@@ -215,6 +223,6 @@ export async function getMlbTeamPlayerSummary(teamName: string): Promise<MlbTeam
     offensivePlayerBoost: Number((lineupRunCreation * 0.48 + lineupPower * 0.22 + lineupDiscipline * 0.18 + platoonFlex * 0.16 + speedDefense * 0.08 - availabilityDrag * 0.28).toFixed(2)),
     pitchingPlayerBoost: Number((starterQuality * 0.55 + bullpenLeverage * 0.35 - bullpenFatigue * 0.9 - availabilityDrag * 0.14).toFixed(2)),
     volatilityBoost: Number(Math.max(0.85, Math.min(1.8, 1 + bullpenFatigue / 5 + availabilityDrag / 18 + Math.abs(lineupPower) / 30)).toFixed(2)),
-    notes: [source === "real" ? "Real MLB player analytics feed applied." : "Synthetic MLB player model applied until MLB_PLAYER_ANALYTICS_URL is configured.", `Availability drag ${availabilityDrag}.`, `Bullpen fatigue ${bullpenFatigue}.`]
+    notes: [source === "real" ? "Real MLB player analytics feed applied from MLB Data API or configured player feed." : "Synthetic MLB player model applied after MLB Data API/configured feeds returned no data.", `Availability drag ${availabilityDrag}.`, `Bullpen fatigue ${bullpenFatigue}.`]
   };
 }
