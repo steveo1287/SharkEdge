@@ -1,6 +1,7 @@
 import { normalCdf } from "@/services/simulation/probability-math";
 import { getCachedTeamPowerRating, type TeamPowerRatingProfile } from "@/services/stats/team-power-ratings";
-import { buildPlayerLockImpactForEvent, type PlayerLockImpactSummary } from "@/services/simulation/player-lock-impact";
+import { buildPlayerLockImpactForEvent } from "@/services/simulation/player-lock-impact";
+import { eloWinProbability, getCachedTeamElo } from "@/services/ratings/elo-rating-service";
 
 type EventProjectionLike = {
   eventId: string;
@@ -75,6 +76,10 @@ function applyScoreDelta(args: {
   };
 }
 
+function homeFieldEloForLeague(leagueKey: string) {
+  return leagueKey === "MLB" ? 24 : leagueKey === "NBA" ? 55 : 45;
+}
+
 export async function applyGameOutcomePowerAdjustment<T extends EventProjectionLike>(args: {
   projection: T;
   leagueKey: string;
@@ -83,9 +88,11 @@ export async function applyGameOutcomePowerAdjustment<T extends EventProjectionL
 }) {
   if (!args.homeTeam || !args.awayTeam) return args.projection;
 
-  const [homePower, awayPower, playerLock] = await Promise.all([
+  const [homePower, awayPower, homeElo, awayElo, playerLock] = await Promise.all([
     getCachedTeamPowerRating(args.homeTeam.id),
     getCachedTeamPowerRating(args.awayTeam.id),
+    getCachedTeamElo({ leagueKey: args.leagueKey, teamId: args.homeTeam.id }),
+    getCachedTeamElo({ leagueKey: args.leagueKey, teamId: args.awayTeam.id }),
     buildPlayerLockImpactForEvent({
       eventId: args.projection.eventId,
       homeTeamId: args.homeTeam.id,
@@ -120,6 +127,16 @@ export async function applyGameOutcomePowerAdjustment<T extends EventProjectionL
     drivers.push("Team power rating unavailable; no power adjustment applied.");
   }
 
+  const eloProb = homeElo && awayElo
+    ? eloWinProbability({ homeElo: homeElo.rating, awayElo: awayElo.rating, homeFieldElo: homeFieldEloForLeague(args.leagueKey) })
+    : null;
+  const eloConfidence = homeElo && awayElo ? clamp((homeElo.games + awayElo.games) / 120, 0.1, 1) : 0;
+  if (eloProb !== null && homeElo && awayElo) {
+    drivers.push(`Elo home win probability ${round(eloProb, 3)} from ${round(homeElo.rating, 1)} vs ${round(awayElo.rating, 1)}.`);
+  } else {
+    drivers.push("Elo rating unavailable; no Elo win-probability blend applied.");
+  }
+
   const lockWeight = clamp(0.55 + playerLock.confidence * 0.25, 0.45, 0.8);
   const lockSpreadDelta = playerLock.homeSpreadDelta * lockWeight;
   const lockTotalDelta = playerLock.totalDelta * lockWeight;
@@ -140,8 +157,10 @@ export async function applyGameOutcomePowerAdjustment<T extends EventProjectionL
   const spreadStdDev = readSpreadStd(previousMetadata);
   const marginProb = normalCdf(projectedSpreadHome, 0, spreadStdDev);
   const priorWinProb = typeof args.projection.winProbHome === "number" ? args.projection.winProbHome : 0.5;
-  const winBlend = clamp(0.42 + (power?.confidence ?? 0.25) * 0.12 + playerLock.confidence * 0.08, 0.38, 0.62);
-  const winProbHome = clamp(priorWinProb * (1 - winBlend) + marginProb * winBlend, 0.02, 0.98);
+  const baseBlend = clamp(0.42 + (power?.confidence ?? 0.25) * 0.12 + playerLock.confidence * 0.08, 0.38, 0.62);
+  const preEloWinProbHome = clamp(priorWinProb * (1 - baseBlend) + marginProb * baseBlend, 0.02, 0.98);
+  const eloBlend = eloProb === null ? 0 : clamp(0.12 + eloConfidence * 0.16, 0.1, 0.28);
+  const winProbHome = clamp(eloProb === null ? preEloWinProbHome : preEloWinProbHome * (1 - eloBlend) + eloProb * eloBlend, 0.02, 0.98);
 
   return {
     ...args.projection,
@@ -159,6 +178,13 @@ export async function applyGameOutcomePowerAdjustment<T extends EventProjectionL
         away: awayPower,
         powerDelta: power
       },
+      elo: {
+        home: homeElo,
+        away: awayElo,
+        homeWinProbability: eloProb === null ? null : round(eloProb, 4),
+        confidence: round(eloConfidence, 4),
+        blend: round(eloBlend, 4)
+      },
       playerLock,
       gameOutcomeAdjustments: {
         powerSpreadDelta: round(totalPowerSpreadDelta, 3),
@@ -168,7 +194,9 @@ export async function applyGameOutcomePowerAdjustment<T extends EventProjectionL
         spreadStdDev,
         priorWinProbHome: round(priorWinProb, 4),
         marginWinProbHome: round(marginProb, 4),
-        winBlend: round(winBlend, 4)
+        preEloWinProbHome: round(preEloWinProbHome, 4),
+        finalWinProbHome: round(winProbHome, 4),
+        winBlend: round(baseBlend, 4)
       },
       drivers: Array.from(new Set([...previousDrivers, ...simulationDrivers, ...drivers]))
     }
