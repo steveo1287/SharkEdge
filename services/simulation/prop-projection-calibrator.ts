@@ -1,12 +1,18 @@
 import { calibratePropProjectionToMarket } from "./prop-market-calibration";
+import type { ModelTuningRule } from "@/services/evaluation/model-tuning-service";
 
 type PlayerProjectionLike = {
+  statKey?: string;
   meanValue: number;
   medianValue: number;
   stdDev: number;
   hitProbOver?: Record<string, number> | null;
   hitProbUnder?: Record<string, number> | null;
   metadata?: Record<string, unknown> | null;
+};
+
+type ProjectionCalibrationOptions = {
+  tuningRule?: ModelTuningRule | null;
 };
 
 function readNumber(value: unknown): number | null {
@@ -21,7 +27,10 @@ function lineKey(line: number) {
   return String(line);
 }
 
-export function applyMarketCalibrationToPlayerProjection<T extends PlayerProjectionLike>(projection: T): T {
+export function applyMarketCalibrationToPlayerProjection<T extends PlayerProjectionLike>(
+  projection: T,
+  options: ProjectionCalibrationOptions = {}
+): T {
   const metadata = asRecord(projection.metadata);
   const marketLine = readNumber(metadata.marketLine);
   const marketOddsOver = readNumber(metadata.marketOddsOver);
@@ -39,7 +48,8 @@ export function applyMarketCalibrationToPlayerProjection<T extends PlayerProject
     underOddsAmerican: marketOddsUnder,
     roleConfidence: readNumber(metadata.roleConfidence),
     sampleSize: readNumber(metadata.sampleSize),
-    minutesSampleSize: readNumber(metadata.minutesSampleSize)
+    minutesSampleSize: readNumber(metadata.minutesSampleSize),
+    tuningRule: options.tuningRule
   });
 
   const key = lineKey(marketLine);
@@ -74,6 +84,10 @@ export function applyMarketCalibrationToPlayerProjection<T extends PlayerProject
       uncalibratedMedianValue: projection.medianValue,
       uncalibratedStdDev: projection.stdDev,
       marketCalibrated: calibration.marketNoVigOverProbability !== null,
+      modelTuningApplied: Boolean(options.tuningRule),
+      modelTuningRule: options.tuningRule ?? null,
+      minPlayableEdge: calibration.minPlayableEdge,
+      tuningAction: calibration.tuningAction,
       marketCalibration: {
         marketLine,
         marketOddsOver,
@@ -84,6 +98,8 @@ export function applyMarketCalibrationToPlayerProjection<T extends PlayerProject
         modelEdgeProbability: calibration.modelEdgeProbability,
         marketBlendWeight: calibration.marketBlendWeight,
         confidence: calibration.confidence,
+        minPlayableEdge: calibration.minPlayableEdge,
+        tuningAction: calibration.tuningAction,
         notes: calibration.notes
       },
       drivers: Array.from(new Set([...previousDrivers, ...calibration.notes]))
