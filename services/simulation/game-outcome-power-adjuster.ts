@@ -6,6 +6,7 @@ import { buildPlayerLockImpactForEvent } from "@/services/simulation/player-lock
 import { eloWinProbability, getCachedTeamElo } from "@/services/ratings/elo-rating-service";
 import { getLatestGameOutcomeCalibration } from "@/services/evaluation/game-outcome-calibration-service";
 import { buildMlbStarterAdjustedOutcome } from "@/services/simulation/mlb-starter-adjusted-outcome";
+import { buildGamePickGate } from "@/services/simulation/game-pick-gate";
 
 type EventProjectionLike = {
   eventId: string;
@@ -258,6 +259,18 @@ export async function applyGameOutcomePowerAdjustment<T extends EventProjectionL
   const priorWinProb = typeof args.projection.winProbHome === "number" ? args.projection.winProbHome : 0.5;
   const ensemble = blendProbabilities({ priorProb: priorWinProb, marginProb, eloProb, marketAnchor, powerConfidence: power?.confidence ?? 0.25, lockConfidence: playerLock.confidence, eloConfidence, calibrationRules });
   const winProbHome = ensemble.finalProb;
+  const gamePickGate = buildGamePickGate({
+    leagueKey: args.leagueKey,
+    finalWinProbHome: winProbHome,
+    marketAnchor,
+    calibration: calibration ? { sample: calibration.sample, rules: calibration.rules, warnings: calibration.warnings } : null,
+    starterLock: mlbStarter?.lineupLock ?? null,
+    powerConfidence: power?.confidence ?? 0.25,
+    eloConfidence,
+    playerLockConfidence: playerLock.confidence,
+    modelPlusEloWinProbHome: ensemble.modelPlusElo
+  });
+  drivers.push(...gamePickGate.drivers);
 
   return {
     ...args.projection,
@@ -270,10 +283,11 @@ export async function applyGameOutcomePowerAdjustment<T extends EventProjectionL
     metadata: {
       ...previousMetadata,
       gameOutcomePowerAdjusted: true,
-      gameOutcomeEnsembleVersion: "market_anchor_calibrated_starter_v1",
+      gameOutcomeEnsembleVersion: "market_anchor_calibrated_starter_gate_v1",
       teamPower: { home: homePower, away: awayPower, powerDelta: power },
       mlbStarterAdjustedOutcome: mlbStarter,
       marketAnchor,
+      gamePickGate,
       gameOutcomeCalibration: { generatedAt: calibration?.generatedAt ?? null, sample: calibration?.sample ?? 0, rules: calibrationRules, warnings: calibration?.warnings ?? [] },
       elo: { home: homeElo, away: awayElo, homeWinProbability: eloProb === null ? null : round(eloProb, 4), baseHomeWinProbability: eloProbBase === null ? null : round(eloProbBase, 4), confidence: round(eloConfidence, 4), blend: round(ensemble.eloBlend, 4) },
       playerLock,
