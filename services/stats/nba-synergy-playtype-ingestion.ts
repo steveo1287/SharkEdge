@@ -177,14 +177,16 @@ function parseSynergyRows(args: {
   playType: string;
 }) {
   const set = resultSet(args.response);
-  if (!set?.headers || !set.rowSet) return [] as SynergyRow[];
+  const headers = set?.headers;
+  const rowSet = set?.rowSet;
+  if (!headers?.length || !rowSet?.length) return [] as SynergyRow[];
 
   const headerIndex: Record<string, number> = {};
-  set.headers.forEach((header, index) => {
+  headers.forEach((header, index) => {
     headerIndex[normalizeKey(header)] = index;
   });
 
-  return set.rowSet.map((row): SynergyRow | null => {
+  return rowSet.map((row): SynergyRow | null => {
     const entityId = readString(valueByHeader(row, headerIndex, ["PLAYER_ID", "TEAM_ID", "GROUP_ID"]));
     const entityName = readString(valueByHeader(row, headerIndex, ["PLAYER_NAME", "TEAM_NAME", "GROUP_NAME", "NAME"]));
     if (!entityName) return null;
@@ -197,7 +199,7 @@ function parseSynergyRows(args: {
     const frequency = readNumber(valueByHeader(row, headerIndex, ["POSS_PCT", "PERCENT_POSS", "FREQUENCY", "FREQ"]));
 
     const raw: JsonRecord = {};
-    set.headers.forEach((header, index) => {
+    headers.forEach((header, index) => {
       raw[header] = row[index];
     });
 
@@ -275,7 +277,7 @@ async function findMatchedPlayer(row: SynergyRow) {
 }
 
 function profileQuality(offensiveRows: SynergyRow[], defensiveRows: SynergyRow[]) {
-  const possessions = [...offensiveRows, ...defensiveRows].reduce((sum, row) => sum + (row.possessions ?? 0), 0);
+  const possessions = [...offensiveRows, ...defensiveRows].reduce((sum: number, row) => sum + (row.possessions ?? 0), 0);
   if (possessions >= 250) return "HIGH" as const;
   if (possessions >= 80) return "MEDIUM" as const;
   return "LOW" as const;
@@ -303,6 +305,7 @@ async function persistProfiles(rows: SynergyRow[]) {
 
   for (const groupRows of groups.values()) {
     const first = groupRows[0];
+    if (!first) continue;
     const offensiveRows = groupRows.filter((row) => row.side === "offense");
     const defensiveRows = groupRows.filter((row) => row.side === "defense");
     const matched = first.entityType === "team" ? await findMatchedTeam(first) : await findMatchedPlayer(first);
@@ -311,8 +314,8 @@ async function persistProfiles(rows: SynergyRow[]) {
     const primary = pickMax(offensiveRows, (row) => row.frequency ?? row.possessions);
     const bestOffense = pickMax(offensiveRows, (row) => row.ppp);
     const weakestDefense = pickMax(defensiveRows, (row) => row.ppp);
-    const totalTrackedOffensivePossessions = offensiveRows.reduce((sum, row) => sum + (row.possessions ?? 0), 0);
-    const totalTrackedDefensivePossessions = defensiveRows.reduce((sum, row) => sum + (row.possessions ?? 0), 0);
+    const totalTrackedOffensivePossessions = offensiveRows.reduce((sum: number, row) => sum + (row.possessions ?? 0), 0);
+    const totalTrackedDefensivePossessions = defensiveRows.reduce((sum: number, row) => sum + (row.possessions ?? 0), 0);
     const profile: SynergyProfile = {
       season: first.season,
       seasonType: first.seasonType,
