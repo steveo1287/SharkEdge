@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ingestTeamStats } from "@/services/stats/team-stats-ingestion";
+import { ingestNbaAvailability } from "@/services/stats/nba-availability-ingestion";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -14,8 +15,6 @@ function isAuthorized(request: Request) {
   return bearer === cronSecret;
 }
 
-// Called by vercel.json cron or external scheduler (e.g. Railway cron)
-// Runs nightly: fetches completed games from the last 3 days and upserts TeamGameStat records.
 export async function GET(request: Request) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
@@ -23,8 +22,9 @@ export async function GET(request: Request) {
 
   try {
     const results = await ingestTeamStats({ leagues: ["MLB", "NBA"], lookbackDays: 3 });
+    const availability = await ingestNbaAvailability({ lookaheadDays: 3 });
 
-    return NextResponse.json({ ok: true, results });
+    return NextResponse.json({ ok: true, results, availability });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Stats cron failed";
     console.error("[cron/stats-ingest]", message);
