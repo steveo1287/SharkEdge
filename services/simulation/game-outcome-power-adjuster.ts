@@ -68,6 +68,7 @@ function readSpreadStd(metadata: Record<string, unknown>) {
 function noVigPair(homeOdds: number, awayOdds: number) {
   const home = americanToImplied(homeOdds);
   const away = americanToImplied(awayOdds);
+  if (home === null || away === null) return null;
   const total = home + away;
   if (!Number.isFinite(total) || total <= 0) return null;
   return { home: home / total, away: away / total, hold: total - 1 };
