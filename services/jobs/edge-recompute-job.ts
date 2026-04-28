@@ -6,6 +6,7 @@ import { ingestEventProjection, ingestPlayerProjection } from "@/services/market
 import { applyMarketCalibrationToPlayerProjection } from "@/services/simulation/prop-projection-calibrator";
 import { evaluatePlayerProjectionReadiness } from "@/services/simulation/player-prop-readiness";
 import { applyNbaSynergyAdjustmentToProjection } from "@/services/simulation/nba-synergy-projection-adjuster";
+import { applyNbaMoneyballAdjustmentToProjection } from "@/services/simulation/nba-moneyball-projection-adjuster";
 
 function isProjection(
   value: Awaited<ReturnType<typeof buildPlayerPropProjectionsForEvent>>[number]
@@ -87,6 +88,7 @@ export async function edgeRecomputeJob(eventId: string) {
   let calibratedPlayerProjectionCount = 0;
   let eligiblePlayerProjectionCount = 0;
   let skippedPlayerProjectionCount = 0;
+  let moneyballAdjustedPlayerProjectionCount = 0;
   let synergyAdjustedPlayerProjectionCount = 0;
   const skipReasons: Record<string, number> = {};
 
@@ -106,13 +108,25 @@ export async function edgeRecomputeJob(eventId: string) {
     eligiblePlayerProjectionCount += 1;
     const player = playerById.get(projection.playerId) ?? null;
     const opponentTeam = player?.teamId === homeTeam?.id ? awayTeam : player?.teamId === awayTeam?.id ? homeTeam : null;
-    const synergyProjection = event?.league.key === "NBA"
-      ? await applyNbaSynergyAdjustmentToProjection({
+    const moneyballProjection = event?.league.key === "NBA"
+      ? await applyNbaMoneyballAdjustmentToProjection({
           projection: readiness.projection,
           player,
           opponentTeam
         })
       : readiness.projection;
+    const moneyballMetadata = moneyballProjection.metadata as Record<string, unknown> | undefined;
+    if (moneyballMetadata?.moneyballAdjusted === true) {
+      moneyballAdjustedPlayerProjectionCount += 1;
+    }
+
+    const synergyProjection = event?.league.key === "NBA"
+      ? await applyNbaSynergyAdjustmentToProjection({
+          projection: moneyballProjection,
+          player,
+          opponentTeam
+        })
+      : moneyballProjection;
     const synergyMetadata = synergyProjection.metadata as Record<string, unknown> | undefined;
     if (synergyMetadata?.synergyAdjusted === true) {
       synergyAdjustedPlayerProjectionCount += 1;
@@ -142,6 +156,7 @@ export async function edgeRecomputeJob(eventId: string) {
     removedExistingPlayerProjectionCount: removedExistingPlayerProjections.count,
     eligiblePlayerProjectionCount,
     skippedPlayerProjectionCount,
+    moneyballAdjustedPlayerProjectionCount,
     synergyAdjustedPlayerProjectionCount,
     calibratedPlayerProjectionCount,
     skipReasons
