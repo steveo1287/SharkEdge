@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { buildEventProjectionFromHistory, buildPlayerPropProjectionsForEvent } from "@/services/modeling/model-engine";
 import { recomputeCurrentMarketState, recomputeEdgeSignals } from "@/services/edges/edge-engine";
 import { ingestEventProjection, ingestPlayerProjection } from "@/services/market-data/market-data-service";
+import { applyMarketCalibrationToPlayerProjection } from "@/services/simulation/prop-projection-calibrator";
 
 function isProjection(
   value: Awaited<ReturnType<typeof buildPlayerPropProjectionsForEvent>>[number]
@@ -17,8 +18,15 @@ export async function edgeRecomputeJob(eventId: string) {
   }
 
   const playerProjections = await buildPlayerPropProjectionsForEvent(eventId);
+  let calibratedPlayerProjectionCount = 0;
+
   for (const projection of playerProjections.filter(isProjection)) {
-    await ingestPlayerProjection(projection);
+    const calibratedProjection = applyMarketCalibrationToPlayerProjection(projection);
+    const metadata = calibratedProjection.metadata as Record<string, unknown> | undefined;
+    if (metadata?.marketCalibrated === true) {
+      calibratedPlayerProjectionCount += 1;
+    }
+    await ingestPlayerProjection(calibratedProjection);
   }
 
   await recomputeCurrentMarketState(eventId);
@@ -37,6 +45,7 @@ export async function edgeRecomputeJob(eventId: string) {
   return {
     eventId,
     eventProjectionBuilt: Boolean(eventProjection),
-    playerProjectionCount: playerProjections.length
+    playerProjectionCount: playerProjections.length,
+    calibratedPlayerProjectionCount
   };
 }
