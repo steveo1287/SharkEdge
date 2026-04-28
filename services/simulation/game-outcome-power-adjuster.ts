@@ -1,3 +1,5 @@
+import { prisma } from "@/lib/db/prisma";
+import { americanToImplied } from "@/lib/odds";
 import { normalCdf } from "@/services/simulation/probability-math";
 import { getCachedTeamPowerRating, type TeamPowerRatingProfile } from "@/services/stats/team-power-ratings";
 import { buildPlayerLockImpactForEvent } from "@/services/simulation/player-lock-impact";
@@ -20,6 +22,14 @@ type TeamContext = {
   abbreviation: string;
 } | null;
 
+type MarketAnchor = {
+  homeNoVigProbability: number;
+  awayNoVigProbability: number;
+  hold: number | null;
+  bookCount: number;
+  source: "paired_books" | "best_available";
+};
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -32,11 +42,85 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
+function average(values: number[]) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
 function readSpreadStd(metadata: Record<string, unknown>) {
   const simulation = asRecord(metadata.simulation);
   const distribution = asRecord(simulation.distribution ?? metadata.distribution);
   const spreadStdDev = typeof distribution.spreadStdDev === "number" ? distribution.spreadStdDev : null;
   return clamp(spreadStdDev ?? 12.5, 4, 24);
+}
+
+function noVigPair(homeOdds: number, awayOdds: number) {
+  const home = americanToImplied(homeOdds);
+  const away = americanToImplied(awayOdds);
+  const total = home + away;
+  if (!Number.isFinite(total) || total <= 0) return null;
+  return {
+    home: home / total,
+    away: away / total,
+    hold: total - 1
+  };
+}
+
+async function getMarketAnchor(eventId: string): Promise<MarketAnchor | null> {
+  const markets = await prisma.eventMarket.findMany({
+    where: {
+      eventId,
+      marketType: "moneyline",
+      side: { in: ["home", "away"] }
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 80
+  });
+
+  if (!markets.length) return null;
+
+  const byBook = new Map<string, { home?: number; away?: number }>();
+  for (const market of markets) {
+    const bookKey = market.sportsbookId ?? "unknown";
+    const odds = typeof market.currentOdds === "number" ? market.currentOdds : market.oddsAmerican;
+    const current = byBook.get(bookKey) ?? {};
+    if (market.side === "home" && current.home === undefined) current.home = odds;
+    if (market.side === "away" && current.away === undefined) current.away = odds;
+    byBook.set(bookKey, current);
+  }
+
+  const paired = Array.from(byBook.values())
+    .map((book) => (typeof book.home === "number" && typeof book.away === "number" ? noVigPair(book.home, book.away) : null))
+    .filter((value): value is { home: number; away: number; hold: number } => Boolean(value));
+
+  if (paired.length) {
+    const home = average(paired.map((pair) => pair.home));
+    const away = average(paired.map((pair) => pair.away));
+    if (home !== null && away !== null) {
+      return {
+        homeNoVigProbability: round(home, 6),
+        awayNoVigProbability: round(away, 6),
+        hold: round(average(paired.map((pair) => pair.hold)) ?? 0, 6),
+        bookCount: paired.length,
+        source: "paired_books"
+      };
+    }
+  }
+
+  const homeMarket = markets.find((market) => market.side === "home");
+  const awayMarket = markets.find((market) => market.side === "away");
+  if (!homeMarket || !awayMarket) return null;
+  const homeOdds = typeof homeMarket.currentOdds === "number" ? homeMarket.currentOdds : homeMarket.oddsAmerican;
+  const awayOdds = typeof awayMarket.currentOdds === "number" ? awayMarket.currentOdds : awayMarket.oddsAmerican;
+  const fallback = noVigPair(homeOdds, awayOdds);
+  if (!fallback) return null;
+
+  return {
+    homeNoVigProbability: round(fallback.home, 6),
+    awayNoVigProbability: round(fallback.away, 6),
+    hold: round(fallback.hold, 6),
+    bookCount: 1,
+    source: "best_available"
+  };
 }
 
 function powerScoreDelta(home: TeamPowerRatingProfile | null, away: TeamPowerRatingProfile | null) {
@@ -80,6 +164,36 @@ function homeFieldEloForLeague(leagueKey: string) {
   return leagueKey === "MLB" ? 24 : leagueKey === "NBA" ? 55 : 45;
 }
 
+function blendProbabilities(args: {
+  priorProb: number;
+  marginProb: number;
+  eloProb: number | null;
+  marketAnchor: MarketAnchor | null;
+  powerConfidence: number;
+  lockConfidence: number;
+  eloConfidence: number;
+}) {
+  const modelBlend = clamp(0.42 + args.powerConfidence * 0.12 + args.lockConfidence * 0.08, 0.38, 0.62);
+  const modelProb = clamp(args.priorProb * (1 - modelBlend) + args.marginProb * modelBlend, 0.02, 0.98);
+  const eloBlend = args.eloProb === null ? 0 : clamp(0.1 + args.eloConfidence * 0.14, 0.1, 0.24);
+  const modelPlusElo = clamp(args.eloProb === null ? modelProb : modelProb * (1 - eloBlend) + args.eloProb * eloBlend, 0.02, 0.98);
+  const marketConfidence = args.marketAnchor
+    ? clamp(0.52 + Math.min(0.16, args.marketAnchor.bookCount * 0.025) - Math.max(0, (args.marketAnchor.hold ?? 0.04) - 0.045), 0.42, 0.72)
+    : 0;
+  const finalProb = args.marketAnchor
+    ? clamp(args.marketAnchor.homeNoVigProbability * marketConfidence + modelPlusElo * (1 - marketConfidence), 0.02, 0.98)
+    : modelPlusElo;
+
+  return {
+    modelBlend,
+    modelProb,
+    eloBlend,
+    modelPlusElo,
+    marketConfidence,
+    finalProb
+  };
+}
+
 export async function applyGameOutcomePowerAdjustment<T extends EventProjectionLike>(args: {
   projection: T;
   leagueKey: string;
@@ -88,11 +202,12 @@ export async function applyGameOutcomePowerAdjustment<T extends EventProjectionL
 }) {
   if (!args.homeTeam || !args.awayTeam) return args.projection;
 
-  const [homePower, awayPower, homeElo, awayElo, playerLock] = await Promise.all([
+  const [homePower, awayPower, homeElo, awayElo, marketAnchor, playerLock] = await Promise.all([
     getCachedTeamPowerRating(args.homeTeam.id),
     getCachedTeamPowerRating(args.awayTeam.id),
     getCachedTeamElo({ leagueKey: args.leagueKey, teamId: args.homeTeam.id }),
     getCachedTeamElo({ leagueKey: args.leagueKey, teamId: args.awayTeam.id }),
+    getMarketAnchor(args.projection.eventId),
     buildPlayerLockImpactForEvent({
       eventId: args.projection.eventId,
       homeTeamId: args.homeTeam.id,
@@ -137,6 +252,12 @@ export async function applyGameOutcomePowerAdjustment<T extends EventProjectionL
     drivers.push("Elo rating unavailable; no Elo win-probability blend applied.");
   }
 
+  if (marketAnchor) {
+    drivers.push(`Market anchor home no-vig probability ${round(marketAnchor.homeNoVigProbability, 3)} from ${marketAnchor.bookCount} book pair(s).`);
+  } else {
+    drivers.push("Market anchor unavailable; model blend used without moneyline baseline.");
+  }
+
   const lockWeight = clamp(0.55 + playerLock.confidence * 0.25, 0.45, 0.8);
   const lockSpreadDelta = playerLock.homeSpreadDelta * lockWeight;
   const lockTotalDelta = playerLock.totalDelta * lockWeight;
@@ -157,10 +278,16 @@ export async function applyGameOutcomePowerAdjustment<T extends EventProjectionL
   const spreadStdDev = readSpreadStd(previousMetadata);
   const marginProb = normalCdf(projectedSpreadHome, 0, spreadStdDev);
   const priorWinProb = typeof args.projection.winProbHome === "number" ? args.projection.winProbHome : 0.5;
-  const baseBlend = clamp(0.42 + (power?.confidence ?? 0.25) * 0.12 + playerLock.confidence * 0.08, 0.38, 0.62);
-  const preEloWinProbHome = clamp(priorWinProb * (1 - baseBlend) + marginProb * baseBlend, 0.02, 0.98);
-  const eloBlend = eloProb === null ? 0 : clamp(0.12 + eloConfidence * 0.16, 0.1, 0.28);
-  const winProbHome = clamp(eloProb === null ? preEloWinProbHome : preEloWinProbHome * (1 - eloBlend) + eloProb * eloBlend, 0.02, 0.98);
+  const ensemble = blendProbabilities({
+    priorProb: priorWinProb,
+    marginProb,
+    eloProb,
+    marketAnchor,
+    powerConfidence: power?.confidence ?? 0.25,
+    lockConfidence: playerLock.confidence,
+    eloConfidence
+  });
+  const winProbHome = ensemble.finalProb;
 
   return {
     ...args.projection,
@@ -173,17 +300,19 @@ export async function applyGameOutcomePowerAdjustment<T extends EventProjectionL
     metadata: {
       ...previousMetadata,
       gameOutcomePowerAdjusted: true,
+      gameOutcomeEnsembleVersion: "market_anchor_v1",
       teamPower: {
         home: homePower,
         away: awayPower,
         powerDelta: power
       },
+      marketAnchor,
       elo: {
         home: homeElo,
         away: awayElo,
         homeWinProbability: eloProb === null ? null : round(eloProb, 4),
         confidence: round(eloConfidence, 4),
-        blend: round(eloBlend, 4)
+        blend: round(ensemble.eloBlend, 4)
       },
       playerLock,
       gameOutcomeAdjustments: {
@@ -194,9 +323,11 @@ export async function applyGameOutcomePowerAdjustment<T extends EventProjectionL
         spreadStdDev,
         priorWinProbHome: round(priorWinProb, 4),
         marginWinProbHome: round(marginProb, 4),
-        preEloWinProbHome: round(preEloWinProbHome, 4),
+        modelWinProbHome: round(ensemble.modelProb, 4),
+        modelPlusEloWinProbHome: round(ensemble.modelPlusElo, 4),
+        marketBlend: round(ensemble.marketConfidence, 4),
         finalWinProbHome: round(winProbHome, 4),
-        winBlend: round(baseBlend, 4)
+        winBlend: round(ensemble.modelBlend, 4)
       },
       drivers: Array.from(new Set([...previousDrivers, ...simulationDrivers, ...drivers]))
     }
