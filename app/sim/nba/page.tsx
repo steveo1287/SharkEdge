@@ -85,7 +85,7 @@ function topPlayers(row: Row) {
 
 function topPlayerProp(players: PlayerProjection[]) {
   return players
-    .flatMap((player) => Object.values(player.propHitProbabilities).map((prop) => ({ player, prop })))
+    .flatMap((player) => Object.entries(player.propHitProbabilities).map(([stat, prop]) => ({ player, stat, prop })))
     .filter((item) => item.prop)
     .sort((left, right) => Math.abs(right.prop.edgeToLine) - Math.abs(left.prop.edgeToLine))[0] ?? null;
 }
@@ -176,7 +176,7 @@ function PlayerSignalBoard({ rows }: { rows: Row[] }) {
                 <div><div className="font-mono text-lg text-white">{pct(player.confidence, 0)}</div><div className="text-slate-500">CONF</div></div>
               </div>
               <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.025] p-3 text-xs text-slate-300">
-                {prop ? `${prop.prop.recommendedSide} ${prop.prop.statType} ${num(prop.prop.line)} | edge ${num(prop.prop.edgeToLine)}` : player.whyLikely[0] ?? "Role and matchup context support the median."}
+                {prop ? `${prop.prop.recommendedSide} ${prop.stat} ${num(prop.prop.line)} | edge ${num(prop.prop.edgeToLine)}` : player.whyLikely[0] ?? "Role and matchup context support the median."}
               </div>
             </SimSignalCard>
           </Link>
