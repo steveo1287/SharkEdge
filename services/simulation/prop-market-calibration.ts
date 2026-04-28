@@ -6,6 +6,15 @@ import {
   removeTwoWayVig
 } from "./probability-math";
 
+export type PropMarketCalibrationTuningRule = {
+  statKey?: string;
+  minPlayableEdge?: number;
+  marketBlendAdjustment?: number;
+  confidenceAdjustment?: number;
+  stdDevMultiplier?: number;
+  action?: "TRUST" | "STANDARD" | "CAUTION" | "PASS_ONLY";
+};
+
 export type PropMarketCalibrationInput = {
   modelMean: number;
   modelStdDev: number;
@@ -15,6 +24,7 @@ export type PropMarketCalibrationInput = {
   roleConfidence?: number | null;
   sampleSize?: number | null;
   minutesSampleSize?: number | null;
+  tuningRule?: PropMarketCalibrationTuningRule | null;
 };
 
 export type PropMarketCalibrationResult = {
@@ -28,6 +38,8 @@ export type PropMarketCalibrationResult = {
   calibratedOverProbability: number | null;
   calibratedUnderProbability: number | null;
   confidence: number;
+  minPlayableEdge: number | null;
+  tuningAction: PropMarketCalibrationTuningRule["action"] | null;
   notes: string[];
 };
 
@@ -47,8 +59,12 @@ function getModelConfidence(input: PropMarketCalibrationInput) {
   const stdPenalty = validNumber(input.modelStdDev) && validNumber(input.marketLine)
     ? clampNumber(Math.abs(input.modelMean - input.marketLine) / Math.max(1, input.modelStdDev), 0, 1)
     : 0;
+  const baseConfidence = clampNumber(roleConfidence * 0.45 + sampleConfidence * 0.45 + stdPenalty * 0.1, 0.05, 0.95);
+  const tuningAdjustment = validNumber(input.tuningRule?.confidenceAdjustment)
+    ? input.tuningRule.confidenceAdjustment
+    : 0;
 
-  return clampNumber(roleConfidence * 0.45 + sampleConfidence * 0.45 + stdPenalty * 0.1, 0.05, 0.95);
+  return clampNumber(baseConfidence + tuningAdjustment, 0.03, 0.97);
 }
 
 function getMarketImpliedMean(args: {
@@ -56,16 +72,13 @@ function getMarketImpliedMean(args: {
   stdDev: number;
   noVigOverProbability: number;
 }) {
-  // P(Over line) = 1 - CDF(line; mean, sd)
-  // CDF(line; mean, sd) = 1 - P(Over)
-  // line = mean + z * sd, where z = inverseCDF(1 - P(Over))
-  // mean = line - z * sd
   const z = inverseNormalCdf(1 - args.noVigOverProbability);
   return args.line - z * args.stdDev;
 }
 
 export function calibratePropProjectionToMarket(input: PropMarketCalibrationInput): PropMarketCalibrationResult {
   const notes: string[] = [];
+  const tuningRule = input.tuningRule ?? null;
   const modelStdDev = validNumber(input.modelStdDev) && input.modelStdDev > 0
     ? input.modelStdDev
     : Math.max(1, Math.abs(input.modelMean) * 0.18);
@@ -79,6 +92,7 @@ export function calibratePropProjectionToMarket(input: PropMarketCalibrationInpu
   let adjustedMean = input.modelMean;
   let adjustedStdDev = modelStdDev;
   let marketBlendWeight = 0;
+  const minPlayableEdge = validNumber(tuningRule?.minPlayableEdge) ? tuningRule.minPlayableEdge : null;
 
   if (validNumber(input.marketLine)) {
     modelOverProbability = clampProbability(1 - normalCdf(input.marketLine, input.modelMean, modelStdDev), 0.001, 0.999);
@@ -93,11 +107,13 @@ export function calibratePropProjectionToMarket(input: PropMarketCalibrationInpu
 
     const lowConfidenceBlend = 0.64 * (1 - confidence);
     const baselineMarketRespect = 0.12;
-    marketBlendWeight = clampNumber(baselineMarketRespect + lowConfidenceBlend, 0.12, 0.74);
+    const tuningBlendAdjustment = validNumber(tuningRule?.marketBlendAdjustment) ? tuningRule.marketBlendAdjustment : 0;
+    marketBlendWeight = clampNumber(baselineMarketRespect + lowConfidenceBlend + tuningBlendAdjustment, 0.06, 0.86);
     adjustedMean = input.modelMean * (1 - marketBlendWeight) + marketImpliedMean * marketBlendWeight;
 
     const disagreement = Math.abs(input.modelMean - marketImpliedMean) / Math.max(1, modelStdDev);
-    adjustedStdDev = modelStdDev * clampNumber(1 + disagreement * 0.16 + (1 - confidence) * 0.14, 0.92, 1.32);
+    const tuningStdDevMultiplier = validNumber(tuningRule?.stdDevMultiplier) ? tuningRule.stdDevMultiplier : 1;
+    adjustedStdDev = modelStdDev * clampNumber(1 + disagreement * 0.16 + (1 - confidence) * 0.14, 0.92, 1.32) * clampNumber(tuningStdDevMultiplier, 0.9, 1.3);
 
     notes.push(`Market calibration blended ${(marketBlendWeight * 100).toFixed(0)}% toward no-vig prop price.`);
     if (confidence < 0.45) {
@@ -105,6 +121,9 @@ export function calibratePropProjectionToMarket(input: PropMarketCalibrationInpu
     }
     if (disagreement >= 0.75) {
       notes.push("Model-market disagreement is material; distribution widened.");
+    }
+    if (tuningRule?.action) {
+      notes.push(`Model tuning action ${tuningRule.action}; min playable edge ${((minPlayableEdge ?? 0) * 100).toFixed(1)}%.`);
     }
   } else {
     notes.push("No complete two-way prop price available; pure model projection retained.");
@@ -131,6 +150,8 @@ export function calibratePropProjectionToMarket(input: PropMarketCalibrationInpu
     calibratedOverProbability,
     calibratedUnderProbability,
     confidence,
+    minPlayableEdge,
+    tuningAction: tuningRule?.action ?? null,
     notes
   };
 }
