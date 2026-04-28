@@ -240,7 +240,7 @@ function pitcherProfile(roster: RawRow, stat: RawRow | null, index: number): Mlb
   const hr = num(stat?.hr, starts > 0 ? 18 : 7);
   const era = num(stat?.era, 4.2);
   const whip = num(stat?.whip, 1.28);
-  const batters = Math.max(1, num(stat?.pa, stat?.tbf ?? innings * 4.25));
+  const batters = Math.max(1, num(stat?.pa, num(stat?.tbf, innings * 4.25)));
   const kRate = clamp((so / batters) * 100, 8, 39);
   const bbRate = clamp((bb / batters) * 100, 2, 18);
   const hr9 = innings > 0 ? (hr * 9) / innings : 1.1;
