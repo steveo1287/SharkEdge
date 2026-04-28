@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ingestTeamStats } from "@/services/stats/team-stats-ingestion";
 import { ingestNbaAvailability } from "@/services/stats/nba-availability-ingestion";
 import { refreshTeamPowerRatings } from "@/services/stats/team-power-ratings";
+import { ingestMlbAdvancedStats } from "@/services/stats/mlb-advanced-ingestion";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -23,13 +24,16 @@ export async function GET(request: Request) {
 
   try {
     const results = await ingestTeamStats({ leagues: ["MLB", "NBA"], lookbackDays: 3 });
-    const availability = await ingestNbaAvailability({ lookaheadDays: 3 });
+    const [availability, mlbAdvanced] = await Promise.all([
+      ingestNbaAvailability({ lookaheadDays: 3 }),
+      ingestMlbAdvancedStats({ lookbackDays: 7 })
+    ]);
     const powerRatings = await Promise.all([
       refreshTeamPowerRatings({ leagueKey: "NBA", lookbackGames: 12 }),
       refreshTeamPowerRatings({ leagueKey: "MLB", lookbackGames: 12 })
     ]);
 
-    return NextResponse.json({ ok: true, results, availability, powerRatings });
+    return NextResponse.json({ ok: true, results, availability, mlbAdvanced, powerRatings });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Stats cron failed";
     console.error("[cron/stats-ingest]", message);
