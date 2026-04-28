@@ -1,8 +1,11 @@
-export type SupportedLeague = "NBA" | "NFL" | "NCAAF" | "NHL" | "MLB";
+import { applyLogitTemperature, clampNumber } from "./probability-math";
+
+export type SupportedLeague = "NBA" | "NCAAB" | "NFL" | "NCAAF" | "NHL" | "MLB";
 
 export type CalibrationProfile = {
   neutralShrink: number;
   marketBlend: number;
+  moneylineTemperature: number;
   spreadDeltaShrink: number;
   totalDeltaShrink: number;
   propProbShrink: number;
@@ -32,6 +35,7 @@ type BacktestRecord = {
 const DEFAULT_PROFILE: CalibrationProfile = {
   neutralShrink: 0.16,
   marketBlend: 0.2,
+  moneylineTemperature: 1.08,
   spreadDeltaShrink: 0.82,
   totalDeltaShrink: 0.8,
   propProbShrink: 0.18,
@@ -39,17 +43,18 @@ const DEFAULT_PROFILE: CalibrationProfile = {
 };
 
 const PROFILES: Record<SupportedLeague, CalibrationProfile> = {
-  NBA: { neutralShrink: 0.14, marketBlend: 0.18, spreadDeltaShrink: 0.84, totalDeltaShrink: 0.82, propProbShrink: 0.16, stdBaseline: 13 },
-  NFL: { neutralShrink: 0.12, marketBlend: 0.2, spreadDeltaShrink: 0.86, totalDeltaShrink: 0.84, propProbShrink: 0.14, stdBaseline: 10 },
-  NCAAF: { neutralShrink: 0.16, marketBlend: 0.22, spreadDeltaShrink: 0.82, totalDeltaShrink: 0.8, propProbShrink: 0.18, stdBaseline: 12 },
-  NHL: { neutralShrink: 0.14, marketBlend: 0.18, spreadDeltaShrink: 0.88, totalDeltaShrink: 0.86, propProbShrink: 0.14, stdBaseline: 2 },
-  MLB: { neutralShrink: 0.12, marketBlend: 0.16, spreadDeltaShrink: 0.9, totalDeltaShrink: 0.88, propProbShrink: 0.14, stdBaseline: 2.5 }
+  NBA: { neutralShrink: 0.14, marketBlend: 0.18, moneylineTemperature: 1.06, spreadDeltaShrink: 0.84, totalDeltaShrink: 0.82, propProbShrink: 0.16, stdBaseline: 13 },
+  NCAAB: { neutralShrink: 0.18, marketBlend: 0.22, moneylineTemperature: 1.12, spreadDeltaShrink: 0.8, totalDeltaShrink: 0.78, propProbShrink: 0.2, stdBaseline: 11 },
+  NFL: { neutralShrink: 0.12, marketBlend: 0.2, moneylineTemperature: 1.05, spreadDeltaShrink: 0.86, totalDeltaShrink: 0.84, propProbShrink: 0.14, stdBaseline: 10 },
+  NCAAF: { neutralShrink: 0.16, marketBlend: 0.22, moneylineTemperature: 1.12, spreadDeltaShrink: 0.82, totalDeltaShrink: 0.8, propProbShrink: 0.18, stdBaseline: 12 },
+  NHL: { neutralShrink: 0.14, marketBlend: 0.18, moneylineTemperature: 1.08, spreadDeltaShrink: 0.88, totalDeltaShrink: 0.86, propProbShrink: 0.14, stdBaseline: 2 },
+  MLB: { neutralShrink: 0.12, marketBlend: 0.16, moneylineTemperature: 1.04, spreadDeltaShrink: 0.9, totalDeltaShrink: 0.88, propProbShrink: 0.14, stdBaseline: 2.5 }
 };
 
 let profileOverrides: Partial<Record<string, CalibrationProfile>> = {};
 
 function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
+  return clampNumber(value, min, max);
 }
 
 export function getDefaultCalibrationProfile(leagueKey: string): CalibrationProfile {
@@ -65,7 +70,14 @@ export function resetCalibrationProfileOverrides() {
 }
 
 export function getCalibrationProfile(leagueKey: string): CalibrationProfile {
-  return profileOverrides[leagueKey] ?? getDefaultCalibrationProfile(leagueKey);
+  const profile = profileOverrides[leagueKey] ?? getDefaultCalibrationProfile(leagueKey);
+  const base = getDefaultCalibrationProfile(leagueKey);
+
+  return {
+    ...base,
+    ...profile,
+    moneylineTemperature: profile.moneylineTemperature ?? base.moneylineTemperature
+  };
 }
 
 function getVariancePenalty(totalStdDev: number | null | undefined, stdBaseline: number) {
@@ -89,10 +101,11 @@ export function calibrateWinProbability(args: ProbabilityCalibrationArgs) {
   const variancePenalty = getVariancePenalty(args.totalStdDev, profile.stdBaseline);
   const confidenceModifier = getConfidenceModifier(args.ratingsConfidence);
 
-  let calibrated = 0.5 + (args.rawProb - 0.5) * (1 - profile.neutralShrink) / variancePenalty;
+  const temperedRawProb = applyLogitTemperature(args.rawProb, profile.moneylineTemperature);
+  let calibrated = 0.5 + (temperedRawProb - 0.5) * (1 - profile.neutralShrink) / variancePenalty;
 
   if (typeof args.marketImplied === "number") {
-    const marketWeight = clamp(profile.marketBlend * confidenceModifier, 0.05, 0.35);
+    const marketWeight = clamp(profile.marketBlend * confidenceModifier, 0.05, 0.42);
     calibrated = calibrated * (1 - marketWeight) + args.marketImplied * marketWeight;
   }
 
