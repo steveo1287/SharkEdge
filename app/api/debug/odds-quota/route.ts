@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkOddsQuota, getCachedOddsQuota } from "@/services/odds/odds-quota-service";
+import { getOddsApiBudget, getOddsApiDailyBudget, getOddsApiPullPlan, readLatestOddsApiSnapshot } from "@/services/odds/the-odds-api-budget-service";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
@@ -28,5 +29,29 @@ export async function GET(request: Request) {
     return NextResponse.json(await checkOddsQuota("sports-check"));
   }
 
-  return NextResponse.json(await checkOddsQuota("cached"));
+  const [providerQuota, budget, daily, pullPlan, snapshot] = await Promise.all([
+    checkOddsQuota("cached"),
+    getOddsApiBudget(),
+    getOddsApiDailyBudget(),
+    getOddsApiPullPlan({ mode: "regular" }),
+    readLatestOddsApiSnapshot()
+  ]);
+
+  return NextResponse.json({
+    ok: true,
+    providerQuota,
+    budget,
+    daily,
+    pullPlan,
+    latestSnapshot: snapshot
+      ? {
+          generatedAt: snapshot.meta.generatedAt,
+          sports: snapshot.meta.sports,
+          requestsUsed: snapshot.meta.requestsUsed,
+          monthlyUsed: snapshot.meta.monthlyUsed,
+          dailyRegularUsed: snapshot.meta.dailyRegularUsed,
+          eventCount: snapshot.events.length
+        }
+      : null
+  });
 }
