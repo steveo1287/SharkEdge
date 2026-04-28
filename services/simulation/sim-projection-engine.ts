@@ -1,5 +1,6 @@
 import type { LeagueKey } from "@/lib/types/domain";
 import { getMlbLineupLock, type MlbLineupLock } from "@/services/simulation/mlb-lineup-locks";
+import { getMlbNoVigMarket, type MlbNoVigMarket } from "@/services/simulation/mlb-market-sanity";
 import { getMlbTeamPlayerSummary } from "@/services/simulation/mlb-player-model";
 import { compareMlbPlayerHistory } from "@/services/simulation/mlb-player-history";
 import { compareMlbProfiles, type MlbMatchupComparison } from "@/services/simulation/mlb-team-analytics";
@@ -42,6 +43,7 @@ type SimProjection = {
     governor?: { source: string; confidence: number; noBet: boolean; tier: string; reasons: string[] };
     calibration?: { calibratedHomeWinPct: number; correction: number; ece: number | null };
     uncertainty?: { interval: { low: number; high: number; p90Low: number; p90High: number } | null; penalty: number; reason: string };
+    market?: MlbNoVigMarket;
     lock?: {
       source: string;
       startersConfirmed: boolean;
@@ -95,12 +97,13 @@ function lockEdges(lock: MlbLineupLock) {
 }
 
 async function buildMlbIntel(matchup: { away: string; home: string }, comparison: MlbMatchupComparison) {
-  const [awayPlayers, homePlayers, lock, ratings, history] = await Promise.all([
+  const [awayPlayers, homePlayers, lock, ratings, history, market] = await Promise.all([
     getMlbTeamPlayerSummary(matchup.away),
     getMlbTeamPlayerSummary(matchup.home),
     getMlbLineupLock(matchup.away, matchup.home),
     compareMlbRatings(matchup.away, matchup.home),
-    compareMlbPlayerHistory(matchup.away, matchup.home)
+    compareMlbPlayerHistory(matchup.away, matchup.home),
+    getMlbNoVigMarket(matchup.away, matchup.home)
   ]);
   const official = lockEdges(lock);
   const playerOffenseEdge = Number((homePlayers.offensivePlayerBoost - awayPlayers.offensivePlayerBoost).toFixed(2));
@@ -158,10 +161,17 @@ async function buildMlbIntel(matchup: { away: string; home: string }, comparison
     totalStatcastEdge: comparison.powerEdge + contactTrendEdge,
     totalPitchingEdge: pitcherFeature,
     totalParkEdge: comparison.parkWeatherEdge,
-    totalBullpenEdge: bullpenFeature
+    totalBullpenEdge: bullpenFeature,
+    marketHomeNoVigProbability: market.homeNoVigProbability,
+    marketSource: market.source,
+    marketHold: market.hold,
+    marketHomeOddsAmerican: market.homeOddsAmerican,
+    marketAwayOddsAmerican: market.awayOddsAmerican
   };
 
+  const marketEdge = market.homeNoVigProbability == null ? 0 : Number(((0.51 + homeEdge / 8.5) - market.homeNoVigProbability).toFixed(2));
   const factors: MlbFactor[] = [
+    { label: "Live no-vig market sanity", value: marketEdge },
     { label: "Official lineup/starter lock", value: official.lockBoost },
     { label: "Starter handedness vs lineup", value: official.handednessEdge },
     { label: "Recent bullpen usage", value: official.bullpenUsageEdge },
@@ -197,12 +207,13 @@ async function buildMlbIntel(matchup: { away: string; home: string }, comparison
 
   return {
     modelVersion: "mlb-intel-v6" as const,
-    dataSource: `${comparison.away.source}/${comparison.home.source}+team-analytics+player-model:${awayPlayers.source}/${homePlayers.source}+official-lock:${lock.source}+history:${history.away.source}/${history.home.source}+ratings:${ratings.away.source}/${ratings.home.source}`,
+    dataSource: `${comparison.away.source}/${comparison.home.source}+team-analytics+player-model:${awayPlayers.source}/${homePlayers.source}+official-lock:${lock.source}+market:${market.source}+history:${history.away.source}/${history.home.source}+ratings:${ratings.away.source}/${ratings.home.source}`,
     homeEdge,
     projectedTotal,
     volatilityIndex,
     features,
     factors,
+    market,
     lock: {
       source: lock.source,
       startersConfirmed: lock.awayStarterLocked && lock.homeStarterLocked,
@@ -256,7 +267,8 @@ function buildMlbStatSheet(matchup: { away: string; home: string }, distribution
     { key: "strikeouts", label: "Strikeouts", away: awaySo, home: homeSo, format: "decimal" },
     { key: "bullpen_fatigue", label: "Bullpen Fatigue", away: mlbIntel.lock?.awayBullpenUsage.fatigueScore ?? 0, home: mlbIntel.lock?.homeBullpenUsage.fatigueScore ?? 0, format: "decimal" }
   ], notes: [
-    "MLB stat sheet blends projected run distribution with official starter/lineup lock, hitter/pitcher stack, bullpen usage, and market-aware governor context.",
+    "MLB stat sheet blends projected run distribution with official starter/lineup lock, hitter/pitcher stack, bullpen usage, live no-vig market sanity, and governor context.",
+    mlbIntel.market?.available ? `Live no-vig market: home ${((mlbIntel.market.homeNoVigProbability ?? 0) * 100).toFixed(1)}% from ${mlbIntel.market.source}.` : "Live no-vig market unavailable for this matchup.",
     ...(mlbIntel.lock?.notes ?? [])
   ] };
 }
@@ -311,9 +323,10 @@ export async function buildSimProjection(input: SimProjectionInput): Promise<Sim
     const homeExpected = clamp(total / 2 + 0.2 + mlbIntel.homeEdge * 0.4, 1.2, 11.5);
     const awayExpected = clamp(total - homeExpected, 1.2, 11.5);
     const lockReasons = mlbIntel.lock?.notes ?? [];
-    const read = governed.noBet ? `PASS: model confidence is not strong enough. ${lockReasons[0] ?? conformal.reason}` : finalHomeWinPct >= finalAwayWinPct ? `${matchup.home} cleared ${governed.tier.toUpperCase()} tier with official starter/lineup lock, bullpen usage, and calibration checks.` : `${matchup.away} cleared ${governed.tier.toUpperCase()} tier with official starter/lineup lock, bullpen usage, and calibration checks.`;
+    const marketReason = mlbIntel.market?.available ? `Market home no-vig ${((mlbIntel.market.homeNoVigProbability ?? 0) * 100).toFixed(1)}%.` : "Market sanity unavailable.";
+    const read = governed.noBet ? `PASS: model confidence is not strong enough. ${lockReasons[0] ?? marketReason}` : finalHomeWinPct >= finalAwayWinPct ? `${matchup.home} cleared ${governed.tier.toUpperCase()} tier with official starter/lineup lock, bullpen usage, live no-vig market sanity, and calibration checks.` : `${matchup.away} cleared ${governed.tier.toUpperCase()} tier with official starter/lineup lock, bullpen usage, live no-vig market sanity, and calibration checks.`;
     const statSheet = buildMlbStatSheet(matchup, { avgAway: awayExpected, avgHome: homeExpected }, mlbIntel);
-    return { matchup, distribution: { avgAway: Number(awayExpected.toFixed(2)), avgHome: Number(homeExpected.toFixed(2)), homeWinPct: Number(finalHomeWinPct.toFixed(3)), awayWinPct: Number(finalAwayWinPct.toFixed(3)) }, read, statSheet, nbaIntel: null, realityIntel: null, mlbIntel: { ...mlbIntel, projectedTotal: total, governor: { source: governed.source, confidence: conformal.calibratedConfidence, noBet: governed.noBet || conformal.calibratedConfidence < 0.6, tier: conformal.calibratedConfidence < 0.6 ? "pass" : governed.tier, reasons: [...(mlbIntel.lock?.notes ?? []), ...governed.reasons, conformal.reason] }, calibration: { calibratedHomeWinPct: finalHomeWinPct, correction: calibrated.correction, ece: calibration?.ok ? calibration.ece : null }, uncertainty: { interval: conformal.interval, penalty: conformal.uncertaintyPenalty, reason: conformal.reason } } };
+    return { matchup, distribution: { avgAway: Number(awayExpected.toFixed(2)), avgHome: Number(homeExpected.toFixed(2)), homeWinPct: Number(finalHomeWinPct.toFixed(3)), awayWinPct: Number(finalAwayWinPct.toFixed(3)) }, read, statSheet, nbaIntel: null, realityIntel: null, mlbIntel: { ...mlbIntel, projectedTotal: total, governor: { source: governed.source, confidence: conformal.calibratedConfidence, noBet: governed.noBet || conformal.calibratedConfidence < 0.6, tier: conformal.calibratedConfidence < 0.6 ? "pass" : governed.tier, reasons: [...(mlbIntel.lock?.notes ?? []), marketReason, ...governed.reasons, conformal.reason] }, calibration: { calibratedHomeWinPct: finalHomeWinPct, correction: calibrated.correction, ece: calibration?.ok ? calibration.ece : null }, uncertainty: { interval: conformal.interval, penalty: conformal.uncertaintyPenalty, reason: conformal.reason } } };
   }
 
   const [realityIntel, nbaProfiles] = await Promise.all([buildRealitySimIntel(input.leagueKey, matchup), input.leagueKey === "NBA" ? Promise.all([getNbaTeamPlayerProfileSummary(matchup.away), getNbaTeamPlayerProfileSummary(matchup.home)]) : Promise.resolve(null)]);
