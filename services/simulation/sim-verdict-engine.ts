@@ -210,12 +210,14 @@ function noVigProbabilities(leftOdds: number | null, rightOdds: number | null): 
 }
 
 function kellyFraction(winProb: number, odds: number): number {
-  if (odds <= 0) return 0;
+  if (!Number.isFinite(winProb) || winProb <= 0 || winProb >= 1) return 0;
+  if (!Number.isFinite(odds) || odds === 0) return 0;
+  // b = net units won per unit staked; works for both positive (+150 → 1.5) and negative (-110 → 0.909)
   const b = odds > 0 ? odds / 100 : 100 / Math.abs(odds);
   const p = winProb;
   const q = 1 - winProb;
   const kelly = (p * b - q) / b;
-  return Math.max(0, Math.min(0.25, kelly)); // Cap at 25%
+  return Math.max(0, Math.min(0.25, kelly));
 }
 
 function confidenceScore(sampleSize: number, edgeMagnitude: number, hold: number): number {
