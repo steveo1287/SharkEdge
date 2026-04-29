@@ -15,6 +15,16 @@ type SportsbookLine = {
   sportsbook?: string;
 };
 
+type MlbConsensusLine = SportsbookLine & {
+  homeNoVigProbability: number | null;
+  awayNoVigProbability: number | null;
+  moneylineHold: number | null;
+  moneylineSourceCount: number;
+  totalSourceCount: number;
+  totalHold: number | null;
+  warnings: string[];
+};
+
 type PersistedBoardFeed = {
   generatedAt: string;
   events: Array<{
@@ -46,11 +56,53 @@ type OddsSnapshotEvent = {
   }>;
 };
 
-type MarketSignal = { market: string; team: string | null; edge: number };
+type MarketSignal = {
+  market: string;
+  team: string | null;
+  edge: number;
+  rankScore: number;
+  sourceCount: number;
+  marketHold: number | null;
+  warnings: string[];
+};
+
+const MAX_MONEYLINE_HOLD = 0.12;
+const MAX_TOTAL_HOLD = 0.12;
+const MIN_ACTIONABLE_MARKET_SOURCES = 2;
+const STRONG_MONEYLINE_EDGE = 0.05;
+const WATCH_MONEYLINE_EDGE = 0.025;
+const STRONG_TOTAL_RUN_EDGE = 1.35;
+const WATCH_TOTAL_RUN_EDGE = 0.65;
+
+function round(value: number, digits = 4) {
+  return Number(value.toFixed(digits));
+}
 
 function americanToProbability(odds: number | null | undefined) {
   if (typeof odds !== "number" || !Number.isFinite(odds) || odds === 0) return null;
   return odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100);
+}
+
+export function noVigMoneylineProbabilities(homeOdds: number | null | undefined, awayOdds: number | null | undefined) {
+  const home = americanToProbability(homeOdds);
+  const away = americanToProbability(awayOdds);
+  if (home == null || away == null) return null;
+  const total = home + away;
+  if (!Number.isFinite(total) || total <= 0) return null;
+  return {
+    home: round(home / total),
+    away: round(away / total),
+    hold: round(total - 1)
+  };
+}
+
+function noVigTotalProbabilities(overOdds: number | null | undefined, underOdds: number | null | undefined) {
+  const over = americanToProbability(overOdds);
+  const under = americanToProbability(underOdds);
+  if (over == null || under == null) return null;
+  const total = over + under;
+  if (!Number.isFinite(total) || total <= 0) return null;
+  return { over: round(over / total), under: round(under / total), hold: round(total - 1) };
 }
 
 function validNumber(value: unknown) {
@@ -108,6 +160,18 @@ function bestNumeric(values: unknown[]) {
   const numbers = values.map(validNumber).filter((value): value is number => value !== null);
   if (!numbers.length) return null;
   return [...numbers].sort((left, right) => right - left)[0] ?? null;
+}
+
+function average(values: number[]) {
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function median(values: number[]) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
 }
 
 function lineValue(markets: any[], marketType: "spread" | "total") {
@@ -258,10 +322,73 @@ async function fetchLines() {
   return [...refreshedPersisted, ...refreshedSnapshot];
 }
 
-function findLineForGame(lines: SportsbookLine[], game: { id: string }, matchup: { home: string; away: string }) {
-  return lines.find((line) => line.gameId && line.gameId === game.id)
-    ?? lines.find((line) => line.homeTeam && line.awayTeam && key(line.homeTeam, line.awayTeam) === key(matchup.home, matchup.away))
-    ?? lines.find((line) => line.homeTeam && line.awayTeam && looseTeamMatch(line.homeTeam, matchup.home) && looseTeamMatch(line.awayTeam, matchup.away));
+function lineMatchesGame(line: SportsbookLine, game: { id: string }, matchup: { home: string; away: string }) {
+  if (line.gameId && line.gameId === game.id) return true;
+  if (line.homeTeam && line.awayTeam && key(line.homeTeam, line.awayTeam) === key(matchup.home, matchup.away)) return true;
+  return Boolean(line.homeTeam && line.awayTeam && looseTeamMatch(line.homeTeam, matchup.home) && looseTeamMatch(line.awayTeam, matchup.away));
+}
+
+function findLinesForGame(lines: SportsbookLine[], game: { id: string }, matchup: { home: string; away: string }) {
+  return lines.filter((line) => lineMatchesGame(line, game, matchup));
+}
+
+export function buildMlbConsensusLine(lines: SportsbookLine[], matchup: { home: string; away: string }): MlbConsensusLine | null {
+  if (!lines.length) return null;
+
+  const moneylineMarkets = lines
+    .map((line) => ({ line, noVig: noVigMoneylineProbabilities(line.homeMoneyline, line.awayMoneyline) }))
+    .filter((row): row is { line: SportsbookLine; noVig: NonNullable<ReturnType<typeof noVigMoneylineProbabilities>> } => Boolean(row.noVig))
+    .filter((row) => row.noVig.hold <= MAX_MONEYLINE_HOLD);
+  const totalMarkets = lines
+    .map((line) => ({ line, noVig: noVigTotalProbabilities(line.overPrice, line.underPrice) }))
+    .filter((row): row is { line: SportsbookLine; noVig: NonNullable<ReturnType<typeof noVigTotalProbabilities>> } => Boolean(row.noVig))
+    .filter((row) => row.noVig.hold <= MAX_TOTAL_HOLD);
+
+  const rawTotals = lines.map((line) => validNumber(line.total)).filter((value): value is number => value !== null);
+  const consensusTotal = median(rawTotals);
+  const homeNoVigProbability = average(moneylineMarkets.map((row) => row.noVig.home));
+  const awayNoVigProbability = average(moneylineMarkets.map((row) => row.noVig.away));
+  const moneylineHold = average(moneylineMarkets.map((row) => row.noVig.hold));
+  const totalHold = average(totalMarkets.map((row) => row.noVig.hold));
+  const warnings: string[] = [];
+
+  if (moneylineMarkets.length < MIN_ACTIONABLE_MARKET_SOURCES) warnings.push(`Moneyline consensus thin (${moneylineMarkets.length}/${MIN_ACTIONABLE_MARKET_SOURCES} valid books).`);
+  if (rawTotals.length > 0 && rawTotals.length < MIN_ACTIONABLE_MARKET_SOURCES) warnings.push(`Total consensus thin (${rawTotals.length}/${MIN_ACTIONABLE_MARKET_SOURCES} books).`);
+  if (moneylineMarkets.length < lines.filter((line) => line.homeMoneyline != null && line.awayMoneyline != null).length) warnings.push("Rejected high-hold moneyline books from consensus.");
+  if (totalMarkets.length < lines.filter((line) => line.overPrice != null && line.underPrice != null).length) warnings.push("Rejected high-hold total books from consensus.");
+
+  const homeMoneyline = bestNumeric(lines.map((line) => line.homeMoneyline));
+  const awayMoneyline = bestNumeric(lines.map((line) => line.awayMoneyline));
+  const overPrice = bestNumeric(lines.map((line) => line.overPrice));
+  const underPrice = bestNumeric(lines.map((line) => line.underPrice));
+  if (homeMoneyline === null && awayMoneyline === null && consensusTotal === null) return null;
+
+  return {
+    gameId: lines.find((line) => line.gameId)?.gameId,
+    awayTeam: matchup.away,
+    homeTeam: matchup.home,
+    homeMoneyline,
+    awayMoneyline,
+    total: consensusTotal == null ? null : round(consensusTotal, 3),
+    overPrice,
+    underPrice,
+    sportsbook: lines.length === 1 ? lines[0]?.sportsbook ?? "unknown" : `${lines.length} book consensus`,
+    homeNoVigProbability: homeNoVigProbability == null ? null : round(homeNoVigProbability),
+    awayNoVigProbability: awayNoVigProbability == null ? null : round(awayNoVigProbability),
+    moneylineHold: moneylineHold == null ? null : round(moneylineHold),
+    moneylineSourceCount: moneylineMarkets.length,
+    totalSourceCount: rawTotals.length,
+    totalHold: totalHold == null ? null : round(totalHold),
+    warnings
+  };
+}
+
+export function rankMlbMarketSignal(signal: Pick<MarketSignal, "market" | "edge">) {
+  const absEdge = Math.abs(signal.edge);
+  if (signal.market === "over" || signal.market === "under") {
+    return round(absEdge / STRONG_TOTAL_RUN_EDGE, 4);
+  }
+  return round(absEdge / STRONG_MONEYLINE_EDGE, 4);
 }
 
 function signalStrength(signal: MarketSignal, projection: Awaited<ReturnType<typeof buildSimProjection>>) {
@@ -271,23 +398,27 @@ function signalStrength(signal: MarketSignal, projection: Awaited<ReturnType<typ
   const volatility = projection.mlbIntel?.volatilityIndex ?? 2;
   const calibrated = projection.mlbIntel?.calibration?.ece != null;
   const noBet = Boolean(governor?.noBet) || confidence < 0.6;
+  const thinMarket = signal.sourceCount < MIN_ACTIONABLE_MARKET_SOURCES;
+  const dirtyMarket = signal.marketHold != null && signal.marketHold > (signal.market === "over" || signal.market === "under" ? MAX_TOTAL_HOLD : MAX_MONEYLINE_HOLD);
+
+  if (dirtyMarket) return "thin";
 
   if (signal.market === "over" || signal.market === "under") {
-    if (noBet || volatility >= 1.65 || !calibrated) {
-      if (absEdge >= 2.25 && confidence >= 0.45 && volatility < 2.05) return "watch";
+    if (noBet || volatility >= 1.65 || !calibrated || thinMarket) {
+      if (absEdge >= 2.25 && confidence >= 0.45 && volatility < 2.05 && !dirtyMarket) return "watch";
       return "thin";
     }
-    if (absEdge >= 1.35) return "strong";
-    if (absEdge >= 0.65) return "watch";
+    if (absEdge >= STRONG_TOTAL_RUN_EDGE) return "strong";
+    if (absEdge >= WATCH_TOTAL_RUN_EDGE) return "watch";
     return "thin";
   }
 
-  if (noBet || volatility >= 1.65) {
-    if (absEdge >= 0.075 && confidence >= 0.52) return "watch";
+  if (noBet || volatility >= 1.65 || thinMarket) {
+    if (absEdge >= 0.075 && confidence >= 0.52 && !dirtyMarket) return "watch";
     return "thin";
   }
-  if (absEdge >= 0.05) return "strong";
-  if (absEdge >= 0.025) return "watch";
+  if (absEdge >= STRONG_MONEYLINE_EDGE) return "strong";
+  if (absEdge >= WATCH_MONEYLINE_EDGE) return "watch";
   return "thin";
 }
 
@@ -297,23 +428,32 @@ export async function buildMlbEdges() {
   const edges = [];
   for (const game of mlbGames) {
     const projection = await buildSimProjection(game as any);
-    const line = findLineForGame(lines, game, projection.matchup);
-    const homeMarketProb = americanToProbability(line?.homeMoneyline ?? null);
-    const awayMarketProb = americanToProbability(line?.awayMoneyline ?? null);
+    const matchedLines = findLinesForGame(lines, game, projection.matchup);
+    const line = buildMlbConsensusLine(matchedLines, projection.matchup);
+    const homeMarketProb = line?.homeNoVigProbability ?? americanToProbability(line?.homeMoneyline ?? null);
+    const awayMarketProb = line?.awayNoVigProbability ?? americanToProbability(line?.awayMoneyline ?? null);
     const homeEdge = homeMarketProb == null ? null : Number((projection.distribution.homeWinPct - homeMarketProb).toFixed(4));
     const awayEdge = awayMarketProb == null ? null : Number((projection.distribution.awayWinPct - awayMarketProb).toFixed(4));
     const totalEdge = typeof line?.total === "number" && projection.mlbIntel ? Number((projection.mlbIntel.projectedTotal - line.total).toFixed(3)) : null;
-    const best = [
-      homeEdge == null ? null : { market: "home_ml", team: projection.matchup.home, edge: homeEdge },
-      awayEdge == null ? null : { market: "away_ml", team: projection.matchup.away, edge: awayEdge },
-      totalEdge == null ? null : { market: totalEdge > 0 ? "over" : "under", team: null, edge: Math.abs(totalEdge) }
-    ].filter((signal): signal is MarketSignal => Boolean(signal)).sort((a, b) => Math.abs(b.edge) - Math.abs(a.edge))[0] ?? null;
+    const candidates: MarketSignal[] = [
+      homeEdge == null ? null : { market: "home_ml", team: projection.matchup.home, edge: homeEdge, rankScore: rankMlbMarketSignal({ market: "home_ml", edge: homeEdge }), sourceCount: line?.moneylineSourceCount ?? 0, marketHold: line?.moneylineHold ?? null, warnings: line?.warnings ?? [] },
+      awayEdge == null ? null : { market: "away_ml", team: projection.matchup.away, edge: awayEdge, rankScore: rankMlbMarketSignal({ market: "away_ml", edge: awayEdge }), sourceCount: line?.moneylineSourceCount ?? 0, marketHold: line?.moneylineHold ?? null, warnings: line?.warnings ?? [] },
+      totalEdge == null ? null : { market: totalEdge > 0 ? "over" : "under", team: null, edge: Math.abs(totalEdge), rankScore: rankMlbMarketSignal({ market: totalEdge > 0 ? "over" : "under", edge: totalEdge }), sourceCount: line?.totalSourceCount ?? 0, marketHold: line?.totalHold ?? null, warnings: line?.warnings ?? [] }
+    ].filter((signal): signal is MarketSignal => Boolean(signal));
+    const best = candidates.sort((a, b) => b.rankScore - a.rankScore)[0] ?? null;
     edges.push({
       gameId: game.id,
       matchup: projection.matchup,
       sportsbook: line?.sportsbook ?? "unknown",
       projection,
       market: line ?? null,
+      marketQuality: line ? {
+        moneylineSourceCount: line.moneylineSourceCount,
+        totalSourceCount: line.totalSourceCount,
+        moneylineHold: line.moneylineHold,
+        totalHold: line.totalHold,
+        warnings: line.warnings
+      } : null,
       edges: { homeMoneyline: homeEdge, awayMoneyline: awayEdge, totalRuns: totalEdge },
       signal: best ? { ...best, strength: signalStrength(best, projection) } : null
     });
