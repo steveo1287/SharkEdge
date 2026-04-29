@@ -2,6 +2,7 @@ export type TrendQualityTier = "S" | "A" | "B" | "C" | "HIDE";
 export type TrendOverfitRisk = "low" | "medium" | "high";
 export type TrendBaseRisk = "low" | "medium" | "high";
 export type TrendQualityMarketType = "moneyline" | "spread" | "total" | "prop" | "unknown";
+export type TrendActionability = "ACTIONABLE" | "WATCHLIST" | "RESEARCH_ONLY" | "HIDE";
 
 export type TrendQualityInput = {
   id?: string;
@@ -44,6 +45,7 @@ export type TrendQualityResult = {
   quality: {
     score: number;
     tier: TrendQualityTier;
+    actionability: TrendActionability;
     confidence: number;
     overfitRisk: TrendOverfitRisk;
     dataHealth: number;
@@ -62,6 +64,7 @@ export type TrendQualityResult = {
   };
   lineSensitivity: TrendLineSensitivity;
   warnings: string[];
+  gateReasons: string[];
   explanation: string[];
 };
 
@@ -69,6 +72,8 @@ const MIN_ACTIONABLE_SAMPLE = 75;
 const MIN_DISPLAY_SAMPLE = 30;
 const MIN_ACTIONABLE_EDGE_PERCENT = 1.5;
 const MAX_MISSING_DATA_RATE = 0.03;
+const MIN_ACTIONABLE_BOOKS = 2;
+const MAX_RECENCY_DRIFT_PERCENT = 8;
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -192,18 +197,18 @@ export function getLineSensitivity(
 }
 
 function scoreSample(sampleSize: number | null) {
-  if (sampleSize == null) return 25;
+  if (sampleSize == null) return 15;
   if (sampleSize >= 300) return 100;
   if (sampleSize >= 200) return 92;
   if (sampleSize >= 150) return 84;
   if (sampleSize >= MIN_ACTIONABLE_SAMPLE) return 68;
-  if (sampleSize >= 50) return 44;
-  if (sampleSize >= MIN_DISPLAY_SAMPLE) return 28;
-  return 8;
+  if (sampleSize >= 50) return 36;
+  if (sampleSize >= MIN_DISPLAY_SAMPLE) return 20;
+  return 4;
 }
 
 function scoreRoi(roiPercent: number | null) {
-  if (roiPercent == null) return 20;
+  if (roiPercent == null) return 15;
   if (roiPercent <= 0) return 0;
   if (roiPercent >= 15) return 100;
   return clamp(roiPercent * 6.6, 0, 100);
@@ -212,39 +217,39 @@ function scoreRoi(roiPercent: number | null) {
 function scoreClv(averageClv: number | null, positiveClvRate: number | null) {
   const clv = finiteNumber(averageClv);
   const positiveRate = normalizePercent(positiveClvRate);
-  if (clv == null && positiveRate == null) return 20;
+  if (clv == null && positiveRate == null) return 0;
 
-  const clvScore = clv == null ? 20 : clamp(Math.max(clv, 0) * 22, 0, 70);
-  const positiveRateScore = positiveRate == null ? 15 : clamp((positiveRate - 50) * 2, 0, 30);
+  const clvScore = clv == null ? 0 : clamp(Math.max(clv, 0) * 22, 0, 70);
+  const positiveRateScore = positiveRate == null ? 0 : clamp((positiveRate - 50) * 2, 0, 30);
   return clamp(clvScore + positiveRateScore, 0, 100);
 }
 
 function scoreRecency(hitRatePercent: number | null, recencyHitRatePercent: number | null) {
   const base = recencyHitRatePercent ?? hitRatePercent;
-  if (base == null) return 45;
+  if (base == null) return 35;
 
   const strength = clamp((base - 50) * 8, 0, 80);
   const stabilityPenalty =
     hitRatePercent != null && recencyHitRatePercent != null
-      ? clamp(Math.abs(hitRatePercent - recencyHitRatePercent) * 3, 0, 35)
+      ? clamp(Math.abs(hitRatePercent - recencyHitRatePercent) * 4, 0, 45)
       : 0;
-  return clamp(35 + strength - stabilityPenalty, 0, 100);
+  return clamp(30 + strength - stabilityPenalty, 0, 100);
 }
 
 function scoreMarket(input: TrendQualityInput, edgePercent: number | null, impliedProbability: number | null) {
   const breadth = finiteNumber(input.marketBreadth);
-  const breadthScore = breadth == null ? 0 : clamp(breadth * 25, 0, 70);
+  const breadthScore = breadth == null ? 0 : clamp(breadth * 24, 0, 60);
   const oddsScore = impliedProbability == null ? 0 : 20;
-  const edgeScore = edgePercent == null ? 0 : clamp(edgePercent * 7.5, 0, 30);
+  const edgeScore = edgePercent == null ? 0 : clamp(edgePercent * 8, 0, 35);
   return clamp(breadthScore + oddsScore + edgeScore, 0, 100);
 }
 
 function scoreDataHealth(input: TrendQualityInput) {
   const missingRate = normalizeRate(input.missingDataRate) ?? 0;
-  let score = 100 - clamp(missingRate * 1000, 0, 70);
-  if (input.currentOddsAmerican == null) score -= 15;
-  if (input.sampleSize == null) score -= 12;
-  if (input.hitRate == null) score -= 8;
+  let score = 100 - clamp(missingRate * 1000, 0, 75);
+  if (input.currentOddsAmerican == null) score -= 18;
+  if (input.sampleSize == null) score -= 16;
+  if (input.hitRate == null) score -= 10;
   return clamp(score, 0, 100);
 }
 
@@ -260,6 +265,7 @@ function assessOverfitRisk(input: TrendQualityInput, sampleSize: number | null):
 
   if (sampleSize != null && sampleSize < MIN_DISPLAY_SAMPLE) points += 3;
   else if (sampleSize != null && sampleSize < MIN_ACTIONABLE_SAMPLE) points += 2;
+  else if (sampleSize != null && filterCount >= 5 && sampleSize < 150) points += 2;
 
   if (seasonCount === 1) points += 2;
   if (teamScopeCount === 1) points += 2;
@@ -270,16 +276,23 @@ function assessOverfitRisk(input: TrendQualityInput, sampleSize: number | null):
 }
 
 function tierFromScore(score: number): TrendQualityTier {
-  if (score >= 85) return "S";
-  if (score >= 75) return "A";
-  if (score >= 62) return "B";
-  if (score >= 45) return "C";
+  if (score >= 88) return "S";
+  if (score >= 78) return "A";
+  if (score >= 66) return "B";
+  if (score >= 48) return "C";
   return "HIDE";
 }
 
 function capTier(tier: TrendQualityTier, cap: TrendQualityTier) {
   const rank: Record<TrendQualityTier, number> = { HIDE: 0, C: 1, B: 2, A: 3, S: 4 };
   return rank[tier] > rank[cap] ? cap : tier;
+}
+
+function actionabilityFromTier(tier: TrendQualityTier, hasCurrentPrice: boolean, source?: string | null): TrendActionability {
+  if (tier === "HIDE") return "HIDE";
+  if (!hasCurrentPrice || source === "research-pattern") return "RESEARCH_ONLY";
+  if (tier === "C") return "WATCHLIST";
+  return "ACTIONABLE";
 }
 
 export function assessTrendQuality(input: TrendQualityInput): TrendQualityResult {
@@ -297,12 +310,19 @@ export function assessTrendQuality(input: TrendQualityInput): TrendQualityResult
   const missingRate = normalizeRate(input.missingDataRate) ?? 0;
   const marketType = normalizeMarketType(input.marketType, input.market);
   const lineSensitivity = getLineSensitivity(marketType, input.line ?? input.currentOddsAmerican, input.validLineRange);
+  const marketBreadth = finiteNumber(input.marketBreadth);
+  const hasClvSupport = input.averageClv != null || input.positiveClvRate != null;
+  const recencyHitRatePercent = normalizePercent(input.recencyHitRate);
+  const recencyDrift =
+    hitRatePercent != null && recencyHitRatePercent != null
+      ? Math.abs(hitRatePercent - recencyHitRatePercent)
+      : null;
 
   const dataHealth = scoreDataHealth(input);
   const historicalRoiScore = scoreRoi(roiPercent);
   const clvScore = scoreClv(input.averageClv ?? null, input.positiveClvRate ?? null);
   const sampleScore = scoreSample(sampleSize);
-  const recencyScore = scoreRecency(hitRatePercent, normalizePercent(input.recencyHitRate));
+  const recencyScore = scoreRecency(hitRatePercent, recencyHitRatePercent);
   const marketScore = scoreMarket(input, edgePercent, impliedProbability);
   const overfitRisk = assessOverfitRisk(input, sampleSize);
 
@@ -315,27 +335,69 @@ export function assessTrendQuality(input: TrendQualityInput): TrendQualityResult
     marketScore * 0.1;
 
   const warnings: string[] = [];
+  const gateReasons: string[] = [];
   const explanation: string[] = [];
 
   if (sampleSize != null && sampleSize < MIN_ACTIONABLE_SAMPLE) {
-    warnings.push(`Sample below actionable floor (${sampleSize}/${MIN_ACTIONABLE_SAMPLE}).`);
+    const message = `Sample below actionable floor (${sampleSize}/${MIN_ACTIONABLE_SAMPLE}).`;
+    warnings.push(message);
+    gateReasons.push(message);
   }
-  if (sampleSize == null) warnings.push("No historical sample attached to this signal.");
-  if (missingRate > MAX_MISSING_DATA_RATE) warnings.push(`Missing-data rate exceeds ${(MAX_MISSING_DATA_RATE * 100).toFixed(0)}%.`);
-  if (currentOddsAmerican == null) warnings.push("No current sportsbook price attached; keep as research/watchlist only.");
-  if (edgePercent != null && edgePercent < MIN_ACTIONABLE_EDGE_PERCENT) {
-    warnings.push(`Current edge below actionable floor (${round(edgePercent, 2)}%).`);
+  if (sampleSize == null) {
+    warnings.push("No historical sample attached to this signal.");
+    gateReasons.push("Missing historical sample.");
   }
-  if (roiPercent != null && roiPercent < 2) warnings.push("Historical ROI below 2% quality floor.");
-  if ((input.averageClv == null || input.positiveClvRate == null) && input.source !== "market-edge") {
+  if (missingRate > MAX_MISSING_DATA_RATE) {
+    const message = `Missing-data rate exceeds ${(MAX_MISSING_DATA_RATE * 100).toFixed(0)}%.`;
+    warnings.push(message);
+    gateReasons.push(message);
+  }
+  if (currentOddsAmerican == null) {
+    warnings.push("No current sportsbook price attached; keep as research/watchlist only.");
+    gateReasons.push("Missing current sportsbook price.");
+  }
+  if (currentOddsAmerican != null && edgePercent == null) {
+    warnings.push("Current price exists but no fair-probability edge could be calculated.");
+    gateReasons.push("Missing calculable current edge.");
+  }
+  if (edgePercent != null && edgePercent < 0) {
+    warnings.push(`Current price is negative EV (${round(edgePercent, 2)}%).`);
+    gateReasons.push("Negative current edge.");
+  } else if (edgePercent != null && edgePercent < MIN_ACTIONABLE_EDGE_PERCENT) {
+    const message = `Current edge below actionable floor (${round(edgePercent, 2)}%).`;
+    warnings.push(message);
+    gateReasons.push(message);
+  }
+  if (roiPercent != null && roiPercent < 2) {
+    warnings.push("Historical ROI below 2% quality floor.");
+    gateReasons.push("Weak historical ROI.");
+  }
+  if (!hasClvSupport) {
     warnings.push("No closing-line-value support attached.");
+    gateReasons.push("Missing CLV support.");
   }
-  if (overfitRisk === "high") warnings.push("High overfit risk from filter/sample concentration.");
-  else if (overfitRisk === "medium") warnings.push("Moderate overfit risk; verify by season and team split.");
-  if (lineSensitivity.warning) warnings.push(lineSensitivity.warning);
+  if (marketBreadth != null && marketBreadth < MIN_ACTIONABLE_BOOKS) {
+    warnings.push(`Market breadth below actionable floor (${marketBreadth}/${MIN_ACTIONABLE_BOOKS} books).`);
+    gateReasons.push("Thin sportsbook coverage.");
+  }
+  if (recencyDrift != null && recencyDrift > MAX_RECENCY_DRIFT_PERCENT) {
+    warnings.push(`Recent form drift exceeds ${MAX_RECENCY_DRIFT_PERCENT}% (${round(recencyDrift, 1)}%).`);
+    gateReasons.push("Unstable recent split.");
+  }
+  if (overfitRisk === "high") {
+    warnings.push("High overfit risk from filter/sample concentration.");
+    gateReasons.push("High overfit risk.");
+  } else if (overfitRisk === "medium") {
+    warnings.push("Moderate overfit risk; verify by season and team split.");
+  }
+  if (lineSensitivity.warning) {
+    warnings.push(lineSensitivity.warning);
+    gateReasons.push(lineSensitivity.warning);
+  }
 
   explanation.push(`Data health ${round(dataHealth, 1)}/100.`);
   explanation.push(`Sample quality ${round(sampleScore, 1)}/100${sampleSize == null ? " with no historical row count" : ` from ${sampleSize} rows`}.`);
+  explanation.push(`CLV quality ${round(clvScore, 1)}/100.`);
   if (edgePercent != null) explanation.push(`Current market edge ${round(edgePercent, 2)}%.`);
   if (fairOddsAmerican != null) explanation.push(`Fair odds estimate ${fairOddsAmerican > 0 ? "+" : ""}${fairOddsAmerican}.`);
   if (lineSensitivity.bucket) explanation.push(`Line bucket: ${lineSensitivity.bucket}.`);
@@ -344,18 +406,25 @@ export function assessTrendQuality(input: TrendQualityInput): TrendQualityResult
   if (sampleSize != null && sampleSize < MIN_DISPLAY_SAMPLE) tier = "HIDE";
   else if (sampleSize != null && sampleSize < MIN_ACTIONABLE_SAMPLE) tier = capTier(tier, "C");
   if (missingRate > MAX_MISSING_DATA_RATE) tier = "HIDE";
-  if (currentOddsAmerican == null) tier = capTier(tier, "C");
-  if (edgePercent != null && edgePercent < MIN_ACTIONABLE_EDGE_PERCENT) tier = capTier(tier, "C");
+  if (currentOddsAmerican == null) tier = capTier(tier, input.source === "research-pattern" ? "C" : "HIDE");
+  if (currentOddsAmerican != null && edgePercent == null) tier = capTier(tier, "C");
+  if (edgePercent != null && edgePercent < 0) tier = "HIDE";
+  else if (edgePercent != null && edgePercent < MIN_ACTIONABLE_EDGE_PERCENT) tier = capTier(tier, "C");
   if (roiPercent != null && roiPercent < 2) tier = capTier(tier, "C");
+  if (!hasClvSupport) tier = capTier(tier, input.source === "research-pattern" ? "C" : "B");
+  if (marketBreadth != null && marketBreadth < MIN_ACTIONABLE_BOOKS) tier = capTier(tier, "C");
+  if (recencyDrift != null && recencyDrift > MAX_RECENCY_DRIFT_PERCENT) tier = capTier(tier, "C");
   if (overfitRisk === "high") tier = sampleSize != null && sampleSize < MIN_ACTIONABLE_SAMPLE ? "HIDE" : capTier(tier, "C");
   if (lineSensitivity.inValidRange === false) tier = capTier(tier, "C");
 
   const score = round(rawScore, 1);
+  const actionability = actionabilityFromTier(tier, currentOddsAmerican != null, input.source);
 
   return {
     quality: {
       score,
       tier,
+      actionability,
       confidence: clamp(score / 100, 0, 1),
       overfitRisk,
       dataHealth: round(dataHealth, 1),
@@ -374,6 +443,7 @@ export function assessTrendQuality(input: TrendQualityInput): TrendQualityResult
     },
     lineSensitivity,
     warnings,
+    gateReasons,
     explanation
   };
 }
