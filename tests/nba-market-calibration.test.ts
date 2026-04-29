@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 
-import { normalizeHomeSpreadMarketPoint } from "@/services/simulation/nba-market-calibration";
+import {
+  extractConsensusSpreadHome,
+  normalizeHomeSpreadMarketPoint,
+  robustConsensus
+} from "@/services/simulation/nba-market-calibration";
 
 // Odds API spread points are sportsbook ticket notation. SharkEdge model spread
 // is projected home margin. A home favorite -6.5 should be compared against a
@@ -30,5 +34,73 @@ assert.equal(Number((6 - marketHomeMarginThreshold!).toFixed(2)), -0.5);
 const homeDogThreshold = normalizeHomeSpreadMarketPoint(4.5);
 assert.equal(homeDogThreshold, -4.5);
 assert.equal(Number((6 - homeDogThreshold!).toFixed(2)), 10.5);
+
+// Outliers should not bend consensus enough to create fake edges.
+const consensus = robustConsensus([6.5, 6.5, 7, 25]);
+assert.equal(consensus.usedCount, 3);
+assert.equal(consensus.rejectedCount, 1);
+assert.equal(Number(consensus.value?.toFixed(2)), 6.67);
+
+const event = {
+  sport_key: "basketball_nba",
+  home_team: "Home",
+  away_team: "Away",
+  bookmakers: [
+    {
+      key: "book_a",
+      markets: [
+        {
+          key: "spreads",
+          outcomes: [
+            { name: "Home", point: -6.5, price: -110 },
+            { name: "Away", point: 6.5, price: -110 }
+          ]
+        }
+      ]
+    },
+    {
+      key: "book_b",
+      markets: [
+        {
+          key: "spreads",
+          outcomes: [
+            { name: "Home", point: -7, price: -110 },
+            { name: "Away", point: 7, price: -110 }
+          ]
+        }
+      ]
+    },
+    {
+      key: "book_c_bad_pair",
+      markets: [
+        {
+          key: "spreads",
+          outcomes: [
+            { name: "Home", point: -6.5, price: -110 },
+            { name: "Away", point: 10.5, price: -110 }
+          ]
+        }
+      ]
+    },
+    {
+      key: "book_d_outlier",
+      markets: [
+        {
+          key: "spreads",
+          outcomes: [
+            { name: "Home", point: -25, price: -110 },
+            { name: "Away", point: 25, price: -110 }
+          ]
+        }
+      ]
+    }
+  ]
+};
+
+const spreadConsensus = extractConsensusSpreadHome(event, "Home", "Away");
+assert.equal(spreadConsensus.rejectedBookCount, 1);
+assert.equal(spreadConsensus.outlierBookCount, 1);
+assert.equal(spreadConsensus.usedBookCount, 2);
+assert.equal(Number(spreadConsensus.value?.toFixed(2)), 6.75);
 
 console.log("nba-market-calibration tests passed");
