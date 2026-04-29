@@ -8,7 +8,7 @@ import type {
 } from "@/lib/types/mlb-trend-feed";
 import type { MlbTrendHistoricalRow } from "@/lib/types/mlb-trends";
 
-import { getMlbTrendDefinitions } from "./mlb-trend-definition-service";
+import { getDeepMlbTrendDefinitions } from "./mlb-deep-trend-definition-service";
 import { DefaultMlbTrendActiveMatchService } from "./mlb-trend-active-match-service";
 import {
   buildMlbTrendSummary,
@@ -193,7 +193,7 @@ export async function buildDeepMlbTrendSystems(): Promise<PublishedMlbTrendFeed>
     loadNormalizedMlbHistoricalTrendRows(),
     loadNormalizedMlbBoardTrendRows()
   ]);
-  const cards = getMlbTrendDefinitions()
+  const cards = getDeepMlbTrendDefinitions()
     .map((definition) => buildCard(definition, buildMlbTrendSummary(
       definition,
       historical.rows.filter((row) => matchesMlbTrendConditions(definition, row)).map((row) => resolveMlbTrendResult(definition, row))
