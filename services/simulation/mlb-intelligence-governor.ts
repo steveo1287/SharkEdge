@@ -86,17 +86,17 @@ function disagreement(a: number, b: number) { return Math.abs(a - b); }
 function sign(value: number, deadZone = 0.08) { if (value > deadZone) return 1; if (value < -deadZone) return -1; return 0; }
 function sideLabel(probability: number) { return probability >= 0.5 ? "home" : "away"; }
 
+function numericFeatureValue(features: MlbGovernorFeatures, key: (typeof ML_FEATURE_KEYS)[number]) {
+  const value = features[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
 function mlFeatureVector(features: MlbGovernorFeatures): Record<string, number> {
-  return Object.fromEntries(
-    ML_FEATURE_KEYS.map((key) => {
-      const value = features[key];
-      return [key, typeof value === "number" && Number.isFinite(value) ? value : 0];
-    })
-  );
+  return Object.fromEntries(ML_FEATURE_KEYS.map((key) => [key, numericFeatureValue(features, key)]));
 }
 
 function modelSignalStrength(features: MlbGovernorFeatures) {
-  return meanAbs(ML_FEATURE_KEYS.map((key) => features[key]));
+  return meanAbs(ML_FEATURE_KEYS.map((key) => numericFeatureValue(features, key)));
 }
 
 function shrinkTowardCoinFlip(probability: number, strength: number) {
