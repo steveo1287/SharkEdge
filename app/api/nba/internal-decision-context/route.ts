@@ -11,7 +11,7 @@ export async function GET() {
 
   return NextResponse.json({
     ok: games.length > 0,
-    source: "espn-schedule-plus-nba-stats-api",
+    source: "espn-schedule-plus-nba-stats-or-databallr",
     gameCount: games.length,
     games
   });

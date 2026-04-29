@@ -11,7 +11,7 @@ export async function GET() {
 
   return NextResponse.json({
     ok: games.length > 0,
-    source: "nba-stats-api-derived-synergy-proxy",
+    source: "nba-stats-or-databallr-derived-synergy-proxy",
     gameCount: games.length,
     games
   });
