@@ -68,6 +68,39 @@ const TEAM_IDS: Record<string, string> = {
   ari: "109", atl: "144", bal: "110", bos: "111", chc: "112", cws: "145", cin: "113", cle: "114", col: "115", det: "116", hou: "117", kc: "118", laa: "108", lad: "119", mia: "146", mil: "158", min: "142", nym: "121", nyy: "147", oak: "133", phi: "143", pit: "134", sd: "135", sea: "136", sf: "137", stl: "138", tb: "139", tex: "140", tor: "141", wsh: "120", was: "120"
 };
 
+const CANONICAL_TEAM_NAMES: Record<string, string> = {
+  "108": "Los Angeles Angels",
+  "109": "Arizona Diamondbacks",
+  "110": "Baltimore Orioles",
+  "111": "Boston Red Sox",
+  "112": "Chicago Cubs",
+  "113": "Cincinnati Reds",
+  "114": "Cleveland Guardians",
+  "115": "Colorado Rockies",
+  "116": "Detroit Tigers",
+  "117": "Houston Astros",
+  "118": "Kansas City Royals",
+  "119": "Los Angeles Dodgers",
+  "120": "Washington Nationals",
+  "121": "New York Mets",
+  "133": "Athletics",
+  "134": "Pittsburgh Pirates",
+  "135": "San Diego Padres",
+  "136": "Seattle Mariners",
+  "137": "San Francisco Giants",
+  "138": "St. Louis Cardinals",
+  "139": "Tampa Bay Rays",
+  "140": "Texas Rangers",
+  "141": "Toronto Blue Jays",
+  "142": "Minnesota Twins",
+  "143": "Philadelphia Phillies",
+  "144": "Atlanta Braves",
+  "145": "Chicago White Sox",
+  "146": "Miami Marlins",
+  "147": "New York Yankees",
+  "158": "Milwaukee Brewers"
+};
+
 function legacyBaseUrl() {
   return (process.env.MLB_DATA_API_BASE_URL?.trim() || DEFAULT_LEGACY_BASE_URL).replace(/\/$/, "");
 }
@@ -89,6 +122,10 @@ function maxPlayersPerTeam() {
 function teamIdFor(teamName: string) {
   const key = normalizeMlbTeam(teamName);
   return TEAM_IDS[key] ?? null;
+}
+
+export function getMlbDataApiTeamNames() {
+  return Object.values(CANONICAL_TEAM_NAMES);
 }
 
 function text(...values: unknown[]) {
@@ -460,6 +497,17 @@ export async function getMlbDataApiTeamPlayerProfiles(teamName: string): Promise
   if (!profiles?.length) return null;
   await writeHotCache(cacheKey, profiles, CACHE_TTL_SECONDS);
   return profiles;
+}
+
+export async function getMlbDataApiLeaguePlayerProfiles() {
+  const rosters = await Promise.all(
+    getMlbDataApiTeamNames().map(async (teamName) => ({
+      teamName,
+      players: await getMlbDataApiTeamPlayerProfiles(teamName)
+    }))
+  );
+
+  return rosters.flatMap((entry) => entry.players ?? []);
 }
 
 export async function getMlbDataApiDebugPayload(teamName: string): Promise<MlbDataApiDebugPayload> {

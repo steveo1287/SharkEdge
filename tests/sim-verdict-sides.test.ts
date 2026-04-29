@@ -16,9 +16,13 @@ const sim: ContextualGameSimulationSummary = {
     totalStdDev: 11.5,
     homeScoreStdDev: 10.2,
     awayScoreStdDev: 9.8,
+    spreadStdDev: 8.1,
     p10Total: 196,
     p50Total: 210,
-    p90Total: 224
+    p90Total: 224,
+    p10SpreadHome: -3,
+    p50SpreadHome: 6,
+    p90SpreadHome: 15
   },
   drivers: ["pace edge", "rest edge", "efficiency edge"],
   ratingsPrior: {
