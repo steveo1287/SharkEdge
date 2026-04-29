@@ -52,12 +52,29 @@ export type MlbTrendDefinition = {
   description: string;
   betSide: MlbTrendBetSide;
   conditions: MlbTrendCondition[];
+  conditionLabels?: string[];
   whyThisMatters: string;
   cautionNote: string;
   enabled: boolean;
 };
 
 export type MlbTrendResult = "win" | "loss" | "push" | "skip";
+
+export type MlbTrendHistoryRow = {
+  gameId: string;
+  gameDate: string;
+  season: number;
+  matchup: string;
+  recommendedBet: string;
+  result: Exclude<MlbTrendResult, "skip">;
+  price: number | null;
+  profitUnits: number;
+  awayTeamName: string;
+  homeTeamName: string;
+  awayScore: number;
+  homeScore: number;
+  closingTotal: number | null;
+};
 
 export type MlbTrendEvaluationSummary = {
   trendId: string;
@@ -72,6 +89,14 @@ export type MlbTrendEvaluationSummary = {
   confidenceLabel: "LOW" | "MEDIUM" | "HIGH";
   stabilityLabel: "VOLATILE" | "STEADY" | "STRONG";
   warnings: string[];
+  units?: number;
+  pricedRows?: number;
+  roiCoverage?: number;
+  last10?: string;
+  streak?: string | null;
+  yearsCovered?: number;
+  seasons?: number[];
+  history?: MlbTrendHistoryRow[];
 };
 
 export type MlbTrendMatch = {
@@ -106,6 +131,17 @@ export type PublishedMlbTrendCard = {
   warnings: string[];
 
   todayMatches: MlbTrendMatch[];
+
+  conditions?: string[];
+  conditionCount?: number;
+  units?: number;
+  pricedRows?: number;
+  roiCoverage?: number;
+  last10?: string;
+  streak?: string | null;
+  yearsCovered?: number;
+  seasons?: number[];
+  history?: MlbTrendHistoryRow[];
 };
 
 export type PublishedMlbTrendFeed = {
