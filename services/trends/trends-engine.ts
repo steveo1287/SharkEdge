@@ -3,10 +3,21 @@ import { buildSimProjection } from "@/services/simulation/sim-projection-engine"
 import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
 import type { LeagueKey } from "@/lib/types/domain";
 
+import {
+  assessTrendQuality,
+  buildTrendQualityInputFromSignal,
+  mapQualityTierToTrendGrade,
+  mergeTrendRisk,
+  type TrendOverfitRisk,
+  type TrendQualityResult,
+  type TrendQualityTier
+} from "./trend-quality";
+
 type TrendCategory = "Moneyline" | "Totals" | "Market" | "Risk" | "Schedule" | "Model";
 type TrendGrade = "A" | "B" | "C" | "Watch" | "Pass";
+type BaseTrendRisk = "low" | "medium" | "high";
 
-export type TrendSignal = {
+type TrendSignalDraft = {
   id: string;
   league: LeagueKey | "ALL";
   gameId?: string;
@@ -20,13 +31,23 @@ export type TrendSignal = {
   sample: number | null;
   edge: number | null;
   market: string | null;
-  risk: "low" | "medium" | "high";
+  risk: BaseTrendRisk;
   source: "sim-engine" | "market-edge" | "research-pattern";
   actionHref: string;
   notes: string[];
 };
 
-const RESEARCH_PATTERNS: TrendSignal[] = [
+export type TrendSignal = TrendSignalDraft & {
+  qualityScore: number;
+  qualityTier: TrendQualityTier;
+  quality: TrendQualityResult["quality"];
+  marketQuality: TrendQualityResult["market"];
+  lineSensitivity: TrendQualityResult["lineSensitivity"];
+  overfitRisk: TrendOverfitRisk;
+  warnings: string[];
+};
+
+const RESEARCH_PATTERNS: TrendSignalDraft[] = [
   { id: "mlb-bullpen-stress-total", league: "MLB", title: "Bullpen stress total pressure", angle: "Both bullpens carrying fatigue into a projected tight run environment.", category: "Totals", grade: "B", confidence: 0.61, hitRate: 57.9, sample: 219, edge: null, market: "total", risk: "medium", source: "research-pattern", actionHref: "/sim?league=MLB", notes: ["Use only when lineup locks and starting pitchers are confirmed.", "Pairs with weather/park factor and projected total."] },
   { id: "mlb-weather-carry", league: "MLB", title: "Weather carry expansion", angle: "Wind/temperature boosts run environment beyond market total expectation.", category: "Totals", grade: "B", confidence: 0.6, hitRate: 56.8, sample: 310, edge: null, market: "over/under", risk: "medium", source: "research-pattern", actionHref: "/baseball", notes: ["Best at open-air parks.", "Needs sportsbook total to become actionable."] },
   { id: "nba-rest-spot", league: "NBA", title: "Rest advantage pressure", angle: "Rested home team versus opponent in travel/fatigue spot.", category: "Schedule", grade: "B", confidence: 0.58, hitRate: 58.4, sample: 312, edge: null, market: "moneyline/spread", risk: "medium", source: "research-pattern", actionHref: "/sim?league=NBA", notes: ["Use as a model modifier, not a blind pick."] },
@@ -37,19 +58,50 @@ const RESEARCH_PATTERNS: TrendSignal[] = [
 function pctEdge(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
-function gradeFrom(confidence: number, edge: number | null, risk: "low" | "medium" | "high"): TrendGrade {
+function gradeFrom(confidence: number, edge: number | null, risk: BaseTrendRisk): TrendGrade {
   if (risk === "high" || confidence < 0.54) return "Pass";
   if ((edge ?? 0) >= 0.05 && confidence >= 0.66) return "A";
   if ((edge ?? 0) >= 0.025 || confidence >= 0.6) return "B";
   return "Watch";
 }
-function riskFrom(volatility: number | null | undefined, noBet: boolean | undefined): "low" | "medium" | "high" {
+function riskFrom(volatility: number | null | undefined, noBet: boolean | undefined): BaseTrendRisk {
   if (noBet) return "high";
   if ((volatility ?? 1) >= 1.45) return "high";
   if ((volatility ?? 1) >= 1.15) return "medium";
   return "low";
 }
 function selected(value?: "ALL" | LeagueKey) { return value ?? "ALL"; }
+
+function applyTrendQuality(signal: TrendSignalDraft): TrendSignal {
+  const qualityInput = buildTrendQualityInputFromSignal(signal);
+
+  // Trend quality expects probability edge as a decimal/percent. Some total signals carry
+  // run/point deltas, so do not let a 0.8-run model delta become an 80% market edge.
+  if (qualityInput.currentEdge != null && Math.abs(qualityInput.currentEdge) > 0.25) {
+    qualityInput.currentEdge = null;
+  }
+
+  const qualityResult = assessTrendQuality(qualityInput);
+  const qualityGrade = mapQualityTierToTrendGrade(qualityResult.quality.tier);
+  const mergedRisk = mergeTrendRisk(signal.risk, qualityResult.quality.overfitRisk);
+  const qualityNotes = qualityResult.explanation.map((note) => `Quality: ${note}`);
+  const warningNotes = qualityResult.warnings.map((warning) => `Warning: ${warning}`);
+
+  return {
+    ...signal,
+    grade: qualityGrade,
+    confidence: Number(Math.min(signal.confidence, Math.max(qualityResult.quality.confidence, 0.01)).toFixed(3)),
+    risk: mergedRisk,
+    qualityScore: qualityResult.quality.score,
+    qualityTier: qualityResult.quality.tier,
+    quality: qualityResult.quality,
+    marketQuality: qualityResult.market,
+    lineSensitivity: qualityResult.lineSensitivity,
+    overfitRisk: qualityResult.quality.overfitRisk,
+    warnings: qualityResult.warnings,
+    notes: [...signal.notes, ...qualityNotes, ...warningNotes]
+  };
+}
 
 export async function buildTrendSignals(args: { league?: "ALL" | LeagueKey; includeResearch?: boolean } = {}) {
   const league = selected(args.league);
@@ -59,7 +111,7 @@ export async function buildTrendSignals(args: { league?: "ALL" | LeagueKey; incl
   ]);
   const edgeByGame = new Map((edgeData.edges ?? []).map((edge) => [edge.gameId, edge]));
   const games = sections.flatMap((section) => section.scoreboard.map((game) => ({ ...game, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel })));
-  const liveSignals: TrendSignal[] = [];
+  const liveSignals: TrendSignalDraft[] = [];
 
   for (const game of games) {
     const projection = await buildSimProjection(game);
@@ -118,9 +170,9 @@ export async function buildTrendSignals(args: { league?: "ALL" | LeagueKey; incl
   }
 
   const research = args.includeResearch === false ? [] : RESEARCH_PATTERNS.filter((trend) => league === "ALL" || trend.league === league);
-  const signals = [...liveSignals, ...research].sort((a, b) => {
+  const signals = [...liveSignals, ...research].map(applyTrendQuality).sort((a, b) => {
     const gradeRank = { A: 5, B: 4, Watch: 3, C: 2, Pass: 1 } as Record<TrendGrade, number>;
-    return gradeRank[b.grade] - gradeRank[a.grade] || b.confidence - a.confidence;
+    return gradeRank[b.grade] - gradeRank[a.grade] || b.qualityScore - a.qualityScore || b.confidence - a.confidence;
   });
 
   return {
@@ -132,7 +184,9 @@ export async function buildTrendSignals(args: { league?: "ALL" | LeagueKey; incl
       live: liveSignals.length,
       research: research.length,
       attack: signals.filter((signal) => signal.grade === "A" || signal.grade === "B").length,
-      pass: signals.filter((signal) => signal.grade === "Pass").length
+      watch: signals.filter((signal) => signal.grade === "Watch" || signal.grade === "C").length,
+      pass: signals.filter((signal) => signal.grade === "Pass").length,
+      hiddenQuality: signals.filter((signal) => signal.qualityTier === "HIDE").length
     },
     signals
   };

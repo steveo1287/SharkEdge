@@ -1,0 +1,419 @@
+export type TrendQualityTier = "S" | "A" | "B" | "C" | "HIDE";
+export type TrendOverfitRisk = "low" | "medium" | "high";
+export type TrendBaseRisk = "low" | "medium" | "high";
+export type TrendQualityMarketType = "moneyline" | "spread" | "total" | "prop" | "unknown";
+
+export type TrendQualityInput = {
+  id?: string;
+  market?: string | null;
+  marketType?: string | null;
+  sampleSize?: number | null;
+  wins?: number | null;
+  losses?: number | null;
+  pushes?: number | null;
+  hitRate?: number | null;
+  roi?: number | null;
+  profitUnits?: number | null;
+  currentOddsAmerican?: number | null;
+  currentEdge?: number | null;
+  fairProbability?: number | null;
+  averageClv?: number | null;
+  positiveClvRate?: number | null;
+  recencyHitRate?: number | null;
+  marketBreadth?: number | null;
+  missingDataRate?: number | null;
+  filterCount?: number | null;
+  seasonCount?: number | null;
+  teamScopeCount?: number | null;
+  activeMatchCount?: number | null;
+  todayMatchCount?: number | null;
+  line?: number | null;
+  validLineRange?: { min?: number | null; max?: number | null } | null;
+  source?: string | null;
+  baseRisk?: TrendBaseRisk | null;
+};
+
+export type TrendLineSensitivity = {
+  marketType: TrendQualityMarketType;
+  bucket: string | null;
+  inValidRange: boolean | null;
+  warning: string | null;
+};
+
+export type TrendQualityResult = {
+  quality: {
+    score: number;
+    tier: TrendQualityTier;
+    confidence: number;
+    overfitRisk: TrendOverfitRisk;
+    dataHealth: number;
+    historicalRoiScore: number;
+    clvScore: number;
+    sampleScore: number;
+    recencyScore: number;
+    marketScore: number;
+  };
+  market: {
+    currentOddsAmerican: number | null;
+    impliedProbability: number | null;
+    fairProbability: number | null;
+    fairOddsAmerican: number | null;
+    edgePercent: number | null;
+  };
+  lineSensitivity: TrendLineSensitivity;
+  warnings: string[];
+  explanation: string[];
+};
+
+const MIN_ACTIONABLE_SAMPLE = 75;
+const MIN_DISPLAY_SAMPLE = 30;
+const MIN_ACTIONABLE_EDGE_PERCENT = 1.5;
+const MAX_MISSING_DATA_RATE = 0.03;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function round(value: number, digits = 2) {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
+function finiteNumber(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizePercent(value: number | null | undefined): number | null {
+  const numeric = finiteNumber(value);
+  if (numeric == null) return null;
+  return Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
+}
+
+function normalizeRate(value: number | null | undefined): number | null {
+  const numeric = finiteNumber(value);
+  if (numeric == null) return null;
+  return Math.abs(numeric) > 1 ? numeric / 100 : numeric;
+}
+
+function normalizeProbability(value: number | null | undefined): number | null {
+  const numeric = finiteNumber(value);
+  if (numeric == null) return null;
+  const probability = numeric > 1 ? numeric / 100 : numeric;
+  if (probability <= 0 || probability >= 1) return null;
+  return probability;
+}
+
+function normalizeMarketType(marketType?: string | null, market?: string | null): TrendQualityMarketType {
+  const raw = `${marketType ?? ""} ${market ?? ""}`.toLowerCase();
+  if (raw.includes("moneyline") || raw.includes("ml")) return "moneyline";
+  if (raw.includes("spread") || raw.includes("ats")) return "spread";
+  if (raw.includes("total") || raw.includes("over") || raw.includes("under")) return "total";
+  if (raw.includes("prop")) return "prop";
+  return "unknown";
+}
+
+export function americanToImpliedProbability(oddsAmerican: number | null | undefined) {
+  const odds = finiteNumber(oddsAmerican);
+  if (odds == null || odds === 0 || Math.abs(odds) < 100) return null;
+  if (odds < 0) {
+    const abs = Math.abs(odds);
+    return abs / (abs + 100);
+  }
+  return 100 / (odds + 100);
+}
+
+export function probabilityToAmericanOdds(probability: number | null | undefined) {
+  const prob = normalizeProbability(probability);
+  if (prob == null) return null;
+  if (prob >= 0.5) {
+    return Math.round(-(prob / (1 - prob)) * 100);
+  }
+  return Math.round(((1 - prob) / prob) * 100);
+}
+
+export function profitForAmericanOdds(oddsAmerican: number, stakeUnits = 1) {
+  if (oddsAmerican < 0) return stakeUnits * (100 / Math.abs(oddsAmerican));
+  return stakeUnits * (oddsAmerican / 100);
+}
+
+export function calculateFlatStakeRoi(results: Array<{ result: "W" | "L" | "P"; oddsAmerican: number }>) {
+  const graded = results.filter((row) => row.result !== "P");
+  if (!graded.length) return 0;
+  const profit = graded.reduce((sum, row) => {
+    if (row.result === "W") return sum + profitForAmericanOdds(row.oddsAmerican, 1);
+    if (row.result === "L") return sum - 1;
+    return sum;
+  }, 0);
+  return round((profit / graded.length) * 100, 2);
+}
+
+export function getLineSensitivity(
+  marketType: TrendQualityMarketType,
+  line: number | null | undefined,
+  validLineRange?: { min?: number | null; max?: number | null } | null
+): TrendLineSensitivity {
+  const numericLine = finiteNumber(line);
+  let bucket: string | null = null;
+
+  if (numericLine != null) {
+    if (marketType === "moneyline") {
+      if (numericLine <= -200) bucket = "heavy favorite";
+      else if (numericLine < -130) bucket = "favorite";
+      else if (numericLine <= 130) bucket = "near pick'em";
+      else if (numericLine <= 200) bucket = "underdog";
+      else bucket = "long dog";
+    } else if (marketType === "spread") {
+      const abs = Math.abs(numericLine);
+      if (abs < 3) bucket = "short spread";
+      else if (abs <= 6.5) bucket = "key spread range";
+      else bucket = "wide spread";
+    } else if (marketType === "total") {
+      if (numericLine < 7.5) bucket = "low total";
+      else if (numericLine <= 9.5) bucket = "standard total";
+      else bucket = "high total";
+    } else {
+      bucket = "unbucketed line";
+    }
+  }
+
+  const min = finiteNumber(validLineRange?.min);
+  const max = finiteNumber(validLineRange?.max);
+  const inValidRange =
+    numericLine == null || (min == null && max == null)
+      ? null
+      : (min == null || numericLine >= min) && (max == null || numericLine <= max);
+
+  return {
+    marketType,
+    bucket,
+    inValidRange,
+    warning: inValidRange === false ? "Current line is outside the trend's validated range." : null
+  };
+}
+
+function scoreSample(sampleSize: number | null) {
+  if (sampleSize == null) return 25;
+  if (sampleSize >= 300) return 100;
+  if (sampleSize >= 200) return 92;
+  if (sampleSize >= 150) return 84;
+  if (sampleSize >= MIN_ACTIONABLE_SAMPLE) return 68;
+  if (sampleSize >= 50) return 44;
+  if (sampleSize >= MIN_DISPLAY_SAMPLE) return 28;
+  return 8;
+}
+
+function scoreRoi(roiPercent: number | null) {
+  if (roiPercent == null) return 20;
+  if (roiPercent <= 0) return 0;
+  if (roiPercent >= 15) return 100;
+  return clamp(roiPercent * 6.6, 0, 100);
+}
+
+function scoreClv(averageClv: number | null, positiveClvRate: number | null) {
+  const clv = finiteNumber(averageClv);
+  const positiveRate = normalizePercent(positiveClvRate);
+  if (clv == null && positiveRate == null) return 20;
+
+  const clvScore = clv == null ? 20 : clamp(Math.max(clv, 0) * 22, 0, 70);
+  const positiveRateScore = positiveRate == null ? 15 : clamp((positiveRate - 50) * 2, 0, 30);
+  return clamp(clvScore + positiveRateScore, 0, 100);
+}
+
+function scoreRecency(hitRatePercent: number | null, recencyHitRatePercent: number | null) {
+  const base = recencyHitRatePercent ?? hitRatePercent;
+  if (base == null) return 45;
+
+  const strength = clamp((base - 50) * 8, 0, 80);
+  const stabilityPenalty =
+    hitRatePercent != null && recencyHitRatePercent != null
+      ? clamp(Math.abs(hitRatePercent - recencyHitRatePercent) * 3, 0, 35)
+      : 0;
+  return clamp(35 + strength - stabilityPenalty, 0, 100);
+}
+
+function scoreMarket(input: TrendQualityInput, edgePercent: number | null, impliedProbability: number | null) {
+  const breadth = finiteNumber(input.marketBreadth);
+  const breadthScore = breadth == null ? 0 : clamp(breadth * 25, 0, 70);
+  const oddsScore = impliedProbability == null ? 0 : 20;
+  const edgeScore = edgePercent == null ? 0 : clamp(edgePercent * 7.5, 0, 30);
+  return clamp(breadthScore + oddsScore + edgeScore, 0, 100);
+}
+
+function scoreDataHealth(input: TrendQualityInput) {
+  const missingRate = normalizeRate(input.missingDataRate) ?? 0;
+  let score = 100 - clamp(missingRate * 1000, 0, 70);
+  if (input.currentOddsAmerican == null) score -= 15;
+  if (input.sampleSize == null) score -= 12;
+  if (input.hitRate == null) score -= 8;
+  return clamp(score, 0, 100);
+}
+
+function assessOverfitRisk(input: TrendQualityInput, sampleSize: number | null): TrendOverfitRisk {
+  let points = 0;
+  const filterCount = finiteNumber(input.filterCount) ?? 0;
+  const seasonCount = finiteNumber(input.seasonCount);
+  const teamScopeCount = finiteNumber(input.teamScopeCount);
+
+  if (filterCount >= 6) points += 3;
+  else if (filterCount >= 4) points += 2;
+  else if (filterCount >= 3) points += 1;
+
+  if (sampleSize != null && sampleSize < MIN_DISPLAY_SAMPLE) points += 3;
+  else if (sampleSize != null && sampleSize < MIN_ACTIONABLE_SAMPLE) points += 2;
+
+  if (seasonCount === 1) points += 2;
+  if (teamScopeCount === 1) points += 2;
+
+  if (points >= 5) return "high";
+  if (points >= 3) return "medium";
+  return "low";
+}
+
+function tierFromScore(score: number): TrendQualityTier {
+  if (score >= 85) return "S";
+  if (score >= 75) return "A";
+  if (score >= 62) return "B";
+  if (score >= 45) return "C";
+  return "HIDE";
+}
+
+function capTier(tier: TrendQualityTier, cap: TrendQualityTier) {
+  const rank: Record<TrendQualityTier, number> = { HIDE: 0, C: 1, B: 2, A: 3, S: 4 };
+  return rank[tier] > rank[cap] ? cap : tier;
+}
+
+export function assessTrendQuality(input: TrendQualityInput): TrendQualityResult {
+  const sampleSize = finiteNumber(input.sampleSize);
+  const hitRatePercent = normalizePercent(input.hitRate);
+  const roiPercent = normalizePercent(input.roi);
+  const currentOddsAmerican = finiteNumber(input.currentOddsAmerican);
+  const impliedProbability = americanToImpliedProbability(currentOddsAmerican);
+  const fairProbability = normalizeProbability(input.fairProbability) ?? normalizeProbability(hitRatePercent);
+  const fairOddsAmerican = probabilityToAmericanOdds(fairProbability);
+  const explicitEdgePercent = normalizePercent(input.currentEdge);
+  const edgePercent =
+    explicitEdgePercent ??
+    (fairProbability != null && impliedProbability != null ? (fairProbability - impliedProbability) * 100 : null);
+  const missingRate = normalizeRate(input.missingDataRate) ?? 0;
+  const marketType = normalizeMarketType(input.marketType, input.market);
+  const lineSensitivity = getLineSensitivity(marketType, input.line ?? input.currentOddsAmerican, input.validLineRange);
+
+  const dataHealth = scoreDataHealth(input);
+  const historicalRoiScore = scoreRoi(roiPercent);
+  const clvScore = scoreClv(input.averageClv ?? null, input.positiveClvRate ?? null);
+  const sampleScore = scoreSample(sampleSize);
+  const recencyScore = scoreRecency(hitRatePercent, normalizePercent(input.recencyHitRate));
+  const marketScore = scoreMarket(input, edgePercent, impliedProbability);
+  const overfitRisk = assessOverfitRisk(input, sampleSize);
+
+  const rawScore =
+    dataHealth * 0.2 +
+    historicalRoiScore * 0.2 +
+    clvScore * 0.2 +
+    sampleScore * 0.15 +
+    recencyScore * 0.15 +
+    marketScore * 0.1;
+
+  const warnings: string[] = [];
+  const explanation: string[] = [];
+
+  if (sampleSize != null && sampleSize < MIN_ACTIONABLE_SAMPLE) {
+    warnings.push(`Sample below actionable floor (${sampleSize}/${MIN_ACTIONABLE_SAMPLE}).`);
+  }
+  if (sampleSize == null) warnings.push("No historical sample attached to this signal.");
+  if (missingRate > MAX_MISSING_DATA_RATE) warnings.push(`Missing-data rate exceeds ${(MAX_MISSING_DATA_RATE * 100).toFixed(0)}%.`);
+  if (currentOddsAmerican == null) warnings.push("No current sportsbook price attached; keep as research/watchlist only.");
+  if (edgePercent != null && edgePercent < MIN_ACTIONABLE_EDGE_PERCENT) {
+    warnings.push(`Current edge below actionable floor (${round(edgePercent, 2)}%).`);
+  }
+  if (roiPercent != null && roiPercent < 2) warnings.push("Historical ROI below 2% quality floor.");
+  if ((input.averageClv == null || input.positiveClvRate == null) && input.source !== "market-edge") {
+    warnings.push("No closing-line-value support attached.");
+  }
+  if (overfitRisk === "high") warnings.push("High overfit risk from filter/sample concentration.");
+  else if (overfitRisk === "medium") warnings.push("Moderate overfit risk; verify by season and team split.");
+  if (lineSensitivity.warning) warnings.push(lineSensitivity.warning);
+
+  explanation.push(`Data health ${round(dataHealth, 1)}/100.`);
+  explanation.push(`Sample quality ${round(sampleScore, 1)}/100${sampleSize == null ? " with no historical row count" : ` from ${sampleSize} rows`}.`);
+  if (edgePercent != null) explanation.push(`Current market edge ${round(edgePercent, 2)}%.`);
+  if (fairOddsAmerican != null) explanation.push(`Fair odds estimate ${fairOddsAmerican > 0 ? "+" : ""}${fairOddsAmerican}.`);
+  if (lineSensitivity.bucket) explanation.push(`Line bucket: ${lineSensitivity.bucket}.`);
+
+  let tier = tierFromScore(rawScore);
+  if (sampleSize != null && sampleSize < MIN_DISPLAY_SAMPLE) tier = "HIDE";
+  else if (sampleSize != null && sampleSize < MIN_ACTIONABLE_SAMPLE) tier = capTier(tier, "C");
+  if (missingRate > MAX_MISSING_DATA_RATE) tier = "HIDE";
+  if (currentOddsAmerican == null) tier = capTier(tier, "C");
+  if (edgePercent != null && edgePercent < MIN_ACTIONABLE_EDGE_PERCENT) tier = capTier(tier, "C");
+  if (roiPercent != null && roiPercent < 2) tier = capTier(tier, "C");
+  if (overfitRisk === "high") tier = sampleSize != null && sampleSize < MIN_ACTIONABLE_SAMPLE ? "HIDE" : capTier(tier, "C");
+  if (lineSensitivity.inValidRange === false) tier = capTier(tier, "C");
+
+  const score = round(rawScore, 1);
+
+  return {
+    quality: {
+      score,
+      tier,
+      confidence: clamp(score / 100, 0, 1),
+      overfitRisk,
+      dataHealth: round(dataHealth, 1),
+      historicalRoiScore: round(historicalRoiScore, 1),
+      clvScore: round(clvScore, 1),
+      sampleScore: round(sampleScore, 1),
+      recencyScore: round(recencyScore, 1),
+      marketScore: round(marketScore, 1)
+    },
+    market: {
+      currentOddsAmerican,
+      impliedProbability: impliedProbability == null ? null : round(impliedProbability, 4),
+      fairProbability: fairProbability == null ? null : round(fairProbability, 4),
+      fairOddsAmerican,
+      edgePercent: edgePercent == null ? null : round(edgePercent, 2)
+    },
+    lineSensitivity,
+    warnings,
+    explanation
+  };
+}
+
+export function mapQualityTierToTrendGrade(tier: TrendQualityTier): "A" | "B" | "C" | "Watch" | "Pass" {
+  if (tier === "S" || tier === "A") return "A";
+  if (tier === "B") return "B";
+  if (tier === "C") return "Watch";
+  return "Pass";
+}
+
+export function mergeTrendRisk(baseRisk: TrendBaseRisk, overfitRisk: TrendOverfitRisk): TrendBaseRisk {
+  if (baseRisk === "high" || overfitRisk === "high") return "high";
+  if (baseRisk === "medium" || overfitRisk === "medium") return "medium";
+  return "low";
+}
+
+export function buildTrendQualityInputFromSignal(signal: {
+  id: string;
+  market?: string | null;
+  sample?: number | null;
+  hitRate?: number | null;
+  edge?: number | null;
+  risk?: TrendBaseRisk;
+  source?: string;
+  gameId?: string;
+  notes?: string[];
+}): TrendQualityInput {
+  return {
+    id: signal.id,
+    market: signal.market,
+    marketType: signal.market,
+    sampleSize: signal.sample,
+    hitRate: signal.hitRate,
+    currentEdge: signal.edge,
+    marketBreadth: signal.source === "market-edge" ? 2 : 0,
+    filterCount: signal.source === "research-pattern" ? 4 : signal.gameId ? 2 : 3,
+    activeMatchCount: signal.gameId ? 1 : 0,
+    todayMatchCount: signal.gameId ? 1 : 0,
+    source: signal.source,
+    baseRisk: signal.risk
+  };
+}
