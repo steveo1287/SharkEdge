@@ -12,6 +12,7 @@ import {
   type TrendQualityResult,
   type TrendQualityTier
 } from "./trend-quality";
+import { filterTrendSignalsForOutput, summarizeTrendSignalCounts } from "./trend-signal-output";
 
 type TrendCategory = "Moneyline" | "Totals" | "Market" | "Risk" | "Schedule" | "Model";
 type TrendGrade = "A" | "B" | "C" | "Watch" | "Pass";
@@ -86,6 +87,7 @@ function applyTrendQuality(signal: TrendSignalDraft): TrendSignal {
   const mergedRisk = mergeTrendRisk(signal.risk, qualityResult.quality.overfitRisk);
   const qualityNotes = qualityResult.explanation.map((note) => `Quality: ${note}`);
   const warningNotes = qualityResult.warnings.map((warning) => `Warning: ${warning}`);
+  const gateNotes = qualityResult.gateReasons.map((reason) => `Gate: ${reason}`);
 
   return {
     ...signal,
@@ -99,11 +101,11 @@ function applyTrendQuality(signal: TrendSignalDraft): TrendSignal {
     lineSensitivity: qualityResult.lineSensitivity,
     overfitRisk: qualityResult.quality.overfitRisk,
     warnings: qualityResult.warnings,
-    notes: [...signal.notes, ...qualityNotes, ...warningNotes]
+    notes: [...signal.notes, ...qualityNotes, ...warningNotes, ...gateNotes]
   };
 }
 
-export async function buildTrendSignals(args: { league?: "ALL" | LeagueKey; includeResearch?: boolean } = {}) {
+export async function buildTrendSignals(args: { league?: "ALL" | LeagueKey; includeResearch?: boolean; includeHidden?: boolean } = {}) {
   const league = selected(args.league);
   const [sections, edgeData] = await Promise.all([
     buildBoardSportSections({ selectedLeague: league, gamesByLeague: {}, maxScoreboardGames: null }),
@@ -170,23 +172,21 @@ export async function buildTrendSignals(args: { league?: "ALL" | LeagueKey; incl
   }
 
   const research = args.includeResearch === false ? [] : RESEARCH_PATTERNS.filter((trend) => league === "ALL" || trend.league === league);
-  const signals = [...liveSignals, ...research].map(applyTrendQuality).sort((a, b) => {
+  const allSignals = [...liveSignals, ...research].map(applyTrendQuality).sort((a, b) => {
     const gradeRank = { A: 5, B: 4, Watch: 3, C: 2, Pass: 1 } as Record<TrendGrade, number>;
     return gradeRank[b.grade] - gradeRank[a.grade] || b.qualityScore - a.qualityScore || b.confidence - a.confidence;
   });
+  const signals = filterTrendSignalsForOutput(allSignals, args.includeHidden);
+  const counts = summarizeTrendSignalCounts(allSignals, signals);
 
   return {
     ok: true,
     league,
     generatedAt: new Date().toISOString(),
     counts: {
-      total: signals.length,
+      ...counts,
       live: liveSignals.length,
-      research: research.length,
-      attack: signals.filter((signal) => signal.grade === "A" || signal.grade === "B").length,
-      watch: signals.filter((signal) => signal.grade === "Watch" || signal.grade === "C").length,
-      pass: signals.filter((signal) => signal.grade === "Pass").length,
-      hiddenQuality: signals.filter((signal) => signal.qualityTier === "HIDE").length
+      research: research.length
     },
     signals
   };
