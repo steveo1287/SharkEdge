@@ -1,7 +1,7 @@
 import type { LeagueKey } from "@/lib/types/domain";
 
-// Open-source data sources only: OddsHarvester (primary) and sportsbooks (DraftKings, FanDuel)
-export type BookFeedProviderKey = "draftkings" | "fanduel" | "oddsharvester";
+// Open-source data sources: OddsHarvester, sportsbooks (DraftKings, FanDuel), and the Odds API
+export type BookFeedProviderKey = "draftkings" | "fanduel" | "oddsharvester" | "oddsapi-io";
 
 export type BookFeedBackoffPolicy = {
   baseMs: number;
