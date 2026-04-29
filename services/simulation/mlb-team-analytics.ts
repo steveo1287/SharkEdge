@@ -1,4 +1,5 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
+import { getMlbRestMatchup } from "@/services/simulation/mlb-schedule-rest-service";
 
 export type MlbTeamProfile = {
   teamName: string;
@@ -135,7 +136,15 @@ export async function getMlbTeamProfile(teamName: string): Promise<MlbTeamProfil
 }
 
 export async function compareMlbProfiles(awayTeam: string, homeTeam: string): Promise<MlbMatchupComparison> {
-  const [away, home] = await Promise.all([getMlbTeamProfile(awayTeam), getMlbTeamProfile(homeTeam)]);
+  const [[away, home], restMatchup] = await Promise.all([
+    Promise.all([getMlbTeamProfile(awayTeam), getMlbTeamProfile(homeTeam)]),
+    getMlbRestMatchup(awayTeam, homeTeam)
+  ]);
+  // Override travelRest with live schedule data when available
+  if (restMatchup.source === "real") {
+    away.travelRest = restMatchup.awayRest.travelRest;
+    home.travelRest = restMatchup.homeRest.travelRest;
+  }
   const offensiveEdge = Number((((home.wrcPlus - away.wrcPlus) / 10) + (home.xwoba - away.xwoba) * 55).toFixed(2));
   const powerEdge = Number(((home.isoPower - away.isoPower) * 45).toFixed(2));
   const plateDisciplineEdge = Number((((away.kRate - home.kRate) + (home.bbRate - away.bbRate)) / 4).toFixed(2));
