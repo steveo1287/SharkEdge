@@ -33,18 +33,23 @@ function formatEdge(value: number | null | undefined) {
   return `${percent > 0 ? "+" : ""}${percent.toFixed(1)}%`;
 }
 
+function isRealGameSignal(signal: TrendSignal) {
+  return Boolean(signal.gameId && signal.matchup && signal.source !== "research-pattern");
+}
+
 function signalTone(signal: TrendSignal): TrendCardView["tone"] {
   if (signal.quality.actionability === "ACTIONABLE" || signal.qualityTier === "S" || signal.qualityTier === "A") return "success";
   if (signal.quality.actionability === "WATCHLIST" || signal.qualityTier === "B") return "brand";
-  if (signal.quality.actionability === "RESEARCH_ONLY" || signal.category === "Totals") return "premium";
+  if (signal.source === "market-edge" || signal.category === "Totals") return "premium";
   return "muted";
 }
 
 function actionLabel(signal: TrendSignal) {
   if (signal.quality.actionability === "ACTIONABLE") return "REVIEW LIVE PRICE";
   if (signal.quality.actionability === "WATCHLIST") return "WATCH FOR PRICE";
-  if (signal.quality.actionability === "RESEARCH_ONLY") return "RESEARCH ONLY";
-  return "CONTEXT ONLY";
+  if (signal.source === "market-edge") return "PRICE CHECK";
+  if (isRealGameSignal(signal)) return "GAME CONTEXT";
+  return "RESEARCH ONLY";
 }
 
 function safeLeague(league: LeagueKey | "ALL"): LeagueKey {
@@ -71,7 +76,8 @@ function signalMatch(signal: TrendSignal): TrendMatchView[] {
       oddsContext: [
         `Quality ${signal.qualityTier} · ${signal.qualityScore}/100`,
         signal.marketQuality.edgePercent != null ? `Edge ${signal.marketQuality.edgePercent}%` : null,
-        signal.marketQuality.fairOddsAmerican != null ? `Fair ${signal.marketQuality.fairOddsAmerican > 0 ? "+" : ""}${signal.marketQuality.fairOddsAmerican}` : null
+        signal.marketQuality.fairOddsAmerican != null ? `Fair ${signal.marketQuality.fairOddsAmerican > 0 ? "+" : ""}${signal.marketQuality.fairOddsAmerican}` : null,
+        signal.warnings.includes("No current sportsbook price attached; keep as research/watchlist only.") ? "Current price needed" : null
       ].filter(Boolean).join(" · "),
       matchupHref: href,
       boardHref: league === "UFC" || league === "BOXING" ? null : `/?league=${league}`,
@@ -87,29 +93,32 @@ function signalCard(signal: TrendSignal, filters: TrendFilters): TrendCardView {
   const hitRate = formatPct(signal.hitRate);
   const warningText = signal.warnings.length ? signal.warnings.slice(0, 3).join("; ") : null;
   const notes = signal.notes.filter(Boolean).slice(0, 6);
+  const matchup = signal.matchup ? `${signal.matchup.away} @ ${signal.matchup.home}` : signal.title;
 
   return {
     id: signal.id,
-    title: `${signal.title} · ${signal.qualityTier}`,
-    value: edge ?? score,
+    title: `${matchup} · ${signal.market ?? signal.category}`,
+    value: edge ?? (signal.confidence ? `${(signal.confidence * 100).toFixed(1)}%` : score),
     hitRate,
     roi: null,
     sampleSize: signal.sample ?? 0,
-    dateRange: `Current board · ${signal.league} · ${signal.market ?? signal.category}`,
+    dateRange: `Current games · ${signal.league} · ${signal.market ?? signal.category}`,
     note: [
       signal.angle,
       `Action Gate: ${actionLabel(signal)}`,
-      `QualityScore ${score}`,
-      signal.marketQuality.fairOddsAmerican != null ? `Fair-price checkpoint: ${signal.marketQuality.fairOddsAmerican > 0 ? "+" : ""}${signal.marketQuality.fairOddsAmerican} or better` : null,
-      signal.quality.actionability === "RESEARCH_ONLY" ? "Research-only until a current sportsbook price confirms it" : null
+      `Model confidence ${(signal.confidence * 100).toFixed(1)}%`,
+      `Quality ${signal.qualityTier} ${score}`,
+      signal.marketQuality.fairOddsAmerican != null ? `Fair-price checkpoint: ${signal.marketQuality.fairOddsAmerican > 0 ? "+" : ""}${signal.marketQuality.fairOddsAmerican} or better` : "Fair-price checkpoint: current sportsbook price required before this becomes actionable",
+      signal.source === "sim-engine" ? "Real current game signal from the sim/model path; not a historical filler card" : null
     ].filter(Boolean).join(". "),
-    explanation: `Signal generated from the ${signal.source} trend path and filtered through the SharkEdge quality gate. League filter: ${filters.league}.`,
+    explanation: `Real current ${signal.league} game/team trend generated from ${signal.source}. League filter: ${filters.league}.`,
     whyItMatters: [
       `Action Gate: ${actionLabel(signal)}`,
       `Quality tier ${signal.qualityTier}`,
       `Overfit risk ${signal.overfitRisk}`,
+      signal.gameId ? `Game ${signal.gameId}` : null,
       ...notes
-    ].join(" · "),
+    ].filter(Boolean).join(" · "),
     caution: warningText
       ? `Kill switches: ${warningText}.`
       : "Kill switches: stale price, late lineup/news change, market moving through fair price, or quality tier downgrade.",
@@ -119,26 +128,29 @@ function signalCard(signal: TrendSignal, filters: TrendFilters): TrendCardView {
   };
 }
 
-function metrics(signals: TrendSignal[]): TrendMetricCard[] {
+function metrics(signals: TrendSignal[], hiddenCount: number): TrendMetricCard[] {
   const actionable = signals.filter((signal) => signal.quality.actionability === "ACTIONABLE").length;
-  const watchlist = signals.filter((signal) => signal.quality.actionability === "WATCHLIST").length;
-  const research = signals.filter((signal) => signal.quality.actionability === "RESEARCH_ONLY").length;
+  const priced = signals.filter((signal) => signal.source === "market-edge" || signal.marketQuality.currentOddsAmerican != null).length;
+  const games = new Set(signals.map((signal) => signal.gameId).filter(Boolean)).size;
   const top = signals[0];
 
   return [
-    { label: "Visible trends", value: String(signals.length), note: "Signals that cleared the hidden-quality filter and can be displayed." },
-    { label: "Actionable", value: String(actionable), note: "Cards that still need live-price review before use." },
-    { label: "Watchlist", value: String(watchlist), note: "Interesting cards that need price/data confirmation." },
-    { label: "Top quality", value: top ? `${top.qualityScore}/100` : "N/A", note: top?.title ?? "No current signal card." }
+    { label: "Real game trends", value: String(signals.length), note: "Current game/team signals only. Static research filler is excluded." },
+    { label: "Games covered", value: String(games), note: "Unique current games represented on the trends page." },
+    { label: "Priced signals", value: String(priced), note: "Signals with a market-edge or current price context." },
+    { label: "Suppressed", value: String(hiddenCount), note: "Weak non-game/static signals kept out of the visible page." },
+    { label: "Top read", value: top ? `${(top.confidence * 100).toFixed(1)}%` : "N/A", note: top?.title ?? "No current game signal." }
   ];
 }
 
 function rows(signals: TrendSignal[]): TrendTableRow[] {
-  return signals.slice(0, 10).map((signal) => ({
-    label: `${signal.league} ${signal.market ?? signal.category}`,
+  return signals.slice(0, 20).map((signal) => ({
+    label: signal.matchup ? `${signal.matchup.away} @ ${signal.matchup.home}` : `${signal.league} ${signal.market ?? signal.category}`,
     movement: actionLabel(signal),
     note: [
       signal.title,
+      `${signal.market ?? signal.category}`,
+      `Confidence ${(signal.confidence * 100).toFixed(1)}%`,
       `Quality ${signal.qualityTier} ${signal.qualityScore}/100`,
       signal.marketQuality.edgePercent != null ? `Edge ${signal.marketQuality.edgePercent}%` : null,
       signal.warnings[0] ?? null
@@ -150,7 +162,7 @@ function rows(signals: TrendSignal[]): TrendTableRow[] {
 function insights(signals: TrendSignal[]): TrendInsightCard[] {
   return signals.slice(0, 4).map((signal) => ({
     id: `signal-insight-${signal.id}`,
-    title: signal.title,
+    title: signal.matchup ? `${signal.matchup.away} @ ${signal.matchup.home}` : signal.title,
     value: actionLabel(signal),
     note: [signal.angle, `Quality ${signal.qualityTier}`, signal.warnings[0] ?? null].filter(Boolean).join(" · "),
     tone: signalTone(signal)
@@ -167,25 +179,36 @@ function matchesMarketFilter(signal: TrendSignal, filterMarket: TrendFilters["ma
   return market.includes(filterMarket) || category.includes(filterMarket);
 }
 
+function signalRank(signal: TrendSignal) {
+  const pricedBoost = signal.source === "market-edge" ? 100 : 0;
+  const actionableBoost = signal.quality.actionability === "ACTIONABLE" ? 80 : signal.quality.actionability === "WATCHLIST" ? 45 : 0;
+  const confidenceScore = signal.confidence * 100;
+  const edgeScore = typeof signal.marketQuality.edgePercent === "number" ? Math.abs(signal.marketQuality.edgePercent) * 4 : 0;
+  return pricedBoost + actionableBoost + confidenceScore + edgeScore + signal.qualityScore;
+}
+
 export async function buildSignalTrendDashboard(
   filters: TrendFilters,
   options?: { mode?: TrendMode; aiQuery?: string }
 ): Promise<TrendDashboardView | null> {
   const payload = await buildTrendSignals({
     league: filters.league === "ALL" ? "ALL" : filters.league,
-    includeResearch: true,
-    includeHidden: false
+    includeResearch: false,
+    includeHidden: true
   });
 
   const signals = payload.signals
+    .filter(isRealGameSignal)
     .filter((signal) => matchesMarketFilter(signal, filters.market))
-    .slice(0, 12);
+    .sort((left, right) => signalRank(right) - signalRank(left))
+    .slice(0, 40);
 
   if (!signals.length) return null;
 
   const cards = signals.map((signal) => signalCard(signal, filters));
   const liveMatches = cards.flatMap((card) => card.todayMatches ?? []);
   const top = signals[0];
+  const hiddenStaticCount = Math.max(0, (payload.counts.totalRaw ?? payload.signals.length) - signals.length);
 
   return {
     setup: null,
@@ -193,31 +216,31 @@ export async function buildSignalTrendDashboard(
     aiQuery: options?.aiQuery ?? "",
     aiHelper: null,
     explanation: {
-      headline: `${cards.length} current trend signal${cards.length === 1 ? "" : "s"} showing from live SharkEdge data`,
-      whyItMatters: `${top.title} leads with quality ${top.qualityTier} ${top.qualityScore}/100. This view is using the trend signal engine because historical/published dashboard cards were unavailable or thin.`,
-      caution: "These are current trend signals, not blind bets. Use the action gate, fair-price checkpoint, and kill switches before acting.",
+      headline: `${cards.length} real current game/team trend${cards.length === 1 ? "" : "s"} loaded`,
+      whyItMatters: `${top.matchup ? `${top.matchup.away} @ ${top.matchup.home}` : top.title} leads the board. This view now uses current game/team signals only; static fallback cards are excluded.`,
+      caution: "These cards are real current game context. They are not all bets. Use the action gate and price checkpoint before acting.",
       queryLogic: [filters.league, filters.market, filters.side, filters.window].filter(Boolean).join(" | ")
     },
     filters,
     cards,
-    metrics: metrics(signals),
+    metrics: metrics(signals, hiddenStaticCount),
     insights: insights(signals),
     movementRows: rows(signals),
     segmentRows: [
-      { label: "Signal feed", movement: `${cards.length} cards`, note: "Current trend signal engine output after quality gating.", href: "/trends?mode=signals" },
-      { label: "Hidden-quality filter", movement: String(payload.counts.hiddenQuality ?? 0), note: "Signals suppressed by quality gate before reaching this page.", href: "/api/trends?mode=signals&debug=true" },
-      { label: "Research patterns", movement: String(payload.counts.research ?? 0), note: "Historical research cards kept as context until current price confirms them.", href: "/trends" }
+      { label: "Current games", movement: `${new Set(signals.map((signal) => signal.gameId).filter(Boolean)).size} games`, note: "Real board/sim game signals represented on the trends page.", href: "/trends?mode=signals" },
+      { label: "Priced market edges", movement: String(signals.filter((signal) => signal.source === "market-edge").length), note: "Signals with sportsbook/market edge support.", href: "/api/trends?mode=signals&debug=true" },
+      { label: "Context-only signals", movement: String(signals.filter((signal) => signal.source === "sim-engine").length), note: "Real game model signals waiting for current price confirmation.", href: "/sim" }
     ],
     todayMatches: liveMatches,
     todayMatchesNote: liveMatches.length
-      ? `${liveMatches.length} live/current qualifier${liveMatches.length === 1 ? "" : "s"} attached from the signal feed.`
-      : "Trend signal cards are showing, but no live matchup qualifiers are attached yet.",
+      ? `${liveMatches.length} current game qualifier${liveMatches.length === 1 ? "" : "s"} attached from the real signal feed.`
+      : "Real trend cards loaded, but no matchup links were attached.",
     savedSystems: [],
     savedTrendName: "",
-    sourceNote: "Showing current SharkEdge trend signals from the quality-gated signal engine because historical/published trend cards were unavailable or thin.",
+    sourceNote: "Showing real current game/team trends from the SharkEdge signal engine. Static filler cards are disabled.",
     querySummary: [filters.league, filters.market, filters.side, filters.window].filter(Boolean).join(" | "),
-    sampleNote: payload.counts.hiddenQuality
-      ? `${payload.counts.hiddenQuality} weak/hidden trend signal${payload.counts.hiddenQuality === 1 ? " was" : "s were"} suppressed by the quality gate.`
+    sampleNote: hiddenStaticCount
+      ? `${hiddenStaticCount} static/non-game signal${hiddenStaticCount === 1 ? " was" : "s were"} excluded so the page shows real games only.`
       : null
   };
 }
