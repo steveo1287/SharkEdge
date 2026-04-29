@@ -7,6 +7,7 @@ import { compareMlbProfiles, type MlbMatchupComparison } from "@/services/simula
 import { compareMlbRatings } from "@/services/simulation/mlb-ratings-blend";
 import { governMlbProjection, type MlbGovernorFeatures } from "@/services/simulation/mlb-intelligence-governor";
 import { getCachedMlbCalibrationConformal, applyMlbCalibration, applyMlbConformalDecision } from "@/services/simulation/mlb-calibration-conformal";
+import { getMlbUmpireTendency } from "@/services/simulation/mlb-umpire-model";
 import { buildRealitySimIntel, type RealitySimIntel } from "@/services/simulation/reality-sim-engine";
 import { getNbaTeamPlayerProfileSummary } from "@/services/simulation/nba-player-profiles";
 import { simulateNbaPlayerGameProjections, type NbaPlayerStatProjection } from "@/services/simulation/nba-player-stat-sim";
@@ -211,13 +212,14 @@ function buildMlbRunProbabilityModel(args: {
 }
 
 async function buildMlbIntel(matchup: { away: string; home: string }, comparison: MlbMatchupComparison) {
-  const [awayPlayers, homePlayers, lock, ratings, history, market] = await Promise.all([
+  const [awayPlayers, homePlayers, lock, ratings, history, market, umpire] = await Promise.all([
     getMlbTeamPlayerSummary(matchup.away),
     getMlbTeamPlayerSummary(matchup.home),
     getMlbLineupLock(matchup.away, matchup.home),
     compareMlbRatings(matchup.away, matchup.home),
     compareMlbPlayerHistory(matchup.away, matchup.home),
-    getMlbNoVigMarket(matchup.away, matchup.home)
+    getMlbNoVigMarket(matchup.away, matchup.home),
+    getMlbUmpireTendency(matchup.away, matchup.home)
   ]);
   const official = lockEdges(lock);
   const playerOffenseEdge = Number((homePlayers.offensivePlayerBoost - awayPlayers.offensivePlayerBoost).toFixed(2));
@@ -290,6 +292,28 @@ async function buildMlbIntel(matchup: { away: string; home: string }, comparison
     marketAwayOddsAmerican: market.awayOddsAmerican
   };
 
+  // xFIP vs ERA regression signal: detects over/underperforming starters.
+  // ERA- is relative (100 = league avg, lower = better); xFIP is absolute ERA scale.
+  // Convert xFIP to the ERA- relative scale, then compute the luck gap.
+  const LEAGUE_AVG_ERA = 4.2;
+  const homeXFipRelative = (comparison.home.starterXFip / LEAGUE_AVG_ERA) * 100;
+  const awayXFipRelative = (comparison.away.starterXFip / LEAGUE_AVG_ERA) * 100;
+  // Gap > 0 means ERA- is better (lower) than xFIP would predict → pitcher is "lucky" → regression risk
+  const homeRegressionGap = homeXFipRelative - comparison.home.starterEraMinus;
+  const awayRegressionGap = awayXFipRelative - comparison.away.starterEraMinus;
+  // Positive = home benefits: away pitcher more luck-dependent OR home pitcher undervalued by ERA
+  const pitcherRegressionEdge = Number(((awayRegressionGap - homeRegressionGap) * 0.035).toFixed(2));
+
+  // Umpire K-zone edge: positive = generous zone (more Ks, fewer runs).
+  // Primarily a total/K-rate adjuster; low side-winner weight since it affects both teams.
+  const umpireEdge = Number(umpire.strikeoutBiasEdge.toFixed(2));
+
+  // Inject new edges into the already-built features object so the governor sees them.
+  features.pitcherRegressionEdge = pitcherRegressionEdge;
+  features.umpireEdge = umpireEdge;
+  // Enrich statcast feature to include pitcher regression signal
+  features.statcastEdge = Number((features.statcastEdge + pitcherRegressionEdge * 0.55).toFixed(2));
+
   const marketEdge = market.homeNoVigProbability == null ? 0 : Number((runModel.blendedHomeWinPct - market.homeNoVigProbability).toFixed(2));
   const factors: MlbFactor[] = [
     { label: "Live no-vig market sanity", value: marketEdge },
@@ -326,13 +350,16 @@ async function buildMlbIntel(matchup: { away: string; home: string }, comparison
     { label: "Recent bullpen form", value: bullpenHistoryEdge },
     { label: "Platoon history", value: platoonHistoryEdge },
     { label: "Hard contact trend", value: contactTrendEdge },
+    { label: "Pitcher regression (xFIP vs ERA)", value: pitcherRegressionEdge },
+    { label: "Umpire K-zone bias", value: umpireEdge },
+    { label: "Umpire run-environment bias", value: Number(umpire.totalRunBiasEdge.toFixed(2)) },
     ...ratings.factors.map((factor) => ({ label: factor.label, value: factor.value })),
     ...history.factors.map((factor) => ({ label: factor.label, value: factor.value }))
   ];
 
   return {
     modelVersion: "mlb-intel-v6" as const,
-    dataSource: `${comparison.away.source}/${comparison.home.source}+team-analytics+player-model:${awayPlayers.source}/${homePlayers.source}+official-lock:${lock.source}+market:${market.source}+history:${history.away.source}/${history.home.source}+ratings:${ratings.away.source}/${ratings.home.source}`,
+    dataSource: `${comparison.away.source}/${comparison.home.source}+team-analytics+player-model:${awayPlayers.source}/${homePlayers.source}+official-lock:${lock.source}+market:${market.source}+history:${history.away.source}/${history.home.source}+ratings:${ratings.away.source}/${ratings.home.source}+umpire:${umpire.source}`,
     homeEdge,
     projectedTotal,
     runModel,
@@ -385,8 +412,9 @@ function buildMlbStatSheet(matchup: { away: string; home: string }, distribution
   const homeHr = round(Math.max(0.2, homeRuns * 0.27 + Math.max(0, powerEdge) * 0.16), 1);
   const awayBb = round(Math.max(1.5, awayRuns * 0.88 + Math.max(0, -byLabel(mlbIntel.factors, "Plate discipline")) * 0.4), 1);
   const homeBb = round(Math.max(1.5, homeRuns * 0.88 + Math.max(0, byLabel(mlbIntel.factors, "Plate discipline")) * 0.4), 1);
-  const awaySo = round(Math.max(3, 10.2 - awayRuns * 0.5 + Math.max(0, pitchingEdge) * 0.3), 1);
-  const homeSo = round(Math.max(3, 10.2 - homeRuns * 0.5 + Math.max(0, -pitchingEdge) * 0.3), 1);
+  const umpireKBias = byLabel(mlbIntel.factors, "Umpire K-zone bias");
+  const awaySo = round(Math.max(3, 10.2 - awayRuns * 0.5 + Math.max(0, pitchingEdge) * 0.3 + umpireKBias * 0.55), 1);
+  const homeSo = round(Math.max(3, 10.2 - homeRuns * 0.5 + Math.max(0, -pitchingEdge) * 0.3 + umpireKBias * 0.55), 1);
   return { sport: "MLB", awayTeam: matchup.away, homeTeam: matchup.home, pace: null, possessions: null, categories: [
     { key: "runs", label: "Runs", away: round(awayRuns, 2), home: round(homeRuns, 2), format: "decimal" },
     { key: "hits", label: "Hits", away: awayHits, home: homeHits, format: "decimal" },
@@ -417,8 +445,13 @@ function buildNbaStatSheet(matchup: { away: string; home: string }, distribution
   const homeFga = round(clamp(distribution.avgHome / 1.1 + home3pm * 0.8, 70, 102), 1);
   const awayFta = round(clamp(distribution.avgAway * 0.22, 9, 36), 1);
   const homeFta = round(clamp(distribution.avgHome * 0.22, 9, 36), 1);
-  const awayTov = round(clamp(11.8, 8, 19), 1);
-  const homeTov = round(clamp(11.8, 8, 19), 1);
+  // Turnover projection: use possession-based rate (league avg ~12.2% of possessions)
+  // adjusted by the "Recent turnovers" differential from the reality engine factors.
+  // A positive recentTovFactor means the AWAY team has been turning it over more.
+  const recentTovFactor = byLabel(realityIntel.factors as MlbFactor[], "Recent turnovers");
+  const baseTov = possessions * 0.122;
+  const awayTov = round(clamp(baseTov + recentTovFactor * 6, 8, 19), 1);
+  const homeTov = round(clamp(baseTov - recentTovFactor * 6, 8, 19), 1);
   return { sport: "NBA", awayTeam: matchup.away, homeTeam: matchup.home, pace, possessions, categories: [
     { key: "points", label: "Points", away: round(distribution.avgAway, 1), home: round(distribution.avgHome, 1), format: "decimal" },
     { key: "off_rating", label: "Off Rating", away: round(safeDiv(distribution.avgAway, possessions) * 100, 1), home: round(safeDiv(distribution.avgHome, possessions) * 100, 1), format: "decimal" },

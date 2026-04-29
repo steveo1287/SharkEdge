@@ -170,4 +170,95 @@ run("passes through canonical line payloads that already include advanced market
   assert.equal(payloads[0].lines[0].markets?.[0]?.selection, "Justin Steele");
 });
 
+run("normalizes raw Odds API event shape (sport_key, h2h, spreads, totals)", () => {
+  // This is the real shape returned by GET /v4/sports/{sport}/odds from the Odds API.
+  // Tests the three fixes: sport_key field, h2h → moneyline, spreads → spread.
+  const oddsApiPayload = [
+    {
+      id: "event-abc123",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: "2026-05-01T23:05:00Z",
+      home_team: "Chicago Cubs",
+      away_team: "St. Louis Cardinals",
+      bookmakers: [
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: "2026-05-01T22:00:00Z",
+          markets: [
+            {
+              key: "h2h",
+              last_update: "2026-05-01T22:00:00Z",
+              outcomes: [
+                { name: "Chicago Cubs", price: -135 },
+                { name: "St. Louis Cardinals", price: 115 }
+              ]
+            },
+            {
+              key: "spreads",
+              last_update: "2026-05-01T22:00:00Z",
+              outcomes: [
+                { name: "Chicago Cubs", price: -110, point: -1.5 },
+                { name: "St. Louis Cardinals", price: -110, point: 1.5 }
+              ]
+            },
+            {
+              key: "totals",
+              last_update: "2026-05-01T22:00:00Z",
+              outcomes: [
+                { name: "Over", price: -108, point: 8.5 },
+                { name: "Under", price: -112, point: 8.5 }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ];
+
+  const payloads = normalizeBookFeedPayload({
+    providerKey: "oddsapi-io",
+    sportsbookKey: "draftkings",
+    fetchedAt: "2026-05-01T22:00:00Z",
+    payload: oddsApiPayload
+  });
+
+  assert.equal(payloads.length, 1, "Must produce 1 ingested event");
+  const event = payloads[0];
+  assert.equal(event.homeTeam, "Chicago Cubs");
+  assert.equal(event.awayTeam, "St. Louis Cardinals");
+  assert.equal(event.sport, "baseball_mlb", "sport_key field must be picked up");
+  assert.equal(event.lines.length, 1, "Must produce 1 book line (DraftKings)");
+
+  const markets = event.lines[0].markets ?? [];
+  assert.ok(markets.length >= 6, `Must produce at least 6 markets (h2h×2, spreads×2, totals×2); got ${markets.length}`);
+
+  const moneylines = markets.filter((m) => m.marketType === "moneyline");
+  assert.equal(moneylines.length, 2, "h2h must map to 2 moneyline markets (home + away)");
+  const homeML = moneylines.find((m) => m.side === "home");
+  assert.ok(homeML, "home moneyline must exist");
+  assert.equal(homeML!.oddsAmerican, -135, "home moneyline odds must be -135");
+  const awayML = moneylines.find((m) => m.side === "away");
+  assert.ok(awayML, "away moneyline must exist");
+  assert.equal(awayML!.oddsAmerican, 115, "away moneyline odds must be +115");
+
+  const spreads = markets.filter((m) => m.marketType === "spread");
+  assert.equal(spreads.length, 2, "spreads must map to 2 spread markets");
+  const homeSpread = spreads.find((m) => m.side === "home");
+  assert.ok(homeSpread, "home spread must exist");
+  assert.equal(homeSpread!.line, -1.5, "home spread line must be -1.5");
+  assert.equal(homeSpread!.oddsAmerican, -110);
+
+  const totals = markets.filter((m) => m.marketType === "total");
+  assert.equal(totals.length, 2, "totals must map to 2 total markets (over + under)");
+  const over = totals.find((m) => m.side === "over");
+  assert.ok(over, "over total must exist");
+  assert.equal(over!.line, 8.5);
+  assert.equal(over!.oddsAmerican, -108);
+  const under = totals.find((m) => m.side === "under");
+  assert.ok(under, "under total must exist");
+  assert.equal(under!.oddsAmerican, -112);
+});
+
 console.log("All book feed normalization tests passed.");

@@ -73,8 +73,10 @@ function defaultEventKey(args: {
 
 function mapMarketType(value: string | null | undefined): AdvancedMarket["marketType"] | null {
   const normalized = normalizeToken(value ?? "");
-  if (["moneyline", "ml"].includes(normalized)) return "moneyline";
-  if (["spread", "handicap", "run_line", "runline"].includes(normalized)) return "spread";
+  // "h2h" is the Odds API key for moneyline markets
+  if (["moneyline", "ml", "h2h"].includes(normalized)) return "moneyline";
+  // "spreads" is the Odds API key for spread markets (plural)
+  if (["spread", "spreads", "handicap", "run_line", "runline"].includes(normalized)) return "spread";
   if (["total", "totals", "game_total"].includes(normalized)) return "total";
   if (["team_total", "team_totals", "teamtotal"].includes(normalized)) return "team_total";
   if (["player_pitcher_outs", "pitcher_outs", "pitcherouts", "outs_recorded"].includes(normalized)) {
@@ -438,6 +440,7 @@ function normalizeEvent(args: {
   const sport = pickString(
     event.sport,
     event.sportKey,
+    event.sport_key,   // Odds API shape: { sport_key: "baseball_mlb" }
     event.league,
     args.payloadRoot?.sport,
     args.payloadRoot?.league

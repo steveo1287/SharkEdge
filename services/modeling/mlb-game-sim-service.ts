@@ -1009,13 +1009,16 @@ export async function buildMlbEventProjection(eventId: string) {
     parkFactor
   });
 
+  const isOutdoor = sourceNativeContext.venue.weatherExposure !== "INDOOR";
   const weather = {
-    available: sourceNativeContext.venue.weatherExposure !== "INDOOR",
+    // "available" = outdoor venue with a run factor; does NOT mean live game-day forecast is joined
+    available: isOutdoor,
+    liveWeatherJoined: false, // set to true once game-day station/forecast ingestion is wired
     runFactor: sourceNativeContext.venue.baselineRunFactor,
     note:
-      sourceNativeContext.venue.weatherExposure === "INDOOR"
+      !isOutdoor
         ? "Indoor or protected venue context keeps weather mostly muted."
-        : `Venue-aware run environment baseline ${sourceNativeContext.venue.baselineRunFactor.toFixed(3)} at ${sourceNativeContext.venue.venueName ?? venue ?? "venue"}; live forecast still needs game-day joins.`
+        : `Venue baseline only — no live game-day weather joined. Run factor ${sourceNativeContext.venue.baselineRunFactor.toFixed(3)} at ${sourceNativeContext.venue.venueName ?? venue ?? "venue"}.`
   };
 
   const backtestWeights = await getCachedMlbBacktestWeights();
@@ -1170,7 +1173,10 @@ export async function buildMlbEventProjection(eventId: string) {
       mlbSourceNativeContext: sourceNativeContext,
       reSimulation: {
         lineupAware: true,
-        probablePitcherAware: true,
+        // Starter is selected by historical usage pattern (startedGames + innings), NOT confirmed MLB probable pitcher API.
+        // Set probablePitcherAware: true only when real probable pitcher ingestion is wired in.
+        starterUsageInferred: true,
+        probablePitcherAware: false,
         bullpenAvailabilityAware: true,
         inputSeed: resimInput.seed ?? null
       },

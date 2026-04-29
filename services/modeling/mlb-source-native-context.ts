@@ -97,6 +97,19 @@ function getNumber(stats: unknown, keys: string[]) {
   return null;
 }
 
+// Baseball innings notation: "1.2" = 1 full inning + 2 outs = 1⅔ innings (not 1.2 decimal innings).
+// getNumber() would return 1.2 which over-counts usage by ~17% for a pitcher who threw 1.2 IP.
+function parseBaseballInnings(stats: unknown, keys: string[]): number | null {
+  const raw = getNumber(stats, keys);
+  if (raw === null) return null;
+  const whole = Math.floor(raw);
+  const frac = Math.round((raw - whole) * 10);
+  if (frac === 0) return whole;
+  if (frac === 1) return whole + 1 / 3;
+  if (frac === 2) return whole + 2 / 3;
+  return raw; // already a proper decimal (unlikely from MLB data)
+}
+
 function weightedAverage(values: Array<number | null | undefined>, decay = 0.88) {
   let weighted = 0;
   let total = 0;
@@ -239,7 +252,7 @@ function buildBullpenContext(team: TeamRow, players: PlayerRow[], starterHint: S
   relievers.forEach((pitcher) => {
     const recentRows = pitcher.playerGameStats.slice(0, 4);
     const recentInnings = recentRows.map((row) =>
-      getNumber(row.statsJson, ["inningsPitched", "IP", "innings"])
+      parseBaseballInnings(row.statsJson, ["inningsPitched", "IP", "innings"])
     );
 
     const loadLastTwoDays = recentRows.reduce((sum, row, index) => {

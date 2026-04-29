@@ -1,5 +1,6 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
 import { normalizeNbaTeam } from "@/services/simulation/nba-team-analytics";
+import { computeNbaDecisionContext } from "@/services/simulation/nba-computed-decision-context";
 
 export type NbaDecisionContext = {
   awayTeam: string;
@@ -154,5 +155,8 @@ async function fetchContexts() {
 
 export async function getNbaDecisionContext(awayTeam: string, homeTeam: string): Promise<NbaDecisionContext> {
   const contexts = await fetchContexts();
-  return contexts?.[keyFor(awayTeam, homeTeam)] ?? syntheticContext(awayTeam, homeTeam);
+  if (contexts?.[keyFor(awayTeam, homeTeam)]) return contexts[keyFor(awayTeam, homeTeam)];
+  // Fallback: compute real rest/form context from free ESPN schedule API
+  const computed = await computeNbaDecisionContext(awayTeam, homeTeam).catch(() => null);
+  return computed ?? syntheticContext(awayTeam, homeTeam);
 }
