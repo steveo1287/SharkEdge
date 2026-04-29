@@ -85,18 +85,18 @@ export type MlbTrendEvaluationSummary = {
   sampleSize: number;
   hitRate: number | null;
   roi: number | null;
-  units: number;
-  pricedRows: number;
-  roiCoverage: number;
   record: string;
-  last10: string;
-  streak: string | null;
-  yearsCovered: number;
-  seasons: number[];
-  history: MlbTrendHistoryRow[];
   confidenceLabel: "LOW" | "MEDIUM" | "HIGH";
   stabilityLabel: "VOLATILE" | "STEADY" | "STRONG";
   warnings: string[];
+  units?: number;
+  pricedRows?: number;
+  roiCoverage?: number;
+  last10?: string;
+  streak?: string | null;
+  yearsCovered?: number;
+  seasons?: number[];
+  history?: MlbTrendHistoryRow[];
 };
 
 export type MlbTrendMatch = {
@@ -117,8 +117,6 @@ export type PublishedMlbTrendCard = {
   betSide: MlbTrendBetSide;
   whyThisMatters: string;
   cautionNote: string;
-  conditions: string[];
-  conditionCount: number;
 
   wins: number;
   losses: number;
@@ -127,20 +125,23 @@ export type PublishedMlbTrendCard = {
   record: string;
   hitRate: number | null;
   roi: number | null;
-  units: number;
-  pricedRows: number;
-  roiCoverage: number;
-  last10: string;
-  streak: string | null;
-  yearsCovered: number;
-  seasons: number[];
-  history: MlbTrendHistoryRow[];
 
   confidenceLabel: "LOW" | "MEDIUM" | "HIGH";
   stabilityLabel: "VOLATILE" | "STEADY" | "STRONG";
   warnings: string[];
 
   todayMatches: MlbTrendMatch[];
+
+  conditions?: string[];
+  conditionCount?: number;
+  units?: number;
+  pricedRows?: number;
+  roiCoverage?: number;
+  last10?: string;
+  streak?: string | null;
+  yearsCovered?: number;
+  seasons?: number[];
+  history?: MlbTrendHistoryRow[];
 };
 
 export type PublishedMlbTrendFeed = {
