@@ -15,7 +15,7 @@ import { buildTrendSignals, type TrendSignal } from "./trends-engine";
 
 function leagueToSport(league: LeagueKey | "ALL"): SportCode {
   if (league === "MLB") return "BASEBALL";
-  if (league === "NBA" || league === "NCAAB" || league === "NCAAMB" || league === "NCAAWB") return "BASKETBALL";
+  if (league === "NBA") return "BASKETBALL";
   if (league === "NHL") return "HOCKEY";
   if (league === "NFL" || league === "NCAAF") return "FOOTBALL";
   if (league === "UFC") return "MMA";
@@ -157,6 +157,16 @@ function insights(signals: TrendSignal[]): TrendInsightCard[] {
   }));
 }
 
+function matchesMarketFilter(signal: TrendSignal, filterMarket: TrendFilters["market"]) {
+  if (filterMarket === "ALL") return true;
+  const market = String(signal.market ?? "").toLowerCase();
+  const category = String(signal.category ?? "").toLowerCase();
+  if (filterMarket === "total") return market.includes("total") || market.includes("over") || market.includes("under") || category.includes("total");
+  if (filterMarket === "moneyline") return market.includes("moneyline") || market.includes("ml");
+  if (filterMarket === "spread") return market.includes("spread") || market.includes("ats");
+  return market.includes(filterMarket) || category.includes(filterMarket);
+}
+
 export async function buildSignalTrendDashboard(
   filters: TrendFilters,
   options?: { mode?: TrendMode; aiQuery?: string }
@@ -168,7 +178,7 @@ export async function buildSignalTrendDashboard(
   });
 
   const signals = payload.signals
-    .filter((signal) => filters.market === "ALL" || String(signal.market ?? "").toLowerCase().includes(filters.market))
+    .filter((signal) => matchesMarketFilter(signal, filters.market))
     .slice(0, 12);
 
   if (!signals.length) return null;
