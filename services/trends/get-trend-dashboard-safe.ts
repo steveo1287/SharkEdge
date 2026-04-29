@@ -179,25 +179,70 @@ function smartValue(card: PublishedTrendCard) {
   return card.primaryMetricValue || unit(card.profitUnits) || hit(card.hitRate) || pct(card.roi) || `Score ${smartScore(card)}`;
 }
 
+function buildKillSwitchList(card: PublishedTrendCard, filters: TrendFilters): string[] {
+  const flags: string[] = [];
+  const sampleFloor = Math.max(5, filters.sample || 1);
+  if (card.warning) flags.push(card.warning);
+  if (card.sampleSize < sampleFloor) flags.push(`Sample below ${sampleFloor}`);
+  if (!card.todayMatches.length) flags.push("No current board qualifier");
+  if (!card.intelligenceTags.length) flags.push("No CLV/market tag support");
+  if (typeof card.roi === "number" && card.roi <= 0) flags.push("Non-positive stored ROI");
+  if (typeof card.hitRate === "number" && card.hitRate < 52) flags.push("Thin hit-rate edge");
+  return flags.length ? flags.slice(0, 4) : ["Stale price", "Late injury/news", "Lineup change", "Odds through fair checkpoint"];
+}
+
+function buildPriceCheckpoint(card: PublishedTrendCard): string | null {
+  if (typeof card.hitRate === "number" && Number.isFinite(card.hitRate) && card.hitRate > 0 && card.hitRate < 100) {
+    const fair = americanFromProbability(card.hitRate / 100);
+    return fair ? `Need ${fair} or better (${card.hitRate.toFixed(1)}% hit rate)` : null;
+  }
+  if (typeof card.roi === "number" && Number.isFinite(card.roi)) {
+    return card.roi > 0
+      ? `Keep current odds better than market avg (ROI: ${pct(card.roi)})`
+      : `Do not chase worse number — stored ROI: ${pct(card.roi)}`;
+  }
+  return null;
+}
+
 function toCard(card: PublishedTrendCard, filters: TrendFilters): TrendCardView {
   const hitRate = hit(card.hitRate);
   const roi = pct(card.roi);
+  const gate = actionGate(card, filters);
 
   return {
     id: card.id,
-    title: `${card.title} · ${smartGrade(card)}`,
+    title: card.title,
     value: smartValue(card),
     hitRate,
     roi,
     sampleSize: card.sampleSize,
     dateRange: `${windowLabel(filters)} · ${card.leagueLabel} · ${card.marketLabel}`,
-    note: smartNote(card, filters),
-    explanation: `${card.railReason} Ranked by publisher score, sample, hit rate, ROI, profit, live qualifiers, and intelligence tags.`,
-    whyItMatters: smartWhy(card, filters),
+    note: card.description,
+    explanation: card.railReason || null,
+    whyItMatters: card.whyNow.length ? card.whyNow.join(" · ") : null,
     caution: killSwitches(card, filters),
     href: card.href,
     tone: tone(card),
-    todayMatches: normalizeMatches(card, filters)
+    todayMatches: normalizeMatches(card, filters),
+    // Structured stats — wins/losses/pushes live on the source trend result
+    wins: card.sourceTrend?.wins,
+    losses: card.sourceTrend?.losses,
+    pushes: card.sourceTrend?.pushes,
+    record: card.record,
+    streak: card.streak ?? null,
+    profitUnits: card.profitUnits ?? null,
+    winRate: hitRate,
+    // Identity
+    league: card.leagueLabel,
+    market: card.marketLabel,
+    betType: card.category,
+    description: card.description,
+    // Action control
+    actionGate: gate,
+    priceCheckpoint: buildPriceCheckpoint(card),
+    killSwitchList: buildKillSwitchList(card, filters),
+    warnings: card.warning ? [card.warning] : [],
+    conditionCount: (card.sourceTrend as { conditionCount?: number })?.conditionCount ?? 0,
   };
 }
 

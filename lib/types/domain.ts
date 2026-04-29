@@ -1093,6 +1093,25 @@ export type TrendCardView = {
   href?: string | null;
   tone: "success" | "brand" | "premium" | "muted";
   todayMatches?: TrendMatchView[];
+  // Structured stats — populated from real PublishedTrendCard fields
+  wins?: number;
+  losses?: number;
+  pushes?: number;
+  record?: string;
+  streak?: string | null;
+  profitUnits?: number | null;
+  winRate?: string | null;
+  // Card identity
+  league?: string;
+  market?: string;
+  betType?: string;
+  description?: string;
+  // Action control — pre-computed to avoid text parsing
+  actionGate?: string;
+  priceCheckpoint?: string | null;
+  killSwitchList?: string[];
+  warnings?: string[];
+  conditionCount?: number;
 };
 
 export type TrendDashboardView = {
