@@ -12,6 +12,7 @@ import { getPublishedTrendFeed, type PublishedTrendCard } from "@/lib/trends/pub
 
 import { buildFallbackTrendDashboard } from "./fallback-dashboard";
 import { getTrendDashboard } from "./query-engine";
+import { buildSignalTrendDashboard } from "./signal-dashboard";
 
 function pct(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? `${value > 0 ? "+" : ""}${value.toFixed(1)}%` : null;
@@ -317,8 +318,31 @@ async function publishedDashboard(
   }
 }
 
+async function signalDashboard(
+  filters: TrendFilters,
+  options?: { mode?: TrendMode; aiQuery?: string }
+): Promise<TrendDashboardView | null> {
+  try {
+    return await buildSignalTrendDashboard(filters, options);
+  } catch {
+    return null;
+  }
+}
+
 function hasCards(view: TrendDashboardView | null | undefined) {
   return Boolean(view && !view.setup && Array.isArray(view.cards) && view.cards.length > 0);
+}
+
+async function bestAvailableDashboard(
+  filters: TrendFilters,
+  options?: { mode?: TrendMode; aiQuery?: string },
+  existing?: TrendDashboardView | null
+) {
+  return (
+    (await publishedDashboard(filters, options, existing)) ??
+    (await signalDashboard(filters, options)) ??
+    buildFallbackTrendDashboard(filters)
+  );
 }
 
 export async function getTrendDashboardSafe(
@@ -326,14 +350,14 @@ export async function getTrendDashboardSafe(
   options?: { mode?: TrendMode; aiQuery?: string; savedTrendId?: string | null }
 ): Promise<TrendDashboardView> {
   if (!hasUsableServerDatabaseUrl()) {
-    return (await publishedDashboard(filters, options)) ?? buildFallbackTrendDashboard(filters);
+    return bestAvailableDashboard(filters, options);
   }
 
   try {
     const view = await getTrendDashboard(filters, options);
     if (hasCards(view)) return view;
-    return (await publishedDashboard(filters, options, view)) ?? buildFallbackTrendDashboard(filters);
+    return bestAvailableDashboard(filters, options, view);
   } catch {
-    return (await publishedDashboard(filters, options)) ?? buildFallbackTrendDashboard(filters);
+    return bestAvailableDashboard(filters, options);
   }
 }
