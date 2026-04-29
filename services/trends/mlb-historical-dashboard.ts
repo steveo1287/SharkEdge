@@ -10,9 +10,9 @@ import type {
   TrendMode,
   TrendTableRow
 } from "@/lib/types/domain";
-import type { PublishedMlbTrendCard } from "@/lib/types/mlb-trend-feed";
+import type { MlbTrendHistoryRow, PublishedMlbTrendCard } from "@/lib/types/mlb-trend-feed";
 
-import { DefaultPublishedMlbTrendFeedService } from "./mlb-published-trend-feed-service";
+import { buildDeepMlbTrendSystems } from "./mlb-deep-trend-systems";
 
 function pct(value: number | null | undefined, digits = 1) {
   return typeof value === "number" && Number.isFinite(value) ? `${value > 0 ? "+" : ""}${value.toFixed(digits)}%` : null;
@@ -20,6 +20,15 @@ function pct(value: number | null | undefined, digits = 1) {
 
 function hit(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(1)}%` : null;
+}
+
+function units(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value > 0 ? "+" : ""}${value.toFixed(2)}u` : null;
+}
+
+function price(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "price N/A";
+  return value > 0 ? `+${value}` : String(value);
 }
 
 function marketLabel(card: PublishedMlbTrendCard) {
@@ -48,13 +57,14 @@ function leagueForCard(_card: PublishedMlbTrendCard): LeagueKey {
 function actionGate(card: PublishedMlbTrendCard) {
   const hasActiveMatch = card.todayMatches.length > 0;
   const positiveRoi = typeof card.roi === "number" && card.roi > 0;
+  const positiveUnits = typeof card.units === "number" && card.units > 0;
   const strongHit = typeof card.hitRate === "number" && card.hitRate >= 56;
 
-  if (hasActiveMatch && card.sampleSize >= 40 && (positiveRoi || strongHit) && card.confidenceLabel !== "LOW") {
+  if (hasActiveMatch && card.sampleSize >= 40 && (positiveRoi || positiveUnits || strongHit) && card.confidenceLabel !== "LOW") {
     return "REVIEW LIVE PRICE";
   }
 
-  if (card.sampleSize >= 25 && (positiveRoi || strongHit)) {
+  if (card.sampleSize >= 25 && (positiveRoi || positiveUnits || strongHit)) {
     return "WATCH FOR PRICE";
   }
 
@@ -66,10 +76,12 @@ function scoreHistoricalCard(card: PublishedMlbTrendCard) {
   const sample = Math.min(card.sampleSize, 150) * 2;
   const hitScore = typeof card.hitRate === "number" ? Math.max(0, card.hitRate - 50) * 8 : 0;
   const roiScore = typeof card.roi === "number" ? Math.max(0, card.roi) * 6 : 0;
+  const unitScore = typeof card.units === "number" ? Math.max(0, card.units) * 3 : 0;
+  const conditionBoost = Math.min(card.conditionCount ?? 0, 12) * 14;
   const activeBoost = Math.min(card.todayMatches.length, 4) * 60;
   const confidenceBoost = card.confidenceLabel === "HIGH" ? 120 : card.confidenceLabel === "MEDIUM" ? 60 : 10;
   const stabilityBoost = card.stabilityLabel === "STRONG" ? 90 : card.stabilityLabel === "STEADY" ? 45 : 5;
-  return Math.round(sample + hitScore + roiScore + activeBoost + confidenceBoost + stabilityBoost);
+  return Math.round(sample + hitScore + roiScore + unitScore + conditionBoost + activeBoost + confidenceBoost + stabilityBoost);
 }
 
 function tone(card: PublishedMlbTrendCard): TrendCardView["tone"] {
@@ -82,14 +94,14 @@ function tone(card: PublishedMlbTrendCard): TrendCardView["tone"] {
 
 function fairPriceNote(card: PublishedMlbTrendCard) {
   if (card.roi === null) {
-    return "ROI unavailable until enough historical closing prices are attached.";
+    return `ROI unavailable until enough historical closing prices are attached. Price coverage ${(card.roiCoverage ?? 0) * 100}% across ${card.pricedRows ?? 0} priced games.`;
   }
 
   if (card.roi <= 0) {
     return `Stored ROI is ${pct(card.roi)}. Do not chase worse current pricing.`;
   }
 
-  return `Stored ROI is ${pct(card.roi)}. Current price must be at least as good as the historical closing-price profile.`;
+  return `Stored ROI is ${pct(card.roi)} with ${units(card.units)}. Current price must be at least as good as the historical closing-price profile.`;
 }
 
 function killSwitches(card: PublishedMlbTrendCard) {
@@ -108,7 +120,7 @@ function matchHref(match: PublishedMlbTrendCard["todayMatches"][number]) {
 }
 
 function mapMatches(card: PublishedMlbTrendCard): TrendMatchView[] {
-  return card.todayMatches.slice(0, 6).map((match) => ({
+  return card.todayMatches.slice(0, 8).map((match) => ({
     id: `${card.id}:${match.gameId}`,
     sport: sportForCard(card),
     leagueKey: leagueForCard(card),
@@ -116,12 +128,13 @@ function mapMatches(card: PublishedMlbTrendCard): TrendMatchView[] {
     startTime: match.startsAt ?? new Date().toISOString(),
     status: "PREGAME",
     stateDetail: null,
-    matchingLogic: `${card.family} · ${marketLabel(card)} · ${cardSide(card)}`,
+    matchingLogic: `${card.conditionCount ?? 0} conditions · ${card.family} · ${marketLabel(card)} · ${cardSide(card)}`,
     recommendedBetLabel: actionGate(card),
     oddsContext: [
       `${card.record} historical record`,
       hit(card.hitRate) ? `${hit(card.hitRate)} hit` : null,
-      pct(card.roi) ? `${pct(card.roi)} ROI` : "ROI pending closing-price coverage"
+      pct(card.roi) ? `${pct(card.roi)} ROI` : "ROI pending closing-price coverage",
+      units(card.units)
     ].filter(Boolean).join(" · "),
     matchupHref: matchHref(match),
     boardHref: "/?league=MLB",
@@ -130,9 +143,23 @@ function mapMatches(card: PublishedMlbTrendCard): TrendMatchView[] {
   }));
 }
 
+function historySummary(history: MlbTrendHistoryRow[] | undefined) {
+  return (history ?? []).slice(0, 8).map((row) => {
+    const result = row.result === "win" ? "W" : row.result === "loss" ? "L" : "P";
+    return `${new Date(row.gameDate).toLocaleDateString()} ${result} ${row.recommendedBet} ${row.awayTeamName} ${row.awayScore}-${row.homeScore} ${row.homeTeamName} (${price(row.price)}, ${units(row.profitUnits)})`;
+  });
+}
+
+function conditionSummary(card: PublishedMlbTrendCard) {
+  const conditions = card.conditions ?? [];
+  if (!conditions.length) return "No explicit condition labels attached.";
+  return conditions.slice(0, 10).map((condition, index) => `${index + 1}. ${condition}`).join(" | ");
+}
+
 function mapCard(card: PublishedMlbTrendCard): TrendCardView {
   const gate = actionGate(card);
-  const primary = pct(card.roi) ?? hit(card.hitRate) ?? card.record;
+  const primary = units(card.units) ?? pct(card.roi) ?? hit(card.hitRate) ?? card.record;
+  const historyRows = historySummary(card.history);
 
   return {
     id: `mlb-history-${card.id}`,
@@ -141,22 +168,28 @@ function mapCard(card: PublishedMlbTrendCard): TrendCardView {
     hitRate: hit(card.hitRate),
     roi: pct(card.roi),
     sampleSize: card.sampleSize,
-    dateRange: `Historical MLB archive · ${marketLabel(card)} · ${cardSide(card)}`,
+    dateRange: `Deep MLB system · ${card.conditionCount ?? card.conditions?.length ?? 0} conditions · ${marketLabel(card)} · ${cardSide(card)}`,
     note: [
       card.description,
       `Action Gate: ${gate}`,
-      `Historical record: ${card.record}`,
+      `Conditions: ${conditionSummary(card)}`,
+      `Record: ${card.record}`,
+      `Last 10: ${card.last10 ?? "N/A"}`,
+      `Streak: ${card.streak ?? "N/A"}`,
+      `Years: ${card.yearsCovered ?? card.seasons?.length ?? "N/A"}`,
       `Confidence: ${card.confidenceLabel}`,
       `Stability: ${card.stabilityLabel}`,
-      fairPriceNote(card)
+      fairPriceNote(card),
+      historyRows.length ? `Recent history: ${historyRows.join(" || ")}` : null
     ].filter(Boolean).join(". "),
-    explanation: `Built from normalized MLB historical rows and active MLB board matching. This is historical context applied directly to current trend cards.`,
+    explanation: "Built from normalized MLB historical rows, condition matching, graded results, units, closing prices, and active-board matching.",
     whyItMatters: [
       card.whyThisMatters,
-      `${card.sampleSize} historical graded game${card.sampleSize === 1 ? "" : "s"}`,
+      `${card.sampleSize} historical graded games`,
       card.hitRate !== null ? `${card.hitRate.toFixed(1)}% hit rate` : null,
       card.roi !== null ? `${card.roi > 0 ? "+" : ""}${card.roi.toFixed(1)}% ROI` : null,
-      `${card.todayMatches.length} current match${card.todayMatches.length === 1 ? "" : "es"}`
+      units(card.units),
+      `${card.todayMatches.length} active match${card.todayMatches.length === 1 ? "" : "es"}`
     ].filter(Boolean).join(" · "),
     caution: killSwitches(card),
     href: "/trends?league=MLB",
@@ -192,31 +225,55 @@ function metrics(cards: PublishedMlbTrendCard[], warnings: string[]): TrendMetri
   const averageSample = cards.length
     ? Math.round(cards.reduce((sum, card) => sum + card.sampleSize, 0) / cards.length)
     : 0;
+  const totalUnits = cards.reduce((sum, card) => sum + (card.units ?? 0), 0);
+  const avgConditions = cards.length
+    ? Math.round(cards.reduce((sum, card) => sum + (card.conditionCount ?? card.conditions?.length ?? 0), 0) / cards.length)
+    : 0;
 
   return [
-    { label: "Historical trends", value: String(cards.length), note: "Real MLB historical trend cards with graded archive context." },
-    { label: "Avg sample", value: String(averageSample), note: "Average historical graded games per visible card." },
-    { label: "ROI-backed", value: String(pricedRoi), note: "Cards with enough closing-price support for ROI." },
-    { label: "Current matches", value: String(currentMatches), note: "Current MLB board matches attached to historical trends." },
-    { label: "Coverage warnings", value: String(warnings.length), note: warnings[0] ?? "No historical coverage warnings." },
-    { label: "Top score", value: top ? String(scoreHistoricalCard(top)) : "N/A", note: top?.title ?? "No historical trend card." }
+    { label: "Deep systems", value: String(cards.length), note: "Real MLB historical systems with condition stacks and graded history." },
+    { label: "Avg conditions", value: String(avgConditions), note: "Average conditions attached to visible systems." },
+    { label: "Avg sample", value: String(averageSample), note: "Average historical graded games per visible system." },
+    { label: "Total units", value: units(totalUnits) ?? "0u", note: "Combined units across visible deep systems where price is known." },
+    { label: "Current matches", value: String(currentMatches), note: "Current MLB board matches attached to deep historical systems." },
+    { label: "Top score", value: top ? String(scoreHistoricalCard(top)) : "N/A", note: top?.title ?? "No historical trend card." },
+    { label: "ROI-backed", value: String(pricedRoi), note: "Systems with enough closing-price support for ROI." },
+    { label: "Warnings", value: String(warnings.length), note: warnings[0] ?? "No historical coverage warnings." }
   ];
 }
 
 function rows(cards: PublishedMlbTrendCard[]): TrendTableRow[] {
-  return cards.slice(0, 16).map((card) => ({
-    label: `${marketLabel(card)} · ${cardSide(card)}`,
+  return cards.slice(0, 20).map((card) => ({
+    label: `${card.title}`,
     movement: actionGate(card),
     note: [
-      card.title,
+      `${card.conditionCount ?? card.conditions?.length ?? 0} conditions`,
       card.record,
       hit(card.hitRate) ? `${hit(card.hitRate)} hit` : null,
       pct(card.roi) ? `${pct(card.roi)} ROI` : "ROI pending",
-      `${card.todayMatches.length} current matches`,
-      card.warnings[0] ?? null
+      units(card.units),
+      `Last 10 ${card.last10 ?? "N/A"}`,
+      `Years ${card.yearsCovered ?? card.seasons?.length ?? "N/A"}`,
+      `${card.todayMatches.length} active matches`
     ].filter(Boolean).join(" · "),
     href: "/trends?league=MLB"
   }));
+}
+
+function historyRows(cards: PublishedMlbTrendCard[]): TrendTableRow[] {
+  return cards.flatMap((card) => (card.history ?? []).slice(0, 8).map((row) => ({
+    label: `${row.matchup}`,
+    movement: row.result === "win" ? "WIN" : row.result === "loss" ? "LOSS" : "PUSH",
+    note: [
+      new Date(row.gameDate).toLocaleDateString(),
+      row.recommendedBet,
+      `${row.awayScore}-${row.homeScore}`,
+      price(row.price),
+      units(row.profitUnits),
+      card.title
+    ].filter(Boolean).join(" · "),
+    href: "/trends?league=MLB"
+  }))).slice(0, 24);
 }
 
 function insights(cards: PublishedMlbTrendCard[]): TrendInsightCard[] {
@@ -224,7 +281,16 @@ function insights(cards: PublishedMlbTrendCard[]): TrendInsightCard[] {
     id: `mlb-history-insight-${card.id}`,
     title: card.title,
     value: actionGate(card),
-    note: [card.whyThisMatters, `${card.record} record`, hit(card.hitRate), pct(card.roi), card.warnings[0] ?? null]
+    note: [
+      `${card.conditionCount ?? card.conditions?.length ?? 0} conditions`,
+      card.whyThisMatters,
+      `${card.record} record`,
+      hit(card.hitRate),
+      pct(card.roi),
+      units(card.units),
+      `Last 10 ${card.last10 ?? "N/A"}`,
+      card.warnings[0] ?? null
+    ]
       .filter(Boolean)
       .join(" · "),
     tone: tone(card)
@@ -237,7 +303,7 @@ export async function buildMlbHistoricalTrendDashboard(
 ): Promise<TrendDashboardView | null> {
   if (filters.league !== "ALL" && filters.league !== "MLB") return null;
 
-  const feed = await new DefaultPublishedMlbTrendFeedService().getPublishedTrendFeed();
+  const feed = await buildDeepMlbTrendSystems();
   const visibleCards = feed.cards
     .filter((card) => card.sampleSize > 0)
     .filter((card) => matchesFilter(card, filters))
@@ -255,9 +321,9 @@ export async function buildMlbHistoricalTrendDashboard(
     aiQuery: options?.aiQuery ?? "",
     aiHelper: null,
     explanation: {
-      headline: `${cards.length} MLB historical trend${cards.length === 1 ? "" : "s"} loaded with archive context`,
-      whyItMatters: `${top.title} leads the historical board with ${top.record}, ${hit(top.hitRate) ?? "no hit rate"}, and ${pct(top.roi) ?? "ROI pending"}.`,
-      caution: "Historical trend context is not a blind bet. Confirm current price, pitcher/lineup/weather, and whether the current game still matches the archived condition.",
+      headline: `${cards.length} deep MLB historical system${cards.length === 1 ? "" : "s"} loaded`,
+      whyItMatters: `${top.title} leads with ${top.conditionCount ?? top.conditions?.length ?? 0} conditions, ${top.record}, ${hit(top.hitRate) ?? "no hit rate"}, ${pct(top.roi) ?? "ROI pending"}, and ${units(top.units) ?? "units pending"}.`,
+      caution: "Deep systems are not blind bets. Confirm current price, pitcher/lineup/weather, and whether the current game still matches every archived condition.",
       queryLogic: [filters.league, filters.market, filters.side, filters.window].filter(Boolean).join(" | ")
     },
     filters,
@@ -265,18 +331,14 @@ export async function buildMlbHistoricalTrendDashboard(
     metrics: metrics(visibleCards, feed.warnings),
     insights: insights(visibleCards),
     movementRows: rows(visibleCards),
-    segmentRows: [
-      { label: "Historical MLB archive", movement: `${visibleCards.length} trend cards`, note: "Normalized historical rows evaluated against MLB trend definitions.", href: "/trends?league=MLB" },
-      { label: "Active board matches", movement: String(currentMatches.length), note: "Current MLB games matching historical definitions.", href: "/?league=MLB" },
-      { label: "Coverage warnings", movement: String(feed.warnings.length), note: feed.warnings[0] ?? "No warnings from the MLB historical feed.", href: "/api/trends?league=MLB" }
-    ],
+    segmentRows: historyRows(visibleCards),
     todayMatches: currentMatches,
     todayMatchesNote: currentMatches.length
-      ? `${currentMatches.length} current MLB game qualifier${currentMatches.length === 1 ? "" : "s"} attached to historical trend cards.`
-      : "Historical MLB trend cards are loaded, but no current MLB games match those exact definitions right now.",
+      ? `${currentMatches.length} current MLB game qualifier${currentMatches.length === 1 ? "" : "s"} attached to deep historical systems.`
+      : "Deep historical systems are loaded, but no current MLB games match those exact definitions right now.",
     savedSystems: [],
     savedTrendName: "",
-    sourceNote: "Loaded from the MLB historical trend feed: normalized historical rows, graded records, ROI where closing prices exist, and active-board matching.",
+    sourceNote: "Loaded from deep MLB historical systems: condition stacks, normalized historical rows, graded records, units, ROI, recent history, and active-board matching.",
     querySummary: [filters.league, filters.market, filters.side, filters.window].filter(Boolean).join(" | "),
     sampleNote: feed.warnings.length ? feed.warnings.slice(0, 3).join(" ") : null
   };
