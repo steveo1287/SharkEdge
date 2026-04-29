@@ -333,14 +333,21 @@ function hasCards(view: TrendDashboardView | null | undefined) {
   return Boolean(view && !view.setup && Array.isArray(view.cards) && view.cards.length > 0);
 }
 
+function hasRealCurrentGameCards(view: TrendDashboardView | null | undefined) {
+  return Boolean(view?.cards?.some((card) => card.dateRange?.startsWith("Current games")));
+}
+
 async function bestAvailableDashboard(
   filters: TrendFilters,
   options?: { mode?: TrendMode; aiQuery?: string },
   existing?: TrendDashboardView | null
 ) {
+  const signal = await signalDashboard(filters, options);
+  if (hasRealCurrentGameCards(signal)) return signal;
+
   return (
     (await publishedDashboard(filters, options, existing)) ??
-    (await signalDashboard(filters, options)) ??
+    signal ??
     buildFallbackTrendDashboard(filters)
   );
 }
@@ -349,6 +356,9 @@ export async function getTrendDashboardSafe(
   filters: TrendFilters,
   options?: { mode?: TrendMode; aiQuery?: string; savedTrendId?: string | null }
 ): Promise<TrendDashboardView> {
+  const signal = await signalDashboard(filters, options);
+  if (hasRealCurrentGameCards(signal)) return signal;
+
   if (!hasUsableServerDatabaseUrl()) {
     return bestAvailableDashboard(filters, options);
   }
