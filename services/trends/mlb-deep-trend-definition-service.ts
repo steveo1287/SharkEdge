@@ -113,15 +113,24 @@ const DEEP_MLB_TREND_DEFINITIONS: MlbTrendDefinition[] = [
   }
 ];
 
+function cloneDefinition(definition: MlbTrendDefinition): MlbTrendDefinition {
+  const cloned: MlbTrendDefinition = {
+    ...definition,
+    conditions: definition.conditions.map((condition) => ({ ...condition }))
+  };
+
+  if (definition.conditionLabels?.length) {
+    cloned.conditionLabels = [...definition.conditionLabels];
+  }
+
+  return cloned;
+}
+
 export function getDeepMlbTrendDefinitions(): MlbTrendDefinition[] {
   const byId = new Map<string, MlbTrendDefinition>();
   for (const definition of [...DEEP_MLB_TREND_DEFINITIONS, ...getMlbTrendDefinitions()]) {
     if (!definition.enabled || byId.has(definition.id)) continue;
-    byId.set(definition.id, {
-      ...definition,
-      conditions: definition.conditions.map((condition) => ({ ...condition })),
-      conditionLabels: definition.conditionLabels ? [...definition.conditionLabels] : undefined
-    });
+    byId.set(definition.id, cloneDefinition(definition));
   }
   return Array.from(byId.values());
 }
