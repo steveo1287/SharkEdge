@@ -12,14 +12,6 @@ type TrendsDashboardV3Props = {
   data: TrendDashboardView;
 };
 
-type QualityRead = {
-  actionGate: string;
-  priceNeeded: string;
-  killSwitches: string;
-  whySurfaced: string;
-  liveAgreement: string;
-};
-
 const LEAGUES = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"];
 const MARKETS = ["spread", "moneyline", "total", "player_points", "player_rebounds", "player_assists", "player_threes", "fight_winner"];
 
@@ -54,12 +46,22 @@ function compactText(value: string | null | undefined, fallback = "N/A") {
   return text ? text : fallback;
 }
 
-function stripQualityText(value: string) {
-  return value
-    .replace(/Action Gate: [^.]+\. ?/i, "")
-    .replace(/Fair-price checkpoint: [^.]+\. ?/i, "")
-    .replace(/Kill switches: [^.]+\. ?/i, "")
-    .trim();
+function stripAfter(value: string, marker: string) {
+  const index = value.toLowerCase().indexOf(marker.toLowerCase());
+  return index >= 0 ? value.slice(0, index).trim() : value.trim();
+}
+
+function firstSentence(value: string | null | undefined) {
+  const text = compactText(value, "");
+  if (!text) return "";
+  const cleaned = stripAfter(text, "Action Gate:");
+  return cleaned.split(".").map((part) => part.trim()).filter(Boolean)[0] ?? cleaned;
+}
+
+function extractLabel(text: string | null | undefined, label: string) {
+  const source = text ?? "";
+  const match = source.match(new RegExp(`${label}:?\\s*([^.|]+)`, "i"));
+  return match?.[1]?.trim() ?? null;
 }
 
 function extractActionGate(card: TrendCardView) {
@@ -87,41 +89,24 @@ function extractPriceNeeded(card: TrendCardView) {
     card.whyItMatters,
     card.caution,
     ...(card.todayMatches ?? []).map((match) => match.oddsContext ?? "")
-  ]
-    .filter(Boolean)
-    .join(" | ");
+  ].filter(Boolean).join(" | ");
   const explicit = text.match(/Fair-price checkpoint:\s*([^|.]+)/i)?.[1]?.trim();
   if (explicit) return explicit;
   return card.roi
     ? `ROI checkpoint: ${card.roi}. Do not chase a worse number.`
-    : "Price checkpoint unavailable. Verify the current board price before using this trend.";
+    : "Verify current board price before using this trend.";
 }
 
 function extractKillSwitches(card: TrendCardView) {
   const explicit = card.caution?.replace(/^Kill switches:\s*/i, "").trim();
   if (explicit) return explicit;
-  if ((card.todayMatches ?? []).length === 0) {
-    return "No current qualifier. Treat this as historical context until a game matches.";
-  }
+  if ((card.todayMatches ?? []).length === 0) return "No current qualifier.";
   return "Stale price, injury/news change, lineup change, or odds moving through the price checkpoint.";
 }
 
-function getQualityRead(card: TrendCardView): QualityRead {
-  const actionGate = extractActionGate(card);
-  const liveCount = card.todayMatches?.length ?? 0;
-
-  return {
-    actionGate,
-    priceNeeded: extractPriceNeeded(card),
-    killSwitches: extractKillSwitches(card),
-    whySurfaced: compactText(
-      card.whyItMatters || card.explanation || card.note,
-      "The system surfaced this card from stored trend and market context."
-    ),
-    liveAgreement: liveCount
-      ? `${liveCount} live qualifier${liveCount === 1 ? "" : "s"} attached. Check the board/props links for live price agreement.`
-      : "No live qualifier attached. Use this as research/watchlist context."
-  };
+function extractConditionCount(card: TrendCardView) {
+  const match = `${card.dateRange} ${card.whyItMatters ?? ""}`.match(/(\d+)\s+conditions/i);
+  return match?.[1] ?? "—";
 }
 
 function gateClass(actionGate: string) {
@@ -138,97 +123,96 @@ function toneClass(tone: TrendCardView["tone"]) {
   return "border-line bg-slate-950/70";
 }
 
-function QualityControlPanel({ card }: { card: TrendCardView }) {
-  const quality = getQualityRead(card);
+function SystemStat({ label, value }: { label: string; value: string | number | null | undefined }) {
+  return (
+    <div className="rounded-2xl border border-white/8 bg-black/25 p-3">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div className="mt-1 text-lg font-semibold text-white">{value ?? "—"}</div>
+    </div>
+  );
+}
+
+function ActiveGamesStrip({ card }: { card: TrendCardView }) {
+  const matches = (card.todayMatches ?? []).slice(0, 3);
+  if (!matches.length) return null;
 
   return (
-    <div className="mt-4 rounded-3xl border border-cyan-400/15 bg-black/30 p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-cyan-200/60">Quality Control</div>
-          <div className="mt-1 text-sm font-semibold text-white">Decision gate and risk checks</div>
-        </div>
-        <div className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${gateClass(quality.actionGate)}`}>
-          {quality.actionGate}
-        </div>
+    <div className="mt-4 rounded-3xl border border-cyan-400/12 bg-black/25 p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-cyan-200/60">Active games</div>
+        <div className="text-xs text-slate-500">{card.todayMatches?.length ?? 0} match{(card.todayMatches?.length ?? 0) === 1 ? "" : "es"}</div>
       </div>
-
-      <div className="mt-4 grid gap-3">
-        <div className="rounded-2xl border border-white/8 bg-slate-950/55 p-3">
-          <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Why it surfaced</div>
-          <div className="mt-1 text-sm leading-6 text-slate-200">{quality.whySurfaced}</div>
-        </div>
-        <div className="grid gap-3 lg:grid-cols-2">
-          <div className="rounded-2xl border border-white/8 bg-slate-950/55 p-3">
-            <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Price needed</div>
-            <div className="mt-1 text-sm leading-6 text-sky-100">{quality.priceNeeded}</div>
-          </div>
-          <div className="rounded-2xl border border-white/8 bg-slate-950/55 p-3">
-            <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Live odds agreement</div>
-            <div className="mt-1 text-sm leading-6 text-slate-200">{quality.liveAgreement}</div>
-          </div>
-        </div>
-        <div className="rounded-2xl border border-amber-300/15 bg-amber-400/5 p-3">
-          <div className="text-[10px] uppercase tracking-[0.22em] text-amber-200/70">What kills it</div>
-          <div className="mt-1 text-sm leading-6 text-amber-100">{quality.killSwitches}</div>
-        </div>
+      <div className="grid gap-2">
+        {matches.map((match) => (
+          <Link key={`${card.id}:${match.id}`} href={match.matchupHref || match.boardHref || "/trends"} className="rounded-2xl border border-white/8 bg-slate-950/55 p-3 transition hover:border-cyan-300/25">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-white">{match.eventLabel}</div>
+                <div className="mt-1 truncate text-xs text-slate-500">{match.leagueKey} · {new Date(match.startTime).toLocaleString()}</div>
+              </div>
+              {match.recommendedBetLabel ? (
+                <div className={`shrink-0 rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${gateClass(match.recommendedBetLabel)}`}>
+                  {match.recommendedBetLabel}
+                </div>
+              ) : null}
+            </div>
+            {match.oddsContext ? <div className="mt-2 truncate text-xs text-slate-400">{match.oddsContext}</div> : null}
+          </Link>
+        ))}
       </div>
     </div>
   );
 }
 
 function TrendCard({ card }: { card: TrendCardView }) {
-  const note = stripQualityText(card.note ?? "");
-  const matches = card.todayMatches ?? [];
+  const actionGate = extractActionGate(card);
+  const conditionCount = extractConditionCount(card);
+  const last10 = extractLabel(card.note, "Last 10") ?? "—";
+  const streak = extractLabel(card.note, "Streak") ?? "—";
+  const years = extractLabel(card.note, "Years") ?? "—";
+  const shortRead = firstSentence(card.note || card.whyItMatters || card.explanation);
+  const priceNeeded = extractPriceNeeded(card);
+  const killSwitches = extractKillSwitches(card);
 
   return (
     <Card className={`rounded-[30px] p-5 shadow-[0_18px_42px_rgba(0,0,0,0.22)] ${toneClass(card.tone)}`}>
       <div className="flex items-start justify-between gap-3">
-        <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{card.title}</div>
-        <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{card.sampleSize} sample</div>
-      </div>
-      <div className="mt-3 font-display text-3xl font-semibold text-white">{card.value}</div>
-      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
-        <span>{card.dateRange}</span>
-        {card.hitRate ? <span>Hit {card.hitRate}</span> : null}
-        {card.roi ? <span>ROI {card.roi}</span> : null}
-      </div>
-      {note ? <div className="mt-3 text-sm leading-6 text-slate-300">{note}</div> : null}
-
-      <QualityControlPanel card={card} />
-
-      {matches.length ? (
-        <div className="mt-4 rounded-3xl border border-cyan-400/12 bg-black/25 p-4">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-cyan-200/60">Live qualifiers</div>
-          <div className="mt-3 grid gap-2">
-            {matches.map((match) => (
-              <div key={`${card.id}:${match.id}`} className="rounded-2xl border border-white/8 bg-slate-950/55 p-3">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <div className="text-sm font-semibold text-white">{match.eventLabel}</div>
-                    <div className="mt-1 text-xs text-slate-500">{match.leagueKey} · {new Date(match.startTime).toLocaleString()}</div>
-                  </div>
-                  {match.recommendedBetLabel ? (
-                    <div className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${gateClass(match.recommendedBetLabel)}`}>
-                      {match.recommendedBetLabel}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="mt-2 grid gap-2 text-xs leading-5 text-slate-300">
-                  {match.matchingLogic ? <div>Logic: {match.matchingLogic}</div> : null}
-                  {match.oddsContext ? <div>Price: {match.oddsContext}</div> : null}
-                  {match.supportNote ? <div>Support: {match.supportNote}</div> : null}
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {match.matchupHref ? <Link className="rounded-full border border-line px-3 py-1 text-xs text-sky-200" href={match.matchupHref}>Matchup</Link> : null}
-                  {match.boardHref ? <Link className="rounded-full border border-line px-3 py-1 text-xs text-sky-200" href={match.boardHref}>Board</Link> : null}
-                  {match.propsHref ? <Link className="rounded-full border border-line px-3 py-1 text-xs text-sky-200" href={match.propsHref}>Props</Link> : null}
-                </div>
-              </div>
-            ))}
-          </div>
+        <div className="min-w-0">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{card.dateRange}</div>
+          <div className="mt-2 text-xl font-semibold leading-tight text-white">{card.title}</div>
         </div>
-      ) : null}
+        <div className={`shrink-0 rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${gateClass(actionGate)}`}>
+          {actionGate}
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <SystemStat label="Profit" value={card.value} />
+        <SystemStat label="Record" value={card.hitRate ? `Hit ${card.hitRate}` : `${card.sampleSize} games`} />
+        <SystemStat label="ROI" value={card.roi ?? "Pending"} />
+        <SystemStat label="Conditions" value={conditionCount} />
+        <SystemStat label="Last 10" value={last10} />
+        <SystemStat label="Streak" value={streak} />
+        <SystemStat label="Games" value={card.sampleSize} />
+        <SystemStat label="Years" value={years} />
+      </div>
+
+      <ActiveGamesStrip card={card} />
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        <div className="rounded-2xl border border-white/8 bg-slate-950/50 p-3 lg:col-span-1">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">System read</div>
+          <div className="mt-1 text-sm leading-6 text-slate-200">{shortRead}</div>
+        </div>
+        <div className="rounded-2xl border border-sky-400/15 bg-sky-400/5 p-3">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-sky-200/70">Price checkpoint</div>
+          <div className="mt-1 text-sm leading-6 text-sky-100">{priceNeeded}</div>
+        </div>
+        <div className="rounded-2xl border border-amber-300/15 bg-amber-400/5 p-3">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-amber-200/70">Kill switches</div>
+          <div className="mt-1 text-sm leading-6 text-amber-100">{killSwitches}</div>
+        </div>
+      </div>
     </Card>
   );
 }
@@ -238,7 +222,7 @@ function MiniRows({ title, rows }: { title: string; rows: TrendTableRow[] }) {
     <Card className="p-5">
       <div className="text-xs uppercase tracking-[0.18em] text-sky-300">{title}</div>
       <div className="mt-4 grid gap-3">
-        {rows.slice(0, 8).map((row, index) => (
+        {rows.slice(0, 12).map((row, index) => (
           <Link key={`${row.label}:${index}`} href={row.href ?? "/trends"} className="rounded-2xl border border-white/8 bg-slate-950/55 p-3 transition hover:border-sky-300/25">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm font-semibold text-white">{row.label}</div>
@@ -300,7 +284,7 @@ export function TrendsDashboardV3({ data }: TrendsDashboardV3Props) {
           <input type="hidden" name="mode" value={data.mode} />
           <label className="text-xs uppercase tracking-[0.2em] text-slate-500">Query Assistant</label>
           <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
-            <input name="q" defaultValue={data.aiQuery} placeholder="Show me NBA road underdogs after a loss" className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-500" />
+            <input name="q" defaultValue={data.aiQuery} placeholder="Show me MLB short dogs with positive units" className="rounded-2xl border border-line bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-500" />
             <button type="submit" className="rounded-2xl border border-sky-400/30 bg-sky-500/10 px-5 py-3 text-sm font-medium text-sky-200">Run Query</button>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -363,7 +347,7 @@ export function TrendsDashboardV3({ data }: TrendsDashboardV3Props) {
       </div>
 
       {displayCards.length ? (
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-4">
           {displayCards.map((card) => <TrendCard key={card.id} card={card} />)}
         </div>
       ) : (
@@ -371,8 +355,8 @@ export function TrendsDashboardV3({ data }: TrendsDashboardV3Props) {
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <MiniRows title="Movement / action gates" rows={data.movementRows} />
-        <MiniRows title="Trend segments" rows={data.segmentRows} />
+        <MiniRows title="System index" rows={data.movementRows} />
+        <MiniRows title="Conditions / game history" rows={data.segmentRows} />
       </div>
     </div>
   );
