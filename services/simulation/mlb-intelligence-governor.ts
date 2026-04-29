@@ -87,7 +87,12 @@ function sign(value: number, deadZone = 0.08) { if (value > deadZone) return 1; 
 function sideLabel(probability: number) { return probability >= 0.5 ? "home" : "away"; }
 
 function mlFeatureVector(features: MlbGovernorFeatures): Record<string, number> {
-  return Object.fromEntries(ML_FEATURE_KEYS.map((key) => [key, (features as Record<string, number | undefined>)[key] ?? 0]));
+  return Object.fromEntries(
+    ML_FEATURE_KEYS.map((key) => {
+      const value = features[key];
+      return [key, typeof value === "number" && Number.isFinite(value) ? value : 0];
+    })
+  );
 }
 
 function modelSignalStrength(features: MlbGovernorFeatures) {
