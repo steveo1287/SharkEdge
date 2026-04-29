@@ -542,11 +542,35 @@ export async function compareNbaIntelligence(awayTeam: string, homeTeam: string)
   addFactor(factors, "Rest history", restHistory, 0.025, "history");
   addFactor(factors, "Clutch recent", clutchRecent, 0.02, "history");
 
+  // Opponent-adjusted scoring: multiplicative model (similar to log5 / Pythagorean)
+  // Each team's expected points = league_avg * (offRating/leagueAvg) * (oppDefRating/leagueAvg)
+  // This captures the actual matchup interaction rather than treating offense/defense additively.
+  const LEAGUE_AVG_ORTG = 113.2; // 2024-25 NBA league average offensive rating
+  const LEAGUE_AVG_PTS_PER_100 = 113.5;
+  const expectedHomePer100 = LEAGUE_AVG_PTS_PER_100 * (homeTeamProfile.offensiveRating / LEAGUE_AVG_ORTG) * (awayTeamProfile.defensiveRating / LEAGUE_AVG_ORTG);
+  const expectedAwayPer100 = LEAGUE_AVG_PTS_PER_100 * (awayTeamProfile.offensiveRating / LEAGUE_AVG_ORTG) * (homeTeamProfile.defensiveRating / LEAGUE_AVG_ORTG);
+  const opponentAdjustedEdge = diff(expectedHomePer100, expectedAwayPer100, 0.22);
+  addFactor(factors, "Opponent-adjusted scoring edge", opponentAdjustedEdge, 0.14, "advanced");
+
   const homeEdge = Number(factors.reduce((total, factor) => total + factor.value * (factor.weight ?? 1), 0).toFixed(2));
+
+  // Pace equilibration: slower team typically controls ~58% of pace in a matchup.
+  // The defense (slower team) dictates transition opportunities and pushes the game
+  // toward their preferred tempo more than a simple average would suggest.
+  const LEAGUE_AVG_PACE = 99.5;
+  const fasterPace = Math.max(homeTeamProfile.pace, awayTeamProfile.pace);
+  const slowerPace = Math.min(homeTeamProfile.pace, awayTeamProfile.pace);
+  const equilibratedPace = slowerPace * 0.58 + fasterPace * 0.42;
+  const estimatedPossessions = equilibratedPace * 1.025;
+
+  // Scale opponent-adjusted per-100 totals to actual game possessions
+  const matchupAdjustedTotal = (expectedHomePer100 + expectedAwayPer100) * (estimatedPossessions / 100);
+  // Blend with pace-environment reference to avoid over-indexing on real-time ratings noise
+  const paceEnvBase = 224 + (equilibratedPace - LEAGUE_AVG_PACE) * 2.5;
+  const totalBlend = matchupAdjustedTotal * 0.62 + paceEnvBase * 0.38;
+
   const projectedTotal = Number(Math.max(184, Math.min(268,
-    224 +
-    ((homeTeamProfile.pace + awayTeamProfile.pace) / 2 - 100) * 2.7 +
-    (homeTeamProfile.offensiveRating + awayTeamProfile.offensiveRating - 226) * 0.55 +
+    totalBlend +
     (homeHistory.recentOffense + awayHistory.recentOffense) * 0.38 +
     (homeHistory.recentShooting + awayHistory.recentShooting) * 0.24 -
     (homeTeamProfile.injuryDrag + awayTeamProfile.injuryDrag) * 0.42
