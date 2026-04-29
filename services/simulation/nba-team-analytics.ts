@@ -1,4 +1,6 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
+import { fetchNbaStatsApiTeamProfiles } from "@/services/simulation/nba-stats-api-team-feed";
+import { fetchNbaScheduleContextAll } from "@/services/simulation/nba-espn-schedule-feed";
 
 export type NbaTeamAnalyticsProfile = {
   teamName: string;
@@ -197,17 +199,36 @@ async function fetchRealProfiles() {
   const cached = await readHotCache<Record<string, NbaTeamAnalyticsProfile>>(NBA_STATS_CACHE_KEY);
   if (cached) return cached;
 
-  const [sportsDataverse, nbaStatsApi, generic] = await Promise.all([
+  const [sportsDataverse, nbaStatsApiEnv, generic, nbaStatsApiComputed, scheduleContexts] = await Promise.all([
     fetchProfilesFromUrl(process.env.SPORTSDATAVERSE_NBA_TEAM_STATS_URL, "sportsdataverse"),
     fetchProfilesFromUrl(process.env.NBA_STATS_API_TEAM_STATS_URL, "nba-stats-api"),
-    fetchProfilesFromUrl(process.env.NBA_TEAM_STATS_URL, "real")
+    fetchProfilesFromUrl(process.env.NBA_TEAM_STATS_URL, "real"),
+    // Always-on: pull real team efficiency from stats.nba.com (no key needed)
+    fetchNbaStatsApiTeamProfiles().catch(() => null),
+    // Always-on: pull real rest/form from ESPN schedule (no key needed)
+    fetchNbaScheduleContextAll().catch(() => null)
   ]);
 
-  const merged = {
+  // Merge in priority order — configured env feeds override computed data
+  const merged: Record<string, NbaTeamAnalyticsProfile> = {
+    ...nbaStatsApiComputed ?? {},
     ...generic,
     ...sportsDataverse,
-    ...nbaStatsApi
-  } satisfies Record<string, NbaTeamAnalyticsProfile>;
+    ...nbaStatsApiEnv
+  };
+
+  // Overlay real rest/form from ESPN schedule data
+  if (scheduleContexts) {
+    for (const [key, ctx] of Object.entries(scheduleContexts)) {
+      if (merged[key]) {
+        merged[key] = {
+          ...merged[key],
+          restTravel: ctx.restTravelEdge,
+          recentForm: Number((merged[key].recentForm * 0.5 + ctx.recentFormEdge * 0.5).toFixed(2))
+        };
+      }
+    }
+  }
 
   if (Object.keys(merged).length) {
     await writeHotCache(NBA_STATS_CACHE_KEY, merged, NBA_STATS_CACHE_TTL_SECONDS);

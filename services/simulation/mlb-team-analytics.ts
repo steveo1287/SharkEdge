@@ -1,5 +1,6 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
 import { getMlbRestMatchup } from "@/services/simulation/mlb-schedule-rest-service";
+import { getMlbLiveTeamProfile } from "@/services/simulation/mlb-live-stats-feed";
 
 export type MlbTeamProfile = {
   teamName: string;
@@ -132,7 +133,10 @@ async function fetchProfiles() {
 
 export async function getMlbTeamProfile(teamName: string): Promise<MlbTeamProfile> {
   const profiles = await fetchProfiles();
-  return profiles?.[normalizeMlbTeam(teamName)] ?? syntheticProfile(teamName);
+  if (profiles?.[normalizeMlbTeam(teamName)]) return profiles[normalizeMlbTeam(teamName)];
+  // Fallback: derive real stats from free MLB Stats API before going synthetic
+  const live = await getMlbLiveTeamProfile(teamName).catch(() => null);
+  return live ?? syntheticProfile(teamName);
 }
 
 export async function compareMlbProfiles(awayTeam: string, homeTeam: string): Promise<MlbMatchupComparison> {
