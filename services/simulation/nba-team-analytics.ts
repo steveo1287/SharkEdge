@@ -12,7 +12,7 @@ export type NbaTeamAnalyticsProfile = {
   freeThrowRate: number;
   recentForm: number;
   restTravel: number;
-  source?: "nba-stats-api" | "sportsdataverse" | "real" | "override" | "synthetic";
+  source?: "nba-stats-api" | "databallr" | "sportsdataverse" | "real" | "override" | "synthetic";
 };
 
 export type NbaMatchupComparison = {
