@@ -43,14 +43,14 @@ function readMode(value: string | undefined): TrendMode {
   return value === "power" ? "power" : "simple";
 }
 
-function hasRenderableTrendCards(view: TrendDashboardView | null | undefined) {
+function hasRenderableTrendCards(view: TrendDashboardView | null | undefined): view is TrendDashboardView {
   return Boolean(view && Array.isArray(view.cards) && view.cards.length > 0);
 }
 
 async function getHistoricalFirstTrendDashboard(
   filters: TrendFilters,
   options: { mode: TrendMode; aiQuery: string; savedTrendId: string | null }
-) {
+): Promise<TrendDashboardView> {
   const historical = await buildMlbHistoricalTrendDashboard(filters, options).catch(() => null);
   if (hasRenderableTrendCards(historical)) return historical;
 
