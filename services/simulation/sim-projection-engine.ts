@@ -15,6 +15,15 @@ type SimProjectionInput = { id: string; label: string; startTime: string; status
 type GameStatSheetCategory = { key: string; label: string; away: number; home: number; format?: "number" | "decimal" | "percent" };
 type GameStatSheet = { sport: LeagueKey; awayTeam: string; homeTeam: string; pace: number | null; possessions: number | null; categories: GameStatSheetCategory[]; notes: string[] };
 type MlbFactor = { label: string; value: number };
+type MlbRunProbabilityModel = {
+  awayExpectedRuns: number;
+  homeExpectedRuns: number;
+  projectedTotal: number;
+  pythagoreanHomeWinPct: number;
+  poissonHomeWinPct: number;
+  poissonTiePct: number;
+  blendedHomeWinPct: number;
+};
 
 type SimProjection = {
   matchup: { away: string; home: string };
@@ -38,6 +47,7 @@ type SimProjection = {
     dataSource: string;
     homeEdge: number;
     projectedTotal: number;
+    runModel?: MlbRunProbabilityModel;
     volatilityIndex: number;
     factors: MlbFactor[];
     governor?: { source: string; confidence: number; noBet: boolean; tier: string; reasons: string[] };
@@ -96,6 +106,109 @@ function lockEdges(lock: MlbLineupLock) {
   return { lockBoost, handednessEdge, bullpenUsageEdge, lateScratchEdge, starterCertaintyEdge, lineupCertaintyEdge };
 }
 
+function poissonProbability(mean: number, runs: number) {
+  const safeMean = clamp(mean, 0.2, 14);
+  let probability = Math.exp(-safeMean);
+  for (let index = 1; index <= runs; index += 1) {
+    probability *= safeMean / index;
+  }
+  return probability;
+}
+
+function poissonWinModel(awayExpectedRuns: number, homeExpectedRuns: number) {
+  const maxRuns = 24;
+  let homeWin = 0;
+  let awayWin = 0;
+  let tie = 0;
+  const awayProbabilities = Array.from({ length: maxRuns + 1 }, (_, runs) => poissonProbability(awayExpectedRuns, runs));
+  const homeProbabilities = Array.from({ length: maxRuns + 1 }, (_, runs) => poissonProbability(homeExpectedRuns, runs));
+
+  for (let awayRuns = 0; awayRuns <= maxRuns; awayRuns += 1) {
+    for (let homeRuns = 0; homeRuns <= maxRuns; homeRuns += 1) {
+      const probability = awayProbabilities[awayRuns] * homeProbabilities[homeRuns];
+      if (homeRuns > awayRuns) homeWin += probability;
+      else if (awayRuns > homeRuns) awayWin += probability;
+      else tie += probability;
+    }
+  }
+
+  const covered = homeWin + awayWin + tie;
+  if (covered > 0) {
+    homeWin /= covered;
+    awayWin /= covered;
+    tie /= covered;
+  }
+
+  const extrasHomeWinPct = 0.52;
+  return {
+    homeWinPct: clamp(homeWin + tie * extrasHomeWinPct, 0.02, 0.98),
+    awayWinPct: clamp(awayWin + tie * (1 - extrasHomeWinPct), 0.02, 0.98),
+    tiePct: clamp(tie, 0, 0.25)
+  };
+}
+
+function pythagoreanHomeWinPct(awayExpectedRuns: number, homeExpectedRuns: number) {
+  const exponent = 1.83;
+  const homePower = Math.pow(Math.max(0.2, homeExpectedRuns), exponent);
+  const awayPower = Math.pow(Math.max(0.2, awayExpectedRuns), exponent);
+  return clamp(homePower / Math.max(0.001, homePower + awayPower), 0.02, 0.98);
+}
+
+function xwobaExpectedRuns(args: {
+  teamXwoba: number;
+  opponentStarterEraMinus: number;
+  opponentBullpenEraMinus: number;
+  parkRunFactor: number;
+  weatherRunFactor: number;
+}) {
+  const leagueAverageXwoba = 0.315;
+  const leagueRunsPerTeam = 4.5;
+  const offenseMultiplier = clamp(args.teamXwoba / leagueAverageXwoba, 0.72, 1.34);
+  const opponentRunPreventionMultiplier = clamp((args.opponentStarterEraMinus * 0.62 + args.opponentBullpenEraMinus * 0.38) / 100, 0.72, 1.36);
+  const runEnvironmentMultiplier = clamp(args.parkRunFactor * args.weatherRunFactor, 0.78, 1.26);
+  return leagueRunsPerTeam * offenseMultiplier * opponentRunPreventionMultiplier * runEnvironmentMultiplier;
+}
+
+function buildMlbRunProbabilityModel(args: {
+  comparison: MlbMatchupComparison;
+  homeContextDelta: number;
+  totalContextDelta: number;
+}): MlbRunProbabilityModel {
+  const parkRunFactor = clamp(args.comparison.home.parkRunFactor, 0.82, 1.2);
+  const weatherRunFactor = clamp(args.comparison.home.weatherRunFactor, 0.82, 1.2);
+  const awayAnchor = xwobaExpectedRuns({
+    teamXwoba: args.comparison.away.xwoba,
+    opponentStarterEraMinus: args.comparison.home.starterEraMinus,
+    opponentBullpenEraMinus: args.comparison.home.bullpenEraMinus,
+    parkRunFactor,
+    weatherRunFactor
+  });
+  const homeAnchor = xwobaExpectedRuns({
+    teamXwoba: args.comparison.home.xwoba,
+    opponentStarterEraMinus: args.comparison.away.starterEraMinus,
+    opponentBullpenEraMinus: args.comparison.away.bullpenEraMinus,
+    parkRunFactor,
+    weatherRunFactor
+  });
+  const totalLift = clamp(args.totalContextDelta, -1.4, 1.8);
+  const sideDelta = clamp(args.homeContextDelta, -1.35, 1.35);
+  const awayExpectedRuns = clamp(awayAnchor + totalLift / 2 - sideDelta / 2, 1.2, 11.5);
+  const homeExpectedRuns = clamp(homeAnchor + totalLift / 2 + sideDelta / 2 + 0.08, 1.2, 11.5);
+  const pythagorean = pythagoreanHomeWinPct(awayExpectedRuns, homeExpectedRuns);
+  const poisson = poissonWinModel(awayExpectedRuns, homeExpectedRuns);
+  const blendedHomeWinPct = clamp(poisson.homeWinPct * 0.65 + pythagorean * 0.35, 0.18, 0.82);
+
+  return {
+    awayExpectedRuns: Number(awayExpectedRuns.toFixed(3)),
+    homeExpectedRuns: Number(homeExpectedRuns.toFixed(3)),
+    projectedTotal: Number((awayExpectedRuns + homeExpectedRuns).toFixed(3)),
+    pythagoreanHomeWinPct: Number(pythagorean.toFixed(4)),
+    poissonHomeWinPct: Number(poisson.homeWinPct.toFixed(4)),
+    poissonTiePct: Number(poisson.tiePct.toFixed(4)),
+    blendedHomeWinPct: Number(blendedHomeWinPct.toFixed(4))
+  };
+}
+
 async function buildMlbIntel(matchup: { away: string; home: string }, comparison: MlbMatchupComparison) {
   const [awayPlayers, homePlayers, lock, ratings, history, market] = await Promise.all([
     getMlbTeamPlayerSummary(matchup.away),
@@ -133,13 +246,20 @@ async function buildMlbIntel(matchup: { away: string; home: string }, comparison
     pitcherHistoryEdge + recentPlayerFormEdge + bullpenHistoryEdge + platoonHistoryEdge + contactTrendEdge
   ).toFixed(2));
 
-  const projectedTotal = Number((
-    comparison.runEnvironment * 2 + comparison.parkWeatherEdge * 0.26 + Math.abs(comparison.powerEdge) * 0.14 +
-    Math.abs(playerOffenseEdge) * 0.18 - Math.max(0, comparison.startingPitchingEdge + playerPitchingEdge + pitcherHistoryEdge) * 0.1 +
-    (homePlayers.bullpenFatigue + awayPlayers.bullpenFatigue) * 0.22 +
-    (lock.awayBullpenUsage.fatigueScore + lock.homeBullpenUsage.fatigueScore) * 0.24 +
-    ratings.ratingRunEnvironment * 0.42 + Math.abs(history.recentFormEdge) * 0.08 + Math.abs(history.contactTrendEdge) * 0.06
-  ).toFixed(2));
+  const runModel = buildMlbRunProbabilityModel({
+    comparison,
+    homeContextDelta: homeEdge * 0.18,
+    totalContextDelta:
+      Math.abs(comparison.powerEdge) * 0.08 +
+      Math.abs(playerOffenseEdge) * 0.08 -
+      Math.max(0, comparison.startingPitchingEdge + playerPitchingEdge + pitcherHistoryEdge) * 0.05 +
+      (homePlayers.bullpenFatigue + awayPlayers.bullpenFatigue) * 0.12 +
+      (lock.awayBullpenUsage.fatigueScore + lock.homeBullpenUsage.fatigueScore) * 0.12 +
+      ratings.ratingRunEnvironment * 0.18 +
+      Math.abs(history.recentFormEdge) * 0.04 +
+      Math.abs(history.contactTrendEdge) * 0.03
+  });
+  const projectedTotal = Number(runModel.projectedTotal.toFixed(2));
 
   const volatilityIndex = Number(Math.max(0.7, Math.min(2.35,
     comparison.volatilityIndex * playerVolatility * lock.volatilityAdjustment * (1 + ratings.ratingConfidence * 0.25 + history.historyConfidence * 0.28)
@@ -169,9 +289,13 @@ async function buildMlbIntel(matchup: { away: string; home: string }, comparison
     marketAwayOddsAmerican: market.awayOddsAmerican
   };
 
-  const marketEdge = market.homeNoVigProbability == null ? 0 : Number(((0.51 + homeEdge / 8.5) - market.homeNoVigProbability).toFixed(2));
+  const marketEdge = market.homeNoVigProbability == null ? 0 : Number((runModel.blendedHomeWinPct - market.homeNoVigProbability).toFixed(2));
   const factors: MlbFactor[] = [
     { label: "Live no-vig market sanity", value: marketEdge },
+    { label: "Pythagorean home win", value: runModel.pythagoreanHomeWinPct },
+    { label: "Poisson home win", value: runModel.poissonHomeWinPct },
+    { label: "Poisson tie/extras rate", value: runModel.poissonTiePct },
+    { label: "xwOBA run anchor total", value: runModel.projectedTotal },
     { label: "Official lineup/starter lock", value: official.lockBoost },
     { label: "Starter handedness vs lineup", value: official.handednessEdge },
     { label: "Recent bullpen usage", value: official.bullpenUsageEdge },
@@ -210,6 +334,7 @@ async function buildMlbIntel(matchup: { away: string; home: string }, comparison
     dataSource: `${comparison.away.source}/${comparison.home.source}+team-analytics+player-model:${awayPlayers.source}/${homePlayers.source}+official-lock:${lock.source}+market:${market.source}+history:${history.away.source}/${history.home.source}+ratings:${ratings.away.source}/${ratings.home.source}`,
     homeEdge,
     projectedTotal,
+    runModel,
     volatilityIndex,
     features,
     factors,
@@ -312,7 +437,7 @@ export async function buildSimProjection(input: SimProjectionInput): Promise<Sim
   const mlbIntel = mlbComparison ? await buildMlbIntel(matchup, mlbComparison) : null;
   if (mlbIntel) {
     const rulesTotal = clamp(mlbIntel.projectedTotal, 5.4, 14.5);
-    const rulesHomeWinPct = clamp(0.51 + mlbIntel.homeEdge / 8.5, 0.3, 0.75);
+    const rulesHomeWinPct = clamp(mlbIntel.runModel?.blendedHomeWinPct ?? 0.5, 0.24, 0.78);
     const governed = await governMlbProjection({ rulesHomeWinPct, rulesProjectedTotal: rulesTotal, volatilityIndex: mlbIntel.volatilityIndex, features: mlbIntel.features });
     const calibration = await getCachedMlbCalibrationConformal();
     const calibrated = applyMlbCalibration(calibration ?? null, governed.homeWinPct);
@@ -320,11 +445,13 @@ export async function buildSimProjection(input: SimProjectionInput): Promise<Sim
     const finalHomeWinPct = clamp(calibrated.calibratedProbability, 0.24, 0.78);
     const finalAwayWinPct = 1 - finalHomeWinPct;
     const total = clamp(governed.projectedTotal, 5.4, 14.5);
-    const homeExpected = clamp(total / 2 + 0.2 + mlbIntel.homeEdge * 0.4, 1.2, 11.5);
+    const homeRunShare = mlbIntel.runModel ? mlbIntel.runModel.homeExpectedRuns / Math.max(0.001, mlbIntel.runModel.projectedTotal) : 0.51;
+    const homeExpected = clamp(total * homeRunShare, 1.2, 11.5);
     const awayExpected = clamp(total - homeExpected, 1.2, 11.5);
     const lockReasons = mlbIntel.lock?.notes ?? [];
     const marketReason = mlbIntel.market?.available ? `Market home no-vig ${((mlbIntel.market.homeNoVigProbability ?? 0) * 100).toFixed(1)}%.` : "Market sanity unavailable.";
-    const read = governed.noBet ? `PASS: model confidence is not strong enough. ${lockReasons[0] ?? marketReason}` : finalHomeWinPct >= finalAwayWinPct ? `${matchup.home} cleared ${governed.tier.toUpperCase()} tier with official starter/lineup lock, bullpen usage, live no-vig market sanity, and calibration checks.` : `${matchup.away} cleared ${governed.tier.toUpperCase()} tier with official starter/lineup lock, bullpen usage, live no-vig market sanity, and calibration checks.`;
+    const runModelReason = mlbIntel.runModel ? `Run model: Pyth ${((mlbIntel.runModel.pythagoreanHomeWinPct) * 100).toFixed(1)}%, Poisson ${((mlbIntel.runModel.poissonHomeWinPct) * 100).toFixed(1)}%, extras tie rate ${((mlbIntel.runModel.poissonTiePct) * 100).toFixed(1)}%.` : "Run model unavailable.";
+    const read = governed.noBet ? `PASS: model confidence is not strong enough. ${lockReasons[0] ?? marketReason} ${runModelReason}` : finalHomeWinPct >= finalAwayWinPct ? `${matchup.home} cleared ${governed.tier.toUpperCase()} tier with xwOBA run anchoring, Pythagorean/Poisson win probability, official starter/lineup lock, live no-vig market sanity, and calibration checks.` : `${matchup.away} cleared ${governed.tier.toUpperCase()} tier with xwOBA run anchoring, Pythagorean/Poisson win probability, official starter/lineup lock, live no-vig market sanity, and calibration checks.`;
     const statSheet = buildMlbStatSheet(matchup, { avgAway: awayExpected, avgHome: homeExpected }, mlbIntel);
     return { matchup, distribution: { avgAway: Number(awayExpected.toFixed(2)), avgHome: Number(homeExpected.toFixed(2)), homeWinPct: Number(finalHomeWinPct.toFixed(3)), awayWinPct: Number(finalAwayWinPct.toFixed(3)) }, read, statSheet, nbaIntel: null, realityIntel: null, mlbIntel: { ...mlbIntel, projectedTotal: total, governor: { source: governed.source, confidence: conformal.calibratedConfidence, noBet: governed.noBet || conformal.calibratedConfidence < 0.6, tier: conformal.calibratedConfidence < 0.6 ? "pass" : governed.tier, reasons: [...(mlbIntel.lock?.notes ?? []), marketReason, ...governed.reasons, conformal.reason] }, calibration: { calibratedHomeWinPct: finalHomeWinPct, correction: calibrated.correction, ece: calibration?.ok ? calibration.ece : null }, uncertainty: { interval: conformal.interval, penalty: conformal.uncertaintyPenalty, reason: conformal.reason } } };
   }
