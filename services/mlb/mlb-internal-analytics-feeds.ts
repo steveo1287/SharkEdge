@@ -1,4 +1,7 @@
-import { getMlbDataApiLeaguePlayerProfiles } from "@/services/mlb/mlb-data-api-feed";
+import {
+  getMlbDataApiLeaguePlayerProfiles,
+  getMlbDataApiTeamNameById
+} from "@/services/mlb/mlb-data-api-feed";
 
 type MlbFeedTeam = {
   teamName: string;
@@ -85,7 +88,7 @@ async function fetchMlbStatsApiTeamFeed() {
   for (const record of body.records ?? []) {
     for (const teamRecord of record.teamRecords ?? []) {
       rows.push({
-        teamName: teamRecord.team?.name,
+        teamName: getMlbDataApiTeamNameById(teamRecord.team?.id) ?? teamRecord.team?.name,
         runsScored: teamRecord.runsScored,
         runsAllowed: teamRecord.runsAllowed,
         games: teamRecord.gamesPlayed,

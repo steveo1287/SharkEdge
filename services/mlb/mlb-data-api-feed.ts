@@ -128,6 +128,11 @@ export function getMlbDataApiTeamNames() {
   return Object.values(CANONICAL_TEAM_NAMES);
 }
 
+export function getMlbDataApiTeamNameById(teamId: unknown) {
+  const key = text(teamId);
+  return key ? CANONICAL_TEAM_NAMES[key] ?? null : null;
+}
+
 function text(...values: unknown[]) {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) return value.trim();
