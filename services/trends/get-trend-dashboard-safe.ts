@@ -343,7 +343,7 @@ async function bestAvailableDashboard(
   existing?: TrendDashboardView | null
 ) {
   const signal = await signalDashboard(filters, options);
-  if (hasRealCurrentGameCards(signal)) return signal;
+  if (signal && hasRealCurrentGameCards(signal)) return signal;
 
   return (
     (await publishedDashboard(filters, options, existing)) ??
@@ -357,7 +357,7 @@ export async function getTrendDashboardSafe(
   options?: { mode?: TrendMode; aiQuery?: string; savedTrendId?: string | null }
 ): Promise<TrendDashboardView> {
   const signal = await signalDashboard(filters, options);
-  if (hasRealCurrentGameCards(signal)) return signal;
+  if (signal && hasRealCurrentGameCards(signal)) return signal;
 
   if (!hasUsableServerDatabaseUrl()) {
     return bestAvailableDashboard(filters, options);
