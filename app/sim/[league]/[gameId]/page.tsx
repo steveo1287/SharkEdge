@@ -233,6 +233,7 @@ function RealityEnginePanel({ projection }: { projection: Projection }) {
   const intel = projection.realityIntel;
   if (!intel) return null;
   const strongest = [...intel.factors].sort((left, right) => Math.abs(right.value * right.weight) - Math.abs(left.value * left.weight)).slice(0, 8);
+  const outcome = intel.outcomeModel;
   return (
     <Card className="surface-panel p-5">
       <SectionTitle title="Reality Engine" description={`${intel.modelVersion} | ${intel.dataSource}`} />
@@ -243,6 +244,22 @@ function RealityEnginePanel({ projection }: { projection: Projection }) {
         <Tile label="Projected total" value={String(intel.projectedTotal)} />
         <Tile label="Real modules" value={`${intel.modules.filter((item) => item.status === "real").length}/${intel.modules.length}`} />
       </div>
+      {outcome ? (
+        <div className="mt-4 rounded-2xl border border-sky-400/15 bg-sky-500/[0.055] p-4">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-sky-200">Outcome Ensemble</div>
+          <div className="mt-3 grid gap-3 md:grid-cols-4">
+            <Tile label="Bradley-Terry" value={pct(outcome.bradleyTerryHomeWinPct)} />
+            <Tile label="Margin Logit" value={outcome.marginLogisticHomeWinPct == null ? "--" : pct(outcome.marginLogisticHomeWinPct)} />
+            <Tile label="Poisson" value={outcome.poissonHomeWinPct == null ? "--" : pct(outcome.poissonHomeWinPct)} sub={outcome.poissonTiePct == null ? undefined : `tie ${pct(outcome.poissonTiePct)}`} />
+            <Tile label="Blend" value={pct(outcome.blendedHomeWinPct)} sub={outcome.modelVersion} />
+          </div>
+          <div className="mt-3 grid gap-2">
+            {outcome.notes.map((note, index) => (
+              <div key={`outcome-note-${index}`} className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs leading-5 text-slate-400">{note}</div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="mt-4 grid gap-2 md:grid-cols-2">
         {strongest.map((factor) => (
           <Factor key={`${factor.label}:${factor.source}`} label={factor.label} value={factor.value} weight={factor.weight} source={factor.source} />

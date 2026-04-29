@@ -10,6 +10,7 @@ import { getCachedMlbCalibrationConformal, applyMlbCalibration, applyMlbConforma
 import { buildRealitySimIntel, type RealitySimIntel } from "@/services/simulation/reality-sim-engine";
 import { getNbaTeamPlayerProfileSummary } from "@/services/simulation/nba-player-profiles";
 import { simulateNbaPlayerGameProjections, type NbaPlayerStatProjection } from "@/services/simulation/nba-player-stat-sim";
+import { buildSportOutcomeModel, type SportOutcomeModel } from "@/services/simulation/probability-models";
 
 type SimProjectionInput = { id: string; label: string; startTime: string; status: string; leagueKey: LeagueKey; leagueLabel: string };
 type GameStatSheetCategory = { key: string; label: string; away: number; home: number; format?: "number" | "decimal" | "percent" };
@@ -358,16 +359,18 @@ async function buildMlbIntel(matchup: { away: string; home: string }, comparison
   };
 }
 
-function buildRealityDistribution(leagueKey: LeagueKey, base: ReturnType<typeof leagueBaseline>, realityIntel: RealitySimIntel) {
+function buildRealityDistribution(leagueKey: LeagueKey, base: ReturnType<typeof leagueBaseline>, realityIntel: RealitySimIntel): { avgAway: number; avgHome: number; homeWinPct: number; awayWinPct: number; outcomeModel: SportOutcomeModel } {
   if (leagueKey === "UFC" || leagueKey === "BOXING") {
-    const homeWinPct = clamp(0.5 + realityIntel.homeEdge / 24, 0.18, 0.82);
-    return { avgAway: 0, avgHome: 0, homeWinPct, awayWinPct: 1 - homeWinPct };
+    const outcomeModel = buildSportOutcomeModel({ league: leagueKey, awayScore: 0, homeScore: 0, homeSkillEdge: realityIntel.homeEdge, volatilityIndex: realityIntel.volatilityIndex });
+    const homeWinPct = clamp(outcomeModel.blendedHomeWinPct, 0.12, 0.88);
+    return { avgAway: 0, avgHome: 0, homeWinPct, awayWinPct: 1 - homeWinPct, outcomeModel };
   }
   const total = clamp(realityIntel.projectedTotal, leagueKey === "NHL" ? 3.8 : leagueKey === "NBA" ? 178 : leagueKey === "NFL" ? 28 : 32, leagueKey === "NHL" ? 9.2 : leagueKey === "NBA" ? 268 : leagueKey === "NFL" ? 71 : 86);
   const homeScore = clamp(total / 2 + base.spread * 0.35 + realityIntel.homeEdge * 0.42, 0.5, total - 0.5);
   const awayScore = clamp(total - homeScore, 0.5, total - 0.5);
-  const homeWinPct = clamp(0.5 + realityIntel.homeEdge / 22, 0.16, 0.84);
-  return { avgAway: awayScore, avgHome: homeScore, homeWinPct, awayWinPct: 1 - homeWinPct };
+  const outcomeModel = buildSportOutcomeModel({ league: leagueKey, awayScore, homeScore, homeSkillEdge: realityIntel.homeEdge, volatilityIndex: realityIntel.volatilityIndex });
+  const homeWinPct = clamp(outcomeModel.blendedHomeWinPct, 0.12, 0.88);
+  return { avgAway: awayScore, avgHome: homeScore, homeWinPct, awayWinPct: 1 - homeWinPct, outcomeModel };
 }
 
 function buildMlbStatSheet(matchup: { away: string; home: string }, distribution: { avgAway: number; avgHome: number }, mlbIntel: NonNullable<SimProjection["mlbIntel"]>): GameStatSheet {
@@ -460,13 +463,15 @@ export async function buildSimProjection(input: SimProjectionInput): Promise<Sim
   if (realityIntel) {
     const reality = buildRealityDistribution(input.leagueKey, base, realityIntel);
     const decimals = scoreDecimals(input.leagueKey);
+    const realityWithOutcome = { ...realityIntel, outcomeModel: reality.outcomeModel };
     const favorite = reality.homeWinPct >= reality.awayWinPct ? matchup.home : matchup.away;
     const favoritePct = Math.max(reality.homeWinPct, reality.awayWinPct);
     const realModules = realityIntel.modules.filter((module) => module.status === "real").length;
     const nbaGovernor = input.leagueKey === "NBA" ? buildNbaGovernor(realityIntel, reality.homeWinPct, reality.awayWinPct) : null;
-    const read = input.leagueKey === "NBA" && nbaGovernor ? nbaGovernor.noBet ? `PASS: ${favorite} has a ${(favoritePct * 100).toFixed(1)}% edge but NBA governor flagged low reliability (${nbaGovernor.reasons[0]}).` : `${favorite} leads at ${(favoritePct * 100).toFixed(1)}% with ${nbaGovernor.tier.toUpperCase()} conviction. Model uses team, player, advanced, ratings, and context feeds with ${realModules}/3 real modules.` : `${favorite} leads the reality sim at ${(favoritePct * 100).toFixed(1)}%. Weighted model uses team stats, player impact, advanced analytics, video-game ratings, venue/rest context, and ${realModules}/3 real feed modules.`;
+    const outcomeReason = `Outcome ensemble: Bradley-Terry ${((reality.outcomeModel.bradleyTerryHomeWinPct) * 100).toFixed(1)}%${reality.outcomeModel.marginLogisticHomeWinPct == null ? "" : `, margin-logit ${((reality.outcomeModel.marginLogisticHomeWinPct) * 100).toFixed(1)}%`}${reality.outcomeModel.poissonHomeWinPct == null ? "" : `, Poisson ${((reality.outcomeModel.poissonHomeWinPct) * 100).toFixed(1)}%`}.`;
+    const read = input.leagueKey === "NBA" && nbaGovernor ? nbaGovernor.noBet ? `PASS: ${favorite} has a ${(favoritePct * 100).toFixed(1)}% edge but NBA governor flagged low reliability (${nbaGovernor.reasons[0]}). ${outcomeReason}` : `${favorite} leads at ${(favoritePct * 100).toFixed(1)}% with ${nbaGovernor.tier.toUpperCase()} conviction. Model uses team, player, advanced, ratings, context feeds, and ${outcomeReason}` : `${favorite} leads the reality sim at ${(favoritePct * 100).toFixed(1)}%. Weighted model uses team stats, player impact, advanced analytics, video-game ratings, venue/rest context, ${realModules}/3 real feed modules, and ${outcomeReason}`;
     const nbaPlayerProjections = input.leagueKey === "NBA" && nbaProfiles ? await simulateNbaPlayerGameProjections({ awaySummary: nbaProfiles[0], homeSummary: nbaProfiles[1], projectedTotal: realityIntel.projectedTotal, volatilityIndex: realityIntel.volatilityIndex, confidence: nbaGovernor?.confidence ?? realityIntel.confidence, seedKey: `${input.id}:${input.startTime}:${matchup.away}:${matchup.home}` }) : [];
-    return { matchup, distribution: { avgAway: Number(reality.avgAway.toFixed(decimals)), avgHome: Number(reality.avgHome.toFixed(decimals)), homeWinPct: Number(reality.homeWinPct.toFixed(3)), awayWinPct: Number(reality.awayWinPct.toFixed(3)) }, read, statSheet: input.leagueKey === "NBA" ? buildNbaStatSheet(matchup, { avgAway: reality.avgAway, avgHome: reality.avgHome }, realityIntel, nbaPlayerProjections) : null, nbaIntel: input.leagueKey === "NBA" && nbaGovernor ? { modelVersion: realityIntel.modelVersion, dataSource: realityIntel.dataSource, confidence: nbaGovernor.confidence, noBet: nbaGovernor.noBet, tier: nbaGovernor.tier, reasons: nbaGovernor.reasons, projectedTotal: realityIntel.projectedTotal, volatilityIndex: realityIntel.volatilityIndex, playerStatProjections: nbaPlayerProjections } : null, realityIntel, mlbIntel: null };
+    return { matchup, distribution: { avgAway: Number(reality.avgAway.toFixed(decimals)), avgHome: Number(reality.avgHome.toFixed(decimals)), homeWinPct: Number(reality.homeWinPct.toFixed(3)), awayWinPct: Number(reality.awayWinPct.toFixed(3)) }, read, statSheet: input.leagueKey === "NBA" ? buildNbaStatSheet(matchup, { avgAway: reality.avgAway, avgHome: reality.avgHome }, realityWithOutcome, nbaPlayerProjections) : null, nbaIntel: input.leagueKey === "NBA" && nbaGovernor ? { modelVersion: realityIntel.modelVersion, dataSource: realityIntel.dataSource, confidence: nbaGovernor.confidence, noBet: nbaGovernor.noBet, tier: nbaGovernor.tier, reasons: [...nbaGovernor.reasons, ...reality.outcomeModel.notes], projectedTotal: realityIntel.projectedTotal, volatilityIndex: realityIntel.volatilityIndex, playerStatProjections: nbaPlayerProjections } : null, realityIntel: realityWithOutcome, mlbIntel: null };
   }
 
   const awayJitter = (seeded(seed, 1) - 0.5) * (input.leagueKey === "NBA" ? 18 : 2.2);

@@ -1,4 +1,5 @@
 import { buildEventGameRatingsPrior } from "@/services/simulation/game-ratings-prior";
+import { bradleyTerryWinProbability } from "@/services/simulation/probability-models";
 
 type FighterSignal = {
   strikingOffense: number;
@@ -508,7 +509,7 @@ function simulateFight(args: {
   for (let i = 0; i < args.samples; i += 1) {
     const variance = randomNormal(random) * (11 - confidenceDrag * 0.07);
     const edge = baseEdge + marketNudge + variance;
-    const pA = clamp(0.5 + edge / 100, 0.06, 0.94);
+    const pA = clamp(bradleyTerryWinProbability(edge, 0, 24), 0.06, 0.94);
     const winnerA = random() < pA;
     homeWins.push(winnerA ? 1 : 0);
 

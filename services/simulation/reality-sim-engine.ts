@@ -1,5 +1,6 @@
 import type { LeagueKey } from "@/lib/types/domain";
 import { compareNbaIntelligence } from "@/services/simulation/nba-intelligence-model";
+import { type SportOutcomeModel } from "@/services/simulation/probability-models";
 
 type FlexibleRow = Record<string, unknown>;
 
@@ -17,6 +18,7 @@ export type RealitySimIntel = {
   projectedTotal: number;
   volatilityIndex: number;
   confidence: number;
+  outcomeModel?: SportOutcomeModel;
   factors: RealityFactor[];
   modules: Array<{ label: string; status: "real" | "synthetic"; note: string }>;
   ratingBlend: {
