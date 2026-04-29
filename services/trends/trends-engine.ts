@@ -73,7 +73,15 @@ function riskFrom(volatility: number | null | undefined, noBet: boolean | undefi
 function selected(value?: "ALL" | LeagueKey) { return value ?? "ALL"; }
 
 function applyTrendQuality(signal: TrendSignalDraft): TrendSignal {
-  const qualityResult = assessTrendQuality(buildTrendQualityInputFromSignal(signal));
+  const qualityInput = buildTrendQualityInputFromSignal(signal);
+
+  // Trend quality expects probability edge as a decimal/percent. Some total signals carry
+  // run/point deltas, so do not let a 0.8-run model delta become an 80% market edge.
+  if (qualityInput.currentEdge != null && Math.abs(qualityInput.currentEdge) > 0.25) {
+    qualityInput.currentEdge = null;
+  }
+
+  const qualityResult = assessTrendQuality(qualityInput);
   const qualityGrade = mapQualityTierToTrendGrade(qualityResult.quality.tier);
   const mergedRisk = mergeTrendRisk(signal.risk, qualityResult.quality.overfitRisk);
   const qualityNotes = qualityResult.explanation.map((note) => `Quality: ${note}`);
