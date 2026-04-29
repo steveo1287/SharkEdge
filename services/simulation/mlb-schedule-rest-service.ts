@@ -34,12 +34,20 @@ function normalizeFranchise(abbr: string): string {
   return map[abbr.toUpperCase()] ?? abbr.toUpperCase();
 }
 
-function teamAbbrs(game: ScheduleGame): { away: string; home: string } | null {
-  const teams = (game as { teams?: { away?: { team?: { abbreviation?: string } }; home?: { team?: { abbreviation?: string } } } }).teams;
+type TeamEntry = { team?: { abbreviation?: string; name?: string } };
+type GameTeams = { teams?: { away?: TeamEntry; home?: TeamEntry } };
+
+function teamAbbrs(game: ScheduleGame): { away: string; home: string; awayName: string | null; homeName: string | null } | null {
+  const teams = (game as GameTeams).teams;
   const away = teams?.away?.team?.abbreviation;
   const home = teams?.home?.team?.abbreviation;
   if (!away || !home) return null;
-  return { away: normalizeFranchise(away), home: normalizeFranchise(home) };
+  return {
+    away: normalizeFranchise(away),
+    home: normalizeFranchise(home),
+    awayName: teams?.away?.team?.name ?? null,
+    homeName: teams?.home?.team?.name ?? null,
+  };
 }
 
 function gameDateStr(game: ScheduleGame): string | null {
@@ -98,8 +106,9 @@ async function fetchRestByTeam(): Promise<Record<string, MlbRestContext> | null>
     if (!res.ok) return null;
     const json = await res.json() as { dates?: Array<{ date: string; games: ScheduleGame[] }> };
 
-    // Collect last completed game date per team
+    // Collect last completed game date per team; track full name alongside abbr
     const lastGame: Record<string, string> = {};
+    const teamFullName: Record<string, string> = {};
     for (const dateEntry of json.dates ?? []) {
       if (dateEntry.date > todayStr) continue; // future games
       for (const game of dateEntry.games ?? []) {
@@ -110,6 +119,8 @@ async function fetchRestByTeam(): Promise<Record<string, MlbRestContext> | null>
         // Keep the most recent completed game for each team
         if (!lastGame[abbrs.away] || gDate > lastGame[abbrs.away]) lastGame[abbrs.away] = gDate;
         if (!lastGame[abbrs.home] || gDate > lastGame[abbrs.home]) lastGame[abbrs.home] = gDate;
+        if (abbrs.awayName) teamFullName[abbrs.away] = abbrs.awayName;
+        if (abbrs.homeName) teamFullName[abbrs.home] = abbrs.homeName;
       }
     }
 
@@ -120,15 +131,19 @@ async function fetchRestByTeam(): Promise<Record<string, MlbRestContext> | null>
     for (const [abbr, lastDate] of Object.entries(lastGame)) {
       const last = new Date(lastDate);
       const days = Math.round((todayDate.getTime() - last.getTime()) / 86400000);
-      const key = normalizeMlbTeam(abbr);
-      result[key] = {
-        teamName: abbr,
+      const fullName = teamFullName[abbr] ?? abbr;
+      // Store under normalized full name so lookups via team display names hit correctly.
+      // Also store under normalized abbreviation as a fallback.
+      const ctx: MlbRestContext = {
+        teamName: fullName,
         source: "real",
         lastGameDate: lastDate,
         daysRest: days,
         travelRest: travelRestFromDays(days),
         isBackToBack: days === 0
       };
+      result[normalizeMlbTeam(fullName)] = ctx;
+      result[normalizeMlbTeam(abbr)] = ctx;
     }
 
     if (Object.keys(result).length) {
