@@ -26,7 +26,8 @@ export async function GET(request: Request) {
     if (mode === "signals" || url.searchParams.has("league")) {
       const league = parseSignalLeague(url.searchParams.get("league"));
       const includeResearch = url.searchParams.get("research") !== "false";
-      const payload = await buildTrendSignals({ league, includeResearch });
+      const includeHidden = url.searchParams.get("includeHidden") === "true" || url.searchParams.get("debug") === "true";
+      const payload = await buildTrendSignals({ league, includeResearch, includeHidden });
       return NextResponse.json(payload, { status: 200 });
     }
 
