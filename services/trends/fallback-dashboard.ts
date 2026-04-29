@@ -1,151 +1,70 @@
 import type {
-  TrendCardView,
   TrendDashboardView,
   TrendFilters,
-  TrendInsightCard,
   TrendMetricCard,
   TrendTableRow
 } from "@/lib/types/domain";
-import { mockDatabase } from "@/prisma/seed-data";
 
-function formatPct(value: number) {
-  return `${value > 0 ? "+" : ""}${(value * 100).toFixed(1)}%`;
+function querySummary(filters: TrendFilters) {
+  return [filters.league, filters.market, filters.side, filters.window].filter(Boolean).join(" | ");
 }
 
-function formatHit(value: number) {
-  return `${(value * 100).toFixed(1)}%`;
-}
-
-function windowLabel(filters: TrendFilters) {
-  if (filters.window === "all") return "Full stored range";
-  if (filters.window === "365d") return "Last 365 days";
-  if (filters.window === "90d") return "Last 90 days";
-  return "Last 30 days";
-}
-
-function buildFallbackTrendCard(
-  filters: TrendFilters,
-  league: string,
-  market: string,
-  team: string,
-  index: number
-): TrendCardView {
-  const hitRates = [0.52, 0.55, 0.58, 0.51, 0.61, 0.53];
-  const roiValues = [0.02, 0.08, 0.12, 0.01, 0.15, 0.04];
-  const samples = [20, 35, 44, 42, 58, 31];
-  const hitRate = hitRates[index % hitRates.length] ?? 0.52;
-  const roi = roiValues[index % roiValues.length] ?? 0.02;
-  const sample = samples[index % samples.length] ?? 25;
-  const grade = roi >= 0.1 || hitRate >= 0.58 ? "WATCH" : "RESEARCH";
-  const actionGate = grade === "WATCH" ? "WATCH FOR PRICE" : "RESEARCH ONLY";
-  const title = `${team} ${market} trend · ${grade}`;
-
-  return {
-    id: `fallback-${league}-${market}-${team}`.replace(/[^a-z0-9-]/gi, "-").toLowerCase(),
-    title,
-    value: roi >= 0.08 ? formatPct(roi) : formatHit(hitRate),
-    hitRate: formatHit(hitRate),
-    roi: formatPct(roi),
-    sampleSize: sample,
-    dateRange: `${windowLabel(filters)} · ${league} · ${market}`,
-    note: [
-      `${team} ${market} profile is available as a display-safe fallback while the full historical/published feed is unavailable.`,
-      `Action Gate: ${actionGate}`,
-      `Fair-price checkpoint: verify current board price before using this angle`
-    ].join(". "),
-    explanation: "This fallback card keeps the trends page populated while the database-backed or signal-backed feed is unavailable. It is not a final betting recommendation.",
-    whyItMatters: `Action Gate: ${actionGate} · ${sample} sample · ${formatHit(hitRate)} hit rate · ${formatPct(roi)} ROI proxy`,
-    caution: "Kill switches: stale price, missing current odds, late lineup/news change, or no live board qualifier.",
-    href: `/trends?league=${encodeURIComponent(league)}&market=${encodeURIComponent(market)}&sample=10`,
-    tone: roi >= 0.1 ? "success" : hitRate >= 0.56 ? "brand" : "premium",
-    todayMatches: []
-  };
-}
-
-function buildCards(filters: TrendFilters) {
-  const teams = mockDatabase.teams.slice(0, 5).map((team) => team.name);
-  const markets = ["spread", "moneyline", "total"];
-  const cards: TrendCardView[] = [];
-  let cardIndex = 0;
-
-  for (const team of teams) {
-    for (const market of markets) {
-      if (filters.market !== "ALL" && filters.market !== market) continue;
-      cards.push(buildFallbackTrendCard(filters, filters.league === "ALL" ? "MLB" : filters.league, market, team, cardIndex++));
-      if (cards.length >= 8) return cards;
-    }
-  }
-
-  return cards;
-}
-
-function metrics(cards: TrendCardView[]): TrendMetricCard[] {
-  const avgHit = cards.length
-    ? cards.reduce((sum, card) => sum + Number.parseFloat(card.hitRate ?? "0"), 0) / cards.length
-    : 0;
-  const avgRoi = cards.length
-    ? cards.reduce((sum, card) => sum + Number.parseFloat((card.roi ?? "0").replace("+", "")), 0) / cards.length
-    : 0;
-
+function metrics(): TrendMetricCard[] {
   return [
-    { label: "Visible trends", value: String(cards.length), note: "Renderable cards available on the trends page." },
-    { label: "Avg hit rate", value: `${avgHit.toFixed(1)}%`, note: "Fallback-card average, shown only when live/published feeds are unavailable." },
-    { label: "Avg ROI proxy", value: `${avgRoi > 0 ? "+" : ""}${avgRoi.toFixed(1)}%`, note: "Proxy value used only to keep the UI useful during data outages." },
-    { label: "Data status", value: "Fallback", note: "The full SharkEdge trend feed should replace these cards when available." }
+    { label: "Real trends", value: "0", note: "No real current game/team or published historical trends matched this filter." },
+    { label: "Fallback cards", value: "Disabled", note: "Static/fake cards are intentionally blocked from the user-facing trends page." },
+    { label: "Next check", value: "Signals", note: "Use the debug signal feed to inspect why current game trends were not produced." },
+    { label: "Data source", value: "Unavailable", note: "The page is waiting on real board, market, or historical trend data." }
   ];
 }
 
-function insights(cards: TrendCardView[]): TrendInsightCard[] {
-  return cards.slice(0, 4).map((card) => ({
-    id: `fallback-insight-${card.id}`,
-    title: card.title,
-    value: card.value,
-    note: card.whyItMatters ?? card.explanation ?? card.note ?? "Fallback trend card available while the full feed warms up.",
-    tone: card.tone
-  }));
-}
-
-function rows(cards: TrendCardView[]): TrendTableRow[] {
-  return cards.slice(0, 8).map((card) => ({
-    label: card.title,
-    movement: card.note.includes("WATCH FOR PRICE") ? "WATCH FOR PRICE" : "RESEARCH ONLY",
-    note: `${card.value} · Hit ${card.hitRate ?? "N/A"} · ROI ${card.roi ?? "N/A"}`,
-    href: card.href
-  }));
+function rows(): TrendTableRow[] {
+  return [
+    {
+      label: "Real current-game signals",
+      movement: "CHECK SIGNAL FEED",
+      note: "The trends page now refuses to show fake filler. Inspect the signal feed for current board/model data.",
+      href: "/api/trends?mode=signals&debug=true"
+    },
+    {
+      label: "Published historical trends",
+      movement: "CHECK PUBLISHER",
+      note: "If published trend cards are empty, historical trend jobs or database-backed publishing need attention.",
+      href: "/api/trends"
+    },
+    {
+      label: "Live board",
+      movement: "CHECK GAMES",
+      note: "If no current games are available, there are no team/game trends to display.",
+      href: "/"
+    }
+  ];
 }
 
 export function buildFallbackTrendDashboard(filters: TrendFilters): TrendDashboardView {
-  const cards = buildCards(filters);
-  const top = cards[0];
-
   return {
     setup: null,
     mode: "simple",
     aiQuery: "",
     aiHelper: null,
     explanation: {
-      headline: `${cards.length} trend card${cards.length === 1 ? "" : "s"} available while the full feed warms up`,
-      whyItMatters: top
-        ? `${top.title} is shown so the trends page remains usable instead of presenting an empty dashboard.`
-        : "The trends page is renderable, but no card matched the current filter.",
-      caution: "Fallback cards are display-safe context only. The signal-backed and published trend feeds should be treated as the primary source when they are available.",
-      queryLogic: [filters.league, filters.market, filters.side, filters.window].filter(Boolean).join(" | ")
+      headline: "No real trend data is available for this filter",
+      whyItMatters: "The trends page is no longer allowed to fill itself with fake fallback team cards. It will show real published trends or real current game/team signals only.",
+      caution: "If this appears during an active slate, the board/signal/publisher data flow needs inspection. Use the debug links below.",
+      queryLogic: querySummary(filters)
     },
     filters,
-    cards,
-    metrics: metrics(cards),
-    insights: insights(cards),
-    movementRows: rows(cards),
-    segmentRows: [
-      { label: "Fallback renderer", movement: `${cards.length} cards`, note: "V3-compatible fallback cards are rendering instead of a setup blocker.", href: "/trends" },
-      { label: "Preferred source", movement: "Signal feed", note: "Current trend signals and published historical trends should replace this fallback whenever available.", href: "/api/trends?mode=signals" }
-    ],
+    cards: [],
+    metrics: metrics(),
+    insights: [],
+    movementRows: rows(),
+    segmentRows: rows(),
     todayMatches: [],
-    todayMatchesNote: "No live qualifiers are attached in fallback mode.",
+    todayMatchesNote: "No real current game/team trend qualifiers are available for this filter.",
     savedSystems: [],
     savedTrendName: "",
-    sourceNote: "Fallback trend renderer active. This prevents the trends page from going blank while live/published trend feeds are unavailable.",
-    querySummary: [filters.league, filters.market, filters.side, filters.window].filter(Boolean).join(" | "),
-    sampleNote: "Fallback mode is not a betting recommendation. Use the signal/published feed when available."
+    sourceNote: "No fake fallback cards are shown. Real trend data must come from the published trend feed or the current game/team signal engine.",
+    querySummary: querySummary(filters),
+    sampleNote: "Static fallback trend cards are disabled so the page cannot masquerade fake data as real trends."
   };
 }
