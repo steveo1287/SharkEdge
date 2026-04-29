@@ -15,6 +15,10 @@ export type MlbGovernorFeatures = {
   totalPitchingEdge: number;
   totalParkEdge: number;
   totalBullpenEdge: number;
+  // Umpire K-zone tendency: positive = generous zone (more Ks, fewer walks, lower runs)
+  umpireEdge?: number;
+  // xFIP vs ERA regression signal: positive = home pitcher likely to outperform results
+  pitcherRegressionEdge?: number;
   marketHomeNoVigProbability?: number | null;
   marketSource?: string | null;
   marketHold?: number | null;
@@ -70,7 +74,9 @@ const ML_FEATURE_KEYS = [
   "totalStatcastEdge",
   "totalPitchingEdge",
   "totalParkEdge",
-  "totalBullpenEdge"
+  "totalBullpenEdge",
+  "umpireEdge",
+  "pitcherRegressionEdge"
 ] as const;
 
 function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, value)); }
@@ -81,7 +87,7 @@ function sign(value: number, deadZone = 0.08) { if (value > deadZone) return 1; 
 function sideLabel(probability: number) { return probability >= 0.5 ? "home" : "away"; }
 
 function mlFeatureVector(features: MlbGovernorFeatures): Record<string, number> {
-  return Object.fromEntries(ML_FEATURE_KEYS.map((key) => [key, features[key]]));
+  return Object.fromEntries(ML_FEATURE_KEYS.map((key) => [key, (features as Record<string, number | undefined>)[key] ?? 0]));
 }
 
 function modelSignalStrength(features: MlbGovernorFeatures) {
@@ -108,7 +114,12 @@ function auditDirection(features: MlbGovernorFeatures, rawHomeWinPct: number): D
     { label: "statcast", value: features.statcastEdge, weight: 0.85, critical: false },
     { label: "form", value: features.formEdge, weight: 0.65, critical: false },
     { label: "lock", value: features.lockEdge, weight: 1.05, critical: true },
-    { label: "park/weather", value: features.weatherEdge + features.parkEdge, weight: 0.45, critical: false }
+    { label: "park/weather", value: features.weatherEdge + features.parkEdge, weight: 0.45, critical: false },
+    // Umpire zone effect on side edge is low — it suppresses scoring symmetrically but
+    // a generous-zone ump slightly helps the better offense; use as soft confirmer.
+    { label: "umpire zone", value: features.umpireEdge ?? 0, weight: 0.35, critical: false },
+    // xFIP regression signal: starter's true skill vs. results; medium side weight.
+    { label: "pitcher regression", value: features.pitcherRegressionEdge ?? 0, weight: 0.55, critical: false }
   ];
   const active = groups.filter((group) => sign(group.value) !== 0);
   const critical = groups.filter((group) => group.critical && sign(group.value) !== 0);
@@ -226,7 +237,9 @@ export async function governMlbProjection(input: { rulesHomeWinPct: number; rule
   const conservativeRulesHomeWinPct = shrinkTowardCoinFlip(input.rulesHomeWinPct, audit.reliability);
   const rulesMarket = auditMarket(conservativeRulesHomeWinPct, input.features);
   const marketAnchoredRulesHomeWinPct = anchorToMarket(conservativeRulesHomeWinPct, rulesMarket);
-  const baseConfidence = clamp(0.42 + signalStrength / 22 + audit.weightedAgreement * 0.14 + audit.criticalAgreement * 0.08 - audit.conflictPenalty - (input.volatilityIndex - 1) * 0.12 + rulesMarket.confidenceAdjustment, 0.22, 0.7);
+  const umpireKnownBoost = typeof input.features.umpireEdge === "number" ? 0.012 : 0;
+  const regressionSignalBoost = typeof input.features.pitcherRegressionEdge === "number" && Math.abs(input.features.pitcherRegressionEdge) >= 0.3 ? 0.014 : 0;
+  const baseConfidence = clamp(0.42 + signalStrength / 22 + audit.weightedAgreement * 0.14 + audit.criticalAgreement * 0.08 - audit.conflictPenalty - (input.volatilityIndex - 1) * 0.12 + rulesMarket.confidenceAdjustment + umpireKnownBoost + regressionSignalBoost, 0.22, 0.7);
 
   if (!model?.ok) {
     const edgeFromCoin = Math.abs(marketAnchoredRulesHomeWinPct - 0.5);
@@ -236,7 +249,7 @@ export async function governMlbProjection(input: { rulesHomeWinPct: number; rule
       source: "rules-only",
       homeWinPct: round(marketAnchoredRulesHomeWinPct),
       awayWinPct: round(1 - marketAnchoredRulesHomeWinPct),
-      projectedTotal: round(input.rulesProjectedTotal, 3),
+      projectedTotal: round(clamp(input.rulesProjectedTotal + (input.features.umpireEdge ?? 0) * -0.12, 4.5, 16.5), 3),
       confidence: round(confidence),
       noBet,
       tier: !noBet && confidence >= 0.64 && edgeFromCoin >= 0.06 && !rulesMarket.contradiction ? "attack" : !noBet ? "watch" : "pass",
@@ -260,7 +273,8 @@ export async function governMlbProjection(input: { rulesHomeWinPct: number; rule
   const blended = anchorToMarket(blendedBeforeMarket, market);
   const cap = probabilityCap({ modelRows: model.rows, volatilityIndex: input.volatilityIndex, audit, market });
   const homeWinPct = clamp(blended, 1 - cap, cap);
-  const projectedTotal = clamp(input.rulesProjectedTotal * 0.62 + ml.projectedTotal * 0.38, 4.5, 16.5);
+  const umpireTotalAdjust = (input.features.umpireEdge ?? 0) * -0.12; // generous zone = more K, fewer runs
+  const projectedTotal = clamp(input.rulesProjectedTotal * 0.62 + ml.projectedTotal * 0.38 + umpireTotalAdjust, 4.5, 16.5);
   const edgeFromCoin = Math.abs(homeWinPct - 0.5);
   const confidence = clamp(baseConfidence + edgeFromCoin * 0.34 + agreementBoost + market.confidenceAdjustment, 0.2, Math.min(0.73, confidenceCapForVolatility(input.volatilityIndex) + 0.045));
   const noBet = shouldPass({ confidence, edgeFromCoin, delta, audit, market, volatilityIndex: input.volatilityIndex });
