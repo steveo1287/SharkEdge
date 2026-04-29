@@ -392,7 +392,7 @@ async function probeBookFeedProvider(
       configured: false,
       checkedAt,
       warnings: [`${provider.label} is scaffolded but not configured with a feed URL.`],
-      reason: `Set ${provider.key === "draftkings" ? "SHARKEDGE_DRAFTKINGS_FEED_URL" : provider.key === "fanduel" ? "SHARKEDGE_FANDUEL_FEED_URL" : provider.key === "oddsapi-io" ? "ODDS_API_KEY" : "the feed URL env var"} or SHARKEDGE_BACKEND_URL to enable this worker-only feed.`,
+      reason: `Set ${provider.key === "draftkings" ? "SHARKEDGE_DRAFTKINGS_FEED_URL" : provider.key === "fanduel" ? "SHARKEDGE_FANDUEL_FEED_URL" : "SHARKEDGE_BACKEND_URL / Oddsharvester push feed"} or SHARKEDGE_BACKEND_URL to enable this worker-only feed.`,
       sourceUrl: getBookFeedSourceUrl(provider.key),
       lastAttemptAt: isoFromMs(stateSnapshot.lastAttemptAt),
       lastSuccessAt: isoFromMs(stateSnapshot.lastSuccessAt),
