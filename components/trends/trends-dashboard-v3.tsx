@@ -252,6 +252,26 @@ function MiniRows({ title, rows }: { title: string; rows: TrendTableRow[] }) {
   );
 }
 
+function EmptyTrendState({ filters, mode, aiQuery }: { filters: TrendFilters; mode: TrendMode; aiQuery: string }) {
+  return (
+    <Card className="border-amber-300/25 bg-amber-400/5 p-6">
+      <div className="text-xs uppercase tracking-[0.22em] text-amber-200/70">No trend cards matched</div>
+      <div className="mt-2 font-display text-2xl font-semibold text-white">Widen the filter or inspect the signal feed</div>
+      <p className="mt-3 max-w-3xl text-sm leading-7 text-amber-100/90">
+        The trends page rendered successfully, but this specific filter did not produce visible cards. Try all leagues/markets, or inspect the quality-gated signal feed directly.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Link className="rounded-full border border-amber-200/25 bg-black/20 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-amber-100" href={buildTrendHref(filters, mode, aiQuery, { league: null, market: null, side: null })}>
+          Clear filters
+        </Link>
+        <Link className="rounded-full border border-sky-300/25 bg-sky-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-sky-100" href="/api/trends?mode=signals&debug=true">
+          Debug signal feed
+        </Link>
+      </div>
+    </Card>
+  );
+}
+
 export function TrendsDashboardV3({ data }: TrendsDashboardV3Props) {
   if (data.setup) {
     return <SetupStateCard title={data.setup.title} detail={data.setup.detail} steps={data.setup.steps} />;
@@ -342,9 +362,13 @@ export function TrendsDashboardV3({ data }: TrendsDashboardV3Props) {
         {data.metrics.map((metric) => <StatCard key={metric.label} label={metric.label} value={metric.value} note={metric.note} />)}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        {displayCards.map((card) => <TrendCard key={card.id} card={card} />)}
-      </div>
+      {displayCards.length ? (
+        <div className="grid gap-4 xl:grid-cols-2">
+          {displayCards.map((card) => <TrendCard key={card.id} card={card} />)}
+        </div>
+      ) : (
+        <EmptyTrendState filters={data.filters} mode={data.mode} aiQuery={data.aiQuery} />
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <MiniRows title="Movement / action gates" rows={data.movementRows} />
