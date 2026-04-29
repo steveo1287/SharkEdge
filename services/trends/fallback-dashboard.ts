@@ -100,7 +100,7 @@ function insights(cards: TrendCardView[]): TrendInsightCard[] {
     id: `fallback-insight-${card.id}`,
     title: card.title,
     value: card.value,
-    note: card.whyItMatters,
+    note: card.whyItMatters ?? card.explanation ?? card.note ?? "Fallback trend card available while the full feed warms up.",
     tone: card.tone
   }));
 }
