@@ -1,7 +1,8 @@
 import { TrendsDashboardV3 } from "@/components/trends/trends-dashboard-v3";
-import type { TrendFilters, TrendMode } from "@/lib/types/domain";
+import type { TrendDashboardView, TrendFilters, TrendMode } from "@/lib/types/domain";
 import { trendFiltersSchema } from "@/lib/validation/filters";
 import { getTrendDashboardSafe } from "@/services/trends/get-trend-dashboard-safe";
+import { buildMlbHistoricalTrendDashboard } from "@/services/trends/mlb-historical-dashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,20 @@ function readMode(value: string | undefined): TrendMode {
   return value === "power" ? "power" : "simple";
 }
 
+function hasRenderableTrendCards(view: TrendDashboardView | null | undefined) {
+  return Boolean(view && Array.isArray(view.cards) && view.cards.length > 0);
+}
+
+async function getHistoricalFirstTrendDashboard(
+  filters: TrendFilters,
+  options: { mode: TrendMode; aiQuery: string; savedTrendId: string | null }
+) {
+  const historical = await buildMlbHistoricalTrendDashboard(filters, options).catch(() => null);
+  if (hasRenderableTrendCards(historical)) return historical;
+
+  return getTrendDashboardSafe(filters, options);
+}
+
 export default async function TrendsPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
   const filters = buildFilters(resolved);
@@ -49,7 +64,7 @@ export default async function TrendsPage({ searchParams }: PageProps) {
   const savedTrendId = readValue(resolved, "savedTrendId")?.trim() ?? null;
   const mode = readMode(readValue(resolved, "mode"));
 
-  const view = await getTrendDashboardSafe(filters, {
+  const view = await getHistoricalFirstTrendDashboard(filters, {
     mode,
     aiQuery,
     savedTrendId
