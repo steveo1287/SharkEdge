@@ -48,8 +48,8 @@ export type NbaTeamPlayerProfileSummary = {
   notes: string[];
 };
 
-const CACHE_KEY = "nba:player-profiles:v2";
-const CACHE_TTL_SECONDS = 60 * 60 * 6;
+const CACHE_KEY = "nba:player-profiles:v3";
+const CACHE_TTL_SECONDS = 60 * 60 * 3;
 
 const FALLBACK_ROSTERS: Record<string, string[]> = {
   bostonceltics: ["Jayson Tatum", "Jaylen Brown", "Derrick White", "Jrue Holiday", "Kristaps Porzingis", "Al Horford", "Payton Pritchard", "Sam Hauser"],
@@ -91,11 +91,41 @@ const TEAM_ALIASES: Record<string, string> = {
   lal: "losangeleslakers", lakers: "losangeleslakers", phx: "phoenixsuns", pho: "phoenixsuns", gsw: "goldenstatewarriors", gs: "goldenstatewarriors", sac: "sacramentokings", lac: "laclippers", clippers: "laclippers"
 };
 
-function hashString(value: string) { let hash = 0; for (let i = 0; i < value.length; i += 1) hash = (hash * 31 + value.charCodeAt(i)) >>> 0; return hash; }
-function seedUnit(seed: number) { return (seed % 1000) / 1000; }
-function range(seed: number, min: number, max: number) { return Number((min + seedUnit(seed) * (max - min)).toFixed(2)); }
-function roleFrom(value: unknown, minutes: number, usage: number): NbaPlayerProfile["role"] { const text = String(value ?? "").toLowerCase(); if (["star", "starter", "rotation", "bench"].includes(text)) return text as NbaPlayerProfile["role"]; if (minutes >= 32 && usage >= 25) return "star"; if (minutes >= 26) return "starter"; if (minutes >= 14) return "rotation"; if (minutes > 0) return "bench"; return "unknown"; }
-function availabilityWeight(status: NbaPlayerProfile["status"]) { if (status === "out") return 1; if (status === "doubtful") return 0.75; if (status === "questionable") return 0.42; if (status === "unknown") return 0.15; return 0; }
+function hashString(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  return hash;
+}
+
+function seedUnit(seed: number) {
+  return (seed % 1000) / 1000;
+}
+
+function range(seed: number, min: number, max: number) {
+  return Number((min + seedUnit(seed) * (max - min)).toFixed(2));
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function roleFrom(value: unknown, minutes: number, usage: number): NbaPlayerProfile["role"] {
+  const text = String(value ?? "").toLowerCase();
+  if (["star", "starter", "rotation", "bench"].includes(text)) return text as NbaPlayerProfile["role"];
+  if (minutes >= 32 && usage >= 25) return "star";
+  if (minutes >= 26) return "starter";
+  if (minutes >= 14) return "rotation";
+  if (minutes > 0) return "bench";
+  return "unknown";
+}
+
+function availabilityWeight(status: NbaPlayerProfile["status"]) {
+  if (status === "out") return 1;
+  if (status === "doubtful") return 0.75;
+  if (status === "questionable") return 0.42;
+  if (status === "unknown") return 0.15;
+  return 0;
+}
 
 function fallbackNames(teamName: string) {
   const key = normalizeNbaTeam(teamName);
@@ -103,50 +133,112 @@ function fallbackNames(teamName: string) {
   return FALLBACK_ROSTERS[canonical] ?? ["Primary Creator", "Secondary Scorer", "Starting Wing", "Starting Big", "Fifth Starter", "Sixth Man", "Rotation Forward", "Backup Big"];
 }
 
+function syntheticMinutes(seed: number, index: number) {
+  if (index === 0) return range(seed, 31, 35);
+  if (index === 1) return range(seed, 29, 33.5);
+  if (index < 5) return range(seed, 23.5, 30.5);
+  if (index < 8) return range(seed, 14, 23.5);
+  return range(seed, 6, 13.5);
+}
+
+function syntheticUsage(seed: number, index: number) {
+  if (index === 0) return range(seed, 23, 29);
+  if (index === 1) return range(seed, 18.5, 24.5);
+  if (index < 5) return range(seed, 11.5, 18.5);
+  if (index < 8) return range(seed, 7.5, 14.5);
+  return range(seed, 4.5, 9.5);
+}
+
+function syntheticOffense(seed: number, index: number) {
+  if (index === 0) return range(seed, 1.0, 4.8);
+  if (index === 1) return range(seed, 0.0, 3.0);
+  if (index < 5) return range(seed, -1.6, 1.4);
+  return range(seed, -2.8, 0.6);
+}
+
 function syntheticPlayers(teamName: string): NbaPlayerProfile[] {
   return fallbackNames(teamName).map((playerName, index) => {
-    const seed = hashString(`${teamName}:${playerName}:fallback-profile:${index}`);
-    const projectedMinutes = index === 0 ? range(seed, 34, 37) : index < 5 ? range(seed, 25, 34) : range(seed, 17, 26);
-    const usageRate = index === 0 ? range(seed >>> 1, 28, 34) : index < 3 ? range(seed >>> 1, 20, 28) : index < 5 ? range(seed >>> 1, 13, 21) : range(seed >>> 1, 9, 18);
-    const offensiveEpm = index === 0 ? range(seed >>> 2, 2.6, 7.2) : index < 3 ? range(seed >>> 2, 0.4, 3.8) : range(seed >>> 2, -1.6, 1.8);
-    const defensiveEpm = index < 5 ? range(seed >>> 3, -0.8, 2.4) : range(seed >>> 3, -1.3, 1.2);
-    return { playerName, teamName, role: roleFrom(null, projectedMinutes, usageRate), status: "available", projectedMinutes, usageRate, offensiveEpm, defensiveEpm, netImpact: Number((offensiveEpm + defensiveEpm).toFixed(2)), onOffNet: range(seed >>> 4, -4, 8), trueShooting: range(seed >>> 5, 53, 64), assistRate: range(seed >>> 6, 6, 32), reboundRate: range(seed >>> 7, 4, 18), turnoverRate: range(seed >>> 8, 6, 16), rimPressure: range(seed >>> 9, 0, 10), threePointGravity: range(seed >>> 10, 0, 10), defensiveVersatility: range(seed >>> 11, 0, 10), pointOfAttackDefense: range(seed >>> 12, 0, 10), rimProtection: range(seed >>> 13, 0, 10), clutchImpact: range(seed >>> 14, -2, 4), fatigueRisk: range(seed >>> 15, 0, 1), source: "synthetic" };
+    const seed = hashString(`${teamName}:${playerName}:conservative-profile:${index}`);
+    const projectedMinutes = syntheticMinutes(seed, index);
+    const usageRate = syntheticUsage(seed >>> 1, index);
+    const offensiveEpm = syntheticOffense(seed >>> 2, index);
+    const defensiveEpm = index < 5 ? range(seed >>> 3, -1.2, 1.6) : range(seed >>> 3, -1.8, 0.8);
+    const assistRate = index === 0 ? range(seed >>> 6, 10, 26) : index < 3 ? range(seed >>> 6, 7, 19) : range(seed >>> 6, 3, 11);
+    const reboundRate = index < 5 ? range(seed >>> 7, 4, 13) : range(seed >>> 7, 3, 10.5);
+    const trueShooting = range(seed >>> 5, 52, 60.5);
+
+    return {
+      playerName,
+      teamName,
+      role: roleFrom(null, projectedMinutes, usageRate),
+      status: "available",
+      projectedMinutes,
+      usageRate,
+      offensiveEpm,
+      defensiveEpm,
+      netImpact: Number((offensiveEpm + defensiveEpm).toFixed(2)),
+      onOffNet: range(seed >>> 4, -4, 5),
+      trueShooting,
+      assistRate,
+      reboundRate,
+      turnoverRate: range(seed >>> 8, 7, 15),
+      rimPressure: range(seed >>> 9, 0, 7),
+      threePointGravity: range(seed >>> 10, 0, 7),
+      defensiveVersatility: range(seed >>> 11, 0, 8),
+      pointOfAttackDefense: range(seed >>> 12, 0, 8),
+      rimProtection: range(seed >>> 13, 0, 8),
+      clutchImpact: range(seed >>> 14, -1.5, 2.5),
+      fatigueRisk: range(seed >>> 15, 0.05, 0.65),
+      source: "synthetic"
+    };
   });
+}
+
+function sanitizeRealProfile(record: any): NbaPlayerProfile | null {
+  if (!record?.playerName || !record?.teamName) return null;
+  const projectedMinutes = clamp(Number(record.projectedMinutes ?? 0), 0, 38.5);
+  const usageRate = clamp(Number(record.usageRate ?? 0), 3, 36);
+  const offensiveEpm = clamp(Number(record.offensiveEpm ?? 0), -6, 8);
+  const defensiveEpm = clamp(Number(record.defensiveEpm ?? 0), -5, 6);
+  return {
+    playerName: record.playerName,
+    teamName: record.teamName,
+    role: roleFrom(record.role, projectedMinutes, usageRate),
+    status: record.status ?? "unknown",
+    projectedMinutes,
+    usageRate,
+    offensiveEpm,
+    defensiveEpm,
+    netImpact: clamp(Number(record.netImpact ?? offensiveEpm + defensiveEpm), -8, 12),
+    onOffNet: clamp(Number(record.onOffNet ?? 0), -16, 16),
+    trueShooting: clamp(Number(record.trueShooting ?? 56), 43, 70),
+    assistRate: clamp(Number(record.assistRate ?? 8), 0, 48),
+    reboundRate: clamp(Number(record.reboundRate ?? 8), 0, 28),
+    turnoverRate: clamp(Number(record.turnoverRate ?? 10), 0, 26),
+    rimPressure: clamp(Number(record.rimPressure ?? 3), 0, 10),
+    threePointGravity: clamp(Number(record.threePointGravity ?? 3), 0, 10),
+    defensiveVersatility: clamp(Number(record.defensiveVersatility ?? 3), 0, 10),
+    pointOfAttackDefense: clamp(Number(record.pointOfAttackDefense ?? 3), 0, 10),
+    rimProtection: clamp(Number(record.rimProtection ?? 2), 0, 10),
+    clutchImpact: clamp(Number(record.clutchImpact ?? 0), -5, 5),
+    fatigueRisk: clamp(Number(record.fatigueRisk ?? 0.25), 0, 1),
+    source: "real"
+  };
 }
 
 async function fetchProfiles() {
   const cached = await readHotCache<Record<string, NbaPlayerProfile[]>>(CACHE_KEY);
   if (cached) return cached;
+
   const merged = await getMergedRealPlayerFeed();
   const grouped: Record<string, NbaPlayerProfile[]> = {};
   for (const record of merged) {
-    const profile: NbaPlayerProfile = {
-      playerName: record.playerName,
-      teamName: record.teamName,
-      role: roleFrom(null, record.projectedMinutes, record.usageRate),
-      status: record.status,
-      projectedMinutes: record.projectedMinutes,
-      usageRate: record.usageRate,
-      offensiveEpm: record.offensiveEpm,
-      defensiveEpm: record.defensiveEpm,
-      netImpact: record.netImpact,
-      onOffNet: record.onOffNet,
-      trueShooting: record.trueShooting,
-      assistRate: record.assistRate,
-      reboundRate: record.reboundRate,
-      turnoverRate: record.turnoverRate,
-      rimPressure: record.rimPressure,
-      threePointGravity: record.threePointGravity,
-      defensiveVersatility: record.defensiveVersatility,
-      pointOfAttackDefense: record.pointOfAttackDefense,
-      rimProtection: record.rimProtection,
-      clutchImpact: record.clutchImpact,
-      fatigueRisk: record.fatigueRisk,
-      source: "real"
-    };
+    const profile = sanitizeRealProfile(record);
+    if (!profile) continue;
     const key = normalizeNbaTeam(profile.teamName);
     grouped[key] = [...(grouped[key] ?? []), profile];
   }
+
   if (Object.keys(grouped).length) {
     await writeHotCache(CACHE_KEY, grouped, CACHE_TTL_SECONDS);
     return grouped;
@@ -154,23 +246,64 @@ async function fetchProfiles() {
   return null;
 }
 
-function weighted(players: NbaPlayerProfile[], selector: (player: NbaPlayerProfile) => number) { const active = players.filter((player) => availabilityWeight(player.status) < 1); const minutes = active.reduce((sum, player) => sum + Math.max(0, player.projectedMinutes), 0); if (!minutes) return 0; return Number((active.reduce((sum, player) => sum + selector(player) * Math.max(0, player.projectedMinutes), 0) / minutes).toFixed(2)); }
+function weighted(players: NbaPlayerProfile[], selector: (player: NbaPlayerProfile) => number) {
+  const active = players.filter((player) => availabilityWeight(player.status) < 1);
+  const minutes = active.reduce((sum, player) => sum + Math.max(0, player.projectedMinutes), 0);
+  if (!minutes) return 0;
+  return Number((active.reduce((sum, player) => sum + selector(player) * Math.max(0, player.projectedMinutes), 0) / minutes).toFixed(2));
+}
+
+function normalizeRotation(players: NbaPlayerProfile[], source: "real" | "synthetic") {
+  const active = [...players].filter((player) => availabilityWeight(player.status) < 1).sort((a, b) => b.projectedMinutes + b.usageRate * 0.15 - (a.projectedMinutes + a.usageRate * 0.15));
+  if (source === "real") return active;
+  return active.map((player, index) => ({
+    ...player,
+    projectedMinutes: Math.min(player.projectedMinutes, index === 0 ? 35 : index === 1 ? 33.5 : index < 5 ? 30.5 : index < 8 ? 23.5 : 13.5),
+    usageRate: Math.min(player.usageRate, index === 0 ? 29 : index === 1 ? 24.5 : index < 5 ? 18.5 : index < 8 ? 14.5 : 9.5),
+    role: roleFrom(player.role, player.projectedMinutes, player.usageRate)
+  }));
+}
 
 export async function getNbaTeamPlayerProfileSummary(teamName: string): Promise<NbaTeamPlayerProfileSummary> {
   const grouped = await fetchProfiles();
-  const players = grouped?.[normalizeNbaTeam(teamName)] ?? syntheticPlayers(teamName);
-  const source = players.some((player) => player.source === "real") ? "real" : "synthetic";
+  const key = normalizeNbaTeam(teamName);
+  const realPlayers = grouped?.[key];
+  const source: "real" | "synthetic" = realPlayers?.length ? "real" : "synthetic";
+  const players = normalizeRotation(realPlayers?.length ? realPlayers : syntheticPlayers(teamName), source);
   const unavailable = players.filter((player) => availabilityWeight(player.status) > 0);
   const availabilityDrag = Number(unavailable.reduce((sum, player) => sum + Math.abs(player.netImpact) * availabilityWeight(player.status), 0).toFixed(2));
   const fatigueRisk = weighted(players, (player) => player.fatigueRisk);
-  const starPower = weighted(players, (player) => player.role === "star" ? player.netImpact * 1.25 : player.netImpact);
-  const creationIndex = weighted(players, (player) => player.usageRate * 0.18 + player.offensiveEpm + player.rimPressure * 0.25);
-  const spacingIndex = weighted(players, (player) => player.trueShooting * 0.08 + player.threePointGravity * 0.7);
-  const playmakingIndex = weighted(players, (player) => player.assistRate * 0.18 - player.turnoverRate * 0.12);
-  const glassIndex = weighted(players, (player) => player.reboundRate * 0.25);
-  const defenseIndex = weighted(players, (player) => player.defensiveEpm + player.defensiveVersatility * 0.25 + player.pointOfAttackDefense * 0.22);
-  const rimProtectionIndex = weighted(players, (player) => player.rimProtection * 0.45);
+  const starPower = weighted(players, (player) => player.role === "star" ? player.netImpact * 1.22 : player.netImpact);
+  const creationIndex = weighted(players, (player) => player.usageRate * 0.16 + player.offensiveEpm + player.rimPressure * 0.18);
+  const spacingIndex = weighted(players, (player) => player.trueShooting * 0.06 + player.threePointGravity * 0.48);
+  const playmakingIndex = weighted(players, (player) => player.assistRate * 0.16 - player.turnoverRate * 0.1);
+  const glassIndex = weighted(players, (player) => player.reboundRate * 0.22);
+  const defenseIndex = weighted(players, (player) => player.defensiveEpm + player.defensiveVersatility * 0.22 + player.pointOfAttackDefense * 0.18);
+  const rimProtectionIndex = weighted(players, (player) => player.rimProtection * 0.4);
   const clutchIndex = weighted(players, (player) => player.clutchImpact);
   const rotationReliability = Number(Math.max(0, 100 - availabilityDrag * 6 - fatigueRisk * 12).toFixed(2));
-  return { teamName, source, players, starPower, creationIndex, spacingIndex, playmakingIndex, glassIndex, defenseIndex, rimProtectionIndex, clutchIndex, fatigueRisk, availabilityDrag, rotationReliability, offensiveProfileBoost: Number((creationIndex * 0.45 + spacingIndex * 0.24 + playmakingIndex * 0.22 + starPower * 0.2 - availabilityDrag * 0.35).toFixed(2)), defensiveProfileBoost: Number((defenseIndex * 0.45 + rimProtectionIndex * 0.28 + glassIndex * 0.14 - availabilityDrag * 0.18).toFixed(2)), volatilityBoost: Number(Math.min(1.6, 1 + availabilityDrag / 18 + fatigueRisk / 10).toFixed(2)), notes: [source === "real" ? "Merged real player feed applied." : "Recognizable fallback roster applied because live player feeds are unavailable.", `Rotation reliability ${rotationReliability}/100.`] };
+
+  return {
+    teamName,
+    source,
+    players,
+    starPower,
+    creationIndex,
+    spacingIndex,
+    playmakingIndex,
+    glassIndex,
+    defenseIndex,
+    rimProtectionIndex,
+    clutchIndex,
+    fatigueRisk,
+    availabilityDrag,
+    rotationReliability,
+    offensiveProfileBoost: Number((creationIndex * 0.42 + spacingIndex * 0.18 + playmakingIndex * 0.2 + starPower * 0.18 - availabilityDrag * 0.35).toFixed(2)),
+    defensiveProfileBoost: Number((defenseIndex * 0.43 + rimProtectionIndex * 0.26 + glassIndex * 0.12 - availabilityDrag * 0.18).toFixed(2)),
+    volatilityBoost: Number(Math.min(1.55, 1 + availabilityDrag / 18 + fatigueRisk / 11 + (source === "synthetic" ? 0.08 : 0)).toFixed(2)),
+    notes: [
+      source === "real" ? "Merged real player feed applied with bounds on minutes, usage, efficiency, and fatigue." : "Conservative fallback roster applied; player prop confidence is capped until a real player feed or prop market line is available.",
+      `Rotation reliability ${rotationReliability}/100.`
+    ]
+  };
 }
