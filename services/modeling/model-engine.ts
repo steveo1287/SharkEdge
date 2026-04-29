@@ -53,19 +53,67 @@ function getCurrentMarketAnchor(
   states: Array<{
     marketType: string;
     period: string;
+    selectionCompetitorId: string | null;
     consensusLineValue: number | null;
-  }>
+    bestHomeOddsAmerican?: number | null;
+    bestAwayOddsAmerican?: number | null;
+    bestOverOddsAmerican?: number | null;
+    bestUnderOddsAmerican?: number | null;
+  }>,
+  homeCompetitorId: string | null,
+  awayCompetitorId: string | null
 ) {
-  const fullGameTotal = states.find(
-    (state) => state.marketType === "total" && state.period === "full_game"
-  )?.consensusLineValue ?? null;
-  const fullGameSpread = states.find(
-    (state) => state.marketType === "spread" && state.period === "full_game"
-  )?.consensusLineValue ?? null;
+  const fullGameStates = states.filter((state) => state.period === "full_game");
+
+  const totalState =
+    fullGameStates.find((state) => state.marketType === "total" && state.selectionCompetitorId === null) ??
+    fullGameStates.find((state) => state.marketType === "total") ??
+    null;
+
+  const homeMoneylineState =
+    fullGameStates.find((state) => state.marketType === "moneyline" && state.selectionCompetitorId === homeCompetitorId) ??
+    fullGameStates.find((state) => state.marketType === "moneyline" && typeof state.bestHomeOddsAmerican === "number") ??
+    null;
+
+  const awayMoneylineState =
+    fullGameStates.find((state) => state.marketType === "moneyline" && state.selectionCompetitorId === awayCompetitorId) ??
+    fullGameStates.find((state) => state.marketType === "moneyline" && typeof state.bestAwayOddsAmerican === "number") ??
+    null;
+
+  const homeSpreadState =
+    fullGameStates.find((state) => state.marketType === "spread" && state.selectionCompetitorId === homeCompetitorId) ??
+    fullGameStates.find((state) => state.marketType === "spread" && typeof state.bestHomeOddsAmerican === "number") ??
+    null;
+
+  const awaySpreadState =
+    fullGameStates.find((state) => state.marketType === "spread" && state.selectionCompetitorId === awayCompetitorId) ??
+    fullGameStates.find((state) => state.marketType === "spread" && typeof state.bestAwayOddsAmerican === "number") ??
+    null;
+
+  const spreadHome =
+    typeof homeSpreadState?.consensusLineValue === "number"
+      ? homeSpreadState.consensusLineValue
+      : typeof awaySpreadState?.consensusLineValue === "number"
+        ? -awaySpreadState.consensusLineValue
+        : null;
+
+  const spreadAway =
+    typeof awaySpreadState?.consensusLineValue === "number"
+      ? awaySpreadState.consensusLineValue
+      : typeof spreadHome === "number"
+        ? -spreadHome
+        : null;
 
   return {
-    total: fullGameTotal,
-    spreadHome: fullGameSpread
+    total: totalState?.consensusLineValue ?? null,
+    spreadHome,
+    spreadAway,
+    homeMoneylineOdds: homeMoneylineState?.bestHomeOddsAmerican ?? null,
+    awayMoneylineOdds: awayMoneylineState?.bestAwayOddsAmerican ?? null,
+    homeSpreadOdds: homeSpreadState?.bestHomeOddsAmerican ?? null,
+    awaySpreadOdds: awaySpreadState?.bestAwayOddsAmerican ?? null,
+    overOdds: totalState?.bestOverOddsAmerican ?? null,
+    underOdds: totalState?.bestUnderOddsAmerican ?? null
   };
 }
 
@@ -250,7 +298,12 @@ export async function buildEventProjectionFromHistory(eventId: string) {
         select: {
           marketType: true,
           period: true,
-          consensusLineValue: true
+          selectionCompetitorId: true,
+          consensusLineValue: true,
+          bestHomeOddsAmerican: true,
+          bestAwayOddsAmerican: true,
+          bestOverOddsAmerican: true,
+          bestUnderOddsAmerican: true
         }
       },
       participants: {
@@ -427,8 +480,15 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     event.currentMarketStates.map((state) => ({
       marketType: state.marketType,
       period: state.period,
-      consensusLineValue: state.consensusLineValue
-    }))
+      selectionCompetitorId: state.selectionCompetitorId,
+      consensusLineValue: state.consensusLineValue,
+      bestHomeOddsAmerican: state.bestHomeOddsAmerican,
+      bestAwayOddsAmerican: state.bestAwayOddsAmerican,
+      bestOverOddsAmerican: state.bestOverOddsAmerican,
+      bestUnderOddsAmerican: state.bestUnderOddsAmerican
+    })),
+    homeParticipant?.competitorId ?? null,
+    awayParticipant?.competitorId ?? null
   );
   const weather = inferWeatherTotalFactor(event.league.key, event.venue, event.metadataJson);
 

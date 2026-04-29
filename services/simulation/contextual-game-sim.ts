@@ -41,6 +41,13 @@ export type ContextualGameSimulationInput = {
   marketAnchor?: {
     total?: number | null;
     spreadHome?: number | null;
+    spreadAway?: number | null;
+    homeMoneylineOdds?: number | null;
+    awayMoneylineOdds?: number | null;
+    homeSpreadOdds?: number | null;
+    awaySpreadOdds?: number | null;
+    overOdds?: number | null;
+    underOdds?: number | null;
   } | null;
   interactionContext?: HeadToHeadSimulationContext | null;
   samples?: number;
