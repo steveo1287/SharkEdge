@@ -5,8 +5,13 @@ import {
   assessTrendQuality,
   calculateFlatStakeRoi,
   getLineSensitivity,
-  probabilityToAmericanOdds
+  probabilityToAmericanOdds,
+  type TrendQualityTier
 } from "@/services/trends/trend-quality";
+
+function tierRank(tier: TrendQualityTier) {
+  return { HIDE: 0, C: 1, B: 2, A: 3, S: 4 }[tier];
+}
 
 assert.equal(Number(americanToImpliedProbability(-150)?.toFixed(4)), 0.6);
 assert.equal(Number(americanToImpliedProbability(150)?.toFixed(4)), 0.4);
@@ -43,6 +48,7 @@ const eliteTrend = assessTrendQuality({
 });
 assert.ok(eliteTrend.quality.score >= 75);
 assert.ok(eliteTrend.quality.tier === "A" || eliteTrend.quality.tier === "S");
+assert.equal(eliteTrend.quality.actionability, "ACTIONABLE");
 assert.equal(eliteTrend.quality.overfitRisk, "low");
 assert.equal(eliteTrend.lineSensitivity.inValidRange, true);
 assert.ok(eliteTrend.market.edgePercent && eliteTrend.market.edgePercent > 5);
@@ -63,6 +69,7 @@ const thinSampleTrend = assessTrendQuality({
   source: "market-edge"
 });
 assert.equal(thinSampleTrend.quality.tier, "HIDE");
+assert.equal(thinSampleTrend.quality.actionability, "HIDE");
 assert.equal(thinSampleTrend.quality.overfitRisk, "high");
 assert.ok(thinSampleTrend.warnings.some((warning) => warning.includes("Sample below actionable floor")));
 
@@ -78,8 +85,10 @@ const noCurrentOddsTrend = assessTrendQuality({
   source: "research-pattern"
 });
 assert.equal(noCurrentOddsTrend.quality.tier, "C");
+assert.equal(noCurrentOddsTrend.quality.actionability, "RESEARCH_ONLY");
 assert.ok(noCurrentOddsTrend.warnings.some((warning) => warning.includes("No current sportsbook price")));
 assert.ok(noCurrentOddsTrend.warnings.some((warning) => warning.includes("No closing-line-value support")));
+assert.ok(noCurrentOddsTrend.gateReasons.some((reason) => reason.includes("Missing current sportsbook price")));
 
 const weakCurrentPriceTrend = assessTrendQuality({
   id: "priced-out",
@@ -97,7 +106,81 @@ const weakCurrentPriceTrend = assessTrendQuality({
   source: "market-edge"
 });
 assert.equal(weakCurrentPriceTrend.quality.tier, "C");
+assert.equal(weakCurrentPriceTrend.quality.actionability, "WATCHLIST");
 assert.ok(weakCurrentPriceTrend.warnings.some((warning) => warning.includes("Current edge below actionable floor")));
+
+const negativeEvTrend = assessTrendQuality({
+  id: "negative-ev",
+  market: "moneyline",
+  sampleSize: 220,
+  hitRate: 54,
+  roi: 9,
+  currentOddsAmerican: -150,
+  averageClv: 1.8,
+  positiveClvRate: 61,
+  marketBreadth: 3,
+  filterCount: 2,
+  seasonCount: 4,
+  teamScopeCount: 16,
+  source: "market-edge"
+});
+assert.equal(negativeEvTrend.quality.tier, "HIDE");
+assert.equal(negativeEvTrend.quality.actionability, "HIDE");
+assert.ok(negativeEvTrend.warnings.some((warning) => warning.includes("negative EV")));
+
+const missingClvMarketTrend = assessTrendQuality({
+  id: "missing-clv-market",
+  market: "spread",
+  sampleSize: 260,
+  hitRate: 59,
+  roi: 11,
+  currentOddsAmerican: -110,
+  marketBreadth: 3,
+  filterCount: 2,
+  seasonCount: 4,
+  teamScopeCount: 18,
+  source: "market-edge"
+});
+assert.ok(tierRank(missingClvMarketTrend.quality.tier) <= tierRank("B"));
+assert.ok(missingClvMarketTrend.warnings.some((warning) => warning.includes("No closing-line-value support")));
+
+const thinBookTrend = assessTrendQuality({
+  id: "thin-books",
+  market: "total",
+  sampleSize: 260,
+  hitRate: 60,
+  roi: 12,
+  currentOddsAmerican: -108,
+  averageClv: 2,
+  positiveClvRate: 64,
+  marketBreadth: 1,
+  filterCount: 2,
+  seasonCount: 4,
+  teamScopeCount: 18,
+  source: "market-edge"
+});
+assert.equal(thinBookTrend.quality.tier, "C");
+assert.equal(thinBookTrend.quality.actionability, "WATCHLIST");
+assert.ok(thinBookTrend.gateReasons.some((reason) => reason.includes("Thin sportsbook coverage")));
+
+const unstableRecentTrend = assessTrendQuality({
+  id: "unstable-recent",
+  market: "total",
+  sampleSize: 260,
+  hitRate: 61,
+  recencyHitRate: 49,
+  roi: 12,
+  currentOddsAmerican: -108,
+  averageClv: 2,
+  positiveClvRate: 64,
+  marketBreadth: 3,
+  filterCount: 2,
+  seasonCount: 4,
+  teamScopeCount: 18,
+  source: "market-edge"
+});
+assert.equal(unstableRecentTrend.quality.tier, "C");
+assert.ok(unstableRecentTrend.warnings.some((warning) => warning.includes("Recent form drift")));
 
 const badDataTrend = assessTrendQuality({
   id: "bad-data",
