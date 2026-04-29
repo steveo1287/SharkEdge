@@ -33,6 +33,16 @@ function findEvent(events: OddsEvent[], awayTeam: string, homeTeam: string) {
   return events.find((event) => event.sport_key === "basketball_nba" && normalize(event.away_team) === away && normalize(event.home_team) === home) ?? null;
 }
 
+export function normalizeHomeSpreadMarketPoint(point: number | null | undefined) {
+  if (typeof point !== "number" || !Number.isFinite(point)) return null;
+
+  // The Odds API stores spreads in sportsbook ticket notation.
+  // Example: home favorite -6.5 means the home team must win by 7+.
+  // SharkEdge's sim spread is projected home margin, so convert the market
+  // line into the equivalent home-margin threshold before comparing.
+  return Number((-point).toFixed(2));
+}
+
 function extractSpreadHome(event: OddsEvent, homeTeam: string) {
   const home = normalize(homeTeam);
   const values: number[] = [];
@@ -40,7 +50,9 @@ function extractSpreadHome(event: OddsEvent, homeTeam: string) {
     for (const market of book.markets ?? []) {
       if (market.key !== "spreads") continue;
       for (const outcome of market.outcomes ?? []) {
-        if (normalize(outcome.name) === home && typeof outcome.point === "number") values.push(outcome.point);
+        if (normalize(outcome.name) !== home) continue;
+        const homeMarginThreshold = normalizeHomeSpreadMarketPoint(outcome.point);
+        if (homeMarginThreshold !== null) values.push(homeMarginThreshold);
       }
     }
   }
