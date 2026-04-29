@@ -39,7 +39,7 @@ export type MlbMatchupComparison = {
 };
 
 type RawMlbTeam = Partial<MlbTeamProfile> & { team?: string; name?: string; team_name?: string };
-const CACHE_KEY = "mlb:team-analytics:v1";
+const CACHE_KEY = "mlb:team-analytics:v2";
 const CACHE_TTL_SECONDS = 60 * 60 * 6;
 
 export function normalizeMlbTeam(value: string) {
