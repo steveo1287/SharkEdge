@@ -313,7 +313,7 @@ export async function buildMlbHistoricalTrendDashboard(
 
   const cards = visibleCards.slice(0, 24).map(mapCard);
   const currentMatches = cards.flatMap((card) => card.todayMatches ?? []);
-  const top = visibleCards[0];
+  const top = visibleCards[0]!;
 
   return {
     setup: null,
