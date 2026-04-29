@@ -96,7 +96,7 @@ const weakCurrentPriceTrend = assessTrendQuality({
   sampleSize: 180,
   hitRate: 54,
   roi: 6,
-  currentOddsAmerican: -135,
+  currentOddsAmerican: -115,
   averageClv: 1.5,
   positiveClvRate: 59,
   marketBreadth: 2,
