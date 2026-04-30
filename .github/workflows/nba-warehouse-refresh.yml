@@ -8,9 +8,7 @@ on:
         required: false
         default: "false"
         type: choice
-        options:
-          - "false"
-          - "true"
+        options: ["false", "true"]
       pbp_limit:
         description: "Max PBP Stats games to process when include_pbpstats=true"
         required: false
@@ -20,9 +18,7 @@ on:
         required: false
         default: "true"
         type: choice
-        options:
-          - "true"
-          - "false"
+        options: ["true", "false"]
   schedule:
     - cron: "17 * * * *"
 
@@ -46,8 +42,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -66,7 +60,7 @@ jobs:
       - name: Install Python fetch dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install kaggle pandas
+          python -m pip install kaggle pandas nba_api
           if [ "$INCLUDE_PBPSTATS" = "true" ]; then
             python -m pip install pbpstats
           fi
@@ -81,6 +75,9 @@ jobs:
       - name: Fetch Kaggle NBA dataset
         run: npm run nba:warehouse:fetch:kaggle -- data/nba/raw
 
+      - name: Fetch current NBA Stats through nba_api
+        run: npm run nba:warehouse:fetch:nba-api -- data/nba/raw
+
       - name: Build NBA game id list
         run: npm run nba:warehouse:game-ids -- --input=data/nba/raw --out=data/nba/raw/game_ids.txt --limit=0
 
@@ -90,6 +87,9 @@ jobs:
 
       - name: Build model-ready NBA warehouse feeds
         run: npm run nba:warehouse:features -- --input=data/nba/raw --out=data/nba/warehouse
+
+      - name: Enrich warehouse with current nba_api rows
+        run: npm run nba:warehouse:enrich:nba-api -- --raw=data/nba/raw --out=data/nba/warehouse
 
       - name: Show warehouse summary
         run: |
