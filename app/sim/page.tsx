@@ -23,6 +23,10 @@ import {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const DISPLAY_TIME_ZONE = "America/Chicago";
+const SIM_REFRESH_INTERVAL_MINUTES = 10;
+const SIM_MARKET_REFRESH_INTERVAL_MINUTES = 5;
+
 type WorkspaceConfig = {
   href: string;
   eyebrow: string;
@@ -37,19 +41,95 @@ function formatPct(value: number | null | undefined) {
   return typeof value === "number" ? `${(value * 100).toFixed(1)}%` : "n/a";
 }
 
-function formatTime(value: string | null | undefined) {
-  if (!value) return "TBD";
+function dateFrom(value: string | null | undefined) {
+  if (!value) return null;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "TBD";
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatTime(value: string | null | undefined) {
+  const date = dateFrom(value);
+  if (!date) return "TBD";
   return new Intl.DateTimeFormat("en-US", {
+    timeZone: DISPLAY_TIME_ZONE,
     weekday: "short",
     hour: "numeric",
-    minute: "2-digit"
+    minute: "2-digit",
+    timeZoneName: "short"
   }).format(date);
+}
+
+function formatShortTime(date: Date | null) {
+  if (!date) return "TBD";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: DISPLAY_TIME_ZONE,
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short"
+  }).format(date);
+}
+
+function ageMinutes(value: string | null | undefined) {
+  const date = dateFrom(value);
+  if (!date) return null;
+  return Math.max(0, Math.floor((Date.now() - date.getTime()) / 60_000));
+}
+
+function formatAge(value: string | null | undefined) {
+  const minutes = ageMinutes(value);
+  if (minutes === null) return "age unknown";
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours}h ${remainder}m ago` : `${hours}h ago`;
+}
+
+function nextExpectedRefresh(value: string | null | undefined, intervalMinutes: number) {
+  const date = dateFrom(value);
+  if (!date) return null;
+  const intervalMs = intervalMinutes * 60_000;
+  const elapsed = Date.now() - date.getTime();
+  const steps = Math.max(1, Math.ceil(elapsed / intervalMs));
+  return new Date(date.getTime() + steps * intervalMs);
+}
+
+function freshnessLabel(value: string | null | undefined, intervalMinutes: number) {
+  return `${formatTime(value)} · ${formatAge(value)} · every ${intervalMinutes}m`;
 }
 
 function isStale(snapshot: Pick<SimSnapshotEnvelope<Record<string, never>>, "stale"> | null | undefined) {
   return Boolean(snapshot?.stale);
+}
+
+function RefreshScheduleCard({ status, priority, market }: { status: SimRefreshStatusSnapshot | null; priority: SimPrioritySnapshot | null; market: SimMarketSnapshot | null }) {
+  const simGeneratedAt = status?.generatedAt ?? priority?.generatedAt ?? null;
+  const marketGeneratedAt = market?.generatedAt ?? null;
+  const nextSim = nextExpectedRefresh(simGeneratedAt, SIM_REFRESH_INTERVAL_MINUTES);
+  const nextMarket = nextExpectedRefresh(marketGeneratedAt, SIM_MARKET_REFRESH_INTERVAL_MINUTES);
+
+  return (
+    <SimSignalCard className="border-sky-400/20 bg-sky-500/[0.045]">
+      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-200">Refresh schedule</div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <SimMetricTile
+          label="Sim snapshot"
+          value={formatAge(simGeneratedAt)}
+          sub={`Last ${freshnessLabel(simGeneratedAt, SIM_REFRESH_INTERVAL_MINUTES)}`}
+          emphasis={simGeneratedAt && ageMinutes(simGeneratedAt)! <= 15 ? "strong" : "normal"}
+        />
+        <SimMetricTile
+          label="Market overlay"
+          value={formatAge(marketGeneratedAt)}
+          sub={`Last ${freshnessLabel(marketGeneratedAt, SIM_MARKET_REFRESH_INTERVAL_MINUTES)}`}
+          emphasis={marketGeneratedAt && ageMinutes(marketGeneratedAt)! <= 10 ? "strong" : "normal"}
+        />
+      </div>
+      <p className="mt-3 text-xs leading-5 text-slate-400">
+        Cron runs on UTC servers, but these timestamps are displayed in Central Time. Next expected sim refresh: {formatShortTime(nextSim)}. Next market refresh: {formatShortTime(nextMarket)}.
+      </p>
+    </SimSignalCard>
+  );
 }
 
 function SnapshotNotice({
@@ -72,7 +152,7 @@ function SnapshotNotice({
       <p className="mt-2 text-sm leading-6 text-amber-100/80">
         {failed
           ? `Last refresh failed${status.reason ? `: ${status.reason}` : "."}`
-          : "The cached sim slate is stale, so SharkEdge is showing the last generated snapshot instead of blocking the page."}
+          : `The cached sim slate is older than the freshness window. Last successful snapshot was ${formatAge(priority?.generatedAt)} (${formatTime(priority?.generatedAt)}).`}
       </p>
     </SimSignalCard>
   );
@@ -106,7 +186,7 @@ function PriorityTable({ priority }: { priority: SimPrioritySnapshot | null }) {
       <EmptyState
         eyebrow="Sim cache"
         title="Sim data has not been generated yet"
-        description="The /sim hub no longer runs projection batches during page requests. The hourly sim-refresh cron will populate this snapshot cache."
+        description="The /sim hub no longer runs projection batches during page requests. The scheduled sim-refresh cron will populate this snapshot cache."
       />
     );
   }
@@ -115,7 +195,7 @@ function PriorityTable({ priority }: { priority: SimPrioritySnapshot | null }) {
     <SimTableShell
       title="First decisions to check"
       description={priority.stale ? "Cached priority queue is stale; showing last successful snapshot." : "Cached NBA/MLB priority queue from the scheduled sim refresh."}
-      right={<span className="text-xs text-slate-500">Generated {formatTime(priority.generatedAt)}</span>}
+      right={<span className="text-xs text-slate-500">Generated {formatTime(priority.generatedAt)} · {formatAge(priority.generatedAt)}</span>}
     >
       <table className="min-w-full text-left text-sm">
         <thead className="border-b border-white/10 text-[10px] uppercase tracking-[0.14em] text-slate-500">
@@ -204,16 +284,17 @@ export default async function SimHubPage() {
       <SimWorkspaceHeader
         eyebrow="Simulation Command Desk"
         title="Cached sim snapshots first. Deep work only when you ask for it."
-        description="The hub now reads hot-cache snapshots only, so a slow odds feed, model fetch, or projection batch cannot freeze first paint."
+        description="The hub reads hot-cache snapshots only, so a slow odds feed, model fetch, or projection batch cannot freeze first paint. Refresh status now shows Central Time, cache age, and the expected cadence."
       >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <SimMetricTile label="Hub cache" value={hub ? (hub.stale ? "Stale" : "Fresh") : "Missing"} sub="sim:hub:v1" emphasis={hub && !hub.stale ? "strong" : "normal"} />
-          <SimMetricTile label="Priority rows" value={priority?.rows.length ?? 0} sub="sim:priority:v1" />
-          <SimMetricTile label="MLB market" value={market ? (market.stale ? "Stale" : "Fresh") : "Missing"} sub="10-minute overlay" />
-          <SimMetricTile label="Last refresh" value={status?.ok === false ? "Failed" : status?.running ? "Running" : "Ready"} sub={status?.generatedAt ? formatTime(status.generatedAt) : "Awaiting cron"} />
+          <SimMetricTile label="Hub cache" value={hub ? (hub.stale ? "Stale" : "Fresh") : "Missing"} sub={`snapshot · ${formatAge(hub?.generatedAt)}`} emphasis={hub && !hub.stale ? "strong" : "normal"} />
+          <SimMetricTile label="Priority rows" value={priority?.rows.length ?? 0} sub={`generated ${formatAge(priority?.generatedAt)}`} />
+          <SimMetricTile label="MLB market" value={market ? (market.stale ? "Stale" : "Fresh") : "Missing"} sub={`5-minute overlay · ${formatAge(market?.generatedAt)}`} />
+          <SimMetricTile label="Last refresh" value={status?.ok === false ? "Failed" : status?.running ? "Running" : "Ready"} sub={status?.generatedAt ? freshnessLabel(status.generatedAt, SIM_REFRESH_INTERVAL_MINUTES) : "Awaiting cron"} />
         </div>
       </SimWorkspaceHeader>
 
+      <RefreshScheduleCard status={status} priority={priority} market={market} />
       <SnapshotNotice priority={priority} status={status} />
 
       <section className="grid gap-4 xl:grid-cols-3">
@@ -221,7 +302,7 @@ export default async function SimHubPage() {
       </section>
 
       <section className="grid gap-4">
-        <SectionTitle title="First decisions to check" description="Generated by the hourly sim snapshot job, not during page render." />
+        <SectionTitle title="First decisions to check" description="Generated by the scheduled sim snapshot job, not during page render." />
         <PriorityTable priority={priority} />
       </section>
     </div>
