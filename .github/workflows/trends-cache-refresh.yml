@@ -1,0 +1,42 @@
+name: Refresh Trends Cache
+
+on:
+  workflow_dispatch:
+    inputs:
+      leagues:
+        description: "Comma-separated leagues to refresh"
+        required: false
+        default: "NBA,MLB,NHL,NFL,NCAAF"
+      days:
+        description: "Historical refresh window"
+        required: false
+        default: "7"
+  schedule:
+    - cron: "*/10 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trends-cache-refresh
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      TRENDS_REFRESH_TOKEN: ${{ secrets.TRENDS_REFRESH_TOKEN }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      LEAGUES: ${{ github.event.inputs.leagues || 'NBA,MLB,NHL,NFL,NCAAF' }}
+      DAYS: ${{ github.event.inputs.days || '7' }}
+    steps:
+      - name: Refresh production trend cache
+        run: |
+          TOKEN="${TRENDS_REFRESH_TOKEN:-${CRON_SECRET:-}}"
+          URL="https://sharkedge.vercel.app/api/trends/refresh-cache?leagues=${LEAGUES}&days=${DAYS}&sim=true"
+          if [ -n "$TOKEN" ]; then
+            curl --fail --show-error --silent --max-time 420 -H "Authorization: Bearer $TOKEN" "$URL"
+          else
+            curl --fail --show-error --silent --max-time 420 "$URL"
+          fi
