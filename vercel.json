@@ -28,11 +28,11 @@
     },
     {
       "path": "/api/cron/sim-refresh",
-      "schedule": "0 * * * *"
+      "schedule": "*/10 * * * *"
     },
     {
       "path": "/api/cron/sim-market-refresh",
-      "schedule": "*/10 * * * *"
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/jobs/precompute-sims",

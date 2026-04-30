@@ -8,6 +8,7 @@ export const maxDuration = 60;
 
 function isAuthorized(request: Request) {
   const cronSecret = process.env.CRON_SECRET?.trim();
+  if (request.headers.get("x-vercel-cron") === "1") return true;
   if (!cronSecret) return false;
   const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
   return bearer === cronSecret;
