@@ -41,8 +41,8 @@ type PlayerAccumulator = {
   plusMinus: number;
 };
 
-const TEAM_BOX_CANDIDATES = ["TeamStatistics.csv", "teamstatistics.csv", "TeamStatistics.json", "teamstatistics.json", "team_box.json", "team_box.csv", "nba_team_box.json", "nba_team_box.csv", "hoopr_team_box.json", "hoopr_team_box.csv", "nba_api_team_advanced.json"];
-const PLAYER_BOX_CANDIDATES = ["PlayerStatistics.csv", "playerstatistics.csv", "PlayerStatistics.json", "playerstatistics.json", "player_box.json", "player_box.csv", "nba_player_box.json", "nba_player_box.csv", "hoopr_player_box.json", "hoopr_player_box.csv", "nba_api_player_advanced.json"];
+const TEAM_BOX_CANDIDATES = ["nba_api_team_advanced.json", "TeamStatistics.json", "teamstatistics.json", "team_box.json", "nba_team_box.json", "hoopr_team_box.json", "TeamStatistics.csv", "teamstatistics.csv", "team_box.csv", "nba_team_box.csv", "hoopr_team_box.csv"];
+const PLAYER_BOX_CANDIDATES = ["nba_api_player_advanced.json", "PlayerStatistics.json", "playerstatistics.json", "player_box.json", "nba_player_box.json", "hoopr_player_box.json", "PlayerStatistics.csv", "playerstatistics.csv", "player_box.csv", "nba_player_box.csv", "hoopr_player_box.csv"];
 const SCHEDULE_CANDIDATES = ["Games.csv", "games.csv", "Games.json", "games.json", "LeagueSchedule25_26.csv", "LeagueSchedule24_25.csv", "LeagueSchedule23_24.csv", "schedule.json", "schedule.csv", "nba_schedule.json", "nba_schedule.csv", "hoopr_schedule.json", "hoopr_schedule.csv", "nba_api_games.json"];
 const PBP_CANDIDATES = ["PlayByPlay.csv", "playbyplay.csv", "PlayByPlay.json", "playbyplay.json", "pbp.json", "pbp.csv", "play_by_play.json", "play_by_play.csv", "nba_pbp.json", "nba_pbp.csv", "pbpstats_possessions.json", "pbpstats_possessions.csv"];
 const PBPSTATS_TEAM_CANDIDATES = ["pbpstats_team_enrichment.json", "pbpstats_team_enrichment.csv", "pbp_team_enrichment.json", "pbp_team_enrichment.csv"];
@@ -135,9 +135,16 @@ function parseCsv(text: string): CsvRow[] {
 function readCsvRows(filePath: string): Row[] { return parseCsv(fs.readFileSync(filePath, "utf8")); }
 
 function loadRows(inputDir: string, candidates: string[]) {
+  const maxInputMb = Number(argValue("max-input-mb", "120"));
   for (const candidate of candidates) {
     const filePath = path.join(inputDir, candidate);
     if (!exists(filePath)) continue;
+    const stat = fs.statSync(filePath);
+    const sizeMb = stat.size / (1024 * 1024);
+    if (sizeMb > maxInputMb) {
+      console.warn(`[warehouse] skipping oversized source ${candidate} (${sizeMb.toFixed(1)} MB > ${maxInputMb} MB)`);
+      continue;
+    }
     const rows = candidate.toLowerCase().endsWith(".json") ? readJsonRows(filePath) : readCsvRows(filePath);
     return { filePath, rows };
   }
