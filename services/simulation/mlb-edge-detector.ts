@@ -78,6 +78,19 @@ function round(value: number, digits = 4) {
   return Number(value.toFixed(digits));
 }
 
+type MlbEdgeGame = { id: string; label: string; startTime: string; status: string; leagueKey: string; leagueLabel: string };
+type MlbEdgeProjection = Awaited<ReturnType<typeof buildSimProjection>>;
+
+type BuildMlbEdgesOptions = {
+  games?: MlbEdgeGame[];
+  projectionsByGameId?: Map<string, MlbEdgeProjection>;
+  allowLineRefresh?: boolean;
+};
+
+function logTiming(label: string, startedAt: number) {
+  console.info(`[sim-timing] ${label} ${Date.now() - startedAt}ms`);
+}
+
 function americanToProbability(odds: number | null | undefined) {
   if (typeof odds !== "number" || !Number.isFinite(odds) || odds === 0) return null;
   return odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100);
@@ -281,6 +294,7 @@ function linesFromSnapshotEvent(event: OddsSnapshotEvent): SportsbookLine[] {
 }
 
 async function fetchExternalLines() {
+  const startedAt = Date.now();
   const url = process.env.MLB_SPORTSBOOK_LINES_URL?.trim() || process.env.ODDS_MARKET_URL?.trim();
   if (!url) return [] as SportsbookLine[];
   try {
@@ -289,37 +303,51 @@ async function fetchExternalLines() {
     return parseMarketRows(await res.json());
   } catch {
     return [];
+  } finally {
+    logTiming("fetchLines.external", startedAt);
   }
 }
 
 async function fetchPersistedBoardLines() {
+  const startedAt = Date.now();
   try {
     const board = (await getBoardFeed("MLB", { skipCache: true })) as PersistedBoardFeed;
     return (board.events ?? []).map(lineFromPersistedEvent).filter((line): line is SportsbookLine => Boolean(line));
   } catch {
     return [] as SportsbookLine[];
+  } finally {
+    logTiming("fetchLines.persistedBoard", startedAt);
   }
 }
 
 async function fetchSnapshotLines() {
+  const startedAt = Date.now();
   try {
     const snapshot = await readLatestOddsApiSnapshot();
     return ((snapshot?.events ?? []) as OddsSnapshotEvent[]).flatMap(linesFromSnapshotEvent);
   } catch {
     return [] as SportsbookLine[];
+  } finally {
+    logTiming("fetchLines.snapshot", startedAt);
   }
 }
 
-async function fetchLines() {
+async function fetchLines(options: { allowRefresh?: boolean } = {}) {
+  const startedAt = Date.now();
   const [persisted, external, snapshot] = await Promise.all([fetchPersistedBoardLines(), fetchExternalLines(), fetchSnapshotLines()]);
   const lines = [...persisted, ...external, ...snapshot];
-  if (lines.length > 0) return lines;
+  if (lines.length > 0 || options.allowRefresh === false) {
+    logTiming("fetchLines.total", startedAt);
+    return lines;
+  }
 
   // Self-healing path: if the MLB sim page has games but no usable lines, run one guarded MLB pull.
   // The budget service still enforces active hours, min interval, daily limit, and monthly reserve.
   await runOddsApiSnapshotPull({ mode: "regular", sportsCsv: "baseball_mlb" }).catch(() => null);
   const [refreshedPersisted, refreshedSnapshot] = await Promise.all([fetchPersistedBoardLines(), fetchSnapshotLines()]);
-  return [...refreshedPersisted, ...refreshedSnapshot];
+  const refreshed = [...refreshedPersisted, ...refreshedSnapshot];
+  logTiming("fetchLines.total", startedAt);
+  return refreshed;
 }
 
 function lineMatchesGame(line: SportsbookLine, game: { id: string }, matchup: { home: string; away: string }) {
@@ -422,12 +450,23 @@ function signalStrength(signal: MarketSignal, projection: Awaited<ReturnType<typ
   return "thin";
 }
 
-export async function buildMlbEdges() {
-  const [sections, lines] = await Promise.all([buildBoardSportSections({ selectedLeague: "ALL", gamesByLeague: {} }), fetchLines()]);
-  const mlbGames = sections.flatMap((section) => section.leagueKey === "MLB" ? section.scoreboard.map((game) => ({ ...game, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel })) : []);
+export async function buildMlbEdges(options: BuildMlbEdgesOptions = {}) {
+  const startedAt = Date.now();
+  const [sections, lines] = await Promise.all([
+    options.games ? Promise.resolve(null) : (async () => {
+      const boardStartedAt = Date.now();
+      const value = await buildBoardSportSections({ selectedLeague: "ALL", gamesByLeague: {} });
+      logTiming("buildMlbEdges.buildBoardSportSections", boardStartedAt);
+      return value;
+    })(),
+    fetchLines({ allowRefresh: options.allowLineRefresh })
+  ]);
+  const mlbGames = options.games
+    ?? (sections ?? []).flatMap((section) => section.leagueKey === "MLB" ? section.scoreboard.map((game) => ({ ...game, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel })) : []);
   const edges = [];
+  const projectionStartedAt = Date.now();
   for (const game of mlbGames) {
-    const projection = await buildSimProjection(game as any);
+    const projection = options.projectionsByGameId?.get(game.id) ?? await buildSimProjection(game as any);
     const matchedLines = findLinesForGame(lines, game, projection.matchup);
     const line = buildMlbConsensusLine(matchedLines, projection.matchup);
     const homeMarketProb = line?.homeNoVigProbability ?? americanToProbability(line?.homeMoneyline ?? null);
@@ -458,5 +497,7 @@ export async function buildMlbEdges() {
       signal: best ? { ...best, strength: signalStrength(best, projection) } : null
     });
   }
+  logTiming("buildMlbEdges.buildSimProjection batch", projectionStartedAt);
+  logTiming("buildMlbEdges.total", startedAt);
   return { ok: true, lineCount: lines.length, gameCount: mlbGames.length, edges };
 }
