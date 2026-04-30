@@ -95,7 +95,7 @@ jobs:
       - name: Build model-ready NBA warehouse feeds
         env:
           NODE_OPTIONS: --max-old-space-size=6144
-        run: npm run nba:warehouse:features -- --input=data/nba/raw --out=data/nba/warehouse
+        run: npm run nba:warehouse:features -- --input=data/nba/raw --out=data/nba/warehouse --include-pbp=${INCLUDE_PBPSTATS}
 
       - name: Enrich warehouse with current nba_api rows
         env:

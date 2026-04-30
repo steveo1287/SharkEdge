@@ -52,6 +52,10 @@ function argValue(name: string, fallback: string) {
   const found = process.argv.find((arg) => arg.startsWith(prefix));
   return found ? found.slice(prefix.length) : fallback;
 }
+function argBool(name: string, fallback: boolean) {
+  const value = argValue(name, fallback ? "true" : "false").toLowerCase();
+  return value === "true" || value === "1" || value === "yes";
+}
 
 function exists(filePath: string) { return fs.existsSync(filePath); }
 function normalizeKey(value: string) { return value.toLowerCase().replace(/[^a-z0-9]+/g, ""); }
@@ -390,18 +394,19 @@ function writeFeed(outDir: string, kind: Kind, rows: Row[]) {
 function main() {
   const inputDir = path.resolve(argValue("input", path.join("data", "nba", "raw")));
   const outDir = path.resolve(argValue("out", path.join("data", "nba", "warehouse")));
+  const includePbp = argBool("include-pbp", false);
   fs.mkdirSync(outDir, { recursive: true });
   const schedule = loadRows(inputDir, SCHEDULE_CANDIDATES);
   const teamBox = loadRows(inputDir, TEAM_BOX_CANDIDATES);
   const playerBox = loadRows(inputDir, PLAYER_BOX_CANDIDATES);
-  const pbp = loadRows(inputDir, PBP_CANDIDATES);
-  const pbpTeam = loadRows(inputDir, PBPSTATS_TEAM_CANDIDATES);
+  const pbp = includePbp ? loadRows(inputDir, PBP_CANDIDATES) : { filePath: null, rows: [] as Row[] };
+  const pbpTeam = includePbp ? loadRows(inputDir, PBPSTATS_TEAM_CANDIDATES) : { filePath: null, rows: [] as Row[] };
   const teamFeed = buildTeamFeed(teamBox.rows, schedule.rows, pbp.rows, pbpTeam.rows);
   const playerFeed = buildPlayerFeed(playerBox.rows);
   const historyFeed = buildHistoryFeed(schedule.rows, teamFeed, pbpTeam.rows);
   const ratingFeed = buildRatingFeed(teamFeed, playerFeed);
   const written = { team: writeFeed(outDir, "team", teamFeed), player: writeFeed(outDir, "player", playerFeed), history: writeFeed(outDir, "history", historyFeed), rating: writeFeed(outDir, "rating", ratingFeed) };
-  console.log(JSON.stringify({ ok: true, inputDir, outDir, sources: { schedule: { file: schedule.filePath, rows: schedule.rows.length }, teamBox: { file: teamBox.filePath, rows: teamBox.rows.length }, playerBox: { file: playerBox.filePath, rows: playerBox.rows.length }, pbp: { file: pbp.filePath, rows: pbp.rows.length }, pbpTeam: { file: pbpTeam.filePath, rows: pbpTeam.rows.length } }, outputRows: { team: teamFeed.length, player: playerFeed.length, history: historyFeed.length, rating: ratingFeed.length }, written }, null, 2));
+  console.log(JSON.stringify({ ok: true, inputDir, outDir, includePbp, sources: { schedule: { file: schedule.filePath, rows: schedule.rows.length }, teamBox: { file: teamBox.filePath, rows: teamBox.rows.length }, playerBox: { file: playerBox.filePath, rows: playerBox.rows.length }, pbp: { file: pbp.filePath, rows: pbp.rows.length }, pbpTeam: { file: pbpTeam.filePath, rows: pbpTeam.rows.length } }, outputRows: { team: teamFeed.length, player: playerFeed.length, history: historyFeed.length, rating: ratingFeed.length }, written }, null, 2));
 }
 
 main();
