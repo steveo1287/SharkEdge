@@ -18,16 +18,37 @@ type ScoreResult = {
   homeWon: boolean;
 };
 
+export type SimAccuracyRecord = {
+  key: "last7" | "last15" | "allTime";
+  label: string;
+  snapshots: number;
+  graded: number;
+  wins: number;
+  losses: number;
+  pushes: number;
+  winPct: number | null;
+  brier: number | null;
+  logLoss: number | null;
+  spreadMae: number | null;
+  totalMae: number | null;
+  avgConfidence: number | null;
+};
+
 export type SimAccuracySummary = {
   ok: boolean;
   databaseReady: boolean;
   totalSnapshots: number;
   gradedSnapshots: number;
   ungradedSnapshots: number;
+  history: SimAccuracyRecord[];
   byLeague: Array<{
     league: string;
     snapshots: number;
     graded: number;
+    wins: number;
+    losses: number;
+    pushes: number;
+    winPct: number | null;
     brier: number | null;
     logLoss: number | null;
     spreadMae: number | null;
@@ -45,6 +66,9 @@ export type SimAccuracySummary = {
     tier: string | null;
     confidence: number | null;
     modelHomeWinPct: number;
+    modelPick: "HOME" | "AWAY";
+    modelPickLabel: string;
+    pickResult: "win" | "loss" | "push" | "pending";
     finalHomeScore: number | null;
     finalAwayScore: number | null;
     brier: number | null;
@@ -388,10 +412,23 @@ function normalizeNumber(value: unknown) {
   return null;
 }
 
+function winPct(wins: number, losses: number) {
+  const decisions = wins + losses;
+  if (decisions <= 0) return null;
+  return wins / decisions;
+}
+
+function pickResult(row: { model_home_win_pct: number; home_won: boolean | null; final_home_score: number | null; final_away_score: number | null }) {
+  if (row.home_won == null || row.final_home_score == null || row.final_away_score == null) return "pending" as const;
+  if (row.final_home_score === row.final_away_score) return "push" as const;
+  const pickedHome = row.model_home_win_pct >= 0.5;
+  return pickedHome === row.home_won ? "win" as const : "loss" as const;
+}
+
 export async function getSimAccuracySummary(limit = 20): Promise<SimAccuracySummary> {
   const databaseReady = await ensureAccuracyTable();
   if (!databaseReady) {
-    return { ok: false, databaseReady, totalSnapshots: 0, gradedSnapshots: 0, ungradedSnapshots: 0, byLeague: [], recent: [], error: "No usable server database URL is configured." };
+    return { ok: false, databaseReady, totalSnapshots: 0, gradedSnapshots: 0, ungradedSnapshots: 0, history: [], byLeague: [], recent: [], error: "No usable server database URL is configured." };
   }
 
   const totals = await prisma.$queryRaw<Array<{ total: bigint; graded: bigint }>>`
@@ -401,10 +438,61 @@ export async function getSimAccuracySummary(limit = 20): Promise<SimAccuracySumm
   const totalSnapshots = Number(totals[0]?.total ?? 0);
   const gradedSnapshots = Number(totals[0]?.graded ?? 0);
 
+  const historyRows = await prisma.$queryRaw<Array<{
+    window_key: "last7" | "last15" | "allTime";
+    label: string;
+    snapshots: bigint;
+    graded: bigint;
+    wins: bigint;
+    losses: bigint;
+    pushes: bigint;
+    brier: number | null;
+    log_loss: number | null;
+    spread_mae: number | null;
+    total_mae: number | null;
+    avg_confidence: number | null;
+  }>>`
+    WITH windows AS (
+      SELECT 'last7'::text AS window_key, 'Last 7 days'::text AS label, now() - interval '7 days' AS starts_at, 1 AS sort_order
+      UNION ALL
+      SELECT 'last15'::text AS window_key, 'Last 15 days'::text AS label, now() - interval '15 days' AS starts_at, 2 AS sort_order
+      UNION ALL
+      SELECT 'allTime'::text AS window_key, 'All time'::text AS label, NULL::timestamptz AS starts_at, 3 AS sort_order
+    )
+    SELECT
+      windows.window_key,
+      windows.label,
+      COUNT(s.id)::bigint AS snapshots,
+      COUNT(s.graded_at)::bigint AS graded,
+      SUM(CASE
+        WHEN s.graded_at IS NOT NULL
+          AND s.final_home_score <> s.final_away_score
+          AND ((s.model_home_win_pct >= 0.5 AND s.home_won = TRUE) OR (s.model_home_win_pct < 0.5 AND s.home_won = FALSE))
+        THEN 1 ELSE 0 END)::bigint AS wins,
+      SUM(CASE
+        WHEN s.graded_at IS NOT NULL
+          AND s.final_home_score <> s.final_away_score
+          AND NOT ((s.model_home_win_pct >= 0.5 AND s.home_won = TRUE) OR (s.model_home_win_pct < 0.5 AND s.home_won = FALSE))
+        THEN 1 ELSE 0 END)::bigint AS losses,
+      SUM(CASE WHEN s.graded_at IS NOT NULL AND s.final_home_score = s.final_away_score THEN 1 ELSE 0 END)::bigint AS pushes,
+      AVG(s.brier) AS brier,
+      AVG(s.log_loss) AS log_loss,
+      AVG(s.spread_error) AS spread_mae,
+      AVG(s.total_error) AS total_mae,
+      AVG(s.confidence) AS avg_confidence
+    FROM windows
+    LEFT JOIN sim_prediction_snapshots s ON windows.starts_at IS NULL OR s.captured_at >= windows.starts_at
+    GROUP BY windows.window_key, windows.label, windows.sort_order
+    ORDER BY windows.sort_order;
+  `;
+
   const leagueRows = await prisma.$queryRaw<Array<{
     league: string;
     snapshots: bigint;
     graded: bigint;
+    wins: bigint;
+    losses: bigint;
+    pushes: bigint;
     brier: number | null;
     log_loss: number | null;
     spread_mae: number | null;
@@ -414,6 +502,17 @@ export async function getSimAccuracySummary(limit = 20): Promise<SimAccuracySumm
     SELECT league,
       COUNT(*)::bigint AS snapshots,
       COUNT(graded_at)::bigint AS graded,
+      SUM(CASE
+        WHEN graded_at IS NOT NULL
+          AND final_home_score <> final_away_score
+          AND ((model_home_win_pct >= 0.5 AND home_won = TRUE) OR (model_home_win_pct < 0.5 AND home_won = FALSE))
+        THEN 1 ELSE 0 END)::bigint AS wins,
+      SUM(CASE
+        WHEN graded_at IS NOT NULL
+          AND final_home_score <> final_away_score
+          AND NOT ((model_home_win_pct >= 0.5 AND home_won = TRUE) OR (model_home_win_pct < 0.5 AND home_won = FALSE))
+        THEN 1 ELSE 0 END)::bigint AS losses,
+      SUM(CASE WHEN graded_at IS NOT NULL AND final_home_score = final_away_score THEN 1 ELSE 0 END)::bigint AS pushes,
       AVG(brier) AS brier,
       AVG(log_loss) AS log_loss,
       AVG(spread_error) AS spread_mae,
@@ -448,19 +547,22 @@ export async function getSimAccuracySummary(limit = 20): Promise<SimAccuracySumm
     league: string;
     game_id: string;
     event_label: string;
+    away_team: string;
+    home_team: string;
     captured_at: Date;
     status: string;
     tier: string | null;
     confidence: number | null;
     model_home_win_pct: number;
+    home_won: boolean | null;
     final_home_score: number | null;
     final_away_score: number | null;
     brier: number | null;
     spread_error: number | null;
     total_error: number | null;
   }>>`
-    SELECT id, league, game_id, event_label, captured_at, status, tier, confidence, model_home_win_pct,
-      final_home_score, final_away_score, brier, spread_error, total_error
+    SELECT id, league, game_id, event_label, away_team, home_team, captured_at, status, tier, confidence, model_home_win_pct,
+      home_won, final_home_score, final_away_score, brier, spread_error, total_error
     FROM sim_prediction_snapshots
     ORDER BY captured_at DESC
     LIMIT ${limit};
@@ -472,41 +574,74 @@ export async function getSimAccuracySummary(limit = 20): Promise<SimAccuracySumm
     totalSnapshots,
     gradedSnapshots,
     ungradedSnapshots: Math.max(0, totalSnapshots - gradedSnapshots),
-    byLeague: leagueRows.map((row) => ({
-      league: row.league,
-      snapshots: Number(row.snapshots),
-      graded: Number(row.graded),
-      brier: round(normalizeNumber(row.brier)),
-      logLoss: round(normalizeNumber(row.log_loss)),
-      spreadMae: round(normalizeNumber(row.spread_mae), 2),
-      totalMae: round(normalizeNumber(row.total_mae), 2),
-      avgConfidence: round(normalizeNumber(row.avg_confidence), 3),
-      calibrationBuckets: bucketRows
-        .filter((bucket) => bucket.league === row.league)
-        .map((bucket) => ({
-          bucket: bucket.calibration_bucket,
-          count: Number(bucket.count),
-          avgPredicted: round(normalizeNumber(bucket.avg_predicted), 3) ?? 0,
-          actualRate: round(normalizeNumber(bucket.actual_rate), 3) ?? 0,
-          brier: round(normalizeNumber(bucket.brier), 4) ?? 0
-        }))
-    })),
-    recent: recentRows.map((row) => ({
-      id: row.id,
-      league: row.league,
-      gameId: row.game_id,
-      eventLabel: row.event_label,
-      capturedAt: row.captured_at.toISOString(),
-      status: row.status,
-      tier: row.tier,
-      confidence: round(normalizeNumber(row.confidence), 3),
-      modelHomeWinPct: round(row.model_home_win_pct, 3) ?? row.model_home_win_pct,
-      finalHomeScore: round(normalizeNumber(row.final_home_score), 2),
-      finalAwayScore: round(normalizeNumber(row.final_away_score), 2),
-      brier: round(normalizeNumber(row.brier), 4),
-      spreadError: round(normalizeNumber(row.spread_error), 2),
-      totalError: round(normalizeNumber(row.total_error), 2)
-    }))
+    history: historyRows.map((row) => {
+      const wins = Number(row.wins);
+      const losses = Number(row.losses);
+      return {
+        key: row.window_key,
+        label: row.label,
+        snapshots: Number(row.snapshots),
+        graded: Number(row.graded),
+        wins,
+        losses,
+        pushes: Number(row.pushes),
+        winPct: round(winPct(wins, losses), 3),
+        brier: round(normalizeNumber(row.brier)),
+        logLoss: round(normalizeNumber(row.log_loss)),
+        spreadMae: round(normalizeNumber(row.spread_mae), 2),
+        totalMae: round(normalizeNumber(row.total_mae), 2),
+        avgConfidence: round(normalizeNumber(row.avg_confidence), 3)
+      };
+    }),
+    byLeague: leagueRows.map((row) => {
+      const wins = Number(row.wins);
+      const losses = Number(row.losses);
+      return {
+        league: row.league,
+        snapshots: Number(row.snapshots),
+        graded: Number(row.graded),
+        wins,
+        losses,
+        pushes: Number(row.pushes),
+        winPct: round(winPct(wins, losses), 3),
+        brier: round(normalizeNumber(row.brier)),
+        logLoss: round(normalizeNumber(row.log_loss)),
+        spreadMae: round(normalizeNumber(row.spread_mae), 2),
+        totalMae: round(normalizeNumber(row.total_mae), 2),
+        avgConfidence: round(normalizeNumber(row.avg_confidence), 3),
+        calibrationBuckets: bucketRows
+          .filter((bucket) => bucket.league === row.league)
+          .map((bucket) => ({
+            bucket: bucket.calibration_bucket,
+            count: Number(bucket.count),
+            avgPredicted: round(normalizeNumber(bucket.avg_predicted), 3) ?? 0,
+            actualRate: round(normalizeNumber(bucket.actual_rate), 3) ?? 0,
+            brier: round(normalizeNumber(bucket.brier), 4) ?? 0
+          }))
+      };
+    }),
+    recent: recentRows.map((row) => {
+      const pickedHome = row.model_home_win_pct >= 0.5;
+      return {
+        id: row.id,
+        league: row.league,
+        gameId: row.game_id,
+        eventLabel: row.event_label,
+        capturedAt: row.captured_at.toISOString(),
+        status: row.status,
+        tier: row.tier,
+        confidence: round(normalizeNumber(row.confidence), 3),
+        modelHomeWinPct: round(row.model_home_win_pct, 3) ?? row.model_home_win_pct,
+        modelPick: pickedHome ? "HOME" : "AWAY",
+        modelPickLabel: pickedHome ? row.home_team : row.away_team,
+        pickResult: pickResult(row),
+        finalHomeScore: round(normalizeNumber(row.final_home_score), 2),
+        finalAwayScore: round(normalizeNumber(row.final_away_score), 2),
+        brier: round(normalizeNumber(row.brier), 4),
+        spreadError: round(normalizeNumber(row.spread_error), 2),
+        totalError: round(normalizeNumber(row.total_error), 2)
+      };
+    })
   };
 }
 
