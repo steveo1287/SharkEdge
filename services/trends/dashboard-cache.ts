@@ -48,7 +48,7 @@ async function buildHistoricalFirstDashboard(filters: TrendFilters, options: Das
   const mode = options.mode ?? "simple";
   const aiQuery = options.aiQuery ?? "";
   const savedTrendId = options.savedTrendId ?? null;
-  const historical = await buildMlbHistoricalTrendDashboard(filters, { mode, aiQuery, savedTrendId }).catch(() => null);
+  const historical = await buildMlbHistoricalTrendDashboard(filters, { mode, aiQuery }).catch(() => null);
   if (hasCards(historical)) return historical;
   return getTrendDashboardSafe(filters, { mode, aiQuery, savedTrendId });
 }
