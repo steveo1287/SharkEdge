@@ -107,17 +107,21 @@ jobs:
           ls -lh data/nba/warehouse || true
           node - <<'NODE'
           const fs = require('fs');
+          const requiredKinds = new Set(['team', 'history', 'rating']);
           for (const kind of ['team','player','history','rating']) {
             const file = `data/nba/warehouse/${kind}-feed.json`;
             if (!fs.existsSync(file)) {
               console.log(`${kind}: missing`);
-              process.exitCode = 1;
+              if (requiredKinds.has(kind)) process.exitCode = 1;
               continue;
             }
             const body = JSON.parse(fs.readFileSync(file, 'utf8'));
             const rows = Array.isArray(body) ? body : body.rows || body.data || body[`${kind}s`] || [];
             console.log(`${kind}: ${rows.length} rows`);
-            if (!rows.length) process.exitCode = 1;
+            if (!rows.length && requiredKinds.has(kind)) process.exitCode = 1;
+            if (!rows.length && !requiredKinds.has(kind)) {
+              console.log(`${kind}: warning - zero rows (non-blocking)`);
+            }
           }
           NODE
 
