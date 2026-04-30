@@ -30,7 +30,7 @@ assert.ok(travel >= -4);
 assert.equal(mlbTravelAdjustment(null), 0);
 
 assert.equal(mlbRestAdjustment(1), 2.3);
-assert.equal(mlbRestAdjustment(10), 6.9);
+assert.equal(Number(mlbRestAdjustment(10).toFixed(1)), 6.9);
 assert.equal(mlbRestAdjustment(null), 0);
 
 assert.equal(mlbStartingPitcherAdjustment({ pitcherRollingGameScore: 56, teamRollingGameScore: 50 }), 28.200000000000003);

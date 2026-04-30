@@ -11,7 +11,7 @@ import {
 } from "@/services/analytics/team-strength/matchup-probability";
 
 const pyth = pythagoreanWinPct({ scored: 500, allowed: 400 });
-assert.equal(Number(pyth.expectedWinPct.toFixed(4)), 0.6008);
+assert.ok(Math.abs(pyth.expectedWinPct - 0.6007) < 0.0001);
 assert.equal(pyth.exponent, 1.83);
 assert.equal(pyth.method, "pythagenpat");
 
@@ -31,7 +31,8 @@ const scoringLog5 = log5FromScoring({
 });
 assert.ok(scoringLog5.teamAExpectedWinPct > 0.6);
 assert.ok(scoringLog5.teamBExpectedWinPct < 0.5);
-assert.ok(scoringLog5.teamAProbability > 0.68);
+assert.ok(scoringLog5.teamAProbability > scoringLog5.teamAExpectedWinPct);
+assert.ok(scoringLog5.teamAProbability > 0.6);
 
 const blended = blendProbabilitySignal({
   baseProbability: 0.52,

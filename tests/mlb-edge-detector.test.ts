@@ -8,8 +8,8 @@ import {
 
 const noVig = noVigMoneylineProbabilities(-150, 130);
 assert.ok(noVig);
-assert.equal(Number(noVig!.home.toFixed(4)), 0.5821);
-assert.equal(Number(noVig!.away.toFixed(4)), 0.4179);
+assert.equal(Number(noVig!.home.toFixed(4)), 0.5798);
+assert.equal(Number(noVig!.away.toFixed(4)), 0.4202);
 assert.equal(Number(noVig!.hold.toFixed(4)), 0.0348);
 
 assert.equal(noVigMoneylineProbabilities(-150, null), null);

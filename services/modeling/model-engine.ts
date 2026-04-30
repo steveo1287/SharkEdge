@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { buildMlbEventProjection, buildMlbPlayerPropProjections } from "@/services/modeling/mlb-game-sim-service";
 import { buildUfcEventProjection } from "@/services/modeling/ufc-fight-sim-service";
-import { simulateContextualGame } from "@/services/simulation/contextual-game-sim";
+import { simulateContextualGame, type MlbPregameEloContext } from "@/services/simulation/contextual-game-sim";
 import {
   buildCoachTendencyProfile,
   buildEventIntangibleProfile,
@@ -53,15 +53,18 @@ type TeamStatRow = { statsJson: Prisma.JsonValue };
 type TeamScoringProfile = {
   scored: number;
   allowed: number;
+  actualWins?: number | null;
+  actualLosses?: number | null;
 };
 
-function sumNumericStats(rows: TeamStatRow[], keys: string[]) {
-  const values = rows
-    .map((row) => getNumericStat(row.statsJson, keys))
-    .filter((value): value is number => value !== null && Number.isFinite(value));
+function numericStatsByRow(rows: TeamStatRow[], keys: string[]) {
+  return rows.map((row) => getNumericStat(row.statsJson, keys));
+}
 
-  if (!values.length) return null;
-  return values.reduce((sum, value) => sum + value, 0);
+function sumNumericStats(values: Array<number | null>) {
+  const valid = values.filter((value): value is number => value !== null && Number.isFinite(value));
+  if (!valid.length) return null;
+  return valid.reduce((sum, value) => sum + value, 0);
 }
 
 function getScoringProfileKeys(leagueKey: string): { scored: string[]; allowed: string[] } | null {
@@ -90,8 +93,13 @@ function buildTeamScoringProfile(leagueKey: string, rows: TeamStatRow[]): TeamSc
   const keys = getScoringProfileKeys(leagueKey);
   if (!keys || rows.length < 2) return null;
 
-  const scored = sumNumericStats(rows, keys.scored);
-  const allowed = sumNumericStats(rows, keys.allowed);
+  const scoredRows = numericStatsByRow(rows, keys.scored);
+  const allowedRows = numericStatsByRow(rows, keys.allowed);
+  const validPairedRows = scoredRows.filter((scored, index) => scored != null && allowedRows[index] != null).length;
+  if (validPairedRows < 2) return null;
+
+  const scored = sumNumericStats(scoredRows);
+  const allowed = sumNumericStats(allowedRows);
 
   if (scored == null || allowed == null || scored < 0 || allowed < 0) return null;
 
@@ -99,6 +107,59 @@ function buildTeamScoringProfile(leagueKey: string, rows: TeamStatRow[]): TeamSc
     scored,
     allowed
   };
+}
+
+function jsonObject(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function getNumericFromObjects(objects: Array<Record<string, unknown>>, keys: string[]) {
+  for (const object of objects) {
+    for (const key of keys) {
+      const value = object[key];
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      if (typeof value === "string") {
+        const parsed = Number(value.replace(/[^0-9.+-]/g, ""));
+        if (Number.isFinite(parsed)) return parsed;
+      }
+    }
+  }
+  return null;
+}
+
+function getBooleanFromObjects(objects: Array<Record<string, unknown>>, keys: string[]) {
+  for (const object of objects) {
+    for (const key of keys) {
+      const value = object[key];
+      if (typeof value === "boolean") return value;
+    }
+  }
+  return null;
+}
+
+function buildMlbPregameEloContext(args: {
+  leagueKey: string;
+  isHome: boolean;
+  participantContext?: { daysRest: number | null; metadataJson: Prisma.JsonValue | null } | null;
+  participantMetadata?: Prisma.JsonValue | null;
+  eventMetadata?: Prisma.JsonValue | null;
+}): MlbPregameEloContext | null {
+  if (args.leagueKey !== "MLB") return null;
+  const contextMetadata = jsonObject(args.participantContext?.metadataJson);
+  const participantMetadata = jsonObject(args.participantMetadata);
+  const eventMetadata = jsonObject(args.eventMetadata);
+  const objects = [contextMetadata, participantMetadata, eventMetadata];
+  const value: MlbPregameEloContext = {
+    rating: getNumericFromObjects(objects, ["mlbEloRating", "eloRating", "teamEloRating"]),
+    milesTraveled: getNumericFromObjects(objects, ["milesTraveled", "travelMiles", "travelDistanceMiles"]),
+    restDays: typeof args.participantContext?.daysRest === "number" ? args.participantContext.daysRest : null,
+    pitcherRollingGameScore: getNumericFromObjects(objects, ["pitcherRollingGameScore", "probableStarterRollingGameScore", "starterRollingGameScore"]),
+    teamRollingGameScore: getNumericFromObjects(objects, ["teamRollingGameScore", "teamStarterRollingGameScore"]),
+    isOpener: getBooleanFromObjects(objects, ["isOpener", "probableStarterIsOpener"]),
+    noFans: getBooleanFromObjects(objects, ["noFans", "emptyStadium", "noFansHomeField"])
+  };
+
+  return Object.values(value).some((field) => field != null) ? value : null;
 }
 
 function getCurrentMarketAnchor(
@@ -259,7 +320,7 @@ function buildSportFeatureSet(sportKey: string) {
     case "MLB":
       return {
         offense: ["runs", "R", "runs_per_game", "runs_scored"],
-        defense: ["runs_allowed", "RA", "opp_runs", "era"],
+        defense: ["runs_allowed", "RA", "opp_runs", "opponent_runs"],
         pace: ["innings", "plate_appearances"],
         player: {
           other: ["hits", "H", "strikeouts", "SO", "total_bases", "TB"]
@@ -546,6 +607,20 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     awayParticipant?.competitorId ?? null
   );
   const weather = inferWeatherTotalFactor(event.league.key, event.venue, event.metadataJson);
+  const homeMlbPregameEloContext = buildMlbPregameEloContext({
+    leagueKey: event.league.key,
+    isHome: true,
+    participantContext: homeContext,
+    participantMetadata: homeParticipant?.metadataJson,
+    eventMetadata: event.metadataJson
+  });
+  const awayMlbPregameEloContext = buildMlbPregameEloContext({
+    leagueKey: event.league.key,
+    isHome: false,
+    participantContext: awayContext,
+    participantMetadata: awayParticipant?.metadataJson,
+    eventMetadata: event.metadataJson
+  });
 
   const simulation = simulateContextualGame({
     leagueKey: event.league.key,
@@ -560,7 +635,9 @@ export async function buildEventProjectionFromHistory(eventId: string) {
       travelProxyScore: homeContext?.travelProxyScore ?? null,
       backToBack: homeContext?.isBackToBack ?? false,
       revengeSpot: homeContext?.revengeSpot ?? false,
+      teamStrengthContext: homeScoringProfile,
       linearWinExpectancy: homeScoringProfile,
+      mlbPregameEloContext: homeMlbPregameEloContext,
       ratings: ratingsPrior.home,
       style: homeStyle,
       coach: homeCoach,
@@ -577,7 +654,9 @@ export async function buildEventProjectionFromHistory(eventId: string) {
       travelProxyScore: awayContext?.travelProxyScore ?? null,
       backToBack: awayContext?.isBackToBack ?? false,
       revengeSpot: awayContext?.revengeSpot ?? false,
+      teamStrengthContext: awayScoringProfile,
       linearWinExpectancy: awayScoringProfile,
+      mlbPregameEloContext: awayMlbPregameEloContext,
       ratings: ratingsPrior.away,
       style: awayStyle,
       coach: awayCoach,
@@ -625,7 +704,14 @@ export async function buildEventProjectionFromHistory(eventId: string) {
       ratingsPrior,
       teamStrengthPriors: {
         home: homeScoringProfile,
-        away: awayScoringProfile
+        away: awayScoringProfile,
+        log5: simulation.teamStrengthPriors?.log5 ?? null,
+        linear: simulation.teamStrengthPriors?.linear ?? null,
+        mlbElo: simulation.teamStrengthPriors?.mlbElo ?? null,
+        mlbEloInputs: {
+          home: homeMlbPregameEloContext,
+          away: awayMlbPregameEloContext
+        }
       },
       styleProfiles: {
         home: homeStyle,

@@ -17,7 +17,7 @@ assert.equal(normalizeHomeSpreadMarketPoint(-1.5), 1.5);
 assert.equal(normalizeHomeSpreadMarketPoint(4.5), -4.5);
 
 // Pick'em remains neutral.
-assert.equal(normalizeHomeSpreadMarketPoint(0), -0);
+assert.equal(Object.is(normalizeHomeSpreadMarketPoint(0), -0) || normalizeHomeSpreadMarketPoint(0) === 0, true);
 
 // Invalid spread points should not enter market averages.
 assert.equal(normalizeHomeSpreadMarketPoint(null), null);

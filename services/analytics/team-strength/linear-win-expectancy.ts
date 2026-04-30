@@ -150,11 +150,13 @@ export function linearWinExpectancyProfile(params: {
   clampOutput?: boolean;
 }): LinearWinExpectancyProfile {
   const expectancy = linearExpectedWinPct(params);
-  const hasRecord = params.actualWins != null && params.actualLosses != null;
+  const actualWins = params.actualWins ?? null;
+  const actualLosses = params.actualLosses ?? null;
+  const hasRecord = actualWins != null && actualLosses != null;
   const delta = hasRecord
     ? winPctDelta({
-        actualWins: params.actualWins,
-        actualLosses: params.actualLosses,
+        actualWins,
+        actualLosses,
         expectedWinPct: expectancy.expectedWinPct,
         threshold: params.threshold
       })
