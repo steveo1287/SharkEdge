@@ -153,7 +153,12 @@ export async function fetchNbaStatsApiTeamProfiles(): Promise<Record<string, Nba
   const cached = await readHotCache<Record<string, NbaTeamAnalyticsProfile>>(CACHE_KEY);
   if (cached) return cached;
 
-  const season = process.env.NBA_STATS_SEASON?.trim() ?? "2024-25";
+  const season = process.env.NBA_STATS_SEASON?.trim() ?? (() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const startYear = now.getMonth() + 1 >= 10 ? y : y - 1;
+    return `${startYear}-${String(startYear + 1).slice(-2)}`;
+  })();
   try {
     const [advanced, fourFactors] = await Promise.all([
       fetchAdvancedStats(season),

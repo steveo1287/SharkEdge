@@ -90,9 +90,10 @@ async function fetchTeamSchedule(espnTeamId: string, teamKey: string): Promise<N
       const dateStr = event.date ? event.date.slice(0, 10) : null;
       if (!dateStr || dateStr > todayStr) continue;
 
-      // Find this team's competitor entry
+      // Find this team's competitor entry by matching the ESPN team ID
       const myEntry = comp.competitors?.find(
-        (c) => ESPN_TEAM_IDS[teamKey] === undefined || c.team?.abbreviation !== undefined
+        (c: { team?: { id?: string; abbreviation?: string }; homeAway?: string; winner?: boolean }) =>
+          c.team?.id === ESPN_TEAM_IDS[teamKey]
       );
       const didWin = myEntry?.winner === true;
       const isHome = myEntry?.homeAway === "home";
