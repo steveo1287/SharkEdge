@@ -1,0 +1,132 @@
+name: Refresh NBA Warehouse
+
+on:
+  workflow_dispatch:
+    inputs:
+      include_pbpstats:
+        description: "Run PBP Stats enrichment after Kaggle fetch"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      pbp_limit:
+        description: "Max PBP Stats games to process when include_pbpstats=true"
+        required: false
+        default: "100"
+      commit_feeds:
+        description: "Commit generated data/nba/warehouse feeds back to this branch"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+  schedule:
+    - cron: "17 9 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nba-warehouse-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+      INCLUDE_PBPSTATS: ${{ github.event.inputs.include_pbpstats || 'false' }}
+      PBP_LIMIT: ${{ github.event.inputs.pbp_limit || '100' }}
+      COMMIT_FEEDS: ${{ github.event.inputs.commit_feeds || 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Python fetch dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install kaggle pandas
+          if [ "$INCLUDE_PBPSTATS" = "true" ]; then
+            python -m pip install pbpstats
+          fi
+
+      - name: Verify Kaggle credentials
+        run: |
+          if [ -z "${KAGGLE_USERNAME:-}" ] || [ -z "${KAGGLE_KEY:-}" ]; then
+            echo "Missing KAGGLE_USERNAME or KAGGLE_KEY repository secrets." >&2
+            exit 1
+          fi
+
+      - name: Fetch Kaggle NBA dataset
+        run: npm run nba:warehouse:fetch:kaggle -- data/nba/raw
+
+      - name: Build NBA game id list
+        run: npm run nba:warehouse:game-ids -- --input=data/nba/raw --out=data/nba/raw/game_ids.txt --limit=0
+
+      - name: Fetch PBP Stats enrichment
+        if: env.INCLUDE_PBPSTATS == 'true'
+        run: npm run nba:warehouse:fetch:pbpstats -- data/nba/raw --games-file=data/nba/raw/game_ids.txt --limit=${PBP_LIMIT} --skip-existing
+
+      - name: Build model-ready NBA warehouse feeds
+        run: npm run nba:warehouse:features -- --input=data/nba/raw --out=data/nba/warehouse
+
+      - name: Show warehouse summary
+        run: |
+          ls -lh data/nba/warehouse || true
+          node - <<'NODE'
+          const fs = require('fs');
+          for (const kind of ['team','player','history','rating']) {
+            const file = `data/nba/warehouse/${kind}-feed.json`;
+            if (!fs.existsSync(file)) {
+              console.log(`${kind}: missing`);
+              process.exitCode = 1;
+              continue;
+            }
+            const body = JSON.parse(fs.readFileSync(file, 'utf8'));
+            const rows = Array.isArray(body) ? body : body.rows || body.data || body[`${kind}s`] || [];
+            console.log(`${kind}: ${rows.length} rows`);
+            if (!rows.length) process.exitCode = 1;
+          }
+          NODE
+
+      - name: Upload warehouse artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nba-warehouse-feeds
+          path: data/nba/warehouse/*.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Commit generated feeds
+        if: env.COMMIT_FEEDS == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/nba/warehouse/*.json
+          if git diff --cached --quiet; then
+            echo "No NBA warehouse feed changes to commit."
+          else
+            git commit -m "Refresh NBA warehouse feeds"
+            git push
+          fi
