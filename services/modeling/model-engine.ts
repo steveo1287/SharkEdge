@@ -3,6 +3,10 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { buildMlbEventProjection, buildMlbPlayerPropProjections } from "@/services/modeling/mlb-game-sim-service";
 import { buildUfcEventProjection } from "@/services/modeling/ufc-fight-sim-service";
+import {
+  buildMlbRetrosheetModelContext,
+  emptyMlbRetrosheetModelContext
+} from "@/services/data/retrosheet/mlb-retrosheet-context";
 import { simulateContextualGame, type MlbPregameEloContext } from "@/services/simulation/contextual-game-sim";
 import {
   buildCoachTendencyProfile,
@@ -160,6 +164,23 @@ function buildMlbPregameEloContext(args: {
   };
 
   return Object.values(value).some((field) => field != null) ? value : null;
+}
+
+function mergeMlbPregameEloContext(
+  warehouseContext: MlbPregameEloContext | null,
+  requestContext: MlbPregameEloContext | null
+): MlbPregameEloContext | null {
+  if (!warehouseContext) return requestContext;
+  if (!requestContext) return warehouseContext;
+  return {
+    rating: warehouseContext.rating ?? requestContext.rating ?? null,
+    milesTraveled: requestContext.milesTraveled ?? warehouseContext.milesTraveled ?? null,
+    restDays: requestContext.restDays ?? warehouseContext.restDays ?? null,
+    pitcherRollingGameScore: warehouseContext.pitcherRollingGameScore ?? requestContext.pitcherRollingGameScore ?? null,
+    teamRollingGameScore: warehouseContext.teamRollingGameScore ?? requestContext.teamRollingGameScore ?? null,
+    isOpener: requestContext.isOpener ?? warehouseContext.isOpener ?? null,
+    noFans: requestContext.noFans ?? warehouseContext.noFans ?? null
+  };
 }
 
 function getCurrentMarketAnchor(
@@ -520,15 +541,37 @@ export async function buildEventProjectionFromHistory(eventId: string) {
         .filter((value): value is number => value !== null)
     ]) ?? 1;
 
-  const homeScoringProfile = buildTeamScoringProfile(event.league.key, homeTeam.teamGameStats);
-  const awayScoringProfile = buildTeamScoringProfile(event.league.key, awayTeam.teamGameStats);
-
   const homeContext = event.participantContexts.find(
     (context) => context.competitorId === homeParticipant?.competitorId
   ) ?? null;
   const awayContext = event.participantContexts.find(
     (context) => context.competitorId === awayParticipant?.competitorId
   ) ?? null;
+  const [homeRetrosheetContext, awayRetrosheetContext] =
+    event.league.key === "MLB"
+      ? await Promise.all([
+          buildMlbRetrosheetModelContext({
+            teamExternalIds: homeTeam.externalIds,
+            eventStartTime: event.startTime,
+            isHome: true,
+            restDays: homeContext?.daysRest ?? null,
+            milesTraveled: null,
+            probableStarterExternalIds: homeParticipant?.metadataJson ?? null
+          }),
+          buildMlbRetrosheetModelContext({
+            teamExternalIds: awayTeam.externalIds,
+            eventStartTime: event.startTime,
+            isHome: false,
+            restDays: awayContext?.daysRest ?? null,
+            milesTraveled: null,
+            probableStarterExternalIds: awayParticipant?.metadataJson ?? null
+          })
+        ])
+      : [emptyMlbRetrosheetModelContext(), emptyMlbRetrosheetModelContext()];
+  const homeScoringProfile =
+    homeRetrosheetContext.teamStrengthContext ?? buildTeamScoringProfile(event.league.key, homeTeam.teamGameStats);
+  const awayScoringProfile =
+    awayRetrosheetContext.teamStrengthContext ?? buildTeamScoringProfile(event.league.key, awayTeam.teamGameStats);
 
   const ratingsPrior = buildEventGameRatingsPrior({
     leagueKey: event.league.key,
@@ -607,20 +650,22 @@ export async function buildEventProjectionFromHistory(eventId: string) {
     awayParticipant?.competitorId ?? null
   );
   const weather = inferWeatherTotalFactor(event.league.key, event.venue, event.metadataJson);
-  const homeMlbPregameEloContext = buildMlbPregameEloContext({
+  const homeMlbPregameEloContext = mergeMlbPregameEloContext(homeRetrosheetContext.mlbPregameEloContext, buildMlbPregameEloContext({
     leagueKey: event.league.key,
     isHome: true,
     participantContext: homeContext,
     participantMetadata: homeParticipant?.metadataJson,
     eventMetadata: event.metadataJson
-  });
-  const awayMlbPregameEloContext = buildMlbPregameEloContext({
+  }));
+  const awayMlbPregameEloContext = mergeMlbPregameEloContext(awayRetrosheetContext.mlbPregameEloContext, buildMlbPregameEloContext({
     leagueKey: event.league.key,
     isHome: false,
     participantContext: awayContext,
     participantMetadata: awayParticipant?.metadataJson,
     eventMetadata: event.metadataJson
-  });
+  }));
+  const requiresRetrosheetAttribution =
+    homeRetrosheetContext.requiresRetrosheetAttribution || awayRetrosheetContext.requiresRetrosheetAttribution;
 
   const simulation = simulateContextualGame({
     leagueKey: event.league.key,
@@ -705,6 +750,12 @@ export async function buildEventProjectionFromHistory(eventId: string) {
       teamStrengthPriors: {
         home: homeScoringProfile,
         away: awayScoringProfile,
+        retrosheet: requiresRetrosheetAttribution
+          ? {
+              home: homeRetrosheetContext.metadata,
+              away: awayRetrosheetContext.metadata
+            }
+          : null,
         log5: simulation.teamStrengthPriors?.log5 ?? null,
         linear: simulation.teamStrengthPriors?.linear ?? null,
         mlbElo: simulation.teamStrengthPriors?.mlbElo ?? null,
@@ -713,6 +764,7 @@ export async function buildEventProjectionFromHistory(eventId: string) {
           away: awayMlbPregameEloContext
         }
       },
+      requiresRetrosheetAttribution,
       styleProfiles: {
         home: homeStyle,
         away: awayStyle
