@@ -27,7 +27,7 @@ const baseInput = {
 const baseline = simulateContextualGame(baseInput);
 const wired = simulateContextualGame({
   ...baseInput,
-  linearWinExpectancyWeight: 0.12,
+  log5Weight: 0.12,
   home: {
     ...baseInput.home,
     linearWinExpectancy: {
@@ -48,11 +48,11 @@ const wired = simulateContextualGame({
   }
 });
 
-assert.ok(wired.winProbHome > baseline.winProbHome, "Linear prior should move home win probability toward stronger scoring differential.");
+assert.ok(wired.winProbHome > baseline.winProbHome, "Log5 prior should move home win probability toward stronger scoring differential.");
 assert.ok(wired.winProbAway < baseline.winProbAway, "Away win probability should mirror the adjusted home probability.");
 assert.ok(
-  wired.drivers.some((driver) => driver.includes("Linear win expectancy prior")),
-  "Sim drivers should expose the linear win expectancy prior when active."
+  wired.drivers.some((driver) => driver.includes("Log5 Pythagenpat prior")),
+  "Sim drivers should expose the Log5 prior when active."
 );
 assert.ok(Math.abs(wired.winProbHome + wired.winProbAway - 1) < 0.001, "Win probabilities should still sum to 1.");
 
@@ -76,8 +76,12 @@ const unsupportedLeague = simulateContextualGame({
 });
 
 assert.ok(
+  !unsupportedLeague.drivers.some((driver) => driver.includes("Log5 Pythagenpat prior")),
+  "Unsupported leagues should ignore the Log5 prior."
+);
+assert.ok(
   !unsupportedLeague.drivers.some((driver) => driver.includes("Linear win expectancy prior")),
-  "Unsupported leagues should ignore the linear prior."
+  "Unsupported leagues should ignore the linear fallback prior."
 );
 
 console.log("contextual-linear-win-prior tests passed");
