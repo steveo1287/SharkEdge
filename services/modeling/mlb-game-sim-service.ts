@@ -1,3 +1,11 @@
+import type { Prisma } from "@prisma/client";
+
+import {
+  blendProbabilitySignal,
+  log5FromScoring
+} from "@/services/analytics/team-strength/matchup-probability";
+import { mlbPregameEloAdjustment } from "@/services/analytics/team-strength/mlb-elo-adjustments";
+import { buildMlbRetrosheetModelContext } from "@/services/data/retrosheet/mlb-retrosheet-context";
 import { buildMlbSourceNativeContext, type MlbSourceNativeContext } from "@/services/modeling/mlb-source-native-context";
 import {
   applyMlbSourceAwareResimulation,
@@ -23,6 +31,7 @@ type PitcherGameRow = {
 
 type PitcherCandidate = {
   playerId: string;
+  externalIds: Prisma.JsonValue;
   name: string;
   teamId: string;
   starterLikelihood: number;
@@ -334,6 +343,7 @@ function buildPitcherCandidate(player: {
   teamId: string;
   name: string;
   position: string;
+  externalIds: Prisma.JsonValue;
   playerGameStats: PitcherGameRow[];
 }): PitcherCandidate | null {
   if (!isPitcher(player.position) || player.playerGameStats.length === 0) {
@@ -384,6 +394,7 @@ function buildPitcherCandidate(player: {
 
   return {
     playerId: player.id,
+    externalIds: player.externalIds,
     name: player.name,
     teamId: player.teamId,
     starterLikelihood,
@@ -434,6 +445,102 @@ function getRestFactor(context: {
   if ((context.gamesLast7 ?? 0) >= 7) factor -= 0.01;
   factor -= clamp(density, 0, 1.5) * 0.01;
   return clamp(factor, 0.96, 1.03);
+}
+
+function applyRetrosheetProbabilityPriors(args: {
+  baseHomeProbability: number;
+  projectedTotalRuns: number;
+  homeContext: Awaited<ReturnType<typeof buildMlbRetrosheetModelContext>>;
+  awayContext: Awaited<ReturnType<typeof buildMlbRetrosheetModelContext>>;
+}) {
+  let winProbHome = args.baseHomeProbability;
+  const drivers: string[] = [];
+  const teamStrengthPriors: Record<string, unknown> = {
+    retrosheet: args.homeContext.requiresRetrosheetAttribution || args.awayContext.requiresRetrosheetAttribution
+      ? {
+          home: args.homeContext.metadata,
+          away: args.awayContext.metadata
+        }
+      : null,
+    log5: null,
+    mlbElo: null
+  };
+
+  if (args.homeContext.teamStrengthContext && args.awayContext.teamStrengthContext) {
+    const log5 = log5FromScoring({
+      teamAScored: args.homeContext.teamStrengthContext.scored,
+      teamAAllowed: args.homeContext.teamStrengthContext.allowed,
+      teamBScored: args.awayContext.teamStrengthContext.scored,
+      teamBAllowed: args.awayContext.teamStrengthContext.allowed
+    });
+    const blended = blendProbabilitySignal({
+      baseProbability: winProbHome,
+      signalProbability: log5.teamAProbability,
+      weight: 0.1,
+      maxWeight: 0.25
+    });
+    winProbHome = blended.adjustedProbability;
+    const pointDelta = (blended.adjustedProbability - args.baseHomeProbability) * args.projectedTotalRuns;
+    teamStrengthPriors.log5 = {
+      homeProbability: log5.teamAProbability,
+      homeExpectedWinPct: log5.teamAExpectedWinPct,
+      awayExpectedWinPct: log5.teamBExpectedWinPct,
+      weight: blended.weight,
+      pointDelta
+    };
+    drivers.push(
+      `Log5 Pythagenpat prior ${(log5.teamAProbability * 100).toFixed(1)}% home (${(blended.weight * 100).toFixed(1)}% blend, ${pointDelta >= 0 ? "+" : ""}${pointDelta.toFixed(2)} runs)`
+    );
+  }
+
+  const homeElo = args.homeContext.mlbPregameEloContext;
+  const awayElo = args.awayContext.mlbPregameEloContext;
+  if (homeElo?.rating != null && awayElo?.rating != null) {
+    const homeAdjustment = mlbPregameEloAdjustment({ ...homeElo, isHome: true });
+    const awayAdjustment = mlbPregameEloAdjustment({ ...awayElo, isHome: false });
+    const adjustedHome = homeElo.rating + homeAdjustment.totalAdjustment;
+    const adjustedAway = awayElo.rating + awayAdjustment.totalAdjustment;
+    const eloProbability = 1 / (1 + 10 ** ((adjustedAway - adjustedHome) / 400));
+    const blended = blendProbabilitySignal({
+      baseProbability: winProbHome,
+      signalProbability: eloProbability,
+      weight: 0.06,
+      maxWeight: 0.15
+    });
+    const pointDelta = (blended.adjustedProbability - winProbHome) * args.projectedTotalRuns;
+    winProbHome = blended.adjustedProbability;
+    teamStrengthPriors.mlbElo = {
+      homeAdjustment,
+      awayAdjustment,
+      homeRating: homeElo.rating,
+      awayRating: awayElo.rating,
+      adjustedHomeRating: adjustedHome,
+      adjustedAwayRating: adjustedAway,
+      homeProbability: eloProbability,
+      weight: blended.weight,
+      inputsUsed: {
+        ratings: true,
+        homePitcher: homeElo.pitcherRollingGameScore != null && homeElo.teamRollingGameScore != null,
+        awayPitcher: awayElo.pitcherRollingGameScore != null && awayElo.teamRollingGameScore != null,
+        homeRest: homeElo.restDays != null,
+        awayRest: awayElo.restDays != null,
+        homeTravel: homeElo.milesTraveled != null,
+        awayTravel: awayElo.milesTraveled != null
+      }
+    };
+    drivers.push(
+      `MLB Elo context prior ${(eloProbability * 100).toFixed(1)}% home (${(blended.weight * 100).toFixed(1)}% blend, ${pointDelta >= 0 ? "+" : ""}${pointDelta.toFixed(2)} runs)`
+    );
+  }
+
+  return {
+    winProbHome: round(winProbHome, 4),
+    winProbAway: round(1 - winProbHome, 4),
+    drivers,
+    teamStrengthPriors,
+    requiresRetrosheetAttribution:
+      args.homeContext.requiresRetrosheetAttribution || args.awayContext.requiresRetrosheetAttribution
+  };
 }
 
 function buildBacktestEdgeAdjustments(args: {
@@ -771,6 +878,7 @@ function buildTeamRunContext(args: {
     teamId: string;
     name: string;
     position: string;
+    externalIds: Prisma.JsonValue;
     playerGameStats: PitcherGameRow[];
   }>;
   participantContext: {
@@ -978,6 +1086,24 @@ export async function buildMlbEventProjection(eventId: string) {
     allPitchers: resolved.pitchers,
     participantContext: awayContextRow
   });
+  const [homeRetrosheetContext, awayRetrosheetContext] = await Promise.all([
+    buildMlbRetrosheetModelContext({
+      teamExternalIds: resolved.homeTeam.externalIds,
+      eventStartTime: resolved.event.startTime,
+      isHome: true,
+      restDays: homeContextRow?.daysRest ?? null,
+      milesTraveled: null,
+      probableStarterExternalIds: home.starter?.externalIds ?? null
+    }),
+    buildMlbRetrosheetModelContext({
+      teamExternalIds: resolved.awayTeam.externalIds,
+      eventStartTime: resolved.event.startTime,
+      isHome: false,
+      restDays: awayContextRow?.daysRest ?? null,
+      milesTraveled: null,
+      probableStarterExternalIds: away.starter?.externalIds ?? null
+    })
+  ]);
 
   const venue = resolved.event.venue ?? null;
   const parkFactor = getParkFactor(venue);
@@ -1097,6 +1223,12 @@ export async function buildMlbEventProjection(eventId: string) {
   const resimInput = applyMlbSourceAwareResimulation(baseInput, sourceNativeContext);
   const rawSimulation = simulateMlbGame(resimInput);
   const simulation = recalibrateMlbMarketOutputs(rawSimulation, sourceNativeContext);
+  const retrosheetPriors = applyRetrosheetProbabilityPriors({
+    baseHomeProbability: simulation.winProbHome,
+    projectedTotalRuns: simulation.projectedTotalRuns,
+    homeContext: homeRetrosheetContext,
+    awayContext: awayRetrosheetContext
+  });
 
   return {
     modelKey: "mlb-game-state-sim",
@@ -1106,8 +1238,8 @@ export async function buildMlbEventProjection(eventId: string) {
     projectedAwayScore: simulation.projectedAwayRuns,
     projectedTotal: simulation.projectedTotalRuns,
     projectedSpreadHome: simulation.projectedSpreadHome,
-    winProbHome: simulation.winProbHome,
-    winProbAway: simulation.winProbAway,
+    winProbHome: retrosheetPriors.winProbHome,
+    winProbAway: retrosheetPriors.winProbAway,
     metadata: {
       sport: resolved.event.league.sport,
       league: resolved.event.league.key,
@@ -1171,6 +1303,9 @@ export async function buildMlbEventProjection(eventId: string) {
         }
       },
       mlbSourceNativeContext: sourceNativeContext,
+      drivers: retrosheetPriors.drivers,
+      teamStrengthPriors: retrosheetPriors.teamStrengthPriors,
+      requiresRetrosheetAttribution: retrosheetPriors.requiresRetrosheetAttribution,
       reSimulation: {
         lineupAware: true,
         // Starter is selected by historical usage pattern (startedGames + innings), NOT confirmed MLB probable pitcher API.
@@ -1185,8 +1320,10 @@ export async function buildMlbEventProjection(eventId: string) {
         projectedAwayRuns: simulation.projectedAwayRuns,
         projectedTotalRuns: simulation.projectedTotalRuns,
         projectedSpreadHome: simulation.projectedSpreadHome,
-        winProbHome: simulation.winProbHome,
-        winProbAway: simulation.winProbAway,
+        winProbHome: retrosheetPriors.winProbHome,
+        winProbAway: retrosheetPriors.winProbAway,
+        rawWinProbHome: simulation.winProbHome,
+        rawWinProbAway: simulation.winProbAway,
         totalStdDev: simulation.distribution.totalStdDev,
         homeRunsStdDev: simulation.distribution.homeRunsStdDev,
         awayRunsStdDev: simulation.distribution.awayRunsStdDev,

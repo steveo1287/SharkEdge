@@ -608,6 +608,128 @@ model TeamGameStat {
   @@map("team_game_stats")
 }
 
+model RetrosheetGame {
+  id                String                       @id @default(cuid())
+  retrosheetGameId String                       @unique
+  sourceKey         String                       @default("RETROSHEET")
+  gameDate          DateTime
+  season            Int
+  gameNumber        Int?
+  homeTeamId        String
+  awayTeamId        String
+  homeScore         Int?
+  awayScore         Int?
+  parkId            String?
+  isPostseason      Boolean                      @default(false)
+  rawJson           Json?
+  teamStats         RetrosheetTeamGameStat[]
+  pitchingStats     RetrosheetPitchingGameStat[]
+  eloSnapshots      MlbTeamEloSnapshot[]
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+
+  @@index([season, gameDate])
+  @@index([homeTeamId, gameDate])
+  @@index([awayTeamId, gameDate])
+  @@map("retrosheet_games")
+}
+
+model RetrosheetTeamGameStat {
+  id                String          @id @default(cuid())
+  retrosheetGameId String
+  teamId            String
+  opponentTeamId    String?
+  isHome            Boolean
+  sourceKey         String          @default("RETROSHEET")
+  gameDate          DateTime
+  season            Int
+  runs              Int
+  runsAllowed       Int
+  rawJson           Json?
+  game              RetrosheetGame @relation(fields: [retrosheetGameId], references: [retrosheetGameId], onDelete: Cascade)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([retrosheetGameId, teamId])
+  @@index([teamId, gameDate])
+  @@index([sourceKey, teamId, gameDate])
+  @@map("retrosheet_team_game_stats")
+}
+
+model RetrosheetPitchingGameStat {
+  id                String          @id @default(cuid())
+  retrosheetGameId String
+  pitcherId         String
+  teamId            String
+  sourceKey         String          @default("RETROSHEET")
+  gameDate          DateTime
+  season            Int
+  isStarter         Boolean         @default(false)
+  isHome            Boolean?
+  outs              Int
+  strikeouts        Int
+  walks             Int
+  hits              Int
+  runs              Int
+  homeRuns          Int
+  gameScore         Float
+  rawJson           Json?
+  game              RetrosheetGame @relation(fields: [retrosheetGameId], references: [retrosheetGameId], onDelete: Cascade)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([retrosheetGameId, pitcherId, teamId])
+  @@index([pitcherId, gameDate])
+  @@index([teamId, gameDate])
+  @@index([sourceKey, pitcherId, gameDate])
+  @@map("retrosheet_pitching_game_stats")
+}
+
+model MlbTeamEloSnapshot {
+  id                     String           @id @default(cuid())
+  sourceKey              String           @default("RETROSHEET")
+  teamId                 String
+  season                 Int
+  gameDate               DateTime
+  retrosheetGameId       String?
+  preGameElo             Float
+  postGameElo            Float
+  opponentTeamId         String?
+  expectedWinProbability Float?
+  actualResult           Float?
+  kFactor                Float
+  isPostseason           Boolean          @default(false)
+  game                   RetrosheetGame? @relation(fields: [retrosheetGameId], references: [retrosheetGameId], onDelete: SetNull)
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  @@unique([teamId, retrosheetGameId])
+  @@index([teamId, gameDate])
+  @@index([sourceKey, teamId, gameDate])
+  @@map("mlb_team_elo_snapshots")
+}
+
+model MlbPitcherRollingSnapshot {
+  id                String    @id @default(cuid())
+  sourceKey         String    @default("RETROSHEET")
+  pitcherId         String
+  teamId            String?
+  season            Int
+  gameDate          DateTime
+  retrosheetGameId  String?
+  rollingGameScore  Float
+  gamesIncluded     Int
+  gameScore         Float?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([pitcherId, retrosheetGameId])
+  @@index([pitcherId, gameDate])
+  @@index([teamId, gameDate])
+  @@index([sourceKey, pitcherId, gameDate])
+  @@map("mlb_pitcher_rolling_snapshots")
+}
+
 model Injury {
   id           String       @id @default(cuid())
   leagueId     String?
