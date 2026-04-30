@@ -1,5 +1,6 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
 import { normalizeMlbTeam } from "@/services/simulation/mlb-team-analytics";
+import { fetchSavantTeamHistoryProfiles } from "@/services/simulation/mlb-savant-team-feed";
 
 export type MlbPlayerHistoryProfile = {
   teamName: string;
@@ -119,6 +120,15 @@ function normalizeRaw(row: RawHistory): MlbPlayerHistoryProfile | null {
 async function fetchProfiles() {
   const cached = await readHotCache<Record<string, MlbPlayerHistoryProfile>>(CACHE_KEY);
   if (cached) return cached;
+
+  // Primary: Baseball Savant Statcast data (xwOBA, barrel%, hard-hit%, platoon splits)
+  const savant = await fetchSavantTeamHistoryProfiles();
+  if (savant && Object.keys(savant).length >= 15) {
+    await writeHotCache(CACHE_KEY, savant, CACHE_TTL_SECONDS);
+    return savant;
+  }
+
+  // Fallback: operator-supplied external feed
   const url =
     process.env.MLB_PLAYER_HISTORY_URL?.trim() ||
     process.env.MLB_RECENT_FORM_URL?.trim() ||
