@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { buildOfficialNbaLiveFeed } from "@/services/data/nba/official-live-feed";
 import { nbaWarehouseFeedPlan, readNbaWarehouseFeed, type NbaWarehouseKind } from "@/services/data/nba/warehouse-feed";
 
 export const runtime = "nodejs";
@@ -21,13 +22,35 @@ function authorized(request: NextRequest) {
   return queryToken === expected || bearer === expected;
 }
 
-function shapeFeed(feed: Awaited<ReturnType<typeof readNbaWarehouseFeed>>) {
+type FeedShape = Awaited<ReturnType<typeof readNbaWarehouseFeed>>;
+
+async function feedWithFallback(kind: NbaWarehouseKind): Promise<FeedShape & { fallbackUsed?: boolean }> {
+  const feed = await readNbaWarehouseFeed(kind);
+  if (feed.rows.length || process.env.NBA_DISABLE_OFFICIAL_LIVE_FALLBACK === "1") return { ...feed, fallbackUsed: false };
+  const rows = await buildOfficialNbaLiveFeed(kind);
+  if (!rows.length) return { ...feed, fallbackUsed: false };
+  return {
+    ...feed,
+    generatedAt: new Date().toISOString(),
+    filePath: "official-nba-stats-live",
+    rows,
+    warnings: [
+      ...feed.warnings,
+      `No local NBA warehouse ${kind} feed was found; using official NBA Stats live fallback rows.`
+    ],
+    fallbackUsed: true
+  };
+}
+
+function shapeFeed(feed: FeedShape & { fallbackUsed?: boolean }) {
   const body: Record<string, unknown> = {
     kind: feed.kind,
     generatedAt: feed.generatedAt,
     warehouseDir: feed.warehouseDir,
     filePath: feed.filePath,
     rows: feed.rows,
+    rowCount: feed.rows.length,
+    fallbackUsed: Boolean(feed.fallbackUsed),
     warnings: feed.warnings
   };
   if (feed.kind === "team") body.teams = feed.rows;
@@ -50,10 +73,10 @@ export async function GET(request: NextRequest) {
     }
 
     if (searchParams.get("plan") === "1") {
-      return NextResponse.json(nbaWarehouseFeedPlan(kind));
+      return NextResponse.json({ ...nbaWarehouseFeedPlan(kind), officialLiveFallback: process.env.NBA_DISABLE_OFFICIAL_LIVE_FALLBACK !== "1" });
     }
 
-    const feed = await readNbaWarehouseFeed(kind);
+    const feed = await feedWithFallback(kind);
     return NextResponse.json(shapeFeed(feed));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to load NBA warehouse feed." }, { status: 500 });
