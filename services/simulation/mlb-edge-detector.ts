@@ -2,6 +2,7 @@ import { getBoardFeed } from "@/services/market-data/market-data-service";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 import { readLatestOddsApiSnapshot, runOddsApiSnapshotPull } from "@/services/odds/the-odds-api-budget-service";
+import { normalizeTeamKey } from "@/lib/utils/team-normalization";
 
 export type SportsbookLine = {
   gameId?: string;
@@ -130,13 +131,7 @@ function validNumber(value: unknown) {
 }
 
 function normalizeTeam(value: string | null | undefined) {
-  const normalized = String(value ?? "")
-    .toLowerCase()
-    .replace(/&/g, "and")
-    .replace(/[^a-z0-9]+/g, "")
-    .trim();
-
-  const aliases: Record<string, string> = {
+  return normalizeTeamKey(value, {
     athletics: "sacramentoathletics",
     oaklandathletics: "sacramentoathletics",
     whitesox: "chicagowhitesox",
@@ -144,9 +139,7 @@ function normalizeTeam(value: string | null | undefined) {
     bluejays: "torontobluejays",
     dbacks: "arizonadiamondbacks",
     diamondbacks: "arizonadiamondbacks"
-  };
-
-  return aliases[normalized] ?? normalized;
+  });
 }
 
 function key(home: string, away: string) {

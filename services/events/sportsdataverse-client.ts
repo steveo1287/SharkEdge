@@ -32,7 +32,7 @@ function toDatePart(value: number) {
   return String(value).padStart(2, "0");
 }
 
-function normalizeEventId(eventId: string | number) {
+export function normalizeSportsDataverseEventId(eventId: string | number) {
   const raw = String(eventId);
   const normalized = raw.includes("__") ? raw.split("__").at(-1) ?? raw : raw;
   const asNumber = Number(normalized);
@@ -100,7 +100,7 @@ export async function fetchSportsDataverseSummary(
     return null;
   }
 
-  return leagueModule.getSummary(normalizeEventId(eventId));
+  return leagueModule.getSummary(normalizeSportsDataverseEventId(eventId));
 }
 
 export async function fetchSportsDataversePlayByPlay(
@@ -112,7 +112,7 @@ export async function fetchSportsDataversePlayByPlay(
     return null;
   }
 
-  return leagueModule.getPlayByPlay(normalizeEventId(eventId));
+  return leagueModule.getPlayByPlay(normalizeSportsDataverseEventId(eventId));
 }
 
 export async function fetchSportsDataverseBoxScore(
@@ -124,5 +124,5 @@ export async function fetchSportsDataverseBoxScore(
     return null;
   }
 
-  return leagueModule.getBoxScore(normalizeEventId(eventId));
+  return leagueModule.getBoxScore(normalizeSportsDataverseEventId(eventId));
 }

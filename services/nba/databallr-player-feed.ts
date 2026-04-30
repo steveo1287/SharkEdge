@@ -103,7 +103,7 @@ function estimateUsage(row: RawRow, minutes: number) {
   return clamp(12 + minutes * 0.32, 6, 28);
 }
 
-function normalizeDataBallrRow(row: RawRow): RealPlayerFeedRecord | null {
+export function normalizeDataBallrFixtureRow(row: RawRow): RealPlayerFeedRecord | null {
   const playerName = text(row, "playerName", "player_name", "player", "name", "full_name", "display_name");
   const teamName = text(row, "teamName", "team_name", "team", "team_abbreviation", "team_abbr", "abbr", "current_team", "franchise");
   if (!playerName || !teamName) return null;
@@ -165,7 +165,7 @@ export async function fetchDataBallrPlayerFeed() {
     if (!response.ok) return [] as RealPlayerFeedRecord[];
     const rows = rowsFromBody(await response.json());
     return rows
-      .map(normalizeDataBallrRow)
+      .map(normalizeDataBallrFixtureRow)
       .filter((record): record is RealPlayerFeedRecord => Boolean(record?.playerName && record?.teamName));
   } catch {
     return [] as RealPlayerFeedRecord[];
@@ -183,7 +183,7 @@ export async function getDataBallrDebugPayload(): Promise<DataBallrDebugPayload>
       return { configuredUrl: url, fetched: false, recordCount: 0, normalizedCount: 0, sampleRawKeys: [], samplePlayers: [], error: `HTTP ${response.status}` };
     }
     const rows = rowsFromBody(await response.json());
-    const normalized = rows.map(normalizeDataBallrRow).filter((record): record is RealPlayerFeedRecord => Boolean(record));
+    const normalized = rows.map(normalizeDataBallrFixtureRow).filter((record): record is RealPlayerFeedRecord => Boolean(record));
     const teamCount = new Set(normalized.map((record) => normalizeNbaTeam(record.teamName))).size;
     return {
       configuredUrl: url,

@@ -188,7 +188,7 @@ async function fetchNbaStats(measureType: "Advanced" | "Base") {
   }
 }
 
-function normalizeAdvancedRow(row: Record<string, unknown>): TeamRow | null {
+export function normalizeNbaStatsApiAdvancedFixtureRow(row: Record<string, unknown>): TeamRow | null {
   const teamName = String(row.TEAM_NAME ?? "").trim();
   if (!teamName) return null;
   return {
@@ -233,7 +233,7 @@ export async function buildNbaStatsApiTeamAnalyticsFeed() {
   }
 
   const nbaStatsTeams = advancedRows
-    .map(normalizeAdvancedRow)
+    .map(normalizeNbaStatsApiAdvancedFixtureRow)
     .filter((row): row is TeamRow => Boolean(row))
     .map((profile) => {
       const base = baseByTeamId.get(String(profile.teamId ?? ""));

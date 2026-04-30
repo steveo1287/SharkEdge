@@ -1,4 +1,5 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
+import { normalizeTeamKey } from "@/lib/utils/team-normalization";
 import { fetchNbaStatsApiTeamProfiles } from "@/services/simulation/nba-stats-api-team-feed";
 import { fetchNbaScheduleContextAll } from "@/services/simulation/nba-espn-schedule-feed";
 
@@ -79,7 +80,7 @@ const NBA_STATS_CACHE_KEY = "nba:team-analytics:merged-feed:v2";
 const NBA_STATS_CACHE_TTL_SECONDS = 60 * 60 * 12;
 
 export function normalizeNbaTeam(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
+  return normalizeTeamKey(value);
 }
 
 function hashString(value: string) {

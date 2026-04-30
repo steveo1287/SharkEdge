@@ -216,11 +216,26 @@ async function insertOrUpdateSnapshot(args: { game: SimGame; projection: Project
   const marketSpread = nbaMarket?.spreadLine ?? null;
   const marketTotal = nbaMarket?.totalLine ?? mlbIntel?.market?.totalLine ?? edge?.market?.total ?? null;
   const reality = realityPayload(realityIntel);
+  const topSignal = edge?.signal ?? null;
   const predictionJson = {
+    version: "v2",
+    capturedAt: capturedAt.toISOString(),
+    league: game.leagueKey,
+    gameId: game.id,
+    eventLabel: game.label,
+    status: game.status,
+    startTime: game.startTime,
     matchup: projection.matchup,
     distribution: projection.distribution,
     read: projection.read,
     statSheet: projection.statSheet,
+    model: {
+      modelVersion: meta.modelVersion,
+      dataSource: meta.dataSource,
+      tier: meta.tier,
+      confidence: meta.confidence,
+      noBet: meta.noBet
+    },
     nbaIntel: projection.nbaIntel ? {
       modelVersion: projection.nbaIntel.modelVersion,
       tier: projection.nbaIntel.tier,
@@ -255,7 +270,11 @@ async function insertOrUpdateSnapshot(args: { game: SimGame; projection: Project
       calibration: mlbIntel.calibration ?? null,
       uncertainty: mlbIntel.uncertainty ?? null
     } : null,
-    market: nbaMarket ?? mlbIntel?.market ?? edge?.market ?? null
+    market: nbaMarket ?? mlbIntel?.market ?? edge?.market ?? null,
+    marketQuality: edge?.marketQuality ?? null,
+    topSignal,
+    edgeSignals: edge?.edges ?? [],
+    sportsbook: edge?.sportsbook ?? null
   };
 
   await prisma.$executeRaw`

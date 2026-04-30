@@ -1,4 +1,5 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
+import { normalizeTeamKey } from "@/lib/utils/team-normalization";
 import { getMlbRestMatchup } from "@/services/simulation/mlb-schedule-rest-service";
 import { getMlbLiveTeamProfile } from "@/services/simulation/mlb-live-stats-feed";
 
@@ -45,7 +46,12 @@ const CACHE_KEY = "mlb:team-analytics:v2";
 const CACHE_TTL_SECONDS = 60 * 60 * 6;
 
 export function normalizeMlbTeam(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return normalizeTeamKey(value, {
+    whitesox: "chicagowhitesox",
+    redsox: "bostonredsox",
+    bluejays: "torontobluejays",
+    diamondbacks: "arizonadiamondbacks"
+  });
 }
 
 function hashString(value: string) { let hash = 0; for (let i = 0; i < value.length; i += 1) hash = (hash * 31 + value.charCodeAt(i)) >>> 0; return hash; }
