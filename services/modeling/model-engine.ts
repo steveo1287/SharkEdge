@@ -48,6 +48,58 @@ function standardDeviation(values: number[]) {
   return Math.sqrt(variance);
 }
 
+type TeamStatRow = { statsJson: Prisma.JsonValue };
+
+type TeamScoringProfile = {
+  scored: number;
+  allowed: number;
+};
+
+function sumNumericStats(rows: TeamStatRow[], keys: string[]) {
+  const values = rows
+    .map((row) => getNumericStat(row.statsJson, keys))
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0);
+}
+
+function getScoringProfileKeys(leagueKey: string): { scored: string[]; allowed: string[] } | null {
+  switch (leagueKey) {
+    case "MLB":
+      return {
+        scored: ["runs", "R", "runs_scored", "team_runs", "score"],
+        allowed: ["runs_allowed", "RA", "opp_runs", "opponent_runs", "opp_score"]
+      };
+    case "NBA":
+      return {
+        scored: ["points", "PTS", "points_scored", "team_points", "score"],
+        allowed: ["opp_points", "oppPTS", "points_allowed", "opponent_points", "opp_score"]
+      };
+    case "NFL":
+      return {
+        scored: ["points", "PTS", "points_scored", "team_points", "score"],
+        allowed: ["points_allowed", "PA", "opp_points", "opponent_points", "opp_score"]
+      };
+    default:
+      return null;
+  }
+}
+
+function buildTeamScoringProfile(leagueKey: string, rows: TeamStatRow[]): TeamScoringProfile | null {
+  const keys = getScoringProfileKeys(leagueKey);
+  if (!keys || rows.length < 2) return null;
+
+  const scored = sumNumericStats(rows, keys.scored);
+  const allowed = sumNumericStats(rows, keys.allowed);
+
+  if (scored == null || allowed == null || scored < 0 || allowed < 0) return null;
+
+  return {
+    scored,
+    allowed
+  };
+}
 
 function getCurrentMarketAnchor(
   states: Array<{
@@ -407,6 +459,9 @@ export async function buildEventProjectionFromHistory(eventId: string) {
         .filter((value): value is number => value !== null)
     ]) ?? 1;
 
+  const homeScoringProfile = buildTeamScoringProfile(event.league.key, homeTeam.teamGameStats);
+  const awayScoringProfile = buildTeamScoringProfile(event.league.key, awayTeam.teamGameStats);
+
   const homeContext = event.participantContexts.find(
     (context) => context.competitorId === homeParticipant?.competitorId
   ) ?? null;
@@ -505,6 +560,7 @@ export async function buildEventProjectionFromHistory(eventId: string) {
       travelProxyScore: homeContext?.travelProxyScore ?? null,
       backToBack: homeContext?.isBackToBack ?? false,
       revengeSpot: homeContext?.revengeSpot ?? false,
+      linearWinExpectancy: homeScoringProfile,
       ratings: ratingsPrior.home,
       style: homeStyle,
       coach: homeCoach,
@@ -521,6 +577,7 @@ export async function buildEventProjectionFromHistory(eventId: string) {
       travelProxyScore: awayContext?.travelProxyScore ?? null,
       backToBack: awayContext?.isBackToBack ?? false,
       revengeSpot: awayContext?.revengeSpot ?? false,
+      linearWinExpectancy: awayScoringProfile,
       ratings: ratingsPrior.away,
       style: awayStyle,
       coach: awayCoach,
@@ -566,6 +623,10 @@ export async function buildEventProjectionFromHistory(eventId: string) {
       marketAnchor,
       weather,
       ratingsPrior,
+      teamStrengthPriors: {
+        home: homeScoringProfile,
+        away: awayScoringProfile
+      },
       styleProfiles: {
         home: homeStyle,
         away: awayStyle
