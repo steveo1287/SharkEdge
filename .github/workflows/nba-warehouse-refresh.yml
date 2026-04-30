@@ -76,7 +76,14 @@ jobs:
         run: npm run nba:warehouse:fetch:kaggle -- data/nba/raw
 
       - name: Fetch current NBA Stats through nba_api
+        id: fetch_nba_api
+        continue-on-error: true
         run: npm run nba:warehouse:fetch:nba-api -- data/nba/raw
+
+      - name: Note nba_api fallback mode when fetch fails
+        if: steps.fetch_nba_api.outcome == 'failure'
+        run: |
+          echo "nba_api fetch failed; continuing with Kaggle/warehouse fallback."
 
       - name: Build NBA game id list
         run: npm run nba:warehouse:game-ids -- --input=data/nba/raw --out=data/nba/raw/game_ids.txt --limit=0
