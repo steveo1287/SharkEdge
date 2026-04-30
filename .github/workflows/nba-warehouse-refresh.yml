@@ -93,9 +93,13 @@ jobs:
         run: npm run nba:warehouse:fetch:pbpstats -- data/nba/raw --games-file=data/nba/raw/game_ids.txt --limit=${PBP_LIMIT} --skip-existing
 
       - name: Build model-ready NBA warehouse feeds
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run nba:warehouse:features -- --input=data/nba/raw --out=data/nba/warehouse
 
       - name: Enrich warehouse with current nba_api rows
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm run nba:warehouse:enrich:nba-api -- --raw=data/nba/raw --out=data/nba/warehouse
 
       - name: Show warehouse summary
