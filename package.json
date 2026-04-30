@@ -49,6 +49,7 @@
     "retrosheet:ingest": "tsx scripts/ingest-retrosheet-csv.ts",
     "retrosheet:features": "tsx scripts/build-mlb-retrosheet-features.ts",
     "nba:warehouse:features": "tsx scripts/build-nba-free-warehouse-feeds.ts",
+    "nba:warehouse:fetch:kaggle": "bash scripts/fetch-kaggle-nba-dataset.sh",
     "nba:warehouse:fetch:hoopr": "Rscript scripts/fetch-nba-free-warehouse.R",
     "nba:warehouse:fetch:nba-api": "python scripts/fetch-nba-api-current.py",
     "nba:warehouse:fetch:pbpstats": "python scripts/fetch-pbpstats-nba.py"
