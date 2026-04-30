@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import type { LeagueKey } from "@/lib/types/domain";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
@@ -9,6 +8,7 @@ type SupportedAccuracyLeague = Extract<LeagueKey, "NBA" | "MLB">;
 type SimGame = { id: string; label: string; startTime: string; status: string; leagueKey: LeagueKey; leagueLabel: string; scoreboard?: string | null };
 type Projection = Awaited<ReturnType<typeof buildSimProjection>>;
 type EdgeResult = Awaited<ReturnType<typeof buildMlbEdges>>["edges"][number];
+type RichMlbIntel = NonNullable<Projection["mlbIntel"]> & { features?: unknown };
 
 type ScoreResult = {
   homeScore: number;
@@ -78,22 +78,13 @@ export type SimAccuracySummary = {
   error?: string;
 };
 
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
-
+function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, value)); }
 function round(value: number | null | undefined, digits = 4) {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return Number(value.toFixed(digits));
 }
-
-function nowBucket(date = new Date()) {
-  return date.toISOString().slice(0, 13);
-}
-
-function safeJson(value: unknown) {
-  return JSON.stringify(value ?? null);
-}
+function nowBucket(date = new Date()) { return date.toISOString().slice(0, 13); }
+function safeJson(value: unknown) { return JSON.stringify(value ?? null); }
 
 function parseMatchup(label: string) {
   const atSplit = label.split(" @ ");
@@ -112,23 +103,14 @@ function parseScoreboard(scoreboard: string | null | undefined): ScoreResult | n
   const awayScore = awayMatch ? Number(awayMatch[1]) : NaN;
   const homeScore = homeMatch ? Number(homeMatch[1]) : NaN;
   if (!Number.isFinite(awayScore) || !Number.isFinite(homeScore)) return null;
-  return {
-    homeScore,
-    awayScore,
-    finalTotal: homeScore + awayScore,
-    finalMargin: homeScore - awayScore,
-    homeWon: homeScore > awayScore
-  };
+  return { homeScore, awayScore, finalTotal: homeScore + awayScore, finalMargin: homeScore - awayScore, homeWon: homeScore > awayScore };
 }
 
 function probabilityLogLoss(probability: number, outcome: 0 | 1) {
   const p = clamp(probability, 0.001, 0.999);
   return outcome === 1 ? -Math.log(p) : -Math.log(1 - p);
 }
-
-function brier(probability: number, outcome: 0 | 1) {
-  return (probability - outcome) ** 2;
-}
+function brier(probability: number, outcome: 0 | 1) { return (probability - outcome) ** 2; }
 
 function projectionMeta(projection: Projection, league: LeagueKey) {
   if (league === "NBA" && projection.nbaIntel) {
@@ -141,7 +123,6 @@ function projectionMeta(projection: Projection, league: LeagueKey) {
       projectedTotal: projection.nbaIntel.projectedTotal
     };
   }
-
   if (league === "MLB" && projection.mlbIntel) {
     return {
       modelVersion: projection.mlbIntel.modelVersion,
@@ -152,7 +133,6 @@ function projectionMeta(projection: Projection, league: LeagueKey) {
       projectedTotal: projection.mlbIntel.projectedTotal
     };
   }
-
   return {
     modelVersion: "sim-projection-engine",
     dataSource: "fallback",
@@ -170,7 +150,6 @@ function bucketFor(probability: number) {
 
 async function ensureAccuracyTable() {
   if (!hasUsableServerDatabaseUrl()) return false;
-
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS sim_prediction_snapshots (
       id TEXT PRIMARY KEY,
@@ -214,21 +193,21 @@ async function ensureAccuracyTable() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
-
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS sim_prediction_snapshots_league_captured_idx ON sim_prediction_snapshots (league, captured_at DESC);`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS sim_prediction_snapshots_game_idx ON sim_prediction_snapshots (league, game_id);`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS sim_prediction_snapshots_graded_idx ON sim_prediction_snapshots (graded_at, start_time);`);
   return true;
 }
 
-async function insertOrUpdateSnapshot(args: {
-  game: SimGame;
-  projection: Projection;
-  edge?: EdgeResult | null;
-}) {
+function richMlbIntel(projection: Projection): RichMlbIntel | null {
+  return projection.mlbIntel ? projection.mlbIntel as RichMlbIntel : null;
+}
+
+async function insertOrUpdateSnapshot(args: { game: SimGame; projection: Projection; edge?: EdgeResult | null }) {
   const { game, projection, edge } = args;
   const matchup = parseMatchup(game.label);
   const meta = projectionMeta(projection, game.leagueKey);
+  const mlbIntel = richMlbIntel(projection);
   const capturedAt = new Date();
   const modelHomeScore = projection.distribution.avgHome;
   const modelAwayScore = projection.distribution.avgAway;
@@ -236,7 +215,8 @@ async function insertOrUpdateSnapshot(args: {
   const modelTotal = meta.projectedTotal ?? modelHomeScore + modelAwayScore;
   const id = crypto.randomUUID();
   const snapshotKey = `${game.leagueKey}:${game.id}:${nowBucket(capturedAt)}`;
-  const marketTotal = edge?.market?.total ?? null;
+  const marketHomeWinPct = mlbIntel?.market?.homeNoVigProbability ?? null;
+  const marketTotal = mlbIntel?.market?.totalLine ?? edge?.market?.total ?? null;
   const predictionJson = {
     matchup: projection.matchup,
     distribution: projection.distribution,
@@ -251,17 +231,22 @@ async function insertOrUpdateSnapshot(args: {
       projectedTotal: projection.nbaIntel.projectedTotal,
       volatilityIndex: projection.nbaIntel.volatilityIndex
     } : null,
-    mlbIntel: projection.mlbIntel ? {
-      modelVersion: projection.mlbIntel.modelVersion,
-      dataSource: projection.mlbIntel.dataSource,
-      homeEdge: projection.mlbIntel.homeEdge,
-      projectedTotal: projection.mlbIntel.projectedTotal,
-      volatilityIndex: projection.mlbIntel.volatilityIndex,
-      governor: projection.mlbIntel.governor,
-      calibration: projection.mlbIntel.calibration,
-      uncertainty: projection.mlbIntel.uncertainty
+    mlbIntel: mlbIntel ? {
+      modelVersion: mlbIntel.modelVersion,
+      dataSource: mlbIntel.dataSource,
+      homeEdge: mlbIntel.homeEdge,
+      projectedTotal: mlbIntel.projectedTotal,
+      runModel: mlbIntel.runModel ?? null,
+      volatilityIndex: mlbIntel.volatilityIndex,
+      features: mlbIntel.features ?? null,
+      factors: mlbIntel.factors ?? [],
+      market: mlbIntel.market ?? null,
+      lock: mlbIntel.lock ?? null,
+      governor: mlbIntel.governor ?? null,
+      calibration: mlbIntel.calibration ?? null,
+      uncertainty: mlbIntel.uncertainty ?? null
     } : null,
-    market: edge?.market ?? null
+    market: mlbIntel?.market ?? edge?.market ?? null
   };
 
   await prisma.$executeRaw`
@@ -274,7 +259,7 @@ async function insertOrUpdateSnapshot(args: {
       ${id}, ${snapshotKey}, ${game.leagueKey}, ${game.id}, ${game.label}, ${matchup.away}, ${matchup.home}, ${new Date(game.startTime)}, ${game.status}, ${capturedAt},
       ${meta.modelVersion}, ${meta.dataSource}, ${meta.tier}, ${meta.noBet}, ${meta.confidence},
       ${projection.distribution.homeWinPct}, ${projection.distribution.awayWinPct}, ${modelSpread}, ${modelTotal}, ${modelHomeScore}, ${modelAwayScore},
-      ${null}, ${null}, ${marketTotal}, ${bucketFor(projection.distribution.homeWinPct)}, ${safeJson(predictionJson)}::jsonb
+      ${marketHomeWinPct}, ${null}, ${marketTotal}, ${bucketFor(projection.distribution.homeWinPct)}, ${safeJson(predictionJson)}::jsonb
     )
     ON CONFLICT (snapshot_key) DO UPDATE SET
       status = EXCLUDED.status,
@@ -290,6 +275,7 @@ async function insertOrUpdateSnapshot(args: {
       model_total = EXCLUDED.model_total,
       model_home_score = EXCLUDED.model_home_score,
       model_away_score = EXCLUDED.model_away_score,
+      market_home_win_pct = EXCLUDED.market_home_win_pct,
       market_total = EXCLUDED.market_total,
       calibration_bucket = EXCLUDED.calibration_bucket,
       prediction_json = EXCLUDED.prediction_json,
@@ -299,23 +285,14 @@ async function insertOrUpdateSnapshot(args: {
 
 async function fetchSimGames(leagues: SupportedAccuracyLeague[]) {
   const sections = await buildBoardSportSections({ selectedLeague: "ALL", gamesByLeague: {}, maxScoreboardGames: null });
-  return sections.flatMap((section) =>
-    leagues.includes(section.leagueKey as SupportedAccuracyLeague)
-      ? section.scoreboard.map((game) => ({
-        ...game,
-        leagueKey: section.leagueKey,
-        leagueLabel: section.leagueLabel
-      }))
-      : []
-  ) as SimGame[];
+  return sections.flatMap((section) => leagues.includes(section.leagueKey as SupportedAccuracyLeague)
+    ? section.scoreboard.map((game) => ({ ...game, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel }))
+    : []) as SimGame[];
 }
 
 export async function captureCurrentSimPredictionSnapshots(leagues: SupportedAccuracyLeague[] = ["NBA", "MLB"]) {
   const databaseReady = await ensureAccuracyTable();
-  if (!databaseReady) {
-    return { ok: false, databaseReady, captured: 0, skipped: 0, error: "No usable server database URL is configured." };
-  }
-
+  if (!databaseReady) return { ok: false, databaseReady, captured: 0, skipped: 0, error: "No usable server database URL is configured." };
   const [games, edgeData] = await Promise.all([
     fetchSimGames(leagues),
     leagues.includes("MLB") ? buildMlbEdges().catch(() => ({ edges: [] as EdgeResult[] })) : Promise.resolve({ edges: [] as EdgeResult[] })
@@ -323,7 +300,6 @@ export async function captureCurrentSimPredictionSnapshots(leagues: SupportedAcc
   const edgeByGame = new Map((edgeData.edges ?? []).map((edge) => [edge.gameId, edge]));
   let captured = 0;
   let skipped = 0;
-
   for (const game of games) {
     if (game.status === "FINAL" || game.status === "POSTPONED" || game.status === "CANCELED") {
       skipped += 1;
@@ -333,7 +309,6 @@ export async function captureCurrentSimPredictionSnapshots(leagues: SupportedAcc
     await insertOrUpdateSnapshot({ game, projection, edge: edgeByGame.get(game.id) ?? null });
     captured += 1;
   }
-
   return { ok: true, databaseReady, captured, skipped };
 }
 
@@ -350,29 +325,16 @@ async function finalScoreMap(leagues: SupportedAccuracyLeague[]) {
 
 export async function gradeFinalSimPredictionSnapshots(leagues: SupportedAccuracyLeague[] = ["NBA", "MLB"]) {
   const databaseReady = await ensureAccuracyTable();
-  if (!databaseReady) {
-    return { ok: false, databaseReady, graded: 0, availableFinals: 0, error: "No usable server database URL is configured." };
-  }
-
+  if (!databaseReady) return { ok: false, databaseReady, graded: 0, availableFinals: 0, error: "No usable server database URL is configured." };
   const finals = await finalScoreMap(leagues);
   let graded = 0;
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    league: string;
-    game_id: string;
-    model_home_win_pct: number;
-    model_spread: number;
-    model_total: number;
-  }>>`
+  const rows = await prisma.$queryRaw<Array<{ id: string; league: string; game_id: string; model_home_win_pct: number; model_spread: number; model_total: number }>>`
     SELECT id, league, game_id, model_home_win_pct, model_spread, model_total
     FROM sim_prediction_snapshots
-    WHERE graded_at IS NULL
-      AND league IN ('NBA', 'MLB')
+    WHERE graded_at IS NULL AND league IN ('NBA', 'MLB')
     ORDER BY captured_at ASC
     LIMIT 500;
   `;
-
   for (const row of rows) {
     const result = finals.get(`${row.league}:${row.game_id}`);
     if (!result) continue;
@@ -383,25 +345,14 @@ export async function gradeFinalSimPredictionSnapshots(leagues: SupportedAccurac
     const totalError = Math.abs(row.model_total - result.finalTotal);
     await prisma.$executeRaw`
       UPDATE sim_prediction_snapshots
-      SET
-        status = 'FINAL',
-        final_home_score = ${result.homeScore},
-        final_away_score = ${result.awayScore},
-        final_margin = ${result.finalMargin},
-        final_total = ${result.finalTotal},
-        home_won = ${result.homeWon},
-        brier = ${rowBrier},
-        log_loss = ${rowLogLoss},
-        spread_error = ${spreadError},
-        total_error = ${totalError},
-        result_json = ${safeJson(result)}::jsonb,
-        graded_at = now(),
-        updated_at = now()
+      SET status = 'FINAL', final_home_score = ${result.homeScore}, final_away_score = ${result.awayScore},
+        final_margin = ${result.finalMargin}, final_total = ${result.finalTotal}, home_won = ${result.homeWon},
+        brier = ${rowBrier}, log_loss = ${rowLogLoss}, spread_error = ${spreadError}, total_error = ${totalError},
+        result_json = ${safeJson(result)}::jsonb, graded_at = now(), updated_at = now()
       WHERE id = ${row.id};
     `;
     graded += 1;
   }
-
   return { ok: true, databaseReady, graded, availableFinals: finals.size };
 }
 
@@ -411,13 +362,10 @@ function normalizeNumber(value: unknown) {
   if (typeof value === "string" && Number.isFinite(Number(value))) return Number(value);
   return null;
 }
-
 function winPct(wins: number, losses: number) {
   const decisions = wins + losses;
-  if (decisions <= 0) return null;
-  return wins / decisions;
+  return decisions <= 0 ? null : wins / decisions;
 }
-
 function pickResult(row: { model_home_win_pct: number; home_won: boolean | null; final_home_score: number | null; final_away_score: number | null }) {
   if (row.home_won == null || row.final_home_score == null || row.final_away_score == null) return "pending" as const;
   if (row.final_home_score === row.final_away_score) return "push" as const;
@@ -427,147 +375,51 @@ function pickResult(row: { model_home_win_pct: number; home_won: boolean | null;
 
 export async function getSimAccuracySummary(limit = 20): Promise<SimAccuracySummary> {
   const databaseReady = await ensureAccuracyTable();
-  if (!databaseReady) {
-    return { ok: false, databaseReady, totalSnapshots: 0, gradedSnapshots: 0, ungradedSnapshots: 0, history: [], byLeague: [], recent: [], error: "No usable server database URL is configured." };
-  }
-
-  const totals = await prisma.$queryRaw<Array<{ total: bigint; graded: bigint }>>`
-    SELECT COUNT(*)::bigint AS total, COUNT(graded_at)::bigint AS graded
-    FROM sim_prediction_snapshots;
-  `;
+  if (!databaseReady) return { ok: false, databaseReady, totalSnapshots: 0, gradedSnapshots: 0, ungradedSnapshots: 0, history: [], byLeague: [], recent: [], error: "No usable server database URL is configured." };
+  const totals = await prisma.$queryRaw<Array<{ total: bigint; graded: bigint }>>`SELECT COUNT(*)::bigint AS total, COUNT(graded_at)::bigint AS graded FROM sim_prediction_snapshots;`;
   const totalSnapshots = Number(totals[0]?.total ?? 0);
   const gradedSnapshots = Number(totals[0]?.graded ?? 0);
-
-  const historyRows = await prisma.$queryRaw<Array<{
-    window_key: "last7" | "last15" | "allTime";
-    label: string;
-    snapshots: bigint;
-    graded: bigint;
-    wins: bigint;
-    losses: bigint;
-    pushes: bigint;
-    brier: number | null;
-    log_loss: number | null;
-    spread_mae: number | null;
-    total_mae: number | null;
-    avg_confidence: number | null;
-  }>>`
+  const historyRows = await prisma.$queryRaw<Array<{ window_key: "last7" | "last15" | "allTime"; label: string; snapshots: bigint; graded: bigint; wins: bigint; losses: bigint; pushes: bigint; brier: number | null; log_loss: number | null; spread_mae: number | null; total_mae: number | null; avg_confidence: number | null }>>`
     WITH windows AS (
       SELECT 'last7'::text AS window_key, 'Last 7 days'::text AS label, now() - interval '7 days' AS starts_at, 1 AS sort_order
-      UNION ALL
-      SELECT 'last15'::text AS window_key, 'Last 15 days'::text AS label, now() - interval '15 days' AS starts_at, 2 AS sort_order
-      UNION ALL
-      SELECT 'allTime'::text AS window_key, 'All time'::text AS label, NULL::timestamptz AS starts_at, 3 AS sort_order
+      UNION ALL SELECT 'last15'::text AS window_key, 'Last 15 days'::text AS label, now() - interval '15 days' AS starts_at, 2 AS sort_order
+      UNION ALL SELECT 'allTime'::text AS window_key, 'All time'::text AS label, NULL::timestamptz AS starts_at, 3 AS sort_order
     )
-    SELECT
-      windows.window_key,
-      windows.label,
-      COUNT(s.id)::bigint AS snapshots,
-      COUNT(s.graded_at)::bigint AS graded,
-      SUM(CASE
-        WHEN s.graded_at IS NOT NULL
-          AND s.final_home_score <> s.final_away_score
-          AND ((s.model_home_win_pct >= 0.5 AND s.home_won = TRUE) OR (s.model_home_win_pct < 0.5 AND s.home_won = FALSE))
-        THEN 1 ELSE 0 END)::bigint AS wins,
-      SUM(CASE
-        WHEN s.graded_at IS NOT NULL
-          AND s.final_home_score <> s.final_away_score
-          AND NOT ((s.model_home_win_pct >= 0.5 AND s.home_won = TRUE) OR (s.model_home_win_pct < 0.5 AND s.home_won = FALSE))
-        THEN 1 ELSE 0 END)::bigint AS losses,
+    SELECT windows.window_key, windows.label, COUNT(s.id)::bigint AS snapshots, COUNT(s.graded_at)::bigint AS graded,
+      SUM(CASE WHEN s.graded_at IS NOT NULL AND s.final_home_score <> s.final_away_score AND ((s.model_home_win_pct >= 0.5 AND s.home_won = TRUE) OR (s.model_home_win_pct < 0.5 AND s.home_won = FALSE)) THEN 1 ELSE 0 END)::bigint AS wins,
+      SUM(CASE WHEN s.graded_at IS NOT NULL AND s.final_home_score <> s.final_away_score AND NOT ((s.model_home_win_pct >= 0.5 AND s.home_won = TRUE) OR (s.model_home_win_pct < 0.5 AND s.home_won = FALSE)) THEN 1 ELSE 0 END)::bigint AS losses,
       SUM(CASE WHEN s.graded_at IS NOT NULL AND s.final_home_score = s.final_away_score THEN 1 ELSE 0 END)::bigint AS pushes,
-      AVG(s.brier) AS brier,
-      AVG(s.log_loss) AS log_loss,
-      AVG(s.spread_error) AS spread_mae,
-      AVG(s.total_error) AS total_mae,
-      AVG(s.confidence) AS avg_confidence
+      AVG(s.brier) AS brier, AVG(s.log_loss) AS log_loss, AVG(s.spread_error) AS spread_mae, AVG(s.total_error) AS total_mae, AVG(s.confidence) AS avg_confidence
     FROM windows
     LEFT JOIN sim_prediction_snapshots s ON windows.starts_at IS NULL OR s.captured_at >= windows.starts_at
     GROUP BY windows.window_key, windows.label, windows.sort_order
     ORDER BY windows.sort_order;
   `;
-
-  const leagueRows = await prisma.$queryRaw<Array<{
-    league: string;
-    snapshots: bigint;
-    graded: bigint;
-    wins: bigint;
-    losses: bigint;
-    pushes: bigint;
-    brier: number | null;
-    log_loss: number | null;
-    spread_mae: number | null;
-    total_mae: number | null;
-    avg_confidence: number | null;
-  }>>`
-    SELECT league,
-      COUNT(*)::bigint AS snapshots,
-      COUNT(graded_at)::bigint AS graded,
-      SUM(CASE
-        WHEN graded_at IS NOT NULL
-          AND final_home_score <> final_away_score
-          AND ((model_home_win_pct >= 0.5 AND home_won = TRUE) OR (model_home_win_pct < 0.5 AND home_won = FALSE))
-        THEN 1 ELSE 0 END)::bigint AS wins,
-      SUM(CASE
-        WHEN graded_at IS NOT NULL
-          AND final_home_score <> final_away_score
-          AND NOT ((model_home_win_pct >= 0.5 AND home_won = TRUE) OR (model_home_win_pct < 0.5 AND home_won = FALSE))
-        THEN 1 ELSE 0 END)::bigint AS losses,
+  const leagueRows = await prisma.$queryRaw<Array<{ league: string; snapshots: bigint; graded: bigint; wins: bigint; losses: bigint; pushes: bigint; brier: number | null; log_loss: number | null; spread_mae: number | null; total_mae: number | null; avg_confidence: number | null }>>`
+    SELECT league, COUNT(*)::bigint AS snapshots, COUNT(graded_at)::bigint AS graded,
+      SUM(CASE WHEN graded_at IS NOT NULL AND final_home_score <> final_away_score AND ((model_home_win_pct >= 0.5 AND home_won = TRUE) OR (model_home_win_pct < 0.5 AND home_won = FALSE)) THEN 1 ELSE 0 END)::bigint AS wins,
+      SUM(CASE WHEN graded_at IS NOT NULL AND final_home_score <> final_away_score AND NOT ((model_home_win_pct >= 0.5 AND home_won = TRUE) OR (model_home_win_pct < 0.5 AND home_won = FALSE)) THEN 1 ELSE 0 END)::bigint AS losses,
       SUM(CASE WHEN graded_at IS NOT NULL AND final_home_score = final_away_score THEN 1 ELSE 0 END)::bigint AS pushes,
-      AVG(brier) AS brier,
-      AVG(log_loss) AS log_loss,
-      AVG(spread_error) AS spread_mae,
-      AVG(total_error) AS total_mae,
-      AVG(confidence) AS avg_confidence
+      AVG(brier) AS brier, AVG(log_loss) AS log_loss, AVG(spread_error) AS spread_mae, AVG(total_error) AS total_mae, AVG(confidence) AS avg_confidence
     FROM sim_prediction_snapshots
     GROUP BY league
     ORDER BY league;
   `;
-
-  const bucketRows = await prisma.$queryRaw<Array<{
-    league: string;
-    calibration_bucket: string;
-    count: bigint;
-    avg_predicted: number;
-    actual_rate: number;
-    brier: number;
-  }>>`
-    SELECT league, calibration_bucket,
-      COUNT(*)::bigint AS count,
-      AVG(model_home_win_pct) AS avg_predicted,
-      AVG(CASE WHEN home_won THEN 1.0 ELSE 0.0 END) AS actual_rate,
-      AVG(brier) AS brier
+  const bucketRows = await prisma.$queryRaw<Array<{ league: string; calibration_bucket: string; count: bigint; avg_predicted: number; actual_rate: number; brier: number }>>`
+    SELECT league, calibration_bucket, COUNT(*)::bigint AS count, AVG(model_home_win_pct) AS avg_predicted,
+      AVG(CASE WHEN home_won THEN 1.0 ELSE 0.0 END) AS actual_rate, AVG(brier) AS brier
     FROM sim_prediction_snapshots
     WHERE graded_at IS NOT NULL
     GROUP BY league, calibration_bucket
     ORDER BY league, calibration_bucket;
   `;
-
-  const recentRows = await prisma.$queryRaw<Array<{
-    id: string;
-    league: string;
-    game_id: string;
-    event_label: string;
-    away_team: string;
-    home_team: string;
-    captured_at: Date;
-    status: string;
-    tier: string | null;
-    confidence: number | null;
-    model_home_win_pct: number;
-    home_won: boolean | null;
-    final_home_score: number | null;
-    final_away_score: number | null;
-    brier: number | null;
-    spread_error: number | null;
-    total_error: number | null;
-  }>>`
+  const recentRows = await prisma.$queryRaw<Array<{ id: string; league: string; game_id: string; event_label: string; away_team: string; home_team: string; captured_at: Date; status: string; tier: string | null; confidence: number | null; model_home_win_pct: number; home_won: boolean | null; final_home_score: number | null; final_away_score: number | null; brier: number | null; spread_error: number | null; total_error: number | null }>>`
     SELECT id, league, game_id, event_label, away_team, home_team, captured_at, status, tier, confidence, model_home_win_pct,
       home_won, final_home_score, final_away_score, brier, spread_error, total_error
     FROM sim_prediction_snapshots
     ORDER BY captured_at DESC
     LIMIT ${limit};
   `;
-
   return {
     ok: true,
     databaseReady,
@@ -577,21 +429,7 @@ export async function getSimAccuracySummary(limit = 20): Promise<SimAccuracySumm
     history: historyRows.map((row) => {
       const wins = Number(row.wins);
       const losses = Number(row.losses);
-      return {
-        key: row.window_key,
-        label: row.label,
-        snapshots: Number(row.snapshots),
-        graded: Number(row.graded),
-        wins,
-        losses,
-        pushes: Number(row.pushes),
-        winPct: round(winPct(wins, losses), 3),
-        brier: round(normalizeNumber(row.brier)),
-        logLoss: round(normalizeNumber(row.log_loss)),
-        spreadMae: round(normalizeNumber(row.spread_mae), 2),
-        totalMae: round(normalizeNumber(row.total_mae), 2),
-        avgConfidence: round(normalizeNumber(row.avg_confidence), 3)
-      };
+      return { key: row.window_key, label: row.label, snapshots: Number(row.snapshots), graded: Number(row.graded), wins, losses, pushes: Number(row.pushes), winPct: round(winPct(wins, losses), 3), brier: round(normalizeNumber(row.brier)), logLoss: round(normalizeNumber(row.log_loss)), spreadMae: round(normalizeNumber(row.spread_mae), 2), totalMae: round(normalizeNumber(row.total_mae), 2), avgConfidence: round(normalizeNumber(row.avg_confidence), 3) };
     }),
     byLeague: leagueRows.map((row) => {
       const wins = Number(row.wins);
@@ -609,15 +447,13 @@ export async function getSimAccuracySummary(limit = 20): Promise<SimAccuracySumm
         spreadMae: round(normalizeNumber(row.spread_mae), 2),
         totalMae: round(normalizeNumber(row.total_mae), 2),
         avgConfidence: round(normalizeNumber(row.avg_confidence), 3),
-        calibrationBuckets: bucketRows
-          .filter((bucket) => bucket.league === row.league)
-          .map((bucket) => ({
-            bucket: bucket.calibration_bucket,
-            count: Number(bucket.count),
-            avgPredicted: round(normalizeNumber(bucket.avg_predicted), 3) ?? 0,
-            actualRate: round(normalizeNumber(bucket.actual_rate), 3) ?? 0,
-            brier: round(normalizeNumber(bucket.brier), 4) ?? 0
-          }))
+        calibrationBuckets: bucketRows.filter((bucket) => bucket.league === row.league).map((bucket) => ({
+          bucket: bucket.calibration_bucket,
+          count: Number(bucket.count),
+          avgPredicted: round(normalizeNumber(bucket.avg_predicted), 3) ?? 0,
+          actualRate: round(normalizeNumber(bucket.actual_rate), 3) ?? 0,
+          brier: round(normalizeNumber(bucket.brier), 4) ?? 0
+        }))
       };
     }),
     recent: recentRows.map((row) => {
