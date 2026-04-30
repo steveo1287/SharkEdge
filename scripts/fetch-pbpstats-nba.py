@@ -1,21 +1,18 @@
 """Export NBA possession and lineup enrichment from pbpstats.
 
-Run outside Vercel on your local machine or worker.
+Run outside Vercel on your local machine, worker, or GitHub Action.
 
 Install:
   python -m pip install pbpstats pandas
 
 Examples:
   python scripts/fetch-pbpstats-nba.py data/nba/raw --games=0022300001,0022300002
-  python scripts/fetch-pbpstats-nba.py data/nba/raw --games-file=data/nba/raw/game_ids.txt
+  python scripts/fetch-pbpstats-nba.py data/nba/raw --games-file=data/nba/raw/game_ids.txt --limit=100 --skip-existing
 
 Output:
   data/nba/raw/pbpstats_possessions.json
   data/nba/raw/pbpstats_team_enrichment.json
-
-Notes:
-  pbpstats adds lineup-on-floor and possession detail derived from NBA play-by-play.
-  Keep this offline/worker-side. Do not run massive season backfills inside Vercel.
+  data/nba/raw/pbpstats_errors.json
 """
 
 from __future__ import annotations
@@ -34,6 +31,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--games-file", default="", help="Text file with one NBA game ID per line")
     parser.add_argument("--source", choices=["web", "file"], default="web")
     parser.add_argument("--data-dir", default="data/nba/pbpstats", help="pbpstats cache/source directory")
+    parser.add_argument("--limit", default="0", help="Max games to process. 0 means no limit.")
+    parser.add_argument("--skip-existing", action="store_true", help="Skip game IDs already present in pbpstats_possessions.json")
     return parser.parse_args()
 
 
@@ -43,7 +42,37 @@ def game_ids_from_args(args: argparse.Namespace) -> list[str]:
         ids.extend([item.strip() for item in args.games.split(",") if item.strip()])
     if args.games_file:
         ids.extend([line.strip() for line in Path(args.games_file).read_text().splitlines() if line.strip() and not line.startswith("#")])
-    return list(dict.fromkeys(ids))
+    unique = list(dict.fromkeys(ids))
+    limit = int(args.limit or "0")
+    return unique[:limit] if limit > 0 else unique
+
+
+def load_json_rows(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if isinstance(body, list):
+        return body
+    if isinstance(body, dict) and isinstance(body.get("rows"), list):
+        return body["rows"]
+    return []
+
+
+def load_json_errors(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if isinstance(body, list):
+        return body
+    if isinstance(body, dict) and isinstance(body.get("errors"), list):
+        return body["errors"]
+    return []
 
 
 def load_possessions(game_id: str, source: str, data_dir: str) -> list[Any]:
@@ -166,12 +195,21 @@ def main() -> None:
     args = parse_args()
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    possessions_file = out_dir / "pbpstats_possessions.json"
+    enrichment_file = out_dir / "pbpstats_team_enrichment.json"
+    errors_file = out_dir / "pbpstats_errors.json"
+
+    existing_rows = load_json_rows(possessions_file)
+    existing_errors = load_json_errors(errors_file)
+    existing_game_ids = {str(row.get("gameId")) for row in existing_rows if row.get("gameId")}
     game_ids = game_ids_from_args(args)
-    if not game_ids:
+    if args.skip_existing:
+        game_ids = [game_id for game_id in game_ids if game_id not in existing_game_ids]
+    if not game_ids and not existing_rows:
         raise SystemExit("No game IDs supplied. Use --games=0022300001 or --games-file=path/to/game_ids.txt")
 
-    rows: list[dict[str, Any]] = []
-    errors: list[dict[str, str]] = []
+    rows: list[dict[str, Any]] = list(existing_rows)
+    errors: list[dict[str, str]] = list(existing_errors)
     for game_id in game_ids:
         try:
             possessions = load_possessions(game_id, args.source, args.data_dir)
@@ -179,20 +217,20 @@ def main() -> None:
         except Exception as exc:
             errors.append({"gameId": game_id, "error": str(exc)})
 
-    possessions_file = out_dir / "pbpstats_possessions.json"
-    enrichment_file = out_dir / "pbpstats_team_enrichment.json"
     possessions_file.write_text(json.dumps({"source": "pbpstats", "rows": rows, "errors": errors}, indent=2), encoding="utf-8")
     enrichment_file.write_text(json.dumps({"source": "pbpstats", "rows": team_enrichment(rows)}, indent=2), encoding="utf-8")
+    errors_file.write_text(json.dumps({"source": "pbpstats", "errors": errors}, indent=2), encoding="utf-8")
 
     print(json.dumps({
         "ok": len(errors) == 0,
         "source": "pbpstats",
         "gamesRequested": len(game_ids),
         "possessionRows": len(rows),
-        "errors": errors[:10],
+        "errors": errors[-10:],
         "written": {
             "possessions": str(possessions_file),
             "teamEnrichment": str(enrichment_file),
+            "errors": str(errors_file),
         },
     }, indent=2))
 
