@@ -11,6 +11,13 @@ function clamp(value: number, min: number, max: number) {
 type FeatureSummary = Awaited<ReturnType<typeof getTrendFeatureSummary>>;
 type PerformanceSummary = Awaited<ReturnType<typeof getTrendPerformanceMetrics>>;
 
+export type TrendScoreResult = {
+  total: number;
+  breakdown: Record<string, number>;
+  context: FeatureSummary;
+  performance?: PerformanceSummary | null;
+};
+
 function normalizedFilters(filters?: Partial<TrendFilters> | null): TrendFilters {
   return {
     sport: "ALL",
@@ -75,7 +82,7 @@ function getCalibrationWeight(performance: PerformanceSummary) {
 export async function scoreTrendResult(
   result: TrendEngineResult,
   filters?: Partial<TrendFilters> | null
-) {
+): Promise<TrendScoreResult> {
   const fullFilters = normalizedFilters(filters);
   const [context, performance] = await Promise.all([
     getTrendFeatureSummary(result, fullFilters),
