@@ -1,4 +1,5 @@
 import { getCachedMlbMlModel, scoreMlbMlModel } from "@/services/simulation/mlb-ml-training-engine";
+import { applyMlbPickHistoryTuner, getOrTrainMlbPickHistoryTuner } from "@/services/simulation/mlb-pick-history-tuner";
 
 export type MlbGovernorFeatures = {
   teamEdge: number;
@@ -27,7 +28,7 @@ export type MlbGovernorFeatures = {
 };
 
 export type MlbGovernedProjection = {
-  source: "rules-only" | "rules+ml";
+  source: "rules-only" | "rules+history" | "rules+ml" | "rules+ml+history";
   homeWinPct: number;
   awayWinPct: number;
   projectedTotal: number;
@@ -120,10 +121,7 @@ function auditDirection(features: MlbGovernorFeatures, rawHomeWinPct: number): D
     { label: "form", value: features.formEdge, weight: 0.65, critical: false },
     { label: "lock", value: features.lockEdge, weight: 1.05, critical: true },
     { label: "park/weather", value: features.weatherEdge + features.parkEdge, weight: 0.45, critical: false },
-    // Umpire zone effect on side edge is low — it suppresses scoring symmetrically but
-    // a generous-zone ump slightly helps the better offense; use as soft confirmer.
     { label: "umpire zone", value: features.umpireEdge ?? 0, weight: 0.35, critical: false },
-    // xFIP regression signal: starter's true skill vs. results; medium side weight.
     { label: "pitcher regression", value: features.pitcherRegressionEdge ?? 0, weight: 0.55, critical: false }
   ];
   const active = groups.filter((group) => sign(group.value) !== 0);
@@ -200,7 +198,7 @@ function anchorToMarket(modelHomeWinPct: number, market: MarketAudit) {
   return clamp(modelHomeWinPct * (1 - market.probabilityAnchorWeight) + market.marketHomeWinPct * market.probabilityAnchorWeight, 0.24, 0.78);
 }
 
-function probabilityCap(input: { modelRows: number; volatilityIndex: number; audit: DirectionAudit; market: MarketAudit }) {
+function probabilityCap(input: { modelRows: number; volatilityIndex: number; audit: DirectionAudit; market: MarketAudit; historyAction?: string }) {
   let cap = input.modelRows >= 1000 ? 0.642 : input.modelRows >= 300 ? 0.628 : 0.612;
   if (input.volatilityIndex >= 1.45) cap -= 0.022;
   if (input.audit.weightedAgreement < 0.64) cap -= 0.03;
@@ -208,7 +206,9 @@ function probabilityCap(input: { modelRows: number; volatilityIndex: number; aud
   if (!input.audit.confirmedLock) cap -= 0.018;
   if (input.market.available && input.market.contradiction) cap -= 0.035;
   if (!input.market.available) cap -= 0.012;
-  return clamp(cap, 0.545, 0.645);
+  if (input.historyAction === "pass") cap -= 0.02;
+  if (input.historyAction === "attack") cap += 0.012;
+  return clamp(cap, 0.545, 0.655);
 }
 
 function shouldPass(input: { confidence: number; edgeFromCoin: number; delta?: number; audit: DirectionAudit; market: MarketAudit; volatilityIndex: number }) {
@@ -226,7 +226,7 @@ function shouldPass(input: { confidence: number; edgeFromCoin: number; delta?: n
 
 function auditReasons(rawHomeWinPct: number, adjustedHomeWinPct: number, audit: DirectionAudit, market: MarketAudit) {
   return [
-    `Raw ${sideLabel(rawHomeWinPct)} lean ${round(rawHomeWinPct)} tightened to ${round(adjustedHomeWinPct)} after data-agreement and market-sanity gates.`,
+    `Raw ${sideLabel(rawHomeWinPct)} lean ${round(rawHomeWinPct)} tightened to ${round(adjustedHomeWinPct)} after data-agreement, market-sanity, and pick-history gates.`,
     `Direction agreement ${round(audit.weightedAgreement * 100, 1)}%; critical agreement ${round(audit.criticalAgreement * 100, 1)}%.`,
     audit.confirmedLock ? "Starter/lineup lock supports the lean." : "Starter/lineup lock is not strong enough for an aggressive winner call.",
     market.reason,
@@ -235,32 +235,44 @@ function auditReasons(rawHomeWinPct: number, adjustedHomeWinPct: number, audit: 
 }
 
 export async function governMlbProjection(input: { rulesHomeWinPct: number; rulesProjectedTotal: number; volatilityIndex: number; features: MlbGovernorFeatures }): Promise<MlbGovernedProjection> {
-  const model = await getCachedMlbMlModel();
+  const [model, historyTuner] = await Promise.all([
+    getCachedMlbMlModel(),
+    getOrTrainMlbPickHistoryTuner().catch(() => null)
+  ]);
   const modelFeatures = mlFeatureVector(input.features);
   const signalStrength = modelSignalStrength(input.features);
   const audit = auditDirection(input.features, input.rulesHomeWinPct);
   const conservativeRulesHomeWinPct = shrinkTowardCoinFlip(input.rulesHomeWinPct, audit.reliability);
   const rulesMarket = auditMarket(conservativeRulesHomeWinPct, input.features);
   const marketAnchoredRulesHomeWinPct = anchorToMarket(conservativeRulesHomeWinPct, rulesMarket);
+  const historyAdjustedRules = applyMlbPickHistoryTuner(historyTuner, {
+    rulesHomeWinPct: marketAnchoredRulesHomeWinPct,
+    marketHomeNoVigProbability: input.features.marketHomeNoVigProbability,
+    features: modelFeatures,
+    volatilityIndex: input.volatilityIndex
+  });
   const umpireKnownBoost = typeof input.features.umpireEdge === "number" ? 0.012 : 0;
   const regressionSignalBoost = typeof input.features.pitcherRegressionEdge === "number" && Math.abs(input.features.pitcherRegressionEdge) >= 0.3 ? 0.014 : 0;
   const baseConfidence = clamp(0.42 + signalStrength / 22 + audit.weightedAgreement * 0.14 + audit.criticalAgreement * 0.08 - audit.conflictPenalty - (input.volatilityIndex - 1) * 0.12 + rulesMarket.confidenceAdjustment + umpireKnownBoost + regressionSignalBoost, 0.22, 0.7);
 
   if (!model?.ok) {
-    const edgeFromCoin = Math.abs(marketAnchoredRulesHomeWinPct - 0.5);
-    const confidence = clamp(baseConfidence + edgeFromCoin * 0.28, 0.22, Math.min(0.64, confidenceCapForVolatility(input.volatilityIndex)));
-    const noBet = shouldPass({ confidence, edgeFromCoin, audit, market: rulesMarket, volatilityIndex: input.volatilityIndex });
+    const historyMarket = auditMarket(historyAdjustedRules.tunedHomeWinPct, input.features);
+    const edgeFromCoin = Math.abs(historyAdjustedRules.tunedHomeWinPct - 0.5);
+    const confidence = clamp(baseConfidence + edgeFromCoin * 0.28 + historyAdjustedRules.confidenceAdjustment, 0.18, Math.min(0.64, confidenceCapForVolatility(input.volatilityIndex)));
+    const noBet = historyAdjustedRules.shouldPass || shouldPass({ confidence, edgeFromCoin, audit, market: historyMarket, volatilityIndex: input.volatilityIndex });
+    const tier = !noBet && historyAdjustedRules.action === "attack" && confidence >= 0.64 && edgeFromCoin >= 0.06 && !historyMarket.contradiction ? "attack" : !noBet ? "watch" : "pass";
     return {
-      source: "rules-only",
-      homeWinPct: round(marketAnchoredRulesHomeWinPct),
-      awayWinPct: round(1 - marketAnchoredRulesHomeWinPct),
+      source: "rules+history",
+      homeWinPct: round(historyAdjustedRules.tunedHomeWinPct),
+      awayWinPct: round(1 - historyAdjustedRules.tunedHomeWinPct),
       projectedTotal: round(clamp(input.rulesProjectedTotal + (input.features.umpireEdge ?? 0) * -0.12, 4.5, 16.5), 3),
       confidence: round(confidence),
       noBet,
-      tier: !noBet && confidence >= 0.64 && edgeFromCoin >= 0.06 && !rulesMarket.contradiction ? "attack" : !noBet ? "watch" : "pass",
+      tier,
       reasons: [
-        "ML model unavailable or undertrained; winner side requires data agreement and live no-vig market sanity instead of raw score stacking.",
-        ...auditReasons(input.rulesHomeWinPct, marketAnchoredRulesHomeWinPct, audit, rulesMarket),
+        "ML model unavailable or undertrained; winner side now starts from no-vig market baseline and only moves when graded-pick history allows it.",
+        ...auditReasons(input.rulesHomeWinPct, historyAdjustedRules.tunedHomeWinPct, audit, historyMarket),
+        ...historyAdjustedRules.reasons,
         `Signal strength ${round(signalStrength, 3)}.`,
         `Volatility ${input.volatilityIndex}.`
       ]
@@ -276,28 +288,36 @@ export async function governMlbProjection(input: { rulesHomeWinPct: number; rule
   const blendedBeforeMarket = conservativeRulesHomeWinPct * rulesWeight + conservativeMlHomeWinPct * mlWeight;
   const market = auditMarket(blendedBeforeMarket, input.features);
   const blended = anchorToMarket(blendedBeforeMarket, market);
-  const cap = probabilityCap({ modelRows: model.rows, volatilityIndex: input.volatilityIndex, audit, market });
-  const homeWinPct = clamp(blended, 1 - cap, cap);
+  const historyAdjusted = applyMlbPickHistoryTuner(historyTuner, {
+    rulesHomeWinPct: blended,
+    marketHomeNoVigProbability: input.features.marketHomeNoVigProbability,
+    features: modelFeatures,
+    volatilityIndex: input.volatilityIndex
+  });
+  const historyMarket = auditMarket(historyAdjusted.tunedHomeWinPct, input.features);
+  const cap = probabilityCap({ modelRows: model.rows, volatilityIndex: input.volatilityIndex, audit, market: historyMarket, historyAction: historyAdjusted.action });
+  const homeWinPct = clamp(historyAdjusted.tunedHomeWinPct, 1 - cap, cap);
   const umpireTotalAdjust = (input.features.umpireEdge ?? 0) * -0.12; // generous zone = more K, fewer runs
   const projectedTotal = clamp(input.rulesProjectedTotal * 0.62 + ml.projectedTotal * 0.38 + umpireTotalAdjust, 4.5, 16.5);
   const edgeFromCoin = Math.abs(homeWinPct - 0.5);
-  const confidence = clamp(baseConfidence + edgeFromCoin * 0.34 + agreementBoost + market.confidenceAdjustment, 0.2, Math.min(0.73, confidenceCapForVolatility(input.volatilityIndex) + 0.045));
-  const noBet = shouldPass({ confidence, edgeFromCoin, delta, audit, market, volatilityIndex: input.volatilityIndex });
+  const confidence = clamp(baseConfidence + edgeFromCoin * 0.34 + agreementBoost + historyMarket.confidenceAdjustment + historyAdjusted.confidenceAdjustment, 0.18, Math.min(0.73, confidenceCapForVolatility(input.volatilityIndex) + 0.045));
+  const noBet = historyAdjusted.shouldPass || shouldPass({ confidence, edgeFromCoin, delta, audit, market: historyMarket, volatilityIndex: input.volatilityIndex });
 
   return {
-    source: "rules+ml",
+    source: "rules+ml+history",
     homeWinPct: round(homeWinPct),
     awayWinPct: round(1 - homeWinPct),
     projectedTotal: round(projectedTotal, 3),
     confidence: round(confidence),
     noBet,
-    tier: !noBet && confidence >= 0.67 && edgeFromCoin >= 0.065 && audit.weightedAgreement >= 0.68 && audit.criticalAgreement >= 0.67 && !market.contradiction ? "attack" : !noBet ? "watch" : "pass",
+    tier: !noBet && historyAdjusted.action === "attack" && confidence >= 0.67 && edgeFromCoin >= 0.065 && audit.weightedAgreement >= 0.68 && audit.criticalAgreement >= 0.67 && !historyMarket.contradiction ? "attack" : !noBet ? "watch" : "pass",
     reasons: [
-      `ML blend active with ${model.rows} rows; winner side must clear agreement, lock, volatility, ML disagreement, and live no-vig market gates.`,
-      ...auditReasons(input.rulesHomeWinPct, homeWinPct, audit, market),
+      `ML blend active with ${model.rows} rows; graded-pick history now decides how far the sim can move off no-vig market baseline.`,
+      ...auditReasons(input.rulesHomeWinPct, homeWinPct, audit, historyMarket),
+      ...historyAdjusted.reasons,
       `Rules/ML disagreement ${round(delta, 4)}.`,
-      `Probability cap ${round(cap)} from volatility/data agreement/market sanity.`,
-      noBet ? "Selective prediction gate says pass unless market offers extreme value." : "Projection cleared tighter winner-selection gate."
+      `Probability cap ${round(cap)} from volatility/data agreement/market sanity/history action.`,
+      noBet ? "History-aware selection gate says pass unless market offers extreme value." : "Projection cleared history-aware winner-selection gate."
     ]
   };
 }
