@@ -45,7 +45,7 @@ const SOURCE_DESCRIPTORS: NbaSourceDescriptor[] = [
     label: "NBA Stats team advanced/tracking",
     kind: "team",
     tier: "core",
-    envKeys: ["NBA_STATS_TEAM_ADVANCED_URL", "NBA_OFFICIAL_TEAM_ADVANCED_URL", "NBA_TEAM_ANALYTICS_URL"],
+    envKeys: ["NBA_STATS_TEAM_ADVANCED_URL", "NBA_OFFICIAL_TEAM_ADVANCED_URL"],
     priority: 10,
     weight: 1,
     license: "public-or-self-hosted",
@@ -111,7 +111,7 @@ const SOURCE_DESCRIPTORS: NbaSourceDescriptor[] = [
     label: "NBA Stats player advanced/tracking",
     kind: "player",
     tier: "core",
-    envKeys: ["NBA_STATS_PLAYER_ADVANCED_URL", "NBA_OFFICIAL_PLAYER_ADVANCED_URL", "NBA_PLAYER_ANALYTICS_URL"],
+    envKeys: ["NBA_STATS_PLAYER_ADVANCED_URL", "NBA_OFFICIAL_PLAYER_ADVANCED_URL"],
     priority: 20,
     weight: 1,
     license: "public-or-self-hosted",
@@ -144,7 +144,7 @@ const SOURCE_DESCRIPTORS: NbaSourceDescriptor[] = [
     label: "Basketball-Reference historical team/player",
     kind: "history",
     tier: "historical",
-    envKeys: ["NBA_BREF_HISTORY_URL", "BASKETBALL_REFERENCE_HISTORY_URL", "NBA_RECENT_FORM_URL"],
+    envKeys: ["NBA_BREF_HISTORY_URL", "BASKETBALL_REFERENCE_HISTORY_URL"],
     priority: 10,
     weight: 0.95,
     license: "public-or-self-hosted",
@@ -166,7 +166,7 @@ const SOURCE_DESCRIPTORS: NbaSourceDescriptor[] = [
     label: "PBP Stats possession history",
     kind: "history",
     tier: "advanced",
-    envKeys: ["NBA_PBPSTATS_HISTORY_URL", "NBA_MATCHUP_HISTORY_URL"],
+    envKeys: ["NBA_PBPSTATS_HISTORY_URL", "NBA_PBPSTATS_LINEUP_HISTORY_URL"],
     priority: 30,
     weight: 1.05,
     license: "public-or-self-hosted",
@@ -188,7 +188,7 @@ const SOURCE_DESCRIPTORS: NbaSourceDescriptor[] = [
     label: "Ratings blend feed",
     kind: "rating",
     tier: "fallback",
-    envKeys: ["NBA_GAME_RATINGS_URL", "GAME_RATINGS_URL", "VIDEO_GAME_RATINGS_URL"],
+    envKeys: ["NBA_ROSTER_RATINGS_URL", "NBA_2K_RATINGS_URL", "NBA_EXTERNAL_RATINGS_URL"],
     priority: 80,
     weight: 0.82,
     license: "public-or-self-hosted",
@@ -216,9 +216,13 @@ function rowsFromBody(body: unknown, kind: NbaSourceKind): NbaSourceRow[] {
   return [];
 }
 
+function isRecursiveSourceFeedUrl(url: string) {
+  return url.includes("/api/simulation/nba/source-feed");
+}
+
 async function fetchSourceRows(source: NbaSourceDescriptor, kind: NbaSourceKind): Promise<NbaSourceRow[]> {
   const configured = firstEnv(source.envKeys);
-  if (!configured) return [];
+  if (!configured || isRecursiveSourceFeedUrl(configured.value)) return [];
   try {
     const response = await fetch(configured.value, { cache: "no-store" });
     if (!response.ok) return [];
@@ -249,7 +253,7 @@ export function buildNbaSourcePlan(kind?: NbaSourceKind) {
       ...source,
       configured: Boolean(configured),
       configuredEnvKey: configured?.key ?? null,
-      urlConfigured: Boolean(configured?.value)
+      urlConfigured: Boolean(configured?.value) && !isRecursiveSourceFeedUrl(configured?.value ?? "")
     };
   });
 }
@@ -263,7 +267,10 @@ export async function getNbaSourceFeed(kind: NbaSourceKind): Promise<NbaSourceFe
     if (source.license !== "public-or-self-hosted" && configured) {
       warnings.push(`${source.label} is marked ${source.license}; only use licensed/exported data.`);
     }
-    return { source, configured: Boolean(configured), urlConfigured: Boolean(configured?.value), rows };
+    if (configured && isRecursiveSourceFeedUrl(configured.value)) {
+      warnings.push(`${source.label} points back at the SharkEdge source-feed route and was ignored to prevent recursion.`);
+    }
+    return { source, configured: Boolean(configured), urlConfigured: Boolean(configured?.value) && !isRecursiveSourceFeedUrl(configured?.value ?? ""), rows };
   }));
   const rows = collected
     .flatMap((item) => item.rows)
