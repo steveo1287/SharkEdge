@@ -12,6 +12,11 @@ import {
   type LinearWinExpectancyProfile,
   type SupportedLinearWinLeague
 } from "@/services/analytics/team-strength/linear-win-expectancy";
+import {
+  blendProbabilitySignal,
+  log5FromScoring,
+  type Log5MatchupResult
+} from "@/services/analytics/team-strength/matchup-probability";
 
 export type TeamLinearWinExpectancyInput = {
   scored?: number | null;
@@ -65,6 +70,8 @@ export type ContextualGameSimulationInput = {
   } | null;
   interactionContext?: HeadToHeadSimulationContext | null;
   linearWinExpectancyWeight?: number | null;
+  log5Weight?: number | null;
+  pythagoreanExponent?: number | null;
   samples?: number;
   seed?: number;
 };
@@ -105,6 +112,12 @@ type SportConfig = {
   paceBaseline: number;
   totalBlendWeight: number;
   spreadBlendWeight: number;
+};
+
+type Log5ScoringSignal = Log5MatchupResult & {
+  teamAExpectedWinPct: number;
+  teamBExpectedWinPct: number;
+  exponent: number;
 };
 
 const SPORT_CONFIG: Record<string, SportConfig> = {
@@ -151,6 +164,27 @@ function buildLinearWinProfile(
     allowed,
     actualWins: finiteNumber(team.linearWinExpectancy?.actualWins),
     actualLosses: finiteNumber(team.linearWinExpectancy?.actualLosses)
+  });
+}
+
+function buildLog5ScoringSignal(input: ContextualGameSimulationInput): Log5ScoringSignal | null {
+  if (!supportedLinearWinLeague(input.leagueKey)) return null;
+
+  const homeScored = finiteNumber(input.home.linearWinExpectancy?.scored);
+  const homeAllowed = finiteNumber(input.home.linearWinExpectancy?.allowed);
+  const awayScored = finiteNumber(input.away.linearWinExpectancy?.scored);
+  const awayAllowed = finiteNumber(input.away.linearWinExpectancy?.allowed);
+
+  if (homeScored == null || homeAllowed == null || awayScored == null || awayAllowed == null) {
+    return null;
+  }
+
+  return log5FromScoring({
+    teamAScored: homeScored,
+    teamAAllowed: homeAllowed,
+    teamBScored: awayScored,
+    teamBAllowed: awayAllowed,
+    exponent: finiteNumber(input.pythagoreanExponent) ?? undefined
   });
 }
 
@@ -405,20 +439,35 @@ export function simulateContextualGame(input: ContextualGameSimulationInput): Co
   const marginWinProbHome = normalCdf(projectedSpreadHome, 0, Math.max(0.25, spreadStdDev));
   let winProbHome = clamp(monteCarloWinProbHome * 0.72 + marginWinProbHome * 0.28, 0.02, 0.98);
 
-  const homeLinearWinProfile = buildLinearWinProfile(input.leagueKey, input.home);
-  const awayLinearWinProfile = buildLinearWinProfile(input.leagueKey, input.away);
-  if (homeLinearWinProfile && awayLinearWinProfile) {
-    const prior = linearWinPriorProbability({
-      homeExpectedWinPct: homeLinearWinProfile.expectedWinPct,
-      awayExpectedWinPct: awayLinearWinProfile.expectedWinPct,
-      baseHomeWinProbability: winProbHome,
-      weight: input.linearWinExpectancyWeight ?? 0.08
+  const log5Signal = buildLog5ScoringSignal(input);
+  if (log5Signal) {
+    const prior = blendProbabilitySignal({
+      baseProbability: winProbHome,
+      signalProbability: log5Signal.teamAProbability,
+      weight: input.log5Weight ?? 0.1,
+      maxWeight: 0.25
     });
-    const movement = prior.adjustedHomeWinProbability - winProbHome;
-    winProbHome = prior.adjustedHomeWinProbability;
+    const movement = prior.adjustedProbability - winProbHome;
+    winProbHome = prior.adjustedProbability;
     drivers.push(
-      `Linear win expectancy prior ${round(prior.linearHomeSignal * 100, 1)}% home (${round(prior.weight * 100, 1)}% blend, ${movement >= 0 ? "+" : ""}${round(movement * 100, 2)} pts)`
+      `Log5 Pythagenpat prior ${round(prior.signalProbability * 100, 1)}% home (${round(prior.weight * 100, 1)}% blend, ${movement >= 0 ? "+" : ""}${round(movement * 100, 2)} pts)`
     );
+  } else {
+    const homeLinearWinProfile = buildLinearWinProfile(input.leagueKey, input.home);
+    const awayLinearWinProfile = buildLinearWinProfile(input.leagueKey, input.away);
+    if (homeLinearWinProfile && awayLinearWinProfile) {
+      const prior = linearWinPriorProbability({
+        homeExpectedWinPct: homeLinearWinProfile.expectedWinPct,
+        awayExpectedWinPct: awayLinearWinProfile.expectedWinPct,
+        baseHomeWinProbability: winProbHome,
+        weight: input.linearWinExpectancyWeight ?? 0.08
+      });
+      const movement = prior.adjustedHomeWinProbability - winProbHome;
+      winProbHome = prior.adjustedHomeWinProbability;
+      drivers.push(
+        `Linear win expectancy prior ${round(prior.linearHomeSignal * 100, 1)}% home (${round(prior.weight * 100, 1)}% blend, ${movement >= 0 ? "+" : ""}${round(movement * 100, 2)} pts)`
+      );
+    }
   }
 
   return {
