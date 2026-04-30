@@ -6,6 +6,36 @@ import type {
   HeadToHeadSimulationContext,
   TeamPlaystyleProfile
 } from "@/services/simulation/context-profiles";
+import {
+  linearWinExpectancyProfile,
+  linearWinPriorProbability,
+  type LinearWinExpectancyProfile,
+  type SupportedLinearWinLeague
+} from "@/services/analytics/team-strength/linear-win-expectancy";
+import {
+  blendProbabilitySignal,
+  eloExpectedWinProbability,
+  log5FromScoring,
+  type Log5MatchupResult
+} from "@/services/analytics/team-strength/matchup-probability";
+import {
+  mlbPregameEloAdjustment,
+  type MlbPregameEloAdjustment,
+  type MlbPregameEloAdjustmentInput
+} from "@/services/analytics/team-strength/mlb-elo-adjustments";
+
+export type TeamStrengthContext = {
+  scored?: number | null;
+  allowed?: number | null;
+  actualWins?: number | null;
+  actualLosses?: number | null;
+};
+
+export type TeamLinearWinExpectancyInput = TeamStrengthContext;
+
+export type MlbPregameEloContext = MlbPregameEloAdjustmentInput & {
+  rating?: number | null;
+};
 
 export type TeamSimulationFactors = {
   teamName: string;
@@ -18,6 +48,9 @@ export type TeamSimulationFactors = {
   travelProxyScore?: number | null;
   backToBack?: boolean | null;
   revengeSpot?: boolean | null;
+  teamStrengthContext?: TeamStrengthContext | null;
+  linearWinExpectancy?: TeamLinearWinExpectancyInput | null;
+  mlbPregameEloContext?: MlbPregameEloContext | null;
   ratings?: TeamGameRatingsProfile | null;
   style?: TeamPlaystyleProfile | null;
   coach?: CoachTendencyProfile | null;
@@ -50,6 +83,10 @@ export type ContextualGameSimulationInput = {
     underOdds?: number | null;
   } | null;
   interactionContext?: HeadToHeadSimulationContext | null;
+  linearWinExpectancyWeight?: number | null;
+  log5Weight?: number | null;
+  pythagoreanExponent?: number | null;
+  mlbEloWeight?: number | null;
   samples?: number;
   seed?: number;
 };
@@ -81,6 +118,41 @@ export type ContextualGameSimulationSummary = {
     deltaOverall: number;
     confidence: number;
   };
+  teamStrengthPriors?: {
+    log5: null | {
+      homeProbability: number;
+      homeExpectedWinPct: number;
+      awayExpectedWinPct: number;
+      weight: number;
+      movementPts: number;
+    };
+    linear: null | {
+      homeProbability: number;
+      weight: number;
+      movementPts: number;
+      homeProfile: LinearWinExpectancyProfile;
+      awayProfile: LinearWinExpectancyProfile;
+    };
+    mlbElo: null | {
+      homeProbability: number | null;
+      weight: number;
+      movementPts: number;
+      homeAdjustment: MlbPregameEloAdjustment;
+      awayAdjustment: MlbPregameEloAdjustment;
+      inputsUsed: {
+        homeRating: boolean;
+        awayRating: boolean;
+        homeTravel: boolean;
+        awayTravel: boolean;
+        homeRest: boolean;
+        awayRest: boolean;
+        homePitcher: boolean;
+        awayPitcher: boolean;
+        noFans: boolean;
+      };
+      notes: string[];
+    };
+  };
 };
 
 type SportConfig = {
@@ -90,6 +162,12 @@ type SportConfig = {
   paceBaseline: number;
   totalBlendWeight: number;
   spreadBlendWeight: number;
+};
+
+type Log5ScoringSignal = Log5MatchupResult & {
+  teamAExpectedWinPct: number;
+  teamBExpectedWinPct: number;
+  exponent: number;
 };
 
 const SPORT_CONFIG: Record<string, SportConfig> = {
@@ -107,6 +185,110 @@ function clamp(value: number, min: number, max: number) {
 
 function round(value: number, digits = 3) {
   return Number(value.toFixed(digits));
+}
+
+function finiteNumber(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function supportedLinearWinLeague(leagueKey: string): SupportedLinearWinLeague | null {
+  const normalized = leagueKey.toUpperCase();
+  if (normalized === "MLB" || normalized === "NFL" || normalized === "NBA") {
+    return normalized;
+  }
+  return null;
+}
+
+function teamStrengthContext(team: TeamSimulationFactors): TeamStrengthContext | null {
+  return team.teamStrengthContext ?? team.linearWinExpectancy ?? null;
+}
+
+function buildLinearWinProfile(
+  leagueKey: string,
+  team: TeamSimulationFactors
+): LinearWinExpectancyProfile | null {
+  const league = supportedLinearWinLeague(leagueKey);
+  const context = teamStrengthContext(team);
+  const scored = finiteNumber(context?.scored);
+  const allowed = finiteNumber(context?.allowed);
+  if (!league || scored == null || allowed == null) return null;
+
+  return linearWinExpectancyProfile({
+    league,
+    scored,
+    allowed,
+    actualWins: finiteNumber(context?.actualWins),
+    actualLosses: finiteNumber(context?.actualLosses)
+  });
+}
+
+function buildLog5ScoringSignal(input: ContextualGameSimulationInput): Log5ScoringSignal | null {
+  if (!supportedLinearWinLeague(input.leagueKey)) return null;
+
+  const homeContext = teamStrengthContext(input.home);
+  const awayContext = teamStrengthContext(input.away);
+  const homeScored = finiteNumber(homeContext?.scored);
+  const homeAllowed = finiteNumber(homeContext?.allowed);
+  const awayScored = finiteNumber(awayContext?.scored);
+  const awayAllowed = finiteNumber(awayContext?.allowed);
+
+  if (homeScored == null || homeAllowed == null || awayScored == null || awayAllowed == null) {
+    return null;
+  }
+
+  return log5FromScoring({
+    teamAScored: homeScored,
+    teamAAllowed: homeAllowed,
+    teamBScored: awayScored,
+    teamBAllowed: awayAllowed,
+    exponent: finiteNumber(input.pythagoreanExponent) ?? undefined
+  });
+}
+
+function buildMlbEloPrior(input: ContextualGameSimulationInput) {
+  if (input.leagueKey !== "MLB") return null;
+  const home = input.home.mlbPregameEloContext ?? null;
+  const away = input.away.mlbPregameEloContext ?? null;
+  const homeRating = finiteNumber(home?.rating);
+  const awayRating = finiteNumber(away?.rating);
+  const homeAdjustment = mlbPregameEloAdjustment({ ...home, isHome: true });
+  const awayAdjustment = mlbPregameEloAdjustment({ ...away, isHome: false });
+  const inputsUsed = {
+    homeRating: homeRating != null,
+    awayRating: awayRating != null,
+    homeTravel: finiteNumber(home?.milesTraveled) != null,
+    awayTravel: finiteNumber(away?.milesTraveled) != null,
+    homeRest: finiteNumber(home?.restDays) != null,
+    awayRest: finiteNumber(away?.restDays) != null,
+    homePitcher: !home?.isOpener && finiteNumber(home?.pitcherRollingGameScore) != null && finiteNumber(home?.teamRollingGameScore) != null,
+    awayPitcher: !away?.isOpener && finiteNumber(away?.pitcherRollingGameScore) != null && finiteNumber(away?.teamRollingGameScore) != null,
+    noFans: Boolean(home?.noFans || away?.noFans)
+  };
+  const notes = [...homeAdjustment.notes.map((note) => `Home ${note}`), ...awayAdjustment.notes.map((note) => `Away ${note}`)];
+
+  if (homeRating == null || awayRating == null) {
+    return {
+      probability: null,
+      homeAdjustment,
+      awayAdjustment,
+      inputsUsed,
+      notes: ["MLB Elo probability skipped: both teams need real base ratings.", ...notes]
+    };
+  }
+
+  const expected = eloExpectedWinProbability({
+    ratingA: homeRating + homeAdjustment.totalAdjustment,
+    ratingB: awayRating + awayAdjustment.totalAdjustment,
+    homeFieldElo: 0
+  });
+
+  return {
+    probability: expected.teamAProbability,
+    homeAdjustment,
+    awayAdjustment,
+    inputsUsed,
+    notes
+  };
 }
 
 function average(values: number[]) {
@@ -358,7 +540,88 @@ export function simulateContextualGame(input: ContextualGameSimulationInput): Co
   const spreadStdDev = standardDeviation(spreadsHome);
   const monteCarloWinProbHome = homeWins / samples;
   const marginWinProbHome = normalCdf(projectedSpreadHome, 0, Math.max(0.25, spreadStdDev));
-  const winProbHome = clamp(monteCarloWinProbHome * 0.72 + marginWinProbHome * 0.28, 0.02, 0.98);
+  let winProbHome = clamp(monteCarloWinProbHome * 0.72 + marginWinProbHome * 0.28, 0.02, 0.98);
+
+  const log5Signal = buildLog5ScoringSignal(input);
+  const teamStrengthPriors: ContextualGameSimulationSummary["teamStrengthPriors"] = {
+    log5: null,
+    linear: null,
+    mlbElo: null
+  };
+
+  // These are low-weight priors, not the primary model. Monte Carlo + margin probability remains the main engine.
+  // Log5/Pythagenpat is only a team-strength sanity layer when real scored/allowed context exists.
+  if (log5Signal) {
+    const prior = blendProbabilitySignal({
+      baseProbability: winProbHome,
+      signalProbability: log5Signal.teamAProbability,
+      weight: input.log5Weight ?? 0.1,
+      maxWeight: 0.25
+    });
+    const movement = prior.adjustedProbability - winProbHome;
+    winProbHome = prior.adjustedProbability;
+    teamStrengthPriors.log5 = {
+      homeProbability: round(prior.signalProbability, 4),
+      homeExpectedWinPct: round(log5Signal.teamAExpectedWinPct, 4),
+      awayExpectedWinPct: round(log5Signal.teamBExpectedWinPct, 4),
+      weight: prior.weight,
+      movementPts: round(movement * 100, 2)
+    };
+    drivers.push(
+      `Log5 Pythagenpat prior ${round(prior.signalProbability * 100, 1)}% home (${round(prior.weight * 100, 1)}% blend, ${movement >= 0 ? "+" : ""}${round(movement * 100, 2)} pts)`
+    );
+  } else {
+    const homeLinearWinProfile = buildLinearWinProfile(input.leagueKey, input.home);
+    const awayLinearWinProfile = buildLinearWinProfile(input.leagueKey, input.away);
+    if (homeLinearWinProfile && awayLinearWinProfile) {
+      const prior = linearWinPriorProbability({
+        homeExpectedWinPct: homeLinearWinProfile.expectedWinPct,
+        awayExpectedWinPct: awayLinearWinProfile.expectedWinPct,
+        baseHomeWinProbability: winProbHome,
+        weight: input.linearWinExpectancyWeight ?? 0.08
+      });
+      const movement = prior.adjustedHomeWinProbability - winProbHome;
+      winProbHome = prior.adjustedHomeWinProbability;
+      teamStrengthPriors.linear = {
+        homeProbability: round(prior.linearHomeSignal, 4),
+        weight: prior.weight,
+        movementPts: round(movement * 100, 2),
+        homeProfile: homeLinearWinProfile,
+        awayProfile: awayLinearWinProfile
+      };
+      drivers.push(
+        `Linear win expectancy prior ${round(prior.linearHomeSignal * 100, 1)}% home (${round(prior.weight * 100, 1)}% blend, ${movement >= 0 ? "+" : ""}${round(movement * 100, 2)} pts)`
+      );
+    }
+  }
+
+  // MLB Elo context is optional and data-dependent. It only blends when both real base ratings exist.
+  const mlbEloPrior = buildMlbEloPrior(input);
+  if (mlbEloPrior) {
+    const weight = mlbEloPrior.probability == null ? 0 : clamp(input.mlbEloWeight ?? 0.06, 0, 0.15);
+    const movement = mlbEloPrior.probability == null ? 0 : (mlbEloPrior.probability - winProbHome) * weight;
+    if (mlbEloPrior.probability != null && weight > 0) {
+      const prior = blendProbabilitySignal({
+        baseProbability: winProbHome,
+        signalProbability: mlbEloPrior.probability,
+        weight,
+        maxWeight: 0.15
+      });
+      winProbHome = prior.adjustedProbability;
+      drivers.push(
+        `MLB Elo context prior ${round(prior.signalProbability * 100, 1)}% home (${round(prior.weight * 100, 1)}% blend, ${movement >= 0 ? "+" : ""}${round(movement * 100, 2)} pts)`
+      );
+    }
+    teamStrengthPriors.mlbElo = {
+      homeProbability: mlbEloPrior.probability == null ? null : round(mlbEloPrior.probability, 4),
+      weight,
+      movementPts: round(movement * 100, 2),
+      homeAdjustment: mlbEloPrior.homeAdjustment,
+      awayAdjustment: mlbEloPrior.awayAdjustment,
+      inputsUsed: mlbEloPrior.inputsUsed,
+      notes: mlbEloPrior.notes
+    };
+  }
 
   return {
     engine: "contextual-monte-carlo-v2",
@@ -386,6 +649,7 @@ export function simulateContextualGame(input: ContextualGameSimulationInput): Co
       blendWeight: ratingsPrior?.blendWeight ?? 0,
       deltaOverall: ratingsPrior?.deltaOverall ?? 0,
       confidence: ratingsPrior?.confidence ?? 0
-    }
+    },
+    teamStrengthPriors
   };
 }
