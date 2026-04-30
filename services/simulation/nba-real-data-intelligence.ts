@@ -359,50 +359,42 @@ export async function compareNbaRealDataIntelligence(awayTeam: string, homeTeam:
   const historyGrouped = groupByTeam(historyRows);
   const awayKey = normalizeName(awayTeam);
   const homeKey = normalizeName(homeTeam);
-  const awayTeamProfile = rowTeamProfile(teamGrouped[awayKey], awayTeam);
-  const homeTeamProfile = rowTeamProfile(teamGrouped[homeKey], homeTeam);
-  const awayPlayerProfile = playerProfile(players, awayTeam);
-  const homePlayerProfile = playerProfile(players, homeTeam);
+  const maybeAwayTeam = rowTeamProfile(teamGrouped[awayKey], awayTeam);
+  const maybeHomeTeam = rowTeamProfile(teamGrouped[homeKey], homeTeam);
+  const maybeAwayPlayer = playerProfile(players, awayTeam);
+  const maybeHomePlayer = playerProfile(players, homeTeam);
   const awayRating = ratingProfile(ratingGrouped[awayKey], awayTeam);
   const homeRating = ratingProfile(ratingGrouped[homeKey], homeTeam);
   const awayHistory = historyProfile(historyGrouped[awayKey], awayTeam);
   const homeHistory = historyProfile(historyGrouped[homeKey], homeTeam);
 
   const modules: NbaRealDataIntel["modules"] = [
-    { label: "NBA team feed", status: awayTeamProfile && homeTeamProfile ? "real" : "unavailable", note: awayTeamProfile && homeTeamProfile ? "Real team advanced/warehouse rows loaded for both teams." : "Missing real team rows for one or both teams; no synthetic team strength used." },
-    { label: "NBA player feed", status: awayPlayerProfile && homePlayerProfile ? "real" : "unavailable", note: awayPlayerProfile && homePlayerProfile ? "Real player impact rows loaded for both teams." : "Missing real player rows for one or both teams; no synthetic player strength used." },
+    { label: "NBA team feed", status: maybeAwayTeam && maybeHomeTeam ? "real" : "unavailable", note: maybeAwayTeam && maybeHomeTeam ? "Real team advanced/warehouse rows loaded for both teams." : "Missing real team rows for one or both teams; no synthetic team strength used." },
+    { label: "NBA player feed", status: maybeAwayPlayer && maybeHomePlayer ? "real" : "unavailable", note: maybeAwayPlayer && maybeHomePlayer ? "Real player impact rows loaded for both teams." : "Missing real player rows for one or both teams; no synthetic player strength used." },
     { label: "NBA history feed", status: awayHistory && homeHistory ? "real" : "unavailable", note: awayHistory && homeHistory ? "Real history/recent-form rows loaded for both teams." : "Missing real history rows for one or both teams; no synthetic history used." },
     { label: "NBA ratings feed", status: awayRating && homeRating ? "real" : "unavailable", note: awayRating && homeRating ? "Real derived/external ratings rows loaded for both teams." : "Missing real ratings rows; rating blend omitted." }
   ];
 
-  const requiredModulesReady = Boolean(awayTeamProfile && homeTeamProfile && awayPlayerProfile && homePlayerProfile);
-  if (!requiredModulesReady) {
+  if (!maybeAwayTeam || !maybeHomeTeam || !maybeAwayPlayer || !maybeHomePlayer) {
     return unavailableIntel("missing-required-team-or-player-feed", modules);
   }
+
+  const awayTeamProfile = maybeAwayTeam;
+  const homeTeamProfile = maybeHomeTeam;
+  const awayPlayerProfile = maybeAwayPlayer;
+  const homePlayerProfile = maybeHomePlayer;
 
   const factors: NbaRealDataFactor[] = [];
   const teamNet = diff(homeTeamProfile.netRating, awayTeamProfile.netRating, 0.42);
   const offense = diff(homeTeamProfile.offensiveRating, awayTeamProfile.offensiveRating, 0.24);
   const defense = diff(awayTeamProfile.defensiveRating, homeTeamProfile.defensiveRating, 0.24);
-  const shotQuality = diff(
-    homeTeamProfile.trueShooting * 0.5 + homeTeamProfile.effectiveFg * 0.32 + homeTeamProfile.threePointAccuracy * 0.18,
-    awayTeamProfile.trueShooting * 0.5 + awayTeamProfile.effectiveFg * 0.32 + awayTeamProfile.threePointAccuracy * 0.18,
-    0.18
-  );
-  const possession = diff(
-    homeTeamProfile.offensiveReboundRate + homeTeamProfile.defensiveReboundRate * 0.35 - homeTeamProfile.turnoverRate * 1.4 + homeTeamProfile.freeThrowRate * 0.28,
-    awayTeamProfile.offensiveReboundRate + awayTeamProfile.defensiveReboundRate * 0.35 - awayTeamProfile.turnoverRate * 1.4 + awayTeamProfile.freeThrowRate * 0.28,
-    0.12
-  );
+  const shotQuality = diff(homeTeamProfile.trueShooting * 0.5 + homeTeamProfile.effectiveFg * 0.32 + homeTeamProfile.threePointAccuracy * 0.18, awayTeamProfile.trueShooting * 0.5 + awayTeamProfile.effectiveFg * 0.32 + awayTeamProfile.threePointAccuracy * 0.18, 0.18);
+  const possession = diff(homeTeamProfile.offensiveReboundRate + homeTeamProfile.defensiveReboundRate * 0.35 - homeTeamProfile.turnoverRate * 1.4 + homeTeamProfile.freeThrowRate * 0.28, awayTeamProfile.offensiveReboundRate + awayTeamProfile.defensiveReboundRate * 0.35 - awayTeamProfile.turnoverRate * 1.4 + awayTeamProfile.freeThrowRate * 0.28, 0.12);
   const pace = diff(homeTeamProfile.pace, awayTeamProfile.pace, 0.08);
   const playStyle = diff(homeTeamProfile.transition + homeTeamProfile.halfCourt, awayTeamProfile.transition + awayTeamProfile.halfCourt, 0.16);
   const context = round(homeTeamProfile.homeAdvantage + diff(homeTeamProfile.rest + homeTeamProfile.travel, awayTeamProfile.rest + awayTeamProfile.travel, 0.26), 2);
   const recentTeamForm = diff(homeTeamProfile.recentForm, awayTeamProfile.recentForm, 0.18);
-  const playerImpact = diff(
-    homePlayerProfile.starPower + homePlayerProfile.usageCreation + homePlayerProfile.onOffImpact + homePlayerProfile.spacing + homePlayerProfile.playmaking,
-    awayPlayerProfile.starPower + awayPlayerProfile.usageCreation + awayPlayerProfile.onOffImpact + awayPlayerProfile.spacing + awayPlayerProfile.playmaking,
-    0.2
-  );
+  const playerImpact = diff(homePlayerProfile.starPower + homePlayerProfile.usageCreation + homePlayerProfile.onOffImpact + homePlayerProfile.spacing + homePlayerProfile.playmaking, awayPlayerProfile.starPower + awayPlayerProfile.usageCreation + awayPlayerProfile.onOffImpact + awayPlayerProfile.spacing + awayPlayerProfile.playmaking, 0.2);
   const playerDefense = diff(homePlayerProfile.perimeterDefense + homePlayerProfile.rimProtection + homePlayerProfile.rebounding, awayPlayerProfile.perimeterDefense + awayPlayerProfile.rimProtection + awayPlayerProfile.rebounding, 0.16);
   const health = diff(homePlayerProfile.availability - homePlayerProfile.fatigue - homeTeamProfile.injuryDrag, awayPlayerProfile.availability - awayPlayerProfile.fatigue - awayTeamProfile.injuryDrag, 0.36);
   const depth = diff(homePlayerProfile.depthPower, awayPlayerProfile.depthPower, 0.24);
