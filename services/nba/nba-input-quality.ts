@@ -554,7 +554,7 @@ export function buildNbaInputQualityReport(input: NbaGameInputQualityInput): Nba
     actionGate = "PASS";
   } else if (grade === "RED") {
     actionGate = "WATCH_ONLY";
-  } else if (grade === "YELLOW" || confidenceCap === "LOW") {
+  } else if (grade === "YELLOW" || confidenceCap === "LOW" || confidenceCap === "MEDIUM") {
     actionGate = "ALLOW_LEAN";
   }
 
