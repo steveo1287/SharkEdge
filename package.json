@@ -47,7 +47,11 @@
     "historical:free": "tsx scripts/worker-free-historical.ts",
     "historical:refresh": "tsx scripts/worker-historical-refresh.ts",
     "retrosheet:ingest": "tsx scripts/ingest-retrosheet-csv.ts",
-    "retrosheet:features": "tsx scripts/build-mlb-retrosheet-features.ts"
+    "retrosheet:features": "tsx scripts/build-mlb-retrosheet-features.ts",
+    "nba:warehouse:features": "tsx scripts/build-nba-free-warehouse-feeds.ts",
+    "nba:warehouse:fetch:hoopr": "Rscript scripts/fetch-nba-free-warehouse.R",
+    "nba:warehouse:fetch:nba-api": "python scripts/fetch-nba-api-current.py",
+    "nba:warehouse:fetch:pbpstats": "python scripts/fetch-pbpstats-nba.py"
   },
   "dependencies": {
     "@prisma/client": "^6.7.0",
