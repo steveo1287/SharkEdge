@@ -1,4 +1,5 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
+import { buildOfficialNbaLiveFeed } from "@/services/data/nba/official-live-feed";
 
 export type NbaRealDataFactor = {
   label: string;
@@ -35,6 +36,7 @@ export type NbaRealDataIntel = {
 };
 
 type Row = Record<string, unknown>;
+type FeedKind = "team" | "player" | "history" | "rating";
 
 type TeamProfile = {
   teamName: string;
@@ -114,7 +116,7 @@ const HISTORY_CACHE_KEY = "nba:real-data:history:v1";
 const CACHE_TTL_SECONDS = 60 * 30;
 
 function normalizeName(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return value.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "");
 }
 
 function text(...values: unknown[]) {
@@ -177,26 +179,57 @@ async function fetchRows(url: string | null): Promise<Row[] | null> {
   }
 }
 
-async function cachedRows(cacheKey: string, url: string | null): Promise<Row[] | null> {
+async function cachedRows(cacheKey: string, url: string | null, kind: FeedKind): Promise<Row[] | null> {
   const cached = await readHotCache<Row[]>(cacheKey);
   if (cached?.length) return cached;
   const rows = await fetchRows(url);
-  if (rows?.length) await writeHotCache(cacheKey, rows, CACHE_TTL_SECONDS);
-  return rows;
+  if (rows?.length) {
+    await writeHotCache(cacheKey, rows, CACHE_TTL_SECONDS);
+    return rows;
+  }
+  const fallbackRows = await buildOfficialNbaLiveFeed(kind).catch(() => []);
+  if (fallbackRows?.length) {
+    await writeHotCache(cacheKey, fallbackRows, CACHE_TTL_SECONDS);
+    return fallbackRows;
+  }
+  return null;
 }
 
 function groupByTeam(rows: Row[] | null) {
   const grouped: Record<string, Row> = {};
   for (const row of rows ?? []) {
-    const name = text(row.teamName, row.team, row.team_name, row.name, row.TEAM_NAME, row.team_abbreviation, row.TEAM_ABBREVIATION);
-    if (name) grouped[normalizeName(name)] = row;
+    const candidates = [
+      text(row.teamName),
+      text(row.team),
+      text(row.team_name),
+      text(row.name),
+      text(row.TEAM_NAME),
+      text(row.teamAbbreviation),
+      text(row.team_abbreviation),
+      text(row.TEAM_ABBREVIATION)
+    ].filter(Boolean) as string[];
+    for (const name of candidates) grouped[normalizeName(name)] = row;
   }
   return grouped;
 }
 
 function matchedPlayers(rows: Row[] | null, teamName: string) {
   const key = normalizeName(teamName);
-  return (rows ?? []).filter((row) => normalizeName(text(row.teamName, row.team, row.team_name, row.TEAM_NAME, row.team_abbreviation, row.TEAM_ABBREVIATION) ?? "") === key);
+  return (rows ?? []).filter((row) => {
+    const candidates = [
+      text(row.teamName),
+      text(row.team),
+      text(row.team_name),
+      text(row.TEAM_NAME),
+      text(row.teamAbbreviation),
+      text(row.team_abbreviation),
+      text(row.TEAM_ABBREVIATION)
+    ].filter(Boolean) as string[];
+    return candidates.some((candidate) => {
+      const normalized = normalizeName(candidate);
+      return normalized === key || normalized.endsWith(key) || key.endsWith(normalized);
+    });
+  });
 }
 
 function rowTeamProfile(row: Row | undefined, teamName: string): TeamProfile | null {
@@ -348,10 +381,10 @@ function unavailableIntel(reason: string, modules: NbaRealDataIntel["modules"]):
 
 export async function compareNbaRealDataIntelligence(awayTeam: string, homeTeam: string): Promise<NbaRealDataIntel> {
   const [teamRows, players, ratingRows, historyRows] = await Promise.all([
-    cachedRows(TEAM_CACHE_KEY, firstEnv("NBA_TEAM_ANALYTICS_URL", "TEAM_ANALYTICS_URL", "SIM_TEAM_STATS_URL")),
-    cachedRows(PLAYER_CACHE_KEY, firstEnv("NBA_PLAYER_ANALYTICS_URL", "PLAYER_ANALYTICS_URL", "SIM_PLAYER_STATS_URL")),
-    cachedRows(RATING_CACHE_KEY, firstEnv("NBA_GAME_RATINGS_URL", "GAME_RATINGS_URL", "VIDEO_GAME_RATINGS_URL")),
-    cachedRows(HISTORY_CACHE_KEY, firstEnv("NBA_RECENT_FORM_URL", "NBA_MATCHUP_HISTORY_URL", "SIM_RECENT_FORM_URL"))
+    cachedRows(TEAM_CACHE_KEY, firstEnv("NBA_TEAM_ANALYTICS_URL", "TEAM_ANALYTICS_URL", "SIM_TEAM_STATS_URL"), "team"),
+    cachedRows(PLAYER_CACHE_KEY, firstEnv("NBA_PLAYER_ANALYTICS_URL", "PLAYER_ANALYTICS_URL", "SIM_PLAYER_STATS_URL"), "player"),
+    cachedRows(RATING_CACHE_KEY, firstEnv("NBA_GAME_RATINGS_URL", "GAME_RATINGS_URL", "VIDEO_GAME_RATINGS_URL"), "rating"),
+    cachedRows(HISTORY_CACHE_KEY, firstEnv("NBA_RECENT_FORM_URL", "NBA_MATCHUP_HISTORY_URL", "SIM_RECENT_FORM_URL"), "history")
   ]);
 
   const teamGrouped = groupByTeam(teamRows);
