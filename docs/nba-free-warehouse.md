@@ -13,7 +13,56 @@ Use this order:
 
 The app does not scrape paid pages. Use licensed exports or self-hosted transformed datasets for paid/subscription providers.
 
-## Fetch raw free data
+## Automated GitHub feeder
+
+The repo includes a manual/nightly GitHub Action:
+
+```text
+.github/workflows/nba-warehouse-refresh.yml
+```
+
+It does this:
+
+1. downloads the Kaggle NBA dataset,
+2. builds `data/nba/raw/game_ids.txt`,
+3. optionally runs PBP Stats enrichment,
+4. builds model-ready warehouse feeds,
+5. uploads the feeds as an artifact,
+6. optionally commits `data/nba/warehouse/*.json` back to the branch.
+
+Required repository secrets:
+
+```text
+KAGGLE_USERNAME
+KAGGLE_KEY
+```
+
+Manual run options:
+
+```text
+include_pbpstats: false | true
+pbp_limit: number of PBP games to process
+commit_feeds: true | false
+```
+
+Recommended first run:
+
+```text
+include_pbpstats=false
+commit_feeds=true
+```
+
+Then run a smaller PBP enrichment batch:
+
+```text
+include_pbpstats=true
+pbp_limit=100
+commit_feeds=true
+```
+
+Once `data/nba/warehouse/*.json` exists on `main`, production reads the warehouse first and only falls back to official NBA Stats if the warehouse is missing or empty.
+
+## Fetch raw free data locally
 
 ### Kaggle NBA database
 
@@ -45,6 +94,19 @@ Games.csv
 TeamStatistics.csv
 PlayerStatistics.csv
 LeagueSchedule24_25.csv
+```
+
+### Build game ids for PBP Stats
+
+```bash
+npm run nba:warehouse:game-ids -- --input=data/nba/raw --out=data/nba/raw/game_ids.txt --limit=500
+```
+
+Useful filters:
+
+```bash
+npm run nba:warehouse:game-ids -- --input=data/nba/raw --out=data/nba/raw/game_ids.txt --season=2024 --limit=250
+npm run nba:warehouse:game-ids -- --input=data/nba/raw --out=data/nba/raw/game_ids.txt --since=2024-10-01 --limit=250
 ```
 
 ### hoopR historical backfill
@@ -84,16 +146,10 @@ Install the Python package:
 python -m pip install pbpstats pandas
 ```
 
-Create a game-id list from your Kaggle/hoopR/NBA API schedule export, one game ID per line:
-
-```text
-data/nba/raw/game_ids.txt
-```
-
-Then run:
+Run from generated game ids:
 
 ```bash
-npm run nba:warehouse:fetch:pbpstats -- data/nba/raw --games-file=data/nba/raw/game_ids.txt
+npm run nba:warehouse:fetch:pbpstats -- data/nba/raw --games-file=data/nba/raw/game_ids.txt --limit=100 --skip-existing
 ```
 
 or for a small batch:
@@ -107,9 +163,10 @@ This writes:
 ```text
 data/nba/raw/pbpstats_possessions.json
 data/nba/raw/pbpstats_team_enrichment.json
+data/nba/raw/pbpstats_errors.json
 ```
 
-The warehouse builder consumes both files. `pbpstats_team_enrichment.json` is blended into the team and history feeds.
+The warehouse builder consumes `pbpstats_team_enrichment.json` and blends it into the team and history feeds.
 
 ## Build SharkEdge model feeds
 
@@ -199,7 +256,7 @@ If missing, the route is open.
 
 ## Wire the NBA model env vars
 
-Point the existing model hooks at the warehouse feed route:
+Point the existing model hooks at the warehouse feed route if you want explicit routing:
 
 ```bash
 NBA_TEAM_ANALYTICS_URL="https://sharkedge.vercel.app/api/simulation/nba/warehouse-feed?kind=team&token=$NBA_WAREHOUSE_FEED_TOKEN"
@@ -207,6 +264,8 @@ NBA_PLAYER_ANALYTICS_URL="https://sharkedge.vercel.app/api/simulation/nba/wareho
 NBA_RECENT_FORM_URL="https://sharkedge.vercel.app/api/simulation/nba/warehouse-feed?kind=history&token=$NBA_WAREHOUSE_FEED_TOKEN"
 NBA_GAME_RATINGS_URL="https://sharkedge.vercel.app/api/simulation/nba/warehouse-feed?kind=rating&token=$NBA_WAREHOUSE_FEED_TOKEN"
 ```
+
+If these env vars are absent, the NBA model still self-wires to official NBA Stats fallback. Warehouse files remain preferred when present.
 
 ## Local warehouse directory
 
@@ -224,13 +283,9 @@ NBA_WAREHOUSE_DIR=/absolute/path/to/data/nba/warehouse
 
 ## Production note
 
-Vercel serverless builds should not perform massive historical downloads. Run the Kaggle/hoopR/PBP Stats fetch and feed builder on a local machine or worker, then either:
+Vercel serverless builds should not perform massive historical downloads. The GitHub Action or a local worker should fetch Kaggle/PBP Stats and commit/host generated warehouse JSON. Production should only read generated JSON, not raw CSVs.
 
-1. commit small/curated feed JSON files,
-2. host the generated files in object storage and point provider env vars at them, or
-3. mount/provide `NBA_WAREHOUSE_DIR` in an environment that supports persistent files.
-
-For full historical play-by-play and possession enrichment, object storage is the cleanest production path.
+For full historical play-by-play and possession enrichment, object storage is the cleanest production path. For a first production feed, committing generated current/curated feed JSON is acceptable if file size stays manageable.
 
 ## Why this matters
 
