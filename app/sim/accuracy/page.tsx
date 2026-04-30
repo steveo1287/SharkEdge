@@ -61,6 +61,8 @@ function formatDate(value: string) {
 
 export default async function SimAccuracyPage() {
   const summary = await getSimAccuracySummary(30);
+  const last7 = summary.history.find((window) => window.key === "last7") ?? null;
+  const last15 = summary.history.find((window) => window.key === "last15") ?? null;
   const allTime = summary.history.find((window) => window.key === "allTime") ?? null;
 
   if (!summary.ok) {
@@ -80,9 +82,9 @@ export default async function SimAccuracyPage() {
   return (
     <div className="space-y-6">
       <SimWorkspaceHeader
-        eyebrow="Sim Accuracy"
-        title="Prediction ledger, grading, and calibration health."
-        description="This page shows whether SharkEdge probabilities and projected scores are earning trust. Snapshots are captured before games, then graded when final scores are available."
+        eyebrow="Sim Performance"
+        title="SharkEdge model record, history, and calibration command center."
+        description="The sim record is now surfaced first: W-L-P, win rate, 7-day, 15-day, all-time windows, league health, and every graded pick trail."
         actions={[
           { href: "/sim", label: "Sim Hub" },
           { href: "/api/sim/accuracy?action=run", label: "Run Job", tone: "primary" },
@@ -90,33 +92,81 @@ export default async function SimAccuracyPage() {
         ]}
       />
 
-      <section className="grid gap-3 md:grid-cols-5">
-        <SimMetricTile label="Snapshots" value={String(summary.totalSnapshots)} sub="Captured model outputs" />
-        <SimMetricTile label="Graded" value={String(summary.gradedSnapshots)} sub="Final score attached" emphasis="strong" />
-        <SimMetricTile label="Pending" value={String(summary.ungradedSnapshots)} sub="Awaiting final score" />
-        <SimMetricTile label="Sim record" value={allTime ? record(allTime.wins, allTime.losses, allTime.pushes) : "--"} sub="All-time W-L-P" emphasis="strong" />
-        <SimMetricTile label="Win rate" value={allTime ? pct(allTime.winPct, 1) : "--"} sub="Decisions only" />
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-3">
-        {summary.history.map((window) => (
-          <SimSignalCard key={window.key}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{window.label}</div>
-                <div className="mt-2 text-3xl font-semibold text-white">{record(window.wins, window.losses, window.pushes)}</div>
-                <div className="mt-1 text-xs text-slate-400">{window.graded} graded · {window.snapshots} snapshots</div>
+      <section className="relative overflow-hidden rounded-[2rem] border border-sky-300/20 bg-slate-950/90 p-5 shadow-[0_24px_100px_rgba(56,189,248,0.14)] md:p-7">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.22),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(74,227,181,0.12),transparent_34%)]" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-sky-300/70 to-transparent" />
+        <div className="relative grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={recordTone(allTime?.winPct ?? null)}>Live sim record</Badge>
+              <Badge tone={scoreTone(allTime?.brier ?? null, 0.2, 0.25)}>Brier {num(allTime?.brier ?? null)}</Badge>
+              <Badge tone="muted">{summary.gradedSnapshots} graded picks</Badge>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.28em] text-sky-200/75">All-time straight-up model picks</div>
+              <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end md:gap-6">
+                <div className="font-mono text-6xl font-black tracking-[-0.08em] text-white md:text-8xl">
+                  {allTime ? record(allTime.wins, allTime.losses, allTime.pushes) : "--"}
+                </div>
+                <div className="pb-2">
+                  <div className="font-mono text-3xl font-bold text-mint md:text-4xl">{allTime ? pct(allTime.winPct, 1) : "--"}</div>
+                  <div className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-400">Win rate, pushes excluded</div>
+                </div>
               </div>
-              <Badge tone={recordTone(window.winPct)}>{pct(window.winPct, 1)}</Badge>
             </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <SimMetricTile label="Brier" value={num(window.brier)} sub="Lower is better" emphasis={window.brier != null && window.brier <= 0.2 ? "strong" : "normal"} />
-              <SimMetricTile label="Log loss" value={num(window.logLoss)} sub="Probability penalty" />
-              <SimMetricTile label="Spread MAE" value={num(window.spreadMae, 2)} sub="Margin miss" />
-              <SimMetricTile label="Total MAE" value={num(window.totalMae, 2)} sub="Total miss" />
+            <div className="grid gap-3 sm:grid-cols-4">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Snapshots</div>
+                <div className="mt-2 font-mono text-2xl font-bold text-white">{summary.totalSnapshots}</div>
+                <div className="mt-1 text-xs text-slate-400">Captured outputs</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Graded</div>
+                <div className="mt-2 font-mono text-2xl font-bold text-white">{summary.gradedSnapshots}</div>
+                <div className="mt-1 text-xs text-slate-400">Final attached</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Pending</div>
+                <div className="mt-2 font-mono text-2xl font-bold text-white">{summary.ungradedSnapshots}</div>
+                <div className="mt-1 text-xs text-slate-400">Awaiting result</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Leagues</div>
+                <div className="mt-2 font-mono text-2xl font-bold text-white">{summary.byLeague.length}</div>
+                <div className="mt-1 text-xs text-slate-400">Tracked models</div>
+              </div>
             </div>
-          </SimSignalCard>
-        ))}
+          </div>
+
+          <div className="grid gap-3">
+            {[last7, last15, allTime].filter(Boolean).map((window) => (
+              <div key={window!.key} className="rounded-3xl border border-white/10 bg-black/30 p-4 backdrop-blur">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{window!.label}</div>
+                    <div className="mt-2 font-mono text-3xl font-black tracking-[-0.04em] text-white">{record(window!.wins, window!.losses, window!.pushes)}</div>
+                    <div className="mt-1 text-xs text-slate-400">{window!.graded} graded · {window!.snapshots} snapshots</div>
+                  </div>
+                  <Badge tone={recordTone(window!.winPct)}>{pct(window!.winPct, 1)}</Badge>
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+                    <div className="text-slate-500">Brier</div>
+                    <div className="mt-1 font-mono font-semibold text-slate-100">{num(window!.brier)}</div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+                    <div className="text-slate-500">Log loss</div>
+                    <div className="mt-1 font-mono font-semibold text-slate-100">{num(window!.logLoss)}</div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+                    <div className="text-slate-500">Total MAE</div>
+                    <div className="mt-1 font-mono font-semibold text-slate-100">{num(window!.totalMae, 2)}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
