@@ -53,7 +53,8 @@
     "nba:warehouse:fetch:kaggle": "bash scripts/fetch-kaggle-nba-dataset.sh",
     "nba:warehouse:fetch:hoopr": "Rscript scripts/fetch-nba-free-warehouse.R",
     "nba:warehouse:fetch:nba-api": "python scripts/fetch-nba-api-current.py",
-    "nba:warehouse:fetch:pbpstats": "python scripts/fetch-pbpstats-nba.py"
+    "nba:warehouse:fetch:pbpstats": "python scripts/fetch-pbpstats-nba.py",
+    "nba:warehouse:enrich:nba-api": "tsx scripts/enrich-nba-warehouse-with-nba-api.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.7.0",
