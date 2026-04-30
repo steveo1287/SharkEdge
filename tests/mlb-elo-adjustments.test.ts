@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 
 import {
   MLB_HOME_FIELD_ELO,
-  baseballMarginMultiplier,
   mlbHomeFieldAdjustment,
   mlbPitcherGameScore,
   mlbPregameEloAdjustment,
