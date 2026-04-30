@@ -1,5 +1,7 @@
 import type { LeagueKey } from "@/lib/types/domain";
 import { compareNbaIntelligence } from "@/services/simulation/nba-intelligence-model";
+import { getNbaNoVigMarket, type NbaNoVigMarket } from "@/services/simulation/nba-market-sanity";
+import { applyNbaPickHistoryTuner, getOrTrainNbaPickHistoryTuner, type NbaPickHistoryAdjustment } from "@/services/simulation/nba-pick-history-tuner";
 import { type SportOutcomeModel } from "@/services/simulation/probability-models";
 
 type FlexibleRow = Record<string, unknown>;
@@ -29,6 +31,9 @@ export type RealitySimIntel = {
     contextPower: number;
     historyPower?: number;
   };
+  market?: NbaNoVigMarket | null;
+  historyAdjustment?: NbaPickHistoryAdjustment | null;
+  sourceMap?: Record<string, number>;
 };
 
 type TeamProfile = {
@@ -96,43 +101,14 @@ const RATING_URLS: Partial<Record<LeagueKey, string[]>> = {
   BOXING: ["BOXING_GAME_RATINGS_URL", "GAME_RATINGS_URL", "VIDEO_GAME_RATINGS_URL"]
 };
 
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function normalizeName(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function hashString(value: string) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function unit(seed: number) {
-  return (seed % 10000) / 10000;
-}
-
-function range(seed: number, min: number, max: number) {
-  return Number((min + unit(seed) * (max - min)).toFixed(3));
-}
-
-function num(value: unknown, fallback: number) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
-  return fallback;
-}
-
-function text(...values: unknown[]) {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
-}
+function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, value)); }
+function round(value: number, digits = 3) { return Number(value.toFixed(digits)); }
+function normalizeName(value: string) { return value.toLowerCase().replace(/[^a-z0-9]+/g, ""); }
+function hashString(value: string) { let hash = 2166136261; for (let index = 0; index < value.length; index += 1) { hash ^= value.charCodeAt(index); hash = Math.imul(hash, 16777619); } return hash >>> 0; }
+function unit(seed: number) { return (seed % 10000) / 10000; }
+function range(seed: number, min: number, max: number) { return Number((min + unit(seed) * (max - min)).toFixed(3)); }
+function num(value: unknown, fallback: number) { if (typeof value === "number" && Number.isFinite(value)) return value; if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value); return fallback; }
+function text(...values: unknown[]) { for (const value of values) { if (typeof value === "string" && value.trim()) return value.trim(); } return null; }
 
 function rowsFromBody(body: unknown): FlexibleRow[] {
   const value = body as { teams?: FlexibleRow[]; players?: FlexibleRow[]; fighters?: FlexibleRow[]; ratings?: FlexibleRow[]; data?: FlexibleRow[]; rows?: FlexibleRow[] };
@@ -212,17 +188,7 @@ function rawTeam(row: FlexibleRow, fallbackName: string, league: LeagueKey): Tea
 
 function syntheticPlayers(league: LeagueKey, teamName: string): PlayerSummary {
   const seed = hashString(`${league}:${teamName}:players`);
-  return {
-    teamName,
-    source: "synthetic",
-    starPower: range(seed >>> 1, -1.5, 6.5),
-    depthPower: range(seed >>> 2, -2.5, 5.5),
-    creation: range(seed >>> 3, -2, 6),
-    defense: range(seed >>> 4, -3, 5),
-    availability: range(seed >>> 5, -3.5, 0.8),
-    fatigue: range(seed >>> 6, 0, 2.5),
-    volatility: range(seed >>> 7, 0.85, 1.45)
-  };
+  return { teamName, source: "synthetic", starPower: range(seed >>> 1, -1.5, 6.5), depthPower: range(seed >>> 2, -2.5, 5.5), creation: range(seed >>> 3, -2, 6), defense: range(seed >>> 4, -3, 5), availability: range(seed >>> 5, -3.5, 0.8), fatigue: range(seed >>> 6, 0, 2.5), volatility: range(seed >>> 7, 0.85, 1.45) };
 }
 
 function rawPlayerSummary(rows: FlexibleRow[] | null, league: LeagueKey, teamName: string): PlayerSummary {
@@ -230,16 +196,7 @@ function rawPlayerSummary(rows: FlexibleRow[] | null, league: LeagueKey, teamNam
   const key = normalizeName(teamName);
   const matched = (rows ?? []).filter((row) => normalizeName(text(row.teamName, row.team, row.team_name, row.TEAM_NAME, row.fighterTeam, row.camp) ?? "") === key || normalizeName(text(row.playerName, row.player, row.name, row.fighterName, row.fighter) ?? "") === key);
   if (!matched.length) return base;
-
-  let starPower = 0;
-  let depthPower = 0;
-  let creation = 0;
-  let defense = 0;
-  let availability = 0;
-  let fatigue = 0;
-  let volatility = 0;
-  let totalWeight = 0;
-
+  let starPower = 0, depthPower = 0, creation = 0, defense = 0, availability = 0, fatigue = 0, volatility = 0, totalWeight = 0;
   matched.forEach((row, index) => {
     const weight = Math.max(0.25, num(row.minutes ?? row.projectedMinutes ?? row.snapShare ?? row.usage ?? row.projectedRole ?? row.roundShare, index < 3 ? 3 : 1));
     const rating = num(row.rating ?? row.overall ?? row.playerRating ?? row.impactRating ?? row.epm ?? row.raptor ?? row.war ?? row.bpm, 0);
@@ -252,33 +209,13 @@ function rawPlayerSummary(rows: FlexibleRow[] | null, league: LeagueKey, teamNam
     volatility += Math.max(0.7, num(row.volatility ?? row.variance ?? row.consistencyRisk, 1)) * weight;
     totalWeight += weight;
   });
-
   const divisor = totalWeight || 1;
-  return {
-    teamName,
-    source: "real",
-    starPower: Number((starPower / divisor).toFixed(2)),
-    depthPower: Number((depthPower / divisor).toFixed(2)),
-    creation: Number((creation / divisor).toFixed(2)),
-    defense: Number((defense / divisor).toFixed(2)),
-    availability: Number((availability / divisor).toFixed(2)),
-    fatigue: Number((fatigue / divisor).toFixed(2)),
-    volatility: Number((volatility / divisor).toFixed(2))
-  };
+  return { teamName, source: "real", starPower: round(starPower / divisor, 2), depthPower: round(depthPower / divisor, 2), creation: round(creation / divisor, 2), defense: round(defense / divisor, 2), availability: round(availability / divisor, 2), fatigue: round(fatigue / divisor, 2), volatility: round(volatility / divisor, 2) };
 }
 
 function syntheticRating(league: LeagueKey, teamName: string): GameRating {
   const seed = hashString(`${league}:${teamName}:rating`);
-  return {
-    teamName,
-    source: "synthetic",
-    overall: range(seed >>> 1, 72, 92),
-    offense: range(seed >>> 2, 70, 94),
-    defense: range(seed >>> 3, 70, 94),
-    speed: range(seed >>> 4, 68, 95),
-    physicality: range(seed >>> 5, 68, 95),
-    clutch: range(seed >>> 6, 68, 95)
-  };
+  return { teamName, source: "synthetic", overall: range(seed >>> 1, 72, 92), offense: range(seed >>> 2, 70, 94), defense: range(seed >>> 3, 70, 94), speed: range(seed >>> 4, 68, 95), physicality: range(seed >>> 5, 68, 95), clutch: range(seed >>> 6, 68, 95) };
 }
 
 function rawRating(rows: FlexibleRow[] | null, league: LeagueKey, teamName: string): GameRating {
@@ -286,22 +223,10 @@ function rawRating(rows: FlexibleRow[] | null, league: LeagueKey, teamName: stri
   const key = normalizeName(teamName);
   const row = (rows ?? []).find((item) => normalizeName(text(item.teamName, item.team, item.name, item.fighterName, item.playerName) ?? "") === key);
   if (!row) return base;
-  return {
-    ...base,
-    source: "real",
-    overall: num(row.overall ?? row.ovr ?? row.rating ?? row.gameRating, base.overall),
-    offense: num(row.offense ?? row.offensiveRating ?? row.offenseRating, base.offense),
-    defense: num(row.defense ?? row.defensiveRating ?? row.defenseRating, base.defense),
-    speed: num(row.speed ?? row.tempoRating ?? row.athleticism, base.speed),
-    physicality: num(row.physicality ?? row.strength ?? row.toughness, base.physicality),
-    clutch: num(row.clutch ?? row.awareness ?? row.composure, base.clutch)
-  };
+  return { ...base, source: "real", overall: num(row.overall ?? row.ovr ?? row.rating ?? row.gameRating, base.overall), offense: num(row.offense ?? row.offensiveRating ?? row.offenseRating, base.offense), defense: num(row.defense ?? row.defensiveRating ?? row.defenseRating, base.defense), speed: num(row.speed ?? row.tempoRating ?? row.athleticism, base.speed), physicality: num(row.physicality ?? row.strength ?? row.toughness, base.physicality), clutch: num(row.clutch ?? row.awareness ?? row.composure, base.clutch) };
 }
 
-function edge(left: number, right: number, scale = 1) {
-  return Number(((right - left) * scale).toFixed(2));
-}
-
+function edge(left: number, right: number, scale = 1) { return Number(((right - left) * scale).toFixed(2)); }
 function sportWeights(league: LeagueKey) {
   switch (league) {
     case "NFL": return { team: 0.31, player: 0.25, advanced: 0.19, rating: 0.12, context: 0.13, totalBase: 45, totalScale: 2.2 };
@@ -312,52 +237,65 @@ function sportWeights(league: LeagueKey) {
     default: return { team: 0.3, player: 0.25, advanced: 0.2, rating: 0.12, context: 0.13, totalBase: 10, totalScale: 1 };
   }
 }
+function addFactor(factors: RealityFactor[], label: string, value: number, weight: number, source: RealityFactor["source"]) { factors.push({ label, value: Number(value.toFixed(2)), weight, source }); }
 
-function addFactor(factors: RealityFactor[], label: string, value: number, weight: number, source: RealityFactor["source"]) {
-  factors.push({ label, value: Number(value.toFixed(2)), weight, source });
+function sourceMapFromFactors(factors: RealityFactor[]) {
+  return factors.reduce<Record<string, number>>((map, factor) => {
+    map[factor.source] = round((map[factor.source] ?? 0) + factor.value * factor.weight, 4);
+    return map;
+  }, { team: 0, player: 0, advanced: 0, rating: 0, history: 0, context: 0 });
 }
 
-function buildNbaRealityIntel(nba: Awaited<ReturnType<typeof compareNbaIntelligence>>): RealitySimIntel {
+async function buildNbaRealityIntel(matchup: { away: string; home: string }): Promise<RealitySimIntel> {
+  const [nba, market, tuner] = await Promise.all([
+    compareNbaIntelligence(matchup.away, matchup.home),
+    getNbaNoVigMarket(matchup.away, matchup.home).catch(() => null),
+    getOrTrainNbaPickHistoryTuner().catch(() => null)
+  ]);
+  const factors: RealityFactor[] = nba.factors.map((factor) => ({ label: factor.label, value: factor.value, weight: factor.weight ?? 0.04, source: factor.source ?? "advanced" }));
+  const sourceMap = sourceMapFromFactors(factors);
+  const rawHomeWinPct = clamp(0.5 + nba.homeEdge / 24, 0.24, 0.76);
+  const adjustment = applyNbaPickHistoryTuner(tuner, { rulesHomeWinPct: rawHomeWinPct, marketHomeNoVigProbability: market?.homeNoVigProbability ?? null, sourceMap, volatilityIndex: nba.volatilityIndex });
+  const tunedHomeEdge = round((adjustment.tunedHomeWinPct - 0.5) * 24, 2);
+  const marketTotal = market?.totalLine ?? null;
+  const marketTotalBlend = typeof marketTotal === "number" ? nba.projectedTotal * 0.72 + marketTotal * 0.28 : nba.projectedTotal;
+  const confidence = round(clamp(nba.confidence + adjustment.confidenceAdjustment + (market?.available ? 0.018 : -0.012) - (adjustment.shouldPass ? 0.05 : 0), 0.4, 0.84), 3);
+  const volatilityIndex = round(clamp(nba.volatilityIndex + (adjustment.shouldPass ? 0.08 : 0) + (market?.available ? -0.02 : 0.04), 0.7, 2.1), 2);
+  factors.push({ label: "No-vig market baseline", value: round((market?.homeNoVigProbability ?? 0.5) - 0.5, 4), weight: 6, source: "advanced" });
+  factors.push({ label: "NBA graded-history adjustment", value: round(adjustment.tunedHomeWinPct - rawHomeWinPct, 4), weight: 8, source: "history" });
+
   return {
     modelVersion: nba.modelVersion,
-    dataSource: nba.dataSource,
-    homeEdge: nba.homeEdge,
-    projectedTotal: nba.projectedTotal,
-    volatilityIndex: nba.volatilityIndex,
-    confidence: nba.confidence,
-    modules: nba.modules,
+    dataSource: `${nba.dataSource}+market:${market?.source ?? "missing"}+history:${tuner?.source ?? "fallback"}`,
+    homeEdge: tunedHomeEdge,
+    projectedTotal: round(marketTotalBlend, 1),
+    volatilityIndex,
+    confidence,
+    modules: [
+      ...nba.modules,
+      { label: "NBA no-vig market", status: market?.available ? "real" : "synthetic", note: market?.available ? "Live/warehouse market baseline applied." : "No NBA market baseline available; probability was shrunk toward model baseline." },
+      { label: "NBA graded-pick tuner", status: tuner?.ok ? "real" : "synthetic", note: tuner?.ok ? `Tuned from ${tuner.rows} graded NBA decisions.` : "Fallback tuner active until more NBA decisions are graded." }
+    ],
     ratingBlend: nba.ratingBlend,
-    factors: nba.factors.map((factor) => ({
-      label: factor.label,
-      value: factor.value,
-      weight: factor.weight ?? 0.04,
-      source: factor.source ?? "advanced"
-    }))
+    factors: factors.sort((left, right) => Math.abs(right.value * right.weight) - Math.abs(left.value * left.weight)),
+    market,
+    historyAdjustment: adjustment,
+    sourceMap
   };
 }
 
 export async function buildRealitySimIntel(league: LeagueKey, matchup: { away: string; home: string }): Promise<RealitySimIntel | null> {
   if (league === "MLB") return null;
-
-  if (league === "NBA") {
-    const nba = await compareNbaIntelligence(matchup.away, matchup.home);
-    return buildNbaRealityIntel(nba);
-  }
+  if (league === "NBA") return buildNbaRealityIntel(matchup);
 
   const weights = sportWeights(league);
-  const [teamRows, playerRows, ratingRows] = await Promise.all([
-    fetchRows(firstUrl(TEAM_URLS[league])),
-    fetchRows(firstUrl(PLAYER_URLS[league])),
-    fetchRows(firstUrl(RATING_URLS[league]))
-  ]);
-
+  const [teamRows, playerRows, ratingRows] = await Promise.all([fetchRows(firstUrl(TEAM_URLS[league])), fetchRows(firstUrl(PLAYER_URLS[league])), fetchRows(firstUrl(RATING_URLS[league]))]);
   const awayTeam = rawTeam((teamRows ?? []).find((row) => normalizeName(text(row.teamName, row.team, row.name, row.fighterName) ?? "") === normalizeName(matchup.away)) ?? {}, matchup.away, league) ?? syntheticTeam(league, matchup.away);
   const homeTeam = rawTeam((teamRows ?? []).find((row) => normalizeName(text(row.teamName, row.team, row.name, row.fighterName) ?? "") === normalizeName(matchup.home)) ?? {}, matchup.home, league) ?? syntheticTeam(league, matchup.home);
   const awayPlayers = rawPlayerSummary(playerRows, league, matchup.away);
   const homePlayers = rawPlayerSummary(playerRows, league, matchup.home);
   const awayRating = rawRating(ratingRows, league, matchup.away);
   const homeRating = rawRating(ratingRows, league, matchup.home);
-
   const factors: RealityFactor[] = [];
   const teamPower = edge(awayTeam.offense - awayTeam.defense * 0.72, homeTeam.offense - homeTeam.defense * 0.72, 0.18);
   const efficiency = edge(awayTeam.offense + awayTeam.turnoverMargin + awayTeam.rebounding * 0.5, homeTeam.offense + homeTeam.turnoverMargin + homeTeam.rebounding * 0.5, 0.11);
@@ -365,9 +303,8 @@ export async function buildRealitySimIntel(league: LeagueKey, matchup: { away: s
   const playerPower = edge(awayPlayers.starPower + awayPlayers.depthPower + awayPlayers.creation + awayPlayers.defense, homePlayers.starPower + homePlayers.depthPower + homePlayers.creation + homePlayers.defense, 0.22);
   const health = edge(awayPlayers.availability - awayPlayers.fatigue - awayTeam.injuryDrag, homePlayers.availability - homePlayers.fatigue - homeTeam.injuryDrag, 0.28);
   const ratingPower = edge(awayRating.overall + awayRating.offense * 0.45 + awayRating.defense * 0.38 + awayRating.clutch * 0.17, homeRating.overall + homeRating.offense * 0.45 + homeRating.defense * 0.38 + homeRating.clutch * 0.17, 0.045);
-  const context = Number((homeTeam.homeAdvantage + edge(awayTeam.recentForm + awayTeam.rest + awayTeam.strengthOfSchedule * 0.35, homeTeam.recentForm + homeTeam.rest + homeTeam.strengthOfSchedule * 0.35, 0.18)).toFixed(2));
+  const context = round(homeTeam.homeAdvantage + edge(awayTeam.recentForm + awayTeam.rest + awayTeam.strengthOfSchedule * 0.35, homeTeam.recentForm + homeTeam.rest + homeTeam.strengthOfSchedule * 0.35, 0.18), 2);
   const nerd = edge(awayTeam.pace + awayTeam.specialTeams + awayTeam.clutch, homeTeam.pace + homeTeam.specialTeams + homeTeam.clutch, league === "NHL" ? 0.08 : 0.04);
-
   addFactor(factors, "Team power equation", teamPower, weights.team, "team");
   addFactor(factors, "Efficiency + possession", efficiency, weights.advanced, "advanced");
   addFactor(factors, "Defensive stop value", defenseStop, weights.advanced, "advanced");
@@ -376,16 +313,12 @@ export async function buildRealitySimIntel(league: LeagueKey, matchup: { away: s
   addFactor(factors, "Video-game rating blend", ratingPower, weights.rating, "rating");
   addFactor(factors, "Venue/rest/context", context, weights.context, "context");
   addFactor(factors, "Pace/special/clutch", nerd, weights.advanced, "advanced");
-
-  const homeEdge = Number(factors.reduce((sum, factor) => sum + factor.value * factor.weight, 0).toFixed(2));
+  const homeEdge = round(factors.reduce((sum, factor) => sum + factor.value * factor.weight, 0), 2);
   const totalTempo = ((awayTeam.pace + homeTeam.pace) / 2 - (league === "NHL" || league === "UFC" || league === "BOXING" ? 1 : 100));
   const offenseTotal = Math.abs(awayTeam.offense - 100) + Math.abs(homeTeam.offense - 100);
-  const volatilityIndex = Number(clamp(1 + Math.abs(homeEdge) / 18 + (awayPlayers.volatility + homePlayers.volatility) / 12 + Math.abs(health) / 18, 0.78, 2.05).toFixed(2));
-  const projectedTotal = league === "UFC" || league === "BOXING"
-    ? 0
-    : Number(Math.max(league === "NHL" ? 3.8 : 24, weights.totalBase + totalTempo * weights.totalScale + offenseTotal * 0.08 + (awayTeam.injuryDrag + homeTeam.injuryDrag) * -0.2).toFixed(1));
-  const confidence = Number(clamp(0.56 + Math.abs(homeEdge) / 30 - (volatilityIndex - 1) * 0.06 + (teamRows ? 0.025 : 0) + (playerRows ? 0.025 : 0) + (ratingRows ? 0.015 : 0), 0.48, 0.86).toFixed(3));
-
+  const volatilityIndex = round(clamp(1 + Math.abs(homeEdge) / 18 + (awayPlayers.volatility + homePlayers.volatility) / 12 + Math.abs(health) / 18, 0.78, 2.05), 2);
+  const projectedTotal = league === "UFC" || league === "BOXING" ? 0 : round(Math.max(league === "NHL" ? 3.8 : 24, weights.totalBase + totalTempo * weights.totalScale + offenseTotal * 0.08 + (awayTeam.injuryDrag + homeTeam.injuryDrag) * -0.2), 1);
+  const confidence = round(clamp(0.56 + Math.abs(homeEdge) / 30 - (volatilityIndex - 1) * 0.06 + (teamRows ? 0.025 : 0) + (playerRows ? 0.025 : 0) + (ratingRows ? 0.015 : 0), 0.48, 0.86), 3);
   return {
     modelVersion: "reality-sim-v1",
     dataSource: [teamRows ? "team:real" : "team:synthetic", playerRows ? "player:real" : "player:synthetic", ratingRows ? "ratings:real" : "ratings:synthetic"].join("+"),
@@ -399,12 +332,7 @@ export async function buildRealitySimIntel(league: LeagueKey, matchup: { away: s
       { label: "Player impact", status: playerRows ? "real" : "synthetic", note: playerRows ? "External player/fighter feed applied." : "Synthetic player impact used until a player stats feed is configured." },
       { label: "Game ratings", status: ratingRows ? "real" : "synthetic", note: ratingRows ? "Video-game/rating feed applied." : "Synthetic game-rating blend used until ratings feed is configured." }
     ],
-    ratingBlend: {
-      teamPower,
-      playerPower,
-      advancedPower: Number((efficiency + defenseStop + nerd).toFixed(2)),
-      gameRatingPower: ratingPower,
-      contextPower: context
-    }
+    ratingBlend: { teamPower, playerPower, advancedPower: round(efficiency + defenseStop + nerd, 2), gameRatingPower: ratingPower, contextPower: context },
+    sourceMap: sourceMapFromFactors(factors)
   };
 }
