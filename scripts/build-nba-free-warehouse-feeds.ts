@@ -3,7 +3,6 @@ import path from "node:path";
 
 type Row = Record<string, unknown>;
 type Kind = "team" | "player" | "history" | "rating";
-
 type CsvRow = Record<string, string>;
 
 type TeamAccumulator = {
@@ -42,6 +41,66 @@ type PlayerAccumulator = {
   plusMinus: number;
 };
 
+const TEAM_BOX_CANDIDATES = [
+  "TeamStatistics.csv",
+  "teamstatistics.csv",
+  "TeamStatistics.json",
+  "teamstatistics.json",
+  "team_box.json",
+  "team_box.csv",
+  "nba_team_box.json",
+  "nba_team_box.csv",
+  "hoopr_team_box.json",
+  "hoopr_team_box.csv",
+  "nba_api_team_advanced.json"
+];
+
+const PLAYER_BOX_CANDIDATES = [
+  "PlayerStatistics.csv",
+  "playerstatistics.csv",
+  "PlayerStatistics.json",
+  "playerstatistics.json",
+  "player_box.json",
+  "player_box.csv",
+  "nba_player_box.json",
+  "nba_player_box.csv",
+  "hoopr_player_box.json",
+  "hoopr_player_box.csv",
+  "nba_api_player_advanced.json"
+];
+
+const SCHEDULE_CANDIDATES = [
+  "Games.csv",
+  "games.csv",
+  "Games.json",
+  "games.json",
+  "LeagueSchedule25_26.csv",
+  "LeagueSchedule24_25.csv",
+  "LeagueSchedule23_24.csv",
+  "schedule.json",
+  "schedule.csv",
+  "nba_schedule.json",
+  "nba_schedule.csv",
+  "hoopr_schedule.json",
+  "hoopr_schedule.csv",
+  "nba_api_games.json"
+];
+
+const PBP_CANDIDATES = [
+  "PlayByPlay.csv",
+  "playbyplay.csv",
+  "PlayByPlay.json",
+  "playbyplay.json",
+  "pbp.json",
+  "pbp.csv",
+  "play_by_play.json",
+  "play_by_play.csv",
+  "nba_pbp.json",
+  "nba_pbp.csv",
+  "pbpstats_possessions.json",
+  "pbpstats_possessions.csv"
+];
+
 function argValue(name: string, fallback: string) {
   const prefix = `--${name}=`;
   const found = process.argv.find((arg) => arg.startsWith(prefix));
@@ -50,6 +109,50 @@ function argValue(name: string, fallback: string) {
 
 function exists(filePath: string) {
   return fs.existsSync(filePath);
+}
+
+function normalizeKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function normalizeTeam(value: string) {
+  return normalizeKey(value);
+}
+
+function rowValue(row: Row, keys: string[]) {
+  const lookup = new Map<string, unknown>();
+  for (const [key, value] of Object.entries(row)) {
+    lookup.set(normalizeKey(key), value);
+  }
+  for (const key of keys) {
+    const exact = row[key];
+    if (exact !== undefined && exact !== null && exact !== "") return exact;
+    const normalized = lookup.get(normalizeKey(key));
+    if (normalized !== undefined && normalized !== null && normalized !== "") return normalized;
+  }
+  return undefined;
+}
+
+function text(row: Row, keys: string[], fallback = "") {
+  const value = rowValue(row, keys);
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return fallback;
+}
+
+function num(row: Row, keys: string[], fallback = 0) {
+  const value = rowValue(row, keys);
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  return fallback;
+}
+
+function safeDiv(numerator: number, denominator: number, fallback = 0) {
+  return denominator ? numerator / denominator : fallback;
+}
+
+function round(value: number, digits = 3) {
+  return Number(value.toFixed(digits));
 }
 
 function readJsonRows(filePath: string): Row[] {
@@ -62,20 +165,6 @@ function readJsonRows(filePath: string): Row[] {
   if (Array.isArray(body.history)) return body.history;
   if (Array.isArray(body.ratings)) return body.ratings;
   return [];
-}
-
-function parseCsv(text: string): CsvRow[] {
-  const rows: CsvRow[] = [];
-  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
-  if (!lines.length) return rows;
-  const headers = splitCsvLine(lines[0]);
-  for (const line of lines.slice(1)) {
-    const values = splitCsvLine(line);
-    const row: CsvRow = {};
-    headers.forEach((header, index) => { row[header] = values[index] ?? ""; });
-    rows.push(row);
-  }
-  return rows;
 }
 
 function splitCsvLine(line: string) {
@@ -101,6 +190,20 @@ function splitCsvLine(line: string) {
   return values;
 }
 
+function parseCsv(text: string): CsvRow[] {
+  const rows: CsvRow[] = [];
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
+  if (!lines.length) return rows;
+  const headers = splitCsvLine(lines[0]).map((header) => header.trim());
+  for (const line of lines.slice(1)) {
+    const values = splitCsvLine(line);
+    const row: CsvRow = {};
+    headers.forEach((header, index) => { row[header] = values[index] ?? ""; });
+    rows.push(row);
+  }
+  return rows;
+}
+
 function readCsvRows(filePath: string): Row[] {
   return parseCsv(fs.readFileSync(filePath, "utf8"));
 }
@@ -109,51 +212,95 @@ function loadRows(inputDir: string, candidates: string[]) {
   for (const candidate of candidates) {
     const filePath = path.join(inputDir, candidate);
     if (!exists(filePath)) continue;
-    const rows = candidate.endsWith(".json") ? readJsonRows(filePath) : readCsvRows(filePath);
+    const rows = candidate.toLowerCase().endsWith(".json") ? readJsonRows(filePath) : readCsvRows(filePath);
     return { filePath, rows };
   }
   return { filePath: null, rows: [] as Row[] };
 }
 
-function text(row: Row, keys: string[], fallback = "") {
-  for (const key of keys) {
-    const value = row[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+function resolveTeamName(row: Row, fallback = "") {
+  const full = text(row, [
+    "teamNameFull",
+    "fullTeamName",
+    "teamFullName",
+    "TEAM_FULL_NAME",
+    "team_name_full",
+    "team_name"
+  ]);
+  if (full) return full;
+
+  const city = text(row, ["teamCity", "TEAM_CITY", "team_city", "city"]);
+  const nickname = text(row, ["teamName", "TEAM_NAME", "teamNickname", "nickname"]);
+  if (city && nickname && normalizeTeam(city) !== normalizeTeam(nickname) && !normalizeTeam(nickname).includes(normalizeTeam(city))) {
+    return `${city} ${nickname}`;
   }
-  return fallback;
+
+  return text(row, [
+    "teamName",
+    "team",
+    "TEAM",
+    "name",
+    "TEAM_NAME",
+    "teamAbbreviation",
+    "team_abbreviation",
+    "TEAM_ABBREVIATION",
+    "teamTricode",
+    "TEAM_TRICODE",
+    "teamId",
+    "TEAM_ID"
+  ], fallback);
 }
 
-function num(row: Row, keys: string[], fallback = 0) {
-  for (const key of keys) {
-    const value = row[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
-  }
-  return fallback;
+function resolvePlayerName(row: Row) {
+  return text(row, [
+    "playerName",
+    "PLAYER_NAME",
+    "player_name",
+    "player",
+    "athlete_display_name",
+    "name",
+    "personName",
+    "PERSON_NAME"
+  ]);
 }
 
-function normalizeTeam(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+function resolveGameId(row: Row) {
+  return text(row, ["gameId", "GAME_ID", "game_id", "idGame", "Game_ID", "game"]);
 }
 
-function safeDiv(numerator: number, denominator: number, fallback = 0) {
-  return denominator ? numerator / denominator : fallback;
-}
-
-function round(value: number, digits = 3) {
-  return Number(value.toFixed(digits));
+function teamPoints(row: Row) {
+  return num(row, ["points", "pts", "PTS", "teamScore", "TEAM_SCORE", "score", "Score"]);
 }
 
 function estimatePossessions(row: Row) {
-  const fga = num(row, ["fga", "fieldGoalsAttempted", "FGA", "field_goals_attempted"]);
-  const fta = num(row, ["fta", "freeThrowsAttempted", "FTA", "free_throws_attempted"]);
-  const oreb = num(row, ["oreb", "offensiveRebounds", "OREB", "offensive_rebounds"]);
+  const fga = num(row, ["fga", "fieldGoalsAttempted", "FGA", "field_goals_attempted", "fieldGoalAttempts", "field_goals_attempted"]);
+  const fta = num(row, ["fta", "freeThrowsAttempted", "FTA", "free_throws_attempted", "freeThrowAttempts"]);
+  const oreb = num(row, ["oreb", "offensiveRebounds", "OREB", "offensive_rebounds", "reboundsOffensive"]);
   const tov = num(row, ["tov", "turnovers", "TOV"]);
   return fga + 0.44 * fta - oreb + tov;
 }
 
-function buildTeamFeed(teamBoxRows: Row[], scheduleRows: Row[], pbpRows: Row[]) {
+function attachOpponentPoints(teamBoxRows: Row[]) {
+  const byGame = new Map<string, Row[]>();
+  for (const row of teamBoxRows) {
+    const gameId = resolveGameId(row);
+    if (!gameId) continue;
+    byGame.set(gameId, [...(byGame.get(gameId) ?? []), row]);
+  }
+
+  for (const rows of byGame.values()) {
+    if (rows.length !== 2) continue;
+    const [first, second] = rows;
+    const firstPoints = teamPoints(first);
+    const secondPoints = teamPoints(second);
+    first.__derivedOpponentPoints = secondPoints;
+    second.__derivedOpponentPoints = firstPoints;
+  }
+  return teamBoxRows;
+}
+
+function buildTeamFeed(teamBoxRowsRaw: Row[], scheduleRows: Row[], pbpRows: Row[]) {
+  const teamBoxRows = attachOpponentPoints(teamBoxRowsRaw);
   const teams = new Map<string, TeamAccumulator>();
   const ensure = (teamName: string) => {
     const key = normalizeTeam(teamName);
@@ -163,23 +310,23 @@ function buildTeamFeed(teamBoxRows: Row[], scheduleRows: Row[], pbpRows: Row[]) 
   };
 
   for (const row of teamBoxRows) {
-    const teamName = text(row, ["teamName", "team", "team_name", "TEAM_NAME", "team_abbreviation", "TEAM_ABBREVIATION"]);
+    const teamName = resolveTeamName(row);
     if (!teamName) continue;
-    const opponentPoints = num(row, ["opponentPoints", "opp_pts", "pointsAllowed", "pts_allowed"]);
-    const points = num(row, ["points", "pts", "PTS"]);
+    const points = teamPoints(row);
+    const opponentPoints = num(row, ["opponentPoints", "opp_pts", "pointsAllowed", "pts_allowed", "opponentScore", "OPP_PTS"], num(row, ["__derivedOpponentPoints"]));
     const item = ensure(teamName);
     item.games += 1;
     item.pointsFor += points;
     item.pointsAgainst += opponentPoints;
-    item.possessions += num(row, ["possessions", "poss"], estimatePossessions(row));
-    item.fga += num(row, ["fga", "fieldGoalsAttempted", "FGA"]);
-    item.fgm += num(row, ["fgm", "fieldGoalsMade", "FGM"]);
-    item.fg3a += num(row, ["fg3a", "threePointersAttempted", "FG3A"]);
-    item.fg3m += num(row, ["fg3m", "threePointersMade", "FG3M"]);
-    item.fta += num(row, ["fta", "freeThrowsAttempted", "FTA"]);
-    item.ftm += num(row, ["ftm", "freeThrowsMade", "FTM"]);
-    item.oreb += num(row, ["oreb", "offensiveRebounds", "OREB"]);
-    item.dreb += num(row, ["dreb", "defensiveRebounds", "DREB"]);
+    item.possessions += num(row, ["possessions", "poss", "POSS"], estimatePossessions(row));
+    item.fga += num(row, ["fga", "fieldGoalsAttempted", "FGA", "fieldGoalAttempts"]);
+    item.fgm += num(row, ["fgm", "fieldGoalsMade", "FGM", "fieldGoals"]);
+    item.fg3a += num(row, ["fg3a", "threePointersAttempted", "FG3A", "threePointAttempts"]);
+    item.fg3m += num(row, ["fg3m", "threePointersMade", "FG3M", "threePointers"]);
+    item.fta += num(row, ["fta", "freeThrowsAttempted", "FTA", "freeThrowAttempts"]);
+    item.ftm += num(row, ["ftm", "freeThrowsMade", "FTM", "freeThrows"]);
+    item.oreb += num(row, ["oreb", "offensiveRebounds", "OREB", "reboundsOffensive"]);
+    item.dreb += num(row, ["dreb", "defensiveRebounds", "DREB", "reboundsDefensive"]);
     item.tov += num(row, ["tov", "turnovers", "TOV"]);
     item.plusMinus += num(row, ["plusMinus", "plus_minus", "PLUS_MINUS"], points - opponentPoints);
     item.recent.push(points - opponentPoints);
@@ -188,8 +335,8 @@ function buildTeamFeed(teamBoxRows: Row[], scheduleRows: Row[], pbpRows: Row[]) 
 
   if (!teams.size && scheduleRows.length) {
     for (const row of scheduleRows) {
-      const home = text(row, ["homeTeam", "home_team", "home_team_name", "HOME_TEAM_NAME"]);
-      const away = text(row, ["awayTeam", "away_team", "away_team_name", "AWAY_TEAM_NAME"]);
+      const home = text(row, ["homeTeam", "home_team", "home_team_name", "HOME_TEAM_NAME", "homeTeamName", "HOME_TEAM", "home"]);
+      const away = text(row, ["awayTeam", "away_team", "away_team_name", "AWAY_TEAM_NAME", "awayTeamName", "AWAY_TEAM", "away"]);
       if (home) ensure(home);
       if (away) ensure(away);
     }
@@ -223,8 +370,8 @@ function buildTeamFeed(teamBoxRows: Row[], scheduleRows: Row[], pbpRows: Row[]) 
       travel: 0,
       homeAdvantage: 2.1,
       injuryDrag: 0,
-      __source: "hoopr+nba-api+pbpstats-free-warehouse",
-      __sourceLabel: "Free NBA warehouse team feed",
+      __source: "kaggle-eoinamoore+free-nba-warehouse",
+      __sourceLabel: "Kaggle NBA Database / free NBA warehouse team feed",
       __sourceTier: "historical",
       __sourcePriority: 5,
       __sourceWeight: 1,
@@ -232,16 +379,14 @@ function buildTeamFeed(teamBoxRows: Row[], scheduleRows: Row[], pbpRows: Row[]) 
     };
   });
 
-  if (!rows.length && pbpRows.length) {
-    return buildTeamFeedFromPbp(pbpRows);
-  }
+  if (!rows.length && pbpRows.length) return buildTeamFeedFromPbp(pbpRows);
   return rows;
 }
 
 function buildTeamFeedFromPbp(pbpRows: Row[]) {
   const teams = new Map<string, { teamName: string; events: number; scoreDelta: number }>();
   for (const row of pbpRows) {
-    const teamName = text(row, ["teamName", "team", "team_name", "TEAM_NAME"]);
+    const teamName = resolveTeamName(row);
     if (!teamName) continue;
     const item = teams.get(normalizeTeam(teamName)) ?? { teamName, events: 0, scoreDelta: 0 };
     item.events += 1;
@@ -272,24 +417,26 @@ function buildPlayerFeed(playerBoxRows: Row[]) {
     players.set(key, current);
     return current;
   };
+
   for (const row of playerBoxRows) {
-    const teamName = text(row, ["teamName", "team", "team_name", "TEAM_NAME", "team_abbreviation", "TEAM_ABBREVIATION"]);
-    const playerName = text(row, ["playerName", "player", "athlete_display_name", "PLAYER_NAME", "name"]);
+    const teamName = resolveTeamName(row);
+    const playerName = resolvePlayerName(row);
     if (!teamName || !playerName) continue;
     const item = ensure(teamName, playerName);
     item.games += 1;
-    item.minutes += num(row, ["minutes", "min", "MIN"]);
+    item.minutes += num(row, ["minutes", "min", "MIN", "minutesCalculated", "minutes_played"]);
     item.points += num(row, ["points", "pts", "PTS"]);
     item.assists += num(row, ["assists", "ast", "AST"]);
     item.rebounds += num(row, ["rebounds", "reb", "REB"]);
     item.steals += num(row, ["steals", "stl", "STL"]);
     item.blocks += num(row, ["blocks", "blk", "BLK"]);
     item.turnovers += num(row, ["turnovers", "tov", "TOV"]);
-    item.fga += num(row, ["fga", "fieldGoalsAttempted", "FGA"]);
-    item.fg3a += num(row, ["fg3a", "threePointersAttempted", "FG3A"]);
-    item.fta += num(row, ["fta", "freeThrowsAttempted", "FTA"]);
+    item.fga += num(row, ["fga", "fieldGoalsAttempted", "FGA", "fieldGoalAttempts"]);
+    item.fg3a += num(row, ["fg3a", "threePointersAttempted", "FG3A", "threePointAttempts"]);
+    item.fta += num(row, ["fta", "freeThrowsAttempted", "FTA", "freeThrowAttempts"]);
     item.plusMinus += num(row, ["plusMinus", "plus_minus", "PLUS_MINUS"]);
   }
+
   return Array.from(players.values()).map((player) => {
     const minutes = Math.max(1, player.minutes);
     const per36 = 36 / minutes;
@@ -313,8 +460,8 @@ function buildPlayerFeed(playerBoxRows: Row[]) {
       injuryPenalty: 0,
       fatigue: 0,
       volatility: 1.1,
-      __source: "hoopr+nba-api-free-warehouse",
-      __sourceLabel: "Free NBA warehouse player feed",
+      __source: "kaggle-eoinamoore+free-nba-warehouse",
+      __sourceLabel: "Kaggle NBA Database / free NBA warehouse player feed",
       __sourceTier: "historical",
       __sourcePriority: 5,
       __sourceWeight: 1,
@@ -326,27 +473,31 @@ function buildPlayerFeed(playerBoxRows: Row[]) {
 function buildHistoryFeed(scheduleRows: Row[], teamRows: Row[]) {
   const teamForm = new Map<string, number[]>();
   for (const row of scheduleRows) {
-    const home = text(row, ["homeTeam", "home_team", "home_team_name", "HOME_TEAM_NAME"]);
-    const away = text(row, ["awayTeam", "away_team", "away_team_name", "AWAY_TEAM_NAME"]);
-    const homeScore = num(row, ["homeScore", "home_score", "home_pts", "HOME_PTS"]);
-    const awayScore = num(row, ["awayScore", "away_score", "away_pts", "AWAY_PTS"]);
-    if (home) teamForm.set(normalizeTeam(home), [...(teamForm.get(normalizeTeam(home)) ?? []), homeScore - awayScore].slice(-20));
-    if (away) teamForm.set(normalizeTeam(away), [...(teamForm.get(normalizeTeam(away)) ?? []), awayScore - homeScore].slice(-20));
+    const home = text(row, ["homeTeam", "home_team", "home_team_name", "HOME_TEAM_NAME", "homeTeamName", "home", "HOME"]);
+    const away = text(row, ["awayTeam", "away_team", "away_team_name", "AWAY_TEAM_NAME", "awayTeamName", "away", "AWAY"]);
+    const homeScore = num(row, ["homeScore", "home_score", "home_pts", "HOME_PTS", "homeTeamScore", "HOME_TEAM_SCORE", "homePoints"]);
+    const awayScore = num(row, ["awayScore", "away_score", "away_pts", "AWAY_PTS", "awayTeamScore", "AWAY_TEAM_SCORE", "awayPoints"]);
+    if (home && away && (homeScore || awayScore)) {
+      teamForm.set(normalizeTeam(home), [...(teamForm.get(normalizeTeam(home)) ?? []), homeScore - awayScore].slice(-20));
+      teamForm.set(normalizeTeam(away), [...(teamForm.get(normalizeTeam(away)) ?? []), awayScore - homeScore].slice(-20));
+    }
   }
+
   const teams = new Set<string>();
   for (const row of teamRows) {
-    const name = text(row, ["teamName", "team", "team_name", "TEAM_NAME"]);
+    const name = text(row, ["teamName", "team"]);
     if (name) teams.add(name);
   }
   for (const row of scheduleRows) {
-    const home = text(row, ["homeTeam", "home_team", "home_team_name", "HOME_TEAM_NAME"]);
-    const away = text(row, ["awayTeam", "away_team", "away_team_name", "AWAY_TEAM_NAME"]);
+    const home = text(row, ["homeTeam", "home_team", "home_team_name", "HOME_TEAM_NAME", "homeTeamName", "home", "HOME"]);
+    const away = text(row, ["awayTeam", "away_team", "away_team_name", "AWAY_TEAM_NAME", "awayTeamName", "away", "AWAY"]);
     if (home) teams.add(home);
     if (away) teams.add(away);
   }
+
   return Array.from(teams).map((teamName) => {
     const form = teamForm.get(normalizeTeam(teamName)) ?? [];
-    const recent = form.length ? form.reduce((sum, value) => sum + value, 0) / form.length : 0;
+    const recent = form.length ? form.reduce((sum, value) => sum + value, 0) / form.length : num(teamRows.find((row) => normalizeTeam(text(row, ["teamName", "team"])) === normalizeTeam(teamName)) ?? {}, ["recentForm"], 0);
     return {
       teamName,
       headToHeadEdge: 0,
@@ -359,9 +510,9 @@ function buildHistoryFeed(scheduleRows: Row[], teamRows: Row[]) {
       benchTrend: 0,
       restHistory: 0,
       clutchRecent: round(recent * 0.1, 2),
-      sample: form.length,
-      __source: "hoopr+nba-api-free-warehouse",
-      __sourceLabel: "Free NBA warehouse history feed",
+      sample: form.length || num(teamRows.find((row) => normalizeTeam(text(row, ["teamName", "team"])) === normalizeTeam(teamName)) ?? {}, ["games"], 0),
+      __source: "kaggle-eoinamoore+free-nba-warehouse",
+      __sourceLabel: "Kaggle NBA Database / free NBA warehouse history feed",
       __sourceTier: "historical",
       __sourcePriority: 5,
       __sourceWeight: 0.95,
@@ -397,8 +548,8 @@ function buildRatingFeed(teamFeed: Row[], playerFeed: Row[]) {
       depth: round(depth, 2),
       clutch: round(75 + num(team, ["clutch"], 0), 2),
       health: 92,
-      __source: "free-nba-warehouse-derived-ratings",
-      __sourceLabel: "Free NBA warehouse derived rating feed",
+      __source: "kaggle-eoinamoore+free-nba-warehouse-derived-ratings",
+      __sourceLabel: "Kaggle NBA Database / derived rating feed",
       __sourceTier: "fallback",
       __sourcePriority: 50,
       __sourceWeight: 0.82,
@@ -418,10 +569,10 @@ function main() {
   const outDir = path.resolve(argValue("out", path.join("data", "nba", "warehouse")));
   fs.mkdirSync(outDir, { recursive: true });
 
-  const schedule = loadRows(inputDir, ["schedule.json", "schedule.csv", "nba_schedule.json", "nba_schedule.csv", "hoopr_schedule.json", "hoopr_schedule.csv"]);
-  const teamBox = loadRows(inputDir, ["team_box.json", "team_box.csv", "nba_team_box.json", "nba_team_box.csv", "hoopr_team_box.json", "hoopr_team_box.csv"]);
-  const playerBox = loadRows(inputDir, ["player_box.json", "player_box.csv", "nba_player_box.json", "nba_player_box.csv", "hoopr_player_box.json", "hoopr_player_box.csv"]);
-  const pbp = loadRows(inputDir, ["pbp.json", "pbp.csv", "play_by_play.json", "play_by_play.csv", "nba_pbp.json", "nba_pbp.csv", "pbpstats_possessions.json", "pbpstats_possessions.csv"]);
+  const schedule = loadRows(inputDir, SCHEDULE_CANDIDATES);
+  const teamBox = loadRows(inputDir, TEAM_BOX_CANDIDATES);
+  const playerBox = loadRows(inputDir, PLAYER_BOX_CANDIDATES);
+  const pbp = loadRows(inputDir, PBP_CANDIDATES);
 
   const teamFeed = buildTeamFeed(teamBox.rows, schedule.rows, pbp.rows);
   const playerFeed = buildPlayerFeed(playerBox.rows);

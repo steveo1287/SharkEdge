@@ -6,13 +6,46 @@ This wires free NBA historical/current data into the existing SharkEdge NBA sour
 
 Use this order:
 
-1. `hoopR` / SportsDataverse for bulk historical NBA play-by-play, schedule, team box, and player box data.
-2. `nba_api` for current official NBA.com/stats pulls.
-3. `pbpstats` for optional possession/lineup enrichment.
+1. Kaggle `eoinamoore/historical-nba-data-and-player-box-scores` for historical games, team box scores, and player box scores.
+2. `hoopR` / SportsDataverse for bulk historical NBA play-by-play, schedule, team box, and player box data.
+3. `nba_api` for current official NBA.com/stats pulls.
+4. `pbpstats` for optional possession/lineup enrichment.
 
 The app does not scrape paid pages. Use licensed exports or self-hosted transformed datasets for paid/subscription providers.
 
 ## Fetch raw free data
+
+### Kaggle NBA database
+
+Install and configure the Kaggle CLI outside Vercel:
+
+```bash
+python -m pip install kaggle
+mkdir -p ~/.kaggle
+# Put your Kaggle API token at ~/.kaggle/kaggle.json
+chmod 600 ~/.kaggle/kaggle.json
+```
+
+Download the dataset:
+
+```bash
+npm run nba:warehouse:fetch:kaggle -- data/nba/raw
+```
+
+This pulls:
+
+```text
+eoinamoore/historical-nba-data-and-player-box-scores
+```
+
+The warehouse builder now directly recognizes common files from that dataset, including:
+
+```text
+Games.csv
+TeamStatistics.csv
+PlayerStatistics.csv
+LeagueSchedule24_25.csv
+```
 
 ### hoopR historical backfill
 
@@ -78,6 +111,26 @@ data/nba/warehouse/history-feed.json
 data/nba/warehouse/rating-feed.json
 ```
 
+## What the Kaggle path adds
+
+The builder now handles the Kaggle naming/column variations and converts them into the same model-ready feed shapes the NBA real-data model requires:
+
+- team offensive/defensive rating
+- net rating
+- true shooting
+- effective field goal percentage
+- three-point rate and accuracy
+- free-throw rate
+- turnover rate
+- offensive/defensive rebound rate
+- pace estimate
+- recent form
+- player impact proxies
+- player spacing/playmaking/rim pressure/rebounding/defense proxies
+- derived rating fallback
+
+When `TeamStatistics.csv` has two rows per game, the builder derives opponent points from the opposite team row in the same game. That prevents defensive rating from collapsing to zero when the source only stores each team's own box-score line.
+
 ## Serve the warehouse feeds
 
 New route:
@@ -122,9 +175,9 @@ Override with:
 NBA_WAREHOUSE_DIR=/absolute/path/to/data/nba/warehouse
 ```
 
-## Deployment note
+## Production note
 
-Vercel serverless builds should not perform massive historical downloads. Run the fetch/build jobs on a local machine or worker, then either:
+Vercel serverless builds should not perform massive historical downloads. Run the Kaggle/hoopR fetch and feed builder on a local machine or worker, then either:
 
 1. commit small/curated feed JSON files,
 2. host the generated files in object storage and point provider env vars at them, or
