@@ -23,11 +23,29 @@ function num(value: number | null | undefined, digits = 3) {
   return value.toFixed(digits);
 }
 
+function record(wins: number, losses: number, pushes = 0) {
+  return pushes > 0 ? `${wins}-${losses}-${pushes}` : `${wins}-${losses}`;
+}
+
 function scoreTone(value: number | null, good: number, ok: number) {
   if (value == null) return "muted" as const;
   if (value <= good) return "success" as const;
   if (value <= ok) return "premium" as const;
   return "danger" as const;
+}
+
+function recordTone(winPct: number | null) {
+  if (winPct == null) return "muted" as const;
+  if (winPct >= 0.55) return "success" as const;
+  if (winPct >= 0.5) return "premium" as const;
+  return "danger" as const;
+}
+
+function resultTone(result: "win" | "loss" | "push" | "pending") {
+  if (result === "win") return "success" as const;
+  if (result === "loss") return "danger" as const;
+  if (result === "push") return "premium" as const;
+  return "muted" as const;
 }
 
 function formatDate(value: string) {
@@ -43,6 +61,7 @@ function formatDate(value: string) {
 
 export default async function SimAccuracyPage() {
   const summary = await getSimAccuracySummary(30);
+  const allTime = summary.history.find((window) => window.key === "allTime") ?? null;
 
   if (!summary.ok) {
     return (
@@ -71,11 +90,33 @@ export default async function SimAccuracyPage() {
         ]}
       />
 
-      <section className="grid gap-3 md:grid-cols-4">
+      <section className="grid gap-3 md:grid-cols-5">
         <SimMetricTile label="Snapshots" value={String(summary.totalSnapshots)} sub="Captured model outputs" />
         <SimMetricTile label="Graded" value={String(summary.gradedSnapshots)} sub="Final score attached" emphasis="strong" />
         <SimMetricTile label="Pending" value={String(summary.ungradedSnapshots)} sub="Awaiting final score" />
-        <SimMetricTile label="Leagues" value={String(summary.byLeague.length)} sub="Tracked models" />
+        <SimMetricTile label="Sim record" value={allTime ? record(allTime.wins, allTime.losses, allTime.pushes) : "--"} sub="All-time W-L-P" emphasis="strong" />
+        <SimMetricTile label="Win rate" value={allTime ? pct(allTime.winPct, 1) : "--"} sub="Decisions only" />
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-3">
+        {summary.history.map((window) => (
+          <SimSignalCard key={window.key}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{window.label}</div>
+                <div className="mt-2 text-3xl font-semibold text-white">{record(window.wins, window.losses, window.pushes)}</div>
+                <div className="mt-1 text-xs text-slate-400">{window.graded} graded · {window.snapshots} snapshots</div>
+              </div>
+              <Badge tone={recordTone(window.winPct)}>{pct(window.winPct, 1)}</Badge>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <SimMetricTile label="Brier" value={num(window.brier)} sub="Lower is better" emphasis={window.brier != null && window.brier <= 0.2 ? "strong" : "normal"} />
+              <SimMetricTile label="Log loss" value={num(window.logLoss)} sub="Probability penalty" />
+              <SimMetricTile label="Spread MAE" value={num(window.spreadMae, 2)} sub="Margin miss" />
+              <SimMetricTile label="Total MAE" value={num(window.totalMae, 2)} sub="Total miss" />
+            </div>
+          </SimSignalCard>
+        ))}
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
@@ -84,10 +125,13 @@ export default async function SimAccuracyPage() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{league.league} model health</div>
-                <div className="mt-2 text-2xl font-semibold text-white">{league.snapshots} snapshots</div>
-                <div className="mt-1 text-xs text-slate-400">{league.graded} graded · avg confidence {pct(league.avgConfidence, 0)}</div>
+                <div className="mt-2 text-2xl font-semibold text-white">{record(league.wins, league.losses, league.pushes)}</div>
+                <div className="mt-1 text-xs text-slate-400">{league.graded} graded · {league.snapshots} snapshots · avg confidence {pct(league.avgConfidence, 0)}</div>
               </div>
-              <Badge tone={scoreTone(league.brier, 0.2, 0.25)}>Brier {num(league.brier)}</Badge>
+              <div className="flex flex-col items-end gap-2">
+                <Badge tone={recordTone(league.winPct)}>Record {pct(league.winPct, 1)}</Badge>
+                <Badge tone={scoreTone(league.brier, 0.2, 0.25)}>Brier {num(league.brier)}</Badge>
+              </div>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-4">
               <SimMetricTile label="Brier" value={num(league.brier)} sub="Lower is better" emphasis={league.brier != null && league.brier <= 0.2 ? "strong" : "normal"} />
@@ -109,15 +153,17 @@ export default async function SimAccuracyPage() {
         ))}
       </section>
 
-      <SimTableShell title="Recent prediction snapshots" description="Latest captured and graded model outputs.">
+      <SimTableShell title="Recent prediction snapshots" description="Latest captured and graded model outputs with the sim side, W/L result, and calibration errors.">
         <table className="min-w-full text-left text-xs">
-          <thead className="border-b border-white/10 bg-white/[0.03] text-slate-400"><tr><th className="px-3 py-2">Game</th><th className="px-3 py-2">League</th><th className="px-3 py-2 text-right">Captured</th><th className="px-3 py-2 text-right">Home win%</th><th className="px-3 py-2 text-right">Final</th><th className="px-3 py-2 text-right">Brier</th><th className="px-3 py-2 text-right">Spread err</th><th className="px-3 py-2 text-right">Total err</th></tr></thead>
+          <thead className="border-b border-white/10 bg-white/[0.03] text-slate-400"><tr><th className="px-3 py-2">Game</th><th className="px-3 py-2">League</th><th className="px-3 py-2 text-right">Captured</th><th className="px-3 py-2 text-right">Pick</th><th className="px-3 py-2 text-right">Result</th><th className="px-3 py-2 text-right">Home win%</th><th className="px-3 py-2 text-right">Final</th><th className="px-3 py-2 text-right">Brier</th><th className="px-3 py-2 text-right">Spread err</th><th className="px-3 py-2 text-right">Total err</th></tr></thead>
           <tbody>
             {summary.recent.map((row) => (
               <tr key={row.id} className="border-b border-white/5 last:border-none">
                 <td className="px-3 py-3"><div className="font-semibold text-white">{row.eventLabel}</div><div className="mt-1 text-[10px] text-slate-500">{row.status} · {row.tier ?? "tier pending"}</div></td>
                 <td className="px-3 py-3 text-slate-300">{row.league}</td>
                 <td className="px-3 py-3 text-right font-mono text-slate-200">{formatDate(row.capturedAt)}</td>
+                <td className="px-3 py-3 text-right"><div className="font-semibold text-white">{row.modelPickLabel}</div><div className="mt-1 font-mono text-[10px] text-slate-500">{row.modelPick}</div></td>
+                <td className="px-3 py-3 text-right"><Badge tone={resultTone(row.pickResult)}>{row.pickResult}</Badge></td>
                 <td className="px-3 py-3 text-right font-mono text-sky-200">{pct(row.modelHomeWinPct)}</td>
                 <td className="px-3 py-3 text-right font-mono text-slate-200">{row.finalAwayScore == null || row.finalHomeScore == null ? "--" : `${row.finalAwayScore}-${row.finalHomeScore}`}</td>
                 <td className="px-3 py-3 text-right font-mono text-slate-200">{num(row.brier)}</td>
