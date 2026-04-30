@@ -6,6 +6,19 @@ import type {
   HeadToHeadSimulationContext,
   TeamPlaystyleProfile
 } from "@/services/simulation/context-profiles";
+import {
+  linearWinExpectancyProfile,
+  linearWinPriorProbability,
+  type LinearWinExpectancyProfile,
+  type SupportedLinearWinLeague
+} from "@/services/analytics/team-strength/linear-win-expectancy";
+
+export type TeamLinearWinExpectancyInput = {
+  scored?: number | null;
+  allowed?: number | null;
+  actualWins?: number | null;
+  actualLosses?: number | null;
+};
 
 export type TeamSimulationFactors = {
   teamName: string;
@@ -18,6 +31,7 @@ export type TeamSimulationFactors = {
   travelProxyScore?: number | null;
   backToBack?: boolean | null;
   revengeSpot?: boolean | null;
+  linearWinExpectancy?: TeamLinearWinExpectancyInput | null;
   ratings?: TeamGameRatingsProfile | null;
   style?: TeamPlaystyleProfile | null;
   coach?: CoachTendencyProfile | null;
@@ -50,6 +64,7 @@ export type ContextualGameSimulationInput = {
     underOdds?: number | null;
   } | null;
   interactionContext?: HeadToHeadSimulationContext | null;
+  linearWinExpectancyWeight?: number | null;
   samples?: number;
   seed?: number;
 };
@@ -107,6 +122,36 @@ function clamp(value: number, min: number, max: number) {
 
 function round(value: number, digits = 3) {
   return Number(value.toFixed(digits));
+}
+
+function finiteNumber(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function supportedLinearWinLeague(leagueKey: string): SupportedLinearWinLeague | null {
+  const normalized = leagueKey.toUpperCase();
+  if (normalized === "MLB" || normalized === "NFL" || normalized === "NBA") {
+    return normalized;
+  }
+  return null;
+}
+
+function buildLinearWinProfile(
+  leagueKey: string,
+  team: TeamSimulationFactors
+): LinearWinExpectancyProfile | null {
+  const league = supportedLinearWinLeague(leagueKey);
+  const scored = finiteNumber(team.linearWinExpectancy?.scored);
+  const allowed = finiteNumber(team.linearWinExpectancy?.allowed);
+  if (!league || scored == null || allowed == null) return null;
+
+  return linearWinExpectancyProfile({
+    league,
+    scored,
+    allowed,
+    actualWins: finiteNumber(team.linearWinExpectancy?.actualWins),
+    actualLosses: finiteNumber(team.linearWinExpectancy?.actualLosses)
+  });
 }
 
 function average(values: number[]) {
@@ -358,7 +403,23 @@ export function simulateContextualGame(input: ContextualGameSimulationInput): Co
   const spreadStdDev = standardDeviation(spreadsHome);
   const monteCarloWinProbHome = homeWins / samples;
   const marginWinProbHome = normalCdf(projectedSpreadHome, 0, Math.max(0.25, spreadStdDev));
-  const winProbHome = clamp(monteCarloWinProbHome * 0.72 + marginWinProbHome * 0.28, 0.02, 0.98);
+  let winProbHome = clamp(monteCarloWinProbHome * 0.72 + marginWinProbHome * 0.28, 0.02, 0.98);
+
+  const homeLinearWinProfile = buildLinearWinProfile(input.leagueKey, input.home);
+  const awayLinearWinProfile = buildLinearWinProfile(input.leagueKey, input.away);
+  if (homeLinearWinProfile && awayLinearWinProfile) {
+    const prior = linearWinPriorProbability({
+      homeExpectedWinPct: homeLinearWinProfile.expectedWinPct,
+      awayExpectedWinPct: awayLinearWinProfile.expectedWinPct,
+      baseHomeWinProbability: winProbHome,
+      weight: input.linearWinExpectancyWeight ?? 0.08
+    });
+    const movement = prior.adjustedHomeWinProbability - winProbHome;
+    winProbHome = prior.adjustedHomeWinProbability;
+    drivers.push(
+      `Linear win expectancy prior ${round(prior.linearHomeSignal * 100, 1)}% home (${round(prior.weight * 100, 1)}% blend, ${movement >= 0 ? "+" : ""}${round(movement * 100, 2)} pts)`
+    );
+  }
 
   return {
     engine: "contextual-monte-carlo-v2",
