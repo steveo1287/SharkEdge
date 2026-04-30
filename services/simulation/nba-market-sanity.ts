@@ -49,9 +49,9 @@ function normalizeTeam(value: string | null | undefined) {
     seventysixers: "philadelphia76ers",
     blazers: "portlandtrailblazers",
     trailblazers: "portlandtrailblazers",
-    clips: "lacippers",
-    clippers: "losangelesclippers",
-    la clippers: "losangelesclippers"
+    clips: "losangelesclippers",
+    laclippers: "losangelesclippers",
+    clippers: "losangelesclippers"
   };
   return aliases[normalized] ?? normalized;
 }
