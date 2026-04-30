@@ -5,12 +5,12 @@ export default function SimLoading() {
     <div className="space-y-6">
       <SimWorkspaceHeader
         eyebrow="Simulation Command Desk"
-        title="Loading the sim workspace shell."
-        description="The priority queue loads separately so slow providers cannot block the page."
+        title="Loading cached sim snapshots."
+        description="The hub reads cache only; provider and projection work runs in scheduled refresh jobs."
       >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <SimMetricTile label="Shell" value="Loading" sub="Fast route" emphasis="strong" />
-          <SimMetricTile label="Priority API" value="Async" sub="Timeout protected" />
+          <SimMetricTile label="Priority cache" value="Reading" sub="No live projection batch" />
           <SimMetricTile label="NBA slate" value="..." sub="On demand" />
           <SimMetricTile label="MLB slate" value="..." sub="On demand" />
         </div>
