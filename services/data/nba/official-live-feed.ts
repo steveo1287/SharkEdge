@@ -26,7 +26,7 @@ function params(values: Record<string, string>) {
   return new URLSearchParams(values).toString();
 }
 
-function headers() {
+function nbaHeaders(): HeadersInit {
   return {
     accept: "application/json, text/plain, */*",
     "accept-language": "en-US,en;q=0.9",
@@ -41,7 +41,7 @@ function headers() {
 async function fetchNbaStats(url: string, query: Record<string, string>) {
   const response = await fetch(`${url}?${params(query)}`, {
     cache: "no-store",
-    headers
+    headers: nbaHeaders()
   });
   if (!response.ok) throw new Error(`NBA Stats request failed: ${response.status}`);
   return response.json() as Promise<NbaStatsResponse>;
