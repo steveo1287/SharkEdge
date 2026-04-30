@@ -9,14 +9,13 @@ type SimGame = { id: string; label: string; startTime: string; status: string; l
 type Projection = Awaited<ReturnType<typeof buildSimProjection>>;
 type EdgeResult = Awaited<ReturnType<typeof buildMlbEdges>>["edges"][number];
 type RichMlbIntel = NonNullable<Projection["mlbIntel"]> & { features?: unknown };
-
-type ScoreResult = {
-  homeScore: number;
-  awayScore: number;
-  finalTotal: number;
-  finalMargin: number;
-  homeWon: boolean;
+type RichRealityIntel = NonNullable<Projection["realityIntel"]> & {
+  market?: { homeNoVigProbability?: number | null; totalLine?: number | null; spreadLine?: number | null } | null;
+  historyAdjustment?: unknown;
+  sourceMap?: unknown;
 };
+
+type ScoreResult = { homeScore: number; awayScore: number; finalTotal: number; finalMargin: number; homeWon: boolean };
 
 export type SimAccuracyRecord = {
   key: "last7" | "last15" | "allTime";
@@ -114,33 +113,12 @@ function brier(probability: number, outcome: 0 | 1) { return (probability - outc
 
 function projectionMeta(projection: Projection, league: LeagueKey) {
   if (league === "NBA" && projection.nbaIntel) {
-    return {
-      modelVersion: projection.nbaIntel.modelVersion,
-      dataSource: projection.nbaIntel.dataSource,
-      tier: projection.nbaIntel.tier,
-      noBet: projection.nbaIntel.noBet,
-      confidence: projection.nbaIntel.confidence,
-      projectedTotal: projection.nbaIntel.projectedTotal
-    };
+    return { modelVersion: projection.nbaIntel.modelVersion, dataSource: projection.nbaIntel.dataSource, tier: projection.nbaIntel.tier, noBet: projection.nbaIntel.noBet, confidence: projection.nbaIntel.confidence, projectedTotal: projection.nbaIntel.projectedTotal };
   }
   if (league === "MLB" && projection.mlbIntel) {
-    return {
-      modelVersion: projection.mlbIntel.modelVersion,
-      dataSource: projection.mlbIntel.dataSource,
-      tier: projection.mlbIntel.governor?.tier ?? null,
-      noBet: projection.mlbIntel.governor?.noBet ?? false,
-      confidence: projection.mlbIntel.governor?.confidence ?? null,
-      projectedTotal: projection.mlbIntel.projectedTotal
-    };
+    return { modelVersion: projection.mlbIntel.modelVersion, dataSource: projection.mlbIntel.dataSource, tier: projection.mlbIntel.governor?.tier ?? null, noBet: projection.mlbIntel.governor?.noBet ?? false, confidence: projection.mlbIntel.governor?.confidence ?? null, projectedTotal: projection.mlbIntel.projectedTotal };
   }
-  return {
-    modelVersion: "sim-projection-engine",
-    dataSource: "fallback",
-    tier: "pass",
-    noBet: true,
-    confidence: null,
-    projectedTotal: projection.distribution.avgAway + projection.distribution.avgHome
-  };
+  return { modelVersion: "sim-projection-engine", dataSource: "fallback", tier: "pass", noBet: true, confidence: null, projectedTotal: projection.distribution.avgAway + projection.distribution.avgHome };
 }
 
 function bucketFor(probability: number) {
@@ -199,8 +177,25 @@ async function ensureAccuracyTable() {
   return true;
 }
 
-function richMlbIntel(projection: Projection): RichMlbIntel | null {
-  return projection.mlbIntel ? projection.mlbIntel as RichMlbIntel : null;
+function richMlbIntel(projection: Projection): RichMlbIntel | null { return projection.mlbIntel ? projection.mlbIntel as RichMlbIntel : null; }
+function richRealityIntel(projection: Projection, league: LeagueKey): RichRealityIntel | null { return league === "NBA" && projection.realityIntel ? projection.realityIntel as RichRealityIntel : null; }
+
+function realityPayload(realityIntel: RichRealityIntel | null) {
+  if (!realityIntel) return null;
+  return {
+    modelVersion: realityIntel.modelVersion,
+    dataSource: realityIntel.dataSource,
+    homeEdge: realityIntel.homeEdge,
+    projectedTotal: realityIntel.projectedTotal,
+    volatilityIndex: realityIntel.volatilityIndex,
+    confidence: realityIntel.confidence,
+    factors: realityIntel.factors ?? [],
+    modules: realityIntel.modules ?? [],
+    ratingBlend: realityIntel.ratingBlend ?? null,
+    market: realityIntel.market ?? null,
+    historyAdjustment: realityIntel.historyAdjustment ?? null,
+    sourceMap: realityIntel.sourceMap ?? null
+  };
 }
 
 async function insertOrUpdateSnapshot(args: { game: SimGame; projection: Projection; edge?: EdgeResult | null }) {
@@ -208,6 +203,8 @@ async function insertOrUpdateSnapshot(args: { game: SimGame; projection: Project
   const matchup = parseMatchup(game.label);
   const meta = projectionMeta(projection, game.leagueKey);
   const mlbIntel = richMlbIntel(projection);
+  const realityIntel = richRealityIntel(projection, game.leagueKey);
+  const nbaMarket = realityIntel?.market ?? null;
   const capturedAt = new Date();
   const modelHomeScore = projection.distribution.avgHome;
   const modelAwayScore = projection.distribution.avgAway;
@@ -215,8 +212,10 @@ async function insertOrUpdateSnapshot(args: { game: SimGame; projection: Project
   const modelTotal = meta.projectedTotal ?? modelHomeScore + modelAwayScore;
   const id = crypto.randomUUID();
   const snapshotKey = `${game.leagueKey}:${game.id}:${nowBucket(capturedAt)}`;
-  const marketHomeWinPct = mlbIntel?.market?.homeNoVigProbability ?? null;
-  const marketTotal = mlbIntel?.market?.totalLine ?? edge?.market?.total ?? null;
+  const marketHomeWinPct = nbaMarket?.homeNoVigProbability ?? mlbIntel?.market?.homeNoVigProbability ?? null;
+  const marketSpread = nbaMarket?.spreadLine ?? null;
+  const marketTotal = nbaMarket?.totalLine ?? mlbIntel?.market?.totalLine ?? edge?.market?.total ?? null;
+  const reality = realityPayload(realityIntel);
   const predictionJson = {
     matchup: projection.matchup,
     distribution: projection.distribution,
@@ -229,8 +228,18 @@ async function insertOrUpdateSnapshot(args: { game: SimGame; projection: Project
       noBet: projection.nbaIntel.noBet,
       dataSource: projection.nbaIntel.dataSource,
       projectedTotal: projection.nbaIntel.projectedTotal,
-      volatilityIndex: projection.nbaIntel.volatilityIndex
+      volatilityIndex: projection.nbaIntel.volatilityIndex,
+      playerStatProjections: projection.nbaIntel.playerStatProjections ?? [],
+      factors: reality?.factors ?? [],
+      market: nbaMarket,
+      historyAdjustment: reality?.historyAdjustment ?? null,
+      sourceMap: reality?.sourceMap ?? null,
+      modules: reality?.modules ?? [],
+      ratingBlend: reality?.ratingBlend ?? null,
+      homeEdge: reality?.homeEdge ?? null,
+      reality
     } : null,
+    realityIntel: reality,
     mlbIntel: mlbIntel ? {
       modelVersion: mlbIntel.modelVersion,
       dataSource: mlbIntel.dataSource,
@@ -246,7 +255,7 @@ async function insertOrUpdateSnapshot(args: { game: SimGame; projection: Project
       calibration: mlbIntel.calibration ?? null,
       uncertainty: mlbIntel.uncertainty ?? null
     } : null,
-    market: mlbIntel?.market ?? edge?.market ?? null
+    market: nbaMarket ?? mlbIntel?.market ?? edge?.market ?? null
   };
 
   await prisma.$executeRaw`
@@ -259,7 +268,7 @@ async function insertOrUpdateSnapshot(args: { game: SimGame; projection: Project
       ${id}, ${snapshotKey}, ${game.leagueKey}, ${game.id}, ${game.label}, ${matchup.away}, ${matchup.home}, ${new Date(game.startTime)}, ${game.status}, ${capturedAt},
       ${meta.modelVersion}, ${meta.dataSource}, ${meta.tier}, ${meta.noBet}, ${meta.confidence},
       ${projection.distribution.homeWinPct}, ${projection.distribution.awayWinPct}, ${modelSpread}, ${modelTotal}, ${modelHomeScore}, ${modelAwayScore},
-      ${marketHomeWinPct}, ${null}, ${marketTotal}, ${bucketFor(projection.distribution.homeWinPct)}, ${safeJson(predictionJson)}::jsonb
+      ${marketHomeWinPct}, ${marketSpread}, ${marketTotal}, ${bucketFor(projection.distribution.homeWinPct)}, ${safeJson(predictionJson)}::jsonb
     )
     ON CONFLICT (snapshot_key) DO UPDATE SET
       status = EXCLUDED.status,
@@ -276,6 +285,7 @@ async function insertOrUpdateSnapshot(args: { game: SimGame; projection: Project
       model_home_score = EXCLUDED.model_home_score,
       model_away_score = EXCLUDED.model_away_score,
       market_home_win_pct = EXCLUDED.market_home_win_pct,
+      market_spread = EXCLUDED.market_spread,
       market_total = EXCLUDED.market_total,
       calibration_bucket = EXCLUDED.calibration_bucket,
       prediction_json = EXCLUDED.prediction_json,
@@ -301,10 +311,7 @@ export async function captureCurrentSimPredictionSnapshots(leagues: SupportedAcc
   let captured = 0;
   let skipped = 0;
   for (const game of games) {
-    if (game.status === "FINAL" || game.status === "POSTPONED" || game.status === "CANCELED") {
-      skipped += 1;
-      continue;
-    }
+    if (game.status === "FINAL" || game.status === "POSTPONED" || game.status === "CANCELED") { skipped += 1; continue; }
     const projection = await buildSimProjection(game);
     await insertOrUpdateSnapshot({ game, projection, edge: edgeByGame.get(game.id) ?? null });
     captured += 1;
@@ -362,10 +369,7 @@ function normalizeNumber(value: unknown) {
   if (typeof value === "string" && Number.isFinite(Number(value))) return Number(value);
   return null;
 }
-function winPct(wins: number, losses: number) {
-  const decisions = wins + losses;
-  return decisions <= 0 ? null : wins / decisions;
-}
+function winPct(wins: number, losses: number) { const decisions = wins + losses; return decisions <= 0 ? null : wins / decisions; }
 function pickResult(row: { model_home_win_pct: number; home_won: boolean | null; final_home_score: number | null; final_away_score: number | null }) {
   if (row.home_won == null || row.final_home_score == null || row.final_away_score == null) return "pending" as const;
   if (row.final_home_score === row.final_away_score) return "push" as const;
@@ -426,57 +430,14 @@ export async function getSimAccuracySummary(limit = 20): Promise<SimAccuracySumm
     totalSnapshots,
     gradedSnapshots,
     ungradedSnapshots: Math.max(0, totalSnapshots - gradedSnapshots),
-    history: historyRows.map((row) => {
-      const wins = Number(row.wins);
-      const losses = Number(row.losses);
-      return { key: row.window_key, label: row.label, snapshots: Number(row.snapshots), graded: Number(row.graded), wins, losses, pushes: Number(row.pushes), winPct: round(winPct(wins, losses), 3), brier: round(normalizeNumber(row.brier)), logLoss: round(normalizeNumber(row.log_loss)), spreadMae: round(normalizeNumber(row.spread_mae), 2), totalMae: round(normalizeNumber(row.total_mae), 2), avgConfidence: round(normalizeNumber(row.avg_confidence), 3) };
-    }),
+    history: historyRows.map((row) => { const wins = Number(row.wins); const losses = Number(row.losses); return { key: row.window_key, label: row.label, snapshots: Number(row.snapshots), graded: Number(row.graded), wins, losses, pushes: Number(row.pushes), winPct: round(winPct(wins, losses), 3), brier: round(normalizeNumber(row.brier)), logLoss: round(normalizeNumber(row.log_loss)), spreadMae: round(normalizeNumber(row.spread_mae), 2), totalMae: round(normalizeNumber(row.total_mae), 2), avgConfidence: round(normalizeNumber(row.avg_confidence), 3) }; }),
     byLeague: leagueRows.map((row) => {
-      const wins = Number(row.wins);
-      const losses = Number(row.losses);
-      return {
-        league: row.league,
-        snapshots: Number(row.snapshots),
-        graded: Number(row.graded),
-        wins,
-        losses,
-        pushes: Number(row.pushes),
-        winPct: round(winPct(wins, losses), 3),
-        brier: round(normalizeNumber(row.brier)),
-        logLoss: round(normalizeNumber(row.log_loss)),
-        spreadMae: round(normalizeNumber(row.spread_mae), 2),
-        totalMae: round(normalizeNumber(row.total_mae), 2),
-        avgConfidence: round(normalizeNumber(row.avg_confidence), 3),
-        calibrationBuckets: bucketRows.filter((bucket) => bucket.league === row.league).map((bucket) => ({
-          bucket: bucket.calibration_bucket,
-          count: Number(bucket.count),
-          avgPredicted: round(normalizeNumber(bucket.avg_predicted), 3) ?? 0,
-          actualRate: round(normalizeNumber(bucket.actual_rate), 3) ?? 0,
-          brier: round(normalizeNumber(bucket.brier), 4) ?? 0
-        }))
-      };
+      const wins = Number(row.wins); const losses = Number(row.losses);
+      return { league: row.league, snapshots: Number(row.snapshots), graded: Number(row.graded), wins, losses, pushes: Number(row.pushes), winPct: round(winPct(wins, losses), 3), brier: round(normalizeNumber(row.brier)), logLoss: round(normalizeNumber(row.log_loss)), spreadMae: round(normalizeNumber(row.spread_mae), 2), totalMae: round(normalizeNumber(row.total_mae), 2), avgConfidence: round(normalizeNumber(row.avg_confidence), 3), calibrationBuckets: bucketRows.filter((bucket) => bucket.league === row.league).map((bucket) => ({ bucket: bucket.calibration_bucket, count: Number(bucket.count), avgPredicted: round(normalizeNumber(bucket.avg_predicted), 3) ?? 0, actualRate: round(normalizeNumber(bucket.actual_rate), 3) ?? 0, brier: round(normalizeNumber(bucket.brier), 4) ?? 0 })) };
     }),
     recent: recentRows.map((row) => {
       const pickedHome = row.model_home_win_pct >= 0.5;
-      return {
-        id: row.id,
-        league: row.league,
-        gameId: row.game_id,
-        eventLabel: row.event_label,
-        capturedAt: row.captured_at.toISOString(),
-        status: row.status,
-        tier: row.tier,
-        confidence: round(normalizeNumber(row.confidence), 3),
-        modelHomeWinPct: round(row.model_home_win_pct, 3) ?? row.model_home_win_pct,
-        modelPick: pickedHome ? "HOME" : "AWAY",
-        modelPickLabel: pickedHome ? row.home_team : row.away_team,
-        pickResult: pickResult(row),
-        finalHomeScore: round(normalizeNumber(row.final_home_score), 2),
-        finalAwayScore: round(normalizeNumber(row.final_away_score), 2),
-        brier: round(normalizeNumber(row.brier), 4),
-        spreadError: round(normalizeNumber(row.spread_error), 2),
-        totalError: round(normalizeNumber(row.total_error), 2)
-      };
+      return { id: row.id, league: row.league, gameId: row.game_id, eventLabel: row.event_label, capturedAt: row.captured_at.toISOString(), status: row.status, tier: row.tier, confidence: round(normalizeNumber(row.confidence), 3), modelHomeWinPct: round(row.model_home_win_pct, 3) ?? row.model_home_win_pct, modelPick: pickedHome ? "HOME" : "AWAY", modelPickLabel: pickedHome ? row.home_team : row.away_team, pickResult: pickResult(row), finalHomeScore: round(normalizeNumber(row.final_home_score), 2), finalAwayScore: round(normalizeNumber(row.final_away_score), 2), brier: round(normalizeNumber(row.brier), 4), spreadError: round(normalizeNumber(row.spread_error), 2), totalError: round(normalizeNumber(row.total_error), 2) };
     })
   };
 }
