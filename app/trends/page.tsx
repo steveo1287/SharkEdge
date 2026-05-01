@@ -1,9 +1,10 @@
 import { TrendsDashboardV3 } from "@/components/trends/trends-dashboard-v3";
 import type { TrendFilters, TrendMode } from "@/lib/types/domain";
 import { trendFiltersSchema } from "@/lib/validation/filters";
-import { getCachedTrendDashboard } from "@/services/trends/dashboard-cache";
+import { getFastCachedTrendDashboard } from "@/services/trends/dashboard-cache";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -49,11 +50,11 @@ export default async function TrendsPage({ searchParams }: PageProps) {
   const savedTrendId = readValue(resolved, "savedTrendId")?.trim() ?? null;
   const mode = readMode(readValue(resolved, "mode"));
 
-  const view = await getCachedTrendDashboard(filters, {
+  const { payload } = await getFastCachedTrendDashboard(filters, {
     mode,
     aiQuery,
     savedTrendId
   });
 
-  return <TrendsDashboardV3 data={view} />;
+  return <TrendsDashboardV3 data={payload} />;
 }
