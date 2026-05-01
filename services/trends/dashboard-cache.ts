@@ -80,16 +80,20 @@ function withCacheStatusNote(payload: TrendDashboardView, status: FastDashboardR
 }
 function hasCards(view: TrendDashboardView | null | undefined): view is TrendDashboardView { return Boolean(view && Array.isArray(view.cards) && view.cards.length > 0); }
 
-function dedupeById<T extends { id?: string | null; title?: string | null }>(items: T[]) {
+function dedupeByKey<T>(items: T[], keyFn: (item: T) => string) {
   const seen = new Set<string>();
   const output: T[] = [];
   for (const item of items) {
-    const key = item.id || item.title || JSON.stringify(item).slice(0, 80);
+    const key = keyFn(item);
     if (seen.has(key)) continue;
     seen.add(key);
     output.push(item);
   }
   return output;
+}
+
+function itemKey(item: any) {
+  return String(item?.id ?? item?.title ?? item?.label ?? item?.eventLabel ?? item?.name ?? JSON.stringify(item).slice(0, 80));
 }
 
 function historicalCardScore(card: TrendDashboardView["cards"][number]) {
@@ -113,14 +117,14 @@ function mergeDashboards(args: {
   if (!base) return null;
 
   const dashboards = [args.historical, args.signal, args.legacy].filter(hasCards);
-  const cards = dedupeById(dashboards.flatMap((dashboard) => dashboard.cards))
+  const cards = dedupeByKey(dashboards.flatMap((dashboard) => dashboard.cards), itemKey)
     .sort((left, right) => historicalCardScore(right) - historicalCardScore(left));
-  const metrics = dedupeById(dashboards.flatMap((dashboard) => dashboard.metrics));
-  const insights = dedupeById(dashboards.flatMap((dashboard) => dashboard.insights));
-  const movementRows = dedupeById(dashboards.flatMap((dashboard) => dashboard.movementRows));
-  const segmentRows = dedupeById(dashboards.flatMap((dashboard) => dashboard.segmentRows));
-  const todayMatches = dedupeById(dashboards.flatMap((dashboard) => dashboard.todayMatches ?? []));
-  const savedSystems = dedupeById(dashboards.flatMap((dashboard) => dashboard.savedSystems ?? []));
+  const metrics = dedupeByKey(dashboards.flatMap((dashboard) => dashboard.metrics), itemKey);
+  const insights = dedupeByKey(dashboards.flatMap((dashboard) => dashboard.insights), itemKey);
+  const movementRows = dedupeByKey(dashboards.flatMap((dashboard) => dashboard.movementRows), itemKey);
+  const segmentRows = dedupeByKey(dashboards.flatMap((dashboard) => dashboard.segmentRows), itemKey);
+  const todayMatches = dedupeByKey(dashboards.flatMap((dashboard) => dashboard.todayMatches ?? []), itemKey);
+  const savedSystems = dedupeByKey(dashboards.flatMap((dashboard) => dashboard.savedSystems ?? []), itemKey);
 
   const historicalCount = args.historical?.cards?.length ?? 0;
   const signalCount = args.signal?.cards?.length ?? 0;
