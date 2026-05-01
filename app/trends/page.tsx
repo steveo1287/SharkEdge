@@ -54,6 +54,19 @@ function readValue(
   return Array.isArray(value) ? value[0] : value;
 }
 
+function normalizeSavedTrendId(value: string | null | undefined) {
+  const id = value?.trim();
+  if (!id) return null;
+  const bad = new Set(["null", "undefined", "none", "trend", "trends", "saved", "savedtrend"]);
+  if (bad.has(id.toLowerCase())) return null;
+  if (id.length < 6) return null;
+  return id;
+}
+
+function readSavedTrendId(searchParams: Record<string, string | string[] | undefined>) {
+  return normalizeSavedTrendId(readValue(searchParams, "savedTrendId") ?? readValue(searchParams, "savedId") ?? null);
+}
+
 function buildFilters(searchParams: Record<string, string | string[] | undefined>) {
   try {
     return trendFiltersSchema.parse({
@@ -331,7 +344,7 @@ export default async function TrendsPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
   const filters = buildFilters(resolved);
   const aiQuery = readValue(resolved, "q")?.trim() ?? "";
-  const savedTrendId = readValue(resolved, "savedTrendId")?.trim() ?? null;
+  const savedTrendId = readSavedTrendId(resolved);
   const mode = readMode(readValue(resolved, "mode"));
   const options = { mode, aiQuery, savedTrendId };
 
