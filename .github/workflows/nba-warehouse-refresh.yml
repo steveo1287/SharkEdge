@@ -19,6 +19,18 @@ on:
         default: "true"
         type: choice
         options: ["true", "false"]
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/nba-warehouse-refresh.yml"
+      - "scripts/build-nba-free-warehouse-feeds.ts"
+      - "scripts/build-nba-player-feed-stream.ts"
+      - "scripts/build-nba-game-ids.ts"
+      - "scripts/fetch-kaggle-nba-dataset.sh"
+      - "scripts/fetch-nba-api-current.py"
+      - "scripts/fetch-pbpstats-nba.py"
+      - "scripts/enrich-nba-warehouse-with-nba-api.ts"
+      - "package.json"
   schedule:
     - cron: "17 * * * *"
 
