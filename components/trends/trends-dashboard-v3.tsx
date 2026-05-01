@@ -35,6 +35,16 @@ function buildTrendHref(
   return `/trends?${params.toString()}`;
 }
 
+function numericPercent(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = Number(String(value).replace(/[^0-9.-]+/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function numericUnits(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function gateVariant(gate: string | undefined): "review" | "watch" | "context" | "research" {
   if (!gate) return "research";
   const g = gate.toUpperCase();
@@ -75,8 +85,6 @@ function toneClass(tone: TrendCardView["tone"]) {
   if (tone === "premium") return "border-amber-300/20 bg-amber-300/4";
   return "border-white/8 bg-slate-950/70";
 }
-
-// ─── Stats grid ────────────────────────────────────────────────────────────
 
 type StatItem = { label: string; value: string; muted?: boolean };
 
@@ -132,8 +140,6 @@ function buildStatItems(card: TrendCardView): StatItem[] {
   ];
 }
 
-// ─── Active games ──────────────────────────────────────────────────────────
-
 function formatMatchTime(startTime: string) {
   try {
     const d = new Date(startTime);
@@ -163,8 +169,6 @@ function ActiveGameRow({ match, gate }: { match: TrendMatchView; gate: string | 
     </div>
   );
 }
-
-// ─── Risk row ─────────────────────────────────────────────────────────────
 
 function RiskRow({ card }: { card: TrendCardView }) {
   const hasPrice = Boolean(card.priceCheckpoint);
@@ -200,18 +204,14 @@ function RiskRow({ card }: { card: TrendCardView }) {
   );
 }
 
-// ─── Main trend card ───────────────────────────────────────────────────────
-
 function TrendCard({ card }: { card: TrendCardView }) {
   const matches = card.todayMatches ?? [];
   const statItems = buildStatItems(card);
   const gate = card.actionGate;
-  // Short description: strip any long quality text, max 120 chars
   const desc = (card.description || card.note || "").replace(/Action Gate:[^.]+\./gi, "").replace(/SmartScore\s*\d+\.?/gi, "").replace(/Fair-price checkpoint:[^.]+\./gi, "").trim().slice(0, 140);
 
   return (
     <Card className={`rounded-[28px] p-5 shadow-[0_16px_40px_rgba(0,0,0,0.20)] ${toneClass(card.tone)}`}>
-      {/* ── Header ── */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <LeaguePill league={card.league} market={card.market} />
@@ -234,12 +234,10 @@ function TrendCard({ card }: { card: TrendCardView }) {
         </div>
       </div>
 
-      {/* ── Stats grid ── */}
       <div className="mt-4">
         <StatsGrid items={statItems} />
       </div>
 
-      {/* ── Active games ── */}
       {matches.length > 0 ? (
         <div className="mt-4">
           <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300/70">
@@ -253,18 +251,14 @@ function TrendCard({ card }: { card: TrendCardView }) {
         </div>
       ) : null}
 
-      {/* ── Short description ── */}
       {desc ? (
         <p className="mt-3 text-xs leading-5 text-slate-400">{desc}</p>
       ) : null}
 
-      {/* ── Risk row ── */}
       <RiskRow card={card} />
     </Card>
   );
 }
-
-// ─── Movement/segment mini rows ────────────────────────────────────────────
 
 function MiniRows({ title, rows }: { title: string; rows: TrendTableRow[] }) {
   return (
@@ -284,8 +278,6 @@ function MiniRows({ title, rows }: { title: string; rows: TrendTableRow[] }) {
     </Card>
   );
 }
-
-// ─── Today matches banner ──────────────────────────────────────────────────
 
 function TodayMatchesBanner({ matches }: { matches: TrendMatchView[] }) {
   if (!matches.length) return null;
@@ -314,7 +306,59 @@ function TodayMatchesBanner({ matches }: { matches: TrendMatchView[] }) {
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────
+type PowerSection = {
+  title: string;
+  subtitle: string;
+  cards: TrendCardView[];
+};
+
+function powerSections(cards: TrendCardView[]): PowerSection[] {
+  const byUnits = [...cards].filter((card) => typeof card.profitUnits === "number").sort((a, b) => (numericUnits(b.profitUnits) ?? -999) - (numericUnits(a.profitUnits) ?? -999));
+  const byWinRate = [...cards].filter((card) => numericPercent(card.winRate ?? card.hitRate) !== null).sort((a, b) => (numericPercent(b.winRate ?? b.hitRate) ?? -999) - (numericPercent(a.winRate ?? a.hitRate) ?? -999));
+  const undefeated = cards.filter((card) => typeof card.wins === "number" && (card.losses ?? 0) === 0 && card.wins >= 2).sort((a, b) => (b.wins ?? 0) - (a.wins ?? 0));
+  const hot = cards.filter((card) => card.streak?.startsWith("W") || (card.todayMatches?.length ?? 0) > 0).sort((a, b) => (b.todayMatches?.length ?? 0) - (a.todayMatches?.length ?? 0));
+  const clvBacked = cards.filter((card) => `${card.description ?? ""} ${card.note ?? ""} ${card.priceCheckpoint ?? ""}`.toLowerCase().includes("clv") || card.betType?.toLowerCase().includes("clv"));
+  const live = cards.filter((card) => (card.todayMatches?.length ?? 0) > 0).sort((a, b) => (b.todayMatches?.length ?? 0) - (a.todayMatches?.length ?? 0));
+  return [
+    { title: "Most Profitable Systems", subtitle: "Sorted by historical units and ROI support.", cards: byUnits.slice(0, 4) },
+    { title: "Highest Win Rate", subtitle: "Best stored hit-rate systems with sample attached.", cards: byWinRate.slice(0, 4) },
+    { title: "Undefeated Trends", subtitle: "Systems without a stored loss in the available sample.", cards: undefeated.slice(0, 4) },
+    { title: "Hot Team Trends", subtitle: "Current qualifiers, streak support, and board relevance.", cards: hot.slice(0, 4) },
+    { title: "Live Qualifiers Today", subtitle: "Systems attached to games on today’s board.", cards: live.slice(0, 4) },
+    { title: "CLV-Backed Systems", subtitle: "Market-support systems with price discipline attached.", cards: clvBacked.slice(0, 4) }
+  ].filter((section) => section.cards.length > 0);
+}
+
+function PowerSectionCard({ section }: { section: PowerSection }) {
+  return (
+    <Card className="border-white/8 bg-slate-950/70 p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-cyan-300/70">Power Board</div>
+          <div className="mt-1 text-lg font-semibold text-white">{section.title}</div>
+          <div className="mt-1 text-xs leading-5 text-slate-500">{section.subtitle}</div>
+        </div>
+        <span className="rounded-full border border-cyan-400/20 bg-cyan-400/8 px-2.5 py-1 text-[10px] font-semibold text-cyan-200">{section.cards.length}</span>
+      </div>
+      <div className="mt-4 grid gap-2">
+        {section.cards.map((card) => (
+          <Link key={`${section.title}:${card.id}`} href={card.href ?? "/trends"} className="rounded-2xl border border-white/6 bg-black/25 p-3 hover:border-cyan-300/25">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0 flex-1 truncate text-sm font-medium text-white">{card.title}</div>
+              <GatePill gate={card.actionGate} />
+            </div>
+            <div className="mt-2 grid grid-cols-4 gap-2 text-[11px] text-slate-400">
+              <span>ROI {card.roi ?? "—"}</span>
+              <span>Win {card.winRate ?? card.hitRate ?? "—"}</span>
+              <span>{typeof card.profitUnits === "number" ? `${card.profitUnits > 0 ? "+" : ""}${card.profitUnits.toFixed(1)}u` : "Units —"}</span>
+              <span>{card.todayMatches?.length ?? 0} live</span>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </Card>
+  );
+}
 
 export function TrendsDashboardV3({ data }: TrendsDashboardV3Props) {
   if (data.setup) {
@@ -322,15 +366,15 @@ export function TrendsDashboardV3({ data }: TrendsDashboardV3Props) {
   }
 
   const displayCards = data.mode === "simple" ? data.cards.slice(0, 6) : data.cards;
+  const sections = data.mode === "power" ? powerSections(data.cards) : [];
 
   return (
     <div className="grid gap-5">
-      {/* ── Page header ── */}
       <Card className="p-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="text-[10px] uppercase tracking-[0.26em] text-cyan-300/70">Historical Intelligence</div>
-            <div className="mt-1.5 font-display text-2xl font-semibold text-white sm:text-3xl">Trends</div>
+            <div className="mt-1.5 font-display text-2xl font-semibold text-white sm:text-3xl">{data.mode === "power" ? "Power Trends" : "Trends"}</div>
             <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">{data.sourceNote}</p>
           </div>
           <div className="inline-flex self-start rounded-2xl border border-line bg-slate-950/80 p-1">
@@ -340,7 +384,6 @@ export function TrendsDashboardV3({ data }: TrendsDashboardV3Props) {
         </div>
       </Card>
 
-      {/* ── Filters ── */}
       <Card className="p-4">
         <form action="/trends" method="get" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <input type="hidden" name="mode" value={data.mode} />
@@ -370,7 +413,6 @@ export function TrendsDashboardV3({ data }: TrendsDashboardV3Props) {
           </select>
           <button type="submit" className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2.5 text-sm font-medium text-sky-200">Refine</button>
         </form>
-        {/* Query bar */}
         <form action="/trends" method="get" className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
           <input type="hidden" name="mode" value={data.mode} />
           <input name="q" defaultValue={data.aiQuery} placeholder='e.g. "MLB road underdogs after a loss"' className="rounded-xl border border-line bg-slate-950 px-3 py-2.5 text-sm text-white placeholder:text-slate-500" />
@@ -385,27 +427,28 @@ export function TrendsDashboardV3({ data }: TrendsDashboardV3Props) {
         </div>
       </Card>
 
-      {/* ── Alert banners ── */}
       {data.sampleNote ? (
         <div className="rounded-2xl border border-amber-300/20 bg-amber-400/5 px-4 py-3 text-sm leading-6 text-amber-100">
           {data.sampleNote}
         </div>
       ) : null}
 
-      {/* ── Summary metrics ── */}
       <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
         {data.metrics.map((metric) => <StatCard key={metric.label} label={metric.label} value={metric.value} note={metric.note} />)}
       </div>
 
-      {/* ── Today live qualifiers ── */}
       {data.todayMatches.length > 0 ? <TodayMatchesBanner matches={data.todayMatches} /> : null}
 
-      {/* ── Trend system cards ── */}
+      {sections.length > 0 ? (
+        <div className="grid gap-4 xl:grid-cols-2">
+          {sections.map((section) => <PowerSectionCard key={section.title} section={section} />)}
+        </div>
+      ) : null}
+
       <div className="grid gap-4 xl:grid-cols-2">
         {displayCards.map((card) => <TrendCard key={card.id} card={card} />)}
       </div>
 
-      {/* ── Movement / segment rows ── */}
       {(data.movementRows.length > 0 || data.segmentRows.length > 0) ? (
         <div className="grid gap-4 lg:grid-cols-2">
           {data.movementRows.length > 0 ? <MiniRows title="Action gates" rows={data.movementRows} /> : null}
