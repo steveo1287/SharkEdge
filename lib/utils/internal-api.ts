@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 export function ensureInternalApiAccess(request: Request) {
-  const configuredKey = process.env.INTERNAL_API_KEY?.trim();
+  const configuredKey =
+    process.env.INTERNAL_API_KEY?.trim() || process.env.INTERNAL_API_KEY2?.trim();
   if (!configuredKey) {
     return null;
   }

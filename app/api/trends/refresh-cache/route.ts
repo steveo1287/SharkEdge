@@ -12,7 +12,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 function authorized(request: NextRequest) {
-  const expected = process.env.TRENDS_REFRESH_TOKEN?.trim() || process.env.CRON_SECRET?.trim();
+  const expected =
+    process.env.TRENDS_REFRESH_TOKEN?.trim() ||
+    process.env.CRON_SECRET?.trim() ||
+    process.env.INTERNAL_API_KEY?.trim() ||
+    process.env.INTERNAL_API_KEY2?.trim();
   if (!expected) return true;
   const url = new URL(request.url);
   const queryToken = url.searchParams.get("token");
