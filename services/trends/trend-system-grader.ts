@@ -49,6 +49,10 @@ function selectedId(event: any, selected: unknown) {
   const named = event?.participants?.find((participant: any) => participantLabel(participant).includes(pick) || pick.includes(participantLabel(participant)));
   return named?.competitorId ?? null;
 }
+function isLedgerResult(value: unknown) {
+  const result = String(value ?? "").toUpperCase();
+  return result === "WIN" || result === "LOSS" || result === "PUSH" || result === "VOID";
+}
 function grade(row: any): { result: Outcome; reason: string } {
   const m = meta(row);
   const resultState = s(row?.event?.resultState);
@@ -70,6 +74,28 @@ function grade(row: any): { result: Outcome; reason: string } {
   const pickId = selectedId(row.event, m.side ?? m.selection);
   if (!pickId) return { result: "OPEN", reason: "Could not map pick to participant" };
   return pickId === winnerId ? { result: "WIN", reason: "Pick matched winner" } : { result: "LOSS", reason: "Pick did not match winner" };
+}
+async function recomputeCumulativeProfit(definitionId: string) {
+  const rows = await db.savedTrendMatch.findMany({
+    where: { trendDefinitionId: definitionId },
+    orderBy: [{ matchedAt: "asc" }, { id: "asc" }]
+  });
+  let running = 0;
+  let rowsUpdated = 0;
+  for (const row of rows) {
+    if (isLedgerResult(row.betResult)) {
+      running += n(row.unitsWon) ?? 0;
+    }
+    const cumulativeProfit = Number(running.toFixed(2));
+    if (n(row.cumulativeProfit) !== cumulativeProfit) {
+      await db.savedTrendMatch.update({
+        where: { id: row.id },
+        data: { cumulativeProfit }
+      });
+      rowsUpdated += 1;
+    }
+  }
+  return rowsUpdated;
 }
 async function snapshot(definitionId: string) {
   const rows = await db.savedTrendMatch.findMany({ where: { trendDefinitionId: definitionId }, orderBy: { matchedAt: "desc" } });
@@ -114,7 +140,7 @@ async function snapshot(definitionId: string) {
 
 export async function gradeCapturedTrendSystemMatches(args?: { limit?: number }) {
   const source = getServerDatabaseResolution().key;
-  if (!hasUsableServerDatabaseUrl()) return { ok: false, generatedAt: new Date().toISOString(), database: { usable: false, source }, summary: { openMatchesScanned: 0, gradedMatches: 0, skippedOpen: 0, snapshotsWritten: 0, wins: 0, losses: 0, pushes: 0, voids: 0 }, graded: [], skipped: [] };
+  if (!hasUsableServerDatabaseUrl()) return { ok: false, generatedAt: new Date().toISOString(), database: { usable: false, source }, summary: { openMatchesScanned: 0, gradedMatches: 0, skippedOpen: 0, snapshotsWritten: 0, cumulativeRecomputed: 0, cumulativeRowsUpdated: 0, wins: 0, losses: 0, pushes: 0, voids: 0 }, graded: [], skipped: [] };
   const rows = await db.savedTrendMatch.findMany({
     where: { betResult: "OPEN", trendDefinition: { isSystemGenerated: true }, event: { eventResult: { isNot: null } } },
     include: { trendDefinition: true, event: { include: { eventResult: true, participants: { include: { competitor: true } } } } },
@@ -143,10 +169,40 @@ export async function gradeCapturedTrendSystemMatches(args?: { limit?: number })
       gradeReason: g.reason,
       grader: "trend-system-grader"
     };
-    await db.savedTrendMatch.update({ where: { id: row.id }, data: { betResult: g.result, unitsWon, cumulativeProfit: unitsWon, metadataJson: json(nextMetadata) } });
+    await db.savedTrendMatch.update({
+      where: { id: row.id },
+      data: {
+        betResult: g.result,
+        unitsWon,
+        cumulativeProfit: n(row.cumulativeProfit) ?? unitsWon,
+        metadataJson: json(nextMetadata)
+      }
+    });
     touched.add(row.trendDefinitionId);
     graded.push({ matchId: row.id, trendDefinitionId: row.trendDefinitionId, eventId: row.eventId, eventLabel: row.event?.name ?? "Unknown event", newResult: g.result, unitsWon, clvPct: rowClvPct, clvStatus: nextMetadata.clvStatus, reason: g.reason });
   }
-  for (const id of touched) await snapshot(id);
-  return { ok: true, generatedAt: new Date().toISOString(), database: { usable: true, source }, summary: { openMatchesScanned: rows.length, gradedMatches: graded.length, skippedOpen: skipped.length, snapshotsWritten: touched.size, wins: graded.filter((r) => r.newResult === "WIN").length, losses: graded.filter((r) => r.newResult === "LOSS").length, pushes: graded.filter((r) => r.newResult === "PUSH").length, voids: graded.filter((r) => r.newResult === "VOID").length }, graded, skipped };
+  let cumulativeRowsUpdated = 0;
+  for (const id of touched) {
+    cumulativeRowsUpdated += await recomputeCumulativeProfit(id);
+    await snapshot(id);
+  }
+  return {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    database: { usable: true, source },
+    summary: {
+      openMatchesScanned: rows.length,
+      gradedMatches: graded.length,
+      skippedOpen: skipped.length,
+      snapshotsWritten: touched.size,
+      cumulativeRecomputed: touched.size,
+      cumulativeRowsUpdated,
+      wins: graded.filter((r) => r.newResult === "WIN").length,
+      losses: graded.filter((r) => r.newResult === "LOSS").length,
+      pushes: graded.filter((r) => r.newResult === "PUSH").length,
+      voids: graded.filter((r) => r.newResult === "VOID").length
+    },
+    graded,
+    skipped
+  };
 }
