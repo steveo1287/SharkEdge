@@ -17,13 +17,25 @@ import { getCachedMlbCalibrationConformal } from "@/services/simulation/mlb-cali
 import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
 import { getCachedMlbMlModel } from "@/services/simulation/mlb-ml-training-engine";
 import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
+import {
+  readSimCache,
+  refreshFullSimSnapshots,
+  SIM_CACHE_KEYS,
+  type CachedSimProjection,
+  type SimBoardSnapshot,
+  type SimMarketSnapshot
+} from "@/services/simulation/sim-snapshot-service";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 300;
 
 type SimGame = { id: string; label: string; startTime: string; status: string; leagueKey: LeagueKey; leagueLabel: string };
-type Projection = Awaited<ReturnType<typeof buildSimProjection>>;
-type EdgeResult = Awaited<ReturnType<typeof buildMlbEdges>>["edges"][number];
+type LiveProjection = Awaited<ReturnType<typeof buildSimProjection>>;
+type Projection = LiveProjection | CachedSimProjection;
+type LiveEdgeResult = Awaited<ReturnType<typeof buildMlbEdges>>["edges"][number];
+type CacheEdgeResult = SimMarketSnapshot["edges"][number];
+type EdgeResult = LiveEdgeResult | CacheEdgeResult;
 type Row = { game: SimGame; projection: Projection; edge?: EdgeResult | null };
 
 type DecisionTier = "attack" | "watch" | "thin" | "pass";
@@ -41,10 +53,23 @@ function plus(value: number | null | undefined, digits = 2) { if (typeof value !
 function tierRank(tier: DecisionTier | string | undefined) { if (tier === "attack") return 4; if (tier === "watch") return 3; if (tier === "thin") return 2; return 1; }
 function factorTeamLabel(row: Row, value: number) { if (Math.abs(value) < 0.01) return "neutral"; return value > 0 ? `favors ${row.projection.matchup.home}` : `favors ${row.projection.matchup.away}`; }
 
+function edgeMarket(edge: EdgeResult | null | undefined) {
+  return edge && "market" in edge ? edge.market : null;
+}
+
+function edgeSignal(edge: EdgeResult | null | undefined) {
+  return edge && "signal" in edge ? edge.signal : null;
+}
+
+function edgeTotals(edge: EdgeResult | null | undefined) {
+  return edge && "edges" in edge ? edge.edges : null;
+}
+
 function bestMarket(row: Row) {
   const edge = row.edge;
-  if (edge?.signal) return edge.signal;
-  const total = edge?.edges.totalRuns;
+  const signal = edgeSignal(edge);
+  if (signal) return signal;
+  const total = edgeTotals(edge)?.totalRuns;
   if (typeof total === "number") {
     return { market: total > 0 ? "over" : "under", team: null, edge: Math.abs(total), strength: Math.abs(total) >= 1 ? "strong" : Math.abs(total) >= 0.45 ? "watch" : "thin" };
   }
@@ -71,7 +96,7 @@ function dataSourceBadges(row: Row) {
   const source = row.projection.mlbIntel?.dataSource ?? "unknown";
   return {
     player: source.includes("player-model:real") || source.includes("real/real") || !source.includes("synthetic") ? ("real" as const) : ("synthetic" as const),
-    lines: row.edge?.market ? ("matched" as const) : ("missing" as const),
+    lines: edgeMarket(row.edge) ? ("matched" as const) : ("missing" as const),
     calibration: row.projection.mlbIntel?.calibration?.ece == null ? ("pending" as const) : ("calibrated" as const)
   };
 }
@@ -85,8 +110,8 @@ function sortRows(rows: Row[]) {
     const leftTier = tierRank(decisionTier(left));
     const rightTier = tierRank(decisionTier(right));
     if (leftTier !== rightTier) return rightTier - leftTier;
-    const leftEdge = Math.abs(left.projection.mlbIntel?.homeEdge ?? 0) + Math.abs(left.edge?.edges.totalRuns ?? 0) * 0.25;
-    const rightEdge = Math.abs(right.projection.mlbIntel?.homeEdge ?? 0) + Math.abs(right.edge?.edges.totalRuns ?? 0) * 0.25;
+    const leftEdge = Math.abs(left.projection.mlbIntel?.homeEdge ?? 0) + Math.abs(edgeTotals(left.edge)?.totalRuns ?? 0) * 0.25;
+    const rightEdge = Math.abs(right.projection.mlbIntel?.homeEdge ?? 0) + Math.abs(edgeTotals(right.edge)?.totalRuns ?? 0) * 0.25;
     return rightEdge - leftEdge;
   });
 }
@@ -159,7 +184,7 @@ function CompactLedger({ rows }: { rows: Row[] }) {
   const ordered = sortRows(rows);
   return (
     <section className="grid gap-4">
-      <SectionTitle title="Full slate ledger" description="Every MLB game returned by the scoreboard provider. No display cap." />
+      <SectionTitle title="Full slate ledger" description="Every MLB game returned by the cached sim board or live scoreboard fallback. No display cap." />
       <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/40">
         {ordered.map((row) => {
           const lean = winLean(row.projection);
@@ -182,21 +207,54 @@ function CompactLedger({ rows }: { rows: Row[] }) {
   );
 }
 
-export default async function MlbSimPage() {
-  const [sections, edgeData, mlModel, calibration] = await Promise.all([
+async function readCachedRows() {
+  const [mlbBoard, market] = await Promise.all([
+    readSimCache<SimBoardSnapshot>(SIM_CACHE_KEYS.mlbBoard),
+    readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market)
+  ]);
+
+  if (!mlbBoard?.games?.length) return { rows: [] as Row[], source: "missing-cache" as const };
+  const edgeByGame = new Map((market?.edges ?? []).map((edge) => [edge.gameId, edge]));
+  return {
+    rows: mlbBoard.games.map((item) => ({ game: item.game, projection: item.projection, edge: edgeByGame.get(item.game.id) ?? null })),
+    source: mlbBoard.stale ? "stale-cache" as const : "cache" as const
+  };
+}
+
+async function buildLiveRows() {
+  const [sections, edgeData] = await Promise.all([
     buildBoardSportSections({ selectedLeague: "MLB", gamesByLeague: {}, maxScoreboardGames: null }),
-    buildMlbEdges().catch(() => ({ edges: [] as EdgeResult[] })),
-    getCachedMlbMlModel(),
-    getCachedMlbCalibrationConformal()
+    buildMlbEdges().catch(() => ({ edges: [] as LiveEdgeResult[] }))
   ]);
 
   const games = flatten(sections);
   const edgeByGame = new Map((edgeData.edges ?? []).map((edge) => [edge.gameId, edge]));
   const rows: Row[] = await Promise.all(games.map(async (game) => ({ game, projection: await buildSimProjection(game), edge: edgeByGame.get(game.id) ?? null })));
+  return rows;
+}
+
+async function loadMlbRows() {
+  const cached = await readCachedRows();
+  if (cached.rows.length) return cached;
+
+  await refreshFullSimSnapshots().catch(() => null);
+  const rebuilt = await readCachedRows();
+  if (rebuilt.rows.length) return { ...rebuilt, source: "repaired-cache" as const };
+
+  return { rows: await buildLiveRows(), source: "live-fallback" as const };
+}
+
+export default async function MlbSimPage() {
+  const [{ rows, source }, mlModel, calibration] = await Promise.all([
+    loadMlbRows(),
+    getCachedMlbMlModel(),
+    getCachedMlbCalibrationConformal()
+  ]);
+
   const attack = rows.filter((row) => decisionTier(row) === "attack").length;
   const watch = rows.filter((row) => decisionTier(row) === "watch").length;
   const pass = rows.filter((row) => decisionTier(row) === "pass").length;
-  const lineCount = rows.filter((row) => row.edge?.market).length;
+  const lineCount = rows.filter((row) => edgeMarket(row.edge)).length;
   const realPlayerGames = rows.filter((row) => dataSourceBadges(row).player === "real").length;
   const topRow = sortRows(rows)[0] ?? null;
   const topLean = topRow ? winLean(topRow.projection) : null;
@@ -206,11 +264,11 @@ export default async function MlbSimPage() {
       <SimWorkspaceHeader
         eyebrow="MLB Command Desk"
         title="Kill the spreadsheet. Surface the side, total, pitcher context, market match, and data quality first."
-        description="This page is now a decision desk instead of a dense table. Top games get full scan cards; the rest of the slate drops into a compact ledger."
+        description="MLB now reads the cached sim board first, repairs blank cache states once, then falls back to the live scoreboard. ESPN empty slates can fall through to the official MLB schedule provider."
         actions={[{ href: "/sim", label: "Sim Hub" }, { href: "/board#MLB", label: "MLB Board", tone: "primary" }, { href: "/mlb-edge", label: "Edge Lab" }]}
       >
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <SimMetricTile label="Games" value={String(rows.length)} sub="MLB slate" />
+          <SimMetricTile label="Games" value={String(rows.length)} sub={`MLB slate · ${source}`} emphasis={rows.length ? "strong" : "normal"} />
           <SimMetricTile label="Attack" value={String(attack)} sub="Governor cleared" emphasis="strong" />
           <SimMetricTile label="Watch" value={String(watch)} sub="Conditional" />
           <SimMetricTile label="Pass" value={String(pass)} sub="Filtered" emphasis="muted" />
@@ -230,14 +288,14 @@ export default async function MlbSimPage() {
             <div className="grid gap-3 sm:grid-cols-4 xl:grid-cols-2">
               <SimMetricTile label="Lean" value={topLean.team} sub={pct(topLean.pct)} emphasis="strong" />
               <SimMetricTile label="Model edge" value={plus(topRow.projection.mlbIntel?.homeEdge)} sub="home-side delta" />
-              <SimMetricTile label="Total" value={num(topRow.projection.mlbIntel?.projectedTotal)} sub={`edge ${plus(topRow.edge?.edges.totalRuns)}`} />
+              <SimMetricTile label="Total" value={num(topRow.projection.mlbIntel?.projectedTotal)} sub={`edge ${plus(edgeTotals(topRow.edge)?.totalRuns)}`} />
               <SimMetricTile label="Tier" value={<SimDecisionBadge tier={decisionTier(topRow)} />} sub={formatTime(topRow.game.startTime)} />
             </div>
           </div>
         </section>
       ) : null}
 
-      {rows.length ? <><PriorityStack rows={rows} /><CompactLedger rows={rows} /></> : <EmptyState title="No MLB games available" description="The scoreboard provider did not return active MLB games for the current slate." />}
+      {rows.length ? <><PriorityStack rows={rows} /><CompactLedger rows={rows} /></> : <EmptyState title="No MLB games available" description="Cached MLB rows were missing, repair did not rebuild them, and the live scoreboard fallback returned zero MLB games. Check /api/sim/health and the sim-refresh logs." />}
     </div>
   );
 }
