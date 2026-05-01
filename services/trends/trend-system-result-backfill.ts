@@ -6,7 +6,7 @@ import { getScoreProviders } from "@/services/providers/registry";
 
 const db = prisma as any;
 
-const SUPPORTED_BACKFILL_LEAGUES = new Set<SupportedLeagueKey>([
+const SUPPORTED_BACKFILL_LEAGUES = new Set<string>([
   "NBA",
   "MLB",
   "NHL",
@@ -17,18 +17,18 @@ const SUPPORTED_BACKFILL_LEAGUES = new Set<SupportedLeagueKey>([
 ]);
 
 function isSupportedLeague(value: unknown): value is SupportedLeagueKey {
-  return typeof value === "string" && SUPPORTED_BACKFILL_LEAGUES.has(value as SupportedLeagueKey);
+  return typeof value === "string" && SUPPORTED_BACKFILL_LEAGUES.has(value);
 }
 
 function metadata(row: any): Record<string, any> {
   return row?.metadataJson && typeof row.metadataJson === "object" ? row.metadataJson : {};
 }
 
-function uniq<T>(items: T[]) {
-  return [...new Set(items)];
+function uniqLeagues(items: SupportedLeagueKey[]) {
+  return [...new Set(items)] as SupportedLeagueKey[];
 }
 
-async function readOpenTrendLeagues(limit: number) {
+async function readOpenTrendLeagues(limit: number): Promise<{ rows: any[]; leagues: SupportedLeagueKey[] }> {
   const rows = await db.savedTrendMatch.findMany({
     where: {
       betResult: "OPEN",
@@ -52,11 +52,11 @@ async function readOpenTrendLeagues(limit: number) {
 
   const leagues = rows
     .map((row: any) => row.event?.league?.key ?? row.trendDefinition?.leagueKey ?? metadata(row).league)
-    .filter(isSupportedLeague);
+    .filter(isSupportedLeague) as SupportedLeagueKey[];
 
   return {
     rows,
-    leagues: uniq(leagues)
+    leagues: uniqLeagues(leagues)
   };
 }
 
@@ -98,8 +98,6 @@ async function backfillLeague(leagueKey: SupportedLeagueKey) {
         error: null
       });
 
-      // Continue through fallback providers when a provider returns zero final events.
-      // That lets MLB fall through from ESPN to the official MLB schedule feed.
       if (finalEvents > 0) break;
     } catch (error) {
       providerResults.push({
@@ -145,7 +143,7 @@ export async function backfillTrendSystemEventResults(args?: { limit?: number })
 
   const limit = Math.min(Math.max(args?.limit ?? 500, 1), 1000);
   const open = await readOpenTrendLeagues(limit);
-  const leagueResults = await Promise.all(open.leagues.map((leagueKey) => backfillLeague(leagueKey)));
+  const leagueResults = await Promise.all(open.leagues.map((leagueKey: SupportedLeagueKey) => backfillLeague(leagueKey)));
   const totalFetched = leagueResults.reduce((sum, result) => sum + result.totalFetched, 0);
   const totalUpserted = leagueResults.reduce((sum, result) => sum + result.totalUpserted, 0);
   const totalFinalEvents = leagueResults.reduce((sum, result) => sum + result.totalFinalEvents, 0);
