@@ -30,10 +30,10 @@ export const dynamic = "force-dynamic";
  * Response 404 — trend not found
  */
 export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = params;
+  const { id } = await params;
 
   try {
     // Look up the definition to confirm it exists and get its name
