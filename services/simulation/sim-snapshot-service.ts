@@ -193,7 +193,7 @@ function fallbackProjection(game: SimGame, reason: string): FullProjection {
     nbaIntel: null,
     realityIntel: null,
     mlbIntel: {
-      modelVersion: "mlb-intel-v6-fallback",
+      modelVersion: "mlb-intel-v6",
       dataSource: "fallback-mlb-base-projection",
       homeEdge,
       projectedTotal,
@@ -210,7 +210,7 @@ function fallbackProjection(game: SimGame, reason: string): FullProjection {
         reasons: ["Fallback projection kept the MLB slate visible after heavy model failure; confidence is degraded and capped.", reason]
       }
     }
-  } as FullProjection;
+  } as unknown as FullProjection;
 }
 
 export function isSnapshotStale(snapshot: { expiresAt?: string | null } | null | undefined) {
