@@ -45,6 +45,14 @@
     {
       "path": "/api/jobs/precompute-sims",
       "schedule": "*/15 7-20 * * *"
+    },
+    {
+      "path": "/api/trends/systems/capture?inactive=true",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/trends/systems/grade?limit=500",
+      "schedule": "17,47 * * * *"
     }
   ]
 }
