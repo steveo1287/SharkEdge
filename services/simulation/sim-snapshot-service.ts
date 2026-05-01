@@ -22,6 +22,7 @@ export const SIM_CACHE_KEYS = {
 const FULL_SIM_TTL_SECONDS = 75 * 60;
 const MARKET_TTL_SECONDS = 15 * 60;
 const MAX_REFRESH_GAMES_PER_LEAGUE = 2;
+const PROJECTION_TIMEOUT_MS = 8_000;
 
 // Keep snapshots readable after their logical expiry so /sim can show a stale-but-useful slate.
 const FULL_SIM_RETENTION_SECONDS = 6 * 60 * 60;
@@ -180,6 +181,13 @@ function capGamesForRefresh(games: SimGame[]) {
   return capped;
 }
 
+async function buildProjectionWithTimeout(game: SimGame) {
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error(`projection timeout after ${PROJECTION_TIMEOUT_MS}ms`)), PROJECTION_TIMEOUT_MS)
+  );
+  return Promise.race([buildSimProjection(game), timeout]);
+}
+
 function compactProjection(projection: FullProjection): CachedSimProjection {
   return {
     matchup: projection.matchup,
@@ -325,7 +333,7 @@ export async function refreshFullSimSnapshots() {
   const settled: PromiseSettledResult<CachedSimGameProjection>[] = [];
   for (const game of games) {
     try {
-      const projection = await buildSimProjection(game);
+      const projection = await buildProjectionWithTimeout(game);
       settled.push({ status: "fulfilled", value: { game, projection: compactProjection(projection) } });
     } catch (error) {
       settled.push({ status: "rejected", reason: error });
