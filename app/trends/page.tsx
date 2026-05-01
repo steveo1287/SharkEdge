@@ -2,6 +2,7 @@ import { TrendsDashboardV3 } from "@/components/trends/trends-dashboard-v3";
 import type { TrendFilters, TrendMode } from "@/lib/types/domain";
 import { trendFiltersSchema } from "@/lib/validation/filters";
 import { getFastCachedTrendDashboard, getTrendDashboardCacheHealth } from "@/services/trends/dashboard-cache";
+import { readTrendRefreshStatus } from "@/services/trends/refresh-status";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -53,16 +54,45 @@ function ageLabel(seconds: number | null) {
   return remainder ? `${hours}h ${remainder}m old` : `${hours}h old`;
 }
 
-function CacheStatusStrip({ status, modeDefaultCards, exactCards, age }: { status: string; modeDefaultCards: number; exactCards: number; age: number | null }) {
+function formatStatusTime(value: string | null | undefined) {
+  if (!value) return "never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+function CacheStatusStrip({
+  status,
+  modeDefaultCards,
+  exactCards,
+  age,
+  refreshStatus,
+  cacheVersion
+}: {
+  status: string;
+  modeDefaultCards: number;
+  exactCards: number;
+  age: number | null;
+  refreshStatus: Awaited<ReturnType<typeof readTrendRefreshStatus>>;
+  cacheVersion: string;
+}) {
   const ready = status === "exact" || status === "mode-default";
+  const running = Boolean(refreshStatus?.running || refreshStatus?.queued);
+  const tone = ready ? "border-emerald-400/20 bg-emerald-400/5 text-emerald-100" : running ? "border-sky-300/20 bg-sky-400/5 text-sky-100" : "border-amber-300/20 bg-amber-400/5 text-amber-100";
+  const refreshText = running
+    ? refreshStatus?.queued ? "refresh queued" : "refresh running"
+    : refreshStatus?.ok ? `last good ${formatStatusTime(refreshStatus.lastSuccessAt)}` : refreshStatus?.reason ?? "refresh not started";
   return (
-    <div className={`mb-4 rounded-2xl border px-4 py-3 text-xs leading-5 ${ready ? "border-emerald-400/20 bg-emerald-400/5 text-emerald-100" : "border-amber-300/20 bg-amber-400/5 text-amber-100"}`}>
+    <div className={`mb-4 rounded-2xl border px-4 py-3 text-xs leading-5 ${tone}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <span className="font-semibold uppercase tracking-[0.18em]">Trend cache</span>
-          <span className="ml-2 text-slate-300">{status} · exact {exactCards} cards · default {modeDefaultCards} cards · {ageLabel(age)}</span>
+          <span className="ml-2 text-slate-300">{status} · {cacheVersion} · exact {exactCards} cards · default {modeDefaultCards} cards · {ageLabel(age)} · {refreshText}</span>
         </div>
-        <a href="/api/trends/cache-health" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Health JSON</a>
+        <div className="flex flex-wrap gap-3">
+          <a href="/api/trends/cache-health" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Health JSON</a>
+          <a href="/api/trends/refresh-cache" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Queue refresh</a>
+        </div>
       </div>
     </div>
   );
@@ -76,9 +106,10 @@ export default async function TrendsPage({ searchParams }: PageProps) {
   const mode = readMode(readValue(resolved, "mode"));
   const options = { mode, aiQuery, savedTrendId };
 
-  const [{ payload }, health] = await Promise.all([
+  const [{ payload }, health, refreshStatus] = await Promise.all([
     getFastCachedTrendDashboard(filters, options),
-    getTrendDashboardCacheHealth(filters, options)
+    getTrendDashboardCacheHealth(filters, options),
+    readTrendRefreshStatus()
   ]);
 
   return (
@@ -88,6 +119,8 @@ export default async function TrendsPage({ searchParams }: PageProps) {
         exactCards={health.exact.cards}
         modeDefaultCards={health.modeDefault.cards}
         age={health.exact.ageSeconds ?? health.modeDefault.ageSeconds}
+        refreshStatus={refreshStatus}
+        cacheVersion={health.cacheVersion}
       />
       <TrendsDashboardV3 data={payload} />
     </>
