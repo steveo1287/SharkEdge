@@ -45,6 +45,11 @@ type TrendSignalDraft = {
   source: "sim-engine" | "market-edge" | "research-pattern";
   actionHref: string;
   notes: string[];
+  currentOddsAmerican?: number | null;
+  fairProbability?: number | null;
+  marketBreadth?: number | null;
+  line?: number | null;
+  sportsbook?: string | null;
 };
 
 export type TrendSignal = TrendSignalDraft & {
@@ -78,9 +83,31 @@ function riskFrom(volatility: number | null | undefined, noBet: boolean | undefi
   return "low";
 }
 function actionHref(league: LeagueKey, id: string) { return `/sim/${league.toLowerCase()}/${encodeURIComponent(id)}`; }
+function moneylineEdgeForTeam(edge: any, team: string, matchup: { home: string; away: string }) {
+  if (!edge) return null;
+  if (team === matchup.home) return num(edge.edges?.homeMoneyline);
+  if (team === matchup.away) return num(edge.edges?.awayMoneyline);
+  return num(edge.signal?.edge);
+}
+function moneylineOddsForTeam(edge: any, team: string, matchup: { home: string; away: string }) {
+  if (!edge?.market) return null;
+  if (team === matchup.home) return num(edge.market.homeMoneyline);
+  if (team === matchup.away) return num(edge.market.awayMoneyline);
+  return null;
+}
+function totalOddsForSide(edge: any, side: "over" | "under" | "total") {
+  if (!edge?.market || side === "total") return null;
+  return side === "over" ? num(edge.market.overPrice) : num(edge.market.underPrice);
+}
+function totalMarketBreadth(edge: any) { return num(edge?.marketQuality?.totalSourceCount) ?? num(edge?.market?.totalSourceCount); }
+function moneylineMarketBreadth(edge: any) { return num(edge?.marketQuality?.moneylineSourceCount) ?? num(edge?.market?.moneylineSourceCount); }
 
 function applyTrendQuality(signal: TrendSignalDraft): TrendSignal {
   const qualityInput = buildTrendQualityInputFromSignal(signal);
+  qualityInput.currentOddsAmerican = signal.currentOddsAmerican ?? null;
+  qualityInput.fairProbability = signal.fairProbability ?? null;
+  qualityInput.marketBreadth = signal.marketBreadth ?? qualityInput.marketBreadth;
+  qualityInput.line = signal.line ?? null;
   if (qualityInput.currentEdge != null && Math.abs(qualityInput.currentEdge) > 0.25) qualityInput.currentEdge = null;
   const qualityResult = assessTrendQuality(qualityInput);
   return {
@@ -97,10 +124,12 @@ function applyTrendQuality(signal: TrendSignalDraft): TrendSignal {
     warnings: qualityResult.warnings,
     notes: [
       ...signal.notes,
+      signal.currentOddsAmerican ? `Price: ${signal.currentOddsAmerican > 0 ? "+" : ""}${signal.currentOddsAmerican}${signal.sportsbook ? ` at ${signal.sportsbook}` : ""}.` : "Price: unmatched.",
+      signal.fairProbability ? `Fair probability: ${(signal.fairProbability * 100).toFixed(1)}%.` : null,
       ...qualityResult.explanation.map((note) => `Quality: ${note}`),
       ...qualityResult.warnings.map((warning) => `Warning: ${warning}`),
       ...qualityResult.gateReasons.map((reason) => `Gate: ${reason}`)
-    ]
+    ].filter(Boolean) as string[]
   };
 }
 
@@ -127,9 +156,11 @@ function signalsFromCachedRows(rows: CachedSimGameProjection[], market: SimMarke
     const fav = favorite(row);
     const confidence = rowConfidence(row);
     const risk = riskFrom(row.projection.mlbIntel?.volatilityIndex ?? row.projection.nbaIntel?.volatilityIndex ?? null, row.projection.mlbIntel?.governor?.noBet ?? row.projection.nbaIntel?.noBet ?? false);
-    const marketEdge = num(edge?.signal?.edge);
+    const marketEdge = moneylineEdgeForTeam(edge, fav.team, row.projection.matchup);
+    const currentOddsAmerican = moneylineOddsForTeam(edge, fav.team, row.projection.matchup);
     const totalEdge = num(edge?.edges?.totalRuns);
     const total = rowTotal(row);
+    const totalSide = totalEdge == null ? "total" : totalEdge >= 0 ? "over" : "under";
     const baseNotes = [row.projection.read, "Loaded from warmed sim cache.", edge?.signal ? `Best market signal: ${edge.signal.market} ${edge.signal.strength}.` : "No matched sportsbook market yet."];
     const lean: TrendSignalDraft = {
       id: `${game.leagueKey}-${game.id}-cached-lean`,
@@ -146,11 +177,15 @@ function signalsFromCachedRows(rows: CachedSimGameProjection[], market: SimMarke
       hitRate: null,
       sample: null,
       edge: marketEdge,
-      market: edge?.signal?.market ?? "moneyline",
+      market: fav.team === row.projection.matchup.home ? "home_ml" : "away_ml",
       risk,
-      source: edge?.signal ? "market-edge" : "sim-engine",
+      source: currentOddsAmerican != null ? "market-edge" : "sim-engine",
       actionHref: actionHref(game.leagueKey, game.id),
-      notes: baseNotes
+      notes: baseNotes,
+      currentOddsAmerican,
+      fairProbability: fav.pct,
+      marketBreadth: moneylineMarketBreadth(edge),
+      sportsbook: edge?.sportsbook ?? null
     };
     const totalSignal: TrendSignalDraft = {
       id: `${game.leagueKey}-${game.id}-cached-total`,
@@ -167,11 +202,16 @@ function signalsFromCachedRows(rows: CachedSimGameProjection[], market: SimMarke
       hitRate: null,
       sample: null,
       edge: totalEdge,
-      market: totalEdge == null ? "total" : totalEdge >= 0 ? "over" : "under",
+      market: totalSide,
       risk,
-      source: edge?.edges?.totalRuns == null ? "sim-engine" : "market-edge",
+      source: totalOddsForSide(edge, totalSide) == null ? "sim-engine" : "market-edge",
       actionHref: actionHref(game.leagueKey, game.id),
-      notes: [totalEdge == null ? "Needs sportsbook total to calculate edge." : `Model total edge ${totalEdge.toFixed(2)} runs/points.`, "Loaded from warmed sim cache."]
+      notes: [totalEdge == null ? "Needs sportsbook total to calculate edge." : `Model total edge ${totalEdge.toFixed(2)} runs/points.`, "Loaded from warmed sim cache."],
+      currentOddsAmerican: totalOddsForSide(edge, totalSide),
+      fairProbability: null,
+      marketBreadth: totalMarketBreadth(edge),
+      line: num(edge?.market?.total),
+      sportsbook: edge?.sportsbook ?? null
     };
     return [lean, totalSignal];
   });
@@ -204,7 +244,8 @@ async function buildLiveBoardSignals(league: LeagueKey | "ALL") {
     const intel = projection.mlbIntel;
     const confidence = clampConfidence(intel?.governor?.confidence ?? fav.pct);
     const risk = riskFrom(intel?.volatilityIndex, intel?.governor?.noBet);
-    const marketEdge = num(edge?.signal?.edge);
+    const marketEdge = moneylineEdgeForTeam(edge, fav.team, projection.matchup);
+    const currentOddsAmerican = moneylineOddsForTeam(edge, fav.team, projection.matchup);
     rows.push({
       id: `${game.leagueKey}-${game.id}-model-lean`,
       league: game.leagueKey,
@@ -220,11 +261,15 @@ async function buildLiveBoardSignals(league: LeagueKey | "ALL") {
       hitRate: null,
       sample: null,
       edge: marketEdge,
-      market: edge?.signal?.market ?? "moneyline",
+      market: fav.team === projection.matchup.home ? "home_ml" : "away_ml",
       risk,
-      source: edge?.signal ? "market-edge" : "sim-engine",
+      source: currentOddsAmerican != null ? "market-edge" : "sim-engine",
       actionHref: actionHref(game.leagueKey, game.id),
-      notes: [projection.read, edge?.signal ? `Best market signal: ${edge.signal.market} ${edge.signal.strength}.` : "No matched sportsbook market yet."]
+      notes: [projection.read, edge?.signal ? `Best market signal: ${edge.signal.market} ${edge.signal.strength}.` : "No matched sportsbook market yet."],
+      currentOddsAmerican,
+      fairProbability: fav.pct,
+      marketBreadth: moneylineMarketBreadth(edge),
+      sportsbook: edge?.sportsbook ?? null
     });
   }
   return rows;
