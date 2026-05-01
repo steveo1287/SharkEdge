@@ -14,6 +14,16 @@ const trendPrisma = prisma as any;
 
 type CaptureStatus = "captured" | "skipped" | "failed";
 
+type MetricsProvenance = {
+  source: string;
+  reason: string | null;
+  ledgerRows: number;
+  gradedRows: number;
+  openRows?: number;
+  savedRows?: number;
+  eventMarketRows?: number;
+};
+
 export type TrendSystemCaptureResult = {
   systemId: string;
   systemName: string;
@@ -48,6 +58,8 @@ export type TrendSystemCaptureRun = {
     failedSystems: number;
     definitionsCreatedOrUpdated: number;
     metricsLedgerBacked: number;
+    metricsSavedLedgerBacked: number;
+    metricsEventMarketBacked: number;
     metricsSeededFallback: number;
   };
   results: TrendSystemCaptureResult[];
@@ -72,7 +84,7 @@ async function ensureTrendUser() {
   });
 }
 
-function statsJson(system: TrendSystemDefinition, provenance?: { source: string; reason: string | null; ledgerRows: number; gradedRows: number }) {
+function statsJson(system: TrendSystemDefinition, provenance?: MetricsProvenance) {
   return {
     wins: system.metrics.wins,
     losses: system.metrics.losses,
@@ -87,9 +99,12 @@ function statsJson(system: TrendSystemDefinition, provenance?: { source: string;
     seasons: system.metrics.seasons,
     provenance: provenance ?? {
       source: "seeded-fallback",
-      reason: "Starter published-system metrics captured before ledger-backed sample is available.",
+      reason: "Starter published-system metrics captured before saved-ledger or EventMarket sample is available.",
       ledgerRows: 0,
-      gradedRows: 0
+      gradedRows: 0,
+      openRows: 0,
+      savedRows: 0,
+      eventMarketRows: 0
     }
   };
 }
@@ -110,7 +125,7 @@ async function findExistingDefinition(system: TrendSystemDefinition) {
   });
 }
 
-async function upsertSystemDefinition(system: TrendSystemDefinition, provenance?: { source: string; reason: string | null; ledgerRows: number; gradedRows: number }) {
+async function upsertSystemDefinition(system: TrendSystemDefinition, provenance?: MetricsProvenance) {
   const existing = await findExistingDefinition(system);
   const filterConditions = {
     ...system.filters,
@@ -193,7 +208,7 @@ async function captureMatch(definitionId: string, match: TrendSystemMatch, cumul
       trendDefinitionId: definitionId,
       eventId: event.id
     },
-    select: { id: true }
+    select: { id: true, betResult: true }
   });
 
   const metadata = {
@@ -211,6 +226,17 @@ async function captureMatch(definitionId: string, match: TrendSystemMatch, cumul
   };
 
   if (existing?.id) {
+    const currentResult = String(existing.betResult ?? "OPEN").toUpperCase();
+    if (currentResult !== "OPEN") {
+      return {
+        gameId: match.gameId,
+        eventLabel: match.eventLabel,
+        eventId: event.id,
+        status: "captured" as CaptureStatus,
+        reason: `Existing captured match is already graded as ${currentResult}; capture preserved the graded ledger row.`
+      };
+    }
+
     await trendPrisma.savedTrendMatch.update({
       where: { id: existing.id },
       data: {
@@ -240,11 +266,11 @@ async function captureMatch(definitionId: string, match: TrendSystemMatch, cumul
     eventLabel: match.eventLabel,
     eventId: event.id,
     status: "captured" as CaptureStatus,
-    reason: existing?.id ? "Updated existing active system match." : "Captured new active system match."
+    reason: existing?.id ? "Updated existing open system match." : "Captured new active system match."
   };
 }
 
-async function writeSnapshot(definitionId: string, system: TrendSystemDefinition, activeGameCount: number, provenance?: { source: string; reason: string | null; ledgerRows: number; gradedRows: number }) {
+async function writeSnapshot(definitionId: string, system: TrendSystemDefinition, activeGameCount: number, provenance?: MetricsProvenance) {
   await trendPrisma.savedTrendSnapshot.create({
     data: {
       trendDefinitionId: definitionId,
@@ -263,7 +289,9 @@ async function writeSnapshot(definitionId: string, system: TrendSystemDefinition
       confidenceScore: Math.min(100, Math.max(0, system.metrics.winRatePct + system.metrics.roiPct)),
       sampleSizeRating: system.metrics.sampleSize >= 150 ? "strong" : system.metrics.sampleSize >= 75 ? "medium" : "thin",
       warningsJson: toInputJsonValue([
-        provenance?.source === "ledger" ? "Metrics are ledger-backed." : "Metrics are seeded fallback until ledger-backed sample is available.",
+        provenance?.source && provenance.source !== "seeded-fallback"
+          ? `Metrics are ${provenance.source} backed.`
+          : "Metrics are seeded fallback until saved-ledger or EventMarket sample is available.",
         provenance?.reason
       ].filter(Boolean)),
       activeGameCount
@@ -287,6 +315,8 @@ export async function capturePublishedTrendSystemMatches(args?: { league?: strin
         failedSystems: 0,
         definitionsCreatedOrUpdated: 0,
         metricsLedgerBacked: 0,
+        metricsSavedLedgerBacked: 0,
+        metricsEventMarketBacked: 0,
         metricsSeededFallback: 0
       },
       results: []
@@ -295,7 +325,10 @@ export async function capturePublishedTrendSystemMatches(args?: { league?: strin
 
   await ensureTrendUser();
   const systemRun = await buildTrendSystemRun({ league: args?.league as any, includeInactive: args?.includeInactive ?? true });
-  const backtests = await runTrendSystemBacktests(PUBLISHED_SYSTEMS.filter((system) => args?.league && args.league !== "ALL" ? system.league === args.league : true));
+  const backtests = await runTrendSystemBacktests(
+    PUBLISHED_SYSTEMS.filter((system) => args?.league && args.league !== "ALL" ? system.league === args.league : true),
+    { preferSaved: true }
+  );
   const backtestBySystemId = new Map(backtests.results.map((result) => [result.systemId, result]));
   const results: TrendSystemCaptureResult[] = [];
 
@@ -306,7 +339,10 @@ export async function capturePublishedTrendSystemMatches(args?: { league?: strin
         source: backtest.metrics.source,
         reason: backtest.metrics.reason,
         ledgerRows: backtest.metrics.ledgerRows,
-        gradedRows: backtest.metrics.gradedRows
+        gradedRows: backtest.metrics.gradedRows,
+        openRows: backtest.metrics.openRows ?? 0,
+        savedRows: backtest.metrics.savedRows ?? 0,
+        eventMarketRows: backtest.metrics.eventMarketRows ?? 0
       } : undefined;
       const definition = await upsertSystemDefinition(system, provenance);
       let cumulativeProfit = system.metrics.profitUnits;
@@ -359,6 +395,8 @@ export async function capturePublishedTrendSystemMatches(args?: { league?: strin
       failedSystems: results.filter((result) => result.status === "failed").length,
       definitionsCreatedOrUpdated: results.filter((result) => result.definitionId).length,
       metricsLedgerBacked: backtests.summary.ledgerBacked,
+      metricsSavedLedgerBacked: backtests.summary.savedLedgerBacked,
+      metricsEventMarketBacked: backtests.summary.eventMarketBacked,
       metricsSeededFallback: backtests.summary.seededFallback
     },
     results
