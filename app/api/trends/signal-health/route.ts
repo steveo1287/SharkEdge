@@ -55,7 +55,7 @@ export async function GET(request: Request) {
       counts: {
         totalVisible: signals.length,
         totalRaw: payload.counts.totalRaw,
-        hidden: payload.counts.hidden,
+        hidden: payload.counts.hiddenQuality,
         live: payload.counts.live,
         research: payload.counts.research,
         gamesCovered: gameIds.size,
