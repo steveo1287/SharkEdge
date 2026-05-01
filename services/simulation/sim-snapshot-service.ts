@@ -21,6 +21,7 @@ export const SIM_CACHE_KEYS = {
 
 const FULL_SIM_TTL_SECONDS = 75 * 60;
 const MARKET_TTL_SECONDS = 15 * 60;
+const MAX_REFRESH_GAMES_PER_LEAGUE = 6;
 
 // Keep snapshots readable after their logical expiry so /sim can show a stale-but-useful slate.
 const FULL_SIM_RETENTION_SECONDS = 6 * 60 * 60;
@@ -166,6 +167,19 @@ function flatten(sections: BoardSportSectionView[]): SimGame[] {
   );
 }
 
+function capGamesForRefresh(games: SimGame[]) {
+  const byLeague = new Map<LeagueKey, number>();
+  const capped: SimGame[] = [];
+  for (const game of games) {
+    if (game.leagueKey !== "NBA" && game.leagueKey !== "MLB") continue;
+    const count = byLeague.get(game.leagueKey) ?? 0;
+    if (count >= MAX_REFRESH_GAMES_PER_LEAGUE) continue;
+    byLeague.set(game.leagueKey, count + 1);
+    capped.push(game);
+  }
+  return capped;
+}
+
 function compactProjection(projection: FullProjection): CachedSimProjection {
   return {
     matchup: projection.matchup,
@@ -293,8 +307,14 @@ export async function refreshFullSimSnapshots() {
     const boardStartedAt = Date.now();
     const sections = await buildBoardSportSections({ selectedLeague: "ALL", gamesByLeague: {}, maxScoreboardGames: null });
     logTiming("sim-refresh", "buildBoardSportSections", boardStartedAt);
-    games = flatten(sections).filter((game) => game.leagueKey === "NBA" || game.leagueKey === "MLB");
-    sourceStatus.board = { ok: true, gameCount: games.length };
+    const allGames = flatten(sections).filter((game) => game.leagueKey === "NBA" || game.leagueKey === "MLB");
+    games = capGamesForRefresh(allGames);
+    sourceStatus.board = {
+      ok: true,
+      gameCount: games.length,
+      totalEligibleGames: allGames.length,
+      capPerLeague: MAX_REFRESH_GAMES_PER_LEAGUE
+    };
   } catch (error) {
     const reason = error instanceof Error ? error.message : "unknown board error";
     warnings.push(`Board sections failed: ${reason}`);
@@ -302,9 +322,15 @@ export async function refreshFullSimSnapshots() {
   }
 
   const settledStartedAt = Date.now();
-  const settled = await Promise.allSettled(
-    games.map(async (game) => ({ game, projection: compactProjection(await buildSimProjection(game)) }))
-  );
+  const settled: PromiseSettledResult<CachedSimGameProjection>[] = [];
+  for (const game of games) {
+    try {
+      const projection = await buildSimProjection(game);
+      settled.push({ status: "fulfilled", value: { game, projection: compactProjection(projection) } });
+    } catch (error) {
+      settled.push({ status: "rejected", reason: error });
+    }
+  }
   logTiming("sim-refresh", "buildSimProjection batch", settledStartedAt);
 
   const rows: CachedSimGameProjection[] = [];

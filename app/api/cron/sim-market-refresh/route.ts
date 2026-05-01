@@ -4,7 +4,7 @@ import { refreshSimMarketSnapshot } from "@/services/simulation/sim-snapshot-ser
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 function isAuthorized(request: Request) {
   const cronSecret = process.env.CRON_SECRET?.trim();
