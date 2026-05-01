@@ -5,54 +5,28 @@ import { getServerDatabaseResolution, hasUsableServerDatabaseUrl, prisma } from 
 const db = prisma as any;
 type Outcome = "WIN" | "LOSS" | "PUSH" | "VOID" | "OPEN";
 
-function json(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
-}
-function n(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
-  return null;
-}
+function json(value: unknown): Prisma.InputJsonValue { return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue; }
+function n(value: unknown): number | null { if (typeof value === "number" && Number.isFinite(value)) return value; if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value); return null; }
 function s(value: unknown) { return String(value ?? "").trim().toLowerCase(); }
 function meta(row: any): Record<string, any> { return row?.metadataJson && typeof row.metadataJson === "object" ? row.metadataJson : {}; }
-function profit(result: Outcome, odds?: number | null) {
-  const price = odds ?? -110;
-  if (result === "WIN") return Number((price > 0 ? price / 100 : 100 / Math.abs(price)).toFixed(2));
-  if (result === "LOSS") return -1;
-  return 0;
+function profit(result: Outcome, odds?: number | null) { const price = odds ?? -110; if (result === "WIN") return Number((price > 0 ? price / 100 : 100 / Math.abs(price)).toFixed(2)); if (result === "LOSS") return -1; return 0; }
+function impliedFromAmerican(odds: number | null | undefined) { if (typeof odds !== "number" || !Number.isFinite(odds) || odds === 0 || Math.abs(odds) < 100) return null; return odds < 0 ? Math.abs(odds) / (Math.abs(odds) + 100) : 100 / (odds + 100); }
+function clvPct(openOdds: number | null, closeOdds: number | null) { const open = impliedFromAmerican(openOdds); const close = impliedFromAmerican(closeOdds); if (open == null || close == null) return null; return Number(((close - open) * 100).toFixed(2)); }
+function clvStatus(openOdds: number | null, closeOdds: number | null) { const clv = clvPct(openOdds, closeOdds); if (clv == null) return "missing-closing-price"; if (clv > 0.25) return "beat-close"; if (clv < -0.25) return "lost-to-close"; return "near-close"; }
+function participantLabel(participant: any) { return s([participant?.role, participant?.competitor?.name, participant?.competitor?.shortName, participant?.competitor?.abbreviation].filter(Boolean).join(" ")); }
+function selectedId(event: any, selected: unknown) { const pick = s(selected); if (!pick) return null; const role = event?.participants?.find((participant: any) => s(participant.role) === pick); if (role?.competitorId) return role.competitorId; const named = event?.participants?.find((participant: any) => participantLabel(participant).includes(pick) || pick.includes(participantLabel(participant))); return named?.competitorId ?? null; }
+function isLedgerResult(value: unknown) { const result = String(value ?? "").toUpperCase(); return result === "WIN" || result === "LOSS" || result === "PUSH" || result === "VOID"; }
+function reasonBucket(reason: string) {
+  const value = reason.toLowerCase();
+  if (value.includes("eventresult missing")) return "missing-event-result";
+  if (value.includes("winnercompetitorid")) return "missing-winner";
+  if (value.includes("map pick")) return "unmapped-pick";
+  if (value.includes("total result") || value.includes("line missing")) return "missing-total-or-line";
+  if (value.includes("side missing")) return "missing-side";
+  return "other";
 }
-function impliedFromAmerican(odds: number | null | undefined) {
-  if (typeof odds !== "number" || !Number.isFinite(odds) || odds === 0 || Math.abs(odds) < 100) return null;
-  return odds < 0 ? Math.abs(odds) / (Math.abs(odds) + 100) : 100 / (odds + 100);
-}
-function clvPct(openOdds: number | null, closeOdds: number | null) {
-  const open = impliedFromAmerican(openOdds);
-  const close = impliedFromAmerican(closeOdds);
-  if (open == null || close == null) return null;
-  return Number(((close - open) * 100).toFixed(2));
-}
-function clvStatus(openOdds: number | null, closeOdds: number | null) {
-  const clv = clvPct(openOdds, closeOdds);
-  if (clv == null) return "missing-closing-price";
-  if (clv > 0.25) return "beat-close";
-  if (clv < -0.25) return "lost-to-close";
-  return "near-close";
-}
-function participantLabel(participant: any) {
-  return s([participant?.role, participant?.competitor?.name, participant?.competitor?.shortName, participant?.competitor?.abbreviation].filter(Boolean).join(" "));
-}
-function selectedId(event: any, selected: unknown) {
-  const pick = s(selected);
-  if (!pick) return null;
-  const role = event?.participants?.find((participant: any) => s(participant.role) === pick);
-  if (role?.competitorId) return role.competitorId;
-  const named = event?.participants?.find((participant: any) => participantLabel(participant).includes(pick) || pick.includes(participantLabel(participant)));
-  return named?.competitorId ?? null;
-}
-function isLedgerResult(value: unknown) {
-  const result = String(value ?? "").toUpperCase();
-  return result === "WIN" || result === "LOSS" || result === "PUSH" || result === "VOID";
-}
+function countBy<T extends string>(items: T[]) { return items.reduce<Record<string, number>>((acc, item) => { acc[item] = (acc[item] ?? 0) + 1; return acc; }, {}); }
+
 function grade(row: any): { result: Outcome; reason: string } {
   const m = meta(row);
   const resultState = s(row?.event?.resultState);
@@ -75,25 +49,15 @@ function grade(row: any): { result: Outcome; reason: string } {
   if (!pickId) return { result: "OPEN", reason: "Could not map pick to participant" };
   return pickId === winnerId ? { result: "WIN", reason: "Pick matched winner" } : { result: "LOSS", reason: "Pick did not match winner" };
 }
+
 async function recomputeCumulativeProfit(definitionId: string) {
-  const rows = await db.savedTrendMatch.findMany({
-    where: { trendDefinitionId: definitionId },
-    orderBy: [{ matchedAt: "asc" }, { id: "asc" }]
-  });
+  const rows = await db.savedTrendMatch.findMany({ where: { trendDefinitionId: definitionId }, orderBy: [{ matchedAt: "asc" }, { id: "asc" }] });
   let running = 0;
   let rowsUpdated = 0;
   for (const row of rows) {
-    if (isLedgerResult(row.betResult)) {
-      running += n(row.unitsWon) ?? 0;
-    }
+    if (isLedgerResult(row.betResult)) running += n(row.unitsWon) ?? 0;
     const cumulativeProfit = Number(running.toFixed(2));
-    if (n(row.cumulativeProfit) !== cumulativeProfit) {
-      await db.savedTrendMatch.update({
-        where: { id: row.id },
-        data: { cumulativeProfit }
-      });
-      rowsUpdated += 1;
-    }
+    if (n(row.cumulativeProfit) !== cumulativeProfit) { await db.savedTrendMatch.update({ where: { id: row.id }, data: { cumulativeProfit } }); rowsUpdated += 1; }
   }
   return rowsUpdated;
 }
@@ -110,37 +74,67 @@ async function snapshot(definitionId: string) {
   const activeGameCount = rows.filter((row: any) => row.betResult === "OPEN").length;
   const clvValues = graded.map((row: any) => n(meta(row).clvPct)).filter((value: number | null): value is number => value != null);
   const avgClvPct = clvValues.length ? Number((clvValues.reduce((sum: number, value: number) => sum + value, 0) / clvValues.length).toFixed(2)) : null;
-  await db.savedTrendSnapshot.create({
-    data: {
-      trendDefinitionId: definitionId,
-      totalGames, wins, losses, pushes, winPercentage, roi, totalProfit,
-      currentStreak: "N/A",
-      streakType: null,
-      pValue: null,
-      chiSquareStat: null,
-      isStatisticallySignificant: false,
-      confidenceScore: Math.min(100, Math.max(0, winPercentage + roi)),
-      sampleSizeRating: totalGames >= 75 ? "medium" : totalGames >= 25 ? "thin" : "starter",
-      warningsJson: json([
-        totalGames < 25 ? `Starter graded sample (${totalGames})` : null,
-        activeGameCount ? `${activeGameCount} open` : null,
-        avgClvPct == null ? "CLV unavailable until closing odds are captured" : `Average CLV ${avgClvPct}%`
-      ].filter(Boolean)),
-      activeGameCount
-    }
+  await db.savedTrendSnapshot.create({ data: { trendDefinitionId: definitionId, totalGames, wins, losses, pushes, winPercentage, roi, totalProfit, currentStreak: "N/A", streakType: null, pValue: null, chiSquareStat: null, isStatisticallySignificant: false, confidenceScore: Math.min(100, Math.max(0, winPercentage + roi)), sampleSizeRating: totalGames >= 75 ? "medium" : totalGames >= 25 ? "thin" : "starter", warningsJson: json([totalGames < 25 ? `Starter graded sample (${totalGames})` : null, activeGameCount ? `${activeGameCount} open` : null, avgClvPct == null ? "CLV unavailable until closing odds are captured" : `Average CLV ${avgClvPct}%`].filter(Boolean)), activeGameCount } });
+  await db.savedTrendDefinition.update({ where: { id: definitionId }, data: { currentStatsJson: json({ totalGames, wins, losses, pushes, winPercentage, roi, totalProfit, activeGameCount, avgClvPct, source: "saved-trend-match-ledger" }), lastComputedAt: new Date() } });
+}
+
+export async function inspectTrendSystemGradeQueue(args?: { limit?: number }) {
+  const source = getServerDatabaseResolution().key;
+  if (!hasUsableServerDatabaseUrl()) return { ok: false, generatedAt: new Date().toISOString(), database: { usable: false, source }, summary: { totalOpenSystemMatches: 0, gradeableWithEventResult: 0, missingEventResult: 0, staleOpenRows: 0 }, buckets: {}, samples: [] };
+  const rows = await db.savedTrendMatch.findMany({
+    where: { betResult: "OPEN", trendDefinition: { isSystemGenerated: true } },
+    include: { trendDefinition: true, event: { include: { eventResult: true, participants: { include: { competitor: true } } } } },
+    orderBy: { matchedAt: "asc" },
+    take: Math.min(Math.max(args?.limit ?? 500, 1), 1000)
   });
-  await db.savedTrendDefinition.update({
-    where: { id: definitionId },
-    data: {
-      currentStatsJson: json({ totalGames, wins, losses, pushes, winPercentage, roi, totalProfit, activeGameCount, avgClvPct, source: "saved-trend-match-ledger" }),
-      lastComputedAt: new Date()
-    }
+  const now = Date.now();
+  const samples = rows.map((row: any) => {
+    const g = grade(row);
+    const matchedAt = row.matchedAt ? new Date(row.matchedAt).getTime() : null;
+    const ageHours = matchedAt && Number.isFinite(matchedAt) ? Math.max(0, Math.round((now - matchedAt) / 36_000) / 100) : null;
+    return {
+      matchId: row.id,
+      trendDefinitionId: row.trendDefinitionId,
+      eventId: row.eventId ?? null,
+      eventLabel: row.event?.name ?? null,
+      league: row.trendDefinition?.leagueKey ?? meta(row).league ?? null,
+      market: meta(row).market ?? row.trendDefinition?.betType ?? null,
+      side: meta(row).side ?? meta(row).selection ?? null,
+      matchedAt: row.matchedAt,
+      ageHours,
+      hasEventResult: Boolean(row.event?.eventResult),
+      eventResultState: row.event?.resultState ?? null,
+      gradeable: g.result !== "OPEN",
+      resultIfGraded: g.result,
+      reason: g.reason,
+      bucket: reasonBucket(g.reason)
+    };
   });
+  const buckets = countBy(samples.map((sample: any) => sample.gradeable ? "gradeable" : sample.bucket));
+  return {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    database: { usable: true, source },
+    summary: {
+      totalOpenSystemMatches: rows.length,
+      gradeableWithEventResult: samples.filter((sample: any) => sample.gradeable).length,
+      missingEventResult: samples.filter((sample: any) => sample.bucket === "missing-event-result").length,
+      staleOpenRows: samples.filter((sample: any) => typeof sample.ageHours === "number" && sample.ageHours >= 24).length
+    },
+    buckets,
+    samples: samples.slice(0, 50),
+    nextAction: buckets.gradeable
+      ? "Rows are gradeable. Run /api/trends/systems/cycle or /api/trends/systems/grade."
+      : buckets["missing-event-result"]
+        ? "Open rows are blocked by missing EventResult. Backfill/fetch final game results before grading."
+        : "Open rows are blocked by mapping/line data. Inspect samples."
+  };
 }
 
 export async function gradeCapturedTrendSystemMatches(args?: { limit?: number }) {
   const source = getServerDatabaseResolution().key;
-  if (!hasUsableServerDatabaseUrl()) return { ok: false, generatedAt: new Date().toISOString(), database: { usable: false, source }, summary: { openMatchesScanned: 0, gradedMatches: 0, skippedOpen: 0, snapshotsWritten: 0, cumulativeRecomputed: 0, cumulativeRowsUpdated: 0, wins: 0, losses: 0, pushes: 0, voids: 0 }, graded: [], skipped: [] };
+  if (!hasUsableServerDatabaseUrl()) return { ok: false, generatedAt: new Date().toISOString(), database: { usable: false, source }, summary: { totalOpenSystemMatches: 0, gradeableWithEventResult: 0, openMatchesScanned: 0, gradedMatches: 0, skippedOpen: 0, snapshotsWritten: 0, cumulativeRecomputed: 0, cumulativeRowsUpdated: 0, wins: 0, losses: 0, pushes: 0, voids: 0 }, graded: [], skipped: [] };
+  const queue = await inspectTrendSystemGradeQueue({ limit: args?.limit ?? 1000 });
   const rows = await db.savedTrendMatch.findMany({
     where: { betResult: "OPEN", trendDefinition: { isSystemGenerated: true }, event: { eventResult: { isNot: null } } },
     include: { trendDefinition: true, event: { include: { eventResult: true, participants: { include: { competitor: true } } } } },
@@ -152,57 +146,18 @@ export async function gradeCapturedTrendSystemMatches(args?: { limit?: number })
   const skipped: any[] = [];
   for (const row of rows) {
     const g = grade(row);
-    if (g.result === "OPEN") { skipped.push({ matchId: row.id, eventId: row.eventId ?? null, eventLabel: row.event?.name ?? null, reason: g.reason }); continue; }
+    if (g.result === "OPEN") { skipped.push({ matchId: row.id, eventId: row.eventId ?? null, eventLabel: row.event?.name ?? null, reason: g.reason, bucket: reasonBucket(g.reason) }); continue; }
     const m = meta(row);
     const openOdds = n(m.openingOddsAmerican) ?? n(m.price);
     const closeOdds = n(m.closingOddsAmerican);
     const rowClvPct = clvPct(openOdds, closeOdds);
     const unitsWon = profit(g.result, openOdds);
-    const nextMetadata = {
-      ...m,
-      openOddsAmerican: openOdds,
-      openingOddsAmerican: openOdds,
-      closingOddsAmerican: closeOdds,
-      clvPct: rowClvPct,
-      clvStatus: clvStatus(openOdds, closeOdds),
-      gradedAt: new Date().toISOString(),
-      gradeReason: g.reason,
-      grader: "trend-system-grader"
-    };
-    await db.savedTrendMatch.update({
-      where: { id: row.id },
-      data: {
-        betResult: g.result,
-        unitsWon,
-        cumulativeProfit: n(row.cumulativeProfit) ?? unitsWon,
-        metadataJson: json(nextMetadata)
-      }
-    });
+    const nextMetadata = { ...m, openOddsAmerican: openOdds, openingOddsAmerican: openOdds, closingOddsAmerican: closeOdds, clvPct: rowClvPct, clvStatus: clvStatus(openOdds, closeOdds), gradedAt: new Date().toISOString(), gradeReason: g.reason, grader: "trend-system-grader" };
+    await db.savedTrendMatch.update({ where: { id: row.id }, data: { betResult: g.result, unitsWon, cumulativeProfit: n(row.cumulativeProfit) ?? unitsWon, metadataJson: json(nextMetadata) } });
     touched.add(row.trendDefinitionId);
     graded.push({ matchId: row.id, trendDefinitionId: row.trendDefinitionId, eventId: row.eventId, eventLabel: row.event?.name ?? "Unknown event", newResult: g.result, unitsWon, clvPct: rowClvPct, clvStatus: nextMetadata.clvStatus, reason: g.reason });
   }
   let cumulativeRowsUpdated = 0;
-  for (const id of touched) {
-    cumulativeRowsUpdated += await recomputeCumulativeProfit(id);
-    await snapshot(id);
-  }
-  return {
-    ok: true,
-    generatedAt: new Date().toISOString(),
-    database: { usable: true, source },
-    summary: {
-      openMatchesScanned: rows.length,
-      gradedMatches: graded.length,
-      skippedOpen: skipped.length,
-      snapshotsWritten: touched.size,
-      cumulativeRecomputed: touched.size,
-      cumulativeRowsUpdated,
-      wins: graded.filter((r) => r.newResult === "WIN").length,
-      losses: graded.filter((r) => r.newResult === "LOSS").length,
-      pushes: graded.filter((r) => r.newResult === "PUSH").length,
-      voids: graded.filter((r) => r.newResult === "VOID").length
-    },
-    graded,
-    skipped
-  };
+  for (const id of touched) { cumulativeRowsUpdated += await recomputeCumulativeProfit(id); await snapshot(id); }
+  return { ok: true, generatedAt: new Date().toISOString(), database: { usable: true, source }, summary: { totalOpenSystemMatches: queue.summary.totalOpenSystemMatches, gradeableWithEventResult: queue.summary.gradeableWithEventResult, openMatchesScanned: rows.length, gradedMatches: graded.length, skippedOpen: skipped.length, snapshotsWritten: touched.size, cumulativeRecomputed: touched.size, cumulativeRowsUpdated, wins: graded.filter((r) => r.newResult === "WIN").length, losses: graded.filter((r) => r.newResult === "LOSS").length, pushes: graded.filter((r) => r.newResult === "PUSH").length, voids: graded.filter((r) => r.newResult === "VOID").length }, queue: { buckets: queue.buckets, nextAction: queue.nextAction }, graded, skipped };
 }
