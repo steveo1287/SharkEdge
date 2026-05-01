@@ -5,13 +5,14 @@ import { capturePublishedTrendSystemMatches } from "@/services/trends/trend-syst
 import { updateTrendSystemClosingLines } from "@/services/trends/trend-system-closing-lines";
 import { emptyTrendSystemCycleSummary, writeTrendSystemCycleStatus } from "@/services/trends/trend-system-cycle-status";
 import { PUBLISHED_SYSTEMS, buildTrendSystemRun } from "@/services/trends/trend-system-engine";
-import { gradeCapturedTrendSystemMatches } from "@/services/trends/trend-system-grader";
+import { gradeCapturedTrendSystemMatches, inspectTrendSystemGradeQueue } from "@/services/trends/trend-system-grader";
 import { runTrendSystemBacktests } from "@/services/trends/trend-system-ledger";
+import { backfillTrendSystemEventResults } from "@/services/trends/trend-system-result-backfill";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 180;
+export const maxDuration = 300;
 
 function authorized(request: NextRequest) {
   const expected = process.env.TRENDS_REFRESH_TOKEN?.trim() || process.env.CRON_SECRET?.trim() || process.env.INTERNAL_API_KEY?.trim() || process.env.INTERNAL_API_KEY2?.trim();
@@ -32,9 +33,11 @@ function filteredSystems(league: LeagueKey | "ALL") {
   return PUBLISHED_SYSTEMS.filter((system) => league === "ALL" || system.league === league);
 }
 
-function nextAction(ok: boolean, graded: number, closingUpdated: number, captured: number, savedLedgerRows: number) {
+function nextAction(ok: boolean, graded: number, resultBackfilled: number, closingUpdated: number, captured: number, savedLedgerRows: number, missingResults: number) {
   if (!ok) return "One or more cycle steps reported a failure. Inspect cycle samples and skipped rows.";
-  if (graded) return "Cycle completed and graded saved trend rows. Check /api/trends/systems?ledger=true and /trends.";
+  if (graded) return "Cycle completed, backfilled results, and graded saved trend rows. Check /api/trends/systems?ledger=true and /trends.";
+  if (resultBackfilled) return "Final EventResult data was backfilled, but no rows graded. Inspect grade queue mapping/line blockers.";
+  if (missingResults) return "Open rows remain blocked by missing EventResult. Provider coverage or event mapping needs repair.";
   if (closingUpdated) return "Cycle updated closing/current odds. Rows will grade once EventResult exists.";
   if (captured) return "Cycle captured active system matches. Closing lines or results may not be available yet.";
   if (savedLedgerRows) return "Cycle ran cleanly. Existing saved-ledger rows are present, but no new rows changed this pass.";
@@ -53,6 +56,7 @@ export async function GET(request: NextRequest) {
     const limit = Number(url.searchParams.get("limit") ?? "500");
     safeLimit = Math.min(Math.max(Number.isFinite(limit) ? limit : 500, 1), 1000);
     const includeInactive = url.searchParams.get("inactive") !== "false";
+    const skipResultBackfill = url.searchParams.get("backfillResults") === "false";
 
     await writeTrendSystemCycleStatus({
       ok: false,
@@ -64,29 +68,39 @@ export async function GET(request: NextRequest) {
       reason: "Trend system cycle running.",
       warnings: [],
       summary: emptyTrendSystemCycleSummary(),
-      sourceStatus: {}
+      sourceStatus: { phase: "running", resultBackfillEnabled: !skipResultBackfill }
     });
 
     const beforeRun = await buildTrendSystemRun({ league, includeInactive: true });
+    const beforeQueue = await inspectTrendSystemGradeQueue({ limit: safeLimit });
     const capture = await capturePublishedTrendSystemMatches({ league, includeInactive });
     const closingLines = await updateTrendSystemClosingLines({ limit: safeLimit });
+    const resultBackfill = skipResultBackfill
+      ? { ok: true, summary: { openRows: 0, leagues: 0, totalFetched: 0, totalUpserted: 0, totalFinalEvents: 0 }, nextAction: "Result backfill skipped by query parameter.", leagues: [] }
+      : await backfillTrendSystemEventResults({ limit: safeLimit });
     const grade = await gradeCapturedTrendSystemMatches({ limit: safeLimit });
+    const afterQueue = await inspectTrendSystemGradeQueue({ limit: safeLimit });
     const afterRun = await buildTrendSystemRun({ league, includeInactive: true });
     const ledger = await runTrendSystemBacktests(filteredSystems(league), { preferSaved: true });
 
     const finishedAt = new Date();
-    const ok = Boolean(capture.ok && closingLines.ok && grade.ok);
+    const ok = Boolean(capture.ok && closingLines.ok && resultBackfill.ok && grade.ok);
     const captured = capture.summary.capturedMatches;
     const closingUpdated = closingLines.summary.updated;
+    const resultBackfilled = resultBackfill.summary.totalFinalEvents;
     const graded = grade.summary.gradedMatches;
-    const action = nextAction(ok, graded, closingUpdated, captured, ledger.summary.totalSavedRows);
+    const missingResults = afterQueue.summary?.missingEventResult ?? 0;
+    const action = nextAction(ok, graded, resultBackfilled, closingUpdated, captured, ledger.summary.totalSavedRows, missingResults);
     const warnings = [
       capture.ok ? null : "Capture step reported failure.",
       closingLines.ok ? null : "Closing-line step reported failure.",
+      resultBackfill.ok ? null : "Result-backfill step reported failure.",
       grade.ok ? null : "Grade step reported failure.",
       capture.summary.skippedMatches ? `${capture.summary.skippedMatches} capture matches skipped.` : null,
       closingLines.summary.skipped ? `${closingLines.summary.skipped} closing-line rows skipped.` : null,
+      resultBackfill.summary.totalFinalEvents ? null : "Result backfill found no final events for open trend rows.",
       grade.summary.skippedOpen ? `${grade.summary.skippedOpen} grade rows skipped.` : null,
+      missingResults ? `${missingResults} open rows still missing EventResult.` : null,
       ledger.summary.seededFallback ? `${ledger.summary.seededFallback} systems still using seeded fallback.` : null
     ].filter((warning): warning is string => Boolean(warning));
 
@@ -113,7 +127,17 @@ export async function GET(request: NextRequest) {
         totalSavedGradedRows: ledger.summary.totalSavedGradedRows,
         totalOpenRows: ledger.summary.totalOpenRows
       },
-      sourceStatus: { before: beforeRun.summary, capture: capture.summary, closingLines: closingLines.summary, grade: grade.summary, after: afterRun.summary, ledger: ledger.summary }
+      sourceStatus: {
+        before: beforeRun.summary,
+        beforeQueue: beforeQueue.summary,
+        capture: capture.summary,
+        closingLines: closingLines.summary,
+        resultBackfill: resultBackfill.summary,
+        grade: grade.summary,
+        afterQueue: afterQueue.summary,
+        after: afterRun.summary,
+        ledger: ledger.summary
+      }
     });
 
     return NextResponse.json({
@@ -123,14 +147,26 @@ export async function GET(request: NextRequest) {
       league,
       limit: safeLimit,
       status,
-      cycle: { before: beforeRun.summary, capture: capture.summary, closingLines: closingLines.summary, grade: grade.summary, after: afterRun.summary, ledger: ledger.summary },
+      cycle: {
+        before: beforeRun.summary,
+        beforeQueue: beforeQueue.summary,
+        capture: capture.summary,
+        closingLines: closingLines.summary,
+        resultBackfill: resultBackfill.summary,
+        grade: grade.summary,
+        afterQueue: afterQueue.summary,
+        after: afterRun.summary,
+        ledger: ledger.summary
+      },
       diagnostics: {
         captureDatabase: capture.database,
         closingLinesDatabase: closingLines.database,
         gradeDatabase: grade.database,
         captured,
         closingUpdated,
+        resultBackfilled,
         graded,
+        missingResults,
         savedLedgerRows: ledger.summary.totalSavedRows,
         savedGradedRows: ledger.summary.totalSavedGradedRows,
         openRows: ledger.summary.totalOpenRows,
@@ -138,7 +174,14 @@ export async function GET(request: NextRequest) {
         eventMarketBacked: ledger.summary.eventMarketBacked,
         savedLedgerBacked: ledger.summary.savedLedgerBacked
       },
-      samples: { capture: capture.results.slice(0, 10), closingLines: closingLines.updates.slice(0, 10), graded: grade.graded.slice(0, 10), skippedGrade: grade.skipped.slice(0, 10) },
+      samples: {
+        capture: capture.results.slice(0, 10),
+        closingLines: closingLines.updates.slice(0, 10),
+        resultBackfill: resultBackfill.leagues.slice(0, 10),
+        graded: grade.graded.slice(0, 10),
+        skippedGrade: grade.skipped.slice(0, 10),
+        queueBlockers: afterQueue.samples?.slice?.(0, 10) ?? []
+      },
       nextAction: action
     });
   } catch (error) {
