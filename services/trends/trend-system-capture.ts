@@ -344,14 +344,15 @@ export async function capturePublishedTrendSystemMatches(args?: { league?: strin
         savedRows: backtest.metrics.savedRows ?? 0,
         eventMarketRows: backtest.metrics.eventMarketRows ?? 0
       } : undefined;
-      const definition = await upsertSystemDefinition(system, provenance);
-      let cumulativeProfit = system.metrics.profitUnits;
+      const persistedSystem = backtest?.metrics ? { ...system, metrics: backtest.metrics } : system;
+      const definition = await upsertSystemDefinition(persistedSystem, provenance);
+      const cumulativeProfit = persistedSystem.metrics.profitUnits;
       const matchResults = [];
       for (const match of system.activeMatches) {
         const captured = await captureMatch(definition.id, match, cumulativeProfit);
         matchResults.push(captured);
       }
-      await writeSnapshot(definition.id, system, system.activeMatches.length, provenance);
+      await writeSnapshot(definition.id, persistedSystem, system.activeMatches.length, provenance);
       const capturedMatches = matchResults.filter((match) => match.status === "captured").length;
       const skippedMatches = matchResults.filter((match) => match.status === "skipped").length;
       results.push({
