@@ -276,7 +276,7 @@ function savedRecord(system: TrendSystemDefinition, row: any): TrendSystemLedger
   const outcome = savedOutcome(row.betResult);
   return {
     id: row.id,
-    eventLabel: row.event?.name ?? cleanText(m.eventLabel) || system.name,
+    eventLabel: row.event?.name ?? (cleanText(m.eventLabel) || system.name),
     eventId: row.event?.externalEventId ?? row.eventId ?? null,
     startTime: row.event?.startTime?.toISOString?.() ?? row.matchedAt?.toISOString?.() ?? null,
     market: cleanText(m.market) || system.market,
