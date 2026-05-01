@@ -3,6 +3,7 @@ import type { LeagueKey, TrendFilters, TrendMode } from "@/lib/types/domain";
 import { trendFiltersSchema } from "@/lib/validation/filters";
 import { getFastCachedTrendDashboard, getTrendDashboardCacheHealth } from "@/services/trends/dashboard-cache";
 import { readTrendRefreshStatus } from "@/services/trends/refresh-status";
+import { readTrendSystemCycleStatus } from "@/services/trends/trend-system-cycle-status";
 import { buildTrendSignals } from "@/services/trends/trends-engine";
 import { buildTrendSystemRun } from "@/services/trends/trend-system-engine";
 import { runTrendSystemBacktests } from "@/services/trends/trend-system-ledger";
@@ -148,6 +149,12 @@ async function getSystemLedgerSummary(filters: TrendFilters): Promise<SystemLedg
   }
 }
 
+function cycleText(cycleStatus: Awaited<ReturnType<typeof readTrendSystemCycleStatus>>) {
+  if (!cycleStatus) return "no cycle status yet";
+  const state = cycleStatus.running ? "running" : cycleStatus.ok ? "ok" : "failed";
+  return `${state} · last success ${formatStatusTime(cycleStatus.lastSuccessAt)} · captured ${cycleStatus.summary.capturedMatches} · closing ${cycleStatus.summary.closingLinesUpdated} · graded ${cycleStatus.summary.gradedMatches} · snapshots ${cycleStatus.summary.snapshotsWritten} · saved ${cycleStatus.summary.totalSavedGradedRows}/${cycleStatus.summary.totalSavedRows} graded · open ${cycleStatus.summary.totalOpenRows} · fallback ${cycleStatus.summary.seededFallback}`;
+}
+
 function CacheStatusStrip({
   status,
   modeDefaultCards,
@@ -156,7 +163,8 @@ function CacheStatusStrip({
   refreshStatus,
   cacheVersion,
   signalSummary,
-  systemSummary
+  systemSummary,
+  cycleStatus
 }: {
   status: string;
   modeDefaultCards: number;
@@ -166,14 +174,16 @@ function CacheStatusStrip({
   cacheVersion: string;
   signalSummary: SignalSummary | null;
   systemSummary: SystemLedgerSummary | null;
+  cycleStatus: Awaited<ReturnType<typeof readTrendSystemCycleStatus>>;
 }) {
   const ready = status === "exact" || status === "mode-default";
-  const running = Boolean(refreshStatus?.running || refreshStatus?.queued);
+  const running = Boolean(refreshStatus?.running || refreshStatus?.queued || cycleStatus?.running);
   const hasSignals = Boolean(signalSummary?.totalVisible);
   const hasActionable = Boolean(signalSummary?.actionable);
-  const tone = hasActionable
+  const cycleHealthy = Boolean(cycleStatus?.ok || cycleStatus?.running);
+  const tone = hasActionable || cycleStatus?.summary.gradedMatches
     ? "border-emerald-400/25 bg-emerald-400/7 text-emerald-100"
-    : hasSignals
+    : hasSignals || cycleHealthy
       ? "border-sky-300/25 bg-sky-400/7 text-sky-100"
       : ready
         ? "border-amber-300/20 bg-amber-400/5 text-amber-100"
@@ -181,7 +191,7 @@ function CacheStatusStrip({
           ? "border-sky-300/20 bg-sky-400/5 text-sky-100"
           : "border-amber-300/20 bg-amber-400/5 text-amber-100";
   const refreshText = running
-    ? refreshStatus?.queued ? "refresh queued" : "refresh running"
+    ? refreshStatus?.queued ? "refresh queued" : cycleStatus?.running ? "cycle running" : "refresh running"
     : refreshStatus?.ok ? `last good ${formatStatusTime(refreshStatus.lastSuccessAt)}` : refreshStatus?.reason ?? "refresh not started";
   const signalText = signalSummary
     ? `${signalSummary.source}${signalSummary.cacheStale ? " stale" : ""} · ${signalSummary.gamesCovered} games · ${signalSummary.totalVisible} signals · ${signalSummary.pricedSignals} priced · ${signalSummary.actionable} actionable · ${signalSummary.watchlist} watchlist · hidden ${signalSummary.hidden}`
@@ -207,11 +217,17 @@ function CacheStatusStrip({
             <span className="font-semibold uppercase tracking-[0.14em]">Systems</span>
             <span className="ml-2">{systemText}</span>
           </div>
+          <div className="mt-1 text-slate-300">
+            <span className="font-semibold uppercase tracking-[0.14em]">Cycle</span>
+            <span className="ml-2">{cycleText(cycleStatus)}</span>
+          </div>
         </div>
         <div className="flex flex-wrap gap-3">
           <a href="/api/trends/cache-health?signals=true" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Health JSON</a>
           <a href="/api/trends/signal-health" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Signal Health</a>
           <a href="/api/trends/systems?ledger=true&inactive=true" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Systems JSON</a>
+          <a href="/api/trends/systems/cycle-status" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Cycle Status</a>
+          <a href="/api/trends/systems/cycle?inactive=true&limit=500" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Run Cycle</a>
           <a href="/api/trends/refresh-cache" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Queue refresh</a>
         </div>
       </div>
@@ -227,12 +243,13 @@ export default async function TrendsPage({ searchParams }: PageProps) {
   const mode = readMode(readValue(resolved, "mode"));
   const options = { mode, aiQuery, savedTrendId };
 
-  const [{ payload }, health, refreshStatus, signalSummary, systemSummary] = await Promise.all([
+  const [{ payload }, health, refreshStatus, signalSummary, systemSummary, cycleStatus] = await Promise.all([
     getFastCachedTrendDashboard(filters, options),
     getTrendDashboardCacheHealth(filters, options),
     readTrendRefreshStatus(),
     getSignalSummary(filters),
-    getSystemLedgerSummary(filters)
+    getSystemLedgerSummary(filters),
+    readTrendSystemCycleStatus()
   ]);
 
   return (
@@ -246,6 +263,7 @@ export default async function TrendsPage({ searchParams }: PageProps) {
         cacheVersion={health.cacheVersion}
         signalSummary={signalSummary}
         systemSummary={systemSummary}
+        cycleStatus={cycleStatus}
       />
       <TrendsDashboardV3 data={payload} />
     </>
