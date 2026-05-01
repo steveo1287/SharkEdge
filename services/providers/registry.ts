@@ -2,6 +2,7 @@ import type { BoardSupportStatus, LeagueKey, MarketType } from "@/lib/types/doma
 import { backendCurrentOddsProvider } from "@/services/current-odds/backend-provider";
 import { boxingEventProvider } from "@/services/events/boxing-provider";
 import { espnEventProvider } from "@/services/events/espn-provider";
+import { mlbOfficialEventProvider } from "@/services/events/mlb-official-provider";
 import { ncaaFallbackEventProvider } from "@/services/events/ncaa-fallback-provider";
 import { sportsdataverseEventProvider } from "@/services/events/sportsdataverse-provider";
 import { ufcEventProvider } from "@/services/events/ufc-provider";
@@ -139,7 +140,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   MLB: {
     leagueKey: "MLB",
     status: "LIVE",
-    scoreProviders: [espnEventProvider],
+    scoreProviders: [espnEventProvider, mlbOfficialEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("MLB"),
@@ -156,6 +157,12 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
           stage: "ACTIVE",
           url: "https://github.com/pseudo-r/Public-ESPN-API",
           note: "Primary live scoreboard feed."
+        },
+        {
+          name: "Official MLB schedule API",
+          stage: "FALLBACK",
+          url: "https://statsapi.mlb.com/api/v1/schedule",
+          note: "Fallback slate source when ESPN returns empty or times out."
         },
         {
           name: "sportsdataverse-js",
@@ -512,7 +519,7 @@ export function formatProviderLabels(labels: Array<{ label: string }>) {
     return labels[0].label;
   }
 
-  return labels.map((item) => item.label).join(" + ");
+  return labels.map((item) => `${item.label}`).join(" + ");
 }
 
 export function formatSourceStageLabel(stage: ProviderSourceStage) {
