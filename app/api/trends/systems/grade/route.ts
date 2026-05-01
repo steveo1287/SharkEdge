@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { gradeCapturedTrendSystemMatches } from "@/services/trends/trend-system-grader";
+import { gradeCapturedTrendSystemMatches, inspectTrendSystemGradeQueue } from "@/services/trends/trend-system-grader";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +21,12 @@ function authorized(request: NextRequest) {
   return queryToken === expected || bearer === expected;
 }
 
+function readLimit(request: NextRequest) {
+  const url = new URL(request.url);
+  const limit = Number(url.searchParams.get("limit") ?? "500");
+  return Math.min(Math.max(Number.isFinite(limit) ? limit : 500, 1), 1000);
+}
+
 export async function GET(request: NextRequest) {
   if (!authorized(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized trend system grade request." }, { status: 401 });
@@ -28,15 +34,21 @@ export async function GET(request: NextRequest) {
 
   try {
     const url = new URL(request.url);
-    const limit = Number(url.searchParams.get("limit") ?? "200");
-    const run = await gradeCapturedTrendSystemMatches({ limit: Number.isFinite(limit) ? limit : 200 });
+    const limit = readLimit(request);
+    const inspectOnly = url.searchParams.get("inspect") === "true";
+    if (inspectOnly) {
+      return NextResponse.json(await inspectTrendSystemGradeQueue({ limit }));
+    }
+    const run = await gradeCapturedTrendSystemMatches({ limit });
     return NextResponse.json({
       ...run,
       nextAction: run.summary.gradedMatches
         ? "Captured trend matches were graded and fresh snapshots were written."
-        : run.summary.skippedOpen
-          ? "Some matches had EventResult rows but could not be graded. Inspect skipped reasons."
-          : "No captured open trend matches with EventResult rows were ready to grade."
+        : run.summary.gradeableWithEventResult
+          ? "Rows had EventResult data but still could not be fully graded. Inspect skipped reasons and queue buckets."
+          : run.summary.totalOpenSystemMatches
+            ? "Open captured trend matches exist but are blocked by missing EventResult or mapping data. Run inspect=true to see buckets."
+            : "No captured open trend matches are waiting for grading."
     });
   } catch (error) {
     return NextResponse.json({
