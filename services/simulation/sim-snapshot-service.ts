@@ -21,7 +21,7 @@ export const SIM_CACHE_KEYS = {
 
 const FULL_SIM_TTL_SECONDS = 75 * 60;
 const MARKET_TTL_SECONDS = 15 * 60;
-const MAX_REFRESH_GAMES_PER_LEAGUE = 6;
+const MAX_REFRESH_GAMES_PER_LEAGUE = 2;
 
 // Keep snapshots readable after their logical expiry so /sim can show a stale-but-useful slate.
 const FULL_SIM_RETENTION_SECONDS = 6 * 60 * 60;
@@ -344,30 +344,10 @@ export async function refreshFullSimSnapshots() {
 
   const nbaRows = rows.filter((row) => row.game.leagueKey === "NBA");
   const mlbRows = rows.filter((row) => row.game.leagueKey === "MLB");
-  const projectionsByGameId = new Map<string, MlbEdgeProjection>(
-    mlbRows.map((row) => [row.game.id, asMlbProjection(row.projection)])
-  );
-
-  const marketStartedAt = Date.now();
-  let marketEdges: SimMarketSnapshot["edges"] = [];
-  let lineCount = 0;
-  try {
-    const edgeData = mlbRows.length
-      ? await buildMlbEdgesFromProjections({
-        games: mlbRows.map((row) => row.game as MlbEdgeGame),
-        projectionsByGameId,
-        allowLineRefresh: false
-      })
-      : { ok: true, lineCount: 0, gameCount: 0, edges: [] };
-    marketEdges = edgeData.edges;
-    lineCount = edgeData.lineCount;
-    sourceStatus.market = { ok: true, lineCount, edgeCount: marketEdges.length };
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : "unknown market overlay error";
-    warnings.push(`MLB market overlay failed: ${reason}`);
-    sourceStatus.market = { ok: false, reason };
-  }
-  logTiming("sim-refresh", "MLB edge/market overlay", marketStartedAt);
+  // Cache boundary: full refresh keeps this pass fast. Market overlay is refreshed in sim-market-refresh cron.
+  const marketEdges: SimMarketSnapshot["edges"] = [];
+  const lineCount = 0;
+  sourceStatus.market = { ok: true, deferredTo: "sim-market-refresh" };
 
   const priorityRows = buildPriorityRows(rows, marketEdges);
   const matchedMlbLines = priorityRows.filter((row) => row.leagueKey === "MLB" && row.edgeMatched).length;
