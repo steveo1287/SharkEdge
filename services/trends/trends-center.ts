@@ -1,7 +1,9 @@
-import { listSavedTrendRows } from "@/services/trends/saved-systems";
+import { buildSavedTrendHref, listSavedTrendRows } from "@/services/trends/saved-systems";
 
 const STALE_RUN_HOURS = 24;
 const RECENT_RUN_HOURS = 24;
+
+type SavedTrendRow = Awaited<ReturnType<typeof listSavedTrendRows>>[number];
 
 function countBy<T extends string>(items: T[]) {
   return items.reduce<Record<string, number>>((acc, item) => {
@@ -22,7 +24,11 @@ function hoursSince(value: string | null | undefined, now = Date.now()) {
   return Math.max(0, (now - time) / 36e5);
 }
 
-function sortByNewestRun<T extends { lastRunAt: string | null; updatedAt: string }>(rows: T[]) {
+function rowHref(row: SavedTrendRow) {
+  return buildSavedTrendHref(row.id, row.filters, row.mode, row.aiQuery);
+}
+
+function sortByNewestRun(rows: SavedTrendRow[]) {
   return [...rows].sort((left, right) => {
     const leftTime = parseTime(left.lastRunAt) ?? parseTime(left.updatedAt) ?? 0;
     const rightTime = parseTime(right.lastRunAt) ?? parseTime(right.updatedAt) ?? 0;
@@ -48,17 +54,15 @@ export async function buildTrendsCenterSnapshot() {
   });
   const power = active.filter((row) => row.mode === "power");
   const simple = active.filter((row) => row.mode === "simple");
-  const currentMatches = active.reduce((total, row) => total + (row.currentMatchCount ?? 0), 0);
-  const rowsWithMatches = active.filter((row) => row.currentMatchCount > 0);
   const runCoveragePct = active.length ? Math.round((recent.length / active.length) * 100) : 0;
-  const matchCoveragePct = active.length ? Math.round((rowsWithMatches.length / active.length) * 100) : 0;
+  const freshnessRiskPct = active.length ? Math.round((stale.length / active.length) * 100) : 0;
   const commandQueue = [
     ...neverRun.slice(0, 5).map((row) => ({
       id: row.id,
       name: row.name,
       reason: "never-run",
       priority: 1,
-      href: row.href,
+      href: rowHref(row),
       note: "Saved system has no recorded run yet. Run it before trusting its card."
     })),
     ...stale.filter((row) => row.lastRunAt).slice(0, 5).map((row) => ({
@@ -66,16 +70,8 @@ export async function buildTrendsCenterSnapshot() {
       name: row.name,
       reason: "stale-run",
       priority: 2,
-      href: row.href,
-      note: `Last run is ${Math.round(hoursSince(row.lastRunAt, now) ?? 0)}h old. Refresh before using it.``
-    })),
-    ...active.filter((row) => row.currentMatchCount === 0).slice(0, 5).map((row) => ({
-      id: row.id,
-      name: row.name,
-      reason: "no-current-match",
-      priority: 3,
-      href: row.href,
-      note: "No live/current match found for this system right now."
+      href: rowHref(row),
+      note: `Last run is ${Math.round(hoursSince(row.lastRunAt, now) ?? 0)}h old. Refresh before using it.`
     }))
   ]
     .sort((left, right) => left.priority - right.priority)
@@ -96,13 +92,11 @@ export async function buildTrendsCenterSnapshot() {
       simple: simple.length,
       neverRun: neverRun.length,
       stale: stale.length,
-      recent: recent.length,
-      rowsWithMatches: rowsWithMatches.length,
-      currentMatches
+      recent: recent.length
     },
     coverage: {
       runCoveragePct,
-      matchCoveragePct
+      freshnessRiskPct
     },
     distribution: {
       bySport: countBy(active.map((row) => row.sport)),
@@ -117,10 +111,9 @@ export async function buildTrendsCenterSnapshot() {
       league: row.filters.league,
       market: row.filters.market,
       mode: row.mode,
-      currentMatchCount: row.currentMatchCount,
       lastRunAt: row.lastRunAt,
       archivedAt: row.archivedAt,
-      href: row.href
+      href: rowHref(row)
     })),
     commandQueue,
     nextAction: commandQueue.length
