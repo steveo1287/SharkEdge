@@ -4,8 +4,9 @@ import { trendFiltersSchema } from "@/lib/validation/filters";
 import { buildMlbHistoricalTrendDashboard } from "@/services/trends/mlb-historical-dashboard";
 import { getTrendDashboardSafe } from "@/services/trends/get-trend-dashboard-safe";
 import { buildFallbackTrendDashboard } from "@/services/trends/fallback-dashboard";
+import { buildSignalTrendDashboard } from "@/services/trends/signal-dashboard";
 
-export const TREND_DASHBOARD_CACHE_VERSION = "v3";
+export const TREND_DASHBOARD_CACHE_VERSION = "v4";
 const TREND_DASHBOARD_CACHE_TTL_SECONDS = 10 * 60;
 const TREND_DASHBOARD_STALE_TTL_SECONDS = 60 * 60;
 const TREND_DASHBOARD_SIMPLE_DEFAULT_CACHE_KEY = `trends:dashboard:default:simple:${TREND_DASHBOARD_CACHE_VERSION}`;
@@ -167,12 +168,17 @@ function hasCards(view: TrendDashboardView | null | undefined): view is TrendDas
   return Boolean(view && Array.isArray(view.cards) && view.cards.length > 0);
 }
 
-async function buildHistoricalFirstDashboard(filters: TrendFilters, options: DashboardOptions) {
+async function buildDashboardPayload(filters: TrendFilters, options: DashboardOptions) {
   const mode = requestedMode(options);
   const aiQuery = options.aiQuery ?? "";
   const savedTrendId = options.savedTrendId ?? null;
+
+  const signalDashboard = await buildSignalTrendDashboard(filters, { mode, aiQuery }).catch(() => null);
+  if (hasCards(signalDashboard)) return mode === "power" ? withPowerLanguage(signalDashboard) : signalDashboard;
+
   const historical = await buildMlbHistoricalTrendDashboard(filters, { mode, aiQuery }).catch(() => null);
   if (hasCards(historical)) return mode === "power" ? withPowerLanguage(historical) : historical;
+
   const dashboard = await getTrendDashboardSafe(filters, { mode, aiQuery, savedTrendId });
   return mode === "power" ? withPowerLanguage(dashboard) : dashboard;
 }
@@ -182,7 +188,7 @@ export async function getCachedTrendDashboard(filters: TrendFilters, options: Da
   const cached = await readHotCache<CachedDashboardEnvelope>(key);
   if (cached?.payload) return cached.payload;
 
-  const payload = await buildHistoricalFirstDashboard(filters, options);
+  const payload = await buildDashboardPayload(filters, options);
   const generatedAt = new Date();
   const envelope: CachedDashboardEnvelope = {
     generatedAt: generatedAt.toISOString(),
