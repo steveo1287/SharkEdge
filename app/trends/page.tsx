@@ -4,6 +4,8 @@ import { trendFiltersSchema } from "@/lib/validation/filters";
 import { getFastCachedTrendDashboard, getTrendDashboardCacheHealth } from "@/services/trends/dashboard-cache";
 import { readTrendRefreshStatus } from "@/services/trends/refresh-status";
 import { buildTrendSignals } from "@/services/trends/trends-engine";
+import { buildTrendSystemRun } from "@/services/trends/trend-system-engine";
+import { runTrendSystemBacktests } from "@/services/trends/trend-system-ledger";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -23,6 +25,21 @@ type SignalSummary = {
   pricedSignals: number;
   actionable: number;
   watchlist: number;
+};
+
+type SystemLedgerSummary = {
+  source: string;
+  systems: number;
+  activeSystems: number;
+  activeMatches: number;
+  savedLedgerBacked: number;
+  eventMarketBacked: number;
+  seededFallback: number;
+  totalSavedRows: number;
+  totalSavedGradedRows: number;
+  totalOpenRows: number;
+  totalEventMarketRows: number;
+  totalEventMarketGradedRows: number;
 };
 
 function readValue(
@@ -101,6 +118,36 @@ async function getSignalSummary(filters: TrendFilters): Promise<SignalSummary | 
   }
 }
 
+async function getSystemLedgerSummary(filters: TrendFilters): Promise<SystemLedgerSummary | null> {
+  try {
+    const league = filters.league === "ALL" ? "ALL" : filters.league as LeagueKey;
+    const run = await buildTrendSystemRun({ league, includeInactive: true });
+    const backtests = await runTrendSystemBacktests(run.systems, { preferSaved: true });
+    const source = backtests.summary.savedLedgerBacked
+      ? "saved-ledger"
+      : backtests.summary.eventMarketBacked
+        ? "event-market-backtest"
+        : "seeded-fallback";
+
+    return {
+      source,
+      systems: backtests.summary.systems,
+      activeSystems: run.summary.activeSystems,
+      activeMatches: run.summary.activeMatches,
+      savedLedgerBacked: backtests.summary.savedLedgerBacked,
+      eventMarketBacked: backtests.summary.eventMarketBacked,
+      seededFallback: backtests.summary.seededFallback,
+      totalSavedRows: backtests.summary.totalSavedRows,
+      totalSavedGradedRows: backtests.summary.totalSavedGradedRows,
+      totalOpenRows: backtests.summary.totalOpenRows,
+      totalEventMarketRows: backtests.summary.totalEventMarketRows,
+      totalEventMarketGradedRows: backtests.summary.totalEventMarketGradedRows
+    };
+  } catch {
+    return null;
+  }
+}
+
 function CacheStatusStrip({
   status,
   modeDefaultCards,
@@ -108,7 +155,8 @@ function CacheStatusStrip({
   age,
   refreshStatus,
   cacheVersion,
-  signalSummary
+  signalSummary,
+  systemSummary
 }: {
   status: string;
   modeDefaultCards: number;
@@ -117,6 +165,7 @@ function CacheStatusStrip({
   refreshStatus: Awaited<ReturnType<typeof readTrendRefreshStatus>>;
   cacheVersion: string;
   signalSummary: SignalSummary | null;
+  systemSummary: SystemLedgerSummary | null;
 }) {
   const ready = status === "exact" || status === "mode-default";
   const running = Boolean(refreshStatus?.running || refreshStatus?.queued);
@@ -140,6 +189,9 @@ function CacheStatusStrip({
   const cacheHitText = signalSummary
     ? `NBA ${signalSummary.cacheHits.nba ? "hit" : "miss"} · MLB ${signalSummary.cacheHits.mlb ? "hit" : "miss"} · market ${signalSummary.cacheHits.market ? "hit" : "miss"}`
     : "";
+  const systemText = systemSummary
+    ? `${systemSummary.source} · ${systemSummary.systems} systems · ${systemSummary.activeSystems} active · ${systemSummary.activeMatches} matches · saved ${systemSummary.totalSavedGradedRows}/${systemSummary.totalSavedRows} graded · open ${systemSummary.totalOpenRows} · EventMarket ${systemSummary.totalEventMarketGradedRows}/${systemSummary.totalEventMarketRows} graded · fallback ${systemSummary.seededFallback}`
+    : "system ledger unavailable";
   return (
     <div className={`mb-4 rounded-2xl border px-4 py-3 text-xs leading-5 ${tone}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -151,10 +203,15 @@ function CacheStatusStrip({
             <span className="ml-2">{signalText}</span>
             {cacheHitText ? <span className="ml-2 text-slate-500">({cacheHitText})</span> : null}
           </div>
+          <div className="mt-1 text-slate-300">
+            <span className="font-semibold uppercase tracking-[0.14em]">Systems</span>
+            <span className="ml-2">{systemText}</span>
+          </div>
         </div>
         <div className="flex flex-wrap gap-3">
           <a href="/api/trends/cache-health?signals=true" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Health JSON</a>
           <a href="/api/trends/signal-health" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Signal Health</a>
+          <a href="/api/trends/systems?ledger=true&inactive=true" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Systems JSON</a>
           <a href="/api/trends/refresh-cache" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Queue refresh</a>
         </div>
       </div>
@@ -170,11 +227,12 @@ export default async function TrendsPage({ searchParams }: PageProps) {
   const mode = readMode(readValue(resolved, "mode"));
   const options = { mode, aiQuery, savedTrendId };
 
-  const [{ payload }, health, refreshStatus, signalSummary] = await Promise.all([
+  const [{ payload }, health, refreshStatus, signalSummary, systemSummary] = await Promise.all([
     getFastCachedTrendDashboard(filters, options),
     getTrendDashboardCacheHealth(filters, options),
     readTrendRefreshStatus(),
-    getSignalSummary(filters)
+    getSignalSummary(filters),
+    getSystemLedgerSummary(filters)
   ]);
 
   return (
@@ -187,6 +245,7 @@ export default async function TrendsPage({ searchParams }: PageProps) {
         refreshStatus={refreshStatus}
         cacheVersion={health.cacheVersion}
         signalSummary={signalSummary}
+        systemSummary={systemSummary}
       />
       <TrendsDashboardV3 data={payload} />
     </>
