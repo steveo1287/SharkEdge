@@ -12,6 +12,11 @@ import type {
 } from "@/lib/types/domain";
 
 import { buildTrendSignals, type TrendSignal } from "./trends-engine";
+import {
+  buildTrendSystemRun,
+  trendSystemMatchesToTodayMatches,
+  type TrendSystemRun
+} from "./trend-system-engine";
 
 function leagueToSport(league: LeagueKey | "ALL"): SportCode {
   if (league === "MLB") return "BASEBALL";
@@ -52,6 +57,20 @@ function actionLabel(signal: TrendSignal) {
   return "RESEARCH ONLY";
 }
 
+function systemTone(system: TrendSystemRun["systems"][number]): TrendCardView["tone"] {
+  if (system.actionability === "ACTIVE") return "success";
+  if (system.activeMatches.length) return "brand";
+  if (system.metrics.roiPct >= 12 || system.category === "Most Profitable") return "premium";
+  return "muted";
+}
+
+function systemActionLabel(system: TrendSystemRun["systems"][number]) {
+  if (system.actionability === "ACTIVE") return "ACTIVE MATCH";
+  if (system.actionability === "WATCHLIST") return "WATCHLIST MATCH";
+  if (system.actionability === "RESEARCH") return "RESEARCH SYSTEM";
+  return "NO ACTIVE MATCH";
+}
+
 function safeLeague(league: LeagueKey | "ALL"): LeagueKey {
   return league === "ALL" ? "MLB" : league;
 }
@@ -68,9 +87,9 @@ function signalMatch(signal: TrendSignal): TrendMatchView[] {
       sport: leagueToSport(signal.league),
       leagueKey: league,
       eventLabel,
-      startTime: new Date().toISOString(),
+      startTime: signal.startTime ?? new Date().toISOString(),
       status: "PREGAME",
-      stateDetail: null,
+      stateDetail: signal.status ?? null,
       matchingLogic: `${signal.league} | ${signal.market ?? signal.category} | ${signal.source}`,
       recommendedBetLabel: actionLabel(signal),
       oddsContext: [
@@ -85,6 +104,42 @@ function signalMatch(signal: TrendSignal): TrendMatchView[] {
       supportNote: signal.warnings[0] ?? signal.notes[0] ?? null
     }
   ];
+}
+
+function systemCard(system: TrendSystemRun["systems"][number], filters: TrendFilters): TrendCardView {
+  const activeMatches = trendSystemMatchesToTodayMatches(system, system.activeMatches);
+  const best = system.activeMatches[0];
+  const systemHref = best?.href ?? `/trends?league=${system.league}&market=${system.market}`;
+
+  return {
+    id: `system:${system.id}`,
+    title: `${system.name} · ${system.category}`,
+    value: `${system.metrics.roiPct > 0 ? "+" : ""}${system.metrics.roiPct.toFixed(1)}% ROI`,
+    hitRate: `${system.metrics.winRatePct.toFixed(1)}%`,
+    roi: `${system.metrics.profitUnits > 0 ? "+" : ""}${system.metrics.profitUnits.toFixed(1)}u`,
+    sampleSize: system.metrics.sampleSize,
+    dateRange: `${system.metrics.seasons} season${system.metrics.seasons === 1 ? "" : "s"} · ${system.league} · ${system.market}`,
+    note: [
+      system.description,
+      `Action Gate: ${systemActionLabel(system)}`,
+      `${system.metrics.wins}-${system.metrics.losses}${system.metrics.pushes ? `-${system.metrics.pushes}` : ""}`,
+      `Current streak ${system.metrics.currentStreak}`,
+      best ? `Top active match: ${best.eventLabel}` : "No current slate match yet"
+    ].filter(Boolean).join(". "),
+    explanation: `Published SharkEdge trend system. Filter: ${system.filters.league} ${system.filters.market} ${system.filters.side}. Page filter: ${filters.league} ${filters.market}.`,
+    whyItMatters: [
+      `Historical record ${system.metrics.wins}-${system.metrics.losses}${system.metrics.pushes ? `-${system.metrics.pushes}` : ""}`,
+      `Profit ${system.metrics.profitUnits > 0 ? "+" : ""}${system.metrics.profitUnits.toFixed(1)}u`,
+      `Last 30 ${system.metrics.last30WinRatePct.toFixed(1)}%`,
+      system.metrics.clvPct != null ? `CLV ${system.metrics.clvPct.toFixed(1)}%` : null,
+      `${system.activeMatches.length} active match${system.activeMatches.length === 1 ? "" : "es"}`,
+      ...system.rules.map((rule) => rule.label)
+    ].filter(Boolean).join(" · "),
+    caution: `Risk: ${system.risk}. Historical systems are not automatic bets; require current price, injury/news checks, and market confirmation before action.`,
+    href: systemHref,
+    tone: systemTone(system),
+    todayMatches: activeMatches
+  };
 }
 
 function signalCard(signal: TrendSignal, filters: TrendFilters): TrendCardView {
@@ -128,13 +183,14 @@ function signalCard(signal: TrendSignal, filters: TrendFilters): TrendCardView {
   };
 }
 
-function metrics(signals: TrendSignal[], hiddenCount: number): TrendMetricCard[] {
+function metrics(signals: TrendSignal[], hiddenCount: number, systemRun: TrendSystemRun): TrendMetricCard[] {
   const actionable = signals.filter((signal) => signal.quality.actionability === "ACTIONABLE").length;
   const priced = signals.filter((signal) => signal.source === "market-edge" || signal.marketQuality.currentOddsAmerican != null).length;
   const games = new Set(signals.map((signal) => signal.gameId).filter(Boolean)).size;
   const top = signals[0];
 
   return [
+    { label: "Published systems", value: String(systemRun.summary.systems), note: `${systemRun.summary.activeSystems} active · ${systemRun.summary.actionableMatches} actionable matches.` },
     { label: "Real game trends", value: String(signals.length), note: "Current game/team signals only. Static research filler is excluded." },
     { label: "Games covered", value: String(games), note: "Unique current games represented on the trends page." },
     { label: "Priced signals", value: String(priced), note: "Signals with a market-edge or current price context." },
@@ -143,8 +199,19 @@ function metrics(signals: TrendSignal[], hiddenCount: number): TrendMetricCard[]
   ];
 }
 
-function rows(signals: TrendSignal[]): TrendTableRow[] {
-  return signals.slice(0, 20).map((signal) => ({
+function rows(signals: TrendSignal[], systemRun: TrendSystemRun): TrendTableRow[] {
+  const systemRows = systemRun.systems.slice(0, 12).map((system) => ({
+    label: system.name,
+    movement: systemActionLabel(system),
+    note: [
+      system.category,
+      `${system.metrics.wins}-${system.metrics.losses}${system.metrics.pushes ? `-${system.metrics.pushes}` : ""}`,
+      `${system.metrics.roiPct > 0 ? "+" : ""}${system.metrics.roiPct.toFixed(1)}% ROI`,
+      `${system.activeMatches.length} active match${system.activeMatches.length === 1 ? "" : "es"}`
+    ].join(" · "),
+    href: system.activeMatches[0]?.href ?? `/trends?league=${system.league}&market=${system.market}`
+  }));
+  const signalRows = signals.slice(0, 20).map((signal) => ({
     label: signal.matchup ? `${signal.matchup.away} @ ${signal.matchup.home}` : `${signal.league} ${signal.market ?? signal.category}`,
     movement: actionLabel(signal),
     note: [
@@ -157,16 +224,25 @@ function rows(signals: TrendSignal[]): TrendTableRow[] {
     ].filter(Boolean).join(" · "),
     href: signal.actionHref
   }));
+  return [...systemRows, ...signalRows];
 }
 
-function insights(signals: TrendSignal[]): TrendInsightCard[] {
-  return signals.slice(0, 4).map((signal) => ({
+function insights(signals: TrendSignal[], systemRun: TrendSystemRun): TrendInsightCard[] {
+  const systemInsights = systemRun.systems.filter((system) => system.activeMatches.length || system.metrics.roiPct >= 10).slice(0, 3).map((system) => ({
+    id: `system-insight-${system.id}`,
+    title: system.name,
+    value: systemActionLabel(system),
+    note: `${system.metrics.roiPct > 0 ? "+" : ""}${system.metrics.roiPct.toFixed(1)}% ROI · ${system.metrics.winRatePct.toFixed(1)}% hit · ${system.activeMatches.length} active`,
+    tone: systemTone(system)
+  }));
+  const signalInsights = signals.slice(0, Math.max(0, 4 - systemInsights.length)).map((signal) => ({
     id: `signal-insight-${signal.id}`,
     title: signal.matchup ? `${signal.matchup.away} @ ${signal.matchup.home}` : signal.title,
     value: actionLabel(signal),
     note: [signal.angle, `Quality ${signal.qualityTier}`, signal.warnings[0] ?? null].filter(Boolean).join(" · "),
     tone: signalTone(signal)
   }));
+  return [...systemInsights, ...signalInsights];
 }
 
 function matchesMarketFilter(signal: TrendSignal, filterMarket: TrendFilters["market"]) {
@@ -179,6 +255,10 @@ function matchesMarketFilter(signal: TrendSignal, filterMarket: TrendFilters["ma
   return market.includes(filterMarket) || category.includes(filterMarket);
 }
 
+function matchesSystemMarketFilter(system: TrendSystemRun["systems"][number], filterMarket: TrendFilters["market"]) {
+  return filterMarket === "ALL" || system.market === filterMarket;
+}
+
 function signalRank(signal: TrendSignal) {
   const pricedBoost = signal.source === "market-edge" ? 100 : 0;
   const actionableBoost = signal.quality.actionability === "ACTIONABLE" ? 80 : signal.quality.actionability === "WATCHLIST" ? 45 : 0;
@@ -187,15 +267,27 @@ function signalRank(signal: TrendSignal) {
   return pricedBoost + actionableBoost + confidenceScore + edgeScore + signal.qualityScore;
 }
 
+function systemRank(system: TrendSystemRun["systems"][number]) {
+  const actionBoost = system.actionability === "ACTIVE" ? 160 : system.actionability === "WATCHLIST" ? 100 : 20;
+  const matchBoost = Math.min(5, system.activeMatches.length) * 20;
+  return actionBoost + matchBoost + system.metrics.roiPct * 3 + system.metrics.winRatePct + (system.verified ? 25 : 0);
+}
+
 export async function buildSignalTrendDashboard(
   filters: TrendFilters,
   options?: { mode?: TrendMode; aiQuery?: string }
 ): Promise<TrendDashboardView | null> {
-  const payload = await buildTrendSignals({
-    league: filters.league === "ALL" ? "ALL" : filters.league,
-    includeResearch: false,
-    includeHidden: true
-  });
+  const [payload, rawSystemRun] = await Promise.all([
+    buildTrendSignals({
+      league: filters.league === "ALL" ? "ALL" : filters.league,
+      includeResearch: false,
+      includeHidden: true
+    }),
+    buildTrendSystemRun({
+      league: filters.league === "ALL" ? "ALL" : filters.league,
+      includeInactive: true
+    })
+  ]);
 
   const signals = payload.signals
     .filter(isRealGameSignal)
@@ -203,11 +295,21 @@ export async function buildSignalTrendDashboard(
     .sort((left, right) => signalRank(right) - signalRank(left))
     .slice(0, 40);
 
-  if (!signals.length) return null;
+  const systemRun: TrendSystemRun = {
+    ...rawSystemRun,
+    systems: rawSystemRun.systems
+      .filter((system) => matchesSystemMarketFilter(system, filters.market))
+      .sort((left, right) => systemRank(right) - systemRank(left))
+  };
 
-  const cards = signals.map((signal) => signalCard(signal, filters));
+  if (!signals.length && !systemRun.systems.length) return null;
+
+  const systemCards = systemRun.systems.slice(0, 12).map((system) => systemCard(system, filters));
+  const signalCards = signals.map((signal) => signalCard(signal, filters));
+  const cards = [...systemCards, ...signalCards].slice(0, 48);
   const liveMatches = cards.flatMap((card) => card.todayMatches ?? []);
-  const top = signals[0];
+  const topSystem = systemRun.systems[0] ?? null;
+  const topSignal = signals[0] ?? null;
   const hiddenStaticCount = Math.max(0, (payload.counts.totalRaw ?? payload.signals.length) - signals.length);
 
   return {
@@ -216,31 +318,36 @@ export async function buildSignalTrendDashboard(
     aiQuery: options?.aiQuery ?? "",
     aiHelper: null,
     explanation: {
-      headline: `${cards.length} real current game/team trend${cards.length === 1 ? "" : "s"} loaded`,
-      whyItMatters: `${top.matchup ? `${top.matchup.away} @ ${top.matchup.home}` : top.title} leads the board. This view now uses current game/team signals only; static fallback cards are excluded.`,
-      caution: "These cards are real current game context. They are not all bets. Use the action gate and price checkpoint before acting.",
+      headline: `${systemRun.systems.length} published systems and ${signals.length} real current-game trend${signals.length === 1 ? "" : "s"} loaded`,
+      whyItMatters: topSystem
+        ? `${topSystem.name} leads the system board with ${topSystem.metrics.roiPct > 0 ? "+" : ""}${topSystem.metrics.roiPct.toFixed(1)}% ROI and ${topSystem.activeMatches.length} active match${topSystem.activeMatches.length === 1 ? "" : "es"}.`
+        : topSignal
+          ? `${topSignal.matchup ? `${topSignal.matchup.away} @ ${topSignal.matchup.home}` : topSignal.title} leads the board. This view uses current game/team signals only; static fallback cards are excluded.`
+          : "Published systems are loaded, but no current-game sim signals are available yet.",
+      caution: "Historical systems and current-game signals are not automatic bets. Use action gates, price checkpoints, injury/news checks, and market confirmation before acting.",
       queryLogic: [filters.league, filters.market, filters.side, filters.window].filter(Boolean).join(" | ")
     },
     filters,
     cards,
-    metrics: metrics(signals, hiddenStaticCount),
-    insights: insights(signals),
-    movementRows: rows(signals),
+    metrics: metrics(signals, hiddenStaticCount, systemRun),
+    insights: insights(signals, systemRun),
+    movementRows: rows(signals, systemRun),
     segmentRows: [
+      { label: "Published systems", movement: `${systemRun.summary.systems} systems`, note: `${systemRun.summary.activeSystems} active systems and ${systemRun.summary.actionableMatches} actionable matches.`, href: "/api/trends/systems" },
       { label: "Current games", movement: `${new Set(signals.map((signal) => signal.gameId).filter(Boolean)).size} games`, note: "Real board/sim game signals represented on the trends page.", href: "/trends?mode=signals" },
       { label: "Priced market edges", movement: String(signals.filter((signal) => signal.source === "market-edge").length), note: "Signals with sportsbook/market edge support.", href: "/api/trends?mode=signals&debug=true" },
       { label: "Context-only signals", movement: String(signals.filter((signal) => signal.source === "sim-engine").length), note: "Real game model signals waiting for current price confirmation.", href: "/sim" }
     ],
     todayMatches: liveMatches,
     todayMatchesNote: liveMatches.length
-      ? `${liveMatches.length} current game qualifier${liveMatches.length === 1 ? "" : "s"} attached from the real signal feed.`
-      : "Real trend cards loaded, but no matchup links were attached.",
+      ? `${liveMatches.length} current game/system qualifier${liveMatches.length === 1 ? "" : "s"} attached from the real signal and published-system feeds.`
+      : "Systems loaded, but no current game qualifiers were attached.",
     savedSystems: [],
     savedTrendName: "",
-    sourceNote: "Showing real current game/team trends from the SharkEdge signal engine. Static filler cards are disabled.",
+    sourceNote: "Showing published SharkEdge systems plus real current game/team trends from the signal engine. Static filler cards are disabled.",
     querySummary: [filters.league, filters.market, filters.side, filters.window].filter(Boolean).join(" | "),
     sampleNote: hiddenStaticCount
-      ? `${hiddenStaticCount} static/non-game signal${hiddenStaticCount === 1 ? " was" : "s were"} excluded so the page shows real games only.`
+      ? `${hiddenStaticCount} static/non-game signal${hiddenStaticCount === 1 ? " was" : "s were"} excluded so the page shows real games and published systems only.`
       : null
   };
 }
