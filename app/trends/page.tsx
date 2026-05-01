@@ -5,9 +5,10 @@ import { getFastCachedTrendDashboard, getTrendDashboardCacheHealth } from "@/ser
 import { readTrendRefreshStatus } from "@/services/trends/refresh-status";
 import { inspectTrendSystemGradeQueue } from "@/services/trends/trend-system-grader";
 import { readTrendSystemCycleStatus } from "@/services/trends/trend-system-cycle-status";
-import { buildTrendSignals } from "@/services/trends/trends-engine";
-import { buildTrendSystemRun } from "@/services/trends/trend-system-engine";
 import { runTrendSystemBacktests } from "@/services/trends/trend-system-ledger";
+import { buildTrendSystemRun } from "@/services/trends/trend-system-engine";
+import { buildTrendsCenterSnapshot, type TrendsCenterSnapshot } from "@/services/trends/trends-center";
+import { buildTrendSignals } from "@/services/trends/trends-engine";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -45,11 +46,11 @@ type SystemLedgerSummary = {
 };
 
 type GradeQueueSummary = Awaited<ReturnType<typeof inspectTrendSystemGradeQueue>> | null;
+type CycleStatus = Awaited<ReturnType<typeof readTrendSystemCycleStatus>>;
+type RefreshStatus = Awaited<ReturnType<typeof readTrendRefreshStatus>>;
+type TrendsCenterSummary = TrendsCenterSnapshot | null;
 
-function readValue(
-  searchParams: Record<string, string | string[] | undefined>,
-  key: string
-) {
+function readValue(searchParams: Record<string, string | string[] | undefined>, key: string) {
   const value = searchParams[key];
   return Array.isArray(value) ? value[0] : value;
 }
@@ -107,6 +108,18 @@ function formatStatusTime(value: string | null | undefined) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "unknown";
   return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+function formatStatusDateTime(value: string | null | undefined) {
+  if (!value) return "never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function distributionText(record: Record<string, number> | undefined, limit = 5) {
+  const entries = Object.entries(record ?? {}).sort((left, right) => right[1] - left[1]).slice(0, limit);
+  return entries.length ? entries.map(([key, value]) => `${key} ${value}`).join(" · ") : "none";
 }
 
 async function getSignalSummary(filters: TrendFilters): Promise<SignalSummary | null> {
@@ -173,7 +186,15 @@ async function getGradeQueueSummary(): Promise<GradeQueueSummary> {
   }
 }
 
-function cycleText(cycleStatus: Awaited<ReturnType<typeof readTrendSystemCycleStatus>>) {
+async function getTrendsCenterSummary(): Promise<TrendsCenterSummary> {
+  try {
+    return await buildTrendsCenterSnapshot();
+  } catch {
+    return null;
+  }
+}
+
+function cycleText(cycleStatus: CycleStatus) {
   if (!cycleStatus) return "no cycle status yet";
   const state = cycleStatus.running ? "running" : cycleStatus.ok ? "ok" : "failed";
   return `${state} · last success ${formatStatusTime(cycleStatus.lastSuccessAt)} · captured ${cycleStatus.summary.capturedMatches} · closing ${cycleStatus.summary.closingLinesUpdated} · graded ${cycleStatus.summary.gradedMatches} · snapshots ${cycleStatus.summary.snapshotsWritten} · saved ${cycleStatus.summary.totalSavedGradedRows}/${cycleStatus.summary.totalSavedRows} graded · open ${cycleStatus.summary.totalOpenRows} · fallback ${cycleStatus.summary.seededFallback}`;
@@ -208,11 +229,11 @@ function CacheStatusStrip({
   modeDefaultCards: number;
   exactCards: number;
   age: number | null;
-  refreshStatus: Awaited<ReturnType<typeof readTrendRefreshStatus>>;
+  refreshStatus: RefreshStatus;
   cacheVersion: string;
   signalSummary: SignalSummary | null;
   systemSummary: SystemLedgerSummary | null;
-  cycleStatus: Awaited<ReturnType<typeof readTrendSystemCycleStatus>>;
+  cycleStatus: CycleStatus;
 }) {
   const ready = status === "exact" || status === "mode-default";
   const running = Boolean(refreshStatus?.running || refreshStatus?.queued || cycleStatus?.running);
@@ -251,6 +272,7 @@ function CacheStatusStrip({
           <div className="mt-1 text-slate-300"><span className="font-semibold uppercase tracking-[0.14em]">Cycle</span><span className="ml-2">{cycleText(cycleStatus)}</span></div>
         </div>
         <div className="flex flex-wrap gap-3">
+          <a href="/api/trends/center" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Center JSON</a>
           <a href="/api/trends/cache-health?signals=true" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Health JSON</a>
           <a href="/api/trends/signal-health" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Signal Health</a>
           <a href="/api/trends/systems?ledger=true&inactive=true" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Systems JSON</a>
@@ -275,6 +297,99 @@ function TruthTile({ label, value, note, tone = "neutral" }: { label: string; va
   );
 }
 
+function TrendsCenterPanel({
+  snapshot,
+  signalSummary,
+  systemSummary,
+  gradeQueue
+}: {
+  snapshot: TrendsCenterSummary;
+  signalSummary: SignalSummary | null;
+  systemSummary: SystemLedgerSummary | null;
+  gradeQueue: GradeQueueSummary;
+}) {
+  const active = snapshot?.counts.active ?? 0;
+  const stale = snapshot?.counts.stale ?? 0;
+  const neverRun = snapshot?.counts.neverRun ?? 0;
+  const archived = snapshot?.counts.archived ?? 0;
+  const power = snapshot?.counts.power ?? 0;
+  const simple = snapshot?.counts.simple ?? 0;
+  const runCoveragePct = snapshot?.coverage.runCoveragePct ?? 0;
+  const freshnessRiskPct = snapshot?.coverage.freshnessRiskPct ?? 0;
+  const verifiedSystems = (systemSummary?.savedLedgerBacked ?? 0) + (systemSummary?.eventMarketBacked ?? 0);
+  const actionable = signalSummary?.actionable ?? 0;
+  const gradeable = bucketValue(gradeQueue, "gradeable");
+  const commandQueue = snapshot?.commandQueue ?? [];
+  const newestRuns = snapshot?.newestRuns ?? [];
+  const commandTone = !snapshot ? "bad" : commandQueue.length || stale || neverRun ? "warn" : active ? "good" : "neutral";
+
+  return (
+    <section className="mb-5 rounded-[1.5rem] border border-sky-300/15 bg-slate-950/65 p-4 shadow-[0_0_40px_rgba(14,165,233,0.08)]">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">Trends Center</div>
+          <h2 className="mt-2 font-display text-2xl font-semibold text-white">Saved-system command center</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Inventory, freshness, proof gates, and command queue for the systems that should become the main Trends Center product layer.</p>
+        </div>
+        <div className="flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.14em]">
+          <a href="/api/trends/center" className="text-sky-200 hover:text-sky-100">Center JSON</a>
+          <a href="/api/trends/saved" className="text-sky-200 hover:text-sky-100">Saved JSON</a>
+          <a href="/api/trends/discover" className="text-sky-200 hover:text-sky-100">Discover</a>
+          <a href="/api/trends/systems/cycle?inactive=true&limit=500" className="text-sky-200 hover:text-sky-100">Run cycle</a>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <TruthTile label="Active saved systems" value={active} tone={active ? "good" : "warn"} note={`${power} power · ${simple} simple · ${archived} archived. Active systems are eligible for Trends Center promotion.`} />
+        <TruthTile label="Run coverage" value={`${runCoveragePct}%`} tone={runCoveragePct >= 80 ? "good" : active ? "warn" : "neutral"} note={`${snapshot?.counts.recent ?? 0} ran inside ${snapshot?.thresholds.recentRunHours ?? 24}h. ${neverRun} have never been run.`} />
+        <TruthTile label="Freshness risk" value={`${freshnessRiskPct}%`} tone={freshnessRiskPct ? "warn" : active ? "good" : "neutral"} note={`${stale} stale or never-run systems. These should not get premium placement until refreshed.`} />
+        <TruthTile label="Command queue" value={commandQueue.length} tone={commandTone} note={`${verifiedSystems} verified systems · ${actionable} actionable signals · ${gradeable} gradeable rows waiting.`} />
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Command queue</div>
+          {commandQueue.length ? (
+            <div className="mt-3 space-y-2">
+              {commandQueue.map((item) => (
+                <a key={`${item.reason}-${item.id}`} href={item.href} className="block rounded-xl border border-amber-300/15 bg-amber-300/[0.04] p-3 hover:border-amber-200/30">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-sm font-semibold text-white">{item.name}</div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-200">{item.reason}</div>
+                  </div>
+                  <div className="mt-1 text-xs leading-5 text-slate-400">{item.note}</div>
+                </a>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] p-3 text-xs leading-5 text-emerald-100/80">No saved-system command blockers. Use proof grade, ROI, and current signal quality for promotion order.</div>
+          )}
+          <div className="mt-3 text-xs leading-5 text-slate-500">Next action: {snapshot?.nextAction ?? "Snapshot unavailable. Check /api/trends/center."}</div>
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Distribution</div>
+          <div className="mt-3 space-y-2 text-xs leading-5 text-slate-400">
+            <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Sports</span><span className="ml-2">{distributionText(snapshot?.distribution.bySport)}</span></div>
+            <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Leagues</span><span className="ml-2">{distributionText(snapshot?.distribution.byLeague)}</span></div>
+            <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Markets</span><span className="ml-2">{distributionText(snapshot?.distribution.byMarket)}</span></div>
+            <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Modes</span><span className="ml-2">{distributionText(snapshot?.distribution.byMode)}</span></div>
+          </div>
+          <div className="mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Newest runs</div>
+          <div className="mt-3 space-y-2">
+            {newestRuns.length ? newestRuns.slice(0, 5).map((row) => (
+              <a key={row.id} href={row.href} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs hover:border-sky-300/25">
+                <span className="min-w-0 truncate text-slate-200">{row.name}</span>
+                <span className="shrink-0 text-slate-500">{row.league} · {row.market} · {formatStatusDateTime(row.lastRunAt)}</span>
+              </a>
+            )) : <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-500">No saved trend runs yet.</div>}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function LedgerTruthPanel({
   signalSummary,
   systemSummary,
@@ -283,7 +398,7 @@ function LedgerTruthPanel({
 }: {
   signalSummary: SignalSummary | null;
   systemSummary: SystemLedgerSummary | null;
-  cycleStatus: Awaited<ReturnType<typeof readTrendSystemCycleStatus>>;
+  cycleStatus: CycleStatus;
   gradeQueue: GradeQueueSummary;
 }) {
   const verifiedSystems = (systemSummary?.savedLedgerBacked ?? 0) + (systemSummary?.eventMarketBacked ?? 0);
@@ -348,19 +463,21 @@ export default async function TrendsPage({ searchParams }: PageProps) {
   const mode = readMode(readValue(resolved, "mode"));
   const options = { mode, aiQuery, savedTrendId };
 
-  const [{ payload }, health, refreshStatus, signalSummary, systemSummary, cycleStatus, gradeQueue] = await Promise.all([
+  const [{ payload }, health, refreshStatus, signalSummary, systemSummary, cycleStatus, gradeQueue, trendsCenter] = await Promise.all([
     getFastCachedTrendDashboard(filters, options),
     getTrendDashboardCacheHealth(filters, options),
     readTrendRefreshStatus(),
     getSignalSummary(filters),
     getSystemLedgerSummary(filters),
     readTrendSystemCycleStatus(),
-    getGradeQueueSummary()
+    getGradeQueueSummary(),
+    getTrendsCenterSummary()
   ]);
 
   return (
     <>
       <CacheStatusStrip status={health.effectiveStatus} exactCards={health.exact.cards} modeDefaultCards={health.modeDefault.cards} age={health.exact.ageSeconds ?? health.modeDefault.ageSeconds} refreshStatus={refreshStatus} cacheVersion={health.cacheVersion} signalSummary={signalSummary} systemSummary={systemSummary} cycleStatus={cycleStatus} />
+      <TrendsCenterPanel snapshot={trendsCenter} signalSummary={signalSummary} systemSummary={systemSummary} gradeQueue={gradeQueue} />
       <LedgerTruthPanel signalSummary={signalSummary} systemSummary={systemSummary} cycleStatus={cycleStatus} gradeQueue={gradeQueue} />
       <TrendsDashboardV3 data={payload} />
     </>
