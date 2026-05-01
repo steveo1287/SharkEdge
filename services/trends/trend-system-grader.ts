@@ -21,6 +21,23 @@ function profit(result: Outcome, odds?: number | null) {
   if (result === "LOSS") return -1;
   return 0;
 }
+function impliedFromAmerican(odds: number | null | undefined) {
+  if (typeof odds !== "number" || !Number.isFinite(odds) || odds === 0 || Math.abs(odds) < 100) return null;
+  return odds < 0 ? Math.abs(odds) / (Math.abs(odds) + 100) : 100 / (odds + 100);
+}
+function clvPct(openOdds: number | null, closeOdds: number | null) {
+  const open = impliedFromAmerican(openOdds);
+  const close = impliedFromAmerican(closeOdds);
+  if (open == null || close == null) return null;
+  return Number(((close - open) * 100).toFixed(2));
+}
+function clvStatus(openOdds: number | null, closeOdds: number | null) {
+  const clv = clvPct(openOdds, closeOdds);
+  if (clv == null) return "missing-closing-price";
+  if (clv > 0.25) return "beat-close";
+  if (clv < -0.25) return "lost-to-close";
+  return "near-close";
+}
 function participantLabel(participant: any) {
   return s([participant?.role, participant?.competitor?.name, participant?.competitor?.shortName, participant?.competitor?.abbreviation].filter(Boolean).join(" "));
 }
@@ -65,6 +82,8 @@ async function snapshot(definitionId: string) {
   const winPercentage = totalGames ? Number(((wins / totalGames) * 100).toFixed(1)) : 0;
   const roi = totalGames ? Number(((totalProfit / totalGames) * 100).toFixed(1)) : 0;
   const activeGameCount = rows.filter((row: any) => row.betResult === "OPEN").length;
+  const clvValues = graded.map((row: any) => n(meta(row).clvPct)).filter((value: number | null): value is number => value != null);
+  const avgClvPct = clvValues.length ? Number((clvValues.reduce((sum: number, value: number) => sum + value, 0) / clvValues.length).toFixed(2)) : null;
   await db.savedTrendSnapshot.create({
     data: {
       trendDefinitionId: definitionId,
@@ -76,11 +95,21 @@ async function snapshot(definitionId: string) {
       isStatisticallySignificant: false,
       confidenceScore: Math.min(100, Math.max(0, winPercentage + roi)),
       sampleSizeRating: totalGames >= 75 ? "medium" : totalGames >= 25 ? "thin" : "starter",
-      warningsJson: json([totalGames < 25 ? `Starter graded sample (${totalGames})` : null, activeGameCount ? `${activeGameCount} open` : null].filter(Boolean)),
+      warningsJson: json([
+        totalGames < 25 ? `Starter graded sample (${totalGames})` : null,
+        activeGameCount ? `${activeGameCount} open` : null,
+        avgClvPct == null ? "CLV unavailable until closing odds are captured" : `Average CLV ${avgClvPct}%`
+      ].filter(Boolean)),
       activeGameCount
     }
   });
-  await db.savedTrendDefinition.update({ where: { id: definitionId }, data: { currentStatsJson: json({ totalGames, wins, losses, pushes, winPercentage, roi, totalProfit, activeGameCount, source: "saved-trend-match-ledger" }), lastComputedAt: new Date() } });
+  await db.savedTrendDefinition.update({
+    where: { id: definitionId },
+    data: {
+      currentStatsJson: json({ totalGames, wins, losses, pushes, winPercentage, roi, totalProfit, activeGameCount, avgClvPct, source: "saved-trend-match-ledger" }),
+      lastComputedAt: new Date()
+    }
+  });
 }
 
 export async function gradeCapturedTrendSystemMatches(args?: { limit?: number }) {
@@ -98,10 +127,25 @@ export async function gradeCapturedTrendSystemMatches(args?: { limit?: number })
   for (const row of rows) {
     const g = grade(row);
     if (g.result === "OPEN") { skipped.push({ matchId: row.id, eventId: row.eventId ?? null, eventLabel: row.event?.name ?? null, reason: g.reason }); continue; }
-    const unitsWon = profit(g.result, n(meta(row).price));
-    await db.savedTrendMatch.update({ where: { id: row.id }, data: { betResult: g.result, unitsWon, cumulativeProfit: unitsWon, metadataJson: json({ ...meta(row), gradedAt: new Date().toISOString(), gradeReason: g.reason, grader: "trend-system-grader" }) } });
+    const m = meta(row);
+    const openOdds = n(m.openingOddsAmerican) ?? n(m.price);
+    const closeOdds = n(m.closingOddsAmerican);
+    const rowClvPct = clvPct(openOdds, closeOdds);
+    const unitsWon = profit(g.result, openOdds);
+    const nextMetadata = {
+      ...m,
+      openOddsAmerican: openOdds,
+      openingOddsAmerican: openOdds,
+      closingOddsAmerican: closeOdds,
+      clvPct: rowClvPct,
+      clvStatus: clvStatus(openOdds, closeOdds),
+      gradedAt: new Date().toISOString(),
+      gradeReason: g.reason,
+      grader: "trend-system-grader"
+    };
+    await db.savedTrendMatch.update({ where: { id: row.id }, data: { betResult: g.result, unitsWon, cumulativeProfit: unitsWon, metadataJson: json(nextMetadata) } });
     touched.add(row.trendDefinitionId);
-    graded.push({ matchId: row.id, trendDefinitionId: row.trendDefinitionId, eventId: row.eventId, eventLabel: row.event?.name ?? "Unknown event", newResult: g.result, unitsWon, reason: g.reason });
+    graded.push({ matchId: row.id, trendDefinitionId: row.trendDefinitionId, eventId: row.eventId, eventLabel: row.event?.name ?? "Unknown event", newResult: g.result, unitsWon, clvPct: rowClvPct, clvStatus: nextMetadata.clvStatus, reason: g.reason });
   }
   for (const id of touched) await snapshot(id);
   return { ok: true, generatedAt: new Date().toISOString(), database: { usable: true, source }, summary: { openMatchesScanned: rows.length, gradedMatches: graded.length, skippedOpen: skipped.length, snapshotsWritten: touched.size, wins: graded.filter((r) => r.newResult === "WIN").length, losses: graded.filter((r) => r.newResult === "LOSS").length, pushes: graded.filter((r) => r.newResult === "PUSH").length, voids: graded.filter((r) => r.newResult === "VOID").length }, graded, skipped };
