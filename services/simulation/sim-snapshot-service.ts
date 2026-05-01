@@ -23,7 +23,8 @@ export const SIM_CACHE_KEYS = {
 
 const FULL_SIM_TTL_SECONDS = 75 * 60;
 const MARKET_TTL_SECONDS = 15 * 60;
-const PROJECTION_TIMEOUT_MS = 8_000;
+const NBA_PROJECTION_TIMEOUT_MS = 8_000;
+const MLB_PROJECTION_TIMEOUT_MS = 18_000;
 const MARKET_OVERLAY_TIMEOUT_MS = 12_000;
 const FULL_SIM_RETENTION_SECONDS = 36 * 60 * 60;
 const MARKET_RETENTION_SECONDS = 6 * 60 * 60;
@@ -145,6 +146,17 @@ function seed(input: string) {
   return hash >>> 0;
 }
 
+function fallbackConfidence(homeEdge: number, projectedTotal: number, hash: number) {
+  const edgeLift = Math.min(0.08, Math.abs(homeEdge) * 0.08);
+  const totalLift = Math.min(0.04, Math.abs(projectedTotal - 8.7) * 0.012);
+  const hashJitter = ((hash >>> 16) % 7) / 100;
+  return Number(clamp(0.22 + edgeLift + totalLift + hashJitter, 0.22, 0.38).toFixed(3));
+}
+
+function projectionTimeoutMs(game: SimGame) {
+  return game.leagueKey === "MLB" ? MLB_PROJECTION_TIMEOUT_MS : NBA_PROJECTION_TIMEOUT_MS;
+}
+
 function fallbackProjection(game: SimGame, reason: string): FullProjection {
   const matchup = parseMatchup(game.label);
   const h = seed(game.id || game.label);
@@ -154,6 +166,7 @@ function fallbackProjection(game: SimGame, reason: string): FullProjection {
   const homeRuns = Number(clamp(4.45 + homeEdge / 2 + totalLift / 2, 2.4, 7.8).toFixed(2));
   const homeWinPct = Number(clamp(0.52 + homeEdge * 0.055, 0.35, 0.68).toFixed(4));
   const projectedTotal = Number((awayRuns + homeRuns).toFixed(2));
+  const confidence = fallbackConfidence(homeEdge, projectedTotal, h);
 
   return {
     matchup,
@@ -180,7 +193,7 @@ function fallbackProjection(game: SimGame, reason: string): FullProjection {
     nbaIntel: null,
     realityIntel: null,
     mlbIntel: {
-      modelVersion: "mlb-intel-v6",
+      modelVersion: "mlb-intel-v6-fallback",
       dataSource: "fallback-mlb-base-projection",
       homeEdge,
       projectedTotal,
@@ -191,10 +204,10 @@ function fallbackProjection(game: SimGame, reason: string): FullProjection {
       ],
       governor: {
         source: "fallback-mlb-base-projection",
-        confidence: 0.42,
+        confidence,
         noBet: true,
         tier: "pass",
-        reasons: ["Fallback projection kept the MLB slate visible after heavy model failure.", reason]
+        reasons: ["Fallback projection kept the MLB slate visible after heavy model failure; confidence is degraded and capped.", reason]
       }
     }
   } as FullProjection;
@@ -230,7 +243,8 @@ function flatten(sections: BoardSportSectionView[]): SimGame[] {
 }
 
 async function buildProjectionWithTimeout(game: SimGame) {
-  return Promise.race([buildSimProjection(game), timeoutAfter(PROJECTION_TIMEOUT_MS, `projection ${game.id}`)])
+  const timeoutMs = projectionTimeoutMs(game);
+  return Promise.race([buildSimProjection(game), timeoutAfter(timeoutMs, `projection ${game.id}`)])
     .catch((error) => fallbackProjection(game, error instanceof Error ? error.message : "unknown projection failure"));
 }
 
