@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import type { LeagueKey } from "@/lib/types/domain";
+import { warmTrendDashboardCaches } from "@/services/trends/dashboard-cache";
 import { capturePublishedTrendSystemMatches } from "@/services/trends/trend-system-capture";
 import { updateTrendSystemClosingLines } from "@/services/trends/trend-system-closing-lines";
 import { emptyTrendSystemCycleSummary, writeTrendSystemCycleStatus } from "@/services/trends/trend-system-cycle-status";
@@ -33,14 +34,18 @@ function filteredSystems(league: LeagueKey | "ALL") {
   return PUBLISHED_SYSTEMS.filter((system) => league === "ALL" || system.league === league);
 }
 
-function nextAction(ok: boolean, graded: number, resultBackfilled: number, closingUpdated: number, captured: number, savedLedgerRows: number, missingResults: number) {
+function warmLeagues(league: LeagueKey | "ALL") {
+  return league === "ALL" ? ["ALL", "MLB", "NBA"] as Array<LeagueKey | "ALL"> : ["ALL", league] as Array<LeagueKey | "ALL">;
+}
+
+function nextAction(ok: boolean, graded: number, resultBackfilled: number, closingUpdated: number, captured: number, savedLedgerRows: number, missingResults: number, warmedCards: number) {
   if (!ok) return "One or more cycle steps reported a failure. Inspect cycle samples and skipped rows.";
-  if (graded) return "Cycle completed, backfilled results, and graded saved trend rows. Check /api/trends/systems?ledger=true and /trends.";
-  if (resultBackfilled) return "Final EventResult data was backfilled, but no rows graded. Inspect grade queue mapping/line blockers.";
+  if (graded) return `Cycle completed, backfilled results, graded saved trend rows, and warmed ${warmedCards} trend-cache cards. Check /trends.`;
+  if (resultBackfilled) return `Final EventResult data was backfilled and trend cache warmed (${warmedCards} cards), but no rows graded. Inspect grade queue mapping/line blockers.`;
   if (missingResults) return "Open rows remain blocked by missing EventResult. Provider coverage or event mapping needs repair.";
-  if (closingUpdated) return "Cycle updated closing/current odds. Rows will grade once EventResult exists.";
-  if (captured) return "Cycle captured active system matches. Closing lines or results may not be available yet.";
-  if (savedLedgerRows) return "Cycle ran cleanly. Existing saved-ledger rows are present, but no new rows changed this pass.";
+  if (closingUpdated) return `Cycle updated closing/current odds and warmed ${warmedCards} trend-cache cards. Rows will grade once EventResult exists.`;
+  if (captured) return `Cycle captured active system matches and warmed ${warmedCards} trend-cache cards. Closing lines or results may not be available yet.`;
+  if (savedLedgerRows) return `Cycle ran cleanly and warmed ${warmedCards} trend-cache cards. Existing saved-ledger rows are present, but no new rows changed this pass.`;
   return "Cycle ran cleanly, but no saved-ledger rows exist yet. Confirm current slate, Event rows, and market cache mapping.";
 }
 
@@ -57,6 +62,7 @@ export async function GET(request: NextRequest) {
     safeLimit = Math.min(Math.max(Number.isFinite(limit) ? limit : 500, 1), 1000);
     const includeInactive = url.searchParams.get("inactive") !== "false";
     const skipResultBackfill = url.searchParams.get("backfillResults") === "false";
+    const skipWarmCache = url.searchParams.get("warmCache") === "false";
 
     await writeTrendSystemCycleStatus({
       ok: false,
@@ -68,7 +74,7 @@ export async function GET(request: NextRequest) {
       reason: "Trend system cycle running.",
       warnings: [],
       summary: emptyTrendSystemCycleSummary(),
-      sourceStatus: { phase: "running", resultBackfillEnabled: !skipResultBackfill }
+      sourceStatus: { phase: "running", resultBackfillEnabled: !skipResultBackfill, warmCacheEnabled: !skipWarmCache }
     });
 
     const beforeRun = await buildTrendSystemRun({ league, includeInactive: true });
@@ -82,6 +88,9 @@ export async function GET(request: NextRequest) {
     const afterQueue = await inspectTrendSystemGradeQueue({ limit: safeLimit });
     const afterRun = await buildTrendSystemRun({ league, includeInactive: true });
     const ledger = await runTrendSystemBacktests(filteredSystems(league), { preferSaved: true });
+    const warmCache = skipWarmCache
+      ? { generatedAt: new Date().toISOString(), cacheVersion: "skipped", warmed: [] }
+      : await warmTrendDashboardCaches({ leagues: warmLeagues(league), markets: ["ALL", "moneyline", "spread", "total"] });
 
     const finishedAt = new Date();
     const ok = Boolean(capture.ok && closingLines.ok && resultBackfill.ok && grade.ok);
@@ -90,7 +99,8 @@ export async function GET(request: NextRequest) {
     const resultBackfilled = resultBackfill.summary.totalFinalEvents;
     const graded = grade.summary.gradedMatches;
     const missingResults = afterQueue.summary?.missingEventResult ?? 0;
-    const action = nextAction(ok, graded, resultBackfilled, closingUpdated, captured, ledger.summary.totalSavedRows, missingResults);
+    const warmedCards = warmCache.warmed.reduce((sum: number, row: any) => sum + (row.cards ?? 0), 0);
+    const action = nextAction(ok, graded, resultBackfilled, closingUpdated, captured, ledger.summary.totalSavedRows, missingResults, warmedCards);
     const warnings = [
       capture.ok ? null : "Capture step reported failure.",
       closingLines.ok ? null : "Closing-line step reported failure.",
@@ -101,7 +111,8 @@ export async function GET(request: NextRequest) {
       resultBackfill.summary.totalFinalEvents ? null : "Result backfill found no final events for open trend rows.",
       grade.summary.skippedOpen ? `${grade.summary.skippedOpen} grade rows skipped.` : null,
       missingResults ? `${missingResults} open rows still missing EventResult.` : null,
-      ledger.summary.seededFallback ? `${ledger.summary.seededFallback} systems still using seeded fallback.` : null
+      ledger.summary.seededFallback ? `${ledger.summary.seededFallback} systems still using seeded fallback.` : null,
+      warmedCards ? null : "Trend dashboard cache warmer produced zero cards."
     ].filter((warning): warning is string => Boolean(warning));
 
     const status = await writeTrendSystemCycleStatus({
@@ -136,7 +147,8 @@ export async function GET(request: NextRequest) {
         grade: grade.summary,
         afterQueue: afterQueue.summary,
         after: afterRun.summary,
-        ledger: ledger.summary
+        ledger: ledger.summary,
+        warmCache: { warmedCards, rows: warmCache.warmed }
       }
     });
 
@@ -156,7 +168,8 @@ export async function GET(request: NextRequest) {
         grade: grade.summary,
         afterQueue: afterQueue.summary,
         after: afterRun.summary,
-        ledger: ledger.summary
+        ledger: ledger.summary,
+        warmCache: { warmedCards, warmed: warmCache.warmed }
       },
       diagnostics: {
         captureDatabase: capture.database,
@@ -167,6 +180,7 @@ export async function GET(request: NextRequest) {
         resultBackfilled,
         graded,
         missingResults,
+        warmedCards,
         savedLedgerRows: ledger.summary.totalSavedRows,
         savedGradedRows: ledger.summary.totalSavedGradedRows,
         openRows: ledger.summary.totalOpenRows,
@@ -180,7 +194,8 @@ export async function GET(request: NextRequest) {
         resultBackfill: resultBackfill.leagues.slice(0, 10),
         graded: grade.graded.slice(0, 10),
         skippedGrade: grade.skipped.slice(0, 10),
-        queueBlockers: afterQueue.samples?.slice?.(0, 10) ?? []
+        queueBlockers: afterQueue.samples?.slice?.(0, 10) ?? [],
+        warmCache: warmCache.warmed.slice(0, 10)
       },
       nextAction: action
     });
