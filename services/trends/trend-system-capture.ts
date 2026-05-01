@@ -2,6 +2,11 @@ import { Prisma } from "@prisma/client";
 
 import { getServerDatabaseResolution, hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import {
+  readSimCache,
+  SIM_CACHE_KEYS,
+  type SimMarketSnapshot
+} from "@/services/simulation/sim-snapshot-service";
+import {
   buildTrendSystemRun,
   PUBLISHED_SYSTEMS,
   type TrendSystemDefinition,
@@ -67,6 +72,56 @@ export type TrendSystemCaptureRun = {
 
 function toInputJsonValue(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function num(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function lineContextForMatch(match: TrendSystemMatch, edge: any) {
+  const market = edge?.market ?? null;
+  const marketQuality = edge?.marketQuality ?? null;
+  const isTotal = match.market === "total" || String(match.side ?? "").toLowerCase().includes("over") || String(match.side ?? "").toLowerCase().includes("under");
+  const line = isTotal ? num(market?.total) : null;
+  const price = num(match.price);
+  const sourceCount = isTotal ? num(marketQuality?.totalSourceCount) ?? num(market?.totalSourceCount) : num(marketQuality?.moneylineSourceCount) ?? num(market?.moneylineSourceCount);
+  const hold = isTotal ? num(marketQuality?.totalHold) ?? num(market?.totalHold) : num(marketQuality?.moneylineHold) ?? num(market?.moneylineHold);
+
+  return {
+    line,
+    marketLine: line,
+    total: isTotal ? line : null,
+    price,
+    currentOddsAmerican: price,
+    openingOddsAmerican: price,
+    closingOddsAmerican: null,
+    clvPct: null,
+    clvStatus: price == null ? "missing-open-price" : "pending-closing-price",
+    sportsbook: edge?.sportsbook ?? market?.sportsbook ?? null,
+    marketSourceCount: sourceCount,
+    marketHold: hold,
+    moneylineSourceCount: num(marketQuality?.moneylineSourceCount) ?? num(market?.moneylineSourceCount),
+    totalSourceCount: num(marketQuality?.totalSourceCount) ?? num(market?.totalSourceCount),
+    marketWarnings: Array.isArray(marketQuality?.warnings) ? marketQuality.warnings : Array.isArray(market?.warnings) ? market.warnings : [],
+    consensus: market ? {
+      homeMoneyline: num(market.homeMoneyline),
+      awayMoneyline: num(market.awayMoneyline),
+      total: num(market.total),
+      overPrice: num(market.overPrice),
+      underPrice: num(market.underPrice)
+    } : null,
+    marketSignal: edge?.signal ? {
+      market: edge.signal.market ?? null,
+      strength: edge.signal.strength ?? null,
+      sourceCount: num(edge.signal.sourceCount),
+      marketHold: num(edge.signal.marketHold)
+    } : null
+  };
+}
+
+async function readMarketEdges() {
+  const market = await readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market).catch(() => null);
+  return new Map<string, any>((market?.edges ?? []).map((edge: any) => [edge.gameId, edge]));
 }
 
 async function ensureTrendUser() {
@@ -152,10 +207,7 @@ async function upsertSystemDefinition(system: TrendSystemDefinition, provenance?
   };
 
   if (existing?.id) {
-    return trendPrisma.savedTrendDefinition.update({
-      where: { id: existing.id },
-      data
-    });
+    return trendPrisma.savedTrendDefinition.update({ where: { id: existing.id }, data });
   }
 
   return trendPrisma.savedTrendDefinition.create({ data });
@@ -163,12 +215,7 @@ async function upsertSystemDefinition(system: TrendSystemDefinition, provenance?
 
 async function findEventForMatch(match: TrendSystemMatch) {
   const exact = await trendPrisma.event.findFirst({
-    where: {
-      OR: [
-        { externalEventId: match.gameId },
-        { id: match.gameId }
-      ]
-    },
+    where: { OR: [{ externalEventId: match.gameId }, { id: match.gameId }] },
     select: { id: true, name: true, startTime: true }
   });
   if (exact) return exact;
@@ -191,7 +238,7 @@ function syntheticOpenResult(match: TrendSystemMatch) {
   return "OPEN";
 }
 
-async function captureMatch(definitionId: string, match: TrendSystemMatch, cumulativeProfit: number) {
+async function captureMatch(definitionId: string, match: TrendSystemMatch, cumulativeProfit: number, edge: any) {
   const event = await findEventForMatch(match);
   if (!event?.id) {
     return {
@@ -204,25 +251,28 @@ async function captureMatch(definitionId: string, match: TrendSystemMatch, cumul
   }
 
   const existing = await trendPrisma.savedTrendMatch.findFirst({
-    where: {
-      trendDefinitionId: definitionId,
-      eventId: event.id
-    },
+    where: { trendDefinitionId: definitionId, eventId: event.id },
     select: { id: true, betResult: true }
   });
 
+  const lineContext = lineContextForMatch(match, edge);
   const metadata = {
     publishedSystemMatch: true,
     gameId: match.gameId,
+    eventLabel: match.eventLabel,
+    eventId: event.id,
+    capturedAt: new Date().toISOString(),
     actionability: match.actionability,
     side: match.side,
+    selection: match.side,
     market: match.market,
     price: match.price,
     fairProbability: match.fairProbability,
     edgePct: match.edgePct,
     confidencePct: match.confidencePct,
     reasons: match.reasons,
-    href: match.href
+    href: match.href,
+    ...lineContext
   };
 
   if (existing?.id) {
@@ -266,7 +316,7 @@ async function captureMatch(definitionId: string, match: TrendSystemMatch, cumul
     eventLabel: match.eventLabel,
     eventId: event.id,
     status: "captured" as CaptureStatus,
-    reason: existing?.id ? "Updated existing open system match." : "Captured new active system match."
+    reason: existing?.id ? "Updated existing open system match with market line context." : "Captured new active system match with market line context."
   };
 }
 
@@ -289,9 +339,7 @@ async function writeSnapshot(definitionId: string, system: TrendSystemDefinition
       confidenceScore: Math.min(100, Math.max(0, system.metrics.winRatePct + system.metrics.roiPct)),
       sampleSizeRating: system.metrics.sampleSize >= 150 ? "strong" : system.metrics.sampleSize >= 75 ? "medium" : "thin",
       warningsJson: toInputJsonValue([
-        provenance?.source && provenance.source !== "seeded-fallback"
-          ? `Metrics are ${provenance.source} backed.`
-          : "Metrics are seeded fallback until saved-ledger or EventMarket sample is available.",
+        provenance?.source && provenance.source !== "seeded-fallback" ? `Metrics are ${provenance.source} backed.` : "Metrics are seeded fallback until saved-ledger or EventMarket sample is available.",
         provenance?.reason
       ].filter(Boolean)),
       activeGameCount
@@ -324,7 +372,10 @@ export async function capturePublishedTrendSystemMatches(args?: { league?: strin
   }
 
   await ensureTrendUser();
-  const systemRun = await buildTrendSystemRun({ league: args?.league as any, includeInactive: args?.includeInactive ?? true });
+  const [systemRun, marketEdges] = await Promise.all([
+    buildTrendSystemRun({ league: args?.league as any, includeInactive: args?.includeInactive ?? true }),
+    readMarketEdges()
+  ]);
   const backtests = await runTrendSystemBacktests(
     PUBLISHED_SYSTEMS.filter((system) => args?.league && args.league !== "ALL" ? system.league === args.league : true),
     { preferSaved: true }
@@ -349,7 +400,7 @@ export async function capturePublishedTrendSystemMatches(args?: { league?: strin
       const cumulativeProfit = persistedSystem.metrics.profitUnits;
       const matchResults = [];
       for (const match of system.activeMatches) {
-        const captured = await captureMatch(definition.id, match, cumulativeProfit);
+        const captured = await captureMatch(definition.id, match, cumulativeProfit, marketEdges.get(match.gameId));
         matchResults.push(captured);
       }
       await writeSnapshot(definition.id, persistedSystem, system.activeMatches.length, provenance);
