@@ -34,7 +34,7 @@ async function optionalSignalSummary(filters: TrendFilters, enabled: boolean) {
     cacheHits: payload.counts.cacheHits,
     totalVisible: signals.length,
     totalRaw: payload.counts.totalRaw,
-    hidden: payload.counts.hidden,
+    hidden: payload.counts.hiddenQuality,
     gamesCovered: gameIds.size,
     pricedSignals: priced.length,
     bySource: countBy(signals.map((signal) => signal.source)),
