@@ -5,12 +5,13 @@ import { buildMlbHistoricalTrendDashboard } from "@/services/trends/mlb-historic
 import { getTrendDashboardSafe } from "@/services/trends/get-trend-dashboard-safe";
 import { buildFallbackTrendDashboard } from "@/services/trends/fallback-dashboard";
 
+export const TREND_DASHBOARD_CACHE_VERSION = "v3";
 const TREND_DASHBOARD_CACHE_TTL_SECONDS = 10 * 60;
 const TREND_DASHBOARD_STALE_TTL_SECONDS = 60 * 60;
-const TREND_DASHBOARD_SIMPLE_DEFAULT_CACHE_KEY = "trends:dashboard:default:simple:v1";
-const TREND_DASHBOARD_POWER_DEFAULT_CACHE_KEY = "trends:dashboard:default:power:v1";
+const TREND_DASHBOARD_SIMPLE_DEFAULT_CACHE_KEY = `trends:dashboard:default:simple:${TREND_DASHBOARD_CACHE_VERSION}`;
+const TREND_DASHBOARD_POWER_DEFAULT_CACHE_KEY = `trends:dashboard:default:power:${TREND_DASHBOARD_CACHE_VERSION}`;
 const TREND_DASHBOARD_LEGACY_DEFAULT_CACHE_KEY = "trends:dashboard:default:v1";
-const TREND_DASHBOARD_WARM_CONCURRENCY = 4;
+const TREND_DASHBOARD_WARM_CONCURRENCY = 3;
 
 type DashboardOptions = {
   mode?: TrendMode;
@@ -35,6 +36,7 @@ type FastDashboardResult = {
 };
 
 export type TrendDashboardCacheHealth = {
+  cacheVersion: string;
   requestedMode: TrendMode;
   exact: {
     key: string;
@@ -105,7 +107,7 @@ function defaultCacheKeyForMode(mode: TrendMode) {
 }
 
 function cacheKey(filters: TrendFilters, options: DashboardOptions) {
-  return `trends:dashboard:v2:${stableStringify({ filters, options: {
+  return `trends:dashboard:${TREND_DASHBOARD_CACHE_VERSION}:${stableStringify({ filters, options: {
     mode: requestedMode(options),
     aiQuery: options.aiQuery ?? "",
     savedTrendId: options.savedTrendId ?? null
@@ -245,8 +247,8 @@ export async function getFastCachedTrendDashboard(filters: TrendFilters, options
       mode,
       aiQuery: options.aiQuery ?? "",
       sourceNote: mode === "power"
-        ? "Power trend cache is cold. The page returned instantly without falling back to weak simple-mode cards; the 10-minute warmer should populate the premium power board shortly."
-        : "Trend cache is cold. The page returned instantly without running an expensive rebuild; the 10-minute warmer should populate this shortly.",
+        ? "Power trend cache is cold. The page returned instantly without falling back to weak simple-mode cards; the warmer should populate the premium power board shortly."
+        : "Trend cache is cold. The page returned instantly without running an expensive rebuild; the warmer should populate this shortly.",
       sampleNote: mode === "power"
         ? "No warmed power dashboard was available yet. This is a cache miss, not a page-render rebuild."
         : "No warmed trend dashboard was available. This is a cache miss, not a page-render rebuild."
@@ -305,9 +307,10 @@ export async function getTrendDashboardCacheHealth(filters: TrendFilters, option
       ? `Exact cache is cold, but the ${mode} default cache is warm.`
       : effectiveStatus === "legacy-default"
         ? "Simple mode is using the legacy default cache. Let the warmer populate the new simple default key."
-        : `The ${mode} trend cache is cold. Run /api/trends/refresh-cache or wait for the 10-minute warmer.`;
+        : `The ${mode} trend cache is cold. Run /api/trends/refresh-cache or wait for the warmer.`;
 
   return {
+    cacheVersion: TREND_DASHBOARD_CACHE_VERSION,
     requestedMode: mode,
     exact: exactHealth,
     modeDefault: modeDefaultHealth,
@@ -352,7 +355,7 @@ async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, concurrency
 }
 
 export async function warmTrendDashboardCaches(args?: { leagues?: Array<LeagueKey | "ALL">; markets?: Array<TrendFilters["market"]>; mode?: TrendMode }) {
-  const leagues = args?.leagues?.length ? args.leagues : ["ALL", "MLB", "NBA", "NHL", "NFL", "NCAAF"] as Array<LeagueKey | "ALL">;
+  const leagues = args?.leagues?.length ? args.leagues : ["ALL", "MLB", "NBA"] as Array<LeagueKey | "ALL">;
   const markets = args?.markets?.length ? args.markets : ["ALL", "moneyline", "spread", "total"] as Array<TrendFilters["market"]>;
   const modes: TrendMode[] = args?.mode ? [args.mode] : ["simple", "power"];
   const tasks: Array<() => Promise<{ league: string; market: string; mode: TrendMode; cards: number; ok: boolean; error?: string }>> = [];
@@ -377,6 +380,7 @@ export async function warmTrendDashboardCaches(args?: { leagues?: Array<LeagueKe
 
   return {
     generatedAt: new Date().toISOString(),
+    cacheVersion: TREND_DASHBOARD_CACHE_VERSION,
     ttlSeconds: TREND_DASHBOARD_CACHE_TTL_SECONDS,
     concurrency: TREND_DASHBOARD_WARM_CONCURRENCY,
     warmed
