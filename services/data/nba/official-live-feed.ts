@@ -14,6 +14,22 @@ const TEAM_CACHE_KEY = "nba:official-live:team:v1";
 const PLAYER_CACHE_KEY = "nba:official-live:player:v1";
 const TEAM_STATS_URL = "https://stats.nba.com/stats/leaguedashteamstats";
 const PLAYER_STATS_URL = "https://stats.nba.com/stats/leaguedashplayerstats";
+const DEFAULT_NBA_STATS_TIMEOUT_MS = 3500;
+
+function nbaStatsTimeoutMs() {
+  const parsed = Number(process.env.NBA_STATS_TIMEOUT_MS ?? DEFAULT_NBA_STATS_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.max(750, Math.floor(parsed)) : DEFAULT_NBA_STATS_TIMEOUT_MS;
+}
+
+async function withTimeout<T>(work: (signal: AbortSignal) => Promise<T>) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), nbaStatsTimeoutMs());
+  try {
+    return await work(controller.signal);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 function seasonLabel(date = new Date()) {
   const year = date.getUTCFullYear();
@@ -39,12 +55,15 @@ function nbaHeaders(): HeadersInit {
 }
 
 async function fetchNbaStats(url: string, query: Record<string, string>) {
-  const response = await fetch(`${url}?${params(query)}`, {
-    cache: "no-store",
-    headers: nbaHeaders()
+  return withTimeout(async (signal) => {
+    const response = await fetch(`${url}?${params(query)}`, {
+      cache: "no-store",
+      headers: nbaHeaders(),
+      signal
+    });
+    if (!response.ok) throw new Error(`NBA Stats request failed: ${response.status}`);
+    return response.json() as Promise<NbaStatsResponse>;
   });
-  if (!response.ok) throw new Error(`NBA Stats request failed: ${response.status}`);
-  return response.json() as Promise<NbaStatsResponse>;
 }
 
 function firstResultSet(body: NbaStatsResponse) {
