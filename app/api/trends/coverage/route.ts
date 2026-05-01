@@ -1,6 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-import { readSimCache, SIM_CACHE_KEYS, type SimBoardSnapshot, type SimMarketSnapshot, type SimPrioritySnapshot } from "@/services/simulation/sim-snapshot-service";
+import {
+  readSimCache,
+  refreshFullSimSnapshots,
+  refreshSimMarketSnapshot,
+  SIM_CACHE_KEYS,
+  type SimBoardSnapshot,
+  type SimMarketSnapshot,
+  type SimPrioritySnapshot
+} from "@/services/simulation/sim-snapshot-service";
 import { readTrendSystemCycleStatus } from "@/services/trends/trend-system-cycle-status";
 import { buildTrendSystemRun } from "@/services/trends/trend-system-engine";
 import { buildTrendSignals } from "@/services/trends/trends-engine";
@@ -8,6 +16,7 @@ import { buildTrendSignals } from "@/services/trends/trends-engine";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 300;
 
 type LeagueCoverage = {
   league: "NBA" | "MLB";
@@ -25,8 +34,26 @@ type LeagueCoverage = {
   warnings: string[];
 };
 
-function ids(items: Array<{ game?: { id?: string }; id?: string; gameId?: string }>) {
-  return new Set(items.map((item) => item.game?.id ?? item.id ?? item.gameId).filter((value): value is string => Boolean(value)));
+function authorized(request: NextRequest) {
+  const expected =
+    process.env.TRENDS_REFRESH_TOKEN?.trim() ||
+    process.env.CRON_SECRET?.trim() ||
+    process.env.INTERNAL_API_KEY?.trim() ||
+    process.env.INTERNAL_API_KEY2?.trim();
+  if (!expected) return true;
+  const url = new URL(request.url);
+  const queryToken = url.searchParams.get("token");
+  const header = request.headers.get("authorization") ?? "";
+  const bearer = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : null;
+  return queryToken === expected || bearer === expected;
+}
+
+function ids(items: Array<{ game?: { id?: string }; gameId?: string; id?: string }>) {
+  return new Set(
+    items
+      .map((item) => item.game?.id ?? item.gameId ?? item.id)
+      .filter((value): value is string => Boolean(value))
+  );
 }
 
 function ageSeconds(value?: string | null) {
@@ -36,12 +63,23 @@ function ageSeconds(value?: string | null) {
   return Math.max(0, Math.floor((Date.now() - time) / 1000));
 }
 
+async function readSnapshots() {
+  const [nbaBoard, mlbBoard, priority, market, cycleStatus] = await Promise.all([
+    readSimCache<SimBoardSnapshot>(SIM_CACHE_KEYS.nbaBoard),
+    readSimCache<SimBoardSnapshot>(SIM_CACHE_KEYS.mlbBoard),
+    readSimCache<SimPrioritySnapshot>(SIM_CACHE_KEYS.priority),
+    readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market),
+    readTrendSystemCycleStatus()
+  ]);
+  return { nbaBoard, mlbBoard, priority, market, cycleStatus };
+}
+
 async function leagueCoverage(league: "NBA" | "MLB", args: {
   board: SimBoardSnapshot | null;
   priority: SimPrioritySnapshot | null;
   market: SimMarketSnapshot | null;
 }) : Promise<LeagueCoverage> {
-  const signals = await buildTrendSignals({ league, includeHidden: false, includeResearch: false });
+  const signals = await buildTrendSignals({ league, includeHidden: true, includeResearch: false });
   const systems = await buildTrendSystemRun({ league, includeInactive: true });
   const boardGames = args.board?.games ?? [];
   const priorityRows = (args.priority?.rows ?? []).filter((row) => row.leagueKey === league);
@@ -77,16 +115,24 @@ async function leagueCoverage(league: "NBA" | "MLB", args: {
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const [nbaBoard, mlbBoard, priority, market, cycleStatus] = await Promise.all([
-      readSimCache<SimBoardSnapshot>(SIM_CACHE_KEYS.nbaBoard),
-      readSimCache<SimBoardSnapshot>(SIM_CACHE_KEYS.mlbBoard),
-      readSimCache<SimPrioritySnapshot>(SIM_CACHE_KEYS.priority),
-      readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market),
-      readTrendSystemCycleStatus()
-    ]);
+    const url = new URL(request.url);
+    const repairRequested = url.searchParams.get("repair") === "true";
+    if (repairRequested && !authorized(request)) {
+      return NextResponse.json({ ok: false, error: "Unauthorized trends coverage repair request." }, { status: 401 });
+    }
 
+    const repair = repairRequested
+      ? {
+        startedAt: new Date().toISOString(),
+        fullSim: await refreshFullSimSnapshots(),
+        market: await refreshSimMarketSnapshot(),
+        finishedAt: new Date().toISOString()
+      }
+      : null;
+
+    const { nbaBoard, mlbBoard, priority, market, cycleStatus } = await readSnapshots();
     const [nba, mlb] = await Promise.all([
       leagueCoverage("NBA", { board: nbaBoard, priority, market }),
       leagueCoverage("MLB", { board: mlbBoard, priority, market })
@@ -96,6 +142,8 @@ export async function GET() {
     return NextResponse.json({
       ok: warnings.length === 0,
       generatedAt: new Date().toISOString(),
+      repaired: repairRequested,
+      repair,
       cache: {
         nbaBoard: { hit: Boolean(nbaBoard), stale: Boolean(nbaBoard?.stale), ageSeconds: ageSeconds(nbaBoard?.generatedAt), generatedAt: nbaBoard?.generatedAt ?? null },
         mlbBoard: { hit: Boolean(mlbBoard), stale: Boolean(mlbBoard?.stale), ageSeconds: ageSeconds(mlbBoard?.generatedAt), generatedAt: mlbBoard?.generatedAt ?? null },
@@ -106,8 +154,12 @@ export async function GET() {
       cycleStatus: cycleStatus ?? null,
       warnings,
       nextAction: warnings.length
-        ? "Coverage gaps found. Warm sim, market, and trend cycle, then inspect missing IDs."
-        : "Slate coverage looks healthy across sim, market, signals, and systems."
+        ? repairRequested
+          ? "Coverage gaps remain after repair. Inspect missing IDs and upstream board/market mapping."
+          : "Coverage gaps found. Run /api/trends/coverage?repair=true with a valid token, then inspect missing IDs."
+        : repairRequested
+          ? "Repair completed and slate coverage looks healthy across sim, market, signals, and systems."
+          : "Slate coverage looks healthy across sim, market, signals, and systems."
     });
   } catch (error) {
     return NextResponse.json({
