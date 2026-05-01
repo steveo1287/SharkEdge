@@ -51,6 +51,10 @@
       "schedule": "*/30 * * * *"
     },
     {
+      "path": "/api/trends/systems/closing-lines?limit=500",
+      "schedule": "12,42 * * * *"
+    },
+    {
       "path": "/api/trends/systems/grade?limit=500",
       "schedule": "17,47 * * * *"
     }
