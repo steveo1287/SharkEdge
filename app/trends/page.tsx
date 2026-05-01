@@ -235,6 +235,110 @@ function CacheStatusStrip({
   );
 }
 
+function TruthTile({ label, value, note, tone = "neutral" }: { label: string; value: string | number; note: string; tone?: "good" | "warn" | "bad" | "neutral" }) {
+  const toneClass = tone === "good"
+    ? "border-emerald-400/20 bg-emerald-400/7"
+    : tone === "warn"
+      ? "border-amber-300/25 bg-amber-300/7"
+      : tone === "bad"
+        ? "border-red-400/20 bg-red-400/7"
+        : "border-white/10 bg-slate-950/60";
+  return (
+    <div className={`rounded-2xl border p-4 ${toneClass}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div className="mt-2 font-display text-2xl font-semibold text-white">{value}</div>
+      <div className="mt-2 text-xs leading-5 text-slate-400">{note}</div>
+    </div>
+  );
+}
+
+function LedgerTruthPanel({
+  signalSummary,
+  systemSummary,
+  cycleStatus
+}: {
+  signalSummary: SignalSummary | null;
+  systemSummary: SystemLedgerSummary | null;
+  cycleStatus: Awaited<ReturnType<typeof readTrendSystemCycleStatus>>;
+}) {
+  const verifiedSystems = (systemSummary?.savedLedgerBacked ?? 0) + (systemSummary?.eventMarketBacked ?? 0);
+  const seeded = systemSummary?.seededFallback ?? 0;
+  const savedRows = systemSummary?.totalSavedRows ?? cycleStatus?.summary.totalSavedRows ?? 0;
+  const savedGraded = systemSummary?.totalSavedGradedRows ?? cycleStatus?.summary.totalSavedGradedRows ?? 0;
+  const openRows = systemSummary?.totalOpenRows ?? cycleStatus?.summary.totalOpenRows ?? 0;
+  const eventMarketRows = systemSummary?.totalEventMarketRows ?? 0;
+  const eventMarketGraded = systemSummary?.totalEventMarketGradedRows ?? 0;
+  const pricedSignals = signalSummary?.pricedSignals ?? 0;
+  const signalCount = signalSummary?.totalVisible ?? 0;
+  const liveGames = signalSummary?.gamesCovered ?? 0;
+  const proofTone = verifiedSystems > 0 ? "good" : savedRows > 0 || eventMarketRows > 0 ? "warn" : "bad";
+
+  return (
+    <section className="mb-5 rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-4">
+      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">Ledger truth</div>
+          <h2 className="mt-2 font-display text-2xl font-semibold text-white">What is proven vs. what is still starter data</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+            This separates verified history, open rows, seeded starter systems, and live current-game signals before the card grid. This is the trust layer needed before chasing TrendsCenter feature parity.
+          </p>
+        </div>
+        <div className="text-xs uppercase tracking-[0.16em] text-slate-500">
+          Source: {systemSummary?.source ?? "unavailable"}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <TruthTile
+          label="Verified systems"
+          value={verifiedSystems}
+          tone={proofTone}
+          note={`${systemSummary?.savedLedgerBacked ?? 0} saved-ledger backed · ${systemSummary?.eventMarketBacked ?? 0} EventMarket backed. These can support real record/ROI claims.`}
+        />
+        <TruthTile
+          label="Saved ledger"
+          value={`${savedGraded}/${savedRows}`}
+          tone={savedRows && savedGraded === 0 ? "warn" : savedGraded ? "good" : "neutral"}
+          note={`${openRows} open rows still need grading. Open rows are excluded from ROI until settled.`}
+        />
+        <TruthTile
+          label="Seeded starter systems"
+          value={seeded}
+          tone={seeded ? "warn" : "good"}
+          note={seeded ? "These are useful starter systems, not verified database-backed performance claims yet." : "All visible systems have ledger/backtest provenance."}
+        />
+        <TruthTile
+          label="Live signal coverage"
+          value={`${pricedSignals}/${signalCount}`}
+          tone={pricedSignals ? "good" : signalCount ? "warn" : "bad"}
+          note={`${liveGames} current games covered. Priced signals can move toward actionable; unpriced signals stay watchlist/context.`}
+        />
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <TruthTile
+          label="Historical backtest rows"
+          value={`${eventMarketGraded}/${eventMarketRows}`}
+          tone={eventMarketGraded ? "good" : eventMarketRows ? "warn" : "neutral"}
+          note="EventMarket/EventResult rows can upgrade seeded systems into database-backed trend cards when sample size clears the floor."
+        />
+        <TruthTile
+          label="Cycle grading"
+          value={cycleStatus ? `${cycleStatus.summary.gradedMatches}` : "N/A"}
+          tone={cycleStatus?.summary.gradedMatches ? "good" : cycleStatus?.summary.totalOpenRows ? "warn" : "neutral"}
+          note={cycleStatus ? `${cycleStatus.summary.capturedMatches} captured · ${cycleStatus.summary.closingLinesUpdated} closing-line updates · ${cycleStatus.summary.totalOpenRows} open.` : "No cycle snapshot available yet."}
+        />
+        <TruthTile
+          label="Next credibility gate"
+          value={savedGraded || eventMarketGraded ? "prove ROI" : "grade rows"}
+          tone={savedGraded || eventMarketGraded ? "good" : "warn"}
+          note={savedGraded || eventMarketGraded ? "Now sort and badge cards by verified/provisional status." : "Run capture/closing/grade until open saved rows become settled rows."}
+        />
+      </div>
+    </section>
+  );
+}
+
 export default async function TrendsPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
   const filters = buildFilters(resolved);
@@ -261,6 +365,11 @@ export default async function TrendsPage({ searchParams }: PageProps) {
         age={health.exact.ageSeconds ?? health.modeDefault.ageSeconds}
         refreshStatus={refreshStatus}
         cacheVersion={health.cacheVersion}
+        signalSummary={signalSummary}
+        systemSummary={systemSummary}
+        cycleStatus={cycleStatus}
+      />
+      <LedgerTruthPanel
         signalSummary={signalSummary}
         systemSummary={systemSummary}
         cycleStatus={cycleStatus}
