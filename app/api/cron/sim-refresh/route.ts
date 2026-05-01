@@ -1,7 +1,5 @@
 import { after, NextResponse } from "next/server";
 
-import { refreshFullSimSnapshots } from "@/services/simulation/sim-snapshot-service";
-
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 300;
@@ -22,6 +20,7 @@ export async function GET(request: Request) {
   const startedAt = Date.now();
   console.info("[sim-refresh] started");
   after(async () => {
+    const { refreshFullSimSnapshots } = await import("@/services/simulation/sim-snapshot-service");
     const result = await refreshFullSimSnapshots();
     console.info(`[sim-refresh] completed ${Date.now() - startedAt}ms ok=${result.ok}`);
   });
