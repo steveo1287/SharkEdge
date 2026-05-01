@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import { refreshSimMarketSnapshot } from "@/services/simulation/sim-snapshot-service";
 
@@ -21,7 +21,9 @@ export async function GET(request: Request) {
 
   const startedAt = Date.now();
   console.info("[sim-market-refresh] started");
-  const result = await refreshSimMarketSnapshot();
-  console.info(`[sim-market-refresh] completed ${Date.now() - startedAt}ms`);
-  return NextResponse.json(result, { status: result.ok ? 200 : 207 });
+  after(async () => {
+    const result = await refreshSimMarketSnapshot();
+    console.info(`[sim-market-refresh] completed ${Date.now() - startedAt}ms ok=${result.ok}`);
+  });
+  return NextResponse.json({ ok: true, queued: true, startedAt: new Date(startedAt).toISOString() }, { status: 202 });
 }

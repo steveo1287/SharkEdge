@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import { refreshFullSimSnapshots } from "@/services/simulation/sim-snapshot-service";
 
@@ -21,7 +21,9 @@ export async function GET(request: Request) {
 
   const startedAt = Date.now();
   console.info("[sim-refresh] started");
-  const result = await refreshFullSimSnapshots();
-  console.info(`[sim-refresh] completed ${Date.now() - startedAt}ms`);
-  return NextResponse.json(result, { status: result.ok ? 200 : 207 });
+  after(async () => {
+    const result = await refreshFullSimSnapshots();
+    console.info(`[sim-refresh] completed ${Date.now() - startedAt}ms ok=${result.ok}`);
+  });
+  return NextResponse.json({ ok: true, queued: true, startedAt: new Date(startedAt).toISOString() }, { status: 202 });
 }
