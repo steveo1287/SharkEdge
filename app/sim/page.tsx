@@ -10,6 +10,7 @@ import {
 } from "@/components/sim/sim-ui";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
+import { readNbaWarehouseFeed, type NbaWarehouseKind } from "@/services/data/nba/warehouse-feed";
 import {
   readSimCache,
   SIM_CACHE_KEYS,
@@ -26,6 +27,7 @@ export const revalidate = 0;
 const DISPLAY_TIME_ZONE = "America/Chicago";
 const SIM_REFRESH_INTERVAL_MINUTES = 10;
 const SIM_MARKET_REFRESH_INTERVAL_MINUTES = 5;
+const NBA_WAREHOUSE_KINDS: NbaWarehouseKind[] = ["team", "player", "history", "rating"];
 
 type WorkspaceConfig = {
   href: string;
@@ -35,6 +37,14 @@ type WorkspaceConfig = {
   primaryMetric: string;
   secondaryMetric: string;
   action: string;
+};
+
+type WarehouseHealth = {
+  kind: NbaWarehouseKind;
+  rows: number;
+  ready: boolean;
+  filePath: string | null;
+  warning: string | null;
 };
 
 function formatPct(value: number | null | undefined) {
@@ -98,8 +108,30 @@ function freshnessLabel(value: string | null | undefined, intervalMinutes: numbe
   return `${formatTime(value)} · ${formatAge(value)} · every ${intervalMinutes}m`;
 }
 
+function freshnessStatus(value: string | null | undefined, maxAgeMinutes: number) {
+  const age = ageMinutes(value);
+  if (age === null) return "Missing";
+  return age <= maxAgeMinutes ? "Fresh" : "Stale";
+}
+
 function isStale(snapshot: Pick<SimSnapshotEnvelope<Record<string, never>>, "stale"> | null | undefined) {
   return Boolean(snapshot?.stale);
+}
+
+async function readWarehouseHealth(): Promise<WarehouseHealth[]> {
+  return Promise.all(
+    NBA_WAREHOUSE_KINDS.map(async (kind) => {
+      const feed = await readNbaWarehouseFeed(kind).catch(() => null);
+      const rows = feed?.rows.length ?? 0;
+      return {
+        kind,
+        rows,
+        ready: rows > 0,
+        filePath: feed?.filePath ?? null,
+        warning: feed?.warnings?.[0] ?? null
+      };
+    })
+  );
 }
 
 function RefreshScheduleCard({ status, priority, market }: { status: SimRefreshStatusSnapshot | null; priority: SimPrioritySnapshot | null; market: SimMarketSnapshot | null }) {
@@ -128,6 +160,50 @@ function RefreshScheduleCard({ status, priority, market }: { status: SimRefreshS
       <p className="mt-3 text-xs leading-5 text-slate-400">
         Cron runs on UTC servers, but these timestamps are displayed in Central Time. Next expected sim refresh: {formatShortTime(nextSim)}. Next market refresh: {formatShortTime(nextMarket)}.
       </p>
+    </SimSignalCard>
+  );
+}
+
+function SystemHealthCard({
+  priority,
+  market,
+  status,
+  warehouse
+}: {
+  priority: SimPrioritySnapshot | null;
+  market: SimMarketSnapshot | null;
+  status: SimRefreshStatusSnapshot | null;
+  warehouse: WarehouseHealth[];
+}) {
+  const simGeneratedAt = priority?.generatedAt ?? status?.generatedAt ?? null;
+  const marketGeneratedAt = market?.generatedAt ?? null;
+  const warehouseReady = warehouse.every((item) => item.ready);
+  const simFresh = freshnessStatus(simGeneratedAt, 20);
+  const marketFresh = freshnessStatus(marketGeneratedAt, 10);
+  const productReady = warehouseReady && simFresh === "Fresh" && marketFresh === "Fresh" && status?.ok !== false;
+
+  return (
+    <SimSignalCard className={productReady ? "border-emerald-400/20 bg-emerald-500/[0.045]" : "border-amber-400/25 bg-amber-500/[0.06]"}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">System health</div>
+          <div className="mt-1 font-display text-xl font-semibold tracking-tight text-white">{productReady ? "Ready" : "Degraded"}</div>
+        </div>
+        <Link href="/api/sim/health" className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300 hover:text-white">
+          Open JSON
+        </Link>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <SimMetricTile label="Sim cache" value={simFresh} sub={`${formatAge(simGeneratedAt)} · target <=20m`} emphasis={simFresh === "Fresh" ? "strong" : "normal"} />
+        <SimMetricTile label="Market overlay" value={marketFresh} sub={`${formatAge(marketGeneratedAt)} · target <=10m`} emphasis={marketFresh === "Fresh" ? "strong" : "normal"} />
+        <SimMetricTile label="NBA warehouse" value={warehouseReady ? "Ready" : "Degraded"} sub={warehouse.map((item) => `${item.kind}:${item.rows}`).join(" · ")} emphasis={warehouseReady ? "strong" : "normal"} />
+        <SimMetricTile label="Refresh job" value={status?.running ? "Running" : status?.ok === false ? "Failed" : status ? "OK" : "Missing"} sub={status?.reason ?? `last ${formatAge(status?.generatedAt)}`} emphasis={status && status.ok !== false ? "strong" : "normal"} />
+      </div>
+      {!warehouseReady ? (
+        <div className="mt-3 rounded-2xl border border-amber-400/15 bg-black/20 p-3 text-xs leading-5 text-amber-100/80">
+          NBA warehouse is not fully ready. Missing rows: {warehouse.filter((item) => !item.ready).map((item) => item.kind).join(", ") || "none"}. Run the NBA warehouse refresh and check `/api/simulation/nba/warehouse-health` for row-shape details.
+        </div>
+      ) : null}
     </SimSignalCard>
   );
 }
@@ -242,11 +318,12 @@ function PriorityTable({ priority }: { priority: SimPrioritySnapshot | null }) {
 export default async function SimHubPage() {
   // Cache boundary: do not call buildBoardSportSections, buildSimProjection, or buildMlbEdges here.
   // The expensive work belongs to /api/cron/sim-refresh and /api/cron/sim-market-refresh.
-  const [hub, priority, market, status] = await Promise.all([
+  const [hub, priority, market, status, warehouse] = await Promise.all([
     readSimCache<SimHubSnapshot>(SIM_CACHE_KEYS.hub),
     readSimCache<SimPrioritySnapshot>(SIM_CACHE_KEYS.priority),
     readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market),
-    readSimCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus)
+    readSimCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus),
+    readWarehouseHealth()
   ]);
 
   const workspaces: WorkspaceConfig[] = [
@@ -256,7 +333,7 @@ export default async function SimHubPage() {
       title: "Player Sims + Side Queue",
       description: "Calibrated player box scores, prop drilldowns, confidence gates, and side reads in one tight board.",
       primaryMetric: String(hub?.summary.nbaCount ?? "Pending"),
-      secondaryMetric: hub?.stale ? "Stale cache" : "Cached",
+      secondaryMetric: warehouse.every((item) => item.ready) ? "Warehouse ready" : "Warehouse degraded",
       action: "Open NBA desk"
     },
     {
@@ -273,8 +350,8 @@ export default async function SimHubPage() {
       eyebrow: "NBA drilldown",
       title: "Projected Player Box Scores",
       description: "Use this when the player prop board needs exact points, boards, assists, threes, PRA, floor and ceiling.",
-      primaryMetric: "10k sims",
-      secondaryMetric: "On demand",
+      primaryMetric: warehouse.find((item) => item.kind === "player")?.rows ? `${warehouse.find((item) => item.kind === "player")?.rows} rows` : "Pending",
+      secondaryMetric: "Warehouse feed",
       action: "Open player board"
     }
   ];
@@ -290,10 +367,11 @@ export default async function SimHubPage() {
           <SimMetricTile label="Hub cache" value={hub ? (hub.stale ? "Stale" : "Fresh") : "Missing"} sub={`snapshot · ${formatAge(hub?.generatedAt)}`} emphasis={hub && !hub.stale ? "strong" : "normal"} />
           <SimMetricTile label="Priority rows" value={priority?.rows.length ?? 0} sub={`generated ${formatAge(priority?.generatedAt)}`} />
           <SimMetricTile label="MLB market" value={market ? (market.stale ? "Stale" : "Fresh") : "Missing"} sub={`5-minute overlay · ${formatAge(market?.generatedAt)}`} />
-          <SimMetricTile label="Last refresh" value={status?.ok === false ? "Failed" : status?.running ? "Running" : "Ready"} sub={status?.generatedAt ? freshnessLabel(status.generatedAt, SIM_REFRESH_INTERVAL_MINUTES) : "Awaiting cron"} />
+          <SimMetricTile label="NBA warehouse" value={warehouse.every((item) => item.ready) ? "Ready" : "Degraded"} sub={warehouse.map((item) => `${item.kind}:${item.rows}`).join(" · ")} emphasis={warehouse.every((item) => item.ready) ? "strong" : "normal"} />
         </div>
       </SimWorkspaceHeader>
 
+      <SystemHealthCard priority={priority} market={market} status={status} warehouse={warehouse} />
       <RefreshScheduleCard status={status} priority={priority} market={market} />
       <SnapshotNotice priority={priority} status={status} />
 
