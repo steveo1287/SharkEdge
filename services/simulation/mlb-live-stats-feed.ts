@@ -8,6 +8,7 @@ import { normalizeMlbTeam, type MlbTeamProfile } from "@/services/simulation/mlb
 
 const CACHE_KEY = "mlb:live-stats-feed:v2";
 const CACHE_TTL_SECONDS = 60 * 60 * 3; // 3-hour refresh
+const DEFAULT_MLB_LIVE_STATS_TIMEOUT_MS = 3000;
 
 type TeamStandingRow = {
   team: { id: number; name: string };
@@ -21,6 +22,23 @@ type TeamStandingRow = {
     pitching?: Record<string, unknown>;
   };
 };
+
+function mlbLiveStatsTimeoutMs() {
+  const parsed = Number(process.env.MLB_LIVE_STATS_TIMEOUT_MS ?? process.env.MLB_STATS_API_TIMEOUT_MS ?? DEFAULT_MLB_LIVE_STATS_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.max(750, Math.floor(parsed)) : DEFAULT_MLB_LIVE_STATS_TIMEOUT_MS;
+}
+
+async function fetchJsonWithTimeout(url: string) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), mlbLiveStatsTimeoutMs());
+  try {
+    const res = await fetch(url, { cache: "no-store", signal: controller.signal });
+    if (!res.ok) return null;
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 function num(value: unknown, fallback: number): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -120,13 +138,12 @@ async function fetchTeamStats(season: string): Promise<Record<string, MlbTeamPro
   try {
     // Fetch standings with team stats hydrated
     const url = `${baseUrl}/standings?leagueId=103,104&season=${season}&standingsTypes=regularSeason&hydrate=team,record,teamStats`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return null;
-    const json = await res.json() as {
+    const json = await fetchJsonWithTimeout(url) as {
       records?: Array<{
         teamRecords?: TeamStandingRow[];
       }>;
-    };
+    } | null;
+    if (!json) return null;
 
     const result: Record<string, MlbTeamProfile> = {};
     for (const division of json.records ?? []) {
@@ -153,15 +170,13 @@ async function fetchTeamStats(season: string): Promise<Record<string, MlbTeamPro
 async function fetchTeamBattingPitching(season: string): Promise<Record<string, { batting: Record<string, unknown>; pitching: Record<string, unknown> }> | null> {
   const baseUrl = process.env.MLB_STATS_API_BASE_URL?.trim() ?? "https://statsapi.mlb.com/api/v1";
   try {
-    const [battingRes, pitchingRes] = await Promise.all([
-      fetch(`${baseUrl}/teams/stats?season=${season}&sportId=1&group=hitting&gameType=R`, { cache: "no-store" }),
-      fetch(`${baseUrl}/teams/stats?season=${season}&sportId=1&group=pitching&gameType=R`, { cache: "no-store" })
+    const [battingJson, pitchingJson] = await Promise.all([
+      fetchJsonWithTimeout(`${baseUrl}/teams/stats?season=${season}&sportId=1&group=hitting&gameType=R`) as Promise<StatsResponse | null>,
+      fetchJsonWithTimeout(`${baseUrl}/teams/stats?season=${season}&sportId=1&group=pitching&gameType=R`) as Promise<StatsResponse | null>
     ]);
-    if (!battingRes.ok && !pitchingRes.ok) return null;
+    if (!battingJson && !pitchingJson) return null;
 
     type StatsResponse = { stats?: Array<{ splits?: Array<{ team?: { name?: string }; stat?: Record<string, unknown> }> }> };
-    const battingJson = battingRes.ok ? await battingRes.json() as StatsResponse : null;
-    const pitchingJson = pitchingRes.ok ? await pitchingRes.json() as StatsResponse : null;
 
     const result: Record<string, { batting: Record<string, unknown>; pitching: Record<string, unknown> }> = {};
 
