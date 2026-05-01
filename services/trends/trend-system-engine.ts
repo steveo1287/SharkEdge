@@ -104,7 +104,7 @@ function baseFilters(overrides: Partial<TrendFilters>): TrendFilters {
   } as TrendFilters;
 }
 
-const PUBLISHED_SYSTEMS: TrendSystemDefinition[] = [
+export const PUBLISHED_SYSTEMS: TrendSystemDefinition[] = [
   {
     id: "mlb-home-edge-plus-price",
     name: "MLB Home Model Edge With Price Support",
