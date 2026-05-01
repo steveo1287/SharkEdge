@@ -161,8 +161,13 @@ function applyScoreState(game: GameCardView, event: ProviderEvent | null): GameC
 async function resolveLeagueScoreboard(leagueKey: SupportedLeagueKey): Promise<ScoreboardResolution> {
   const providers = getScoreProviders(leagueKey) as EventProvider[];
   let lastError: string | null = null;
+  let lastProviderLabel: string | null = providers[0]?.label ?? null;
+  let lastProviderKey: string | null = providers[0]?.key ?? null;
 
   for (const provider of providers) {
+    lastProviderLabel = provider.label;
+    lastProviderKey = provider.key;
+
     try {
       const events = await withTimeoutFallback(provider.fetchScoreboard(leagueKey), {
         timeoutMs: SCOREBOARD_PROVIDER_TIMEOUT_MS,
@@ -173,17 +178,20 @@ async function resolveLeagueScoreboard(leagueKey: SupportedLeagueKey): Promise<S
         continue;
       }
 
-      return {
-        events: events.filter(isEventInCurrentBoardWindow),
-        providerLabel: provider.label,
-        providerKey: provider.key,
-        note:
-          events.length > 0
-            ? `${provider.label} returned ${events.length} event(s).`
-            : `${provider.label} is connected, but there are no current events in the feed.`,
-        stale: false,
-        failed: false
-      };
+      const currentEvents = events.filter(isEventInCurrentBoardWindow);
+      if (currentEvents.length > 0) {
+        return {
+          events: currentEvents,
+          providerLabel: provider.label,
+          providerKey: provider.key,
+          note: `${provider.label} returned ${currentEvents.length} event(s).`,
+          stale: false,
+          failed: false
+        };
+      }
+
+      lastError = `${provider.label} returned zero current event(s).`;
+      continue;
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     }
@@ -191,11 +199,11 @@ async function resolveLeagueScoreboard(leagueKey: SupportedLeagueKey): Promise<S
 
   return {
     events: [],
-    providerLabel: providers[0]?.label ?? null,
-    providerKey: providers[0]?.key ?? null,
+    providerLabel: lastProviderLabel,
+    providerKey: lastProviderKey,
     note: lastError ?? "No live score provider is wired for this league yet.",
     stale: false,
-    failed: true
+    failed: providers.length === 0 || Boolean(lastError)
   };
 }
 
