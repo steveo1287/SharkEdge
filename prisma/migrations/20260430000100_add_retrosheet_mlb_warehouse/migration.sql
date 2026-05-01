@@ -1,4 +1,4 @@
-﻿-- Retrosheet historical MLB warehouse and derived feature snapshots.
+-- Retrosheet historical MLB warehouse and derived feature snapshots.
 -- Data is imported only from local CSV files; no runtime request path downloads Retrosheet data.
 
 CREATE TABLE "retrosheet_games" (
