@@ -71,6 +71,10 @@ function systemActionLabel(system: TrendSystemRun["systems"][number]) {
   return "NO ACTIVE MATCH";
 }
 
+function systemMetricSourceLabel() {
+  return "Metrics source: seeded fallback until /api/trends/systems?ledger=true confirms ledger-backed rows.";
+}
+
 function safeLeague(league: LeagueKey | "ALL"): LeagueKey {
   return league === "ALL" ? "MLB" : league;
 }
@@ -121,13 +125,15 @@ function systemCard(system: TrendSystemRun["systems"][number], filters: TrendFil
     dateRange: `${system.metrics.seasons} season${system.metrics.seasons === 1 ? "" : "s"} · ${system.league} · ${system.market}`,
     note: [
       system.description,
+      systemMetricSourceLabel(),
       `Action Gate: ${systemActionLabel(system)}`,
       `${system.metrics.wins}-${system.metrics.losses}${system.metrics.pushes ? `-${system.metrics.pushes}` : ""}`,
       `Current streak ${system.metrics.currentStreak}`,
       best ? `Top active match: ${best.eventLabel}` : "No current slate match yet"
     ].filter(Boolean).join(". "),
-    explanation: `Published SharkEdge trend system. Filter: ${system.filters.league} ${system.filters.market} ${system.filters.side}. Page filter: ${filters.league} ${filters.market}.`,
+    explanation: `Published SharkEdge trend system. Filter: ${system.filters.league} ${system.filters.market} ${system.filters.side}. Page filter: ${filters.league} ${filters.market}. Metrics displayed on the dashboard are starter/published metrics unless the ledger API confirms a DB-backed sample.`,
     whyItMatters: [
+      systemMetricSourceLabel(),
       `Historical record ${system.metrics.wins}-${system.metrics.losses}${system.metrics.pushes ? `-${system.metrics.pushes}` : ""}`,
       `Profit ${system.metrics.profitUnits > 0 ? "+" : ""}${system.metrics.profitUnits.toFixed(1)}u`,
       `Last 30 ${system.metrics.last30WinRatePct.toFixed(1)}%`,
@@ -135,7 +141,7 @@ function systemCard(system: TrendSystemRun["systems"][number], filters: TrendFil
       `${system.activeMatches.length} active match${system.activeMatches.length === 1 ? "" : "es"}`,
       ...system.rules.map((rule) => rule.label)
     ].filter(Boolean).join(" · "),
-    caution: `Risk: ${system.risk}. Historical systems are not automatic bets; require current price, injury/news checks, and market confirmation before action.`,
+    caution: `Risk: ${system.risk}. Historical systems are not automatic bets; require current price, injury/news checks, and market confirmation before action. Verify ledger provenance at /api/trends/systems?ledger=true before treating ROI/record as database-backed.`,
     href: systemHref,
     tone: systemTone(system),
     todayMatches: activeMatches
@@ -184,13 +190,13 @@ function signalCard(signal: TrendSignal, filters: TrendFilters): TrendCardView {
 }
 
 function metrics(signals: TrendSignal[], hiddenCount: number, systemRun: TrendSystemRun): TrendMetricCard[] {
-  const actionable = signals.filter((signal) => signal.quality.actionability === "ACTIONABLE").length;
   const priced = signals.filter((signal) => signal.source === "market-edge" || signal.marketQuality.currentOddsAmerican != null).length;
   const games = new Set(signals.map((signal) => signal.gameId).filter(Boolean)).size;
   const top = signals[0];
 
   return [
-    { label: "Published systems", value: String(systemRun.summary.systems), note: `${systemRun.summary.activeSystems} active · ${systemRun.summary.actionableMatches} actionable matches.` },
+    { label: "Published systems", value: String(systemRun.summary.systems), note: `${systemRun.summary.activeSystems} active · ${systemRun.summary.actionableMatches} actionable matches. Metrics shown are seeded fallback until ledger mode confirms otherwise.` },
+    { label: "Metric source", value: "Seeded", note: "Use /api/trends/systems?ledger=true or /api/trends/systems/backtest to verify DB-backed records." },
     { label: "Real game trends", value: String(signals.length), note: "Current game/team signals only. Static research filler is excluded." },
     { label: "Games covered", value: String(games), note: "Unique current games represented on the trends page." },
     { label: "Priced signals", value: String(priced), note: "Signals with a market-edge or current price context." },
@@ -205,11 +211,12 @@ function rows(signals: TrendSignal[], systemRun: TrendSystemRun): TrendTableRow[
     movement: systemActionLabel(system),
     note: [
       system.category,
+      "seeded metrics",
       `${system.metrics.wins}-${system.metrics.losses}${system.metrics.pushes ? `-${system.metrics.pushes}` : ""}`,
       `${system.metrics.roiPct > 0 ? "+" : ""}${system.metrics.roiPct.toFixed(1)}% ROI`,
       `${system.activeMatches.length} active match${system.activeMatches.length === 1 ? "" : "es"}`
     ].join(" · "),
-    href: system.activeMatches[0]?.href ?? `/trends?league=${system.league}&market=${system.market}`
+    href: system.activeMatches[0]?.href ?? `/api/trends/systems?ledger=true&league=${system.league}`
   }));
   const signalRows = signals.slice(0, 20).map((signal) => ({
     label: signal.matchup ? `${signal.matchup.away} @ ${signal.matchup.home}` : `${signal.league} ${signal.market ?? signal.category}`,
@@ -232,7 +239,7 @@ function insights(signals: TrendSignal[], systemRun: TrendSystemRun): TrendInsig
     id: `system-insight-${system.id}`,
     title: system.name,
     value: systemActionLabel(system),
-    note: `${system.metrics.roiPct > 0 ? "+" : ""}${system.metrics.roiPct.toFixed(1)}% ROI · ${system.metrics.winRatePct.toFixed(1)}% hit · ${system.activeMatches.length} active`,
+    note: `${system.metrics.roiPct > 0 ? "+" : ""}${system.metrics.roiPct.toFixed(1)}% ROI · ${system.metrics.winRatePct.toFixed(1)}% hit · seeded metrics · ${system.activeMatches.length} active`,
     tone: systemTone(system)
   }));
   const signalInsights = signals.slice(0, Math.max(0, 4 - systemInsights.length)).map((signal) => ({
@@ -320,11 +327,11 @@ export async function buildSignalTrendDashboard(
     explanation: {
       headline: `${systemRun.systems.length} published systems and ${signals.length} real current-game trend${signals.length === 1 ? "" : "s"} loaded`,
       whyItMatters: topSystem
-        ? `${topSystem.name} leads the system board with ${topSystem.metrics.roiPct > 0 ? "+" : ""}${topSystem.metrics.roiPct.toFixed(1)}% ROI and ${topSystem.activeMatches.length} active match${topSystem.activeMatches.length === 1 ? "" : "es"}.`
+        ? `${topSystem.name} leads the system board with ${topSystem.metrics.roiPct > 0 ? "+" : ""}${topSystem.metrics.roiPct.toFixed(1)}% ROI and ${topSystem.activeMatches.length} active match${topSystem.activeMatches.length === 1 ? "" : "es"}. Metrics are labeled seeded until the ledger API confirms DB-backed rows.`
         : topSignal
           ? `${topSignal.matchup ? `${topSignal.matchup.away} @ ${topSignal.matchup.home}` : topSignal.title} leads the board. This view uses current game/team signals only; static fallback cards are excluded.`
           : "Published systems are loaded, but no current-game sim signals are available yet.",
-      caution: "Historical systems and current-game signals are not automatic bets. Use action gates, price checkpoints, injury/news checks, and market confirmation before acting.",
+      caution: "Historical systems and current-game signals are not automatic bets. Use action gates, price checkpoints, injury/news checks, and market confirmation before acting. Verify metric provenance through /api/trends/systems?ledger=true.",
       queryLogic: [filters.league, filters.market, filters.side, filters.window].filter(Boolean).join(" | ")
     },
     filters,
@@ -333,7 +340,8 @@ export async function buildSignalTrendDashboard(
     insights: insights(signals, systemRun),
     movementRows: rows(signals, systemRun),
     segmentRows: [
-      { label: "Published systems", movement: `${systemRun.summary.systems} systems`, note: `${systemRun.summary.activeSystems} active systems and ${systemRun.summary.actionableMatches} actionable matches.`, href: "/api/trends/systems" },
+      { label: "Published systems", movement: `${systemRun.summary.systems} systems`, note: `${systemRun.summary.activeSystems} active systems and ${systemRun.summary.actionableMatches} actionable matches. Metrics default to seeded fallback unless ledger mode confirms otherwise.`, href: "/api/trends/systems?ledger=true" },
+      { label: "System backtests", movement: "ledger check", note: "Attempts DB-backed EventMarket/EventResult grading and returns seeded fallback reason when unavailable.", href: "/api/trends/systems/backtest" },
       { label: "Current games", movement: `${new Set(signals.map((signal) => signal.gameId).filter(Boolean)).size} games`, note: "Real board/sim game signals represented on the trends page.", href: "/trends?mode=signals" },
       { label: "Priced market edges", movement: String(signals.filter((signal) => signal.source === "market-edge").length), note: "Signals with sportsbook/market edge support.", href: "/api/trends?mode=signals&debug=true" },
       { label: "Context-only signals", movement: String(signals.filter((signal) => signal.source === "sim-engine").length), note: "Real game model signals waiting for current price confirmation.", href: "/sim" }
@@ -344,10 +352,10 @@ export async function buildSignalTrendDashboard(
       : "Systems loaded, but no current game qualifiers were attached.",
     savedSystems: [],
     savedTrendName: "",
-    sourceNote: "Showing published SharkEdge systems plus real current game/team trends from the signal engine. Static filler cards are disabled.",
+    sourceNote: "Showing published SharkEdge systems plus real current game/team trends from the signal engine. Published system metrics are labeled seeded fallback until ledger-backed history is confirmed. Static filler cards are disabled.",
     querySummary: [filters.league, filters.market, filters.side, filters.window].filter(Boolean).join(" | "),
     sampleNote: hiddenStaticCount
       ? `${hiddenStaticCount} static/non-game signal${hiddenStaticCount === 1 ? " was" : "s were"} excluded so the page shows real games and published systems only.`
-      : null
+      : "Published system ROI/record is starter seeded fallback unless the ledger API returns source=ledger."
   };
 }
