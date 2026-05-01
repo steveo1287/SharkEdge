@@ -20,6 +20,14 @@ function toInputJsonValue(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
+function isUsableSavedTrendId(id: string | null | undefined) {
+  const value = id?.trim();
+  if (!value) return false;
+  const bad = new Set(["null", "undefined", "none", "trend", "trends", "saved", "savedtrend"]);
+  if (bad.has(value.toLowerCase())) return false;
+  return value.length >= 6;
+}
+
 type SavedTrendListRow = {
   id: string;
   name: string;
@@ -62,6 +70,7 @@ export async function ensureTrendUser() {
 export function buildSavedTrendHref(id: string, filters: TrendFilters, mode: TrendMode, aiQuery: string | null) {
   const params = new URLSearchParams();
   params.set("savedId", id);
+  params.set("savedTrendId", id);
   params.set("mode", mode);
   if (aiQuery) {
     params.set("q", aiQuery);
@@ -149,6 +158,8 @@ export async function updateSavedTrend(
     mode?: TrendMode;
   }
 ) {
+  if (!isUsableSavedTrendId(id)) return null;
+
   const existing = await prisma.savedTrend.findFirst({
     where: {
       id,
@@ -156,18 +167,17 @@ export async function updateSavedTrend(
     }
   });
 
-  if (!existing) {
-    throw new Error("Saved trend not found.");
-  }
+  if (!existing) return null;
 
   const current = readQueryJson(existing.queryJson);
   const nextFilters = args.filters ?? current.filters;
   const nextMode = args.mode ?? current.mode ?? "simple";
   const nextAiQuery = args.aiQuery ?? current.aiQuery ?? null;
 
-  return prisma.savedTrend.update({
+  await prisma.savedTrend.updateMany({
     where: {
-      id
+      id,
+      userId: DEFAULT_USER_ID
     },
     data: {
       name: args.name ?? existing.name,
@@ -182,31 +192,57 @@ export async function updateSavedTrend(
         : existing.archivedAt
     }
   });
+
+  return prisma.savedTrend.findFirst({
+    where: {
+      id,
+      userId: DEFAULT_USER_ID
+    }
+  });
 }
 
 export async function archiveSavedTrend(id: string, archived: boolean) {
-  return prisma.savedTrend.update({
+  if (!isUsableSavedTrendId(id)) return null;
+
+  await prisma.savedTrend.updateMany({
     where: {
-      id
+      id,
+      userId: DEFAULT_USER_ID
     },
     data: {
       archivedAt: archived ? new Date() : null
     }
   });
+
+  return prisma.savedTrend.findFirst({
+    where: {
+      id,
+      userId: DEFAULT_USER_ID
+    }
+  });
 }
 
 export async function deleteSavedTrend(id: string) {
+  if (!isUsableSavedTrendId(id)) return null;
+
   await prisma.trendRun.deleteMany({
     where: {
-      savedTrendId: id
+      savedTrendId: id,
+      userId: DEFAULT_USER_ID
     }
   });
 
-  return prisma.savedTrend.delete({
+  const result = await prisma.savedTrend.deleteMany({
     where: {
-      id
+      id,
+      userId: DEFAULT_USER_ID
     }
   });
+
+  return {
+    id,
+    deleted: result.count > 0
+  };
 }
 
 export async function recordSavedTrendRun(args: {
@@ -214,6 +250,20 @@ export async function recordSavedTrendRun(args: {
   queryJson: Record<string, unknown>;
   resultJson: Record<string, unknown>;
 }) {
+  if (!isUsableSavedTrendId(args.savedTrendId)) return null;
+
+  const savedTrend = await prisma.savedTrend.findFirst({
+    where: {
+      id: args.savedTrendId,
+      userId: DEFAULT_USER_ID
+    },
+    select: {
+      id: true
+    }
+  });
+
+  if (!savedTrend) return null;
+
   return prisma.trendRun.create({
     data: {
       savedTrendId: args.savedTrendId,
