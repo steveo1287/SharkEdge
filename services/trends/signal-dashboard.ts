@@ -17,6 +17,24 @@ import {
   trendSystemMatchesToTodayMatches,
   type TrendSystemRun
 } from "./trend-system-engine";
+import { runTrendSystemBacktests, type TrendSystemLedgerMetrics } from "./trend-system-ledger";
+
+type System = TrendSystemRun["systems"][number];
+type MetricsProvenance = Pick<TrendSystemLedgerMetrics, "source" | "reason" | "ledgerRows" | "gradedRows" | "openRows" | "savedRows" | "eventMarketRows">;
+type ProvenanceSummary = {
+  source: "saved-ledger" | "event-market-backtest" | "seeded-fallback";
+  savedLedgerBacked: number;
+  eventMarketBacked: number;
+  seededFallback: number;
+  totalLedgerRows: number;
+  totalGradedRows: number;
+  totalOpenRows: number;
+  totalSavedRows: number;
+  totalSavedGradedRows: number;
+  totalEventMarketRows: number;
+  totalEventMarketGradedRows: number;
+};
+type SystemWithProvenance = System & { metricsProvenance: MetricsProvenance };
 
 function leagueToSport(league: LeagueKey | "ALL"): SportCode {
   if (league === "MLB") return "BASEBALL";
@@ -57,14 +75,15 @@ function actionLabel(signal: TrendSignal) {
   return "RESEARCH ONLY";
 }
 
-function systemTone(system: TrendSystemRun["systems"][number]): TrendCardView["tone"] {
+function systemTone(system: SystemWithProvenance): TrendCardView["tone"] {
+  if (system.metricsProvenance.source === "saved-ledger" || system.metricsProvenance.source === "event-market-backtest") return "success";
   if (system.actionability === "ACTIVE") return "success";
   if (system.activeMatches.length) return "brand";
   if (system.metrics.roiPct >= 12 || system.category === "Most Profitable") return "premium";
   return "muted";
 }
 
-function systemActionLabel(system: TrendSystemRun["systems"][number]) {
+function systemActionLabel(system: System) {
   if (system.actionability === "ACTIVE") return "ACTIVE MATCH";
   if (system.actionability === "WATCHLIST") return "WATCHLIST MATCH";
   if (system.actionability === "RESEARCH") return "RESEARCH SYSTEM";
@@ -75,37 +94,138 @@ function proofTrail(labels: string[]) {
   return `Proof: ${labels.filter(Boolean).join(" · ")}`;
 }
 
-function systemProofLabels(system: TrendSystemRun["systems"][number]) {
+function provenanceLabel(source: MetricsProvenance["source"]) {
+  if (source === "saved-ledger") return "SAVED LEDGER VERIFIED";
+  if (source === "event-market-backtest") return "EVENTMARKET BACKTEST";
+  return "SEED STARTER METRICS";
+}
+
+function metricSourceLabel(provenance: MetricsProvenance) {
+  if (provenance.source === "saved-ledger") {
+    return `Metrics source: saved captured/graded ledger (${provenance.gradedRows}/${provenance.ledgerRows} graded, ${provenance.openRows ?? 0} open).`;
+  }
+  if (provenance.source === "event-market-backtest") {
+    return `Metrics source: EventMarket/EventResult backtest (${provenance.gradedRows}/${provenance.ledgerRows} graded).`;
+  }
+  return `Metrics source: seeded starter metrics. Ledger rows ${provenance.ledgerRows}; graded ${provenance.gradedRows}; reason: ${provenance.reason ?? "ledger sample unavailable"}.`;
+}
+
+function seededProvenance(system: System): MetricsProvenance {
+  return {
+    source: "seeded-fallback",
+    reason: "No saved-ledger or EventMarket sample strong enough for this system yet.",
+    ledgerRows: 0,
+    gradedRows: 0,
+    openRows: 0,
+    savedRows: 0,
+    eventMarketRows: 0
+  };
+}
+
+function applyLedgerMetric(system: System, metric: TrendSystemLedgerMetrics | null): SystemWithProvenance {
+  if (!metric) return { ...system, metricsProvenance: seededProvenance(system) };
+  return {
+    ...system,
+    metrics: {
+      wins: metric.wins,
+      losses: metric.losses,
+      pushes: metric.pushes,
+      profitUnits: metric.profitUnits,
+      roiPct: metric.roiPct,
+      winRatePct: metric.winRatePct,
+      sampleSize: metric.sampleSize,
+      currentStreak: metric.currentStreak,
+      last30WinRatePct: metric.last30WinRatePct,
+      clvPct: metric.clvPct,
+      seasons: metric.seasons
+    },
+    metricsProvenance: {
+      source: metric.source,
+      reason: metric.reason,
+      ledgerRows: metric.ledgerRows,
+      gradedRows: metric.gradedRows,
+      openRows: metric.openRows ?? 0,
+      savedRows: metric.savedRows ?? 0,
+      eventMarketRows: metric.eventMarketRows ?? 0
+    }
+  };
+}
+
+async function attachLedgerMetrics(rawSystemRun: TrendSystemRun): Promise<{ systemRun: TrendSystemRun & { systems: SystemWithProvenance[] }; provenanceSummary: ProvenanceSummary }> {
+  const fallbackSummary: ProvenanceSummary = {
+    source: "seeded-fallback",
+    savedLedgerBacked: 0,
+    eventMarketBacked: 0,
+    seededFallback: rawSystemRun.systems.length,
+    totalLedgerRows: 0,
+    totalGradedRows: 0,
+    totalOpenRows: 0,
+    totalSavedRows: 0,
+    totalSavedGradedRows: 0,
+    totalEventMarketRows: 0,
+    totalEventMarketGradedRows: 0
+  };
+
+  try {
+    const backtests = await runTrendSystemBacktests(rawSystemRun.systems, { preferSaved: true });
+    const bySystem = new Map(backtests.results.map((result) => [result.systemId, result.metrics]));
+    const source: ProvenanceSummary["source"] = backtests.summary.savedLedgerBacked
+      ? "saved-ledger"
+      : backtests.summary.eventMarketBacked
+        ? "event-market-backtest"
+        : "seeded-fallback";
+
+    return {
+      systemRun: {
+        ...rawSystemRun,
+        systems: rawSystemRun.systems.map((system) => applyLedgerMetric(system, bySystem.get(system.id) ?? null))
+      },
+      provenanceSummary: {
+        source,
+        savedLedgerBacked: backtests.summary.savedLedgerBacked,
+        eventMarketBacked: backtests.summary.eventMarketBacked,
+        seededFallback: backtests.summary.seededFallback,
+        totalLedgerRows: backtests.summary.totalLedgerRows,
+        totalGradedRows: backtests.summary.totalGradedRows,
+        totalOpenRows: backtests.summary.totalOpenRows,
+        totalSavedRows: backtests.summary.totalSavedRows,
+        totalSavedGradedRows: backtests.summary.totalSavedGradedRows,
+        totalEventMarketRows: backtests.summary.totalEventMarketRows,
+        totalEventMarketGradedRows: backtests.summary.totalEventMarketGradedRows
+      }
+    };
+  } catch {
+    return {
+      systemRun: {
+        ...rawSystemRun,
+        systems: rawSystemRun.systems.map((system) => ({ ...system, metricsProvenance: seededProvenance(system) }))
+      },
+      provenanceSummary: fallbackSummary
+    };
+  }
+}
+
+function systemProofLabels(system: SystemWithProvenance) {
   const hasCurrentMatch = system.activeMatches.length > 0;
   const hasPrice = system.activeMatches.some((match) => match.price != null);
   const hasClv = system.metrics.clvPct != null;
 
   return [
     system.verified ? "PUBLISHED SYSTEM" : "UNVERIFIED SYSTEM",
-    "SEED STARTER METRICS",
+    provenanceLabel(system.metricsProvenance.source),
+    system.metricsProvenance.gradedRows ? `${system.metricsProvenance.gradedRows} GRADED` : "NO GRADED LEDGER",
+    system.metricsProvenance.openRows ? `${system.metricsProvenance.openRows} OPEN` : null,
     hasCurrentMatch ? "CURRENT MATCH" : "NO CURRENT MATCH",
     hasPrice ? "PRICE ATTACHED" : "PRICE NEEDED",
     hasClv ? "CLV TRACKED" : "CLV MISSING",
     system.actionability
-  ];
+  ].filter((label): label is string => Boolean(label));
 }
 
 function signalProofLabels(signal: TrendSignal) {
   const hasPrice = signal.marketQuality.currentOddsAmerican != null || signal.source === "market-edge";
   const hasEdge = signal.marketQuality.edgePercent != null || signal.edge != null;
-
-  return [
-    "CURRENT SIGNAL",
-    signal.source.toUpperCase(),
-    hasPrice ? "PRICE ATTACHED" : "PRICE NEEDED",
-    hasEdge ? "EDGE ATTACHED" : "NO EDGE ATTACHED",
-    `QUALITY ${signal.qualityTier}`,
-    actionLabel(signal)
-  ];
-}
-
-function systemMetricSourceLabel() {
-  return "Metrics source: seeded starter metrics. Treat ROI/record as provisional until /api/trends/systems?ledger=true confirms ledger-backed rows.";
+  return ["CURRENT SIGNAL", signal.source.toUpperCase(), hasPrice ? "PRICE ATTACHED" : "PRICE NEEDED", hasEdge ? "EDGE ATTACHED" : "NO EDGE ATTACHED", `QUALITY ${signal.qualityTier}`, actionLabel(signal)];
 }
 
 function safeLeague(league: LeagueKey | "ALL"): LeagueKey {
@@ -117,37 +237,35 @@ function signalMatch(signal: TrendSignal): TrendMatchView[] {
   const league = safeLeague(signal.league);
   const eventLabel = `${signal.matchup.away} @ ${signal.matchup.home}`;
   const href = signal.actionHref || `/sim/${String(league).toLowerCase()}/${encodeURIComponent(signal.gameId)}`;
-
-  return [
-    {
-      id: `${signal.id}:live`,
-      sport: leagueToSport(signal.league),
-      leagueKey: league,
-      eventLabel,
-      startTime: signal.startTime ?? new Date().toISOString(),
-      status: "PREGAME",
-      stateDetail: signal.status ?? null,
-      matchingLogic: `${signal.league} | ${signal.market ?? signal.category} | ${signal.source}`,
-      recommendedBetLabel: actionLabel(signal),
-      oddsContext: [
-        `Quality ${signal.qualityTier} · ${signal.qualityScore}/100`,
-        signal.marketQuality.edgePercent != null ? `Edge ${signal.marketQuality.edgePercent}%` : null,
-        signal.marketQuality.fairOddsAmerican != null ? `Fair ${signal.marketQuality.fairOddsAmerican > 0 ? "+" : ""}${signal.marketQuality.fairOddsAmerican}` : null,
-        signal.warnings.includes("No current sportsbook price attached; keep as research/watchlist only.") ? "Current price needed" : null
-      ].filter(Boolean).join(" · "),
-      matchupHref: href,
-      boardHref: league === "UFC" || league === "BOXING" ? null : `/?league=${league}`,
-      propsHref: null,
-      supportNote: signal.warnings[0] ?? signal.notes[0] ?? null
-    }
-  ];
+  return [{
+    id: `${signal.id}:live`,
+    sport: leagueToSport(signal.league),
+    leagueKey: league,
+    eventLabel,
+    startTime: signal.startTime ?? new Date().toISOString(),
+    status: "PREGAME",
+    stateDetail: signal.status ?? null,
+    matchingLogic: `${signal.league} | ${signal.market ?? signal.category} | ${signal.source}`,
+    recommendedBetLabel: actionLabel(signal),
+    oddsContext: [
+      `Quality ${signal.qualityTier} · ${signal.qualityScore}/100`,
+      signal.marketQuality.edgePercent != null ? `Edge ${signal.marketQuality.edgePercent}%` : null,
+      signal.marketQuality.fairOddsAmerican != null ? `Fair ${signal.marketQuality.fairOddsAmerican > 0 ? "+" : ""}${signal.marketQuality.fairOddsAmerican}` : null,
+      signal.warnings.includes("No current sportsbook price attached; keep as research/watchlist only.") ? "Current price needed" : null
+    ].filter(Boolean).join(" · "),
+    matchupHref: href,
+    boardHref: league === "UFC" || league === "BOXING" ? null : `/?league=${league}`,
+    propsHref: null,
+    supportNote: signal.warnings[0] ?? signal.notes[0] ?? null
+  }];
 }
 
-function systemCard(system: TrendSystemRun["systems"][number], filters: TrendFilters): TrendCardView {
+function systemCard(system: SystemWithProvenance, filters: TrendFilters): TrendCardView {
   const activeMatches = trendSystemMatchesToTodayMatches(system, system.activeMatches);
   const best = system.activeMatches[0];
   const systemHref = best?.href ?? `/trends?league=${system.league}&market=${system.market}`;
   const proof = systemProofLabels(system);
+  const sourceLabel = metricSourceLabel(system.metricsProvenance);
 
   return {
     id: `system:${system.id}`,
@@ -156,28 +274,11 @@ function systemCard(system: TrendSystemRun["systems"][number], filters: TrendFil
     hitRate: `${system.metrics.winRatePct.toFixed(1)}%`,
     roi: `${system.metrics.profitUnits > 0 ? "+" : ""}${system.metrics.profitUnits.toFixed(1)}u`,
     sampleSize: system.metrics.sampleSize,
-    dateRange: `${system.metrics.seasons} season${system.metrics.seasons === 1 ? "" : "s"} · ${system.league} · ${system.market} · ${proof[1]}`,
-    note: [
-      proofTrail(proof),
-      system.description,
-      systemMetricSourceLabel(),
-      `Action Gate: ${systemActionLabel(system)}`,
-      `${system.metrics.wins}-${system.metrics.losses}${system.metrics.pushes ? `-${system.metrics.pushes}` : ""}`,
-      `Current streak ${system.metrics.currentStreak}`,
-      best ? `Top active match: ${best.eventLabel}` : "No current slate match yet"
-    ].filter(Boolean).join(". "),
-    explanation: `Published SharkEdge trend system. Filter: ${system.filters.league} ${system.filters.market} ${system.filters.side}. Page filter: ${filters.league} ${filters.market}. ${proofTrail(proof)}. Metrics displayed on the dashboard are starter/published metrics unless the ledger API confirms a DB-backed sample.`,
-    whyItMatters: [
-      proofTrail(proof),
-      systemMetricSourceLabel(),
-      `Historical record ${system.metrics.wins}-${system.metrics.losses}${system.metrics.pushes ? `-${system.metrics.pushes}` : ""}`,
-      `Profit ${system.metrics.profitUnits > 0 ? "+" : ""}${system.metrics.profitUnits.toFixed(1)}u`,
-      `Last 30 ${system.metrics.last30WinRatePct.toFixed(1)}%`,
-      system.metrics.clvPct != null ? `CLV ${system.metrics.clvPct.toFixed(1)}%` : null,
-      `${system.activeMatches.length} active match${system.activeMatches.length === 1 ? "" : "es"}`,
-      ...system.rules.map((rule) => rule.label)
-    ].filter(Boolean).join(" · "),
-    caution: `Risk: ${system.risk}. Proof state: ${proof.join(" / ")}. Historical systems are not automatic bets; require current price, injury/news checks, and market confirmation before action. Verify ledger provenance at /api/trends/systems?ledger=true before treating ROI/record as database-backed.`,
+    dateRange: `${system.metrics.seasons} season${system.metrics.seasons === 1 ? "" : "s"} · ${system.league} · ${system.market} · ${provenanceLabel(system.metricsProvenance.source)}`,
+    note: [proofTrail(proof), system.description, sourceLabel, `Action Gate: ${systemActionLabel(system)}`, `${system.metrics.wins}-${system.metrics.losses}${system.metrics.pushes ? `-${system.metrics.pushes}` : ""}`, `Current streak ${system.metrics.currentStreak}`, best ? `Top active match: ${best.eventLabel}` : "No current slate match yet"].filter(Boolean).join(". "),
+    explanation: `Published SharkEdge trend system. Filter: ${system.filters.league} ${system.filters.market} ${system.filters.side}. Page filter: ${filters.league} ${filters.market}. ${proofTrail(proof)}. ${sourceLabel}`,
+    whyItMatters: [proofTrail(proof), sourceLabel, `Historical record ${system.metrics.wins}-${system.metrics.losses}${system.metrics.pushes ? `-${system.metrics.pushes}` : ""}`, `Profit ${system.metrics.profitUnits > 0 ? "+" : ""}${system.metrics.profitUnits.toFixed(1)}u`, `Last 30 ${system.metrics.last30WinRatePct.toFixed(1)}%`, system.metrics.clvPct != null ? `CLV ${system.metrics.clvPct.toFixed(1)}%` : null, `${system.activeMatches.length} active match${system.activeMatches.length === 1 ? "" : "es"}`, ...system.rules.map((rule) => rule.label)].filter(Boolean).join(" · "),
+    caution: `Risk: ${system.risk}. Proof state: ${proof.join(" / ")}. Historical systems are not automatic bets; require current price, injury/news checks, and market confirmation before action.`,
     href: systemHref,
     tone: systemTone(system),
     todayMatches: activeMatches
@@ -192,7 +293,6 @@ function signalCard(signal: TrendSignal, filters: TrendFilters): TrendCardView {
   const notes = signal.notes.filter(Boolean).slice(0, 6);
   const matchup = signal.matchup ? `${signal.matchup.away} @ ${signal.matchup.home}` : signal.title;
   const proof = signalProofLabels(signal);
-
   return {
     id: signal.id,
     title: `${matchup} · ${signal.market ?? signal.category}`,
@@ -201,43 +301,26 @@ function signalCard(signal: TrendSignal, filters: TrendFilters): TrendCardView {
     roi: null,
     sampleSize: signal.sample ?? 0,
     dateRange: `Current games · ${signal.league} · ${signal.market ?? signal.category} · ${proof[2]}`,
-    note: [
-      proofTrail(proof),
-      signal.angle,
-      `Action Gate: ${actionLabel(signal)}`,
-      `Model confidence ${(signal.confidence * 100).toFixed(1)}%`,
-      `Quality ${signal.qualityTier} ${score}`,
-      signal.marketQuality.fairOddsAmerican != null ? `Fair-price checkpoint: ${signal.marketQuality.fairOddsAmerican > 0 ? "+" : ""}${signal.marketQuality.fairOddsAmerican} or better` : "Fair-price checkpoint: current sportsbook price required before this becomes actionable",
-      signal.source === "sim-engine" ? "Real current game signal from the sim/model path; not a historical filler card" : null
-    ].filter(Boolean).join(". "),
+    note: [proofTrail(proof), signal.angle, `Action Gate: ${actionLabel(signal)}`, `Model confidence ${(signal.confidence * 100).toFixed(1)}%`, `Quality ${signal.qualityTier} ${score}`, signal.marketQuality.fairOddsAmerican != null ? `Fair-price checkpoint: ${signal.marketQuality.fairOddsAmerican > 0 ? "+" : ""}${signal.marketQuality.fairOddsAmerican} or better` : "Fair-price checkpoint: current sportsbook price required before this becomes actionable", signal.source === "sim-engine" ? "Real current game signal from the sim/model path; not a historical filler card" : null].filter(Boolean).join(". "),
     explanation: `Real current ${signal.league} game/team trend generated from ${signal.source}. League filter: ${filters.league}. ${proofTrail(proof)}.`,
-    whyItMatters: [
-      proofTrail(proof),
-      `Action Gate: ${actionLabel(signal)}`,
-      `Quality tier ${signal.qualityTier}`,
-      `Overfit risk ${signal.overfitRisk}`,
-      signal.gameId ? `Game ${signal.gameId}` : null,
-      ...notes
-    ].filter(Boolean).join(" · "),
-    caution: warningText
-      ? `Proof state: ${proof.join(" / ")}. Kill switches: ${warningText}.`
-      : `Proof state: ${proof.join(" / ")}. Kill switches: stale price, late lineup/news change, market moving through fair price, or quality tier downgrade.`,
+    whyItMatters: [proofTrail(proof), `Action Gate: ${actionLabel(signal)}`, `Quality tier ${signal.qualityTier}`, `Overfit risk ${signal.overfitRisk}`, signal.gameId ? `Game ${signal.gameId}` : null, ...notes].filter(Boolean).join(" · "),
+    caution: warningText ? `Proof state: ${proof.join(" / ")}. Kill switches: ${warningText}.` : `Proof state: ${proof.join(" / ")}. Kill switches: stale price, late lineup/news change, market moving through fair price, or quality tier downgrade.`,
     href: signal.actionHref,
     tone: signalTone(signal),
     todayMatches: signalMatch(signal)
   };
 }
 
-function metrics(signals: TrendSignal[], hiddenCount: number, systemRun: TrendSystemRun): TrendMetricCard[] {
+function metrics(signals: TrendSignal[], hiddenCount: number, systemRun: TrendSystemRun & { systems: SystemWithProvenance[] }, provenance: ProvenanceSummary): TrendMetricCard[] {
   const priced = signals.filter((signal) => signal.source === "market-edge" || signal.marketQuality.currentOddsAmerican != null).length;
   const games = new Set(signals.map((signal) => signal.gameId).filter(Boolean)).size;
   const top = signals[0];
-
   return [
-    { label: "Proof layer", value: "On", note: "Every card now labels source, price status, match status, CLV status, and whether metrics are seeded starter data or current signals." },
-    { label: "Published systems", value: String(systemRun.summary.systems), note: `${systemRun.summary.activeSystems} active · ${systemRun.summary.actionableMatches} actionable matches. Metrics shown are seeded fallback until ledger mode confirms otherwise.` },
-    { label: "Metric source", value: "Seeded", note: "Use /api/trends/systems?ledger=true or /api/trends/systems/backtest to verify DB-backed records." },
-    { label: "Proof gaps", value: String(systemRun.systems.filter((system) => !system.activeMatches.some((match) => match.price != null)).length), note: "Published systems with no current qualifying price attached. These stay watch/research until price proof is present." },
+    { label: "Metric source", value: provenance.source, note: `${provenance.savedLedgerBacked} saved-ledger · ${provenance.eventMarketBacked} EventMarket · ${provenance.seededFallback} seeded fallback.` },
+    { label: "Verified rows", value: `${provenance.totalGradedRows}/${provenance.totalLedgerRows}`, note: `${provenance.totalOpenRows} open rows excluded from ROI until graded.` },
+    { label: "Saved ledger", value: `${provenance.totalSavedGradedRows}/${provenance.totalSavedRows}`, note: "Captured trend-system rows. Best source for immutable record once graded." },
+    { label: "Published systems", value: String(systemRun.summary.systems), note: `${systemRun.summary.activeSystems} active · ${systemRun.summary.actionableMatches} actionable matches.` },
+    { label: "Proof gaps", value: String(systemRun.systems.filter((system) => !system.activeMatches.some((match) => match.price != null)).length), note: "Published systems with no current qualifying price attached." },
     { label: "Real game trends", value: String(signals.length), note: "Current game/team signals only. Static research filler is excluded." },
     { label: "Games covered", value: String(games), note: "Unique current games represented on the trends page." },
     { label: "Priced signals", value: String(priced), note: "Signals with a market-edge or current price context." },
@@ -246,43 +329,28 @@ function metrics(signals: TrendSignal[], hiddenCount: number, systemRun: TrendSy
   ];
 }
 
-function rows(signals: TrendSignal[], systemRun: TrendSystemRun): TrendTableRow[] {
+function rows(signals: TrendSignal[], systemRun: TrendSystemRun & { systems: SystemWithProvenance[] }): TrendTableRow[] {
   const systemRows = systemRun.systems.slice(0, 12).map((system) => ({
     label: system.name,
     movement: systemActionLabel(system),
-    note: [
-      proofTrail(systemProofLabels(system)),
-      system.category,
-      "seeded metrics",
-      `${system.metrics.wins}-${system.metrics.losses}${system.metrics.pushes ? `-${system.metrics.pushes}` : ""}`,
-      `${system.metrics.roiPct > 0 ? "+" : ""}${system.metrics.roiPct.toFixed(1)}% ROI`,
-      `${system.activeMatches.length} active match${system.activeMatches.length === 1 ? "" : "es"}`
-    ].join(" · "),
+    note: [proofTrail(systemProofLabels(system)), system.category, provenanceLabel(system.metricsProvenance.source), `${system.metrics.wins}-${system.metrics.losses}${system.metrics.pushes ? `-${system.metrics.pushes}` : ""}`, `${system.metrics.roiPct > 0 ? "+" : ""}${system.metrics.roiPct.toFixed(1)}% ROI`, `${system.activeMatches.length} active match${system.activeMatches.length === 1 ? "" : "es"}`].join(" · "),
     href: system.activeMatches[0]?.href ?? `/api/trends/systems?ledger=true&league=${system.league}`
   }));
   const signalRows = signals.slice(0, 20).map((signal) => ({
     label: signal.matchup ? `${signal.matchup.away} @ ${signal.matchup.home}` : `${signal.league} ${signal.market ?? signal.category}`,
     movement: actionLabel(signal),
-    note: [
-      proofTrail(signalProofLabels(signal)),
-      signal.title,
-      `${signal.market ?? signal.category}`,
-      `Confidence ${(signal.confidence * 100).toFixed(1)}%`,
-      `Quality ${signal.qualityTier} ${signal.qualityScore}/100`,
-      signal.marketQuality.edgePercent != null ? `Edge ${signal.marketQuality.edgePercent}%` : null,
-      signal.warnings[0] ?? null
-    ].filter(Boolean).join(" · "),
+    note: [proofTrail(signalProofLabels(signal)), signal.title, `${signal.market ?? signal.category}`, `Confidence ${(signal.confidence * 100).toFixed(1)}%`, `Quality ${signal.qualityTier} ${signal.qualityScore}/100`, signal.marketQuality.edgePercent != null ? `Edge ${signal.marketQuality.edgePercent}%` : null, signal.warnings[0] ?? null].filter(Boolean).join(" · "),
     href: signal.actionHref
   }));
   return [...systemRows, ...signalRows];
 }
 
-function insights(signals: TrendSignal[], systemRun: TrendSystemRun): TrendInsightCard[] {
-  const systemInsights = systemRun.systems.filter((system) => system.activeMatches.length || system.metrics.roiPct >= 10).slice(0, 3).map((system) => ({
+function insights(signals: TrendSignal[], systemRun: TrendSystemRun & { systems: SystemWithProvenance[] }): TrendInsightCard[] {
+  const systemInsights = systemRun.systems.filter((system) => system.activeMatches.length || system.metrics.roiPct >= 10 || system.metricsProvenance.source !== "seeded-fallback").slice(0, 3).map((system) => ({
     id: `system-insight-${system.id}`,
     title: system.name,
     value: systemActionLabel(system),
-    note: `${proofTrail(systemProofLabels(system))} · ${system.metrics.roiPct > 0 ? "+" : ""}${system.metrics.roiPct.toFixed(1)}% ROI · ${system.metrics.winRatePct.toFixed(1)}% hit · seeded metrics · ${system.activeMatches.length} active`,
+    note: `${proofTrail(systemProofLabels(system))} · ${system.metrics.roiPct > 0 ? "+" : ""}${system.metrics.roiPct.toFixed(1)}% ROI · ${system.metrics.winRatePct.toFixed(1)}% hit · ${provenanceLabel(system.metricsProvenance.source)} · ${system.activeMatches.length} active`,
     tone: systemTone(system)
   }));
   const signalInsights = signals.slice(0, Math.max(0, 4 - systemInsights.length)).map((signal) => ({
@@ -305,7 +373,7 @@ function matchesMarketFilter(signal: TrendSignal, filterMarket: TrendFilters["ma
   return market.includes(filterMarket) || category.includes(filterMarket);
 }
 
-function matchesSystemMarketFilter(system: TrendSystemRun["systems"][number], filterMarket: TrendFilters["market"]) {
+function matchesSystemMarketFilter(system: System, filterMarket: TrendFilters["market"]) {
   return filterMarket === "ALL" || system.market === filterMarket;
 }
 
@@ -317,41 +385,25 @@ function signalRank(signal: TrendSignal) {
   return pricedBoost + actionableBoost + confidenceScore + edgeScore + signal.qualityScore;
 }
 
-function systemRank(system: TrendSystemRun["systems"][number]) {
+function systemRank(system: SystemWithProvenance) {
+  const provenanceBoost = system.metricsProvenance.source === "saved-ledger" ? 220 : system.metricsProvenance.source === "event-market-backtest" ? 160 : 0;
   const actionBoost = system.actionability === "ACTIVE" ? 160 : system.actionability === "WATCHLIST" ? 100 : 20;
   const matchBoost = Math.min(5, system.activeMatches.length) * 20;
-  return actionBoost + matchBoost + system.metrics.roiPct * 3 + system.metrics.winRatePct + (system.verified ? 25 : 0);
+  return provenanceBoost + actionBoost + matchBoost + system.metrics.roiPct * 3 + system.metrics.winRatePct + (system.verified ? 25 : 0);
 }
 
-export async function buildSignalTrendDashboard(
-  filters: TrendFilters,
-  options?: { mode?: TrendMode; aiQuery?: string }
-): Promise<TrendDashboardView | null> {
+export async function buildSignalTrendDashboard(filters: TrendFilters, options?: { mode?: TrendMode; aiQuery?: string }): Promise<TrendDashboardView | null> {
   const [payload, rawSystemRun] = await Promise.all([
-    buildTrendSignals({
-      league: filters.league === "ALL" ? "ALL" : filters.league,
-      includeResearch: false,
-      includeHidden: true
-    }),
-    buildTrendSystemRun({
-      league: filters.league === "ALL" ? "ALL" : filters.league,
-      includeInactive: true
-    })
+    buildTrendSignals({ league: filters.league === "ALL" ? "ALL" : filters.league, includeResearch: false, includeHidden: true }),
+    buildTrendSystemRun({ league: filters.league === "ALL" ? "ALL" : filters.league, includeInactive: true })
   ]);
+  const { systemRun: ledgerSystemRun, provenanceSummary } = await attachLedgerMetrics(rawSystemRun);
 
-  const signals = payload.signals
-    .filter(isRealGameSignal)
-    .filter((signal) => matchesMarketFilter(signal, filters.market))
-    .sort((left, right) => signalRank(right) - signalRank(left))
-    .slice(0, 40);
-
-  const systemRun: TrendSystemRun = {
-    ...rawSystemRun,
-    systems: rawSystemRun.systems
-      .filter((system) => matchesSystemMarketFilter(system, filters.market))
-      .sort((left, right) => systemRank(right) - systemRank(left))
+  const signals = payload.signals.filter(isRealGameSignal).filter((signal) => matchesMarketFilter(signal, filters.market)).sort((left, right) => signalRank(right) - signalRank(left)).slice(0, 40);
+  const systemRun: TrendSystemRun & { systems: SystemWithProvenance[] } = {
+    ...ledgerSystemRun,
+    systems: ledgerSystemRun.systems.filter((system) => matchesSystemMarketFilter(system, filters.market)).sort((left, right) => systemRank(right) - systemRank(left))
   };
-
   if (!signals.length && !systemRun.systems.length) return null;
 
   const systemCards = systemRun.systems.slice(0, 12).map((system) => systemCard(system, filters));
@@ -369,38 +421,36 @@ export async function buildSignalTrendDashboard(
     aiQuery: options?.aiQuery ?? "",
     aiHelper: null,
     explanation: {
-      headline: `${systemRun.systems.length} published systems and ${signals.length} real current-game trend${signals.length === 1 ? "" : "s"} loaded with proof labels`,
+      headline: `${systemRun.systems.length} published systems and ${signals.length} real current-game trend${signals.length === 1 ? "" : "s"} loaded with ledger-aware proof labels`,
       whyItMatters: topSystem
-        ? `${topSystem.name} leads the system board with ${topSystem.metrics.roiPct > 0 ? "+" : ""}${topSystem.metrics.roiPct.toFixed(1)}% ROI and ${topSystem.activeMatches.length} active match${topSystem.activeMatches.length === 1 ? "" : "es"}. Proof labels now expose whether the card is seeded, price-attached, current-match qualified, and CLV-tracked.`
+        ? `${topSystem.name} leads the system board with ${topSystem.metrics.roiPct > 0 ? "+" : ""}${topSystem.metrics.roiPct.toFixed(1)}% ROI from ${provenanceLabel(topSystem.metricsProvenance.source)} and ${topSystem.activeMatches.length} active match${topSystem.activeMatches.length === 1 ? "" : "es"}.`
         : topSignal
-          ? `${topSignal.matchup ? `${topSignal.matchup.away} @ ${topSignal.matchup.home}` : topSignal.title} leads the board. This view uses current game/team signals only; static fallback cards are excluded and each card declares price/edge proof.`
+          ? `${topSignal.matchup ? `${topSignal.matchup.away} @ ${topSignal.matchup.home}` : topSignal.title} leads the board. This view uses current game/team signals only; static fallback cards are excluded.`
           : "Published systems are loaded, but no current-game sim signals are available yet.",
-      caution: "Historical systems and current-game signals are not automatic bets. Use proof labels, action gates, price checkpoints, injury/news checks, and market confirmation before acting. Verify metric provenance through /api/trends/systems?ledger=true.",
+      caution: `Historical systems and current-game signals are not automatic bets. Metric source is ${provenanceSummary.source}; open rows are excluded from ROI until graded.`,
       queryLogic: [filters.league, filters.market, filters.side, filters.window].filter(Boolean).join(" | ")
     },
     filters,
     cards,
-    metrics: metrics(signals, hiddenStaticCount, systemRun),
+    metrics: metrics(signals, hiddenStaticCount, systemRun, provenanceSummary),
     insights: insights(signals, systemRun),
     movementRows: rows(signals, systemRun),
     segmentRows: [
-      { label: "Proof-labeled cards", movement: `${cards.length} cards`, note: `${pricedSystemCount} published system${pricedSystemCount === 1 ? "" : "s"} currently have price-attached qualifiers. All visible cards now expose source/proof status.`, href: "/trends?mode=power" },
-      { label: "Published systems", movement: `${systemRun.summary.systems} systems`, note: `${systemRun.summary.activeSystems} active systems and ${systemRun.summary.actionableMatches} actionable matches. Metrics default to seeded fallback unless ledger mode confirms otherwise.`, href: "/api/trends/systems?ledger=true" },
-      { label: "System backtests", movement: "ledger check", note: "Attempts DB-backed EventMarket/EventResult grading and returns seeded fallback reason when unavailable.", href: "/api/trends/systems/backtest" },
+      { label: "Ledger-aware cards", movement: `${cards.length} cards`, note: `${provenanceSummary.savedLedgerBacked} saved-ledger · ${provenanceSummary.eventMarketBacked} EventMarket · ${provenanceSummary.seededFallback} seeded. Cards now use verified metrics when available.`, href: "/trends?mode=power" },
+      { label: "Published systems", movement: `${systemRun.summary.systems} systems`, note: `${systemRun.summary.activeSystems} active systems and ${systemRun.summary.actionableMatches} actionable matches.`, href: "/api/trends/systems?ledger=true" },
+      { label: "System backtests", movement: `${provenanceSummary.totalGradedRows}/${provenanceSummary.totalLedgerRows} graded`, note: `${provenanceSummary.totalOpenRows} open rows. Saved-ledger is preferred, EventMarket is fallback, seeded is last resort.`, href: "/api/trends/systems/backtest" },
       { label: "Current games", movement: `${new Set(signals.map((signal) => signal.gameId).filter(Boolean)).size} games`, note: "Real board/sim game signals represented on the trends page.", href: "/trends?mode=signals" },
       { label: "Priced market edges", movement: String(signals.filter((signal) => signal.source === "market-edge").length), note: "Signals with sportsbook/market edge support.", href: "/api/trends?mode=signals&debug=true" },
       { label: "Context-only signals", movement: String(signals.filter((signal) => signal.source === "sim-engine").length), note: "Real game model signals waiting for current price confirmation.", href: "/sim" }
     ],
     todayMatches: liveMatches,
-    todayMatchesNote: liveMatches.length
-      ? `${liveMatches.length} current game/system qualifier${liveMatches.length === 1 ? "" : "s"} attached from the real signal and published-system feeds. Proof labels disclose which ones are price-attached versus watchlist.`
-      : "Systems loaded, but no current game qualifiers were attached.",
+    todayMatchesNote: liveMatches.length ? `${liveMatches.length} current game/system qualifier${liveMatches.length === 1 ? "" : "s"} attached. Proof labels disclose price/provenance.` : "Systems loaded, but no current game qualifiers were attached.",
     savedSystems: [],
     savedTrendName: "",
-    sourceNote: "Showing published SharkEdge systems plus real current game/team trends from the signal engine. Every visible card now carries proof labels for source, price status, current-match status, CLV status, and seeded-vs-current provenance. Static filler cards are disabled.",
+    sourceNote: `Showing published SharkEdge systems plus real current game/team trends. System card metrics now prefer saved-ledger, then EventMarket backtest, then seeded fallback. Current source: ${provenanceSummary.source}.`,
     querySummary: [filters.league, filters.market, filters.side, filters.window].filter(Boolean).join(" | "),
     sampleNote: hiddenStaticCount
-      ? `${hiddenStaticCount} static/non-game signal${hiddenStaticCount === 1 ? " was" : "s were"} excluded so the page shows real games and published systems only. Proof labels now make seeded metrics and price gaps visible.`
-      : "Published system ROI/record is starter seeded fallback unless the ledger API returns source=ledger. Proof labels now make that visible on every card."
+      ? `${hiddenStaticCount} static/non-game signal${hiddenStaticCount === 1 ? " was" : "s were"} excluded. Ledger summary: ${provenanceSummary.totalGradedRows}/${provenanceSummary.totalLedgerRows} graded, ${provenanceSummary.totalOpenRows} open.`
+      : `Ledger summary: ${provenanceSummary.totalGradedRows}/${provenanceSummary.totalLedgerRows} graded, ${provenanceSummary.totalOpenRows} open. Seeded rows remain provisional.`
   };
 }
