@@ -57,6 +57,10 @@
     {
       "path": "/api/trends/systems/grade?limit=500",
       "schedule": "17,47 * * * *"
+    },
+    {
+      "path": "/api/trends/systems/cycle?inactive=true&limit=500",
+      "schedule": "22,52 * * * *"
     }
   ]
 }
