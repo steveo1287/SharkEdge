@@ -147,7 +147,7 @@ function PriorityStack({ rows }: { rows: Row[] }) {
   if (!ordered.length) return null;
   return (
     <section className="grid gap-4">
-      <SectionTitle title="Priority stack" description="The page now leads with cards you can actually scan: decision tier, lean, score, market signal, data quality, and the factor stack." />
+      <SectionTitle title="Priority stack" description="The page leads with the highest-quality reads, while the full slate remains available in the ledger below." />
       <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
         {ordered.map((row) => <RowSummary key={row.game.id} row={row} />)}
       </div>
@@ -156,10 +156,10 @@ function PriorityStack({ rows }: { rows: Row[] }) {
 }
 
 function CompactLedger({ rows }: { rows: Row[] }) {
-  const ordered = sortRows(rows).slice(0, 12);
+  const ordered = sortRows(rows);
   return (
     <section className="grid gap-4">
-      <SectionTitle title="Fast ledger" description="A tight fallback list for the rest of the slate. Open only the games that survive the first scan." />
+      <SectionTitle title="Full slate ledger" description="Every MLB game returned by the scoreboard provider. No display cap." />
       <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/40">
         {ordered.map((row) => {
           const lean = winLean(row.projection);
