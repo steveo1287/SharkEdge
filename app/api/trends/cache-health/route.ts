@@ -4,6 +4,7 @@ import type { LeagueKey, TrendFilters, TrendMode } from "@/lib/types/domain";
 import { trendFiltersSchema } from "@/lib/validation/filters";
 import { getTrendDashboardCacheHealth } from "@/services/trends/dashboard-cache";
 import { readTrendRefreshStatus } from "@/services/trends/refresh-status";
+import { readTrendSystemCycleStatus } from "@/services/trends/trend-system-cycle-status";
 import { buildTrendSignals } from "@/services/trends/trends-engine";
 
 export const runtime = "nodejs";
@@ -51,13 +52,18 @@ export async function GET(request: Request) {
     const aiQuery = url.searchParams.get("q")?.trim() ?? "";
     const savedTrendId = url.searchParams.get("savedTrendId")?.trim() ?? null;
     const includeSignals = url.searchParams.get("signals") === "true";
-    const [health, refreshStatus, signalSummary] = await Promise.all([
+    const [health, refreshStatus, cycleStatus, signalSummary] = await Promise.all([
       getTrendDashboardCacheHealth(filters, { mode, aiQuery, savedTrendId }),
       readTrendRefreshStatus(),
+      readTrendSystemCycleStatus(),
       optionalSignalSummary(filters, includeSignals)
     ]);
+    const cacheReady = health.effectiveStatus !== "cold";
+    const refreshRunning = Boolean(refreshStatus?.running || refreshStatus?.queued);
+    const cycleRunning = Boolean(cycleStatus?.running);
+    const cycleHealthy = Boolean(cycleStatus?.ok || cycleRunning);
     return NextResponse.json({
-      ok: health.effectiveStatus !== "cold" || Boolean(refreshStatus?.running),
+      ok: cacheReady || refreshRunning || cycleHealthy,
       generatedAt: new Date().toISOString(),
       health,
       refreshStatus: refreshStatus ?? {
@@ -69,14 +75,26 @@ export async function GET(request: Request) {
         lastFailureAt: null,
         reason: "No trends refresh status snapshot found."
       },
+      cycleStatus: cycleStatus ?? {
+        running: false,
+        ok: false,
+        lastStartedAt: null,
+        lastSuccessAt: null,
+        lastFailureAt: null,
+        reason: "No trend system cycle status snapshot found."
+      },
       signalSummary,
-      nextAction: health.effectiveStatus !== "cold"
+      nextAction: cacheReady
         ? signalSummary?.totalVisible
-          ? "Trend dashboard cache is usable and real signal output is present."
+          ? cycleHealthy
+            ? "Trend cache is usable, real signals are present, and the trend-system cycle has a status snapshot."
+            : "Trend cache is usable and real signals are present. Run /api/trends/systems/cycle to create a cycle status snapshot."
           : "Trend dashboard cache is usable. Add ?signals=true to inspect real signal counts."
-        : refreshStatus?.running
+        : refreshRunning
           ? "Trend refresh is queued/running; reload health after it completes."
-          : "Run /api/trends/refresh-cache with a valid token to warm trend caches."
+          : cycleRunning
+            ? "Trend system cycle is running; reload health after it completes."
+            : "Run /api/trends/refresh-cache and /api/trends/systems/cycle with valid tokens to warm trends."
     });
   } catch (error) {
     return NextResponse.json({
