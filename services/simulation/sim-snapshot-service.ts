@@ -26,9 +26,10 @@ const MARKET_TTL_SECONDS = 15 * 60;
 const PROJECTION_TIMEOUT_MS = 8_000;
 const MARKET_OVERLAY_TIMEOUT_MS = 12_000;
 
-// Keep snapshots readable after their logical expiry so /sim can show a stale-but-useful slate.
-const FULL_SIM_RETENTION_SECONDS = 6 * 60 * 60;
-const MARKET_RETENTION_SECONDS = 90 * 60;
+// Keep snapshots readable after logical expiry so /sim can show a stale-but-useful slate
+// instead of going blank when an upstream scoreboard/feed hiccups overnight.
+const FULL_SIM_RETENTION_SECONDS = 36 * 60 * 60;
+const MARKET_RETENTION_SECONDS = 6 * 60 * 60;
 const MAX_PRIORITY_ROWS = 80;
 
 export type SimGame = {
@@ -286,6 +287,43 @@ async function writeRefreshStatus(status: Omit<SimRefreshStatusSnapshot, "genera
   );
 }
 
+function emptySummary() {
+  return { gameCount: 0, rowCount: 0, nbaCount: 0, mlbCount: 0, matchedMlbLines: 0 };
+}
+
+async function preserveLastGoodSnapshot(reason: string, args: {
+  generatedAt: string;
+  warnings: string[];
+  sourceStatus: Record<string, unknown>;
+}) {
+  const warnings = [reason, ...args.warnings.filter((warning) => warning !== reason)];
+  const sourceStatus = {
+    ...args.sourceStatus,
+    blankSlateGuard: {
+      ok: false,
+      skippedSnapshotWrites: true,
+      reason
+    }
+  };
+
+  await writeRefreshStatus({
+    ok: false,
+    running: false,
+    lastSuccessAt: null,
+    lastFailureAt: args.generatedAt,
+    reason,
+    warnings,
+    sourceStatus
+  });
+
+  return {
+    ok: false,
+    skippedSnapshotWrites: true,
+    warnings,
+    summary: emptySummary()
+  };
+}
+
 export async function refreshFullSimSnapshots() {
   const startedAt = Date.now();
   const generatedAt = new Date().toISOString();
@@ -315,6 +353,12 @@ export async function refreshFullSimSnapshots() {
     sourceStatus.board = { ok: false, reason };
   }
 
+  if (games.length === 0) {
+    const result = await preserveLastGoodSnapshot("Scoreboard returned zero NBA/MLB games; preserved last successful sim snapshot instead of writing a blank slate.", { generatedAt, warnings, sourceStatus });
+    logTiming("sim-refresh", "total", startedAt);
+    return result;
+  }
+
   const settledStartedAt = Date.now();
   const settled = await Promise.allSettled(
     games.map(async (game) => ({ game, projection: compactProjection(await buildProjectionWithTimeout(game)) }))
@@ -328,6 +372,12 @@ export async function refreshFullSimSnapshots() {
     } else {
       warnings.push(`Projection failed: ${result.reason instanceof Error ? result.reason.message : "unknown projection error"}`);
     }
+  }
+
+  if (rows.length === 0) {
+    const result = await preserveLastGoodSnapshot("Projection batch returned zero successful games; preserved last successful sim snapshot instead of writing a blank slate.", { generatedAt, warnings, sourceStatus });
+    logTiming("sim-refresh", "total", startedAt);
+    return result;
   }
 
   const nbaRows = rows.filter((row) => row.game.leagueKey === "NBA");
@@ -362,6 +412,12 @@ export async function refreshFullSimSnapshots() {
 
   const priorityRows = buildPriorityRows(rows, marketEdges);
   const matchedMlbLines = priorityRows.filter((row) => row.leagueKey === "MLB" && row.edgeMatched).length;
+
+  if (priorityRows.length === 0) {
+    const result = await preserveLastGoodSnapshot("Priority queue generated zero rows; preserved last successful sim snapshot instead of writing a blank slate.", { generatedAt, warnings, sourceStatus });
+    logTiming("sim-refresh", "total", startedAt);
+    return result;
+  }
 
   const nbaBoard: SimBoardSnapshot = { generatedAt, expiresAt: expires, stale: false, games: nbaRows, warnings, sourceStatus };
   const mlbBoard: SimBoardSnapshot = { generatedAt, expiresAt: expires, stale: false, games: mlbRows, warnings, sourceStatus };
