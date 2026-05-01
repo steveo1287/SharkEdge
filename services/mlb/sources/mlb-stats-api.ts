@@ -13,6 +13,25 @@ export type MlbGameData = {
   pitcherOutsAvg?: number | null;
 };
 
+const DEFAULT_MLB_STATS_TIMEOUT_MS = 2500;
+
+function mlbStatsTimeoutMs() {
+  const parsed = Number(process.env.MLB_STATS_API_TIMEOUT_MS ?? DEFAULT_MLB_STATS_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.max(750, Math.floor(parsed)) : DEFAULT_MLB_STATS_TIMEOUT_MS;
+}
+
+async function fetchJsonWithTimeout(url: string) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), mlbStatsTimeoutMs());
+  try {
+    const res = await fetch(url, { cache: "no-store", signal: controller.signal });
+    if (!res.ok) return null;
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function toNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim()) {
@@ -28,9 +47,8 @@ async function fetchPitcherSeasonStats(pitcherId?: number | null) {
   const url = `https://statsapi.mlb.com/api/v1/people/${pitcherId}/stats?stats=season&group=pitching&season=${season}`;
 
   try {
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return {};
-    const json: any = await res.json();
+    const json: any = await fetchJsonWithTimeout(url);
+    if (!json) return {};
     const stat = json?.stats?.[0]?.splits?.[0]?.stat ?? {};
     const strikeouts = toNumber(stat.strikeOuts) ?? 0;
     const battersFaced = toNumber(stat.battersFaced) ?? null;
@@ -59,9 +77,8 @@ export async function fetchMlbGameData(input: {
   const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${date}&hydrate=probablePitcher,team,venue,lineups`;
 
   try {
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return {};
-    const json: any = await res.json();
+    const json: any = await fetchJsonWithTimeout(url);
+    if (!json) return {};
     const games = json?.dates?.flatMap((d: any) => d.games ?? []) ?? [];
     const team = String(input.team ?? "").toUpperCase();
     const game = games.find((g: any) => {
