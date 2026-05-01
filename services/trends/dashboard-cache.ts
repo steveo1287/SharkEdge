@@ -6,7 +6,7 @@ import { getTrendDashboardSafe } from "@/services/trends/get-trend-dashboard-saf
 import { buildFallbackTrendDashboard } from "@/services/trends/fallback-dashboard";
 import { buildSignalTrendDashboard } from "@/services/trends/signal-dashboard";
 
-export const TREND_DASHBOARD_CACHE_VERSION = "v4";
+export const TREND_DASHBOARD_CACHE_VERSION = "v5";
 const TREND_DASHBOARD_CACHE_TTL_SECONDS = 10 * 60;
 const TREND_DASHBOARD_STALE_TTL_SECONDS = 60 * 60;
 const TREND_DASHBOARD_SIMPLE_DEFAULT_CACHE_KEY = `trends:dashboard:default:simple:${TREND_DASHBOARD_CACHE_VERSION}`;
@@ -75,21 +75,98 @@ function withCacheStatusNote(payload: TrendDashboardView, status: FastDashboardR
   const modePayload = mode === "power" ? withPowerLanguage(payload) : payload;
   if (status === "exact") return { ...modePayload, mode, sourceNote: `${modePayload.sourceNote} Cache hit: exact ${mode} dashboard warmed ${generatedAt ? new Date(generatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "recently"}.` };
   if (status === "default") return { ...modePayload, filters: requestedFilters, mode, aiQuery: options.aiQuery ?? modePayload.aiQuery, sourceNote: `${modePayload.sourceNote} Showing the last-good ${mode} default trend cache while this exact filter warms in the background.`, sampleNote: modePayload.sampleNote ?? `Filter-specific ${mode} trend cache was not hot yet, so the page loaded the last-good ${mode} dashboard instead of rebuilding during page render.` };
-  if (status === "live-build") return { ...modePayload, mode, filters: requestedFilters, aiQuery: options.aiQuery ?? modePayload.aiQuery, sourceNote: `${modePayload.sourceNote} Cache was cold, so this request built live cards from the current signal/system feeds and stored them for the next load.` };
+  if (status === "live-build") return { ...modePayload, mode, filters: requestedFilters, aiQuery: options.aiQuery ?? modePayload.aiQuery, sourceNote: `${modePayload.sourceNote} Cache was cold, so this request built live cards from current signals plus historical odds/game-history trend feeds and stored them for the next load.` };
   return modePayload;
 }
 function hasCards(view: TrendDashboardView | null | undefined): view is TrendDashboardView { return Boolean(view && Array.isArray(view.cards) && view.cards.length > 0); }
+
+function dedupeById<T extends { id?: string | null; title?: string | null }>(items: T[]) {
+  const seen = new Set<string>();
+  const output: T[] = [];
+  for (const item of items) {
+    const key = item.id || item.title || JSON.stringify(item).slice(0, 80);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(item);
+  }
+  return output;
+}
+
+function historicalCardScore(card: TrendDashboardView["cards"][number]) {
+  const text = [card.title, card.note, card.explanation, card.whyItMatters, card.dateRange].filter(Boolean).join(" ").toUpperCase();
+  let score = 0;
+  if (/BACKTEST|HISTORICAL|EVENTMARKET|RETROSHEET|SAVED LEDGER|LEDGER VERIFIED/.test(text)) score += 500;
+  if (/2011|FULL STORED RANGE|ALL HISTORY|SEASON/.test(text)) score += 150;
+  score += Math.min(card.sampleSize ?? 0, 500);
+  return score;
+}
+
+function mergeDashboards(args: {
+  filters: TrendFilters;
+  mode: TrendMode;
+  aiQuery: string;
+  signal: TrendDashboardView | null;
+  historical: TrendDashboardView | null;
+  legacy: TrendDashboardView | null;
+}) {
+  const base = args.signal ?? args.historical ?? args.legacy;
+  if (!base) return null;
+
+  const dashboards = [args.historical, args.signal, args.legacy].filter(hasCards);
+  const cards = dedupeById(dashboards.flatMap((dashboard) => dashboard.cards))
+    .sort((left, right) => historicalCardScore(right) - historicalCardScore(left));
+  const metrics = dedupeById(dashboards.flatMap((dashboard) => dashboard.metrics));
+  const insights = dedupeById(dashboards.flatMap((dashboard) => dashboard.insights));
+  const movementRows = dedupeById(dashboards.flatMap((dashboard) => dashboard.movementRows));
+  const segmentRows = dedupeById(dashboards.flatMap((dashboard) => dashboard.segmentRows));
+  const todayMatches = dedupeById(dashboards.flatMap((dashboard) => dashboard.todayMatches ?? []));
+  const savedSystems = dedupeById(dashboards.flatMap((dashboard) => dashboard.savedSystems ?? []));
+
+  const historicalCount = args.historical?.cards?.length ?? 0;
+  const signalCount = args.signal?.cards?.length ?? 0;
+  const legacyCount = args.legacy?.cards?.length ?? 0;
+  const historicalSourceNote = args.historical?.sourceNote ? ` Historical source: ${args.historical.sourceNote}` : "";
+  const legacyNote = args.legacy?.sourceNote ? ` Query-engine source: ${args.legacy.sourceNote}` : "";
+
+  return {
+    ...base,
+    mode: args.mode,
+    aiQuery: args.aiQuery,
+    filters: args.filters,
+    cards,
+    metrics,
+    insights,
+    movementRows,
+    segmentRows,
+    todayMatches,
+    savedSystems,
+    todayMatchesNote: [args.signal?.todayMatchesNote, args.historical?.todayMatchesNote, args.legacy?.todayMatchesNote].filter(Boolean).join(" ") || base.todayMatchesNote,
+    sourceNote: `Merged trend dashboard: ${historicalCount} historical odds/game-history cards + ${signalCount} current signal/system cards + ${legacyCount} query-engine cards. Historical data is now loaded alongside live signals instead of being skipped by the first non-empty feed.${historicalSourceNote}${legacyNote}`,
+    querySummary: [base.querySummary, args.historical?.querySummary, args.legacy?.querySummary].filter(Boolean).join(" | "),
+    sampleNote: [
+      args.historical?.sampleNote,
+      args.signal?.sampleNote,
+      args.legacy?.sampleNote,
+      `Historical-first merge is active; seeded/provisional cards should rank below real saved-ledger/EventMarket/Retrosheet history when those rows exist.`
+    ].filter(Boolean).join(" ")
+  } satisfies TrendDashboardView;
+}
 
 async function buildDashboardPayload(filters: TrendFilters, options: DashboardOptions) {
   const mode = requestedMode(options);
   const aiQuery = options.aiQuery ?? "";
   const savedTrendId = options.savedTrendId ?? null;
-  const signalDashboard = await buildSignalTrendDashboard(filters, { mode, aiQuery }).catch(() => null);
-  if (hasCards(signalDashboard)) return mode === "power" ? withPowerLanguage(signalDashboard) : signalDashboard;
-  const historical = await buildMlbHistoricalTrendDashboard(filters, { mode, aiQuery }).catch(() => null);
-  if (hasCards(historical)) return mode === "power" ? withPowerLanguage(historical) : historical;
-  const dashboard = await getTrendDashboardSafe(filters, { mode, aiQuery, savedTrendId });
-  return mode === "power" ? withPowerLanguage(dashboard) : dashboard;
+  const [signalDashboard, historical, legacyDashboard] = await Promise.all([
+    buildSignalTrendDashboard(filters, { mode, aiQuery }).catch(() => null),
+    buildMlbHistoricalTrendDashboard(filters, { mode, aiQuery }).catch(() => null),
+    getTrendDashboardSafe(filters, { mode, aiQuery, savedTrendId }).catch(() => null)
+  ]);
+
+  const merged = mergeDashboards({ filters, mode, aiQuery, signal: signalDashboard, historical, legacy: legacyDashboard });
+  if (merged) return mode === "power" ? withPowerLanguage(merged) : merged;
+
+  const fallback = buildFallbackTrendDashboard(filters);
+  return mode === "power" ? withPowerLanguage(fallback) : fallback;
 }
 
 async function writeDashboardEnvelope(key: string, filters: TrendFilters, options: DashboardOptions, payload: TrendDashboardView) {
@@ -140,7 +217,7 @@ export async function getFastCachedTrendDashboard(filters: TrendFilters, options
   }
 
   const fallback = buildFallbackTrendDashboard(filters);
-  return { payload: { ...fallback, mode, aiQuery: options.aiQuery ?? "", sourceNote: mode === "power" ? "Power trend cache is cold and no live signal/system cards could be built yet." : "Trend cache is cold and no live signal/system cards could be built yet.", sampleNote: mode === "power" ? "No warmed power dashboard or live signal cards were available yet." : "No warmed dashboard or live signal cards were available yet." }, cacheStatus: "miss", generatedAt: null, expiresAt: null, key };
+  return { payload: { ...fallback, mode, aiQuery: options.aiQuery ?? "", sourceNote: mode === "power" ? "Power trend cache is cold and no live signal/system/historical cards could be built yet." : "Trend cache is cold and no live signal/system/historical cards could be built yet.", sampleNote: mode === "power" ? "No warmed power dashboard, live signal cards, or historical trend cards were available yet." : "No warmed dashboard, live signal cards, or historical trend cards were available yet." }, cacheStatus: "miss", generatedAt: null, expiresAt: null, key };
 }
 
 function cacheHealthFromEnvelope(key: string, envelope: CachedDashboardEnvelope | null | undefined) {
@@ -170,7 +247,7 @@ export async function getTrendDashboardCacheHealth(filters: TrendFilters, option
   const powerDefaultHealth = cacheHealthFromEnvelope(TREND_DASHBOARD_POWER_DEFAULT_CACHE_KEY, powerDefault);
   const legacyDefaultHealth = cacheHealthFromEnvelope(TREND_DASHBOARD_LEGACY_DEFAULT_CACHE_KEY, legacyDefault);
   const effectiveStatus: TrendDashboardCacheHealth["effectiveStatus"] = exactHealth.ready ? "exact" : modeDefaultHealth.ready ? "mode-default" : mode === "simple" && legacyDefaultHealth.ready ? "legacy-default" : "cold";
-  const recommendedAction = effectiveStatus === "exact" ? "Exact trend dashboard cache is warm." : effectiveStatus === "mode-default" ? `Exact cache is cold, but the ${mode} default cache is warm.` : effectiveStatus === "legacy-default" ? "Simple mode is using the legacy default cache. Let the warmer populate the new simple default key." : `The ${mode} trend cache is cold. /trends will now build live cards from signals/systems instead of staying blank.`;
+  const recommendedAction = effectiveStatus === "exact" ? "Exact trend dashboard cache is warm." : effectiveStatus === "mode-default" ? `Exact cache is cold, but the ${mode} default cache is warm.` : effectiveStatus === "legacy-default" ? "Simple mode is using the legacy default cache. Let the warmer populate the new simple default key." : `The ${mode} trend cache is cold. /trends will now build live cards from signals/systems/historical data instead of staying blank.`;
   return { cacheVersion: TREND_DASHBOARD_CACHE_VERSION, requestedMode: mode, exact: exactHealth, modeDefault: modeDefaultHealth, simpleDefault: simpleDefaultHealth, powerDefault: powerDefaultHealth, legacyDefault: legacyDefaultHealth, effectiveStatus, recommendedAction };
 }
 
@@ -189,7 +266,15 @@ export async function warmTrendDashboardCaches(args?: { leagues?: Array<LeagueKe
   const markets = args?.markets?.length ? args.markets : ["ALL", "moneyline", "spread", "total"] as Array<TrendFilters["market"]>;
   const modes: TrendMode[] = args?.mode ? [args.mode] : ["simple", "power"];
   const tasks: Array<() => Promise<{ league: string; market: string; mode: TrendMode; cards: number; ok: boolean; error?: string }>> = [];
-  for (const mode of modes) for (const league of leagues) for (const market of markets) tasks.push(async () => { const filters = baseFilters({ league, market, window: "90d", sample: 10 }); try { const dashboard = await getCachedTrendDashboard(filters, { mode }); return { league, market, mode, cards: dashboard.cards.length, ok: true }; } catch (error) { return { league, market, mode, cards: 0, ok: false, error: error instanceof Error ? error.message : "Failed to warm trend cache." }; } });
+  for (const mode of modes) for (const league of leagues) for (const market of markets) tasks.push(async () => {
+    const filters = baseFilters({ league, market, window: league === "MLB" || league === "ALL" ? "all" : "365d", sample: 10 });
+    try {
+      const dashboard = await getCachedTrendDashboard(filters, { mode });
+      return { league, market, mode, cards: dashboard.cards.length, ok: true };
+    } catch (error) {
+      return { league, market, mode, cards: 0, ok: false, error: error instanceof Error ? error.message : "Failed to warm trend cache." };
+    }
+  });
   const warmed = await runWithConcurrency(tasks, TREND_DASHBOARD_WARM_CONCURRENCY);
   return { generatedAt: new Date().toISOString(), cacheVersion: TREND_DASHBOARD_CACHE_VERSION, ttlSeconds: TREND_DASHBOARD_CACHE_TTL_SECONDS, concurrency: TREND_DASHBOARD_WARM_CONCURRENCY, warmed };
 }
