@@ -274,6 +274,46 @@ function gradeBetResult(
   return "PENDING";
 }
 
+// Compute how much the bet won/lost by (cover margin).
+// Positive = covered/beat by that amount. Null when not determinable.
+// Spread: delta = (team_score + spread) - opponent_score
+// Total OVER: delta = total_points - total_line
+// Total UNDER: delta = total_line - total_points
+// Moneyline: absolute score margin from EventResult
+function computeCoverMargin(
+  event: EventWithTrendData,
+  market: EventWithTrendData["markets"][number],
+  candidate: RuntimeTrendCandidate
+): number | null {
+  const result = event.eventResult;
+  if (!result) return null;
+
+  if (candidate.role === "OVER" || candidate.role === "UNDER") {
+    if (typeof result.totalPoints !== "number" || typeof candidate.totalLine !== "number") return null;
+    const delta = result.totalPoints - candidate.totalLine;
+    return candidate.role === "OVER" ? delta : -delta;
+  }
+
+  if (market.marketType === "moneyline") {
+    if (typeof result.margin !== "number") return null;
+    const won = result.winnerCompetitorId === (market.selectionCompetitorId ?? null);
+    return won ? result.margin : -result.margin;
+  }
+
+  if (market.marketType === "spread") {
+    const homeScore = getScoreByRole(event, "HOME") ?? getScoreByRole(event, "COMPETITOR_A");
+    const awayScore = getScoreByRole(event, "AWAY") ?? getScoreByRole(event, "COMPETITOR_B");
+    const line = getClosingLine(market);
+    if (typeof homeScore !== "number" || typeof awayScore !== "number" || typeof line !== "number") return null;
+    const isHomeSide = candidate.role === "HOME" || candidate.role === "COMPETITOR_A";
+    const adjustedScore = isHomeSide ? homeScore + line : awayScore + line;
+    const opponentScore = isHomeSide ? awayScore : homeScore;
+    return Number((adjustedScore - opponentScore).toFixed(1));
+  }
+
+  return null;
+}
+
 export async function matchTrendToGames(
   rawFilters: unknown,
   options?: { activeOnly?: boolean; limit?: number }
@@ -294,6 +334,7 @@ export async function matchTrendToGames(
       if (!candidateMatchesFilters(candidate, filters)) continue;
       const betResult = gradeBetResult(event, market, candidate, Boolean(options?.activeOnly));
       const unitsWon = getUnitsWon(candidate.oddsAmerican, betResult);
+      const coverMargin = options?.activeOnly ? null : computeCoverMargin(event, market, candidate);
       if (betResult !== "PENDING") {
         cumulativeProfit += unitsWon;
       }
@@ -317,6 +358,7 @@ export async function matchTrendToGames(
         closingLine: getClosingLine(market),
         role: candidate.role,
         todayEligible: Boolean(options?.activeOnly),
+        coverMargin,
         whyMatched: [
           filters.restDays ? `${candidate.restDays ?? "n/a"} days rest` : null,
           filters.backToBack !== null && filters.backToBack !== undefined

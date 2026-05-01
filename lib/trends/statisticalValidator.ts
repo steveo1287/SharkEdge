@@ -59,10 +59,20 @@ export function calculateTrendStats(matches: TrendMatchResult[]): TrendStatsSumm
   const pushes = graded.filter((match) => match.betResult === "P").length;
   const gradedCount = wins + losses;
   const totalGames = graded.length;
+
+  // ROI formula: assume 1 unit risked per bet.
+  // Win on favorite (e.g. -150): profit = 100/150 = 0.667 units
+  // Win on underdog (e.g. +130): profit = 130/100 = 1.30 units
+  // Loss: profit = -1 unit
+  // Push: profit = 0
+  // ROI = (total_profit / total_games_risked) * 100
   const totalProfit = round(graded.reduce((sum, match) => sum + match.unitsWon, 0), 2);
   const roi = totalGames ? round((totalProfit / totalGames) * 100, 2) : 0;
+
+  // Win rate = wins / (wins + losses), excludes pushes
   const winPercentage = gradedCount ? round((wins / gradedCount) * 100, 1) : 0;
 
+  // Current streak: walk backwards from most recent graded result
   let currentStreak = 0;
   let streakType: "W" | "L" | null = null;
   for (let index = graded.length - 1; index >= 0; index -= 1) {
@@ -79,6 +89,39 @@ export function calculateTrendStats(matches: TrendMatchResult[]): TrendStatsSumm
     }
     break;
   }
+
+  // Longest streak: walk forward through all graded results chronologically.
+  // Pushes reset both counters — a push ends a streak.
+  let longestWinStreak = 0;
+  let longestLossStreak = 0;
+  let winRun = 0;
+  let lossRun = 0;
+  for (const match of graded) {
+    const r = match.betResult;
+    if (r === "W") {
+      winRun += 1;
+      lossRun = 0;
+      if (winRun > longestWinStreak) longestWinStreak = winRun;
+    } else if (r === "L") {
+      lossRun += 1;
+      winRun = 0;
+      if (lossRun > longestLossStreak) longestLossStreak = lossRun;
+    } else {
+      winRun = 0;
+      lossRun = 0;
+    }
+  }
+
+  // Average margin of victory: mean cover margin across winning bets that have margin data.
+  // For spreads: positive delta means covered by that many points.
+  // For totals: positive delta means over hit by that many points.
+  // For moneyline: absolute score difference.
+  const winMargins = graded
+    .filter((match) => match.betResult === "W" && typeof match.coverMargin === "number")
+    .map((match) => match.coverMargin as number);
+  const avgMarginOfVictory = winMargins.length
+    ? round(winMargins.reduce((sum, m) => sum + m, 0) / winMargins.length, 2)
+    : null;
 
   const expectedWinRate = gradedCount
     ? graded
@@ -113,6 +156,9 @@ export function calculateTrendStats(matches: TrendMatchResult[]): TrendStatsSumm
     totalProfit,
     currentStreak,
     streakType,
+    longestWinStreak,
+    longestLossStreak,
+    avgMarginOfVictory,
     pValue,
     chiSquareStat,
     isStatisticallySignificant: pValue < 0.05,
