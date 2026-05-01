@@ -1,6 +1,6 @@
 import type { LeagueKey } from "@/lib/types/domain";
 import { applyNbaLearnedCalibrator, getOrTrainNbaLearnedCalibrator, type NbaLearnedCalibrationResult } from "@/services/simulation/nba-learned-calibrator";
-import { compareNbaRealDataIntelligence } from "@/services/simulation/nba-real-data-intelligence";
+import { compareNbaRealDataIntelligence } from "@/services/simulation/nba-real-data-warehouse-first";
 import { getNbaNoVigMarket, type NbaNoVigMarket } from "@/services/simulation/nba-market-sanity";
 import { applyNbaPickHistoryTuner, getOrTrainNbaPickHistoryTuner, type NbaPickHistoryAdjustment } from "@/services/simulation/nba-pick-history-tuner";
 import { type SportOutcomeModel } from "@/services/simulation/probability-models";

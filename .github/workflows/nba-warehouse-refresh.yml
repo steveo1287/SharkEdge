@@ -97,6 +97,11 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=6144
         run: npm run nba:warehouse:features -- --input=data/nba/raw --out=data/nba/warehouse --include-pbp=${INCLUDE_PBPSTATS}
 
+      - name: Build streamed Kaggle player feed
+        env:
+          NODE_OPTIONS: --max-old-space-size=2048
+        run: npm run nba:warehouse:players:stream -- --input=data/nba/raw/PlayerStatistics.csv --out=data/nba/warehouse
+
       - name: Enrich warehouse with current nba_api rows
         env:
           NODE_OPTIONS: --max-old-space-size=4096
@@ -107,7 +112,7 @@ jobs:
           ls -lh data/nba/warehouse || true
           node - <<'NODE'
           const fs = require('fs');
-          const requiredKinds = new Set(['team', 'history', 'rating']);
+          const requiredKinds = new Set(['team', 'player', 'history', 'rating']);
           for (const kind of ['team','player','history','rating']) {
             const file = `data/nba/warehouse/${kind}-feed.json`;
             if (!fs.existsSync(file)) {
@@ -119,9 +124,6 @@ jobs:
             const rows = Array.isArray(body) ? body : body.rows || body.data || body[`${kind}s`] || [];
             console.log(`${kind}: ${rows.length} rows`);
             if (!rows.length && requiredKinds.has(kind)) process.exitCode = 1;
-            if (!rows.length && !requiredKinds.has(kind)) {
-              console.log(`${kind}: warning - zero rows (non-blocking)`);
-            }
           }
           NODE
 

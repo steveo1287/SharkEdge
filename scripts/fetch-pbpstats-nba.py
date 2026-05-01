@@ -36,12 +36,19 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def normalize_game_id(game_id: str) -> str:
+    value = str(game_id).strip()
+    if value.isdigit() and len(value) < 10:
+        return value.zfill(10)
+    return value
+
+
 def game_ids_from_args(args: argparse.Namespace) -> list[str]:
     ids: list[str] = []
     if args.games:
-        ids.extend([item.strip() for item in args.games.split(",") if item.strip()])
+        ids.extend([normalize_game_id(item) for item in args.games.split(",") if item.strip()])
     if args.games_file:
-        ids.extend([line.strip() for line in Path(args.games_file).read_text().splitlines() if line.strip() and not line.startswith("#")])
+        ids.extend([normalize_game_id(line) for line in Path(args.games_file).read_text().splitlines() if line.strip() and not line.startswith("#")])
     unique = list(dict.fromkeys(ids))
     limit = int(args.limit or "0")
     return unique[:limit] if limit > 0 else unique
@@ -75,13 +82,27 @@ def load_json_errors(path: Path) -> list[dict[str, str]]:
     return []
 
 
+def make_source_loader(source: str, data_dir: str) -> Any:
+    from pbpstats.data_loader import StatsNbaPossessionFileLoader, StatsNbaPossessionWebLoader
+
+    if source == "file":
+        return StatsNbaPossessionFileLoader(data_dir)
+    return StatsNbaPossessionWebLoader(data_dir)
+
+
 def load_possessions(game_id: str, source: str, data_dir: str) -> list[Any]:
     try:
         from pbpstats.data_loader import StatsNbaPossessionLoader
     except Exception as exc:  # pragma: no cover - runtime dependency
         raise RuntimeError("Missing pbpstats. Install with: python -m pip install pbpstats") from exc
 
-    loader = StatsNbaPossessionLoader(game_id, source, data_dir)
+    # pbpstats 1.3+ expects a source loader object. Older 1.2 builds accepted
+    # (game_id, source, file_directory). Try the modern signature first and fall back.
+    try:
+        source_loader = make_source_loader(source, data_dir)
+        loader = StatsNbaPossessionLoader(game_id, source_loader)
+    except TypeError:
+        loader = StatsNbaPossessionLoader(game_id, source, data_dir)
     return list(getattr(loader, "items", []) or [])
 
 
