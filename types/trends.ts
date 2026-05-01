@@ -84,7 +84,8 @@ export const trendMatchResultSchema = z.object({
   role: z.string(),
   todayEligible: z.boolean(),
   whyMatched: z.array(z.string()),
-  metadata: z.record(z.string(), z.unknown()).default({})
+  metadata: z.record(z.string(), z.unknown()).default({}),
+  coverMargin: z.number().nullable().optional()
 });
 
 export type TrendMatchResult = z.infer<typeof trendMatchResultSchema>;
@@ -104,7 +105,10 @@ export const trendStatsSummarySchema = z.object({
   isStatisticallySignificant: z.boolean(),
   confidenceScore: z.number(),
   sampleSizeRating: trendSampleSizeRatingSchema,
-  warnings: z.array(z.string())
+  warnings: z.array(z.string()),
+  longestWinStreak: z.number().int().default(0),
+  longestLossStreak: z.number().int().default(0),
+  avgMarginOfVictory: z.number().nullable().default(null)
 });
 
 export type TrendStatsSummary = z.infer<typeof trendStatsSummarySchema>;
