@@ -34,6 +34,57 @@ type FastDashboardResult = {
   key: string;
 };
 
+export type TrendDashboardCacheHealth = {
+  requestedMode: TrendMode;
+  exact: {
+    key: string;
+    ready: boolean;
+    generatedAt: string | null;
+    expiresAt: string | null;
+    ageSeconds: number | null;
+    stale: boolean;
+    cards: number;
+  };
+  modeDefault: {
+    key: string;
+    ready: boolean;
+    generatedAt: string | null;
+    expiresAt: string | null;
+    ageSeconds: number | null;
+    stale: boolean;
+    cards: number;
+  };
+  simpleDefault: {
+    key: string;
+    ready: boolean;
+    generatedAt: string | null;
+    expiresAt: string | null;
+    ageSeconds: number | null;
+    stale: boolean;
+    cards: number;
+  };
+  powerDefault: {
+    key: string;
+    ready: boolean;
+    generatedAt: string | null;
+    expiresAt: string | null;
+    ageSeconds: number | null;
+    stale: boolean;
+    cards: number;
+  };
+  legacyDefault: {
+    key: string;
+    ready: boolean;
+    generatedAt: string | null;
+    expiresAt: string | null;
+    ageSeconds: number | null;
+    stale: boolean;
+    cards: number;
+  };
+  effectiveStatus: "exact" | "mode-default" | "legacy-default" | "cold";
+  recommendedAction: string;
+};
+
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   if (value && typeof value === "object") {
@@ -204,6 +255,67 @@ export async function getFastCachedTrendDashboard(filters: TrendFilters, options
     generatedAt: null,
     expiresAt: null,
     key
+  };
+}
+
+function cacheHealthFromEnvelope(key: string, envelope: CachedDashboardEnvelope | null | undefined) {
+  const generatedAt = envelope?.generatedAt ?? null;
+  const expiresAt = envelope?.expiresAt ?? null;
+  const generated = generatedAt ? new Date(generatedAt) : null;
+  const expires = expiresAt ? new Date(expiresAt) : null;
+  const ageSeconds = generated && Number.isFinite(generated.getTime()) ? Math.max(0, Math.floor((Date.now() - generated.getTime()) / 1000)) : null;
+  const stale = expires && Number.isFinite(expires.getTime()) ? expires.getTime() <= Date.now() : !envelope?.payload;
+  return {
+    key,
+    ready: Boolean(envelope?.payload),
+    generatedAt,
+    expiresAt,
+    ageSeconds,
+    stale,
+    cards: envelope?.payload?.cards?.length ?? 0
+  };
+}
+
+export async function getTrendDashboardCacheHealth(filters: TrendFilters, options: DashboardOptions = {}): Promise<TrendDashboardCacheHealth> {
+  const mode = requestedMode(options);
+  const exactKey = cacheKey(filters, options);
+  const modeDefaultKey = defaultCacheKeyForMode(mode);
+  const [exact, modeDefault, simpleDefault, powerDefault, legacyDefault] = await Promise.all([
+    readHotCache<CachedDashboardEnvelope>(exactKey),
+    readHotCache<CachedDashboardEnvelope>(modeDefaultKey),
+    readHotCache<CachedDashboardEnvelope>(TREND_DASHBOARD_SIMPLE_DEFAULT_CACHE_KEY),
+    readHotCache<CachedDashboardEnvelope>(TREND_DASHBOARD_POWER_DEFAULT_CACHE_KEY),
+    readHotCache<CachedDashboardEnvelope>(TREND_DASHBOARD_LEGACY_DEFAULT_CACHE_KEY)
+  ]);
+  const exactHealth = cacheHealthFromEnvelope(exactKey, exact);
+  const modeDefaultHealth = cacheHealthFromEnvelope(modeDefaultKey, modeDefault);
+  const simpleDefaultHealth = cacheHealthFromEnvelope(TREND_DASHBOARD_SIMPLE_DEFAULT_CACHE_KEY, simpleDefault);
+  const powerDefaultHealth = cacheHealthFromEnvelope(TREND_DASHBOARD_POWER_DEFAULT_CACHE_KEY, powerDefault);
+  const legacyDefaultHealth = cacheHealthFromEnvelope(TREND_DASHBOARD_LEGACY_DEFAULT_CACHE_KEY, legacyDefault);
+  const effectiveStatus: TrendDashboardCacheHealth["effectiveStatus"] = exactHealth.ready
+    ? "exact"
+    : modeDefaultHealth.ready
+      ? "mode-default"
+      : mode === "simple" && legacyDefaultHealth.ready
+        ? "legacy-default"
+        : "cold";
+  const recommendedAction = effectiveStatus === "exact"
+    ? "Exact trend dashboard cache is warm."
+    : effectiveStatus === "mode-default"
+      ? `Exact cache is cold, but the ${mode} default cache is warm.`
+      : effectiveStatus === "legacy-default"
+        ? "Simple mode is using the legacy default cache. Let the warmer populate the new simple default key."
+        : `The ${mode} trend cache is cold. Run /api/trends/refresh-cache or wait for the 10-minute warmer.`;
+
+  return {
+    requestedMode: mode,
+    exact: exactHealth,
+    modeDefault: modeDefaultHealth,
+    simpleDefault: simpleDefaultHealth,
+    powerDefault: powerDefaultHealth,
+    legacyDefault: legacyDefaultHealth,
+    effectiveStatus,
+    recommendedAction
   };
 }
 
