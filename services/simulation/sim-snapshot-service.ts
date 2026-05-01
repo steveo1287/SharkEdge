@@ -9,14 +9,16 @@ import {
 } from "@/services/simulation/mlb-edge-detector";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 
+export const SIM_CACHE_VERSION = "v2";
+
 export const SIM_CACHE_KEYS = {
-  hub: "sim:hub:v1",
-  priority: "sim:priority:v1",
-  nbaBoard: "sim:nba:board:v1",
-  mlbBoard: "sim:mlb:board:v1",
-  lastRefresh: "sim:last-refresh:v1",
-  refreshStatus: "sim:refresh-status:v1",
-  market: "sim:market:v1"
+  hub: `sim:hub:${SIM_CACHE_VERSION}`,
+  priority: `sim:priority:${SIM_CACHE_VERSION}`,
+  nbaBoard: `sim:nba:board:${SIM_CACHE_VERSION}`,
+  mlbBoard: `sim:mlb:board:${SIM_CACHE_VERSION}`,
+  lastRefresh: `sim:last-refresh:${SIM_CACHE_VERSION}`,
+  refreshStatus: `sim:refresh-status:${SIM_CACHE_VERSION}`,
+  market: `sim:market:${SIM_CACHE_VERSION}`
 } as const;
 
 const FULL_SIM_TTL_SECONDS = 75 * 60;
@@ -27,7 +29,7 @@ const MARKET_OVERLAY_TIMEOUT_MS = 12_000;
 // Keep snapshots readable after their logical expiry so /sim can show a stale-but-useful slate.
 const FULL_SIM_RETENTION_SECONDS = 6 * 60 * 60;
 const MARKET_RETENTION_SECONDS = 90 * 60;
-const MAX_PRIORITY_ROWS = 10;
+const MAX_PRIORITY_ROWS = 80;
 
 export type SimGame = {
   id: string;
@@ -289,7 +291,7 @@ export async function refreshFullSimSnapshots() {
   const generatedAt = new Date().toISOString();
   const expires = expiresAt(FULL_SIM_TTL_SECONDS);
   const warnings: string[] = [];
-  const sourceStatus: Record<string, unknown> = {};
+  const sourceStatus: Record<string, unknown> = { cacheVersion: SIM_CACHE_VERSION };
 
   await writeRefreshStatus({
     ok: true,
@@ -297,7 +299,7 @@ export async function refreshFullSimSnapshots() {
     lastSuccessAt: null,
     lastFailureAt: null,
     warnings: [],
-    sourceStatus: { phase: "running" }
+    sourceStatus: { phase: "running", cacheVersion: SIM_CACHE_VERSION }
   });
 
   let games: SimGame[] = [];
@@ -430,7 +432,7 @@ export async function refreshSimMarketSnapshot() {
   const generatedAt = new Date().toISOString();
   const expires = expiresAt(MARKET_TTL_SECONDS);
   const warnings: string[] = [];
-  const sourceStatus: Record<string, unknown> = {};
+  const sourceStatus: Record<string, unknown> = { cacheVersion: SIM_CACHE_VERSION };
 
   try {
     const cacheStartedAt = Date.now();
