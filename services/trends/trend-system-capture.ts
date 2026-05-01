@@ -266,7 +266,6 @@ async function captureMatch(definitionId: string, match: TrendSystemMatch, cumul
     side: match.side,
     selection: match.side,
     market: match.market,
-    price: match.price,
     fairProbability: match.fairProbability,
     edgePct: match.edgePct,
     confidencePct: match.confidencePct,
