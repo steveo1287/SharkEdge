@@ -6,6 +6,7 @@ import type {
   PropCardView
 } from "@/lib/types/domain";
 import type { OpportunityView } from "@/lib/types/opportunity";
+import { buildUpcomingScheduleBoardData } from "@/services/events/upcoming-schedule-service";
 import { recordSurfacedOpportunities } from "@/services/opportunities/opportunity-clv-service";
 import { getOpportunityBookLeadershipResolver } from "@/services/opportunities/opportunity-book-leadership";
 import { getOpportunityCloseDestinationResolver } from "@/services/opportunities/opportunity-close-destination";
@@ -191,6 +192,36 @@ function filterHomeBoardDataByDate(boardData: BoardPageData, resolvedDate: strin
   };
 }
 
+function hasHomeRows(boardData: BoardPageData) {
+  return boardData.games.length > 0 || boardData.sportSections.some((section) => section.scoreboard.length > 0);
+}
+
+function isScheduleLookaheadData(boardData: BoardPageData) {
+  return boardData.sourceNote.toLowerCase().includes("schedule lookahead");
+}
+
+async function loadScheduleLookahead(args: {
+  oddsService: typeof import("@/services/odds/board-service");
+  selectedLeague: HomeLeagueScope;
+  boardFilters: BoardFilters;
+  resolvedDate?: string;
+}) {
+  const lookaheadData = await buildUpcomingScheduleBoardData(args.boardFilters, {
+    daysAhead: args.selectedLeague === "NFL" || args.selectedLeague === "NCAAF" ? 21 : 7
+  });
+  const filtered = args.resolvedDate
+    ? filterHomeBoardDataByDate(lookaheadData, args.resolvedDate)
+    : lookaheadData;
+
+  return {
+    boardFilters: args.boardFilters,
+    boardData: {
+      ...filtered,
+      filters: args.boardFilters
+    }
+  };
+}
+
 async function loadHomeBoardData(args: {
   oddsService: typeof import("@/services/odds/board-service");
   selectedLeague: HomeLeagueScope;
@@ -204,14 +235,21 @@ async function loadHomeBoardData(args: {
     market: "all",
     status: "all"
   });
+
+  if (args.selectedDate === "upcoming") {
+    return loadScheduleLookahead({
+      oddsService: args.oddsService,
+      selectedLeague: args.selectedLeague,
+      boardFilters
+    });
+  }
+
   const rawBoardData = await args.oddsService.getBoardPageData(boardFilters);
   const filteredBoardData = filterHomeBoardDataByDate(rawBoardData, boardFilters.date);
 
   if (
-    args.selectedDate !== "upcoming" &&
     isResolvedHomeDate(boardFilters.date) &&
-    filteredBoardData.games.length === 0 &&
-    filteredBoardData.sportSections.every((section) => section.scoreboard.length === 0)
+    !hasHomeRows(filteredBoardData)
   ) {
     const fallbackFilters = args.oddsService.parseBoardFilters({
       league: args.selectedLeague,
@@ -223,10 +261,7 @@ async function loadHomeBoardData(args: {
     const fallbackRaw = await args.oddsService.getBoardPageData(fallbackFilters);
     const fallbackFiltered = filterHomeBoardDataByDate(fallbackRaw, boardFilters.date);
 
-    if (
-      fallbackFiltered.games.length > 0 ||
-      fallbackFiltered.sportSections.some((section) => section.scoreboard.length > 0)
-    ) {
+    if (hasHomeRows(fallbackFiltered)) {
       return {
         boardFilters,
         boardData: {
@@ -235,6 +270,25 @@ async function loadHomeBoardData(args: {
           liveMessage:
             fallbackFiltered.liveMessage ??
             `Loaded ${formatHomeDateLabel(args.selectedDate).toLowerCase()} slate from upcoming inventory after the dated feed returned empty.`
+        }
+      };
+    }
+
+    const scheduleLookahead = await loadScheduleLookahead({
+      oddsService: args.oddsService,
+      selectedLeague: args.selectedLeague,
+      boardFilters,
+      resolvedDate: boardFilters.date
+    });
+
+    if (hasHomeRows(scheduleLookahead.boardData)) {
+      return {
+        boardFilters,
+        boardData: {
+          ...scheduleLookahead.boardData,
+          liveMessage:
+            scheduleLookahead.boardData.liveMessage ??
+            `Loaded ${formatHomeDateLabel(args.selectedDate).toLowerCase()} schedule from lookahead feed after the dated market feed returned empty.`
         }
       };
     }
@@ -298,7 +352,8 @@ function getMovementGames(games: GameCardView[]) {
 
 function getVerifiedGames(
   games: GameCardView[],
-  boardTop: OpportunityView[]
+  boardTop: OpportunityView[],
+  includeScheduleRows = false
 ) {
   const rankedGames = Array.from(
     new Map(
@@ -311,7 +366,16 @@ function getVerifiedGames(
     ).values()
   );
 
-  return (rankedGames.length ? rankedGames : games.filter(isVerifiedGame)).slice(0, 8);
+  if (rankedGames.length) {
+    return rankedGames.slice(0, 8);
+  }
+
+  const verified = games.filter(isVerifiedGame);
+  if (verified.length) {
+    return verified.slice(0, 8);
+  }
+
+  return includeScheduleRows ? games.slice(0, 8) : [];
 }
 
 function buildLiveDeskState(boardData: BoardPageData) {
@@ -427,6 +491,7 @@ export async function getHomeCommandData(
   }).catch(() => []);
 
   const liveDeskState = buildLiveDeskState(boardData);
+  const includeScheduleRows = selectedDate === "upcoming" || isScheduleLookaheadData(boardData);
 
   return {
     selectedLeague,
@@ -442,7 +507,7 @@ export async function getHomeCommandData(
     deskStatusState: liveDeskState.deskStatusState,
     deskStatusLabel: liveDeskState.deskStatusLabel,
     deskSourceNote: liveDeskState.deskSourceNote,
-    verifiedGames: getVerifiedGames(boardData.games, opportunitySnapshot.boardTop),
+    verifiedGames: getVerifiedGames(boardData.games, opportunitySnapshot.boardTop, includeScheduleRows),
     movementGames: getMovementGames(
       liveDeskState.liveDeskAvailable ? boardData.games : []
     ),
