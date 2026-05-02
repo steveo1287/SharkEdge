@@ -27,6 +27,8 @@ type SafeTrendFeed = {
   sections: PublishedTrendSection[];
 };
 
+type HomeDeskDateKey = Parameters<typeof formatHomeDateLabel>[0];
+
 const VALID_TREND_LEAGUES: Array<NonNullable<TrendFilters["league"]>> = ["ALL", "NBA", "MLB", "NHL", "NFL", "NCAAF", "BOXING", "UFC"];
 const PRIMARY_LEAGUES = new Set(["ALL", "NBA", "MLB", "NHL", "NFL", "UFC"]);
 
@@ -160,7 +162,7 @@ function Kpi({ label, value, tone = "default" }: { label: string; value: string 
   );
 }
 
-function PrimaryCard({ item, selectedDate, lookaheadMode }: { item: any; selectedDate: string; lookaheadMode: boolean }) {
+function PrimaryCard({ item, selectedDate, lookaheadMode }: { item: any; selectedDate: HomeDeskDateKey; lookaheadMode: boolean }) {
   const href = item ? `/game/${item.eventId}` : lookaheadMode ? "/?date=upcoming" : "/board";
   const title = item?.selectionLabel ?? (lookaheadMode ? "Schedule lookahead ready" : "No primary signal yet");
   const league = item?.league ?? (lookaheadMode ? "Schedule" : "Slate");
