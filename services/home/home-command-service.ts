@@ -191,6 +191,61 @@ function filterHomeBoardDataByDate(boardData: BoardPageData, resolvedDate: strin
   };
 }
 
+async function loadHomeBoardData(args: {
+  oddsService: typeof import("@/services/odds/board-service");
+  selectedLeague: HomeLeagueScope;
+  selectedDate: HomeDeskDateKey;
+}) {
+  const resolvedDate = resolveBoardDate(args.selectedDate);
+  const boardFilters = args.oddsService.parseBoardFilters({
+    league: args.selectedLeague,
+    date: resolvedDate,
+    sportsbook: "best",
+    market: "all",
+    status: "all"
+  });
+  const rawBoardData = await args.oddsService.getBoardPageData(boardFilters);
+  const filteredBoardData = filterHomeBoardDataByDate(rawBoardData, boardFilters.date);
+
+  if (
+    args.selectedDate !== "upcoming" &&
+    isResolvedHomeDate(boardFilters.date) &&
+    filteredBoardData.games.length === 0 &&
+    filteredBoardData.sportSections.every((section) => section.scoreboard.length === 0)
+  ) {
+    const fallbackFilters = args.oddsService.parseBoardFilters({
+      league: args.selectedLeague,
+      date: "all",
+      sportsbook: "best",
+      market: "all",
+      status: "all"
+    });
+    const fallbackRaw = await args.oddsService.getBoardPageData(fallbackFilters);
+    const fallbackFiltered = filterHomeBoardDataByDate(fallbackRaw, boardFilters.date);
+
+    if (
+      fallbackFiltered.games.length > 0 ||
+      fallbackFiltered.sportSections.some((section) => section.scoreboard.length > 0)
+    ) {
+      return {
+        boardFilters,
+        boardData: {
+          ...fallbackFiltered,
+          filters: boardFilters,
+          liveMessage:
+            fallbackFiltered.liveMessage ??
+            `Loaded ${formatHomeDateLabel(args.selectedDate).toLowerCase()} slate from upcoming inventory after the dated feed returned empty.`
+        }
+      };
+    }
+  }
+
+  return {
+    boardFilters,
+    boardData: filteredBoardData
+  };
+}
+
 function isVerifiedGame(game: GameCardView) {
   return (
     game.bestBookCount > 0 &&
@@ -308,19 +363,10 @@ export async function getHomeCommandData(
   const oddsService = await import("@/services/odds/board-service");
   const propsService = await import("@/services/odds/props-service");
 
-  const boardFilters = oddsService.parseBoardFilters({
-    league: selectedLeague,
-    date: resolveBoardDate(selectedDate),
-    sportsbook: "best",
-    market: "all",
-    status: "all"
-  });
-
-  const [rawBoardData, topProps] = await Promise.all([
-    oddsService.getBoardPageData(boardFilters),
+  const [{ boardFilters, boardData }, topProps] = await Promise.all([
+    loadHomeBoardData({ oddsService, selectedLeague, selectedDate }),
     propsService.getTopPlayCards(6)
   ]);
-  const boardData = filterHomeBoardDataByDate(rawBoardData, boardFilters.date);
 
   const [
     truthCalibrationResolver,
