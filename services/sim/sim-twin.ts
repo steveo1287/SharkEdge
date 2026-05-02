@@ -4,6 +4,7 @@ import { buildScenarioSet, applyScenario, isScenarioKey, type ScenarioDelta, typ
 import { buildSeasonImpact, type SeasonImpactSnapshot } from "@/services/sim/season-impact";
 import { getModelTrustGrade, type ModelTrustSnapshot } from "@/services/sim/model-trust-grade";
 import { compareModelToMarket } from "@/services/sim/market-benchmark";
+import { buildSimTwinCommandQueue } from "@/services/sim/sim-twin-command-queue";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 
 type BoardGame = {
@@ -236,6 +237,7 @@ export async function listSimTwins(args: { league?: string | null; limit?: numbe
     generatedAt: new Date().toISOString(),
     league: normalizeLeague(args.league),
     count: twins.length,
+    commandQueue: buildSimTwinCommandQueue(twins),
     twins
   };
 }
