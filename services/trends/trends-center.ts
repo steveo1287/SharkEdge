@@ -84,6 +84,54 @@ function matchActionability(match: TrendMatch | undefined) {
   return String(match?.actionability ?? "").toUpperCase();
 }
 
+function formatRecord(system: PublishedTrendSystem) {
+  return `${system.metrics.wins}-${system.metrics.losses}${system.metrics.pushes ? `-${system.metrics.pushes}` : ""}`;
+}
+
+function systemRules(system: PublishedTrendSystem) {
+  return system.rules.map((rule) => ({
+    key: rule.key,
+    label: rule.label,
+    operator: rule.operator,
+    value: rule.value,
+    text: `${rule.label} ${rule.operator} ${String(rule.value)}`
+  }));
+}
+
+function proofGrade(system: PublishedTrendSystem) {
+  const sample = system.metrics.sampleSize;
+  if (system.verified && sample >= 150 && system.metrics.roiPct > 10) return "A";
+  if (system.verified && sample >= 100 && system.metrics.roiPct > 5) return "B";
+  if (system.verified && sample >= 75) return "C";
+  return "PROVISIONAL";
+}
+
+function proofPacket(system: PublishedTrendSystem) {
+  return {
+    grade: proofGrade(system),
+    source: system.source,
+    verified: system.verified,
+    risk: system.risk,
+    category: system.category,
+    description: system.description,
+    record: formatRecord(system),
+    wins: system.metrics.wins,
+    losses: system.metrics.losses,
+    pushes: system.metrics.pushes,
+    sampleSize: system.metrics.sampleSize,
+    profitUnits: system.metrics.profitUnits,
+    roiPct: system.metrics.roiPct,
+    winRatePct: system.metrics.winRatePct,
+    currentStreak: system.metrics.currentStreak,
+    last30WinRatePct: system.metrics.last30WinRatePct,
+    clvPct: system.metrics.clvPct,
+    seasons: system.metrics.seasons,
+    rules: systemRules(system),
+    filters: system.filters,
+    summary: `${formatRecord(system)} · ${system.metrics.profitUnits > 0 ? "+" : ""}${system.metrics.profitUnits}u · ${system.metrics.roiPct}% ROI · ${system.metrics.winRatePct}% hit rate`
+  };
+}
+
 function promotionScore(system: PublishedTrendSystem) {
   let score = 0;
   const activeMatches = system.activeMatches.length;
@@ -97,7 +145,11 @@ function promotionScore(system: PublishedTrendSystem) {
   if (category.includes("MARKET")) score += 30;
   if (category.includes("SITUATION") || category.includes("SYSTEM")) score += 20;
   if (!activeMatches) score -= 180;
-  return score;
+  score += Math.min(80, Math.max(0, system.metrics.roiPct * 2));
+  score += Math.min(45, Math.max(0, (system.metrics.winRatePct - 50) * 2));
+  score += Math.min(35, Math.max(0, system.metrics.last30WinRatePct - 50));
+  if (system.metrics.currentStreak.toUpperCase().startsWith("W")) score += 12;
+  return Math.round(score);
 }
 
 function matchupTrendScore(system: PublishedTrendSystem, match: TrendMatch) {
@@ -124,6 +176,8 @@ function systemBlockers(system: PublishedTrendSystem) {
   if (!system.activeMatches.length) blockers.push("no-current-qualifier");
   if (!system.verified) blockers.push("needs-ledger-proof");
   if (!(actionability.includes("ACTIVE") || actionability.includes("REVIEW"))) blockers.push("action-gate-not-active");
+  if (system.metrics.sampleSize < 75) blockers.push("small-sample");
+  if (system.metrics.roiPct <= 0) blockers.push("non-positive-roi");
   return blockers;
 }
 
@@ -157,6 +211,7 @@ function promotionReason(system: PublishedTrendSystem) {
   else parts.push("no current qualifier");
   parts.push(system.verified ? "verified" : "unverified/provisional");
   parts.push(`${systemActionability(system).toLowerCase() || "unknown"} action gate`);
+  parts.push(proofPacket(system).summary);
   return parts.join(" · ");
 }
 
@@ -172,6 +227,7 @@ function buildPromotionRows(systems: PublishedTrendSystem[]) {
       actionability: system.actionability,
       activeMatches: system.activeMatches.length,
       verified: system.verified,
+      proof: proofPacket(system),
       score: promotionScore(system),
       tier: promotionTier(system),
       blockers: systemBlockers(system),
@@ -184,6 +240,7 @@ function buildPromotionRows(systems: PublishedTrendSystem[]) {
 }
 
 function buildTrendRow(system: PublishedTrendSystem, match: TrendMatch) {
+  const proof = proofPacket(system);
   return {
     id: `${system.id}:${match.gameId}`,
     systemId: system.id,
@@ -194,11 +251,12 @@ function buildTrendRow(system: PublishedTrendSystem, match: TrendMatch) {
     side: match.side,
     actionability: match.actionability,
     verified: system.verified,
+    proof,
     price: match.price,
     edgePct: match.edgePct,
     confidencePct: match.confidencePct,
     fairProbability: match.fairProbability,
-    reasons: match.reasons,
+    reasons: [...match.reasons, proof.summary, `Rules: ${proof.rules.map((rule) => rule.text).join(" + ")}`],
     score: matchupTrendScore(system, match),
     blockers: matchBlockers(system, match),
     primaryAction: matchPrimaryAction(system, match),
@@ -243,6 +301,8 @@ function buildMatchupsByLeague(systems: PublishedTrendSystem[]) {
     const verifiedTrends = trends.filter((trend) => trend.verified).length;
     const activeTrends = trends.filter((trend) => String(trend.actionability).toUpperCase().includes("ACTIVE")).length;
     const blockedTrends = trends.filter((trend) => trend.blockers.length > 0).length;
+    const bestRoiPct = trends.reduce((max, trend) => Math.max(max, trend.proof.roiPct), Number.NEGATIVE_INFINITY);
+    const bestProfitUnits = trends.reduce((max, trend) => Math.max(max, trend.proof.profitUnits), Number.NEGATIVE_INFINITY);
     return {
       ...matchup,
       trendCount: trends.length,
@@ -252,6 +312,8 @@ function buildMatchupsByLeague(systems: PublishedTrendSystem[]) {
       activeTrends,
       blockedTrends,
       topScore,
+      bestRoiPct: Number.isFinite(bestRoiPct) ? bestRoiPct : null,
+      bestProfitUnits: Number.isFinite(bestProfitUnits) ? bestProfitUnits : null,
       trends: trends.slice(0, MATCHUP_TREND_LIMIT),
       allTrends: trends
     };
@@ -412,6 +474,7 @@ export async function buildTrendsCenterSnapshot() {
       byPromotionTier: countBy(allPromotionRows.map((system) => system.tier)),
       byBlocker: countBy(allPromotionRows.flatMap((system) => system.blockers)),
       byPrimaryAction: countBy(allPromotionRows.map((system) => system.primaryAction)),
+      byProofGrade: countBy(allPromotionRows.map((system) => system.proof.grade)),
       byMatchupLeague: Object.fromEntries(matchupsByLeague.map((league) => [league.league, league.matchupCount])),
       savedBySport: countBy(savedActive.map((row) => row.sport)),
       savedByLeague: countBy(savedActive.map((row) => row.filters.league)),
@@ -438,6 +501,7 @@ export async function buildTrendsCenterSnapshot() {
       actionability: system.actionability,
       activeMatches: system.activeMatches.length,
       verified: system.verified,
+      proof: proofPacket(system),
       href: systemHref(system)
     })),
     promotionBoard,
