@@ -2,6 +2,7 @@ import type { LeagueKey } from "@/lib/types/domain";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { getNbaFourFactorsControl, type NbaFourFactorsControl } from "@/services/simulation/nba-four-factors-control";
 import { getNbaRotationLock, type NbaRotationLock } from "@/services/simulation/nba-rotation-lock";
+import { getNbaScheduleContextControl, type NbaScheduleContextControl } from "@/services/simulation/nba-schedule-context-control";
 import { buildNbaWinnerConfidence, type NbaWinnerConfidence } from "@/services/simulation/nba-winner-confidence";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 
@@ -15,9 +16,10 @@ export type NbaSimControlSnapshot = {
   matchup: { away: string; home: string };
   rotationLock: NbaRotationLock | null;
   fourFactors: NbaFourFactorsControl | null;
+  scheduleContext: NbaScheduleContextControl | null;
   winnerConfidence: NbaWinnerConfidence | null;
   formula: {
-    version: "nba-sim-control-v2";
+    version: "nba-sim-control-v3";
     model: string;
     inputs: string[];
     notes: string[];
@@ -44,6 +46,11 @@ async function findGame(gameId: string): Promise<SimGame | null> {
 export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimControlSnapshot> {
   const projection = await buildSimProjection(game);
   const matchup = projection.matchup ?? parseMatchup(game.label);
+  const scheduleContext = getNbaScheduleContextControl({
+    awayTeam: matchup.away,
+    homeTeam: matchup.home,
+    gameTime: game.startTime
+  });
   const [rotationLock, fourFactors] = await Promise.all([
     getNbaRotationLock(matchup.away, matchup.home),
     getNbaFourFactorsControl(matchup.away, matchup.home)
@@ -58,6 +65,7 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
       matchup,
       rotationLock,
       fourFactors,
+      scheduleContext,
       winnerConfidence: null,
       formula: baseFormula(),
       error: "NBA real-data reality intelligence is unavailable for this game."
@@ -79,6 +87,7 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
     matchup,
     rotationLock,
     fourFactors,
+    scheduleContext,
     winnerConfidence,
     formula: baseFormula()
   };
@@ -86,22 +95,22 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
 
 function baseFormula(): NbaSimControlSnapshot["formula"] {
   return {
-    version: "nba-sim-control-v2",
-    model: "calibrated probability = market-aware model probability + learned/history correction + rotation certainty gate + Four Factors matchup control",
+    version: "nba-sim-control-v3",
+    model: "calibrated probability = market-aware model probability + learned/history correction + rotation certainty gate + Four Factors matchup control + schedule context control",
     inputs: [
       "team efficiency and net rating",
       "player impact and projected minutes",
       "rotation availability and usage redistribution",
       "Four Factors: shot quality/eFG, turnovers, rebounding, and free-throw pressure",
       "offense-vs-defense matchup edges for each factor",
-      "rest/travel/location/context factors",
+      "rest days, back-to-back risk, game compression, travel tax, altitude context, and location",
       "no-vig market probability baseline",
       "learned calibration and graded-pick history tuner",
       "volatility and source-health penalties"
     ],
     notes: [
       "Confidence is separated from win probability.",
-      "Low lineup certainty, high usage redistribution, missing market baseline, weak Four Factors confidence, and calibration-pass flags reduce trust.",
+      "Low lineup certainty, high usage redistribution, missing market baseline, weak Four Factors confidence, schedule-context uncertainty, and calibration-pass flags reduce trust.",
       "This layer does not replace the existing projection engine; it adds model-quality controls that can be surfaced by Sim Twin and NBA review pages."
     ]
   };
@@ -118,6 +127,7 @@ export async function getNbaSimControl(gameId: string): Promise<NbaSimControlSna
       matchup: { away: "Away", home: "Home" },
       rotationLock: null,
       fourFactors: null,
+      scheduleContext: null,
       winnerConfidence: null,
       formula: baseFormula(),
       error: "NBA game not found in current board data."
