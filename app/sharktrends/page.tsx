@@ -22,6 +22,24 @@ function Tile({ label, value, note, tone = "neutral" }: { label: string; value: 
   );
 }
 
+function unitsLabel(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "TBD";
+  return `${value > 0 ? "+" : ""}${value}u`;
+}
+
+function pctLabel(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "TBD";
+  return `${value}%`;
+}
+
+function proofClass(grade: string | null | undefined) {
+  const value = String(grade ?? "").toUpperCase();
+  if (value === "A") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
+  if (value === "B") return "border-sky-400/25 bg-sky-400/10 text-sky-200";
+  if (value === "C") return "border-cyan-400/25 bg-cyan-400/10 text-cyan-200";
+  return "border-amber-300/25 bg-amber-300/10 text-amber-100";
+}
+
 function tierClass(tier: string) {
   if (tier === "promote") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
   if (tier === "watch") return "border-sky-400/25 bg-sky-400/10 text-sky-200";
@@ -68,6 +86,7 @@ function LaneCard({ item }: { item: any }) {
         <div className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${tierClass(item.tier)}`}>{item.score}</div>
       </div>
       <div className="mt-1 text-xs leading-5 text-slate-400">{item.reason}</div>
+      {item.proof ? <div className="mt-2 text-[11px] leading-5 text-cyan-100/75">{item.proof.summary}</div> : null}
       <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] uppercase tracking-[0.12em] text-slate-500">
         <span>{item.primaryAction}</span>
         {item.blockers?.length ? item.blockers.map((blocker: string) => <span key={blocker}>· {blocker}</span>) : <span>· clear</span>}
@@ -95,6 +114,40 @@ function PlacementLane({ title, description, tier, items }: { title: string; des
   );
 }
 
+function CuratedRail({ title, description, items }: { title: string; description: string; items: any[] }) {
+  return (
+    <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">{title}</div>
+          <div className="mt-1 text-xs leading-5 text-slate-400">{description}</div>
+        </div>
+        <div className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{items.length}</div>
+      </div>
+      <div className="mt-4 grid gap-3 xl:grid-cols-3">
+        {items.length ? items.slice(0, 6).map((item) => (
+          <a key={`${title}-${item.id}`} href={item.href} className="rounded-2xl border border-white/10 bg-black/25 p-4 hover:border-cyan-300/30">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-white">{item.name}</div>
+                <div className="mt-1 text-xs leading-5 text-slate-500">{item.league} · {item.market} · {item.category}</div>
+              </div>
+              <div className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${proofClass(item.proof?.grade)}`}>Grade {item.proof?.grade ?? "P"}</div>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+              <span>{item.proof?.record ?? "Record TBD"}</span>
+              <span>{unitsLabel(item.proof?.profitUnits)}</span>
+              <span>{pctLabel(item.proof?.roiPct)} ROI</span>
+              <span>{pctLabel(item.proof?.winRatePct)} hit</span>
+            </div>
+            <div className="mt-3 text-xs leading-5 text-slate-400">{item.proof?.description ?? item.reason}</div>
+          </a>
+        )) : <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-500">No systems in this rail yet.</div>}
+      </div>
+    </section>
+  );
+}
+
 function MatchupTrendTile({ trend }: { trend: any }) {
   return (
     <a href={trend.href} className="rounded-xl border border-white/10 bg-black/25 p-3 hover:border-cyan-300/30">
@@ -108,6 +161,12 @@ function MatchupTrendTile({ trend }: { trend: any }) {
         <span>{priceLabel(trend.price)}</span>
         <span>{trend.edgePct == null ? "edge TBD" : `${trend.edgePct}% edge`}</span>
       </div>
+      {trend.proof ? <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-cyan-100/75 sm:grid-cols-4">
+        <span>{trend.proof.record}</span>
+        <span>{unitsLabel(trend.proof.profitUnits)}</span>
+        <span>{pctLabel(trend.proof.roiPct)} ROI</span>
+        <span>Grade {trend.proof.grade}</span>
+      </div> : null}
       <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] uppercase tracking-[0.12em] text-slate-500">
         <span>{trend.verified ? "verified" : "provisional"}</span>
         <span>score {trend.score}</span>
@@ -124,6 +183,7 @@ function MatchupTile({ matchup }: { matchup: any }) {
         <div>
           <a href={matchup.href} className="text-base font-semibold text-white hover:text-cyan-100">{matchup.eventLabel}</a>
           <div className="mt-1 text-xs leading-5 text-slate-500">{formatTime(matchup.startTime)} · {matchup.status}</div>
+          <div className="mt-1 text-xs leading-5 text-cyan-100/70">Best ROI {pctLabel(matchup.bestRoiPct)} · Best profit {unitsLabel(matchup.bestProfitUnits)}</div>
         </div>
         <div className="flex flex-wrap gap-1.5">
           <span className="rounded-full border border-cyan-400/25 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-200">{matchup.trendCount} trends</span>
@@ -168,6 +228,11 @@ export default async function SharkTrendsPage() {
   const coverage = snapshot.coverage;
   const boardLimit = snapshot.thresholds?.promotionBoardLimit ?? board.length;
   const hiddenBoardRows = Math.max(0, (counts.allPromotionRows ?? board.length) - board.length);
+  const allRows = snapshot.allPromotionRows ?? [];
+  const mostProfitable = [...allRows].sort((left: any, right: any) => (right.proof?.profitUnits ?? 0) - (left.proof?.profitUnits ?? 0));
+  const undefeated = allRows.filter((item: any) => (item.proof?.losses ?? 1) === 0 || String(item.proof?.currentStreak ?? "").toUpperCase().startsWith("W")).sort((left: any, right: any) => (right.proof?.winRatePct ?? 0) - (left.proof?.winRatePct ?? 0));
+  const hotTeam = allRows.filter((item: any) => String(item.category ?? "").toLowerCase().includes("hot") || (item.proof?.last30WinRatePct ?? 0) >= 60).sort((left: any, right: any) => (right.proof?.last30WinRatePct ?? 0) - (left.proof?.last30WinRatePct ?? 0));
+  const verified = allRows.filter((item: any) => item.verified).sort((left: any, right: any) => String(left.proof?.grade ?? "Z").localeCompare(String(right.proof?.grade ?? "Z")) || (right.proof?.sampleSize ?? 0) - (left.proof?.sampleSize ?? 0));
 
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -177,7 +242,7 @@ export default async function SharkTrendsPage() {
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">SharkTrends</div>
             <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Matchup trend board</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              The global top {boardLimit} remains as the promotion rail, but the main browse path is now league → matchup tiles → trend links. Open a trend for explicit proof, blockers, and price details.
+              The global top {boardLimit} remains as the promotion rail, but the main browse path is now league → matchup tiles → trend links. Each trend now carries record, units, ROI, hit rate, sample, rules, proof grade, blockers, and price context.
             </p>
           </div>
           <div className="flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.14em]">
@@ -196,6 +261,13 @@ export default async function SharkTrendsPage() {
         <Tile label="Promotion ready" value={`${counts.promotableSystems}/${counts.publishedTotal}`} tone={counts.promotableSystems ? "good" : counts.watchSystems ? "warn" : "neutral"} note={`${counts.watchSystems} watchlist · ${counts.benchSystems} bench · ${coverage.promotablePct}% promotable.`} />
         <Tile label="Blocked systems" value={counts.blockedSystems ?? 0} tone={counts.blockedSystems ? "warn" : "good"} note={`${coverage.blockedPct ?? 0}% blocked by proof, activity, or action-gate issues.`} />
         <Tile label="Saved rows" value={`${counts.savedActive}/${counts.savedTotal}`} tone={counts.stale || counts.neverRun ? "warn" : counts.savedActive ? "good" : "neutral"} note={`${counts.stale} stale · ${counts.neverRun} never-run · ${coverage.runCoveragePct}% recent run coverage.`} />
+      </section>
+
+      <section className="grid gap-4">
+        <CuratedRail title="Most profitable systems" description="Sorted by historical profit units with ROI and hit-rate proof shown on every card." items={mostProfitable} />
+        <CuratedRail title="Undefeated / hot streak trends" description="Undefeated systems and current winning streaks with proof grade and record visible." items={undefeated} />
+        <CuratedRail title="Hot team trends" description="Systems with strong last-30 performance or hot-team classification." items={hotTeam} />
+        <CuratedRail title="Verified systems" description="Verified systems sorted by proof grade and sample size." items={verified} />
       </section>
 
       {matchupGroups.length ? (
@@ -233,6 +305,7 @@ export default async function SharkTrendsPage() {
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-white">#{item.rank} {item.name}</div>
                     <div className="mt-1 text-xs leading-5 text-slate-400">{item.reason}</div>
+                    {item.proof ? <div className="mt-1 text-xs leading-5 text-cyan-100/75">{item.proof.summary}</div> : null}
                   </div>
                   <div className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${tierClass(item.tier)}`}>
                     {item.tier} · {item.score}
@@ -281,6 +354,7 @@ export default async function SharkTrendsPage() {
             <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Distribution</div>
             <div className="mt-3 space-y-2 text-xs leading-5 text-slate-400">
               <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Matchups</span><span className="ml-2">{distributionText(snapshot.distribution.byMatchupLeague)}</span></div>
+              <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Proof</span><span className="ml-2">{distributionText(snapshot.distribution.byProofGrade)}</span></div>
               <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Blockers</span><span className="ml-2">{distributionText(snapshot.distribution.byBlocker)}</span></div>
               <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Actions</span><span className="ml-2">{distributionText(snapshot.distribution.byPrimaryAction)}</span></div>
               <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Tiers</span><span className="ml-2">{distributionText(snapshot.distribution.byPromotionTier)}</span></div>
