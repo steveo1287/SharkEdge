@@ -40,6 +40,18 @@ function marketForPick(realityIntel: RealitySimIntel, pick: "HOME" | "AWAY") {
   return pick === "HOME" ? home : 1 - home;
 }
 
+function learnedProbabilityForPick(realityIntel: RealitySimIntel, pick: "HOME" | "AWAY") {
+  const home = realityIntel.learnedAdjustment?.calibratedHomeWinPct;
+  if (typeof home !== "number" || !Number.isFinite(home)) return null;
+  return pick === "HOME" ? home : 1 - home;
+}
+
+function historyProbabilityForPick(realityIntel: RealitySimIntel, pick: "HOME" | "AWAY") {
+  const home = realityIntel.historyAdjustment?.tunedHomeWinPct;
+  if (typeof home !== "number" || !Number.isFinite(home)) return null;
+  return pick === "HOME" ? home : 1 - home;
+}
+
 export function buildNbaWinnerConfidence(args: {
   homeWinPct: number;
   awayWinPct: number;
@@ -61,7 +73,11 @@ export function buildNbaWinnerConfidence(args: {
   const marketShrink = marketAvailable
     ? marketProbability * (lineupCertainty < 0.76 ? 0.5 : 0.38) + modelProbability * (lineupCertainty < 0.76 ? 0.5 : 0.62)
     : modelProbability;
-  const calibratedProbability = clamp(marketShrink + (args.realityIntel.learnedAdjustment?.probabilityAdjustment ?? 0) + (args.realityIntel.historyAdjustment?.probabilityAdjustment ?? 0), 0.08, 0.92);
+  const learnedProbability = learnedProbabilityForPick(args.realityIntel, pick);
+  const historyProbability = historyProbabilityForPick(args.realityIntel, pick);
+  const learnedAdjustment = typeof learnedProbability === "number" ? learnedProbability - modelProbability : 0;
+  const historyAdjustment = typeof historyProbability === "number" ? historyProbability - (learnedProbability ?? modelProbability) : 0;
+  const calibratedProbability = clamp(marketShrink + learnedAdjustment + historyAdjustment, 0.08, 0.92);
   const probabilityEdge = Math.abs(calibratedProbability - 0.5);
   const marketAgreement = marketAvailable ? clamp(1 - Math.abs(modelProbability - marketProbability) / 0.14, 0, 1) : 0.45;
   const sourceScore = clamp(moduleCount / 6, 0, 1);
