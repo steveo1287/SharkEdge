@@ -7,6 +7,7 @@ const PRODUCT_NAME = "SharkTrends";
 
 type SavedTrendRow = Awaited<ReturnType<typeof listSavedTrendRows>>[number];
 type PublishedTrendSystem = Awaited<ReturnType<typeof buildTrendSystemRun>>["systems"][number];
+type PlacementTier = "promote" | "watch" | "verified-idle" | "bench";
 
 function countBy<T extends string>(items: T[]) {
   return items.reduce<Record<string, number>>((acc, item) => {
@@ -76,11 +77,29 @@ function promotionScore(system: PublishedTrendSystem) {
   return score;
 }
 
-function promotionTier(system: PublishedTrendSystem) {
+function promotionTier(system: PublishedTrendSystem): PlacementTier {
   if (system.activeMatches.length > 0 && system.verified) return "promote";
   if (system.activeMatches.length > 0) return "watch";
   if (system.verified) return "verified-idle";
   return "bench";
+}
+
+function systemBlockers(system: PublishedTrendSystem) {
+  const blockers: string[] = [];
+  const actionability = systemActionability(system);
+  if (!system.activeMatches.length) blockers.push("no-current-qualifier");
+  if (!system.verified) blockers.push("needs-ledger-proof");
+  if (!(actionability.includes("ACTIVE") || actionability.includes("REVIEW"))) blockers.push("action-gate-not-active");
+  return blockers;
+}
+
+function primaryAction(system: PublishedTrendSystem) {
+  const blockers = systemBlockers(system);
+  if (!blockers.length) return "promote-to-top-rail";
+  if (blockers.includes("needs-ledger-proof") && system.activeMatches.length > 0) return "keep-watchlist-and-collect-proof";
+  if (blockers.includes("no-current-qualifier") && system.verified) return "keep-verified-idle-until-live-match";
+  if (blockers.includes("no-current-qualifier")) return "bench-until-current-match";
+  return "review-action-gate";
 }
 
 function promotionReason(system: PublishedTrendSystem) {
@@ -106,11 +125,23 @@ function promotionBoard(systems: PublishedTrendSystem[]) {
       verified: system.verified,
       score: promotionScore(system),
       tier: promotionTier(system),
+      blockers: systemBlockers(system),
+      primaryAction: primaryAction(system),
       reason: promotionReason(system),
       href: systemHref(system)
     }))
     .sort((left, right) => right.score - left.score)
+    .map((system, index) => ({ ...system, rank: index + 1 }))
     .slice(0, 12);
+}
+
+function placementLanes(board: ReturnType<typeof promotionBoard>) {
+  return {
+    promote: board.filter((system) => system.tier === "promote"),
+    watch: board.filter((system) => system.tier === "watch"),
+    "verified-idle": board.filter((system) => system.tier === "verified-idle"),
+    bench: board.filter((system) => system.tier === "bench")
+  };
 }
 
 export type TrendsCenterSnapshot = Awaited<ReturnType<typeof buildTrendsCenterSnapshot>>;
@@ -143,9 +174,11 @@ export async function buildTrendsCenterSnapshot() {
   const publishedWatchlist = publishedSystems.filter((system) => systemActionability(system).includes("WATCH"));
   const verifiedPublished = publishedSystems.filter((system) => system.verified);
   const board = promotionBoard(publishedSystems);
-  const promotableSystems = board.filter((system) => system.tier === "promote");
-  const watchSystems = board.filter((system) => system.tier === "watch");
-  const benchSystems = board.filter((system) => system.tier === "bench" || system.tier === "verified-idle");
+  const lanes = placementLanes(board);
+  const promotableSystems = lanes.promote;
+  const watchSystems = lanes.watch;
+  const benchSystems = [...lanes.bench, ...lanes["verified-idle"]];
+  const blockedSystems = board.filter((system) => system.blockers.length > 0);
 
   const runCoveragePct = savedActive.length ? Math.round((recent.length / savedActive.length) * 100) : 0;
   const freshnessRiskPct = savedActive.length ? Math.round((stale.length / savedActive.length) * 100) : 0;
@@ -208,6 +241,7 @@ export async function buildTrendsCenterSnapshot() {
       promotableSystems: promotableSystems.length,
       watchSystems: watchSystems.length,
       benchSystems: benchSystems.length,
+      blockedSystems: blockedSystems.length,
       activeMatches: publishedRun.summary.activeMatches
     },
     coverage: {
@@ -215,7 +249,8 @@ export async function buildTrendsCenterSnapshot() {
       freshnessRiskPct,
       publishedActivePct: publishedSystems.length ? Math.round((publishedActive.length / publishedSystems.length) * 100) : 0,
       publishedVerifiedPct: publishedSystems.length ? Math.round((verifiedPublished.length / publishedSystems.length) * 100) : 0,
-      promotablePct: publishedSystems.length ? Math.round((promotableSystems.length / publishedSystems.length) * 100) : 0
+      promotablePct: publishedSystems.length ? Math.round((promotableSystems.length / publishedSystems.length) * 100) : 0,
+      blockedPct: publishedSystems.length ? Math.round((blockedSystems.length / publishedSystems.length) * 100) : 0
     },
     distribution: {
       bySport: countBy(publishedSystems.map((system) => system.sport)),
@@ -224,6 +259,8 @@ export async function buildTrendsCenterSnapshot() {
       byMode: countBy(savedActive.map((row) => row.mode)),
       byCategory: publishedRun.summary.byCategory,
       byPromotionTier: countBy(board.map((system) => system.tier)),
+      byBlocker: countBy(board.flatMap((system) => system.blockers)),
+      byPrimaryAction: countBy(board.map((system) => system.primaryAction)),
       savedBySport: countBy(savedActive.map((row) => row.sport)),
       savedByLeague: countBy(savedActive.map((row) => row.filters.league)),
       savedByMarket: countBy(savedActive.map((row) => row.filters.market))
@@ -252,9 +289,10 @@ export async function buildTrendsCenterSnapshot() {
       href: systemHref(system)
     })),
     promotionBoard: board,
+    placementLanes: lanes,
     commandQueue,
     nextAction: promotableSystems.length
-      ? "Promote the top SharkTrends promotionBoard systems first; they have live qualifiers plus verification support."
+      ? "Promote the top SharkTrends placement-lane systems first; they have live qualifiers plus verification support."
       : watchSystems.length
         ? "Live SharkTrends systems exist but are not verified yet. Keep them watchlist until ledger proof improves."
         : commandQueue.length
