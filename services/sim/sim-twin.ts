@@ -209,10 +209,17 @@ export async function buildSimTwinSnapshot(game: SimProjectionInput): Promise<Si
     nbaControl?.scheduleContext ? `NBA schedule margin adjustment: ${nbaControl.scheduleContext.projectedMarginAdjustment}` : null,
     nbaControl?.scheduleContext ? `NBA schedule confidence: ${nbaControl.scheduleContext.confidenceScore}` : null
   ].filter(Boolean) as string[];
+  const lockWarnings = [
+    nbaControl?.pregameLock ? `NBA pregame lock: ${nbaControl.pregameLock.status} (${nbaControl.pregameLock.lockScore}/100, ${nbaControl.pregameLock.lockGrade})` : null,
+    nbaControl?.pregameLock ? `NBA market movement flag: ${nbaControl.pregameLock.marketMoveFlag}` : null,
+    ...(nbaControl?.pregameLock?.blockers ?? []).slice(0, 5).map((blocker) => `NBA lock blocker: ${blocker}`),
+    ...(nbaControl?.pregameLock?.reasons ?? []).slice(0, 2)
+  ].filter(Boolean) as string[];
   const nbaWarnings = [
     ...(nbaControl?.rotationLock?.warnings ?? []),
     ...fourFactorWarnings,
     ...scheduleWarnings,
+    ...lockWarnings,
     ...(nbaControl?.winnerConfidence?.blockers ?? []).map((blocker) => `NBA control blocker: ${blocker}`),
     ...(nbaControl?.winnerConfidence?.reasons ?? []).slice(0, 2)
   ];
