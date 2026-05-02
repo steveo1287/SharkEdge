@@ -196,8 +196,17 @@ export async function buildSimTwinSnapshot(game: SimProjectionInput): Promise<Si
     trustGrade: trust.grade,
     marketEdgePct: marketComparison.edgePct
   });
+  const fourFactorWarnings = [
+    ...(nbaControl?.fourFactors?.warnings ?? []),
+    nbaControl?.fourFactors ? `NBA Four Factors margin adjustment: ${nbaControl.fourFactors.projectedMarginAdjustment}` : null,
+    ...(nbaControl?.fourFactors?.edges ?? [])
+      .filter((edge) => edge.direction !== "NEUTRAL")
+      .slice(0, 2)
+      .map((edge) => `NBA ${edge.label}: ${edge.direction} edge ${edge.homeEdge}`)
+  ].filter(Boolean) as string[];
   const nbaWarnings = [
     ...(nbaControl?.rotationLock?.warnings ?? []),
+    ...fourFactorWarnings,
     ...(nbaControl?.winnerConfidence?.blockers ?? []).map((blocker) => `NBA control blocker: ${blocker}`),
     ...(nbaControl?.winnerConfidence?.reasons ?? []).slice(0, 2)
   ];

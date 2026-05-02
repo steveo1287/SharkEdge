@@ -1,5 +1,6 @@
 import type { LeagueKey } from "@/lib/types/domain";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
+import { getNbaFourFactorsControl, type NbaFourFactorsControl } from "@/services/simulation/nba-four-factors-control";
 import { getNbaRotationLock, type NbaRotationLock } from "@/services/simulation/nba-rotation-lock";
 import { buildNbaWinnerConfidence, type NbaWinnerConfidence } from "@/services/simulation/nba-winner-confidence";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
@@ -13,9 +14,10 @@ export type NbaSimControlSnapshot = {
   eventLabel: string;
   matchup: { away: string; home: string };
   rotationLock: NbaRotationLock | null;
+  fourFactors: NbaFourFactorsControl | null;
   winnerConfidence: NbaWinnerConfidence | null;
   formula: {
-    version: "nba-sim-control-v1";
+    version: "nba-sim-control-v2";
     model: string;
     inputs: string[];
     notes: string[];
@@ -42,7 +44,10 @@ async function findGame(gameId: string): Promise<SimGame | null> {
 export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimControlSnapshot> {
   const projection = await buildSimProjection(game);
   const matchup = projection.matchup ?? parseMatchup(game.label);
-  const rotationLock = await getNbaRotationLock(matchup.away, matchup.home);
+  const [rotationLock, fourFactors] = await Promise.all([
+    getNbaRotationLock(matchup.away, matchup.home),
+    getNbaFourFactorsControl(matchup.away, matchup.home)
+  ]);
 
   if (!projection.realityIntel) {
     return {
@@ -52,6 +57,7 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
       eventLabel: game.label,
       matchup,
       rotationLock,
+      fourFactors,
       winnerConfidence: null,
       formula: baseFormula(),
       error: "NBA real-data reality intelligence is unavailable for this game."
@@ -72,6 +78,7 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
     eventLabel: game.label,
     matchup,
     rotationLock,
+    fourFactors,
     winnerConfidence,
     formula: baseFormula()
   };
@@ -79,13 +86,14 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
 
 function baseFormula(): NbaSimControlSnapshot["formula"] {
   return {
-    version: "nba-sim-control-v1",
-    model: "calibrated probability = market-aware model probability + learned/history correction + rotation certainty gate",
+    version: "nba-sim-control-v2",
+    model: "calibrated probability = market-aware model probability + learned/history correction + rotation certainty gate + Four Factors matchup control",
     inputs: [
       "team efficiency and net rating",
       "player impact and projected minutes",
       "rotation availability and usage redistribution",
-      "four-factor style shot/turnover/rebound/free-throw matchup components",
+      "Four Factors: shot quality/eFG, turnovers, rebounding, and free-throw pressure",
+      "offense-vs-defense matchup edges for each factor",
       "rest/travel/location/context factors",
       "no-vig market probability baseline",
       "learned calibration and graded-pick history tuner",
@@ -93,8 +101,8 @@ function baseFormula(): NbaSimControlSnapshot["formula"] {
     ],
     notes: [
       "Confidence is separated from win probability.",
-      "Low lineup certainty, high usage redistribution, missing market baseline, and calibration-pass flags force lower confidence.",
-      "This layer does not replace the existing projection engine; it governs whether the NBA winner signal is trustworthy enough to surface."
+      "Low lineup certainty, high usage redistribution, missing market baseline, weak Four Factors confidence, and calibration-pass flags reduce trust.",
+      "This layer does not replace the existing projection engine; it adds model-quality controls that can be surfaced by Sim Twin and NBA review pages."
     ]
   };
 }
@@ -109,6 +117,7 @@ export async function getNbaSimControl(gameId: string): Promise<NbaSimControlSna
       eventLabel: gameId,
       matchup: { away: "Away", home: "Home" },
       rotationLock: null,
+      fourFactors: null,
       winnerConfidence: null,
       formula: baseFormula(),
       error: "NBA game not found in current board data."
