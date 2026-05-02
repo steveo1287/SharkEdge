@@ -39,6 +39,10 @@ export const HOME_DESK_DATES = [
   { key: "upcoming", label: "Upcoming" }
 ] as const;
 
+const HOME_SLATE_TIME_ZONE = "America/Chicago";
+const HOME_SLATE_ROLLOVER_HOUR = 5;
+const RESOLVED_HOME_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 export type HomeCommandData = {
   selectedLeague: HomeLeagueScope;
   selectedDate: HomeDeskDateKey;
@@ -80,21 +84,111 @@ function getSelectedDate(value: string | undefined): HomeDeskDateKey {
   return HOME_DESK_DATES.find((item) => item.key === value)?.key ?? "today";
 }
 
+function padDatePart(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function formatYmd(year: number, month: number, day: number) {
+  return `${year}-${padDatePart(month)}-${padDatePart(day)}`;
+}
+
+function addDaysToYmd(value: string, days: number) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
+
+function getChicagoDateParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: HOME_SLATE_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+
+  const pick = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+  return {
+    year: pick("year"),
+    month: pick("month"),
+    day: pick("day"),
+    hour: pick("hour")
+  };
+}
+
+function getCurrentHomeSlateDate(now = new Date()) {
+  const parts = getChicagoDateParts(now);
+  const localDate = formatYmd(parts.year, parts.month, parts.day);
+  return parts.hour < HOME_SLATE_ROLLOVER_HOUR
+    ? addDaysToYmd(localDate, -1)
+    : localDate;
+}
+
 function resolveBoardDate(value: HomeDeskDateKey) {
   if (value === "today") {
-    return "today";
+    return getCurrentHomeSlateDate();
   }
 
   if (value === "upcoming") {
     return "all";
   }
 
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const year = tomorrow.getFullYear();
-  const month = `${tomorrow.getMonth() + 1}`.padStart(2, "0");
-  const day = `${tomorrow.getDate()}`.padStart(2, "0");
-  return `${year}${month}${day}`;
+  return addDaysToYmd(getCurrentHomeSlateDate(), 1);
+}
+
+function isResolvedHomeDate(value: string) {
+  return RESOLVED_HOME_DATE_PATTERN.test(value);
+}
+
+function getHomeLocalDateKey(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const parts = getChicagoDateParts(date);
+  return formatYmd(parts.year, parts.month, parts.day);
+}
+
+function isInResolvedHomeDate(startTime: string, resolvedDate: string) {
+  if (!isResolvedHomeDate(resolvedDate)) {
+    return true;
+  }
+
+  return getHomeLocalDateKey(startTime) === resolvedDate;
+}
+
+function filterHomeBoardDataByDate(boardData: BoardPageData, resolvedDate: string): BoardPageData {
+  if (!isResolvedHomeDate(resolvedDate)) {
+    return boardData;
+  }
+
+  const games = boardData.games.filter((game) =>
+    isInResolvedHomeDate(game.startTime, resolvedDate)
+  );
+  const sportSections = boardData.sportSections.map((section) => ({
+    ...section,
+    games: section.games.filter((game) =>
+      isInResolvedHomeDate(game.startTime, resolvedDate)
+    ),
+    scoreboard: section.scoreboard.filter((event) =>
+      isInResolvedHomeDate(event.startTime, resolvedDate)
+    )
+  }));
+
+  return {
+    ...boardData,
+    games,
+    sportSections,
+    summary: {
+      ...boardData.summary,
+      totalGames: sportSections.reduce(
+        (total, section) => total + section.games.length + section.scoreboard.length,
+        0
+      )
+    }
+  };
 }
 
 function isVerifiedGame(game: GameCardView) {
@@ -222,10 +316,11 @@ export async function getHomeCommandData(
     status: "all"
   });
 
-  const [boardData, topProps] = await Promise.all([
+  const [rawBoardData, topProps] = await Promise.all([
     oddsService.getBoardPageData(boardFilters),
     propsService.getTopPlayCards(6)
   ]);
+  const boardData = filterHomeBoardDataByDate(rawBoardData, boardFilters.date);
 
   const [
     truthCalibrationResolver,
