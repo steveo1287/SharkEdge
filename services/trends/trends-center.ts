@@ -5,10 +5,14 @@ const STALE_RUN_HOURS = 24;
 const RECENT_RUN_HOURS = 24;
 const PRODUCT_NAME = "SharkTrends";
 const PROMOTION_BOARD_LIMIT = 12;
+const MATCHUP_TREND_LIMIT = 6;
 
 type SavedTrendRow = Awaited<ReturnType<typeof listSavedTrendRows>>[number];
 type PublishedTrendSystem = Awaited<ReturnType<typeof buildTrendSystemRun>>["systems"][number];
+type TrendMatch = PublishedTrendSystem["activeMatches"][number];
 type PlacementTier = "promote" | "watch" | "verified-idle" | "bench";
+
+type MatchupTrendRow = ReturnType<typeof buildTrendRow>;
 
 function countBy<T extends string>(items: T[]) {
   return items.reduce<Record<string, number>>((acc, item) => {
@@ -46,6 +50,20 @@ function systemHref(system: PublishedTrendSystem) {
   return `/trends?${params.toString()}`;
 }
 
+function trendDetailHref(system: PublishedTrendSystem, match?: TrendMatch) {
+  const params = new URLSearchParams({
+    systemId: system.id,
+    mode: "power"
+  });
+  if (match?.gameId) params.set("gameId", match.gameId);
+  if (match?.league) params.set("league", match.league);
+  return `/sharktrends/trend?${params.toString()}`;
+}
+
+function matchupHref(match: TrendMatch) {
+  return `/sharktrends/matchup/${encodeURIComponent(match.league)}/${encodeURIComponent(match.gameId)}`;
+}
+
 function sortByNewestRun(rows: SavedTrendRow[]) {
   return [...rows].sort((left, right) => {
     const leftTime = parseTime(left.lastRunAt) ?? parseTime(left.updatedAt) ?? 0;
@@ -60,6 +78,10 @@ function systemCategory(system: PublishedTrendSystem) {
 
 function systemActionability(system: PublishedTrendSystem) {
   return String(system.actionability ?? "").toUpperCase();
+}
+
+function matchActionability(match: TrendMatch | undefined) {
+  return String(match?.actionability ?? "").toUpperCase();
 }
 
 function promotionScore(system: PublishedTrendSystem) {
@@ -78,6 +100,17 @@ function promotionScore(system: PublishedTrendSystem) {
   return score;
 }
 
+function matchupTrendScore(system: PublishedTrendSystem, match: TrendMatch) {
+  let score = promotionScore(system);
+  const actionability = matchActionability(match);
+  if (actionability.includes("ACTIVE")) score += 60;
+  if (actionability.includes("WATCH")) score += 25;
+  if (match.price != null) score += 30;
+  if (match.edgePct != null) score += Math.min(75, Math.max(0, match.edgePct * 8));
+  if (match.confidencePct) score += Math.min(70, Math.max(0, match.confidencePct - 50));
+  return Math.round(score);
+}
+
 function promotionTier(system: PublishedTrendSystem): PlacementTier {
   if (system.activeMatches.length > 0 && system.verified) return "promote";
   if (system.activeMatches.length > 0) return "watch";
@@ -94,6 +127,13 @@ function systemBlockers(system: PublishedTrendSystem) {
   return blockers;
 }
 
+function matchBlockers(system: PublishedTrendSystem, match: TrendMatch) {
+  const blockers = systemBlockers(system).filter((blocker) => blocker !== "no-current-qualifier");
+  if (match.price == null) blockers.push("needs-current-price");
+  if (!matchActionability(match).includes("ACTIVE")) blockers.push("match-not-active-gate");
+  return [...new Set(blockers)];
+}
+
 function primaryAction(system: PublishedTrendSystem) {
   const blockers = systemBlockers(system);
   if (!blockers.length) return "promote-to-top-rail";
@@ -101,6 +141,14 @@ function primaryAction(system: PublishedTrendSystem) {
   if (blockers.includes("no-current-qualifier") && system.verified) return "keep-verified-idle-until-live-match";
   if (blockers.includes("no-current-qualifier")) return "bench-until-current-match";
   return "review-action-gate";
+}
+
+function matchPrimaryAction(system: PublishedTrendSystem, match: TrendMatch) {
+  const blockers = matchBlockers(system, match);
+  if (!blockers.length) return "promote-trend-for-matchup";
+  if (blockers.includes("needs-current-price")) return "wait-for-price-confirmation";
+  if (blockers.includes("needs-ledger-proof")) return "show-as-watchlist-proof-building";
+  return "show-with-caution";
 }
 
 function promotionReason(system: PublishedTrendSystem) {
@@ -133,6 +181,98 @@ function buildPromotionRows(systems: PublishedTrendSystem[]) {
     }))
     .sort((left, right) => right.score - left.score)
     .map((system, index) => ({ ...system, rank: index + 1 }));
+}
+
+function buildTrendRow(system: PublishedTrendSystem, match: TrendMatch) {
+  return {
+    id: `${system.id}:${match.gameId}`,
+    systemId: system.id,
+    gameId: match.gameId,
+    name: system.name,
+    category: system.category,
+    market: system.market,
+    side: match.side,
+    actionability: match.actionability,
+    verified: system.verified,
+    price: match.price,
+    edgePct: match.edgePct,
+    confidencePct: match.confidencePct,
+    fairProbability: match.fairProbability,
+    reasons: match.reasons,
+    score: matchupTrendScore(system, match),
+    blockers: matchBlockers(system, match),
+    primaryAction: matchPrimaryAction(system, match),
+    href: trendDetailHref(system, match),
+    matchupHref: match.href
+  };
+}
+
+function buildMatchupsByLeague(systems: PublishedTrendSystem[]) {
+  const map = new Map<string, {
+    id: string;
+    gameId: string;
+    league: string;
+    eventLabel: string;
+    startTime: string;
+    status: string;
+    href: string;
+    trends: MatchupTrendRow[];
+  }>();
+
+  for (const system of systems) {
+    for (const match of system.activeMatches) {
+      const key = `${match.league}:${match.gameId}`;
+      const existing = map.get(key) ?? {
+        id: key,
+        gameId: match.gameId,
+        league: match.league,
+        eventLabel: match.eventLabel,
+        startTime: match.startTime,
+        status: match.status,
+        href: matchupHref(match),
+        trends: []
+      };
+      existing.trends.push(buildTrendRow(system, match));
+      map.set(key, existing);
+    }
+  }
+
+  const matchups = [...map.values()].map((matchup) => {
+    const trends = matchup.trends.sort((left, right) => right.score - left.score);
+    const topScore = trends[0]?.score ?? 0;
+    const verifiedTrends = trends.filter((trend) => trend.verified).length;
+    const activeTrends = trends.filter((trend) => String(trend.actionability).toUpperCase().includes("ACTIVE")).length;
+    const blockedTrends = trends.filter((trend) => trend.blockers.length > 0).length;
+    return {
+      ...matchup,
+      trendCount: trends.length,
+      visibleTrendCount: Math.min(MATCHUP_TREND_LIMIT, trends.length),
+      hiddenTrendCount: Math.max(0, trends.length - MATCHUP_TREND_LIMIT),
+      verifiedTrends,
+      activeTrends,
+      blockedTrends,
+      topScore,
+      trends: trends.slice(0, MATCHUP_TREND_LIMIT),
+      allTrends: trends
+    };
+  }).sort((left, right) => right.topScore - left.topScore || left.startTime.localeCompare(right.startTime));
+
+  const byLeague = matchups.reduce<Record<string, typeof matchups>>((acc, matchup) => {
+    acc[matchup.league] = acc[matchup.league] ?? [];
+    acc[matchup.league].push(matchup);
+    return acc;
+  }, {});
+
+  return Object.entries(byLeague)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([league, items]) => ({
+      league,
+      matchupCount: items.length,
+      trendCount: items.reduce((sum, item) => sum + item.trendCount, 0),
+      activeTrendCount: items.reduce((sum, item) => sum + item.activeTrends, 0),
+      verifiedTrendCount: items.reduce((sum, item) => sum + item.verifiedTrends, 0),
+      matchups: items
+    }));
 }
 
 function placementLanes(rows: ReturnType<typeof buildPromotionRows>) {
@@ -176,6 +316,9 @@ export async function buildTrendsCenterSnapshot() {
   const allPromotionRows = buildPromotionRows(publishedSystems);
   const promotionBoard = allPromotionRows.slice(0, PROMOTION_BOARD_LIMIT);
   const lanes = placementLanes(allPromotionRows);
+  const matchupsByLeague = buildMatchupsByLeague(publishedSystems);
+  const totalMatchups = matchupsByLeague.reduce((sum, league) => sum + league.matchupCount, 0);
+  const totalMatchupTrends = matchupsByLeague.reduce((sum, league) => sum + league.trendCount, 0);
   const promotableSystems = lanes.promote;
   const watchSystems = lanes.watch;
   const benchSystems = [...lanes.bench, ...lanes["verified-idle"]];
@@ -221,7 +364,8 @@ export async function buildTrendsCenterSnapshot() {
     thresholds: {
       staleRunHours: STALE_RUN_HOURS,
       recentRunHours: RECENT_RUN_HOURS,
-      promotionBoardLimit: PROMOTION_BOARD_LIMIT
+      promotionBoardLimit: PROMOTION_BOARD_LIMIT,
+      matchupTrendLimit: MATCHUP_TREND_LIMIT
     },
     counts: {
       total: publishedSystems.length,
@@ -246,6 +390,9 @@ export async function buildTrendsCenterSnapshot() {
       blockedSystems: blockedSystems.length,
       allPromotionRows: allPromotionRows.length,
       visiblePromotionRows: promotionBoard.length,
+      leagueMatchupGroups: matchupsByLeague.length,
+      matchupTiles: totalMatchups,
+      matchupTrendLinks: totalMatchupTrends,
       activeMatches: publishedRun.summary.activeMatches
     },
     coverage: {
@@ -265,6 +412,7 @@ export async function buildTrendsCenterSnapshot() {
       byPromotionTier: countBy(allPromotionRows.map((system) => system.tier)),
       byBlocker: countBy(allPromotionRows.flatMap((system) => system.blockers)),
       byPrimaryAction: countBy(allPromotionRows.map((system) => system.primaryAction)),
+      byMatchupLeague: Object.fromEntries(matchupsByLeague.map((league) => [league.league, league.matchupCount])),
       savedBySport: countBy(savedActive.map((row) => row.sport)),
       savedByLeague: countBy(savedActive.map((row) => row.filters.league)),
       savedByMarket: countBy(savedActive.map((row) => row.filters.market))
@@ -295,15 +443,18 @@ export async function buildTrendsCenterSnapshot() {
     promotionBoard,
     allPromotionRows,
     placementLanes: lanes,
+    matchupsByLeague,
     commandQueue,
-    nextAction: promotableSystems.length
-      ? "Promote the top SharkTrends placement-lane systems first; they have live qualifiers plus verification support."
-      : watchSystems.length
-        ? "Live SharkTrends systems exist but are not verified yet. Keep them watchlist until ledger proof improves."
-        : commandQueue.length
-          ? "Refresh saved rows and keep inactive published systems below active systems until current matches return."
-          : publishedActive.length
-            ? "SharkTrends published system inventory is active. Next step is rank by verified ledger proof, ROI, and current price quality."
-            : "Published systems exist, but none have current matches. Run sim/market refresh before SharkTrends promotion."
+    nextAction: totalMatchups
+      ? "Use league matchup tiles as the main SharkTrends browse path; open a matchup to inspect its attached trend links."
+      : promotableSystems.length
+        ? "Promote the top SharkTrends placement-lane systems first; they have live qualifiers plus verification support."
+        : watchSystems.length
+          ? "Live SharkTrends systems exist but are not verified yet. Keep them watchlist until ledger proof improves."
+          : commandQueue.length
+            ? "Refresh saved rows and keep inactive published systems below active systems until current matches return."
+            : publishedActive.length
+              ? "SharkTrends published system inventory is active. Next step is rank by verified ledger proof, ROI, and current price quality."
+              : "Published systems exist, but none have current matches. Run sim/market refresh before SharkTrends promotion."
   };
 }
