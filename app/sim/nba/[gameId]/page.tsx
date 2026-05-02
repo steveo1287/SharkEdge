@@ -10,6 +10,7 @@ import {
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { calibrateNbaPlayerBoxScore } from "@/services/simulation/nba-box-score-calibration";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
+import { getSimRunDepth } from "@/services/simulation/sim-run-depth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -39,7 +40,7 @@ export default async function NbaGameDetailPage({ params }: PageProps) {
   const game = sections.flatMap((section) => section.scoreboard.map((item) => ({ ...item, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel }))).find((item) => item.id === decodedId);
   if (!game) notFound();
 
-  const rawProjection = await buildSimProjection(game);
+  const rawProjection = await buildSimProjection({ ...game, simulationRuns: getSimRunDepth("detail") });
   const players = rawProjection.nbaIntel?.playerStatProjections ?? [];
   const projection = rawProjection.nbaIntel && players.length
     ? { ...rawProjection, nbaIntel: { ...rawProjection.nbaIntel, playerStatProjections: calibrateNbaPlayerBoxScore(players, { awayPoints: rawProjection.distribution.avgAway, homePoints: rawProjection.distribution.avgHome }) } }
