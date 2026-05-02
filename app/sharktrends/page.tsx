@@ -29,6 +29,13 @@ function tierClass(tier: string) {
   return "border-slate-500/25 bg-slate-800/60 text-slate-300";
 }
 
+function actionClass(actionability: string | null | undefined) {
+  const value = String(actionability ?? "").toUpperCase();
+  if (value.includes("ACTIVE")) return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
+  if (value.includes("WATCH")) return "border-sky-400/25 bg-sky-400/10 text-sky-200";
+  return "border-slate-500/25 bg-slate-800/60 text-slate-300";
+}
+
 function laneClass(tier: string) {
   if (tier === "promote") return "border-emerald-400/20 bg-emerald-400/[0.05]";
   if (tier === "watch") return "border-sky-400/20 bg-sky-400/[0.05]";
@@ -39,6 +46,18 @@ function laneClass(tier: string) {
 function distributionText(record: Record<string, number> | undefined, limit = 6) {
   const entries = Object.entries(record ?? {}).sort((left, right) => right[1] - left[1]).slice(0, limit);
   return entries.length ? entries.map(([key, value]) => `${key} ${value}`).join(" · ") : "none";
+}
+
+function formatTime(value: string | null | undefined) {
+  if (!value) return "time TBD";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function priceLabel(price: number | null | undefined) {
+  if (typeof price !== "number" || !Number.isFinite(price)) return "price needed";
+  return price > 0 ? `+${price}` : String(price);
 }
 
 function LaneCard({ item }: { item: any }) {
@@ -76,12 +95,75 @@ function PlacementLane({ title, description, tier, items }: { title: string; des
   );
 }
 
+function MatchupTrendTile({ trend }: { trend: any }) {
+  return (
+    <a href={trend.href} className="rounded-xl border border-white/10 bg-black/25 p-3 hover:border-cyan-300/30">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0 truncate text-sm font-semibold text-white">{trend.name}</div>
+        <div className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${actionClass(trend.actionability)}`}>{trend.actionability}</div>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-400 sm:grid-cols-4">
+        <span>{trend.market}</span>
+        <span>{trend.side}</span>
+        <span>{priceLabel(trend.price)}</span>
+        <span>{trend.edgePct == null ? "edge TBD" : `${trend.edgePct}% edge`}</span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] uppercase tracking-[0.12em] text-slate-500">
+        <span>{trend.verified ? "verified" : "provisional"}</span>
+        <span>score {trend.score}</span>
+        <span>{trend.primaryAction}</span>
+      </div>
+    </a>
+  );
+}
+
+function MatchupTile({ matchup }: { matchup: any }) {
+  return (
+    <div className="rounded-[1.35rem] border border-white/10 bg-slate-950/60 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <a href={matchup.href} className="text-base font-semibold text-white hover:text-cyan-100">{matchup.eventLabel}</a>
+          <div className="mt-1 text-xs leading-5 text-slate-500">{formatTime(matchup.startTime)} · {matchup.status}</div>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <span className="rounded-full border border-cyan-400/25 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-200">{matchup.trendCount} trends</span>
+          <span className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-200">{matchup.activeTrends} active</span>
+          <span className="rounded-full border border-sky-400/25 bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-200">{matchup.verifiedTrends} verified</span>
+        </div>
+      </div>
+      <div className="mt-3 grid gap-2">
+        {matchup.trends?.length ? matchup.trends.map((trend: any) => <MatchupTrendTile key={trend.id} trend={trend} />) : <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-500">No visible trends for this matchup.</div>}
+      </div>
+      {matchup.hiddenTrendCount ? <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] uppercase tracking-[0.14em] text-slate-500">+{matchup.hiddenTrendCount} more trends in matchup detail</div> : null}
+    </div>
+  );
+}
+
+function LeagueMatchupSection({ group }: { group: any }) {
+  return (
+    <section className="rounded-[1.5rem] border border-cyan-300/15 bg-cyan-300/[0.035] p-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">{group.league}</div>
+          <h2 className="mt-1 text-xl font-semibold text-white">{group.matchupCount} matchup{group.matchupCount === 1 ? "" : "s"}</h2>
+          <div className="mt-1 text-xs leading-5 text-slate-400">{group.trendCount} trend links · {group.activeTrendCount} active · {group.verifiedTrendCount} verified</div>
+        </div>
+        <a href={`/trends?league=${encodeURIComponent(group.league)}&mode=power`} className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-200 hover:text-cyan-100">League trends</a>
+      </div>
+      <div className="mt-4 grid gap-3 xl:grid-cols-2">
+        {group.matchups?.map((matchup: any) => <MatchupTile key={matchup.id} matchup={matchup} />)}
+      </div>
+    </section>
+  );
+}
+
 export default async function SharkTrendsPage() {
   const snapshot = await buildTrendsCenterSnapshot();
   const board = snapshot.promotionBoard ?? [];
   const lanes = snapshot.placementLanes ?? { promote: [], watch: [], "verified-idle": [], bench: [] };
   const queue = snapshot.commandQueue ?? [];
   const activeSystems = snapshot.activeSystems ?? [];
+  const matchupGroups = snapshot.matchupsByLeague ?? [];
   const counts = snapshot.counts;
   const coverage = snapshot.coverage;
   const boardLimit = snapshot.thresholds?.promotionBoardLimit ?? board.length;
@@ -93,9 +175,9 @@ export default async function SharkTrendsPage() {
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">SharkTrends</div>
-            <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Placement lanes</h1>
+            <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Matchup trend board</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Published systems are separated into promote, watch, verified-idle, and bench lanes. Lanes and counts use the full system inventory; the promotion board below shows only the top {boardLimit} ranked systems for display.
+              The global top {boardLimit} remains as the promotion rail, but the main browse path is now league → matchup tiles → trend links. Open a trend for explicit proof, blockers, and price details.
             </p>
           </div>
           <div className="flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.14em]">
@@ -108,13 +190,23 @@ export default async function SharkTrendsPage() {
       </section>
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <Tile label="Matchups" value={counts.matchupTiles ?? 0} tone={counts.matchupTiles ? "good" : "warn"} note={`${counts.leagueMatchupGroups ?? 0} league groups · ${counts.matchupTrendLinks ?? 0} attached trend links.`} />
         <Tile label="Inventory" value={`${counts.allPromotionRows ?? counts.publishedTotal}`} tone={counts.publishedTotal ? "good" : "warn"} note={`Full published-system inventory. Top ${counts.visiblePromotionRows ?? board.length} shown on board.`} />
         <Tile label="Active published" value={`${counts.publishedActive}/${counts.publishedTotal}`} tone={counts.publishedActive ? "good" : "warn"} note={`${counts.activeMatches} active matches · ${coverage.publishedActivePct}% active coverage.`} />
         <Tile label="Promotion ready" value={`${counts.promotableSystems}/${counts.publishedTotal}`} tone={counts.promotableSystems ? "good" : counts.watchSystems ? "warn" : "neutral"} note={`${counts.watchSystems} watchlist · ${counts.benchSystems} bench · ${coverage.promotablePct}% promotable.`} />
-        <Tile label="Verified published" value={`${counts.verifiedPublished}/${counts.publishedTotal}`} tone={counts.verifiedPublished ? "good" : "warn"} note={`${coverage.publishedVerifiedPct}% verified. Verified live systems get premium placement.`} />
         <Tile label="Blocked systems" value={counts.blockedSystems ?? 0} tone={counts.blockedSystems ? "warn" : "good"} note={`${coverage.blockedPct ?? 0}% blocked by proof, activity, or action-gate issues.`} />
         <Tile label="Saved rows" value={`${counts.savedActive}/${counts.savedTotal}`} tone={counts.stale || counts.neverRun ? "warn" : counts.savedActive ? "good" : "neutral"} note={`${counts.stale} stale · ${counts.neverRun} never-run · ${coverage.runCoveragePct}% recent run coverage.`} />
       </section>
+
+      {matchupGroups.length ? (
+        <section className="grid gap-4">
+          {matchupGroups.map((group: any) => <LeagueMatchupSection key={group.league} group={group} />)}
+        </section>
+      ) : (
+        <section className="rounded-[1.5rem] border border-amber-300/20 bg-amber-300/7 p-4 text-sm text-amber-100">
+          No active matchup trend tiles yet. Run the sim/market refresh and trend cycle so published systems can attach to current games.
+        </section>
+      )}
 
       <section className="grid gap-4 xl:grid-cols-4">
         <PlacementLane title="Promote" tier="promote" description="Verified systems with live qualifiers. These deserve the top rail." items={lanes.promote ?? []} />
@@ -127,9 +219,9 @@ export default async function SharkTrendsPage() {
         <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300">Promotion board</div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300">Global top 12</div>
               <h2 className="mt-1 text-xl font-semibold text-white">Top {board.length} of {counts.allPromotionRows ?? board.length} systems</h2>
-              <div className="mt-1 text-xs leading-5 text-slate-500">Display limit {boardLimit}. Placement lanes above are full-inventory counts.</div>
+              <div className="mt-1 text-xs leading-5 text-slate-500">Display limit {boardLimit}. Matchup tiles above are the main browse layer.</div>
             </div>
             <a href="/api/trends/sharktrends" className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-200 hover:text-cyan-100">Inspect JSON</a>
           </div>
@@ -179,19 +271,19 @@ export default async function SharkTrendsPage() {
                 </a>
               )) : (
                 <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] p-3 text-xs leading-5 text-emerald-100/80">
-                  No command blockers. Use promotion tier, proof grade, ROI, and live signal quality for placement.
+                  No command blockers. Use matchup tiles, proof grade, ROI, and live signal quality for placement.
                 </div>
               )}
             </div>
           </div>
 
           <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Blocker distribution</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Distribution</div>
             <div className="mt-3 space-y-2 text-xs leading-5 text-slate-400">
+              <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Matchups</span><span className="ml-2">{distributionText(snapshot.distribution.byMatchupLeague)}</span></div>
               <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Blockers</span><span className="ml-2">{distributionText(snapshot.distribution.byBlocker)}</span></div>
               <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Actions</span><span className="ml-2">{distributionText(snapshot.distribution.byPrimaryAction)}</span></div>
               <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Tiers</span><span className="ml-2">{distributionText(snapshot.distribution.byPromotionTier)}</span></div>
-              <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Categories</span><span className="ml-2">{distributionText(snapshot.distribution.byCategory)}</span></div>
             </div>
           </div>
 
