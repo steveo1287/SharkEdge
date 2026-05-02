@@ -32,6 +32,13 @@ function trustClass(grade: string) {
   return "border-red-400/25 bg-red-400/10 text-red-200";
 }
 
+function leverageClass(label: string) {
+  if (label === "EXTREME") return "border-fuchsia-300/25 bg-fuchsia-300/10 text-fuchsia-100";
+  if (label === "HIGH") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
+  if (label === "MEDIUM") return "border-cyan-400/25 bg-cyan-400/10 text-cyan-200";
+  return "border-slate-500/25 bg-slate-800/60 text-slate-300";
+}
+
 function Tile({ label, value, note }: { label: string; value: string | number; note: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
@@ -60,6 +67,7 @@ export default async function SimTwinDetailPage({ params }: PageProps) {
   }
 
   const twin = result.twin;
+  const impact = twin.seasonImpact;
 
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -79,7 +87,7 @@ export default async function SimTwinDetailPage({ params }: PageProps) {
         </div>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
         <Tile label="Home win" value={pct(twin.base.homeWinPct)} note={twin.matchup.home} />
         <Tile label="Away win" value={pct(twin.base.awayWinPct)} note={twin.matchup.away} />
         <Tile label="Spread" value={num(twin.base.projectedSpread)} note="Projected home margin" />
@@ -89,6 +97,11 @@ export default async function SimTwinDetailPage({ params }: PageProps) {
           <div className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-70">Trust</div>
           <div className="mt-2 font-mono text-2xl font-bold">{twin.trust.grade}</div>
           <div className="mt-2 text-xs leading-5 opacity-80">{twin.trust.sampleSize} settled rows</div>
+        </div>
+        <div className={`rounded-2xl border p-4 ${leverageClass(impact.leverageLabel)}`}>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-70">Leverage</div>
+          <div className="mt-2 font-mono text-2xl font-bold">{impact.leverageScore}</div>
+          <div className="mt-2 text-xs leading-5 opacity-80">{impact.leverageLabel}</div>
         </div>
       </section>
 
@@ -112,6 +125,35 @@ export default async function SimTwinDetailPage({ params }: PageProps) {
             <Tile label="Total range" value={`${num(twin.base.scoreRange.totalP25)}-${num(twin.base.scoreRange.totalP75)}`} note="P25 to P75" />
           </div>
         </div>
+      </section>
+
+      <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Season impact</div>
+            <div className="mt-1 text-xs leading-5 text-slate-400">Game leverage and path-impact estimate from the Sim Twin context.</div>
+          </div>
+          <div className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${leverageClass(impact.leverageLabel)}`}>{impact.leverageLabel} · {impact.leverageScore}/10</div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <Tile label={`${twin.matchup.home} win`} value={pctRaw(impact.homeWinImpact.playoffOddsDeltaPct)} note="Playoff odds delta" />
+          <Tile label={`${twin.matchup.away} win`} value={pctRaw(impact.awayWinImpact.playoffOddsDeltaPct)} note="Playoff odds delta" />
+          <Tile label="Path swing" value={pctRaw(impact.volatility.swingPct)} note="Win/loss path volatility" />
+          <Tile label="Upset leverage" value={pctRaw(impact.volatility.upsetLeveragePct)} note="Underdog-path swing" />
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-xs leading-5 text-slate-300">
+            <div className="font-semibold uppercase tracking-[0.16em] text-slate-500">Home path</div>
+            <div className="mt-2">Division: {pctRaw(impact.homeWinImpact.divisionOddsDeltaPct)} · Title: {pctRaw(impact.homeWinImpact.titleOddsDeltaPct)} · Wins: +{impact.homeWinImpact.projectedWinsDelta}</div>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-xs leading-5 text-slate-300">
+            <div className="font-semibold uppercase tracking-[0.16em] text-slate-500">Away path</div>
+            <div className="mt-2">Division: {pctRaw(impact.awayWinImpact.divisionOddsDeltaPct)} · Title: {pctRaw(impact.awayWinImpact.titleOddsDeltaPct)} · Wins: +{impact.awayWinImpact.projectedWinsDelta}</div>
+          </div>
+        </div>
+        <ul className="mt-4 grid gap-2 text-xs leading-5 text-slate-400">
+          {impact.leverageReasons.map((reason) => <li key={reason}>• {reason}</li>)}
+        </ul>
       </section>
 
       <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4">
