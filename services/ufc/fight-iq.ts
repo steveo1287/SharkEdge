@@ -63,6 +63,37 @@ export type UfcFightIqInput = {
   source?: string | null;
 };
 
+export type UfcFightIqOptions = {
+  simulations?: number;
+  seed?: number;
+};
+
+export type UfcFighterResult = {
+  id: string;
+  name: string;
+  winProbability: number;
+  fairOddsAmerican: number;
+  marketOddsAmerican: number | null;
+  marketImpliedProbability: number | null;
+  dataQualityGrade: UfcDataQualityGrade;
+  coldStart: {
+    active: boolean;
+    reason: string | null;
+    probabilityCap: number | null;
+    confidenceCap: UfcConfidenceGrade | null;
+  };
+  scores: {
+    rating: number;
+    striking: number;
+    grappling: number;
+    finish: number;
+    cardio: number;
+    experience: number;
+    prospect: number;
+    composite: number;
+  };
+};
+
 export type UfcFightIqPrediction = {
   fightId: string;
   eventLabel: string;
@@ -97,37 +128,6 @@ export type UfcFightIqPrediction = {
   noFutureLeakagePolicy: string;
 };
 
-type UfcFighterResult = {
-  id: string;
-  name: string;
-  winProbability: number;
-  fairOddsAmerican: number;
-  marketOddsAmerican: number | null;
-  marketImpliedProbability: number | null;
-  dataQualityGrade: UfcDataQualityGrade;
-  coldStart: {
-    active: boolean;
-    reason: string | null;
-    probabilityCap: number | null;
-    confidenceCap: UfcConfidenceGrade | null;
-  };
-  scores: {
-    rating: number;
-    striking: number;
-    grappling: number;
-    finish: number;
-    cardio: number;
-    experience: number;
-    prospect: number;
-    composite: number;
-  };
-};
-
-type UfcFightIqOptions = {
-  simulations?: number;
-  seed?: number;
-};
-
 type FighterState = {
   profile: UfcFighterProfile;
   result: UfcFighterResult;
@@ -157,8 +157,7 @@ function n(value: number | null | undefined, fallback = 0) {
 }
 
 function clamp(value: number, min: number, max: number) {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(max, value));
+  return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : min;
 }
 
 function round(value: number, digits = 4) {
@@ -236,7 +235,7 @@ function coldStart(profile: UfcFighterProfile) {
   return { active: true, reason: "Limited pro sample. Prospect quality is included, but confidence is capped.", probabilityCap: 0.64, confidenceCap: "MEDIUM" as UfcConfidenceGrade };
 }
 
-function scores(profile: UfcFighterProfile) {
+function buildScores(profile: UfcFighterProfile) {
   const stats = profile.stats ?? {};
   const recent = profile.recent ?? {};
   const rating = (n(profile.elo, 1500) - 1500) / 400;
@@ -248,7 +247,8 @@ function scores(profile: UfcFighterProfile) {
   const cardio = (pct(recent.round3WinRatePct, 50) - 0.5) * 0.4 + n(recent.cardioScore) * 0.08 - n(recent.damageAbsorbedTrend) * 0.04 + Math.min(30, n(profile.roundsFought)) / 30 * 0.08;
   const experience = Math.min(12, n(profile.ufcFights)) / 12 * 0.16 + Math.min(25, proFights) / 25 * 0.08 + Math.min(45, n(profile.roundsFought)) / 45 * 0.1;
   const amateurTotal = n(profile.amateurWins) + n(profile.amateurLosses);
-  const prospect = (amateurTotal ? n(profile.amateurWins) / amateurTotal - 0.5 : 0) * 0.18 + (n(profile.opponentStrengthScore, 50) / 100 - 0.5) * 0.2 + tierScore(profile.promotionTier) + (profile.manualScoutingTags ?? []).filter((tag) => /wrestl|cardio|speed|power|bjj|sambo|kickbox|elite|defense/i.test(tag)).length * 0.025 - (profile.manualScoutingTags ?? []).filter((tag) => /gass|chin|reckless|low sample|padded|defensive hole|weight miss/i.test(tag)).length * 0.035;
+  const scouting = profile.manualScoutingTags ?? [];
+  const prospect = (amateurTotal ? n(profile.amateurWins) / amateurTotal - 0.5 : 0) * 0.18 + (n(profile.opponentStrengthScore, 50) / 100 - 0.5) * 0.2 + tierScore(profile.promotionTier) + scouting.filter((tag) => /wrestl|cardio|speed|power|bjj|sambo|kickbox|elite|defense/i.test(tag)).length * 0.025 - scouting.filter((tag) => /gass|chin|reckless|low sample|padded|defensive hole|weight miss/i.test(tag)).length * 0.035;
   const composite = rating * 0.34 + striking * 0.2 + grappling * 0.19 + finish * 0.1 + cardio * 0.08 + experience * 0.06 + prospect * 0.03 + ageCurve(profile.age);
   return { rating, striking, grappling, finish, cardio, experience, prospect, composite };
 }
@@ -265,7 +265,7 @@ function fighterState(profile: UfcFighterProfile): FighterState {
       marketImpliedProbability: null,
       dataQualityGrade: dataQuality(profile),
       coldStart: coldStart(profile),
-      scores: scores(profile)
+      scores: buildScores(profile)
     }
   };
 }
@@ -277,7 +277,7 @@ function applyCaps(probA: number, fighterA: FighterState, fighterB: FighterState
   return clamp(capped, 0.01, 0.99);
 }
 
-function simulateRound(probA: number, fighterA: FighterState, fighterB: FighterState, random: () => number) {
+function exchangeWinner(probA: number, fighterA: FighterState, fighterB: FighterState, random: () => number) {
   const swing = (random() - 0.5) * 0.11 + (fighterA.result.scores.grappling - fighterB.result.scores.grappling) * 0.05 + (fighterA.result.scores.striking - fighterB.result.scores.striking) * 0.04;
   return random() < clamp(probA + swing, 0.02, 0.98) ? "A" : "B";
 }
@@ -295,31 +295,32 @@ function runSim(probA: number, fighterA: FighterState, fighterB: FighterState, r
   for (let i = 0; i < simulations; i += 1) {
     let scoreA = 0;
     let scoreB = 0;
-    let done = false;
-    for (let roundNo = 1; roundNo <= rounds && !done; roundNo += 1) {
+    let finished = false;
+    for (let roundNo = 1; roundNo <= rounds && !finished; roundNo += 1) {
       const exchanges = rounds === 5 ? 10 : 9;
       const fatigueA = roundNo >= 3 ? Math.max(0, -fighterA.result.scores.cardio) * 0.03 : 0;
       const fatigueB = roundNo >= 3 ? Math.max(0, -fighterB.result.scores.cardio) * 0.03 : 0;
-      for (let exchange = 0; exchange < exchanges && !done; exchange += 1) {
-        const exchangeWinner = simulateRound(probA, fighterA, fighterB, random);
-        if (exchangeWinner === "A") scoreA += 1 + fighterA.result.scores.striking * 0.15 + fighterA.result.scores.grappling * 0.12;
+      for (let exchange = 0; exchange < exchanges && !finished; exchange += 1) {
+        const winner = exchangeWinner(probA, fighterA, fighterB, random);
+        if (winner === "A") scoreA += 1 + fighterA.result.scores.striking * 0.15 + fighterA.result.scores.grappling * 0.12;
         else scoreB += 1 + fighterB.result.scores.striking * 0.15 + fighterB.result.scores.grappling * 0.12;
-        if (exchangeWinner === "A" && random() < (finishA + fatigueB) / exchanges) {
+
+        if (winner === "A" && random() < (finishA + fatigueB) / exchanges) {
           wins.A += 1;
           const method: UfcFightMethod = random() < subA ? "SUBMISSION" : "KO_TKO";
           methods[method] += 1;
           roundFinishes[`R${roundNo}`] = (roundFinishes[`R${roundNo}`] ?? 0) + 1;
-          done = true;
-        } else if (exchangeWinner === "B" && random() < (finishB + fatigueA) / exchanges) {
+          finished = true;
+        } else if (winner === "B" && random() < (finishB + fatigueA) / exchanges) {
           wins.B += 1;
           const method: UfcFightMethod = random() < subB ? "SUBMISSION" : "KO_TKO";
           methods[method] += 1;
           roundFinishes[`R${roundNo}`] = (roundFinishes[`R${roundNo}`] ?? 0) + 1;
-          done = true;
+          finished = true;
         }
       }
     }
-    if (!done) {
+    if (!finished) {
       const winner = scoreA - scoreB + (random() - 0.5) * 2.5 >= 0 ? "A" : "B";
       wins[winner] += 1;
       methods.DECISION += 1;
@@ -379,6 +380,7 @@ export function buildUfcFightIqPrediction(input: UfcFightIqInput, options: UfcFi
   const finalA = applyCaps(preSimProbabilityA * 0.45 + sim.probabilityA * 0.55, fighterA, fighterB);
   const probabilityA = round(finalA, 4);
   const probabilityB = round(1 - probabilityA, 4);
+
   fighterA.result.winProbability = probabilityA;
   fighterB.result.winProbability = probabilityB;
   fighterA.result.fairOddsAmerican = probabilityToAmericanOdds(probabilityA);
@@ -386,7 +388,8 @@ export function buildUfcFightIqPrediction(input: UfcFightIqInput, options: UfcFi
   fighterA.result.marketOddsAmerican = input.market?.fighterAOddsAmerican ?? null;
   fighterB.result.marketOddsAmerican = input.market?.fighterBOddsAmerican ?? null;
   fighterA.result.marketImpliedProbability = americanOddsToImpliedProbability(input.market?.fighterAOddsAmerican);
-  fighterB.result.marketImpliedProbability = americanOddsToImpliedProbability(input.market?.fighterBOOddsAmerican ?? input.market?.fighterBOddsAmerican);
+  fighterB.result.marketImpliedProbability = americanOddsToImpliedProbability(input.market?.fighterBOddsAmerican);
+
   const pick = probabilityA >= probabilityB ? fighterA : fighterB;
   const opponent = probabilityA >= probabilityB ? fighterB : fighterA;
   const weakestQuality = gradeRank(fighterA.result.dataQualityGrade) <= gradeRank(fighterB.result.dataQualityGrade) ? fighterA.result.dataQualityGrade : fighterB.result.dataQualityGrade;
@@ -425,7 +428,7 @@ export function buildUfcFightIqPrediction(input: UfcFightIqInput, options: UfcFi
 }
 
 function hashSeed(value: string) {
-  return [...value].reduce((hash, char) => Math.imul(31, hash) + char.charCodeAt(0) | 0, 1287) >>> 0;
+  return [...value].reduce((hash, char) => (Math.imul(31, hash) + char.charCodeAt(0)) | 0, 1287) >>> 0;
 }
 
 export function buildUfcFightIqFromSimTwin(twin: any, options: UfcFightIqOptions = {}) {
