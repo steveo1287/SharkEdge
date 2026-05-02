@@ -14,6 +14,7 @@ import { formatLongDate } from "@/lib/formatters/date";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { calibrateNbaPlayerBoxScore } from "@/services/simulation/nba-box-score-calibration";
 import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
+import { getSimRunDepth } from "@/services/simulation/sim-run-depth";
 import type { BoardSportSectionView, LeagueKey } from "@/lib/types/domain";
 
 export const dynamic = "force-dynamic";
@@ -189,7 +190,7 @@ export default async function NbaSimPage() {
   const sections = await buildBoardSportSections({ selectedLeague: "NBA", gamesByLeague: {}, maxScoreboardGames: null });
   const games = flatten(sections);
   const rows: Row[] = await Promise.all(
-    games.map(async (game) => ({ game, projection: withCalibratedPlayers(await buildSimProjection(game)) }))
+    games.map(async (game) => ({ game, projection: withCalibratedPlayers(await buildSimProjection({ ...game, simulationRuns: getSimRunDepth("board") })) }))
   );
   const attack = rows.filter((row) => row.projection.nbaIntel?.tier === "attack").length;
   const watch = rows.filter((row) => row.projection.nbaIntel?.tier === "watch").length;

@@ -3,6 +3,7 @@ import type { NbaPlayerProfile, NbaTeamPlayerProfileSummary } from "@/services/s
 import { compareNbaProfilesReal } from "@/services/simulation/nba-team-analytics";
 import { getNbaDecisionContext } from "@/services/simulation/nba-decision-context";
 import { getNbaSynergyContext } from "@/services/simulation/nba-synergy-context";
+import { getSimRunDepth } from "@/services/simulation/sim-run-depth";
 
 type TeamSide = "home" | "away";
 type PropStatKey = "points" | "rebounds" | "assists" | "threes";
@@ -125,6 +126,7 @@ type SimInput = {
   volatilityIndex: number;
   confidence: number;
   seedKey: string;
+  simulationRuns?: number;
 };
 
 const DEFAULT_RUNS = 10_000;
@@ -644,6 +646,8 @@ export async function simulateNbaPlayerGameProjections(input: SimInput): Promise
     coachByTeam?.[normalizeName(input.awaySummary.teamName)] ??
     deriveCoachFallback(input.awaySummary.teamName, -synergy.coachAdjustmentEdge - synergy.starCreationEdge * 0.25, decision.refereePaceBias - synergy.transitionEdge * 0.35, -synergy.rotationStabilityEdge - synergy.lineupContinuityEdge * 0.4);
 
+  const runs = input.simulationRuns ?? getSimRunDepth("detail");
+
   const homeCandidates = input.homeSummary.players
     .filter((player) => player.role !== "bench" || player.projectedMinutes >= 18)
     .sort((left, right) => playerSignalScore(right) - playerSignalScore(left))
@@ -680,7 +684,7 @@ export async function simulateNbaPlayerGameProjections(input: SimInput): Promise
       rating: ratingsByPlayer?.[normalizeName(player.playerName)] ?? null,
       seedKey: input.seedKey,
       marketLines: linesByPlayer?.[normalizeName(player.playerName)]
-    }, DEFAULT_RUNS);
+    }, runs);
   });
 
   const awaySim = awayCandidates.map((player) => {
@@ -707,7 +711,7 @@ export async function simulateNbaPlayerGameProjections(input: SimInput): Promise
       rating: ratingsByPlayer?.[normalizeName(player.playerName)] ?? null,
       seedKey: input.seedKey,
       marketLines: linesByPlayer?.[normalizeName(player.playerName)]
-    }, DEFAULT_RUNS);
+    }, runs);
   });
 
   const sortScore = (row: NbaPlayerStatProjection) =>

@@ -14,6 +14,7 @@ import { SectionTitle } from "@/components/ui/section-title";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { calibrateNbaPlayerBoxScore } from "@/services/simulation/nba-box-score-calibration";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
+import { getSimRunDepth } from "@/services/simulation/sim-run-depth";
 import type { BoardSportSectionView, LeagueKey } from "@/lib/types/domain";
 
 export const dynamic = "force-dynamic";
@@ -140,7 +141,7 @@ export default async function SimPlayersPage({ searchParams }: PageProps) {
   const focusPlayer = param(params?.player);
   const sections = await buildBoardSportSections({ selectedLeague: activeLeague, gamesByLeague: {}, maxScoreboardGames: focusedGameId ? null : 6 });
   const games = flatten(sections);
-  const rows: MatchupRow[] = await Promise.all(games.map(async (game) => ({ game, projection: withCalibratedNbaPlayers(await buildSimProjection(game)) })));
+  const rows: MatchupRow[] = await Promise.all(games.map(async (game) => ({ game, projection: withCalibratedNbaPlayers(await buildSimProjection({ ...game, simulationRuns: getSimRunDepth("board") })) })));
   const displayedRows = focusedGameId ? rows.filter((row) => row.game.id === focusedGameId) : rows;
   const focusedPlayerRow = displayedRows.flatMap((row) => row.projection.nbaIntel?.playerStatProjections.map((player) => ({ player, game: row.game })) ?? []).find((item) => playerMatches(item.player, focusPlayer)) ?? null;
   const playerRows = displayedRows.reduce((total, row) => total + (row.projection.nbaIntel?.playerStatProjections.length ?? 0), 0);
@@ -151,7 +152,7 @@ export default async function SimPlayersPage({ searchParams }: PageProps) {
     <div className="space-y-6">
       <SimWorkspaceHeader eyebrow="Player Matchups" title="Projected box scores for every player in the matchup." description="This page uses the same live matchup simulation stack as Sim HQ. Prop links can open the exact game and highlight the player, then show calibrated points, rebounds, assists, threes, PRA, confidence, and player-vs-player ladder." actions={[{ href: "/sim/nba", label: "NBA Sim", tone: "primary" }, { href: "/props?league=NBA", label: "NBA Props" }, { href: "/nba-edge", label: "NBA Edge" }, ...(focusedGameId || focusPlayer ? [{ href: "/sim/players?league=NBA", label: "Clear Focus" }] : [])]} />
       {focusedGameId || focusPlayer ? <SimSignalCard className="border-sky-400/25 bg-sky-500/[0.05]"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-200/80">Prop drilldown active</div><div className="mt-1 text-sm text-slate-300">{focusedPlayerRow ? `Focused on ${focusedPlayerRow.player.playerName} in ${focusedPlayerRow.game.label}.` : `Focused query loaded${focusPlayer ? ` for ${focusPlayer}` : ""}. Matching player rows will highlight when available.`}</div></div><Link href="/sim/players?league=NBA" className="rounded-full border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-200">Show full slate</Link></div></SimSignalCard> : null}
-      <section className="grid gap-3 md:grid-cols-4"><SimMetricTile label="Matchups" value={String(displayedRows.length)} sub={`${activeLeague} active slate`} /><SimMetricTile label="Player rows" value={String(playerRows)} sub="Projected box-score entries" /><SimMetricTile label="Attack / Watch" value={`${attack} / ${watch}`} sub="NBA governor tiers" emphasis="strong" /><SimMetricTile label="Runs" value="10k" sub="Per-player simulation depth" /></section>
+      <section className="grid gap-3 md:grid-cols-4"><SimMetricTile label="Matchups" value={String(displayedRows.length)} sub={`${activeLeague} active slate`} /><SimMetricTile label="Player rows" value={String(playerRows)} sub="Projected box-score entries" /><SimMetricTile label="Attack / Watch" value={`${attack} / ${watch}`} sub="NBA governor tiers" emphasis="strong" /><SimMetricTile label="Runs" value={`${(getSimRunDepth("board") / 1000).toFixed(0)}k`} sub="Per-player simulation depth" /></section>
       <section className="grid gap-4"><SectionTitle title="NBA player matchup board" description="Open a full sim for the game-level model, or use these tables to read the calibrated player box score and matchup ladder directly." />{displayedRows.length ? displayedRows.map((row) => <MatchupBoxScoreCard key={`${row.game.leagueKey}:${row.game.id}`} row={row} focusPlayer={focusPlayer} focusedGameId={focusedGameId} />) : <EmptyState title="No matching NBA matchup available" description="The scoreboard provider did not return an active NBA game matching this prop link." />}</section>
     </div>
   );
