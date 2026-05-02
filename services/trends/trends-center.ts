@@ -51,6 +51,57 @@ function sortByNewestRun(rows: SavedTrendRow[]) {
   });
 }
 
+function promotionScore(system: PublishedTrendSystem) {
+  let score = 0;
+  const activeMatches = system.activeMatches.length;
+  if (activeMatches) score += 300 + activeMatches * 25;
+  if (system.verified) score += 220;
+  if (system.actionability === "ACTIVE") score += 160;
+  if (system.actionability === "WATCHLIST") score += 70;
+  if (system.category === "EDGE") score += 45;
+  if (system.category === "MARKET") score += 30;
+  if (system.category === "SITUATIONAL") score += 20;
+  if (!activeMatches) score -= 180;
+  return score;
+}
+
+function promotionTier(system: PublishedTrendSystem) {
+  if (system.activeMatches.length > 0 && system.verified) return "promote";
+  if (system.activeMatches.length > 0) return "watch";
+  if (system.verified) return "verified-idle";
+  return "bench";
+}
+
+function promotionReason(system: PublishedTrendSystem) {
+  const parts = [];
+  if (system.activeMatches.length) parts.push(`${system.activeMatches.length} live qualifier${system.activeMatches.length === 1 ? "" : "s"}`);
+  else parts.push("no current qualifier");
+  parts.push(system.verified ? "verified" : "unverified/provisional");
+  parts.push(`${system.actionability.toLowerCase()} action gate`);
+  return parts.join(" · ");
+}
+
+function promotionBoard(systems: PublishedTrendSystem[]) {
+  return [...systems]
+    .map((system) => ({
+      id: system.id,
+      name: system.name,
+      sport: system.sport,
+      league: system.league,
+      market: system.market,
+      category: system.category,
+      actionability: system.actionability,
+      activeMatches: system.activeMatches.length,
+      verified: system.verified,
+      score: promotionScore(system),
+      tier: promotionTier(system),
+      reason: promotionReason(system),
+      href: systemHref(system)
+    }))
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 12);
+}
+
 export type TrendsCenterSnapshot = Awaited<ReturnType<typeof buildTrendsCenterSnapshot>>;
 
 export async function buildTrendsCenterSnapshot() {
@@ -80,6 +131,10 @@ export async function buildTrendsCenterSnapshot() {
   const publishedActionable = publishedSystems.filter((system) => system.actionability === "ACTIVE");
   const publishedWatchlist = publishedSystems.filter((system) => system.actionability === "WATCHLIST");
   const verifiedPublished = publishedSystems.filter((system) => system.verified);
+  const board = promotionBoard(publishedSystems);
+  const promotableSystems = board.filter((system) => system.tier === "promote");
+  const watchSystems = board.filter((system) => system.tier === "watch");
+  const benchSystems = board.filter((system) => system.tier === "bench" || system.tier === "verified-idle");
 
   const runCoveragePct = savedActive.length ? Math.round((recent.length / savedActive.length) * 100) : 0;
   const freshnessRiskPct = savedActive.length ? Math.round((stale.length / savedActive.length) * 100) : 0;
@@ -137,13 +192,17 @@ export async function buildTrendsCenterSnapshot() {
       publishedActionable: publishedActionable.length,
       publishedWatchlist: publishedWatchlist.length,
       verifiedPublished: verifiedPublished.length,
+      promotableSystems: promotableSystems.length,
+      watchSystems: watchSystems.length,
+      benchSystems: benchSystems.length,
       activeMatches: publishedRun.summary.activeMatches
     },
     coverage: {
       runCoveragePct,
       freshnessRiskPct,
       publishedActivePct: publishedSystems.length ? Math.round((publishedActive.length / publishedSystems.length) * 100) : 0,
-      publishedVerifiedPct: publishedSystems.length ? Math.round((verifiedPublished.length / publishedSystems.length) * 100) : 0
+      publishedVerifiedPct: publishedSystems.length ? Math.round((verifiedPublished.length / publishedSystems.length) * 100) : 0,
+      promotablePct: publishedSystems.length ? Math.round((promotableSystems.length / publishedSystems.length) * 100) : 0
     },
     distribution: {
       bySport: countBy(publishedSystems.map((system) => system.sport)),
@@ -151,6 +210,7 @@ export async function buildTrendsCenterSnapshot() {
       byMarket: countBy(publishedSystems.map((system) => system.market)),
       byMode: countBy(savedActive.map((row) => row.mode)),
       byCategory: publishedRun.summary.byCategory,
+      byPromotionTier: countBy(board.map((system) => system.tier)),
       savedBySport: countBy(savedActive.map((row) => row.sport)),
       savedByLeague: countBy(savedActive.map((row) => row.filters.league)),
       savedByMarket: countBy(savedActive.map((row) => row.filters.market))
@@ -178,11 +238,16 @@ export async function buildTrendsCenterSnapshot() {
       verified: system.verified,
       href: systemHref(system)
     })),
+    promotionBoard: board,
     commandQueue,
-    nextAction: commandQueue.length
-      ? "Refresh saved rows and keep inactive published systems below active systems until current matches return."
-      : publishedActive.length
-        ? "Published system inventory is active. Next step is rank by verified ledger proof, ROI, and current price quality."
-        : "Published systems exist, but none have current matches. Run sim/market refresh before promotion."
+    nextAction: promotableSystems.length
+      ? "Promote the top promotionBoard systems first; they have live qualifiers plus verification support."
+      : watchSystems.length
+        ? "Live systems exist but are not verified yet. Keep them watchlist until ledger proof improves."
+        : commandQueue.length
+          ? "Refresh saved rows and keep inactive published systems below active systems until current matches return."
+          : publishedActive.length
+            ? "Published system inventory is active. Next step is rank by verified ledger proof, ROI, and current price quality."
+            : "Published systems exist, but none have current matches. Run sim/market refresh before promotion."
   };
 }
