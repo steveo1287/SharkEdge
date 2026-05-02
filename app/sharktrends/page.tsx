@@ -29,14 +29,55 @@ function tierClass(tier: string) {
   return "border-slate-500/25 bg-slate-800/60 text-slate-300";
 }
 
+function laneClass(tier: string) {
+  if (tier === "promote") return "border-emerald-400/20 bg-emerald-400/[0.05]";
+  if (tier === "watch") return "border-sky-400/20 bg-sky-400/[0.05]";
+  if (tier === "verified-idle") return "border-cyan-400/20 bg-cyan-400/[0.05]";
+  return "border-white/10 bg-slate-950/50";
+}
+
 function distributionText(record: Record<string, number> | undefined, limit = 6) {
   const entries = Object.entries(record ?? {}).sort((left, right) => right[1] - left[1]).slice(0, limit);
   return entries.length ? entries.map(([key, value]) => `${key} ${value}`).join(" · ") : "none";
 }
 
+function LaneCard({ item }: { item: any }) {
+  return (
+    <a href={item.href} className="block rounded-xl border border-white/10 bg-black/25 p-3 hover:border-cyan-300/30">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0 truncate text-sm font-semibold text-white">#{item.rank} {item.name}</div>
+        <div className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${tierClass(item.tier)}`}>{item.score}</div>
+      </div>
+      <div className="mt-1 text-xs leading-5 text-slate-400">{item.reason}</div>
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] uppercase tracking-[0.12em] text-slate-500">
+        <span>{item.primaryAction}</span>
+        {item.blockers?.length ? item.blockers.map((blocker: string) => <span key={blocker}>· {blocker}</span>) : <span>· clear</span>}
+      </div>
+    </a>
+  );
+}
+
+function PlacementLane({ title, description, tier, items }: { title: string; description: string; tier: string; items: any[] }) {
+  return (
+    <div className={`rounded-[1.25rem] border p-4 ${laneClass(tier)}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">{title}</div>
+          <div className="mt-1 text-xs leading-5 text-slate-400">{description}</div>
+        </div>
+        <div className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${tierClass(tier)}`}>{items.length}</div>
+      </div>
+      <div className="mt-3 grid gap-2">
+        {items.length ? items.slice(0, 4).map((item) => <LaneCard key={item.id} item={item} />) : <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-500">No systems in this lane.</div>}
+      </div>
+    </div>
+  );
+}
+
 export default async function SharkTrendsPage() {
   const snapshot = await buildTrendsCenterSnapshot();
   const board = snapshot.promotionBoard ?? [];
+  const lanes = snapshot.placementLanes ?? { promote: [], watch: [], "verified-idle": [], bench: [] };
   const queue = snapshot.commandQueue ?? [];
   const activeSystems = snapshot.activeSystems ?? [];
   const counts = snapshot.counts;
@@ -48,9 +89,9 @@ export default async function SharkTrendsPage() {
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">SharkTrends</div>
-            <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Promotion board</h1>
+            <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Placement lanes</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Published-system inventory ranked for promotion by live qualifiers, verification, action gate, saved-row freshness, and blockers. This is the control layer for turning trends into a real product board.
+              Published systems are separated into promote, watch, verified-idle, and bench lanes. Each system shows blockers and the primary action needed before it earns premium SharkTrends placement.
             </p>
           </div>
           <div className="flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.14em]">
@@ -62,31 +103,19 @@ export default async function SharkTrendsPage() {
         </div>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Tile
-          label="Active published systems"
-          value={`${counts.publishedActive}/${counts.publishedTotal}`}
-          tone={counts.publishedActive ? "good" : "warn"}
-          note={`${counts.activeMatches} active matches · ${coverage.publishedActivePct}% active coverage.`}
-        />
-        <Tile
-          label="Promotion ready"
-          value={`${counts.promotableSystems}/${counts.publishedTotal}`}
-          tone={counts.promotableSystems ? "good" : counts.watchSystems ? "warn" : "neutral"}
-          note={`${counts.watchSystems} watchlist · ${counts.benchSystems} bench · ${coverage.promotablePct}% promotable.`}
-        />
-        <Tile
-          label="Verified published"
-          value={`${counts.verifiedPublished}/${counts.publishedTotal}`}
-          tone={counts.verifiedPublished ? "good" : "warn"}
-          note={`${coverage.publishedVerifiedPct}% verified. Verified live systems get premium placement.`}
-        />
-        <Tile
-          label="Saved rows"
-          value={`${counts.savedActive}/${counts.savedTotal}`}
-          tone={counts.stale || counts.neverRun ? "warn" : counts.savedActive ? "good" : "neutral"}
-          note={`${counts.stale} stale · ${counts.neverRun} never-run · ${coverage.runCoveragePct}% recent run coverage.`}
-        />
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <Tile label="Active published" value={`${counts.publishedActive}/${counts.publishedTotal}`} tone={counts.publishedActive ? "good" : "warn"} note={`${counts.activeMatches} active matches · ${coverage.publishedActivePct}% active coverage.`} />
+        <Tile label="Promotion ready" value={`${counts.promotableSystems}/${counts.publishedTotal}`} tone={counts.promotableSystems ? "good" : counts.watchSystems ? "warn" : "neutral"} note={`${counts.watchSystems} watchlist · ${counts.benchSystems} bench · ${coverage.promotablePct}% promotable.`} />
+        <Tile label="Verified published" value={`${counts.verifiedPublished}/${counts.publishedTotal}`} tone={counts.verifiedPublished ? "good" : "warn"} note={`${coverage.publishedVerifiedPct}% verified. Verified live systems get premium placement.`} />
+        <Tile label="Blocked systems" value={counts.blockedSystems ?? 0} tone={counts.blockedSystems ? "warn" : "good"} note={`${coverage.blockedPct ?? 0}% blocked by proof, activity, or action-gate issues.`} />
+        <Tile label="Saved rows" value={`${counts.savedActive}/${counts.savedTotal}`} tone={counts.stale || counts.neverRun ? "warn" : counts.savedActive ? "good" : "neutral"} note={`${counts.stale} stale · ${counts.neverRun} never-run · ${coverage.runCoveragePct}% recent run coverage.`} />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-4">
+        <PlacementLane title="Promote" tier="promote" description="Verified systems with live qualifiers. These deserve the top rail." items={lanes.promote ?? []} />
+        <PlacementLane title="Watch" tier="watch" description="Live qualifiers without enough proof. Keep visible but not premium." items={lanes.watch ?? []} />
+        <PlacementLane title="Verified idle" tier="verified-idle" description="Verified but no current qualifier. Keep ready for the next slate." items={lanes["verified-idle"] ?? []} />
+        <PlacementLane title="Bench" tier="bench" description="No live qualifier and/or proof/action blockers. Do not promote." items={lanes.bench ?? []} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
@@ -94,17 +123,17 @@ export default async function SharkTrendsPage() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300">Promotion board</div>
-              <h2 className="mt-1 text-xl font-semibold text-white">Top systems for SharkTrends placement</h2>
+              <h2 className="mt-1 text-xl font-semibold text-white">Ranked systems for SharkTrends placement</h2>
             </div>
             <a href="/api/trends/sharktrends" className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-200 hover:text-cyan-100">Inspect JSON</a>
           </div>
 
           <div className="mt-4 grid gap-3">
-            {board.length ? board.map((item, index) => (
+            {board.length ? board.map((item) => (
               <a key={item.id} href={item.href} className="rounded-2xl border border-white/10 bg-black/25 p-4 hover:border-cyan-300/30">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold text-white">#{index + 1} {item.name}</div>
+                    <div className="text-sm font-semibold text-white">#{item.rank} {item.name}</div>
                     <div className="mt-1 text-xs leading-5 text-slate-400">{item.reason}</div>
                   </div>
                   <div className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${tierClass(item.tier)}`}>
@@ -117,6 +146,8 @@ export default async function SharkTrendsPage() {
                   <span>{item.category}</span>
                   <span>{item.activeMatches} live</span>
                   <span>{item.verified ? "verified" : "provisional"}</span>
+                  <span>{item.primaryAction}</span>
+                  {item.blockers?.map((blocker: string) => <span key={blocker}>{blocker}</span>)}
                 </div>
               </a>
             )) : (
@@ -148,10 +179,10 @@ export default async function SharkTrendsPage() {
           </div>
 
           <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Distribution</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Blocker distribution</div>
             <div className="mt-3 space-y-2 text-xs leading-5 text-slate-400">
-              <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Leagues</span><span className="ml-2">{distributionText(snapshot.distribution.byLeague)}</span></div>
-              <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Markets</span><span className="ml-2">{distributionText(snapshot.distribution.byMarket)}</span></div>
+              <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Blockers</span><span className="ml-2">{distributionText(snapshot.distribution.byBlocker)}</span></div>
+              <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Actions</span><span className="ml-2">{distributionText(snapshot.distribution.byPrimaryAction)}</span></div>
               <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Tiers</span><span className="ml-2">{distributionText(snapshot.distribution.byPromotionTier)}</span></div>
               <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Categories</span><span className="ml-2">{distributionText(snapshot.distribution.byCategory)}</span></div>
             </div>
