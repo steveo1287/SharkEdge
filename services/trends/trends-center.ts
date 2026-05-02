@@ -4,6 +4,7 @@ import { buildTrendSystemRun } from "@/services/trends/trend-system-engine";
 const STALE_RUN_HOURS = 24;
 const RECENT_RUN_HOURS = 24;
 const PRODUCT_NAME = "SharkTrends";
+const PROMOTION_BOARD_LIMIT = 12;
 
 type SavedTrendRow = Awaited<ReturnType<typeof listSavedTrendRows>>[number];
 type PublishedTrendSystem = Awaited<ReturnType<typeof buildTrendSystemRun>>["systems"][number];
@@ -111,7 +112,7 @@ function promotionReason(system: PublishedTrendSystem) {
   return parts.join(" · ");
 }
 
-function promotionBoard(systems: PublishedTrendSystem[]) {
+function buildPromotionRows(systems: PublishedTrendSystem[]) {
   return [...systems]
     .map((system) => ({
       id: system.id,
@@ -131,16 +132,15 @@ function promotionBoard(systems: PublishedTrendSystem[]) {
       href: systemHref(system)
     }))
     .sort((left, right) => right.score - left.score)
-    .map((system, index) => ({ ...system, rank: index + 1 }))
-    .slice(0, 12);
+    .map((system, index) => ({ ...system, rank: index + 1 }));
 }
 
-function placementLanes(board: ReturnType<typeof promotionBoard>) {
+function placementLanes(rows: ReturnType<typeof buildPromotionRows>) {
   return {
-    promote: board.filter((system) => system.tier === "promote"),
-    watch: board.filter((system) => system.tier === "watch"),
-    "verified-idle": board.filter((system) => system.tier === "verified-idle"),
-    bench: board.filter((system) => system.tier === "bench")
+    promote: rows.filter((system) => system.tier === "promote"),
+    watch: rows.filter((system) => system.tier === "watch"),
+    "verified-idle": rows.filter((system) => system.tier === "verified-idle"),
+    bench: rows.filter((system) => system.tier === "bench")
   };
 }
 
@@ -173,12 +173,13 @@ export async function buildTrendsCenterSnapshot() {
   const publishedActionable = publishedSystems.filter((system) => systemActionability(system).includes("ACTIVE") || systemActionability(system).includes("REVIEW"));
   const publishedWatchlist = publishedSystems.filter((system) => systemActionability(system).includes("WATCH"));
   const verifiedPublished = publishedSystems.filter((system) => system.verified);
-  const board = promotionBoard(publishedSystems);
-  const lanes = placementLanes(board);
+  const allPromotionRows = buildPromotionRows(publishedSystems);
+  const promotionBoard = allPromotionRows.slice(0, PROMOTION_BOARD_LIMIT);
+  const lanes = placementLanes(allPromotionRows);
   const promotableSystems = lanes.promote;
   const watchSystems = lanes.watch;
   const benchSystems = [...lanes.bench, ...lanes["verified-idle"]];
-  const blockedSystems = board.filter((system) => system.blockers.length > 0);
+  const blockedSystems = allPromotionRows.filter((system) => system.blockers.length > 0);
 
   const runCoveragePct = savedActive.length ? Math.round((recent.length / savedActive.length) * 100) : 0;
   const freshnessRiskPct = savedActive.length ? Math.round((stale.length / savedActive.length) * 100) : 0;
@@ -219,7 +220,8 @@ export async function buildTrendsCenterSnapshot() {
     generatedAt: new Date(now).toISOString(),
     thresholds: {
       staleRunHours: STALE_RUN_HOURS,
-      recentRunHours: RECENT_RUN_HOURS
+      recentRunHours: RECENT_RUN_HOURS,
+      promotionBoardLimit: PROMOTION_BOARD_LIMIT
     },
     counts: {
       total: publishedSystems.length,
@@ -242,6 +244,8 @@ export async function buildTrendsCenterSnapshot() {
       watchSystems: watchSystems.length,
       benchSystems: benchSystems.length,
       blockedSystems: blockedSystems.length,
+      allPromotionRows: allPromotionRows.length,
+      visiblePromotionRows: promotionBoard.length,
       activeMatches: publishedRun.summary.activeMatches
     },
     coverage: {
@@ -258,9 +262,9 @@ export async function buildTrendsCenterSnapshot() {
       byMarket: countBy(publishedSystems.map((system) => system.market)),
       byMode: countBy(savedActive.map((row) => row.mode)),
       byCategory: publishedRun.summary.byCategory,
-      byPromotionTier: countBy(board.map((system) => system.tier)),
-      byBlocker: countBy(board.flatMap((system) => system.blockers)),
-      byPrimaryAction: countBy(board.map((system) => system.primaryAction)),
+      byPromotionTier: countBy(allPromotionRows.map((system) => system.tier)),
+      byBlocker: countBy(allPromotionRows.flatMap((system) => system.blockers)),
+      byPrimaryAction: countBy(allPromotionRows.map((system) => system.primaryAction)),
       savedBySport: countBy(savedActive.map((row) => row.sport)),
       savedByLeague: countBy(savedActive.map((row) => row.filters.league)),
       savedByMarket: countBy(savedActive.map((row) => row.filters.market))
@@ -288,7 +292,8 @@ export async function buildTrendsCenterSnapshot() {
       verified: system.verified,
       href: systemHref(system)
     })),
-    promotionBoard: board,
+    promotionBoard,
+    allPromotionRows,
     placementLanes: lanes,
     commandQueue,
     nextAction: promotableSystems.length
