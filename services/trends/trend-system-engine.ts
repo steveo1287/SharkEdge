@@ -6,6 +6,7 @@ import {
   type SimBoardSnapshot,
   type SimMarketSnapshot
 } from "@/services/simulation/sim-snapshot-service";
+import { buildUfcTrendSystems } from "@/services/trends/ufc-trend-systems";
 
 export type TrendSystemCategory = "Most Profitable" | "Hot Team Trend" | "Undefeated" | "Model Edge" | "Total Environment" | "Situational";
 export type TrendSystemActionability = "ACTIVE" | "WATCHLIST" | "RESEARCH" | "INACTIVE";
@@ -18,7 +19,7 @@ export type TrendSystemDefinition = {
   sport: SportCode;
   league: LeagueKey;
   market: MarketType;
-  side: "HOME" | "AWAY" | "FAVORITE" | "UNDERDOG" | "OVER" | "UNDER";
+  side: "HOME" | "AWAY" | "FAVORITE" | "UNDERDOG" | "OVER" | "UNDER" | "COMPETITOR_A" | "COMPETITOR_B";
   filters: TrendFilters;
   rules: Array<{
     key: string;
@@ -67,6 +68,7 @@ export type TrendSystemRun = {
   cacheStatus: {
     nba: boolean;
     mlb: boolean;
+    ufc: boolean;
     market: boolean;
     stale: boolean;
   };
@@ -360,7 +362,7 @@ async function loadRows() {
 export async function buildTrendSystemRun(args?: { league?: LeagueKey | "ALL"; includeInactive?: boolean }): Promise<TrendSystemRun> {
   const { rows, market, cacheStatus } = await loadRows();
   const league = args?.league ?? "ALL";
-  const systems = PUBLISHED_SYSTEMS
+  const baseSystems = PUBLISHED_SYSTEMS
     .filter((system) => league === "ALL" || system.league === league)
     .map((system) => {
       const activeMatches = matchSystem(system, rows, market);
@@ -370,10 +372,20 @@ export async function buildTrendSystemRun(args?: { league?: LeagueKey | "ALL"; i
     })
     .filter((system) => args?.includeInactive || system.activeMatches.length || system.verified);
 
+  const ufcRun = league === "ALL" || league === "UFC"
+    ? await buildUfcTrendSystems({ includeInactive: args?.includeInactive })
+    : { systems: [], cacheStatus: { ufc: false, stale: false } };
+
+  const systems = [...baseSystems, ...ufcRun.systems];
   const activeMatches = systems.flatMap((system) => system.activeMatches);
+
   return {
     generatedAt: new Date().toISOString(),
-    cacheStatus,
+    cacheStatus: {
+      ...cacheStatus,
+      ufc: Boolean(ufcRun.cacheStatus.ufc),
+      stale: Boolean(cacheStatus.stale || ufcRun.cacheStatus.stale)
+    },
     systems,
     summary: {
       systems: systems.length,
