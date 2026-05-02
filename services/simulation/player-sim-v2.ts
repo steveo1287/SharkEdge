@@ -1,4 +1,5 @@
 import { DEFAULT_TUNING, SimTuningParams } from "./sim-tuning";
+import { getSimRunDepth } from "./sim-run-depth";
 
 export type PlayerSimV2Input = {
   player: string;
@@ -139,7 +140,7 @@ export function applyAdjustments(mean: number, input: PlayerSimV2Input, tuning: 
 }
 
 export function simulate(mean: number, line: number, input: PlayerSimV2Input, tuning: SimTuningParams = DEFAULT_TUNING) {
-  const sims = Math.max(1000, Math.min(input.sims ?? 5000, 25000));
+  const sims = Math.max(1000, Math.min(input.sims ?? getSimRunDepth("detail"), 25000));
   const propType = normalizePropType(input.propType);
   const varianceScale = propType === "Strikeouts" || propType === "Outs" ? 0.22 : propType === "Threes" ? 0.34 : 0.25;
   const std = Math.max(0.2, mean * varianceScale * tuning.varianceScale);
