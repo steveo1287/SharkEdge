@@ -58,6 +58,7 @@ function LaneCard({ item }: { item: any }) {
 }
 
 function PlacementLane({ title, description, tier, items }: { title: string; description: string; tier: string; items: any[] }) {
+  const hidden = Math.max(0, items.length - 4);
   return (
     <div className={`rounded-[1.25rem] border p-4 ${laneClass(tier)}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -70,6 +71,7 @@ function PlacementLane({ title, description, tier, items }: { title: string; des
       <div className="mt-3 grid gap-2">
         {items.length ? items.slice(0, 4).map((item) => <LaneCard key={item.id} item={item} />) : <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-500">No systems in this lane.</div>}
       </div>
+      {hidden ? <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] uppercase tracking-[0.14em] text-slate-500">+{hidden} more in full inventory JSON</div> : null}
     </div>
   );
 }
@@ -82,6 +84,8 @@ export default async function SharkTrendsPage() {
   const activeSystems = snapshot.activeSystems ?? [];
   const counts = snapshot.counts;
   const coverage = snapshot.coverage;
+  const boardLimit = snapshot.thresholds?.promotionBoardLimit ?? board.length;
+  const hiddenBoardRows = Math.max(0, (counts.allPromotionRows ?? board.length) - board.length);
 
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -91,7 +95,7 @@ export default async function SharkTrendsPage() {
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">SharkTrends</div>
             <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Placement lanes</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Published systems are separated into promote, watch, verified-idle, and bench lanes. Each system shows blockers and the primary action needed before it earns premium SharkTrends placement.
+              Published systems are separated into promote, watch, verified-idle, and bench lanes. Lanes and counts use the full system inventory; the promotion board below shows only the top {boardLimit} ranked systems for display.
             </p>
           </div>
           <div className="flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.14em]">
@@ -103,7 +107,8 @@ export default async function SharkTrendsPage() {
         </div>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <Tile label="Inventory" value={`${counts.allPromotionRows ?? counts.publishedTotal}`} tone={counts.publishedTotal ? "good" : "warn"} note={`Full published-system inventory. Top ${counts.visiblePromotionRows ?? board.length} shown on board.`} />
         <Tile label="Active published" value={`${counts.publishedActive}/${counts.publishedTotal}`} tone={counts.publishedActive ? "good" : "warn"} note={`${counts.activeMatches} active matches · ${coverage.publishedActivePct}% active coverage.`} />
         <Tile label="Promotion ready" value={`${counts.promotableSystems}/${counts.publishedTotal}`} tone={counts.promotableSystems ? "good" : counts.watchSystems ? "warn" : "neutral"} note={`${counts.watchSystems} watchlist · ${counts.benchSystems} bench · ${coverage.promotablePct}% promotable.`} />
         <Tile label="Verified published" value={`${counts.verifiedPublished}/${counts.publishedTotal}`} tone={counts.verifiedPublished ? "good" : "warn"} note={`${coverage.publishedVerifiedPct}% verified. Verified live systems get premium placement.`} />
@@ -123,7 +128,8 @@ export default async function SharkTrendsPage() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300">Promotion board</div>
-              <h2 className="mt-1 text-xl font-semibold text-white">Ranked systems for SharkTrends placement</h2>
+              <h2 className="mt-1 text-xl font-semibold text-white">Top {board.length} of {counts.allPromotionRows ?? board.length} systems</h2>
+              <div className="mt-1 text-xs leading-5 text-slate-500">Display limit {boardLimit}. Placement lanes above are full-inventory counts.</div>
             </div>
             <a href="/api/trends/sharktrends" className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-200 hover:text-cyan-100">Inspect JSON</a>
           </div>
@@ -155,6 +161,7 @@ export default async function SharkTrendsPage() {
                 No promotion board rows yet. Run the trend cycle and verify published system inventory.
               </div>
             )}
+            {hiddenBoardRows ? <div className="rounded-2xl border border-cyan-300/15 bg-cyan-300/[0.04] p-3 text-xs leading-5 text-cyan-100/80">{hiddenBoardRows} lower-ranked systems are omitted from the display board but still counted in lanes, blockers, and distributions. Inspect JSON for full inventory.</div> : null}
           </div>
         </div>
 
