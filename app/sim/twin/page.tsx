@@ -50,6 +50,39 @@ function leverageClass(label: string) {
   return "border-slate-500/25 bg-slate-800/60 text-slate-300";
 }
 
+function commandClass(state: string) {
+  if (state === "PRIORITY_REVIEW") return "border-fuchsia-300/25 bg-fuchsia-300/10 text-fuchsia-100";
+  if (state === "MODEL_EDGE") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
+  if (state === "SCENARIO_SWING") return "border-cyan-400/25 bg-cyan-400/10 text-cyan-200";
+  if (state === "WATCH") return "border-amber-300/25 bg-amber-300/10 text-amber-100";
+  return "border-slate-500/25 bg-slate-800/60 text-slate-300";
+}
+
+function QueueItem({ item }: { item: any }) {
+  return (
+    <Link href={item.href} className="block rounded-2xl border border-white/10 bg-black/25 p-3 hover:border-cyan-300/30">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-300">#{item.rank} · {item.league}</div>
+          <div className="mt-1 text-sm font-semibold text-white">{item.eventLabel}</div>
+        </div>
+        <div className="flex flex-wrap justify-end gap-1.5">
+          <span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${commandClass(item.commandState)}`}>{item.commandLabel}</span>
+          <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-cyan-100">{item.commandScore}</span>
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400 md:grid-cols-4">
+        <span>Trust {item.trustGrade}</span>
+        <span>Lev {item.leverageScore}</span>
+        <span>Edge {pctRaw(item.marketEdgePct)}</span>
+        <span>Swing {num(item.scenarioSwingPct)}</span>
+      </div>
+      <div className="mt-2 text-xs leading-5 text-slate-400">{item.reasons?.[0] ?? "Queued for review."}</div>
+      {item.blockers?.length ? <div className="mt-2 text-[10px] uppercase tracking-[0.12em] text-slate-500">{item.blockers.join(" · ")}</div> : null}
+    </Link>
+  );
+}
+
 function TwinCard({ twin }: { twin: any }) {
   return (
     <Link href={twin.href} className="block rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4 hover:border-cyan-300/30">
@@ -106,6 +139,7 @@ export default async function SimTwinPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
   const league = readValue(resolved, "league") ?? "ALL";
   const result = await listSimTwins({ league, limit: 24 });
+  const queue = result.commandQueue;
 
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -115,7 +149,7 @@ export default async function SimTwinPage({ searchParams }: PageProps) {
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">Sim Twin</div>
             <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Interactive scenario simulator</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Current game twins with base simulation, market comparison, model trust grade, uncertainty range, scenario deltas, and season-impact leverage.
+              Current game twins with base simulation, market comparison, model trust grade, uncertainty range, scenario deltas, season-impact leverage, and a command queue.
             </p>
           </div>
           <div className="flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.14em]">
@@ -137,6 +171,27 @@ export default async function SimTwinPage({ searchParams }: PageProps) {
         <button type="submit" className="rounded-xl border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100 hover:bg-cyan-300/15">Apply</button>
         <Link href="/sim/twin" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Reset</Link>
       </form>
+
+      <section className="rounded-[1.5rem] border border-cyan-300/15 bg-slate-950/70 p-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Command queue</div>
+            <h2 className="mt-1 text-xl font-semibold text-white">Review targets ranked by trust, leverage, edge, and scenario swing</h2>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-[10px] uppercase tracking-[0.14em] text-slate-400 sm:grid-cols-5">
+            <span>Priority {queue.priorityReviewCount}</span>
+            <span>Edge {queue.modelEdgeCount}</span>
+            <span>Swing {queue.scenarioSwingCount}</span>
+            <span>Watch {queue.watchCount}</span>
+            <span>Low {queue.lowPriorityCount}</span>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 xl:grid-cols-3">
+          {queue.items.length ? queue.items.slice(0, 6).map((item: any) => <QueueItem key={item.id} item={item} />) : (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-400">No command queue items available.</div>
+          )}
+        </div>
+      </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
         {result.twins.length ? result.twins.map((twin) => <TwinCard key={`${twin.league}:${twin.gameId}`} twin={twin} />) : (
