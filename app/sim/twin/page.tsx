@@ -43,6 +43,13 @@ function trustClass(grade: string) {
   return "border-red-400/25 bg-red-400/10 text-red-200";
 }
 
+function leverageClass(label: string) {
+  if (label === "EXTREME") return "border-fuchsia-300/25 bg-fuchsia-300/10 text-fuchsia-100";
+  if (label === "HIGH") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
+  if (label === "MEDIUM") return "border-cyan-400/25 bg-cyan-400/10 text-cyan-200";
+  return "border-slate-500/25 bg-slate-800/60 text-slate-300";
+}
+
 function TwinCard({ twin }: { twin: any }) {
   return (
     <Link href={twin.href} className="block rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4 hover:border-cyan-300/30">
@@ -52,10 +59,13 @@ function TwinCard({ twin }: { twin: any }) {
           <h2 className="mt-1 text-xl font-semibold text-white">{twin.eventLabel}</h2>
           <div className="mt-1 text-xs leading-5 text-slate-500">{fmtDate(twin.startTime)} · {twin.status}</div>
         </div>
-        <div className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${trustClass(twin.trust.grade)}`}>Trust {twin.trust.grade}</div>
+        <div className="flex flex-wrap justify-end gap-1.5">
+          <div className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${trustClass(twin.trust.grade)}`}>Trust {twin.trust.grade}</div>
+          <div className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${leverageClass(twin.seasonImpact?.leverageLabel)}`}>Leverage {twin.seasonImpact?.leverageScore ?? "--"}</div>
+        </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-4">
+      <div className="mt-4 grid gap-3 sm:grid-cols-5">
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
           <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Home win</div>
           <div className="mt-1 font-mono text-xl font-bold text-white">{pct(twin.base.homeWinPct)}</div>
@@ -72,12 +82,20 @@ function TwinCard({ twin }: { twin: any }) {
           <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Edge</div>
           <div className="mt-1 font-mono text-xl font-bold text-white">{pctRaw(twin.market.edgePct)}</div>
         </div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Path swing</div>
+          <div className="mt-1 font-mono text-xl font-bold text-white">{pctRaw(twin.seasonImpact?.volatility?.swingPct)}</div>
+        </div>
       </div>
 
       <div className="mt-3 text-xs leading-5 text-slate-400">{twin.base.read}</div>
+      {twin.seasonImpact?.leverageReasons?.[0] ? (
+        <div className="mt-2 text-xs leading-5 text-cyan-100/75">{twin.seasonImpact.leverageReasons[0]}</div>
+      ) : null}
       <div className="mt-3 flex flex-wrap gap-1.5 text-[9px] uppercase tracking-[0.12em] text-slate-500">
         <span>{twin.scenarios.length} scenarios</span>
         <span>· {twin.market.verdict}</span>
+        <span>· {twin.seasonImpact?.leverageLabel ?? "LOW"} leverage</span>
         <span>· {twin.source.projectionModelVersion}</span>
       </div>
     </Link>
@@ -97,7 +115,7 @@ export default async function SimTwinPage({ searchParams }: PageProps) {
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">Sim Twin</div>
             <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Interactive scenario simulator</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Current game twins with base simulation, market comparison, model trust grade, uncertainty range, and scenario deltas.
+              Current game twins with base simulation, market comparison, model trust grade, uncertainty range, scenario deltas, and season-impact leverage.
             </p>
           </div>
           <div className="flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.14em]">
