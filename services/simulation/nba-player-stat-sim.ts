@@ -3,6 +3,7 @@ import type { NbaPlayerProfile, NbaTeamPlayerProfileSummary } from "@/services/s
 import { compareNbaProfilesReal } from "@/services/simulation/nba-team-analytics";
 import { getNbaDecisionContext } from "@/services/simulation/nba-decision-context";
 import { getNbaSynergyContext } from "@/services/simulation/nba-synergy-context";
+import { getSimRunDepth } from "@/services/simulation/sim-run-depth";
 
 type TeamSide = "home" | "away";
 type PropStatKey = "points" | "rebounds" | "assists" | "threes";
@@ -125,9 +126,9 @@ type SimInput = {
   volatilityIndex: number;
   confidence: number;
   seedKey: string;
+  simulationRuns?: number;
 };
 
-const DEFAULT_RUNS = 10_000;
 const PROP_CACHE_KEY = "nba:player-prop-lines:v1";
 const PROP_CACHE_TTL_SECONDS = 60 * 3;
 const HISTORY_CACHE_KEY = "nba:player-matchup-history:v1";
@@ -448,7 +449,7 @@ function playerReasons(context: PlayerContext) {
   return { likely: likely.slice(0, 4), unlikely: unlikely.slice(0, 4) };
 }
 
-function simulatePlayer(context: PlayerContext, runs = DEFAULT_RUNS): NbaPlayerStatProjection {
+function simulatePlayer(context: PlayerContext, runs: number): NbaPlayerStatProjection {
   const rng = mulberry32(hashString(`${context.seedKey}:${context.teamSide}:${context.player.teamName}:${context.player.playerName}`));
   const roleFactor = roleBoost(context.player.role);
   const ratingSkill = context.rating ? clamp((context.rating.offense - 70) / 35, 0.55, 1.15) : 0.88;
@@ -627,6 +628,7 @@ function playerSignalScore(player: NbaPlayerProfile) {
 }
 
 export async function simulateNbaPlayerGameProjections(input: SimInput): Promise<NbaPlayerStatProjection[]> {
+  const runCount = input.simulationRuns ?? getSimRunDepth("detail");
   const [linesByPlayer, historyByPlayerOpponent, coachByTeam, ratingsByPlayer, teamComparison, decision, synergy] = await Promise.all([
     getPropLinesByPlayer(),
     getMatchupHistoryByPlayerOpponent(),
@@ -680,7 +682,7 @@ export async function simulateNbaPlayerGameProjections(input: SimInput): Promise
       rating: ratingsByPlayer?.[normalizeName(player.playerName)] ?? null,
       seedKey: input.seedKey,
       marketLines: linesByPlayer?.[normalizeName(player.playerName)]
-    }, DEFAULT_RUNS);
+    }, runCount);
   });
 
   const awaySim = awayCandidates.map((player) => {
@@ -707,7 +709,7 @@ export async function simulateNbaPlayerGameProjections(input: SimInput): Promise
       rating: ratingsByPlayer?.[normalizeName(player.playerName)] ?? null,
       seedKey: input.seedKey,
       marketLines: linesByPlayer?.[normalizeName(player.playerName)]
-    }, DEFAULT_RUNS);
+    }, runCount);
   });
 
   const sortScore = (row: NbaPlayerStatProjection) =>
