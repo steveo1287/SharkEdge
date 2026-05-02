@@ -3,6 +3,7 @@ import { buildTrendSystemRun } from "@/services/trends/trend-system-engine";
 
 const STALE_RUN_HOURS = 24;
 const RECENT_RUN_HOURS = 24;
+const PRODUCT_NAME = "SharkTrends";
 
 type SavedTrendRow = Awaited<ReturnType<typeof listSavedTrendRows>>[number];
 type PublishedTrendSystem = Awaited<ReturnType<typeof buildTrendSystemRun>>["systems"][number];
@@ -180,6 +181,8 @@ export async function buildTrendsCenterSnapshot() {
 
   return {
     ok: true,
+    productName: PRODUCT_NAME,
+    productSlug: "sharktrends",
     generatedAt: new Date(now).toISOString(),
     thresholds: {
       staleRunHours: STALE_RUN_HOURS,
@@ -251,13 +254,13 @@ export async function buildTrendsCenterSnapshot() {
     promotionBoard: board,
     commandQueue,
     nextAction: promotableSystems.length
-      ? "Promote the top promotionBoard systems first; they have live qualifiers plus verification support."
+      ? "Promote the top SharkTrends promotionBoard systems first; they have live qualifiers plus verification support."
       : watchSystems.length
-        ? "Live systems exist but are not verified yet. Keep them watchlist until ledger proof improves."
+        ? "Live SharkTrends systems exist but are not verified yet. Keep them watchlist until ledger proof improves."
         : commandQueue.length
           ? "Refresh saved rows and keep inactive published systems below active systems until current matches return."
           : publishedActive.length
-            ? "Published system inventory is active. Next step is rank by verified ledger proof, ROI, and current price quality."
-            : "Published systems exist, but none have current matches. Run sim/market refresh before promotion."
+            ? "SharkTrends published system inventory is active. Next step is rank by verified ledger proof, ROI, and current price quality."
+            : "Published systems exist, but none have current matches. Run sim/market refresh before SharkTrends promotion."
   };
 }
