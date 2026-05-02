@@ -47,7 +47,7 @@ function systemHref(system: PublishedTrendSystem) {
     sample: String(system.filters.sample),
     mode: "power"
   });
-  return `/trends?${params.toString()}`;
+  return `/sharktrends?${params.toString()}`;
 }
 
 function trendDetailHref(system: PublishedTrendSystem, match?: TrendMatch) {
