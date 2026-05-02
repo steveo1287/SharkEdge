@@ -1,6 +1,7 @@
 import type { LeagueKey } from "@/lib/types/domain";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { buildScenarioSet, applyScenario, isScenarioKey, type ScenarioDelta, type ScenarioKey } from "@/services/sim/scenario-adjustments";
+import { buildSeasonImpact, type SeasonImpactSnapshot } from "@/services/sim/season-impact";
 import { getModelTrustGrade, type ModelTrustSnapshot } from "@/services/sim/model-trust-grade";
 import { compareModelToMarket } from "@/services/sim/market-benchmark";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
@@ -56,6 +57,7 @@ export type SimTwinSnapshot = {
     verdict: string;
   };
   trust: ModelTrustSnapshot;
+  seasonImpact: SeasonImpactSnapshot;
   scenarios: ScenarioDelta[];
   warnings: string[];
   source: {
@@ -171,8 +173,21 @@ export async function buildSimTwinSnapshot(game: SimProjectionInput): Promise<Si
     projectedTotal
   };
   const scenarios = buildScenarioSet(base);
+  const seasonImpact = buildSeasonImpact({
+    league,
+    gameId: game.id,
+    eventLabel: game.label,
+    status: game.status,
+    homeWinPct: projection.distribution.homeWinPct,
+    awayWinPct: projection.distribution.awayWinPct,
+    projectedSpread,
+    projectedTotal,
+    trustGrade: trust.grade,
+    marketEdgePct: marketComparison.edgePct
+  });
   const warnings = [
     ...trust.warnings,
+    ...seasonImpact.leverageReasons,
     ...scenarios.flatMap((scenario) => scenario.warnings)
   ];
 
@@ -204,6 +219,7 @@ export async function buildSimTwinSnapshot(game: SimProjectionInput): Promise<Si
       verdict: marketComparison.verdict
     },
     trust,
+    seasonImpact,
     scenarios,
     warnings: [...new Set(warnings)],
     source
