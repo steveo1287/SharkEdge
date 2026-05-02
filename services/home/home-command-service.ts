@@ -41,6 +41,7 @@ export const HOME_DESK_DATES = [
 
 const HOME_SLATE_TIME_ZONE = "America/Chicago";
 const HOME_SLATE_ROLLOVER_HOUR = 5;
+const RESOLVED_HOME_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export type HomeCommandData = {
   selectedLeague: HomeLeagueScope;
@@ -134,6 +135,60 @@ function resolveBoardDate(value: HomeDeskDateKey) {
   }
 
   return addDaysToYmd(getCurrentHomeSlateDate(), 1);
+}
+
+function isResolvedHomeDate(value: string) {
+  return RESOLVED_HOME_DATE_PATTERN.test(value);
+}
+
+function getHomeLocalDateKey(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const parts = getChicagoDateParts(date);
+  return formatYmd(parts.year, parts.month, parts.day);
+}
+
+function isInResolvedHomeDate(startTime: string, resolvedDate: string) {
+  if (!isResolvedHomeDate(resolvedDate)) {
+    return true;
+  }
+
+  return getHomeLocalDateKey(startTime) === resolvedDate;
+}
+
+function filterHomeBoardDataByDate(boardData: BoardPageData, resolvedDate: string): BoardPageData {
+  if (!isResolvedHomeDate(resolvedDate)) {
+    return boardData;
+  }
+
+  const games = boardData.games.filter((game) =>
+    isInResolvedHomeDate(game.startTime, resolvedDate)
+  );
+  const sportSections = boardData.sportSections.map((section) => ({
+    ...section,
+    games: section.games.filter((game) =>
+      isInResolvedHomeDate(game.startTime, resolvedDate)
+    ),
+    scoreboard: section.scoreboard.filter((event) =>
+      isInResolvedHomeDate(event.startTime, resolvedDate)
+    )
+  }));
+
+  return {
+    ...boardData,
+    games,
+    sportSections,
+    summary: {
+      ...boardData.summary,
+      totalGames: sportSections.reduce(
+        (total, section) => total + section.games.length + section.scoreboard.length,
+        0
+      )
+    }
+  };
 }
 
 function isVerifiedGame(game: GameCardView) {
@@ -261,10 +316,11 @@ export async function getHomeCommandData(
     status: "all"
   });
 
-  const [boardData, topProps] = await Promise.all([
+  const [rawBoardData, topProps] = await Promise.all([
     oddsService.getBoardPageData(boardFilters),
     propsService.getTopPlayCards(6)
   ]);
+  const boardData = filterHomeBoardDataByDate(rawBoardData, boardFilters.date);
 
   const [
     truthCalibrationResolver,
