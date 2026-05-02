@@ -1,6 +1,7 @@
 import type { LeagueKey } from "@/lib/types/domain";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { getNbaFourFactorsControl, type NbaFourFactorsControl } from "@/services/simulation/nba-four-factors-control";
+import { buildNbaPregameLock, type NbaPregameLock } from "@/services/simulation/nba-pregame-lock";
 import { getNbaRotationLock, type NbaRotationLock } from "@/services/simulation/nba-rotation-lock";
 import { getNbaScheduleContextControl, type NbaScheduleContextControl } from "@/services/simulation/nba-schedule-context-control";
 import { buildNbaWinnerConfidence, type NbaWinnerConfidence } from "@/services/simulation/nba-winner-confidence";
@@ -18,8 +19,9 @@ export type NbaSimControlSnapshot = {
   fourFactors: NbaFourFactorsControl | null;
   scheduleContext: NbaScheduleContextControl | null;
   winnerConfidence: NbaWinnerConfidence | null;
+  pregameLock: NbaPregameLock | null;
   formula: {
-    version: "nba-sim-control-v3";
+    version: "nba-sim-control-v4";
     model: string;
     inputs: string[];
     notes: string[];
@@ -57,6 +59,14 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
   ]);
 
   if (!projection.realityIntel) {
+    const pregameLock = buildNbaPregameLock({
+      gameTime: game.startTime,
+      rotationLock,
+      fourFactors,
+      scheduleContext,
+      winnerConfidence: null
+    });
+
     return {
       ok: false,
       generatedAt: new Date().toISOString(),
@@ -67,6 +77,7 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
       fourFactors,
       scheduleContext,
       winnerConfidence: null,
+      pregameLock,
       formula: baseFormula(),
       error: "NBA real-data reality intelligence is unavailable for this game."
     };
@@ -77,6 +88,13 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
     awayWinPct: projection.distribution.awayWinPct,
     realityIntel: projection.realityIntel,
     rotationLock
+  });
+  const pregameLock = buildNbaPregameLock({
+    gameTime: game.startTime,
+    rotationLock,
+    fourFactors,
+    scheduleContext,
+    winnerConfidence
   });
 
   return {
@@ -89,14 +107,15 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
     fourFactors,
     scheduleContext,
     winnerConfidence,
+    pregameLock,
     formula: baseFormula()
   };
 }
 
 function baseFormula(): NbaSimControlSnapshot["formula"] {
   return {
-    version: "nba-sim-control-v3",
-    model: "calibrated probability = market-aware model probability + learned/history correction + rotation certainty gate + Four Factors matchup control + schedule context control",
+    version: "nba-sim-control-v4",
+    model: "final NBA control = market-aware probability + rotation certainty + Four Factors + schedule context + pregame lock gate",
     inputs: [
       "team efficiency and net rating",
       "player impact and projected minutes",
@@ -106,11 +125,13 @@ function baseFormula(): NbaSimControlSnapshot["formula"] {
       "rest days, back-to-back risk, game compression, travel tax, altitude context, and location",
       "no-vig market probability baseline",
       "learned calibration and graded-pick history tuner",
+      "pregame timing window, lock score, market movement flag, and blocker state",
       "volatility and source-health penalties"
     ],
     notes: [
       "Confidence is separated from win probability.",
-      "Low lineup certainty, high usage redistribution, missing market baseline, weak Four Factors confidence, schedule-context uncertainty, and calibration-pass flags reduce trust.",
+      "Pregame lock status is the final timing and trust gate: LOCKED, WATCH, WAIT, or PASS.",
+      "Low lineup certainty, high usage redistribution, missing market baseline, weak Four Factors confidence, schedule-context uncertainty, outside-lock timing, and calibration-pass flags reduce trust.",
       "This layer does not replace the existing projection engine; it adds model-quality controls that can be surfaced by Sim Twin and NBA review pages."
     ]
   };
@@ -129,6 +150,7 @@ export async function getNbaSimControl(gameId: string): Promise<NbaSimControlSna
       fourFactors: null,
       scheduleContext: null,
       winnerConfidence: null,
+      pregameLock: null,
       formula: baseFormula(),
       error: "NBA game not found in current board data."
     };
