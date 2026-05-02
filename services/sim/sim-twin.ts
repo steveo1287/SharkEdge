@@ -204,9 +204,15 @@ export async function buildSimTwinSnapshot(game: SimProjectionInput): Promise<Si
       .slice(0, 2)
       .map((edge) => `NBA ${edge.label}: ${edge.direction} edge ${edge.homeEdge}`)
   ].filter(Boolean) as string[];
+  const scheduleWarnings = [
+    ...(nbaControl?.scheduleContext?.warnings ?? []),
+    nbaControl?.scheduleContext ? `NBA schedule margin adjustment: ${nbaControl.scheduleContext.projectedMarginAdjustment}` : null,
+    nbaControl?.scheduleContext ? `NBA schedule confidence: ${nbaControl.scheduleContext.confidenceScore}` : null
+  ].filter(Boolean) as string[];
   const nbaWarnings = [
     ...(nbaControl?.rotationLock?.warnings ?? []),
     ...fourFactorWarnings,
+    ...scheduleWarnings,
     ...(nbaControl?.winnerConfidence?.blockers ?? []).map((blocker) => `NBA control blocker: ${blocker}`),
     ...(nbaControl?.winnerConfidence?.reasons ?? []).slice(0, 2)
   ];
