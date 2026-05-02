@@ -8,6 +8,13 @@ export type ScorecardFilters = {
   windowDays?: number | null;
 };
 
+export type ResolvedScorecardFilters = {
+  league: string;
+  market: string;
+  modelVersion: string;
+  windowDays: number;
+};
+
 export type CalibrationBucket = {
   bucket: string;
   lower: number;
@@ -42,7 +49,7 @@ export type SimModelScorecard = {
   ok: boolean;
   databaseReady: boolean;
   generatedAt: string;
-  filters: Required<Pick<ScorecardFilters, "league" | "market" | "modelVersion">> & { windowDays: number };
+  filters: ResolvedScorecardFilters;
   totals: {
     predictionCount: number;
     settledCount: number;
