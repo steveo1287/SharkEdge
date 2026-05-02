@@ -51,16 +51,26 @@ function sortByNewestRun(rows: SavedTrendRow[]) {
   });
 }
 
+function systemCategory(system: PublishedTrendSystem) {
+  return String(system.category ?? "").toUpperCase();
+}
+
+function systemActionability(system: PublishedTrendSystem) {
+  return String(system.actionability ?? "").toUpperCase();
+}
+
 function promotionScore(system: PublishedTrendSystem) {
   let score = 0;
   const activeMatches = system.activeMatches.length;
+  const actionability = systemActionability(system);
+  const category = systemCategory(system);
   if (activeMatches) score += 300 + activeMatches * 25;
   if (system.verified) score += 220;
-  if (system.actionability === "ACTIVE") score += 160;
-  if (system.actionability === "WATCHLIST") score += 70;
-  if (system.category === "EDGE") score += 45;
-  if (system.category === "MARKET") score += 30;
-  if (system.category === "SITUATIONAL") score += 20;
+  if (actionability.includes("ACTIVE") || actionability.includes("REVIEW")) score += 160;
+  if (actionability.includes("WATCH")) score += 70;
+  if (category.includes("EDGE")) score += 45;
+  if (category.includes("MARKET")) score += 30;
+  if (category.includes("SITUATION") || category.includes("SYSTEM")) score += 20;
   if (!activeMatches) score -= 180;
   return score;
 }
@@ -77,7 +87,7 @@ function promotionReason(system: PublishedTrendSystem) {
   if (system.activeMatches.length) parts.push(`${system.activeMatches.length} live qualifier${system.activeMatches.length === 1 ? "" : "s"}`);
   else parts.push("no current qualifier");
   parts.push(system.verified ? "verified" : "unverified/provisional");
-  parts.push(`${system.actionability.toLowerCase()} action gate`);
+  parts.push(`${systemActionability(system).toLowerCase() || "unknown"} action gate`);
   return parts.join(" · ");
 }
 
@@ -128,8 +138,8 @@ export async function buildTrendsCenterSnapshot() {
   const publishedSystems = publishedRun.systems;
   const publishedActive = publishedSystems.filter((system) => system.activeMatches.length > 0);
   const publishedInactive = publishedSystems.filter((system) => system.activeMatches.length === 0);
-  const publishedActionable = publishedSystems.filter((system) => system.actionability === "ACTIVE");
-  const publishedWatchlist = publishedSystems.filter((system) => system.actionability === "WATCHLIST");
+  const publishedActionable = publishedSystems.filter((system) => systemActionability(system).includes("ACTIVE") || systemActionability(system).includes("REVIEW"));
+  const publishedWatchlist = publishedSystems.filter((system) => systemActionability(system).includes("WATCH"));
   const verifiedPublished = publishedSystems.filter((system) => system.verified);
   const board = promotionBoard(publishedSystems);
   const promotableSystems = board.filter((system) => system.tier === "promote");
