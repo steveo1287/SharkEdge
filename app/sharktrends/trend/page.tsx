@@ -14,6 +14,14 @@ function readValue(searchParams: Record<string, string | string[] | undefined>, 
   return Array.isArray(value) ? value[0] : value;
 }
 
+function normalizeId(value: string | null | undefined) {
+  const id = value?.trim();
+  if (!id) return null;
+  const bad = new Set(["null", "undefined", "none", "trend", "system", "game"]);
+  if (bad.has(id.toLowerCase())) return null;
+  return id;
+}
+
 function priceLabel(price: number | null | undefined) {
   if (typeof price !== "number" || !Number.isFinite(price)) return "price needed";
   return price > 0 ? `+${price}` : String(price);
@@ -48,6 +56,7 @@ function DetailMetric({ label, value, note }: { label: string; value: string | n
 }
 
 function findTrend(snapshot: Awaited<ReturnType<typeof buildTrendsCenterSnapshot>>, systemId: string | null, gameId: string | null) {
+  if (!systemId && !gameId) return null;
   const groups = snapshot.matchupsByLeague ?? [];
   for (const group of groups as any[]) {
     for (const matchup of group.matchups ?? []) {
@@ -69,11 +78,13 @@ function findSystem(snapshot: Awaited<ReturnType<typeof buildTrendsCenterSnapsho
 
 export default async function SharkTrendsTrendDetailPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
-  const systemId = readValue(resolved, "systemId")?.trim() ?? null;
-  const gameId = readValue(resolved, "gameId")?.trim() ?? null;
+  const systemId = normalizeId(readValue(resolved, "systemId") ?? null);
+  const gameId = normalizeId(readValue(resolved, "gameId") ?? null);
+  if (!systemId && !gameId) notFound();
+
   const snapshot = await buildTrendsCenterSnapshot();
   const result = findTrend(snapshot, systemId, gameId);
-  const system = findSystem(snapshot, systemId);
+  const system = systemId ? findSystem(snapshot, systemId) : null;
 
   if (!result && !system) notFound();
 
