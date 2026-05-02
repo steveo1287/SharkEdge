@@ -133,7 +133,7 @@ function toGameCard(event: ProviderEvent): GameCardView | null {
     total: scheduledMarket("Total"),
     edgeScore: {
       score: 0,
-      label: "Schedule"
+      label: "Pass"
     },
     detailHref: buildMatchupHref(event.leagueKey, event.externalEventId)
   };
