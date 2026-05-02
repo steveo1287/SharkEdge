@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getSimModelScorecard } from "@/services/sim/model-scorecard";
+import { getSimAccuracyDiagnostics } from "@/services/simulation/sim-accuracy-diagnostics";
 import {
   captureCurrentSimPredictionSnapshots,
   getSimAccuracySummary,
@@ -38,6 +39,11 @@ function scorecardFilters(searchParams: URLSearchParams) {
   };
 }
 
+async function appendDiagnostics<T extends Record<string, unknown>>(payload: T) {
+  const diagnostics = await getSimAccuracyDiagnostics();
+  return { ...payload, diagnostics };
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const action = parseAction(searchParams.get("action"));
@@ -46,18 +52,19 @@ export async function GET(req: Request) {
 
   if (action === "capture") {
     const result = await captureCurrentSimPredictionSnapshots();
-    return NextResponse.json(result, { status: result.ok ? 200 : 503 });
+    return NextResponse.json(await appendDiagnostics(result), { status: result.ok ? 200 : 503 });
   }
 
   if (action === "grade") {
     const result = await gradeFinalSimPredictionSnapshots();
-    return NextResponse.json(result, { status: result.ok ? 200 : 503 });
+    return NextResponse.json(await appendDiagnostics(result), { status: result.ok ? 200 : 503 });
   }
 
   if (action === "run") {
-    const [job, scorecard] = await Promise.all([
-      runSimAccuracyLedgerJob(),
-      getSimModelScorecard(filters)
+    const job = await runSimAccuracyLedgerJob();
+    const [scorecard, diagnostics] = await Promise.all([
+      getSimModelScorecard(filters),
+      getSimAccuracyDiagnostics()
     ]);
 
     return NextResponse.json(
@@ -65,7 +72,8 @@ export async function GET(req: Request) {
         ok: Boolean(job.ok && scorecard.ok),
         action,
         job,
-        scorecard
+        scorecard,
+        diagnostics
       },
       { status: job.ok && scorecard.ok ? 200 : 503 }
     );
@@ -73,11 +81,15 @@ export async function GET(req: Request) {
 
   if (action === "summary") {
     const summary = await getSimAccuracySummary(limit);
-    return NextResponse.json(summary, { status: summary.ok ? 200 : 503 });
+    return NextResponse.json(await appendDiagnostics(summary), { status: summary.ok ? 200 : 503 });
   }
 
-  const scorecard = await getSimModelScorecard(filters);
-  return NextResponse.json(scorecard, { status: scorecard.ok ? 200 : 503 });
+  const [scorecard, diagnostics] = await Promise.all([
+    getSimModelScorecard(filters),
+    getSimAccuracyDiagnostics()
+  ]);
+
+  return NextResponse.json({ ...scorecard, diagnostics }, { status: scorecard.ok ? 200 : 503 });
 }
 
 export async function POST(req: Request) {
@@ -86,22 +98,23 @@ export async function POST(req: Request) {
 
   if (action === "capture") {
     const result = await captureCurrentSimPredictionSnapshots();
-    return NextResponse.json(result, { status: result.ok ? 200 : 503 });
+    return NextResponse.json(await appendDiagnostics(result), { status: result.ok ? 200 : 503 });
   }
 
   if (action === "grade") {
     const result = await gradeFinalSimPredictionSnapshots();
-    return NextResponse.json(result, { status: result.ok ? 200 : 503 });
+    return NextResponse.json(await appendDiagnostics(result), { status: result.ok ? 200 : 503 });
   }
 
-  const [job, scorecard] = await Promise.all([
-    runSimAccuracyLedgerJob(),
+  const job = await runSimAccuracyLedgerJob();
+  const [scorecard, diagnostics] = await Promise.all([
     getSimModelScorecard({
       league: typeof body.league === "string" ? body.league : null,
       market: typeof body.market === "string" ? body.market : null,
       modelVersion: typeof body.modelVersion === "string" ? body.modelVersion : null,
       windowDays: typeof body.windowDays === "number" ? body.windowDays : null
-    })
+    }),
+    getSimAccuracyDiagnostics()
   ]);
 
   return NextResponse.json(
@@ -109,7 +122,8 @@ export async function POST(req: Request) {
       ok: Boolean(job.ok && scorecard.ok),
       action: "run",
       job,
-      scorecard
+      scorecard,
+      diagnostics
     },
     { status: job.ok && scorecard.ok ? 200 : 503 }
   );
