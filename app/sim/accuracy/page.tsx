@@ -211,14 +211,14 @@ export default async function SimAccuracyPage({ searchParams }: PageProps) {
       <form method="get" className="grid gap-3 rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4 md:grid-cols-4">
         <label className="grid gap-1 text-xs text-slate-400">
           <span className="font-semibold uppercase tracking-[0.14em] text-slate-500">League</span>
-          <select name="league" defaultValue={scorecard.filters.league} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white">
+          <select name="league" defaultValue={scorecard.filters.league ?? "ALL"} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white">
             <option value="ALL">ALL</option>
             {leagues.map((league) => <option key={league} value={league}>{league}</option>)}
           </select>
         </label>
         <label className="grid gap-1 text-xs text-slate-400">
           <span className="font-semibold uppercase tracking-[0.14em] text-slate-500">Market</span>
-          <select name="market" defaultValue={scorecard.filters.market} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white">
+          <select name="market" defaultValue={scorecard.filters.market ?? "ALL"} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white">
             <option value="ALL">ALL</option>
             <option value="moneyline">Moneyline</option>
             <option value="spread">Spread</option>
