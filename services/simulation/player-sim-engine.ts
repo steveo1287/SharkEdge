@@ -1,3 +1,5 @@
+import { getSimRunDepth } from "./sim-run-depth";
+
 export type PlayerSimInput = {
   player: string;
   propType: string;
@@ -81,6 +83,10 @@ function normalizePropType(propType: string) {
   return propType.trim().toLowerCase().replace(/[_-]+/g, " ");
 }
 
+function defaultPlayerSimRuns() {
+  return getSimRunDepth("detail");
+}
+
 function buildCacheKey(input: PlayerSimInput) {
   const safe = {
     player: input.player.trim().toLowerCase(),
@@ -92,7 +98,7 @@ function buildCacheKey(input: PlayerSimInput) {
     opponentFactor: round(input.opponentFactor ?? 1, 4),
     bookOdds: input.bookOdds ?? -110,
     seed: input.seed ?? "default",
-    sims: Math.max(500, Math.min(input.sims ?? 5000, 25000))
+    sims: Math.max(500, Math.min(input.sims ?? defaultPlayerSimRuns(), 25000))
   };
   return JSON.stringify(safe);
 }
@@ -122,7 +128,7 @@ function getMeanForProp(input: Required<Pick<PlayerSimInput, "propType" | "line"
 
 function buildDrivers(input: PlayerSimInput, mean: number, overPct: number, edgePct: number) {
   const drivers = [
-    `Stable seeded sim: ${input.sims ?? 5000} trials`,
+    `Stable seeded sim: ${input.sims ?? defaultPlayerSimRuns()} trials`,
     `Projected mean ${mean.toFixed(2)} vs line ${input.line}`,
     `Model over probability ${(overPct * 100).toFixed(1)}%`
   ];
@@ -158,7 +164,7 @@ export function buildPlayerSimProjection(input: PlayerSimInput): PlayerSimOutput
     minutes: input.minutes ?? 34,
     opponentFactor: input.opponentFactor ?? 1,
     bookOdds: input.bookOdds ?? -110,
-    sims: Math.max(500, Math.min(input.sims ?? 5000, 25000))
+    sims: Math.max(500, Math.min(input.sims ?? defaultPlayerSimRuns(), 25000))
   };
   const cacheKey = buildCacheKey(normalizedInput);
   const cached = playerSimCache.get(cacheKey);
