@@ -5,7 +5,11 @@ export type ScenarioKey =
   | "QB_DOWNGRADE"
   | "WEATHER_WIND_UP"
   | "BULLPEN_FATIGUE"
-  | "MARKET_LINE_MOVE";
+  | "MARKET_LINE_MOVE"
+  | "COMBAT_REACH_EDGE"
+  | "GRAPPLING_ADVANTAGE"
+  | "CARDIO_FADE"
+  | "FIVE_ROUND_MAIN_EVENT";
 
 export type ScenarioBase = {
   league: string;
@@ -62,6 +66,22 @@ const SCENARIO_LABELS: Record<ScenarioKey, { label: string; description: string 
   MARKET_LINE_MOVE: {
     label: "Market line move",
     description: "Market moves against the model by one to two points."
+  },
+  COMBAT_REACH_EDGE: {
+    label: "Reach / range edge",
+    description: "UFC-style striking distance and reach advantage stress test."
+  },
+  GRAPPLING_ADVANTAGE: {
+    label: "Grappling advantage",
+    description: "UFC-style takedown, control, and submission threat stress test."
+  },
+  CARDIO_FADE: {
+    label: "Cardio fade",
+    description: "Late-round durability and pace fade stress test."
+  },
+  FIVE_ROUND_MAIN_EVENT: {
+    label: "Five-round main event",
+    description: "Longer fight format increases cardio, finish, and variance effects."
   }
 };
 
@@ -81,6 +101,7 @@ function profileFor(league: string, key: ScenarioKey) {
   if (key === "PLAYER_OUT") {
     if (value === "NBA") return { probability: -0.065, spread: -3.8, total: -2.5, warning: "NBA player-out placeholder; connect projected minutes/on-off value for exact impact." };
     if (value === "NFL") return { probability: -0.045, spread: -2.2, total: -1.5, warning: "Player-out placeholder; QB_DOWNGRADE is stronger for quarterbacks." };
+    if (value === "UFC") return { probability: -0.04, spread: -0.35, total: 0, warning: "UFC fighter availability placeholder; use injury/camp/news confirmation before promotion." };
     return generic;
   }
 
@@ -108,6 +129,30 @@ function profileFor(league: string, key: ScenarioKey) {
   if (key === "BULLPEN_FATIGUE") {
     if (value === "MLB") return { probability: -0.045, spread: -0.45, total: 0.75, warning: "Bullpen fatigue placeholder; connect recent reliever workload for exact delta." };
     return { ...generic, warning: "Bullpen fatigue is primarily an MLB scenario." };
+  }
+
+  if (key === "COMBAT_REACH_EDGE") {
+    return value === "UFC"
+      ? { probability: 0.045, spread: 0.35, total: 0, warning: "UFC reach/range placeholder; connect reach, stance, striking differential, and distance-striking rate for exact delta." }
+      : { ...generic, warning: "Combat reach edge is primarily a UFC scenario." };
+  }
+
+  if (key === "GRAPPLING_ADVANTAGE") {
+    return value === "UFC"
+      ? { probability: 0.06, spread: 0.5, total: 0, warning: "UFC grappling placeholder; connect takedown accuracy, takedown defense, control time, and submission attempts for exact delta." }
+      : { ...generic, warning: "Grappling advantage is primarily a UFC scenario." };
+  }
+
+  if (key === "CARDIO_FADE") {
+    return value === "UFC"
+      ? { probability: -0.05, spread: -0.4, total: 0, warning: "UFC cardio placeholder; connect average fight time, recent pace, late-round output, and five-round history for exact delta." }
+      : { ...generic, warning: "Cardio fade is primarily a combat scenario." };
+  }
+
+  if (key === "FIVE_ROUND_MAIN_EVENT") {
+    return value === "UFC"
+      ? { probability: -0.025, spread: -0.2, total: 0, warning: "UFC five-round placeholder; exact impact depends on cardio, finishing profile, and championship/main-event experience." }
+      : { ...generic, warning: "Five-round main event is primarily a UFC scenario." };
   }
 
   if (key === "MARKET_LINE_MOVE") {
@@ -151,6 +196,7 @@ export function defaultScenarioKeysForLeague(league: string): ScenarioKey[] {
   if (value === "MLB") return ["STARTER_SCRATCHED", "BULLPEN_FATIGUE", "WEATHER_WIND_UP", "MARKET_LINE_MOVE"];
   if (value === "NHL") return ["GOALIE_SWAP", "MARKET_LINE_MOVE"];
   if (value === "NFL" || value === "NCAAF") return ["QB_DOWNGRADE", "WEATHER_WIND_UP", "PLAYER_OUT", "MARKET_LINE_MOVE"];
+  if (value === "UFC") return ["COMBAT_REACH_EDGE", "GRAPPLING_ADVANTAGE", "CARDIO_FADE", "FIVE_ROUND_MAIN_EVENT", "MARKET_LINE_MOVE"];
   return ["PLAYER_OUT", "MARKET_LINE_MOVE"];
 }
 
@@ -160,5 +206,5 @@ export function buildScenarioSet(base: ScenarioBase, requested?: ScenarioKey[]) 
 }
 
 export function isScenarioKey(value: string | null | undefined): value is ScenarioKey {
-  return value === "PLAYER_OUT" || value === "STARTER_SCRATCHED" || value === "GOALIE_SWAP" || value === "QB_DOWNGRADE" || value === "WEATHER_WIND_UP" || value === "BULLPEN_FATIGUE" || value === "MARKET_LINE_MOVE";
+  return value === "PLAYER_OUT" || value === "STARTER_SCRATCHED" || value === "GOALIE_SWAP" || value === "QB_DOWNGRADE" || value === "WEATHER_WIND_UP" || value === "BULLPEN_FATIGUE" || value === "MARKET_LINE_MOVE" || value === "COMBAT_REACH_EDGE" || value === "GRAPPLING_ADVANTAGE" || value === "CARDIO_FADE" || value === "FIVE_ROUND_MAIN_EVENT";
 }
