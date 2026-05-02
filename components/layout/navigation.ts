@@ -67,6 +67,13 @@ export const MAIN_NAV_ITEMS: NavItem[] = [
     label: "Trends",
     description: "Historical systems, statistical validation, and live matches.",
     icon: NAV_ICONS.trends
+  },
+  {
+    href: "/sharktrends",
+    label: "SharkTrends",
+    description: "Promotion board for verified trend systems, live qualifiers, proof gates, and command blockers.",
+    icon: NAV_ICONS.trends,
+    badge: "NEW"
   }
 ];
 
@@ -214,6 +221,7 @@ export function getRouteMeta(pathname: string) {
     { match: (v: string) => isActivePath(v, "/sim/players"), eyebrow: "NBA Player Sims", title: "Player Matchups", subtitle: "Projected box scores and player-vs-player matchup reads." },
     { match: (v: string) => isActivePath(v, "/players"), eyebrow: "Research", title: "Players", subtitle: "Player form, workload, and prop-pressure context." },
     { match: (v: string) => isActivePath(v, "/teams"), eyebrow: "Research", title: "Teams", subtitle: "Schedule spot, recent form, and board pressure." },
+    { match: (v: string) => isActivePath(v, "/sharktrends"), eyebrow: "SharkTrends", title: "SharkTrends", subtitle: "Promotion board for verified systems, live qualifiers, saved-row freshness, and blockers." },
     { match: (v: string) => isActivePath(v, "/trends"), eyebrow: "Trends Engine", title: "Trends", subtitle: "Historical systems, active matches, and validation signals." },
     { match: (v: string) => isActivePath(v, "/watchlist"), eyebrow: "My List", title: "Watchlist", subtitle: "Saved edges and tracked plays." },
     { match: (v: string) => isActivePath(v, "/bets"), eyebrow: "Bet Tracker", title: "My Bets", subtitle: "Your card, prices, and outcomes in one ledger." },
