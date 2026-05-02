@@ -5,6 +5,7 @@ import { buildSeasonImpact, type SeasonImpactSnapshot } from "@/services/sim/sea
 import { getModelTrustGrade, type ModelTrustSnapshot } from "@/services/sim/model-trust-grade";
 import { compareModelToMarket } from "@/services/sim/market-benchmark";
 import { buildSimTwinCommandQueue } from "@/services/sim/sim-twin-command-queue";
+import { getNbaSimControl, type NbaSimControlSnapshot } from "@/services/simulation/nba-sim-control";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 
 type BoardGame = {
@@ -59,6 +60,7 @@ export type SimTwinSnapshot = {
   };
   trust: ModelTrustSnapshot;
   seasonImpact: SeasonImpactSnapshot;
+  nbaControl?: NbaSimControlSnapshot | null;
   scenarios: ScenarioDelta[];
   warnings: string[];
   source: {
@@ -146,6 +148,11 @@ async function currentGames(league = "ALL") {
     } as SimProjectionInput)));
 }
 
+async function nbaControlFor(league: string, gameId: string) {
+  if (league !== "NBA") return null;
+  return getNbaSimControl(gameId).catch(() => null);
+}
+
 export async function buildSimTwinSnapshot(game: SimProjectionInput): Promise<SimTwinSnapshot> {
   const projection = await buildSimProjection(game);
   const league = String(game.leagueKey).toUpperCase();
@@ -159,12 +166,15 @@ export async function buildSimTwinSnapshot(game: SimProjectionInput): Promise<Si
     modelProbability: projection.distribution.homeWinPct,
     marketProbability: marketSource.noVigHomePct
   });
-  const trust = await getModelTrustGrade({
-    league,
-    market: "moneyline",
-    modelVersion: source.projectionModelVersion,
-    windowDays: 365
-  });
+  const [trust, nbaControl] = await Promise.all([
+    getModelTrustGrade({
+      league,
+      market: "moneyline",
+      modelVersion: source.projectionModelVersion,
+      windowDays: 365
+    }),
+    nbaControlFor(league, game.id)
+  ]);
 
   const base = {
     league,
@@ -186,9 +196,15 @@ export async function buildSimTwinSnapshot(game: SimProjectionInput): Promise<Si
     trustGrade: trust.grade,
     marketEdgePct: marketComparison.edgePct
   });
+  const nbaWarnings = [
+    ...(nbaControl?.rotationLock?.warnings ?? []),
+    ...(nbaControl?.winnerConfidence?.blockers ?? []).map((blocker) => `NBA control blocker: ${blocker}`),
+    ...(nbaControl?.winnerConfidence?.reasons ?? []).slice(0, 2)
+  ];
   const warnings = [
     ...trust.warnings,
     ...seasonImpact.leverageReasons,
+    ...nbaWarnings,
     ...scenarios.flatMap((scenario) => scenario.warnings)
   ];
 
@@ -221,6 +237,7 @@ export async function buildSimTwinSnapshot(game: SimProjectionInput): Promise<Si
     },
     trust,
     seasonImpact,
+    nbaControl,
     scenarios,
     warnings: [...new Set(warnings)],
     source
