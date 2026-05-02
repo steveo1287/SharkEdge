@@ -1,5 +1,5 @@
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
-import { ensureSimulationPredictionLedgerTable, mapSimulationPredictionRow, type SimulationPredictionRow } from "@/services/sim/calibration-ledger";
+import { getSimAccuracySummary } from "@/services/simulation/sim-accuracy-ledger";
 
 export type ScorecardFilters = {
   league?: string | null;
@@ -13,6 +13,44 @@ export type ResolvedScorecardFilters = {
   market: string;
   modelVersion: string;
   windowDays: number;
+};
+
+export type ResultBucket = "WIN" | "LOSS" | "PUSH" | "PENDING";
+
+export type SimulationPredictionRow = {
+  id: string;
+  gameId: string;
+  league: string;
+  market: string;
+  modelVersion: string;
+  predictionTime: string;
+  eventLabel: string | null;
+  side: string | null;
+  modelProbability: number | null;
+  modelSpread: number | null;
+  modelTotal: number | null;
+  marketProbability: number | null;
+  marketSpread: number | null;
+  marketTotal: number | null;
+  closingProbability: number | null;
+  closingSpread: number | null;
+  closingTotal: number | null;
+  finalHomeScore: number | null;
+  finalAwayScore: number | null;
+  outcome: number | null;
+  resultBucket: ResultBucket;
+  brierScore: number | null;
+  logLoss: number | null;
+  spreadError: number | null;
+  totalError: number | null;
+  clvPct: number | null;
+  dataQualityGrade: string | null;
+  dataQualityFlags: unknown;
+  predictionJson: unknown;
+  resultJson: unknown;
+  settledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type CalibrationBucket = {
@@ -49,6 +87,7 @@ export type SimModelScorecard = {
   ok: boolean;
   databaseReady: boolean;
   generatedAt: string;
+  sourceTable: "sim_prediction_snapshots";
   filters: ResolvedScorecardFilters;
   totals: {
     predictionCount: number;
@@ -80,6 +119,8 @@ export type SimModelScorecard = {
 };
 
 const DEFAULT_LEAGUES = ["NBA", "MLB", "NHL", "NFL"];
+const SNAPSHOT_MARKET = "moneyline";
+const DEFAULT_MODEL_VERSION = "sim-accuracy-snapshot";
 const BUCKETS = [
   { bucket: "40-45", lower: 0.4, upper: 0.45 },
   { bucket: "45-50", lower: 0.45, upper: 0.5 },
@@ -90,6 +131,40 @@ const BUCKETS = [
   { bucket: "70+", lower: 0.7, upper: null }
 ];
 
+type SnapshotRow = {
+  id: string;
+  league: string;
+  game_id: string;
+  event_label: string | null;
+  away_team: string | null;
+  home_team: string | null;
+  captured_at: Date | string;
+  model_version: string | null;
+  data_source: string | null;
+  tier: string | null;
+  no_bet: boolean | null;
+  confidence: number | null;
+  model_home_win_pct: number;
+  model_away_win_pct: number;
+  model_spread: number;
+  model_total: number;
+  market_home_win_pct: number | null;
+  market_spread: number | null;
+  market_total: number | null;
+  final_home_score: number | null;
+  final_away_score: number | null;
+  home_won: boolean | null;
+  brier: number | null;
+  log_loss: number | null;
+  spread_error: number | null;
+  total_error: number | null;
+  prediction_json: unknown;
+  result_json: unknown;
+  graded_at: Date | string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+};
+
 function normalizeFilter(value: string | null | undefined) {
   const trimmed = value?.trim();
   if (!trimmed || trimmed.toUpperCase() === "ALL") return "ALL";
@@ -99,6 +174,13 @@ function normalizeFilter(value: string | null | undefined) {
 function normalizeWindowDays(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return 90;
   return Math.min(3650, Math.max(1, Math.round(value)));
+}
+
+function normalizeNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "string" && Number.isFinite(Number(value))) return Number(value);
+  return null;
 }
 
 function round(value: number | null | undefined, digits = 4) {
@@ -120,6 +202,19 @@ function countBy(values: string[]) {
   }, {});
 }
 
+function toIso(value: unknown) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function normalizeJson(value: unknown) {
+  if (typeof value === "string") {
+    try { return JSON.parse(value); } catch { return value; }
+  }
+  return value;
+}
+
 function calibrationBucketFor(probability: number | null | undefined) {
   if (typeof probability !== "number" || !Number.isFinite(probability)) return null;
   return BUCKETS.find((bucket) => probability >= bucket.lower && (bucket.upper == null || probability < bucket.upper))?.bucket ?? null;
@@ -134,6 +229,65 @@ function sampleWarning(predictionCount: number, settledCount: number) {
 
 function modelKey(row: SimulationPredictionRow) {
   return `${row.league}::${row.market}::${row.modelVersion}`;
+}
+
+function resultBucketFor(row: SnapshotRow): ResultBucket {
+  if (!row.graded_at || row.final_home_score == null || row.final_away_score == null || row.home_won == null) return "PENDING";
+  if (row.final_home_score === row.final_away_score) return "PUSH";
+  const pickedHome = row.model_home_win_pct >= 0.5;
+  return pickedHome === row.home_won ? "WIN" : "LOSS";
+}
+
+function mapSnapshotRow(row: SnapshotRow): SimulationPredictionRow {
+  const predictionTime = toIso(row.captured_at) ?? new Date().toISOString();
+  const settledAt = toIso(row.graded_at);
+  const createdAt = toIso(row.created_at) ?? predictionTime;
+  const updatedAt = toIso(row.updated_at) ?? createdAt;
+  const modelProbability = normalizeNumber(row.model_home_win_pct);
+  const homeWon = row.home_won == null ? null : row.home_won ? 1 : 0;
+  const resultBucket = resultBucketFor(row);
+  const pickedHome = (modelProbability ?? 0) >= 0.5;
+
+  return {
+    id: String(row.id),
+    gameId: String(row.game_id),
+    league: String(row.league),
+    market: SNAPSHOT_MARKET,
+    modelVersion: row.model_version ?? DEFAULT_MODEL_VERSION,
+    predictionTime,
+    eventLabel: row.event_label ?? null,
+    side: pickedHome ? "HOME" : "AWAY",
+    modelProbability,
+    modelSpread: normalizeNumber(row.model_spread),
+    modelTotal: normalizeNumber(row.model_total),
+    marketProbability: normalizeNumber(row.market_home_win_pct),
+    marketSpread: normalizeNumber(row.market_spread),
+    marketTotal: normalizeNumber(row.market_total),
+    closingProbability: null,
+    closingSpread: null,
+    closingTotal: null,
+    finalHomeScore: normalizeNumber(row.final_home_score),
+    finalAwayScore: normalizeNumber(row.final_away_score),
+    outcome: homeWon,
+    resultBucket,
+    brierScore: normalizeNumber(row.brier),
+    logLoss: normalizeNumber(row.log_loss),
+    spreadError: normalizeNumber(row.spread_error),
+    totalError: normalizeNumber(row.total_error),
+    clvPct: null,
+    dataQualityGrade: row.tier ?? "UNKNOWN",
+    dataQualityFlags: {
+      tier: row.tier,
+      dataSource: row.data_source,
+      noBet: row.no_bet,
+      confidence: normalizeNumber(row.confidence)
+    },
+    predictionJson: normalizeJson(row.prediction_json),
+    resultJson: normalizeJson(row.result_json),
+    settledAt,
+    createdAt,
+    updatedAt
+  };
 }
 
 function buildCalibrationBuckets(rows: SimulationPredictionRow[]): CalibrationBucket[] {
@@ -164,8 +318,8 @@ function buildMarketScorecard(rows: SimulationPredictionRow[]): MarketScorecard 
 
   return {
     league: first?.league ?? "UNKNOWN",
-    market: first?.market ?? "UNKNOWN",
-    modelVersion: first?.modelVersion ?? "UNKNOWN",
+    market: first?.market ?? SNAPSHOT_MARKET,
+    modelVersion: first?.modelVersion ?? DEFAULT_MODEL_VERSION,
     predictionCount: rows.length,
     settledCount: settledRows.length,
     pendingCount: Math.max(0, rows.length - settledRows.length),
@@ -187,6 +341,7 @@ function emptyScorecard(filters: ScorecardFilters, databaseReady: boolean, error
     ok: databaseReady,
     databaseReady,
     generatedAt: new Date().toISOString(),
+    sourceTable: "sim_prediction_snapshots",
     filters: {
       league: normalizeFilter(filters.league),
       market: normalizeFilter(filters.market),
@@ -224,9 +379,13 @@ function emptyScorecard(filters: ScorecardFilters, databaseReady: boolean, error
 }
 
 export async function getSimModelScorecard(filters: ScorecardFilters = {}): Promise<SimModelScorecard> {
-  const databaseReady = hasUsableServerDatabaseUrl() && await ensureSimulationPredictionLedgerTable();
-  if (!databaseReady) {
+  if (!hasUsableServerDatabaseUrl()) {
     return emptyScorecard(filters, false, "No usable server database URL is configured.");
+  }
+
+  const initialization = await getSimAccuracySummary(1);
+  if (!initialization.ok) {
+    return emptyScorecard(filters, initialization.databaseReady, initialization.error ?? "Unable to initialize sim accuracy snapshot ledger.");
   }
 
   const league = normalizeFilter(filters.league);
@@ -235,18 +394,28 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
   const windowDays = normalizeWindowDays(filters.windowDays);
   const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
 
-  const rows = await prisma.$queryRaw<Array<Record<string, any>>>`
-    SELECT *
-    FROM simulation_predictions
-    WHERE prediction_time >= ${since}
+  if (market !== "ALL" && market !== SNAPSHOT_MARKET) {
+    return emptyScorecard({ league, market, modelVersion, windowDays }, true);
+  }
+
+  const rows = await prisma.$queryRaw<SnapshotRow[]>`
+    SELECT
+      id, league, game_id, event_label, away_team, home_team, captured_at,
+      model_version, data_source, tier, no_bet, confidence,
+      model_home_win_pct, model_away_win_pct, model_spread, model_total,
+      market_home_win_pct, market_spread, market_total,
+      final_home_score, final_away_score, home_won,
+      brier, log_loss, spread_error, total_error,
+      prediction_json, result_json, graded_at, created_at, updated_at
+    FROM sim_prediction_snapshots
+    WHERE captured_at >= ${since}
       AND (${league} = 'ALL' OR league = ${league})
-      AND (${market} = 'ALL' OR market = ${market})
-      AND (${modelVersion} = 'ALL' OR model_version = ${modelVersion})
-    ORDER BY prediction_time DESC
+      AND (${modelVersion} = 'ALL' OR COALESCE(model_version, ${DEFAULT_MODEL_VERSION}) = ${modelVersion})
+    ORDER BY captured_at DESC
     LIMIT 5000;
   `;
 
-  const predictions = rows.map(mapSimulationPredictionRow);
+  const predictions = rows.map(mapSnapshotRow);
   const groups = new Map<string, SimulationPredictionRow[]>();
   for (const row of predictions) {
     const key = modelKey(row);
@@ -290,13 +459,14 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
     ok: true,
     databaseReady: true,
     generatedAt: new Date().toISOString(),
+    sourceTable: "sim_prediction_snapshots",
     filters: { league, market, modelVersion, windowDays },
     totals: {
       predictionCount: predictions.length,
       settledCount: settledRows.length,
       pendingCount: Math.max(0, predictions.length - settledRows.length),
       leagueCount: new Set(predictions.map((row) => row.league)).size,
-      marketCount: new Set(predictions.map((row) => row.market)).size,
+      marketCount: predictions.length ? 1 : 0,
       modelVersionCount: new Set(predictions.map((row) => row.modelVersion)).size,
       brierScoreAvg: round(avg(settledRows.map((row) => row.brierScore)), 4),
       logLossAvg: round(avg(settledRows.map((row) => row.logLoss)), 4),
