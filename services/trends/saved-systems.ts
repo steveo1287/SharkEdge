@@ -81,7 +81,7 @@ export function buildSavedTrendHref(id: string, filters: TrendFilters, mode: Tre
     params.set(key, String(value));
   }
 
-  return `/trends?${params.toString()}`;
+  return `/sharktrends?${params.toString()}`;
 }
 
 export async function listSavedTrendRows(): Promise<SavedTrendListRow[]> {
