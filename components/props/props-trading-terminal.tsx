@@ -7,8 +7,46 @@ import { PropsTable } from "@/components/props/props-table";
 import { PlayerSimExposurePanel } from "@/components/props/player-sim-exposure-panel";
 import type { PropCardView } from "@/lib/types/domain";
 
+type FullStatTile = {
+  statKey: string;
+  label: string;
+  meanValue: number;
+  medianValue: number;
+  stdDev: number;
+  marketLine: number | null;
+  overProbability: number | null;
+  underProbability: number | null;
+  confidence: number | null;
+  modelOnly: boolean;
+  noBet: boolean;
+  warnings: string[];
+  blockers: string[];
+};
+
+type FullStatPlayer = {
+  playerId: string;
+  playerName: string;
+  teamName: string | null;
+  projectedMinutes: number | null;
+  stats: FullStatTile[];
+};
+
+type FullStatProjectionView = {
+  ok: true;
+  generatedAt: string;
+  hasDatabase: boolean;
+  playerCount: number;
+  statTileCount: number;
+  players: FullStatPlayer[];
+  warnings: string[];
+} | null;
+
 function pct(value: number | null | undefined) {
   return typeof value === "number" ? `${value > 0 ? "+" : ""}${value.toFixed(2)}%` : "--";
+}
+
+function probabilityPct(value: number | null | undefined) {
+  return typeof value === "number" ? `${(value * 100).toFixed(1)}%` : "--";
 }
 
 function odds(value: number | null | undefined) {
@@ -101,18 +139,86 @@ function TopPlayCard({ prop, rank }: { prop: PropCardView; rank: number }) {
   );
 }
 
+function FullStatForecastSection({ view }: { view: FullStatProjectionView }) {
+  if (!view || !view.players.length) {
+    return (
+      <section className="grid gap-4">
+        <SectionTitle
+          eyebrow="NBA model forecast"
+          title="Full player stat tiles not populated yet"
+          description="Run the NBA edge worker to generate model-only PTS, REB, AST, 3PM, STL, BLK, TOV, and combo projections."
+        />
+        <Card className="surface-panel p-5 text-sm leading-6 text-bone/55">
+          No stored full-stat projections are available yet. Run <span className="font-mono text-bone/75">npm run worker:edges -- --leagueKey=NBA</span>, then refresh this page.
+        </Card>
+      </section>
+    );
+  }
+
+  const players = view.players.slice(0, 6);
+  return (
+    <section className="grid gap-4">
+      <SectionTitle
+        eyebrow="NBA model forecast"
+        title="Full player box-score projections"
+        description="Model forecasts are shown even when no sportsbook line exists. Market probabilities only appear when a line is attached."
+      />
+      <div className="grid gap-4 xl:grid-cols-2">
+        {players.map((player) => (
+          <Card key={player.playerId} className="surface-panel p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="font-semibold text-white">{player.playerName}</div>
+                <div className="mt-1 text-xs text-bone/50">
+                  {player.teamName ?? "Team unknown"}
+                  {typeof player.projectedMinutes === "number" ? ` | ${player.projectedMinutes.toFixed(1)} projected min` : ""}
+                </div>
+              </div>
+              <Badge tone="muted">MODEL</Badge>
+            </div>
+
+            <div className="mt-4 grid grid-cols-4 gap-2 md:grid-cols-6">
+              {player.stats.slice(0, 12).map((stat) => (
+                <div key={`${player.playerId}-${stat.statKey}`} className="rounded-md border border-bone/[0.08] bg-panel p-2">
+                  <div className="flex items-center justify-between gap-1 text-[10px] uppercase tracking-[0.1em] text-bone/45">
+                    <span>{stat.label}</span>
+                    {stat.modelOnly ? <span className="text-aqua/70">M</span> : null}
+                  </div>
+                  <div className="mt-1 font-mono text-base font-semibold text-white">{stat.meanValue.toFixed(1)}</div>
+                  <div className="mt-1 text-[10px] leading-4 text-bone/45">
+                    {typeof stat.marketLine === "number"
+                      ? `Line ${stat.marketLine} | O ${probabilityPct(stat.overProbability)}`
+                      : "No market line"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ))}
+      </div>
+      {view.warnings.length ? (
+        <Card className="surface-panel p-4 text-xs leading-5 text-amber-100/75">
+          {view.warnings.slice(0, 4).join(" ")}
+        </Card>
+      ) : null}
+    </section>
+  );
+}
+
 export function PropsTradingTerminal({
   props,
   sourceNote,
   providerLabel,
   selectedLeagueLabel,
-  realBookCount
+  realBookCount,
+  fullStatProjectionView
 }: {
   props: PropCardView[];
   sourceNote: string;
   providerLabel: string;
   selectedLeagueLabel: string;
   realBookCount: number;
+  fullStatProjectionView?: FullStatProjectionView;
 }) {
   const attack = props.filter((prop) => getDecision(prop) === "ATTACK");
   const watch = props.filter((prop) => getDecision(prop) === "WATCH");
@@ -155,6 +261,8 @@ export function PropsTradingTerminal({
         <TerminalMetric label="Positive EV" value={String(positiveEv.length)} sub="Market-derived EV" />
         <TerminalMetric label="Books" value={String(realBookCount)} sub="Price sources" />
       </section>
+
+      <FullStatForecastSection view={fullStatProjectionView ?? null} />
 
       <section className="grid gap-4">
         <SectionTitle eyebrow="Top of board" title="Best opportunities surfaced first" description="Highest EV and strongest edge rows get pulled out before the full table." />
