@@ -1,13 +1,14 @@
 import type { LeagueKey } from "@/lib/types/domain";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { getNbaFourFactorsControl, type NbaFourFactorsControl } from "@/services/simulation/nba-four-factors-control";
+import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
 import { buildNbaPregameLock, type NbaPregameLock } from "@/services/simulation/nba-pregame-lock";
 import { getNbaRotationLock, type NbaRotationLock } from "@/services/simulation/nba-rotation-lock";
 import { getNbaScheduleContextControl, type NbaScheduleContextControl } from "@/services/simulation/nba-schedule-context-control";
 import { buildNbaWinnerConfidence, type NbaWinnerConfidence } from "@/services/simulation/nba-winner-confidence";
-import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 
 type SimGame = { id: string; label: string; startTime: string; status: string; leagueKey: LeagueKey; leagueLabel: string };
+type SimProjection = Awaited<ReturnType<typeof buildSimProjection>>;
 
 export type NbaSimControlSnapshot = {
   ok: boolean;
@@ -37,6 +38,60 @@ function parseMatchup(label: string) {
   return { away: "Away", home: "Home" };
 }
 
+function projectionPolicyBlocksAction(projection: SimProjection) {
+  return Boolean(projection.nbaIntel?.noBet || projection.nbaIntel?.tier === "pass");
+}
+
+function projectionPolicyReasons(projection: SimProjection) {
+  const reasons = projection.nbaIntel?.reasons ?? [];
+  const policyReasons = reasons.filter((reason) =>
+    /NBA health policy|accuracy guard|failed|required|capped|forced PASS/i.test(reason)
+  );
+  return (policyReasons.length ? policyReasons : reasons).slice(0, 6);
+}
+
+function applyProjectionPolicyToWinnerConfidence(
+  winnerConfidence: NbaWinnerConfidence,
+  projection: SimProjection
+): NbaWinnerConfidence {
+  if (!projectionPolicyBlocksAction(projection)) return winnerConfidence;
+  const policyReasons = projectionPolicyReasons(projection);
+  return {
+    ...winnerConfidence,
+    pick: "PASS",
+    confidenceScore: Math.min(winnerConfidence.confidenceScore, 44),
+    confidenceGrade: "F",
+    noPlay: true,
+    blockers: Array.from(new Set([...winnerConfidence.blockers, "projection-health-policy-pass"])),
+    reasons: [
+      "NBA guarded projection policy forced winner confidence to PASS.",
+      ...policyReasons,
+      ...winnerConfidence.reasons
+    ]
+  };
+}
+
+function applyProjectionPolicyToPregameLock(
+  pregameLock: NbaPregameLock,
+  projection: SimProjection
+): NbaPregameLock {
+  if (!projectionPolicyBlocksAction(projection)) return pregameLock;
+  const policyReasons = projectionPolicyReasons(projection);
+  return {
+    ...pregameLock,
+    status: "PASS",
+    lockScore: Math.min(pregameLock.lockScore, 44),
+    lockGrade: "F",
+    confidenceReady: false,
+    blockers: Array.from(new Set([...pregameLock.blockers, "projection-health-policy-pass"])),
+    reasons: [
+      "NBA guarded projection policy forced pregame lock to PASS.",
+      ...policyReasons,
+      ...pregameLock.reasons
+    ]
+  };
+}
+
 async function findGame(gameId: string): Promise<SimGame | null> {
   const sections = await buildBoardSportSections({ selectedLeague: "NBA", gamesByLeague: {}, maxScoreboardGames: null });
   const games: SimGame[] = sections.flatMap((section) =>
@@ -59,13 +114,13 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
   ]);
 
   if (!projection.realityIntel) {
-    const pregameLock = buildNbaPregameLock({
+    const pregameLock = applyProjectionPolicyToPregameLock(buildNbaPregameLock({
       gameTime: game.startTime,
       rotationLock,
       fourFactors,
       scheduleContext,
       winnerConfidence: null
-    });
+    }), projection);
 
     return {
       ok: false,
@@ -83,19 +138,20 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
     };
   }
 
-  const winnerConfidence = buildNbaWinnerConfidence({
+  const rawWinnerConfidence = buildNbaWinnerConfidence({
     homeWinPct: projection.distribution.homeWinPct,
     awayWinPct: projection.distribution.awayWinPct,
     realityIntel: projection.realityIntel,
     rotationLock
   });
-  const pregameLock = buildNbaPregameLock({
+  const winnerConfidence = applyProjectionPolicyToWinnerConfidence(rawWinnerConfidence, projection);
+  const pregameLock = applyProjectionPolicyToPregameLock(buildNbaPregameLock({
     gameTime: game.startTime,
     rotationLock,
     fourFactors,
     scheduleContext,
     winnerConfidence
-  });
+  }), projection);
 
   return {
     ok: true,
@@ -115,7 +171,7 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
 function baseFormula(): NbaSimControlSnapshot["formula"] {
   return {
     version: "nba-sim-control-v4",
-    model: "final NBA control = market-aware probability + rotation certainty + Four Factors + schedule context + pregame lock gate",
+    model: "final NBA control = guarded projection health policy + market-aware probability + rotation certainty + Four Factors + schedule context + pregame lock gate",
     inputs: [
       "team efficiency and net rating",
       "player impact and projected minutes",
@@ -126,12 +182,14 @@ function baseFormula(): NbaSimControlSnapshot["formula"] {
       "no-vig market probability baseline",
       "learned calibration and graded-pick history tuner",
       "pregame timing window, lock score, market movement flag, and blocker state",
-      "volatility and source-health penalties"
+      "volatility and source-health penalties",
+      "NBA guarded projection health policy and accuracy guardrail"
     ],
     notes: [
       "Confidence is separated from win probability.",
       "Pregame lock status is the final timing and trust gate: LOCKED, WATCH, WAIT, or PASS.",
       "Low lineup certainty, high usage redistribution, missing market baseline, weak Four Factors confidence, schedule-context uncertainty, outside-lock timing, and calibration-pass flags reduce trust.",
+      "The guarded projection wrapper can force winner confidence and pregame lock to PASS when NBA health policy caps the upstream recommendation.",
       "This layer does not replace the existing projection engine; it adds model-quality controls that can be surfaced by Sim Twin and NBA review pages."
     ]
   };
