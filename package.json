@@ -35,6 +35,7 @@
     "worker:trends": "tsx scripts/worker-trends.ts",
     "worker:ufc:operational": "tsx scripts/worker-ufc-operational-sim.ts",
     "worker:ufcstats:snapshot": "tsx scripts/worker-ufcstats-snapshot.ts",
+    "worker:ufcstats:smoke": "tsx scripts/worker-ufcstats-smoke.ts",
     "providers:readiness": "tsx scripts/provider-readiness.ts",
     "sportsdataverse:smoke": "tsx scripts/sportsdataverse-smoke.ts",
     "rescue:power": "node scripts/rescue-power.mjs",

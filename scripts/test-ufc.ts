@@ -14,7 +14,8 @@ const tests = [
   "tests/ufcstats-parser.test.ts",
   "tests/ufcstats-normalizer.test.ts",
   "tests/ufcstats-fetcher.test.ts",
-  "tests/ufcstats-hardening.test.ts"
+  "tests/ufcstats-hardening.test.ts",
+  "tests/ufcstats-smoke-report.test.ts"
 ];
 
 for (const test of tests) {
