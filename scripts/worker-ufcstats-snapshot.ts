@@ -1,6 +1,6 @@
 import { runUfcOperationalCard } from "@/services/ufc/card-runner";
 import { ingestUfcRealDataSnapshot } from "@/services/ufc/real-data-ingestion";
-import { fetchUfcStatsSnapshot } from "@/services/ufc/ufcstats-fetcher";
+import { fetchUfcStatsSnapshotWithDiagnostics } from "@/services/ufc/ufcstats-fetcher";
 
 function argValue(name: string) {
   const prefix = `--${name}=`;
@@ -20,28 +20,56 @@ function numberArg(name: string) {
   return parsed;
 }
 
+function compactSummary(fetchResult: Awaited<ReturnType<typeof fetchUfcStatsSnapshotWithDiagnostics>>) {
+  return {
+    eventName: fetchResult.event.eventName,
+    eventDate: fetchResult.event.eventDate,
+    sourceKey: fetchResult.snapshot.sourceKey,
+    fightsInSnapshot: fetchResult.snapshot.fights.length,
+    fightLinksFound: fetchResult.diagnostics.fightLinksFound,
+    fightDetailsParsed: fetchResult.diagnostics.fightDetailsParsed,
+    fighterProfilesRequested: fetchResult.diagnostics.fighterProfilesRequested,
+    fighterProfilesParsed: fetchResult.diagnostics.fighterProfilesParsed,
+    dataQualityGrade: fetchResult.diagnostics.dataQualityGrade,
+    warnings: fetchResult.diagnostics.warnings,
+    fatalErrors: fetchResult.diagnostics.fatalErrors,
+    wouldIngest: fetchResult.diagnostics.fatalErrors.length === 0 && fetchResult.snapshot.fights.length > 0,
+    wouldSimulate: fetchResult.diagnostics.fatalErrors.length === 0 && fetchResult.snapshot.fights.length > 0 && hasFlag("simulate")
+  };
+}
+
 async function main() {
   const eventUrl = argValue("eventUrl");
   if (!eventUrl) throw new Error("Missing --eventUrl=<ufcstats event url>");
 
-  const snapshot = await fetchUfcStatsSnapshot({
+  const fetchResult = await fetchUfcStatsSnapshotWithDiagnostics({
     eventUrl,
     snapshotAt: argValue("snapshotAt") ?? new Date().toISOString(),
     modelVersion: argValue("modelVersion") ?? "ufc-fight-iq-v1"
   });
 
+  if (hasFlag("dryRun")) {
+    console.log(JSON.stringify({ ok: fetchResult.diagnostics.fatalErrors.length === 0, mode: "dry-run", summary: compactSummary(fetchResult) }, null, 2));
+    return;
+  }
+
+  if (fetchResult.diagnostics.fatalErrors.length > 0) {
+    console.log(JSON.stringify({ ok: false, mode: "fetch", summary: compactSummary(fetchResult) }, null, 2));
+    process.exit(1);
+  }
+
   if (hasFlag("simulate")) {
-    const result = await runUfcOperationalCard(snapshot, {
+    const result = await runUfcOperationalCard(fetchResult.snapshot, {
       simulations: numberArg("simulations"),
       seed: numberArg("seed"),
       recordShadow: hasFlag("shadow")
     });
-    console.log(JSON.stringify({ ok: true, mode: "fetch-ingest-simulate", fights: result.plannedFights.length, result }, null, 2));
+    console.log(JSON.stringify({ ok: true, mode: "fetch-ingest-simulate", summary: compactSummary(fetchResult), result }, null, 2));
     return;
   }
 
-  const ingested = await ingestUfcRealDataSnapshot(snapshot);
-  console.log(JSON.stringify({ ok: true, mode: "fetch-ingest", fights: snapshot.fights.length, ingested }, null, 2));
+  const ingested = await ingestUfcRealDataSnapshot(fetchResult.snapshot);
+  console.log(JSON.stringify({ ok: true, mode: "fetch-ingest", summary: compactSummary(fetchResult), ingested }, null, 2));
 }
 
 main().catch((error) => {
