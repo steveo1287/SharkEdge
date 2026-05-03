@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import type { UfcCardDetail, UfcCardSummary, UfcFightIqDetail } from "@/services/ufc/card-feed";
 import type { UfcOperationalFeedCard } from "@/services/ufc/operational-feed";
@@ -42,7 +43,7 @@ function pill(tone: "aqua" | "green" | "amber" | "red" | "slate" = "slate") {
   return `rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${tones[tone]}`;
 }
 
-function CardShell({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+function CardShell({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <section className={shell(`rounded-[1.35rem] p-4 ${className}`)}>{children}</section>;
 }
 
@@ -165,7 +166,7 @@ export function UfcFightIqPanel({ fight }: { fight: UfcFightIqDetail | null }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return <div className="mt-5 border-t border-white/10 pt-4"><h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-aqua">{title}</h3>{children}</div>;
 }
 
