@@ -1,3 +1,5 @@
+import { normalizeNbaPlayerGameStats, type CanonicalNbaPlayerGameStat } from "./nba-player-stat-normalizer";
+
 export type NbaStatKey =
   | "points"
   | "rebounds"
@@ -62,6 +64,8 @@ export type NbaPlayerStatProfile = {
   warnings: string[];
 };
 
+const STAT_KEYS: NbaStatKey[] = ["points", "rebounds", "assists", "threes", "steals", "blocks", "turnovers", "pra"];
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
@@ -93,69 +97,17 @@ function stdDev(values: number[]) {
   return Math.sqrt(variance);
 }
 
-function getRecord(row: unknown) {
-  return row && typeof row === "object" && !Array.isArray(row) ? row as Record<string, unknown> : null;
+function safeDivide(numerator: number, denominator: number, fallback = 0) {
+  return denominator > 0 ? numerator / denominator : fallback;
 }
 
-function num(row: unknown, keys: string[]) {
-  const record = getRecord(row);
-  if (!record) return null;
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string") {
-      const parsed = Number(value.replace(/[^0-9.+-]/g, ""));
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
-  return null;
+function skillFromRate(value: number, replacement: number, elite: number) {
+  return round(clamp((value - replacement) / Math.max(0.001, elite - replacement), 0, 1), 3);
 }
 
-function bool(row: unknown, keys: string[]) {
-  const record = getRecord(row);
-  if (!record) return false;
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "boolean") return value;
-    if (typeof value === "string") {
-      const normalized = value.toLowerCase().trim();
-      if (["true", "yes", "y", "starter", "start"].includes(normalized)) return true;
-      if (["false", "no", "n", "bench"].includes(normalized)) return false;
-    }
-  }
-  return false;
-}
-
-function minutes(row: unknown) {
-  const value = num(row, ["minutes", "MIN", "min", "mp", "MP", "minutesPlayed"]);
-  if (value !== null) return value > 60 ? value / 60 : value;
-  const record = getRecord(row);
-  const raw = record?.minutes ?? record?.MIN ?? record?.MP;
-  if (typeof raw === "string") {
-    const match = raw.trim().match(/^(\d{1,2}):(\d{2})$/);
-    if (match) return Number(match[1]) + Number(match[2]) / 60;
-  }
-  return null;
-}
-
-const STAT_KEYS: Record<NbaStatKey, string[]> = {
-  points: ["points", "PTS", "pts"],
-  rebounds: ["rebounds", "REB", "reb"],
-  assists: ["assists", "AST", "ast"],
-  threes: ["threes", "FG3M", "3PM", "fg3m"],
-  steals: ["steals", "STL", "stl"],
-  blocks: ["blocks", "BLK", "blk"],
-  turnovers: ["turnovers", "TOV", "TO", "tov"],
-  pra: ["pra", "pointsReboundsAssists", "PRA"]
-};
-
-function statValue(row: unknown, stat: NbaStatKey) {
-  if (stat === "pra") {
-    const explicit = num(row, STAT_KEYS.pra);
-    if (explicit !== null) return explicit;
-    return (num(row, STAT_KEYS.points) ?? 0) + (num(row, STAT_KEYS.rebounds) ?? 0) + (num(row, STAT_KEYS.assists) ?? 0);
-  }
-  return num(row, STAT_KEYS[stat]);
+function statValue(row: CanonicalNbaPlayerGameStat, stat: NbaStatKey) {
+  if (stat === "pra") return row.points + row.rebounds + row.assists;
+  return row[stat];
 }
 
 function rate(values: number[], minuteValues: number[]) {
@@ -166,12 +118,8 @@ function rate(values: number[], minuteValues: number[]) {
   return rates.length ? weightedAverage(rates) : 0;
 }
 
-function safeDivide(numerator: number, denominator: number, fallback = 0) {
-  return denominator > 0 ? numerator / denominator : fallback;
-}
-
-function skillFromRate(value: number, replacement: number, elite: number) {
-  return round(clamp((value - replacement) / Math.max(0.001, elite - replacement), 0, 1), 3);
+function usageRateForRow(row: CanonicalNbaPlayerGameStat) {
+  return (row.fieldGoalsAttempted + 0.44 * row.freeThrowsAttempted + row.turnovers) / Math.max(row.minutes, 1);
 }
 
 export function buildNbaPlayerStatProfile(args: {
@@ -183,41 +131,35 @@ export function buildNbaPlayerStatProfile(args: {
   recentWindow?: number;
 }): NbaPlayerStatProfile {
   const window = Math.max(1, args.recentWindow ?? 15);
-  const rows = args.recentStats.slice(0, window);
-  const minuteValues = rows.map(minutes).filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
-  const usableRows = rows.filter((row) => {
-    const min = minutes(row);
-    return typeof min === "number" && min >= 4;
-  });
-  const usableMinutes = usableRows.map((row) => minutes(row) ?? 0);
+  const rows = normalizeNbaPlayerGameStats(args.recentStats.slice(0, window));
+  const usableRows = rows.filter((row) => Number.isFinite(row.minutes) && row.minutes >= 4);
+  const usableMinutes = usableRows.map((row) => row.minutes);
 
-  const statValues = (stat: NbaStatKey) => usableRows.map((row) => statValue(row, stat)).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const statValues = (stat: NbaStatKey) => usableRows.map((row) => statValue(row, stat)).filter((value) => Number.isFinite(value));
   const statRatesPerMinute = Object.fromEntries(
-    (["points", "rebounds", "assists", "threes", "steals", "blocks", "turnovers", "pra"] as NbaStatKey[])
-      .map((stat) => [stat, round(rate(statValues(stat), usableMinutes), 5)])
+    STAT_KEYS.map((stat) => [stat, round(rate(statValues(stat), usableMinutes), 5)])
   ) as Record<NbaStatKey, number>;
   const statStdDev = Object.fromEntries(
-    (["points", "rebounds", "assists", "threes", "steals", "blocks", "turnovers", "pra"] as NbaStatKey[])
-      .map((stat) => [stat, round(stdDev(statValues(stat)), 4)])
+    STAT_KEYS.map((stat) => [stat, round(stdDev(statValues(stat)), 4)])
   ) as Record<NbaStatKey, number>;
 
-  const fga = average(usableRows.map((row) => num(row, ["fieldGoalsAttempted", "FGA", "fga"]) ?? 0));
-  const fgm = average(usableRows.map((row) => num(row, ["fieldGoalsMade", "FGM", "fgm"]) ?? 0));
-  const threeAttempts = average(usableRows.map((row) => num(row, ["threePointAttempts", "FG3A", "3PA", "fg3a"]) ?? 0));
-  const threes = average(usableRows.map((row) => num(row, STAT_KEYS.threes) ?? 0));
-  const fta = average(usableRows.map((row) => num(row, ["freeThrowsAttempted", "FTA", "fta"]) ?? 0));
-  const ftm = average(usableRows.map((row) => num(row, ["freeThrowsMade", "FTM", "ftm"]) ?? 0));
-  const tov = average(usableRows.map((row) => num(row, STAT_KEYS.turnovers) ?? 0));
-  const offensiveRebounds = average(usableRows.map((row) => num(row, ["offensiveRebounds", "OREB", "orb"]) ?? 0));
-  const defensiveRebounds = average(usableRows.map((row) => num(row, ["defensiveRebounds", "DREB", "drb"]) ?? 0));
+  const fga = average(usableRows.map((row) => row.fieldGoalsAttempted));
+  const threeAttempts = average(usableRows.map((row) => row.threePointAttempts));
+  const threes = average(usableRows.map((row) => row.threes));
+  const fta = average(usableRows.map((row) => row.freeThrowsAttempted));
+  const ftm = average(usableRows.map((row) => row.freeThrowsMade));
+  const tov = average(usableRows.map((row) => row.turnovers));
+  const offensiveRebounds = average(usableRows.map((row) => row.offensiveRebounds));
+  const defensiveRebounds = average(usableRows.map((row) => row.defensiveRebounds));
   const avgMinutes = average(usableMinutes);
   const weightedMinutes = weightedAverage(usableMinutes);
   const minutesStdDev = stdDev(usableMinutes);
-  const starterRate = usableRows.length ? usableRows.filter((row) => bool(row, ["starter", "isStarter", "started"])).length / usableRows.length : 0;
+  const starterRate = usableRows.length ? usableRows.filter((row) => row.starter).length / usableRows.length : 0;
   const scoringRate = statRatesPerMinute.points;
   const assistRate = statRatesPerMinute.assists;
   const reboundRate = statRatesPerMinute.rebounds;
   const usageNumerator = fga + 0.44 * fta + tov;
+  const usageRates = usableRows.map(usageRateForRow);
 
   const tendencies: NbaPlayerTendencies = {
     usageRate: round(clamp(safeDivide(usageNumerator, Math.max(avgMinutes, 1), 0), 0, 0.9), 4),
@@ -245,22 +187,25 @@ export function buildNbaPlayerStatProfile(args: {
     stealSkill: skillFromRate(statRatesPerMinute.steals, 0.015, 0.085),
     blockSkill: skillFromRate(statRatesPerMinute.blocks, 0.01, 0.11),
     turnoverRisk: skillFromRate(statRatesPerMinute.turnovers, 0.015, 0.14),
-    foulRisk: skillFromRate(rate(usableRows.map((row) => num(row, ["personalFouls", "PF", "fouls"]) ?? 0), usableMinutes), 0.03, 0.16),
-    usageCeiling: round(clamp(tendencies.usageRate + stdDev(usableRows.map((row) => {
-      const min = minutes(row) ?? 1;
-      return ((num(row, ["fieldGoalsAttempted", "FGA", "fga"]) ?? 0) + 0.44 * (num(row, ["freeThrowsAttempted", "FTA", "fta"]) ?? 0) + (num(row, STAT_KEYS.turnovers) ?? 0)) / Math.max(min, 1);
-    })), 0, 1), 4),
-    usageFloor: round(clamp(tendencies.usageRate - 0.5 * stdDev(usableRows.map((row) => {
-      const min = minutes(row) ?? 1;
-      return ((num(row, ["fieldGoalsAttempted", "FGA", "fga"]) ?? 0) + 0.44 * (num(row, ["freeThrowsAttempted", "FTA", "fta"]) ?? 0) + (num(row, STAT_KEYS.turnovers) ?? 0)) / Math.max(min, 1);
-    })), 0, 1), 4),
+    foulRisk: skillFromRate(rate(usableRows.map((row) => row.personalFouls), usableMinutes), 0.03, 0.16),
+    usageCeiling: round(clamp(tendencies.usageRate + stdDev(usageRates), 0, 1), 4),
+    usageFloor: round(clamp(tendencies.usageRate - 0.5 * stdDev(usageRates), 0, 1), 4),
     volatility: round(clamp((minutesStdDev / Math.max(6, avgMinutes)) * 0.45 + (statStdDev.points / Math.max(8, average(statValues("points")))) * 0.35 + (1 - Math.min(1, usableRows.length / 12)) * 0.2, 0, 1), 4)
   };
 
+  const avgPoints = average(statValues("points"));
+  const avgRebounds = average(statValues("rebounds"));
+  const avgAssists = average(statValues("assists"));
+  const avgThrees = average(statValues("threes"));
+  const avgSteals = average(statValues("steals"));
+  const avgBlocks = average(statValues("blocks"));
   const warnings: string[] = [];
   if (usableRows.length < 5) warnings.push("low recent sample");
   if (minutesStdDev >= 6) warnings.push("volatile minutes");
   if (starterRate > 0 && starterRate < 0.6) warnings.push("unstable starting role");
+  if (avgMinutes >= 20 && avgPoints > 5 && avgRebounds === 0 && avgAssists === 0 && avgThrees === 0 && avgSteals === 0 && avgBlocks === 0) {
+    warnings.push("stat normalization failure suspected");
+  }
 
   return {
     playerId: args.playerId,
