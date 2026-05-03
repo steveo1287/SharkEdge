@@ -9,16 +9,16 @@ import {
 
 export type NbaFullStatProjectionPayload = {
   modelKey: string;
-  modelVersion?: string;
+  modelVersion: string;
   eventId: string;
   playerId: string;
   statKey: string;
   meanValue: number;
-  medianValue?: number;
-  stdDev?: number;
+  medianValue: number;
+  stdDev: number;
   hitProbOver?: Record<string, number>;
   hitProbUnder?: Record<string, number>;
-  metadata?: Record<string, unknown>;
+  metadata: Record<string, unknown>;
 };
 
 type ExistingProjectionLike = {
