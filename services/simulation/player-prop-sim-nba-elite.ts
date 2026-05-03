@@ -7,6 +7,7 @@ import {
   type NbaPropCalibrationBucket,
   type NbaPropCalibrationLookup
 } from "./nba-prop-calibration";
+import { getActiveNbaPropCalibrationBuckets } from "./nba-prop-calibration-context";
 import type { PlayerPropSimulationInput, PlayerPropSimulationSummary } from "./player-prop-sim";
 import type { NbaStatKey } from "./nba-player-stat-profile";
 
@@ -145,6 +146,10 @@ function playerStatusFromContext(input: EliteInput): NbaPropSafetyMetadata["play
   return "ACTIVE";
 }
 
+function calibrationBucketsFrom(input: EliteInput) {
+  return input.nbaPropCalibrationBuckets ?? getActiveNbaPropCalibrationBuckets();
+}
+
 function buildEliteProjection(input: EliteInput, legacySummary: PlayerPropSimulationSummary, lineupTruth: NbaLineupTruth | null): NbaElitePlayerPropSimulationSummary {
   const statKey = normalizeNbaPropStatKey(input.statKey) as NbaStatKey | null;
   if (input.leagueKey !== "NBA" || !statKey) return legacySummary;
@@ -169,7 +174,7 @@ function buildEliteProjection(input: EliteInput, legacySummary: PlayerPropSimula
     teammateQuestionableUsageImpact: input.teammateQuestionableUsageImpact ?? (lineupTruth?.starQuestionable ? 4 : 0)
   });
   const calibration = lookupNbaPropCalibration({
-    buckets: input.nbaPropCalibrationBuckets ?? [],
+    buckets: calibrationBucketsFrom(input),
     statKey,
     confidence: projection.confidence
   });
