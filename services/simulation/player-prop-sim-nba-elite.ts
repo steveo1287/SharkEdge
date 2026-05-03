@@ -6,6 +6,24 @@ import type { NbaStatKey } from "./nba-player-stat-profile";
 
 export type { PlayerPropSimulationInput, PlayerPropSimulationSummary } from "./player-prop-sim";
 
+export type NbaPropSafetyMetadata = {
+  modelHealthGreen: boolean;
+  sourceHealthGreen: boolean;
+  injuryReportFresh: boolean;
+  calibrationBucketHealthy: boolean;
+  noVigMarketAvailable: boolean;
+  noBet: boolean;
+  blockerReasons: string[];
+  confidence: number;
+  minutesConfidence: number;
+  lineupTruthStatus: "GREEN" | "YELLOW" | "RED" | "MISSING";
+  playerStatus: "ACTIVE" | "PROBABLE" | "QUESTIONABLE" | "DOUBTFUL" | "OUT" | "UNKNOWN" | "MISSING";
+};
+
+export type NbaElitePlayerPropSimulationSummary = PlayerPropSimulationSummary & {
+  nbaPropSafety?: NbaPropSafetyMetadata;
+};
+
 type EliteInput = PlayerPropSimulationInput & {
   nbaLineupTruth?: NbaLineupTruth | null;
   lineupTruth?: NbaLineupTruth | null;
@@ -52,7 +70,43 @@ function round(value: number, digits = 3) {
   return Number(value.toFixed(digits));
 }
 
-function projectionToLegacySummary(projection: NbaPlayerStatProjection, legacySummary: PlayerPropSimulationSummary): PlayerPropSimulationSummary {
+function buildPropSafety(args: {
+  projection: NbaPlayerStatProjection;
+  lineupTruth: NbaLineupTruth | null;
+  playerStatus: NbaPropSafetyMetadata["playerStatus"];
+  marketOddsOver?: number | null;
+  marketOddsUnder?: number | null;
+}): NbaPropSafetyMetadata {
+  const projection = args.projection;
+  const lineupTruthStatus = args.lineupTruth?.status ?? "MISSING";
+  const noVigMarketAvailable = args.marketOddsOver !== null && args.marketOddsOver !== undefined && args.marketOddsUnder !== null && args.marketOddsUnder !== undefined;
+  const blockerReasons = [
+    ...projection.blockers,
+    ...(lineupTruthStatus === "MISSING" ? ["lineup truth missing"] : []),
+    ...(!noVigMarketAvailable ? ["no two-sided prop market odds"] : [])
+  ];
+  const hardPlayerStatus = args.playerStatus === "QUESTIONABLE" || args.playerStatus === "DOUBTFUL" || args.playerStatus === "OUT" || args.playerStatus === "UNKNOWN" || args.playerStatus === "MISSING";
+
+  return {
+    modelHealthGreen: projection.confidence >= 0.7 && !projection.noBet,
+    sourceHealthGreen: lineupTruthStatus === "GREEN",
+    injuryReportFresh: args.lineupTruth?.injuryReportFresh === true,
+    calibrationBucketHealthy: projection.confidence >= 0.68,
+    noVigMarketAvailable,
+    noBet: projection.noBet || blockerReasons.length > 0 || hardPlayerStatus,
+    blockerReasons: [...new Set(blockerReasons)],
+    confidence: projection.confidence,
+    minutesConfidence: projection.minutes.confidence,
+    lineupTruthStatus,
+    playerStatus: args.playerStatus
+  };
+}
+
+function projectionToLegacySummary(
+  projection: NbaPlayerStatProjection,
+  legacySummary: PlayerPropSimulationSummary,
+  safety: NbaPropSafetyMetadata
+): NbaElitePlayerPropSimulationSummary {
   const hitProbOver = { ...legacySummary.hitProbOver };
   const hitProbUnder = { ...legacySummary.hitProbUnder };
   if (typeof projection.marketLine === "number" && projection.overProbability !== null && projection.underProbability !== null) {
@@ -71,17 +125,17 @@ function projectionToLegacySummary(projection: NbaPlayerStatProjection, legacySu
     p90: projection.p90,
     hitProbOver,
     hitProbUnder,
-    contextualEdgeScore: projection.noBet ? Math.min(legacySummary.contextualEdgeScore, 1) : Math.max(legacySummary.contextualEdgeScore, round(projection.confidence * 10, 2)),
+    contextualEdgeScore: safety.noBet ? Math.min(legacySummary.contextualEdgeScore, 1) : Math.max(legacySummary.contextualEdgeScore, round(projection.confidence * 10, 2)),
     drivers: [
       "NBA elite player-stat projection active.",
       ...projection.drivers,
-      ...projection.blockers.map((blocker) => `Prop blocker: ${blocker}.`),
+      ...safety.blockerReasons.map((blocker) => `Prop blocker: ${blocker}.`),
       ...projection.warnings.map((warning) => `Prop warning: ${warning}.`),
       ...legacySummary.drivers.slice(0, 4)
     ],
-    priorWeight: Math.max(legacySummary.priorWeight, projection.noBet ? 0.7 : 0.25),
-    sourceSummary: projection.noBet
-      ? `Elite NBA prop model blocked action: ${projection.blockers.join("; ") || "insufficient safety context"}.`
+    priorWeight: Math.max(legacySummary.priorWeight, safety.noBet ? 0.7 : 0.25),
+    sourceSummary: safety.noBet
+      ? `Elite NBA prop model blocked action: ${safety.blockerReasons.join("; ") || "insufficient safety context"}.`
       : `Elite NBA prop model: ${round(projection.minutes.projectedMinutes, 1)} minutes, ${projection.statKey} mean ${projection.mean}, confidence ${round(projection.confidence * 100, 1)}%.`,
     projectedMinutes: projection.minutes.projectedMinutes,
     perMinuteRate: projection.profile.statRatesPerMinute[projection.statKey] ?? legacySummary.perMinuteRate ?? null,
@@ -90,11 +144,12 @@ function projectionToLegacySummary(projection: NbaPlayerStatProjection, legacySu
     usageRateProxy: projection.profile.tendencies.usageRate,
     trueShootingPct: projection.profile.attributes.rimFinishingSkill,
     opportunityRate: projection.profile.tendencies.shotAttemptRate,
-    roleConfidence: projection.minutes.confidence
+    roleConfidence: projection.minutes.confidence,
+    nbaPropSafety: safety
   };
 }
 
-function playerStatusFromContext(input: EliteInput): "ACTIVE" | "PROBABLE" | "QUESTIONABLE" | "DOUBTFUL" | "OUT" | "UNKNOWN" | null {
+function playerStatusFromContext(input: EliteInput): NbaPropSafetyMetadata["playerStatus"] {
   if (input.playerStatus) return input.playerStatus;
   const text = [input.playerIntangibles, input.interactionContext]
     .map((value) => typeof value === "string" ? value : JSON.stringify(value ?? {}))
@@ -107,11 +162,12 @@ function playerStatusFromContext(input: EliteInput): "ACTIVE" | "PROBABLE" | "QU
   return "ACTIVE";
 }
 
-function buildEliteProjection(input: EliteInput, legacySummary: PlayerPropSimulationSummary, lineupTruth: NbaLineupTruth | null): PlayerPropSimulationSummary {
+function buildEliteProjection(input: EliteInput, legacySummary: PlayerPropSimulationSummary, lineupTruth: NbaLineupTruth | null): NbaElitePlayerPropSimulationSummary {
   const statKey = normalizeNbaStatKey(input.statKey);
   if (input.leagueKey !== "NBA" || !statKey) return legacySummary;
 
   const teamName = input.teamStyle?.teamName ?? null;
+  const playerStatus = playerStatusFromContext(input);
   const projection = projectNbaPlayerStat({
     playerId: input.playerId,
     playerName: input.playerName,
@@ -123,17 +179,24 @@ function buildEliteProjection(input: EliteInput, legacySummary: PlayerPropSimula
     marketLine: input.marketLine,
     marketOddsOver: input.marketOddsOver,
     marketOddsUnder: input.marketOddsUnder,
-    playerStatus: playerStatusFromContext(input),
+    playerStatus,
     teamSpread: input.teamSpread ?? null,
     backToBack: input.backToBack ?? false,
     teammateOutUsageImpact: input.teammateOutUsageImpact ?? (lineupTruth?.highUsageOut ? 5 : 0),
     teammateQuestionableUsageImpact: input.teammateQuestionableUsageImpact ?? (lineupTruth?.starQuestionable ? 4 : 0)
   });
+  const safety = buildPropSafety({
+    projection,
+    lineupTruth,
+    playerStatus,
+    marketOddsOver: input.marketOddsOver,
+    marketOddsUnder: input.marketOddsUnder
+  });
 
-  return projectionToLegacySummary(projection, legacySummary);
+  return projectionToLegacySummary(projection, legacySummary, safety);
 }
 
-export async function simulateNbaElitePlayerPropProjection(input: EliteInput): Promise<PlayerPropSimulationSummary> {
+export async function simulateNbaElitePlayerPropProjection(input: EliteInput): Promise<NbaElitePlayerPropSimulationSummary> {
   const legacySummary = legacy.simulatePlayerPropProjection(input);
   const statKey = normalizeNbaStatKey(input.statKey);
   if (input.leagueKey !== "NBA" || !statKey) return legacySummary;
@@ -150,7 +213,7 @@ export async function simulateNbaElitePlayerPropProjection(input: EliteInput): P
   return buildEliteProjection(input, legacySummary, lineupTruth);
 }
 
-export function simulatePlayerPropProjection(input: EliteInput): PlayerPropSimulationSummary {
+export function simulatePlayerPropProjection(input: EliteInput): NbaElitePlayerPropSimulationSummary {
   const legacySummary = legacy.simulatePlayerPropProjection(input);
   const explicitLineupTruth = input.nbaLineupTruth ?? input.lineupTruth ?? null;
   return buildEliteProjection(input, legacySummary, explicitLineupTruth);
