@@ -18,11 +18,36 @@ export type NbaFullStatTile = {
   blockers: string[];
 };
 
+export type NbaPlayerMinutesView = {
+  projectedMinutes: number | null;
+  floorMinutes: number | null;
+  ceilingMinutes: number | null;
+  confidence: number | null;
+  role: string | null;
+  roleConfidence: number | null;
+  starterConfidence: number | null;
+  rotationStability: number | null;
+  minutesVolatility: number | null;
+  starterLikely: boolean | null;
+  closingLineupLikely: boolean | null;
+  blowoutRisk: number | null;
+  foulRisk: number | null;
+  injuryRisk: number | null;
+  restAdjustment: number | null;
+  blowoutAdjustment: number | null;
+  injuryAdjustment: number | null;
+  roleAdjustment: number | null;
+  blockers: string[];
+  warnings: string[];
+  drivers: string[];
+};
+
 export type NbaPlayerFullStatView = {
   playerId: string;
   playerName: string;
   teamName: string | null;
   projectedMinutes: number | null;
+  minutes: NbaPlayerMinutesView | null;
   stats: NbaFullStatTile[];
 };
 
@@ -77,6 +102,10 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function asBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
 function probabilityAtFirstLine(value: Prisma.JsonValue | null | undefined) {
   const record = asRecord(value);
   for (const [line, probability] of Object.entries(record)) {
@@ -120,6 +149,49 @@ function normalizeStatKey(statKey: string) {
     default:
       return statKey;
   }
+}
+
+function minutesFromMetadata(metadata: Record<string, unknown>): NbaPlayerMinutesView | null {
+  const projectedMinutes = asNumber(metadata.projectedMinutes);
+  const hasMinutes = projectedMinutes !== null
+    || asNumber(metadata.minutesConfidence) !== null
+    || asNumber(metadata.rotationStability) !== null
+    || asNumber(metadata.minutesVolatility) !== null;
+  if (!hasMinutes) return null;
+  return {
+    projectedMinutes,
+    floorMinutes: asNumber(metadata.minutesFloor),
+    ceilingMinutes: asNumber(metadata.minutesCeiling),
+    confidence: asNumber(metadata.minutesConfidence),
+    role: typeof metadata.role === "string" ? metadata.role : null,
+    roleConfidence: asNumber(metadata.roleConfidence),
+    starterConfidence: asNumber(metadata.starterConfidence),
+    rotationStability: asNumber(metadata.rotationStability),
+    minutesVolatility: asNumber(metadata.minutesVolatility),
+    starterLikely: asBoolean(metadata.starterLikely),
+    closingLineupLikely: asBoolean(metadata.closingLineupLikely),
+    blowoutRisk: asNumber(metadata.blowoutRisk),
+    foulRisk: asNumber(metadata.foulRisk),
+    injuryRisk: asNumber(metadata.injuryRisk),
+    restAdjustment: asNumber(metadata.restAdjustment),
+    blowoutAdjustment: asNumber(metadata.blowoutAdjustment),
+    injuryAdjustment: asNumber(metadata.injuryAdjustment),
+    roleAdjustment: asNumber(metadata.roleAdjustment),
+    blockers: asStringArray(metadata.minutesBlockers),
+    warnings: asStringArray(metadata.minutesWarnings),
+    drivers: asStringArray(metadata.minutesDrivers)
+  };
+}
+
+function mergeMinutes(existing: NbaPlayerMinutesView | null, next: NbaPlayerMinutesView | null) {
+  if (!existing) return next;
+  if (!next) return existing;
+  return {
+    ...existing,
+    ...Object.fromEntries(
+      Object.entries(next).filter(([, value]) => value !== null && (!Array.isArray(value) || value.length > 0))
+    )
+  } as NbaPlayerMinutesView;
 }
 
 export async function getNbaFullStatProjectionView(args: {
@@ -172,9 +244,12 @@ export async function getNbaFullStatProjectionView(args: {
       playerName: projection.player?.name ?? String(metadata.playerName ?? playerId),
       teamName: projection.player?.team?.name ?? (typeof metadata.teamName === "string" ? metadata.teamName : null),
       projectedMinutes: asNumber(metadata.projectedMinutes),
+      minutes: null,
       stats: []
     };
 
+    existing.projectedMinutes = existing.projectedMinutes ?? asNumber(metadata.projectedMinutes);
+    existing.minutes = mergeMinutes(existing.minutes, minutesFromMetadata(metadata));
     existing.stats.push({
       statKey,
       label: STAT_LABELS[statKey] ?? statKey.replace(/^player_/, "").toUpperCase(),
