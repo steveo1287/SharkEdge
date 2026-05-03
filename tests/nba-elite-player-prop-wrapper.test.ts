@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { buildNbaLineupTruth } from "@/services/simulation/nba-lineup-truth";
 import type { NbaLineupImpact } from "@/services/simulation/nba-player-impact";
 import { simulatePlayerPropProjection, type NbaElitePlayerPropSimulationSummary } from "@/services/simulation/player-prop-sim";
+import type { NbaPropCalibrationBucket } from "@/services/simulation/nba-prop-calibration";
 
 function cleanImpact(teamName: string): NbaLineupImpact {
   return {
@@ -62,6 +63,19 @@ const recentStats = Array.from({ length: 12 }, (_, index) => ({
   personalFouls: 2
 }));
 
+const healthyPointsCalibration: NbaPropCalibrationBucket = {
+  statKey: "points",
+  bucket: "0.68-0.74",
+  count: 90,
+  avgPredictedOver: 0.52,
+  actualOverRate: 0.51,
+  brier: 0.21,
+  hitRate: 0.58,
+  avgEdgeToClose: 0.15,
+  status: "HEALTHY",
+  blockers: []
+};
+
 const active = simulatePlayerPropProjection({
   leagueKey: "NBA",
   statKey: "player_points",
@@ -97,6 +111,7 @@ const active = simulatePlayerPropProjection({
     notes: []
   },
   nbaLineupTruth: lineupTruth,
+  nbaPropCalibrationBuckets: [healthyPointsCalibration],
   playerStatus: "ACTIVE"
 }) as NbaElitePlayerPropSimulationSummary;
 
@@ -107,8 +122,27 @@ assert.ok(active.hitProbOver["25.5"] >= 0 && active.hitProbOver["25.5"] <= 1);
 assert.ok(active.sourceSummary.includes("Elite NBA prop model"));
 assert.equal(active.nbaPropSafety?.lineupTruthStatus, "GREEN");
 assert.equal(active.nbaPropSafety?.playerStatus, "ACTIVE");
+assert.equal(active.nbaPropSafety?.propCalibrationStatus, "HEALTHY");
 assert.equal(active.nbaPropSafety?.noBet, false);
 assert.equal(active.nbaPropSafety?.noVigMarketAvailable, true);
+
+const uncalibrated = simulatePlayerPropProjection({
+  leagueKey: "NBA",
+  statKey: "player_points",
+  playerId: "p1",
+  playerName: "Home Star",
+  position: "G",
+  recentStats,
+  marketLine: 25.5,
+  marketOddsOver: -110,
+  marketOddsUnder: -110,
+  nbaLineupTruth: lineupTruth,
+  playerStatus: "ACTIVE"
+}) as NbaElitePlayerPropSimulationSummary;
+
+assert.equal(uncalibrated.nbaPropSafety?.propCalibrationStatus, "INSUFFICIENT");
+assert.equal(uncalibrated.nbaPropSafety?.noBet, true);
+assert.ok(uncalibrated.nbaPropSafety?.blockerReasons.some((reason) => reason.includes("prop calibration")));
 
 const missingLineup = simulatePlayerPropProjection({
   leagueKey: "NBA",
@@ -120,6 +154,7 @@ const missingLineup = simulatePlayerPropProjection({
   marketLine: 25.5,
   marketOddsOver: -110,
   marketOddsUnder: -110,
+  nbaPropCalibrationBuckets: [healthyPointsCalibration],
   playerStatus: "ACTIVE"
 }) as NbaElitePlayerPropSimulationSummary;
 
@@ -140,6 +175,7 @@ const questionable = simulatePlayerPropProjection({
   marketOddsOver: -110,
   marketOddsUnder: -110,
   nbaLineupTruth: lineupTruth,
+  nbaPropCalibrationBuckets: [healthyPointsCalibration],
   playerStatus: "QUESTIONABLE"
 }) as NbaElitePlayerPropSimulationSummary;
 
