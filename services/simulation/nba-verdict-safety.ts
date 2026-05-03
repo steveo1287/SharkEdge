@@ -64,7 +64,7 @@ export function applyNbaVerdictSafety(input: NbaVerdictSafetyInput): MarketVerdi
     headline: input.verdict.headline,
     explanation: `${input.verdict.explanation} NBA safety gate: ${reasonText}`.trim(),
     trapFlags: [...new Set([...input.verdict.trapFlags, "LOW_CONFIDENCE_FAIR_PRICE"])] as MarketVerdict["trapFlags"],
-    trapExplanation: input.verdict.trapExplanation ?? reasonText || "NBA safety gate blocked action."
+    trapExplanation: input.verdict.trapExplanation ?? (reasonText || "NBA safety gate blocked action.")
   };
 }
 
