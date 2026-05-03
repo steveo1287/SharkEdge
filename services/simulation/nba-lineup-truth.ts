@@ -1,4 +1,10 @@
-import { getNbaLineupImpact, type NbaLineupImpact, type NbaPlayerImpactRecord, type PlayerStatus } from "./nba-player-impact";
+import {
+  getNbaLineupImpact,
+  getNbaPlayerImpactSnapshot,
+  type NbaLineupImpact,
+  type NbaPlayerImpactRecord,
+  type PlayerStatus
+} from "./nba-player-impact";
 
 export type NbaLineupTruthStatus = "GREEN" | "YELLOW" | "RED";
 export type NbaUsageTier = "STAR" | "HIGH" | "ROTATION" | "LOW";
@@ -192,10 +198,16 @@ export function buildNbaLineupTruth(input: NbaLineupTruthInput): NbaLineupTruth 
   };
 }
 
-export async function getNbaLineupTruth(input: Omit<NbaLineupTruthInput, "awayImpact" | "homeImpact">): Promise<NbaLineupTruth> {
+export async function getNbaLineupTruth(input: Omit<NbaLineupTruthInput, "awayImpact" | "homeImpact" | "feedLastUpdatedAt"> & { feedLastUpdatedAt?: string | Date | null }): Promise<NbaLineupTruth> {
+  const snapshot = await getNbaPlayerImpactSnapshot();
   const [awayImpact, homeImpact] = await Promise.all([
     getNbaLineupImpact(input.awayTeam),
     getNbaLineupImpact(input.homeTeam)
   ]);
-  return buildNbaLineupTruth({ ...input, awayImpact, homeImpact });
+  return buildNbaLineupTruth({
+    ...input,
+    awayImpact,
+    homeImpact,
+    feedLastUpdatedAt: input.feedLastUpdatedAt ?? snapshot?.lastUpdatedAt ?? null
+  });
 }
