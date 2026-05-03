@@ -23,11 +23,36 @@ type FullStatTile = {
   blockers: string[];
 };
 
+type PlayerMinutesView = {
+  projectedMinutes: number | null;
+  floorMinutes: number | null;
+  ceilingMinutes: number | null;
+  confidence: number | null;
+  role: string | null;
+  roleConfidence: number | null;
+  starterConfidence: number | null;
+  rotationStability: number | null;
+  minutesVolatility: number | null;
+  starterLikely: boolean | null;
+  closingLineupLikely: boolean | null;
+  blowoutRisk: number | null;
+  foulRisk: number | null;
+  injuryRisk: number | null;
+  restAdjustment: number | null;
+  blowoutAdjustment: number | null;
+  injuryAdjustment: number | null;
+  roleAdjustment: number | null;
+  blockers: string[];
+  warnings: string[];
+  drivers: string[];
+};
+
 type FullStatPlayer = {
   playerId: string;
   playerName: string;
   teamName: string | null;
   projectedMinutes: number | null;
+  minutes: PlayerMinutesView | null;
   stats: FullStatTile[];
 };
 
@@ -60,6 +85,14 @@ type FullStatHealthSummary = {
 
 function pct(value: number | null | undefined) {
   return typeof value === "number" ? `${value > 0 ? "+" : ""}${value.toFixed(2)}%` : "--";
+}
+
+function ratioPct(value: number | null | undefined) {
+  return typeof value === "number" ? `${(value * 100).toFixed(0)}%` : "--";
+}
+
+function oneDecimal(value: number | null | undefined) {
+  return typeof value === "number" ? value.toFixed(1) : "--";
 }
 
 function probabilityPct(value: number | null | undefined) {
@@ -103,9 +136,11 @@ function healthTone(status: "GREEN" | "YELLOW" | "RED" | undefined) {
 }
 
 function statHealth(player: FullStatPlayer) {
-  const blockers = [...new Set(player.stats.flatMap((stat) => stat.blockers))];
-  const warnings = [...new Set(player.stats.flatMap((stat) => stat.warnings))];
-  const noBet = player.stats.some((stat) => stat.noBet || stat.blockers.length > 0);
+  const statBlockers = player.stats.flatMap((stat) => stat.blockers);
+  const statWarnings = player.stats.flatMap((stat) => stat.warnings);
+  const blockers = [...new Set([...statBlockers, ...(player.minutes?.blockers ?? [])])];
+  const warnings = [...new Set([...statWarnings, ...(player.minutes?.warnings ?? [])])];
+  const noBet = player.stats.some((stat) => stat.noBet || stat.blockers.length > 0) || Boolean(player.minutes?.blockers.length);
   return { blockers, warnings, noBet };
 }
 
@@ -113,6 +148,13 @@ function statTileTone(stat: FullStatTile) {
   if (stat.blockers.length || stat.noBet) return "border-red-400/25 bg-red-500/10";
   if (stat.warnings.length) return "border-amber-300/25 bg-amber-500/10";
   return "border-bone/[0.08] bg-panel";
+}
+
+function minutesTone(minutes: PlayerMinutesView | null | undefined) {
+  if (!minutes) return "border-bone/[0.08] bg-panel/60";
+  if (minutes.blockers.length || (minutes.confidence ?? 0) < 0.5) return "border-red-400/25 bg-red-500/10";
+  if (minutes.warnings.length || (minutes.rotationStability ?? 1) < 0.55 || (minutes.minutesVolatility ?? 0) > 0.55) return "border-amber-300/25 bg-amber-500/10";
+  return "border-bone/[0.08] bg-panel/60";
 }
 
 function healthBadge(stat: FullStatTile) {
@@ -220,6 +262,51 @@ function FullStatHealthPanel({ summary }: { summary: FullStatHealthSummary }) {
   );
 }
 
+function MinutesRiskStrip({ minutes }: { minutes: PlayerMinutesView | null }) {
+  if (!minutes) return null;
+  const topIssue = minutes.blockers[0] ?? minutes.warnings[0] ?? minutes.drivers[0] ?? "Minutes engine clean.";
+  return (
+    <div className={`mt-3 rounded-md border p-3 ${minutesTone(minutes)}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Badge tone={minutes.blockers.length ? "danger" : minutes.warnings.length ? "premium" : "muted"}>MINUTES</Badge>
+          <span className="text-xs text-bone/55">{minutes.role ?? "role unknown"}</span>
+        </div>
+        <div className="font-mono text-xs text-white">
+          {oneDecimal(minutes.floorMinutes)}-{oneDecimal(minutes.ceilingMinutes)} min range
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2 text-[10px] md:grid-cols-6">
+        <div>
+          <div className="uppercase tracking-[0.1em] text-bone/40">Conf</div>
+          <div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.confidence)}</div>
+        </div>
+        <div>
+          <div className="uppercase tracking-[0.1em] text-bone/40">Role</div>
+          <div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.roleConfidence)}</div>
+        </div>
+        <div>
+          <div className="uppercase tracking-[0.1em] text-bone/40">Stable</div>
+          <div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.rotationStability)}</div>
+        </div>
+        <div>
+          <div className="uppercase tracking-[0.1em] text-bone/40">Vol</div>
+          <div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.minutesVolatility)}</div>
+        </div>
+        <div>
+          <div className="uppercase tracking-[0.1em] text-bone/40">Inj Adj</div>
+          <div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.injuryAdjustment)}</div>
+        </div>
+        <div>
+          <div className="uppercase tracking-[0.1em] text-bone/40">Blow Adj</div>
+          <div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.blowoutAdjustment)}</div>
+        </div>
+      </div>
+      <div className="mt-2 truncate text-[10px] text-bone/45" title={topIssue}>{topIssue}</div>
+    </div>
+  );
+}
+
 function FullStatForecastSection({ view }: { view: FullStatProjectionView }) {
   if (!view || !view.players.length) {
     return (
@@ -242,7 +329,7 @@ function FullStatForecastSection({ view }: { view: FullStatProjectionView }) {
       <SectionTitle
         eyebrow="NBA model forecast"
         title="Full player box-score projections"
-        description="Model forecasts are shown even when no sportsbook line exists. Blocked or suspicious stat families are marked before they contaminate betting decisions."
+        description="Model forecasts are shown even when no sportsbook line exists. Minutes range and role risk are surfaced before they contaminate betting decisions."
       />
       <div className="grid gap-4 xl:grid-cols-2">
         {players.map((player) => {
@@ -255,6 +342,7 @@ function FullStatForecastSection({ view }: { view: FullStatProjectionView }) {
                   <div className="mt-1 text-xs text-bone/50">
                     {player.teamName ?? "Team unknown"}
                     {typeof player.projectedMinutes === "number" ? ` | ${player.projectedMinutes.toFixed(1)} projected min` : ""}
+                    {player.minutes?.role ? ` | ${player.minutes.role}` : ""}
                   </div>
                 </div>
                 <div className="flex flex-wrap justify-end gap-2">
@@ -272,6 +360,8 @@ function FullStatForecastSection({ view }: { view: FullStatProjectionView }) {
                   ) : null}
                 </div>
               ) : null}
+
+              <MinutesRiskStrip minutes={player.minutes} />
 
               <div className="mt-4 grid grid-cols-4 gap-2 md:grid-cols-6">
                 {player.stats.slice(0, 12).map((stat) => (
