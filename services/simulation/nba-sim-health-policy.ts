@@ -2,6 +2,7 @@ import type { NbaBacktestDiagnostics } from "./nba-sim-backtest-diagnostics";
 
 export type NbaSimHealthStatus = "GREEN" | "YELLOW" | "RED";
 export type NbaSimPolicyActionState = "BET_NOW" | "WAIT" | "WATCH" | "PASS";
+export type NbaSimRecommendationTier = "attack" | "watch" | "pass";
 
 export type NbaSimHealthChecklistItem = {
   key:
@@ -24,6 +25,7 @@ export type NbaSimHealthChecklistItem = {
 
 export type NbaSimHealthPolicyInput = {
   diagnostics: NbaBacktestDiagnostics | null;
+  diagnosticsRequired?: boolean;
   sourceHealth?: NbaSimHealthStatus | null;
   injuryReportFresh?: boolean | null;
   starQuestionable?: boolean | null;
@@ -37,6 +39,22 @@ export type NbaSimHealthPolicy = {
   maxKellyPct: number;
   blockers: string[];
   checklist: NbaSimHealthChecklistItem[];
+};
+
+export type NbaSimPolicyRecommendationInput = {
+  tier: NbaSimRecommendationTier;
+  noBet: boolean;
+  confidence: number;
+  reasons: string[];
+  policy: NbaSimHealthPolicy;
+};
+
+export type NbaSimPolicyRecommendationResult = {
+  tier: NbaSimRecommendationTier;
+  noBet: boolean;
+  confidence: number;
+  reasons: string[];
+  capped: boolean;
 };
 
 function addCheck(
@@ -57,8 +75,14 @@ function diagnosticMetricPassed(args: {
   return args.value < args.baseline;
 }
 
+function capConfidence(value: number, cap: number) {
+  if (!Number.isFinite(value)) return cap;
+  return Math.min(value, cap);
+}
+
 export function buildNbaSimHealthPolicy(input: NbaSimHealthPolicyInput): NbaSimHealthPolicy {
   const diagnostics = input.diagnostics;
+  const diagnosticsRequired = input.diagnosticsRequired ?? true;
   const checklist: NbaSimHealthChecklistItem[] = [];
 
   addCheck(checklist, {
@@ -66,8 +90,8 @@ export function buildNbaSimHealthPolicy(input: NbaSimHealthPolicyInput): NbaSimH
     label: "NBA diagnostics available",
     passed: diagnostics !== null,
     observed: diagnostics ? "available" : null,
-    required: "diagnostics object from graded NBA picks",
-    critical: true
+    required: diagnosticsRequired ? "diagnostics object from graded NBA picks" : "not required for runtime action gate",
+    critical: diagnosticsRequired
   });
 
   addCheck(checklist, {
@@ -75,8 +99,8 @@ export function buildNbaSimHealthPolicy(input: NbaSimHealthPolicyInput): NbaSimH
     label: "Graded NBA sample size",
     passed: (diagnostics?.gradedCount ?? 0) >= 100,
     observed: diagnostics?.gradedCount ?? 0,
-    required: ">= 100 graded picks",
-    critical: true
+    required: diagnosticsRequired ? ">= 100 graded picks" : "not required for runtime action gate",
+    critical: diagnosticsRequired
   });
 
   addCheck(checklist, {
@@ -84,8 +108,8 @@ export function buildNbaSimHealthPolicy(input: NbaSimHealthPolicyInput): NbaSimH
     label: "NBA ROI after vig",
     passed: diagnosticMetricPassed({ value: diagnostics?.roiPct, baseline: null, mode: "greater_than_zero" }),
     observed: diagnostics?.roiPct ?? null,
-    required: "> 0%",
-    critical: true
+    required: diagnosticsRequired ? "> 0%" : "not required for runtime action gate",
+    critical: diagnosticsRequired
   });
 
   addCheck(checklist, {
@@ -93,8 +117,8 @@ export function buildNbaSimHealthPolicy(input: NbaSimHealthPolicyInput): NbaSimH
     label: "Average closing-line value",
     passed: diagnosticMetricPassed({ value: diagnostics?.clvPct, baseline: null, mode: "greater_than_zero" }),
     observed: diagnostics?.clvPct ?? null,
-    required: "> 0%",
-    critical: true
+    required: diagnosticsRequired ? "> 0%" : "not required for runtime action gate",
+    critical: diagnosticsRequired
   });
 
   addCheck(checklist, {
@@ -108,8 +132,8 @@ export function buildNbaSimHealthPolicy(input: NbaSimHealthPolicyInput): NbaSimH
     observed: diagnostics?.marketBaselineBrierScore == null || diagnostics?.brierScore == null
       ? null
       : `${diagnostics.brierScore} vs ${diagnostics.marketBaselineBrierScore}`,
-    required: "model Brier < no-vig market Brier",
-    critical: true
+    required: diagnosticsRequired ? "model Brier < no-vig market Brier" : "not required for runtime action gate",
+    critical: diagnosticsRequired
   });
 
   addCheck(checklist, {
@@ -123,8 +147,8 @@ export function buildNbaSimHealthPolicy(input: NbaSimHealthPolicyInput): NbaSimH
     observed: diagnostics?.marketBaselineLogLoss == null || diagnostics?.logLoss == null
       ? null
       : `${diagnostics.logLoss} vs ${diagnostics.marketBaselineLogLoss}`,
-    required: "model log loss < no-vig market log loss",
-    critical: true
+    required: diagnosticsRequired ? "model log loss < no-vig market log loss" : "not required for runtime action gate",
+    critical: diagnosticsRequired
   });
 
   addCheck(checklist, {
@@ -192,4 +216,45 @@ export function summarizeNbaSimHealthPolicy(policy: NbaSimHealthPolicy) {
     return "NBA sim health is YELLOW: analysis can show, but action should stay WATCH with zero Kelly.";
   }
   return "NBA sim health is RED: force PASS until blockers clear.";
+}
+
+export function enforceNbaSimHealthPolicy(input: NbaSimPolicyRecommendationInput): NbaSimPolicyRecommendationResult {
+  const summary = summarizeNbaSimHealthPolicy(input.policy);
+  if (input.policy.status === "GREEN") {
+    return {
+      tier: input.tier,
+      noBet: input.noBet,
+      confidence: input.confidence,
+      reasons: [summary, ...input.reasons],
+      capped: false
+    };
+  }
+
+  if (input.policy.status === "YELLOW") {
+    return {
+      tier: input.tier === "attack" ? "watch" : input.tier,
+      noBet: true,
+      confidence: capConfidence(input.confidence, 0.57),
+      reasons: [
+        "NBA health policy capped this output to WATCH with zero Kelly.",
+        summary,
+        ...input.policy.blockers,
+        ...input.reasons
+      ],
+      capped: true
+    };
+  }
+
+  return {
+    tier: "pass",
+    noBet: true,
+    confidence: capConfidence(input.confidence, 0.49),
+    reasons: [
+      "NBA health policy forced PASS with zero Kelly.",
+      summary,
+      ...input.policy.blockers,
+      ...input.reasons
+    ],
+    capped: true
+  };
 }
