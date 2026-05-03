@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import { buildNbaLineupTruth } from "@/services/simulation/nba-lineup-truth";
 import type { NbaLineupImpact } from "@/services/simulation/nba-player-impact";
-import { simulatePlayerPropProjection } from "@/services/simulation/player-prop-sim";
+import { simulatePlayerPropProjection, type NbaElitePlayerPropSimulationSummary } from "@/services/simulation/player-prop-sim";
 
 function cleanImpact(teamName: string): NbaLineupImpact {
   return {
@@ -98,13 +98,17 @@ const active = simulatePlayerPropProjection({
   },
   nbaLineupTruth: lineupTruth,
   playerStatus: "ACTIVE"
-});
+}) as NbaElitePlayerPropSimulationSummary;
 
 assert.ok(active.drivers[0].includes("NBA elite player-stat projection active"));
 assert.ok(active.projectedMinutes != null && active.projectedMinutes >= 30);
 assert.ok(active.sampleSize === 12);
 assert.ok(active.hitProbOver["25.5"] >= 0 && active.hitProbOver["25.5"] <= 1);
 assert.ok(active.sourceSummary.includes("Elite NBA prop model"));
+assert.equal(active.nbaPropSafety?.lineupTruthStatus, "GREEN");
+assert.equal(active.nbaPropSafety?.playerStatus, "ACTIVE");
+assert.equal(active.nbaPropSafety?.noBet, false);
+assert.equal(active.nbaPropSafety?.noVigMarketAvailable, true);
 
 const missingLineup = simulatePlayerPropProjection({
   leagueKey: "NBA",
@@ -117,10 +121,13 @@ const missingLineup = simulatePlayerPropProjection({
   marketOddsOver: -110,
   marketOddsUnder: -110,
   playerStatus: "ACTIVE"
-});
+}) as NbaElitePlayerPropSimulationSummary;
 
 assert.ok(missingLineup.drivers.some((driver) => driver.includes("Prop blocker: lineup truth missing")));
 assert.ok(missingLineup.sourceSummary.includes("blocked action"));
+assert.equal(missingLineup.nbaPropSafety?.lineupTruthStatus, "MISSING");
+assert.equal(missingLineup.nbaPropSafety?.noBet, true);
+assert.ok(missingLineup.nbaPropSafety?.blockerReasons.includes("lineup truth missing"));
 
 const questionable = simulatePlayerPropProjection({
   leagueKey: "NBA",
@@ -134,10 +141,13 @@ const questionable = simulatePlayerPropProjection({
   marketOddsUnder: -110,
   nbaLineupTruth: lineupTruth,
   playerStatus: "QUESTIONABLE"
-});
+}) as NbaElitePlayerPropSimulationSummary;
 
 assert.ok(questionable.drivers.some((driver) => driver.includes("Prop blocker: player status QUESTIONABLE")));
 assert.ok(questionable.sourceSummary.includes("blocked action"));
+assert.equal(questionable.nbaPropSafety?.playerStatus, "QUESTIONABLE");
+assert.equal(questionable.nbaPropSafety?.noBet, true);
+assert.ok(questionable.nbaPropSafety?.blockerReasons.some((reason) => reason.includes("QUESTIONABLE")));
 
 const mlb = simulatePlayerPropProjection({
   leagueKey: "MLB",
