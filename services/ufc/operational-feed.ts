@@ -2,6 +2,9 @@ import { prisma } from "@/lib/db/prisma";
 
 export type UfcOperationalFeedCard = {
   fightId: string;
+  eventId: string | null;
+  eventName: string | null;
+  eventDate: string | null;
   eventLabel: string;
   fightDate: string;
   scheduledRounds: number;
@@ -32,6 +35,9 @@ export type UfcOperationalFeedCard = {
 
 type FeedRow = {
   fight_id: string;
+  event_id: string | null;
+  event_name: string | null;
+  event_date: Date | string | null;
   event_label: string;
   fight_date: Date | string;
   scheduled_rounds: number;
@@ -61,6 +67,10 @@ function toIso(value: Date | string) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+function toIsoNullable(value: Date | string | null) {
+  return value == null ? null : toIso(value);
+}
+
 function asArray(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
@@ -73,6 +83,9 @@ export async function getUfcOperationalFeed(options: { modelVersion?: string; li
   const rows = await prisma.$queryRaw<FeedRow[]>`
     SELECT DISTINCT ON (p.fight_id)
       f.id AS fight_id,
+      e.id AS event_id,
+      e.event_name,
+      e.event_date,
       f.event_label,
       f.fight_date,
       f.scheduled_rounds,
@@ -98,6 +111,7 @@ export async function getUfcOperationalFeed(options: { modelVersion?: string; li
       s.status AS shadow_status
     FROM ufc_predictions p
     JOIN ufc_fights f ON f.id = p.fight_id
+    LEFT JOIN ufc_events e ON e.id = f.event_id
     LEFT JOIN ufc_fighters fa ON fa.id = f.fighter_a_id
     LEFT JOIN ufc_fighters fb ON fb.id = f.fighter_b_id
     LEFT JOIN ufc_fighters fp ON fp.id = p.pick_fighter_id
@@ -111,6 +125,9 @@ export async function getUfcOperationalFeed(options: { modelVersion?: string; li
 
   return rows.map((row) => ({
     fightId: row.fight_id,
+    eventId: row.event_id,
+    eventName: row.event_name,
+    eventDate: toIsoNullable(row.event_date),
     eventLabel: row.event_label,
     fightDate: toIso(row.fight_date),
     scheduledRounds: row.scheduled_rounds,
