@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
 
 import { prisma } from "@/lib/db/prisma";
+import { runUfcEnsembleSimFromFeatures } from "@/services/ufc/ensemble-sim";
 import { americanOddsToImpliedProbability, probabilityToAmericanOdds } from "@/services/ufc/fight-iq";
 import { buildUfcFighterSkillProfile, type UfcModelFeatureSnapshot } from "@/services/ufc/fighter-skill-profile";
-import { runUfcSkillMarkovSim } from "@/services/ufc/skill-markov-sim";
 
 export type UfcOperationalSimOptions = {
   modelVersion?: string;
@@ -101,7 +101,16 @@ function confidenceGrade(probability: number, dataQuality: string, coldStart: bo
   return "LOW";
 }
 
+function featureNumber(featureJson: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = featureJson[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
 function toFeatureSnapshot(row: WarehouseFeature): UfcModelFeatureSnapshot {
+  const featureJson = row.feature_json ?? {};
   return {
     fightId: row.fight_id,
     fightDate: toIso(row.fight_date),
@@ -109,19 +118,30 @@ function toFeatureSnapshot(row: WarehouseFeature): UfcModelFeatureSnapshot {
     opponentFighterId: row.opponent_fighter_id,
     snapshotAt: toIso(row.snapshot_at),
     modelVersion: row.model_version,
+    age: featureNumber(featureJson, "age"),
+    reachInches: featureNumber(featureJson, "reachInches", "reach_inches"),
+    heightInches: featureNumber(featureJson, "heightInches", "height_inches"),
+    daysSinceLastFight: featureNumber(featureJson, "daysSinceLastFight", "days_since_last_fight"),
     proFights: row.pro_fights,
     ufcFights: row.ufc_fights,
     roundsFought: row.rounds_fought,
     sigStrikesLandedPerMin: row.sig_strikes_landed_per_min,
     sigStrikesAbsorbedPerMin: row.sig_strikes_absorbed_per_min,
     strikingDifferential: row.striking_differential,
+    sigStrikeAccuracyPct: featureNumber(featureJson, "sigStrikeAccuracyPct", "sig_strike_accuracy_pct", "strikeAccuracyPct"),
+    sigStrikeDefensePct: featureNumber(featureJson, "sigStrikeDefensePct", "sig_strike_defense_pct", "strikeDefensePct"),
+    knockdownsPer15: featureNumber(featureJson, "knockdownsPer15", "knockdowns_per_15"),
     takedownsPer15: row.takedowns_per_15,
+    takedownAccuracyPct: featureNumber(featureJson, "takedownAccuracyPct", "takedown_accuracy_pct"),
     takedownDefensePct: row.takedown_defense_pct,
     submissionAttemptsPer15: row.submission_attempts_per_15,
     controlTimePct: row.control_time_pct,
+    recentFormScore: featureNumber(featureJson, "recentFormScore", "recent_form_score"),
+    finishRate: featureNumber(featureJson, "finishRate", "finish_rate"),
+    lateRoundPerformance: featureNumber(featureJson, "lateRoundPerformance", "late_round_performance"),
     opponentAdjustedStrength: row.opponent_adjusted_strength,
     coldStartActive: row.cold_start_active,
-    feature: row.feature_json ?? {}
+    feature: featureJson
   };
 }
 
@@ -157,9 +177,11 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
   const bFeature = features.find((feature) => feature.fighter_id === fight.fighter_b_id);
   if (!aFeature || !bFeature) throw new Error(`UFC operational sim missing two pre-fight feature snapshots for ${fightId}:${modelVersion}`);
 
-  const aProfile = buildUfcFighterSkillProfile({ feature: toFeatureSnapshot(aFeature) });
-  const bProfile = buildUfcFighterSkillProfile({ feature: toFeatureSnapshot(bFeature) });
-  const sim = runUfcSkillMarkovSim(aProfile, bProfile, { simulations, seed, scheduledRounds: fight.scheduled_rounds === 5 ? 5 : 3 });
+  const aSnapshot = toFeatureSnapshot(aFeature);
+  const bSnapshot = toFeatureSnapshot(bFeature);
+  const aProfile = buildUfcFighterSkillProfile({ feature: aSnapshot });
+  const bProfile = buildUfcFighterSkillProfile({ feature: bSnapshot });
+  const sim = runUfcEnsembleSimFromFeatures(aSnapshot, bSnapshot, { simulations, seed, scheduledRounds: fight.scheduled_rounds === 5 ? 5 : 3 });
 
   const pickFighterId = sim.fighterAWinProbability >= sim.fighterBWinProbability ? fight.fighter_a_id : fight.fighter_b_id;
   const pickProbability = Math.max(sim.fighterAWinProbability, sim.fighterBWinProbability);
@@ -167,7 +189,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
   const edgePct = calculateUfcEdgePct(pickProbability, pickMarketOdds);
   const dataQualityGrade = weakerGrade(aProfile.sampleQuality, bProfile.sampleQuality);
   const confidence = confidenceGrade(pickProbability, dataQualityGrade, aProfile.prospect.coldStartActive || bProfile.prospect.coldStartActive);
-  const predictionId = stableId("ufcp", `${fightId}:${modelVersion}:${seed}:${simulations}`);
+  const predictionId = stableId("ufcp", `${fightId}:${modelVersion}:${seed}:${simulations}:ensemble`);
 
   await prisma.$executeRaw`
     INSERT INTO ufc_predictions (id, fight_id, model_version, generated_at, fighter_a_id, fighter_b_id, fighter_a_win_probability, fighter_b_win_probability, pick_fighter_id, fair_odds_american, sportsbook_odds_american, edge_pct, ko_tko_probability, submission_probability, decision_probability, prediction_json, updated_at)
@@ -178,7 +200,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
   const simRunId = stableId("ufcsr", `${predictionId}:${seed}:${simulations}`);
   await prisma.$executeRaw`
     INSERT INTO ufc_sim_runs (id, prediction_id, fight_id, model_version, seed, simulation_count, completed_at, cache_key, status, result_json, updated_at)
-    VALUES (${simRunId}, ${predictionId}, ${fightId}, ${modelVersion}, ${seed}, ${simulations}, now(), ${`ufc:${fightId}:${modelVersion}:${seed}:${simulations}`}, 'COMPLETED', ${JSON.stringify(sim)}::jsonb, now())
+    VALUES (${simRunId}, ${predictionId}, ${fightId}, ${modelVersion}, ${seed}, ${simulations}, now(), ${`ufc:${fightId}:${modelVersion}:${seed}:${simulations}:ensemble`}, 'COMPLETED', ${JSON.stringify(sim)}::jsonb, now())
     ON CONFLICT (id) DO UPDATE SET completed_at = EXCLUDED.completed_at, status = EXCLUDED.status, result_json = EXCLUDED.result_json, updated_at = now()
   `;
 
@@ -187,7 +209,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     shadowPredictionId = stableId("ufcsh", `${predictionId}:shadow`);
     await prisma.$executeRaw`
       INSERT INTO ufc_shadow_predictions (id, fight_id, prediction_id, model_version, recorded_at, market_odds_a_open, market_odds_b_open, market_odds_a_close, market_odds_b_close, fighter_a_win_probability, fighter_b_win_probability, pick_fighter_id, data_quality_grade, confidence_grade, status, payload_json, updated_at)
-      VALUES (${shadowPredictionId}, ${fightId}, ${predictionId}, ${modelVersion}, now(), ${options.marketOddsAOpen ?? null}, ${options.marketOddsBOpen ?? null}, ${options.marketOddsAClose ?? null}, ${options.marketOddsBClose ?? null}, ${sim.fighterAWinProbability}, ${sim.fighterBWinProbability}, ${pickFighterId}, ${dataQualityGrade}, ${confidence}, 'PENDING', ${JSON.stringify({ sim, pathSummary: sim.pathSummary })}::jsonb, now())
+      VALUES (${shadowPredictionId}, ${fightId}, ${predictionId}, ${modelVersion}, now(), ${options.marketOddsAOpen ?? null}, ${options.marketOddsBOpen ?? null}, ${options.marketOddsAClose ?? null}, ${options.marketOddsBClose ?? null}, ${sim.fighterAWinProbability}, ${sim.fighterBWinProbability}, ${pickFighterId}, ${dataQualityGrade}, ${confidence}, 'PENDING', ${JSON.stringify({ sim, pathSummary: sim.pathSummary, dangerFlags: sim.dangerFlags })}::jsonb, now())
       ON CONFLICT (id) DO UPDATE SET fighter_a_win_probability = EXCLUDED.fighter_a_win_probability, fighter_b_win_probability = EXCLUDED.fighter_b_win_probability, payload_json = EXCLUDED.payload_json, updated_at = now()
     `;
   }
