@@ -59,6 +59,23 @@ function firstNumber(record: Record<string, unknown>, keys: string[]) {
   return null;
 }
 
+function eventMarketTypeForStat(statKey: string) {
+  const normalized = normalizeNbaPropStatKey(statKey);
+  if (!normalized) return null;
+  switch (normalized) {
+    case "points":
+      return "player_points";
+    case "rebounds":
+      return "player_rebounds";
+    case "assists":
+      return "player_assists";
+    case "threes":
+      return "player_threes";
+    default:
+      return null;
+  }
+}
+
 export function actualValueForNbaProp(statKey: string, statsJson: unknown): number | null {
   const normalized = normalizeNbaPropStatKey(statKey);
   if (!normalized) return null;
@@ -122,23 +139,23 @@ async function getCandidateStat(snapshot: OpenSnapshotRow) {
   if (!snapshot.player_id) return null;
   const rows = await prisma.$queryRaw<CandidateStatRow[]>`
     SELECT
-      pgs.game_id,
-      pgs.player_id,
-      pgs.stats_json,
+      pgs."gameId" AS game_id,
+      pgs."playerId" AS player_id,
+      pgs."statsJson" AS stats_json,
       pgs.minutes,
-      pgs.outcome_status
+      pgs."outcomeStatus" AS outcome_status
     FROM player_game_stats pgs
-    JOIN games g ON g.id = pgs.game_id
+    JOIN games g ON g.id = pgs."gameId"
     LEFT JOIN events e ON e.id = ${snapshot.event_id ?? null}
-    WHERE pgs.player_id = ${snapshot.player_id}
+    WHERE pgs."playerId" = ${snapshot.player_id}
       AND (
-        (${snapshot.game_id ?? null} IS NOT NULL AND pgs.game_id = ${snapshot.game_id ?? null})
-        OR (${snapshot.event_id ?? null} IS NOT NULL AND e.external_event_id IS NOT NULL AND g.external_event_id = e.external_event_id)
-        OR (${snapshot.game_start_time ?? null} IS NOT NULL AND g.start_time BETWEEN ${snapshot.game_start_time ?? null}::timestamp - INTERVAL '6 hours' AND ${snapshot.game_start_time ?? null}::timestamp + INTERVAL '6 hours')
+        (${snapshot.game_id ?? null} IS NOT NULL AND pgs."gameId" = ${snapshot.game_id ?? null})
+        OR (${snapshot.event_id ?? null} IS NOT NULL AND e."externalEventId" IS NOT NULL AND g."externalEventId" = e."externalEventId")
+        OR (${snapshot.game_start_time ?? null} IS NOT NULL AND g."startTime" BETWEEN ${snapshot.game_start_time ?? null}::timestamp - INTERVAL '6 hours' AND ${snapshot.game_start_time ?? null}::timestamp + INTERVAL '6 hours')
       )
     ORDER BY
-      CASE WHEN ${snapshot.game_id ?? null} IS NOT NULL AND pgs.game_id = ${snapshot.game_id ?? null} THEN 0 ELSE 1 END,
-      g.start_time DESC
+      CASE WHEN ${snapshot.game_id ?? null} IS NOT NULL AND pgs."gameId" = ${snapshot.game_id ?? null} THEN 0 ELSE 1 END,
+      g."startTime" DESC
     LIMIT 1;
   `;
   return rows[0] ?? null;
@@ -146,19 +163,19 @@ async function getCandidateStat(snapshot: OpenSnapshotRow) {
 
 async function getClosingLine(snapshot: OpenSnapshotRow) {
   if (!snapshot.event_id || !snapshot.player_id) return null;
-  const normalized = normalizeNbaPropStatKey(snapshot.stat_key);
-  if (!normalized) return null;
+  const marketType = eventMarketTypeForStat(snapshot.stat_key);
+  if (!marketType) return null;
   const rows = await prisma.$queryRaw<ClosingLineRow[]>`
     SELECT
-      em.closing_line,
-      MAX(CASE WHEN LOWER(COALESCE(em.side, em.selection)) = 'over' THEN em.closing_odds END)::integer AS closing_odds_over,
-      MAX(CASE WHEN LOWER(COALESCE(em.side, em.selection)) = 'under' THEN em.closing_odds END)::integer AS closing_odds_under
+      em."closingLine" AS closing_line,
+      MAX(CASE WHEN LOWER(COALESCE(em.side, em.selection)) = 'over' THEN em."closingOdds" END)::integer AS closing_odds_over,
+      MAX(CASE WHEN LOWER(COALESCE(em.side, em.selection)) = 'under' THEN em."closingOdds" END)::integer AS closing_odds_under
     FROM event_markets em
-    WHERE em.event_id = ${snapshot.event_id}
-      AND em.player_id = ${snapshot.player_id}
-      AND em.market_type = ${normalized}
-    GROUP BY em.closing_line
-    ORDER BY em.closing_line NULLS LAST
+    WHERE em."eventId" = ${snapshot.event_id}
+      AND em."playerId" = ${snapshot.player_id}
+      AND em."marketType" = ${marketType}::"MarketType"
+    GROUP BY em."closingLine"
+    ORDER BY em."closingLine" NULLS LAST
     LIMIT 1;
   `;
   return rows[0] ?? null;
@@ -224,5 +241,6 @@ export async function gradeOpenNbaPropPredictionSnapshots(args: { limit?: number
 
 export const __nbaPropLedgerGraderTestHooks = {
   actualValueForNbaProp,
-  resultForProp
+  resultForProp,
+  eventMarketTypeForStat
 };
