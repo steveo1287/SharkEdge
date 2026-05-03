@@ -38,6 +38,62 @@ const baseProp: PropCardView = {
   edgeScore: { score: 86, label: "Elite" }
 };
 
+const healthyPlayer: NbaFullStatProjectionView["players"][number] = {
+  playerId: "player-1",
+  playerName: "Blocked Player",
+  teamName: "Home",
+  projectedMinutes: 31.2,
+  lineupTruth: {
+    status: "GREEN",
+    injuryReportFresh: true,
+    minutesTrusted: true,
+    projectedStarterConfidence: 0.91,
+    blockers: [],
+    warnings: []
+  },
+  minutes: {
+    projectedMinutes: 31.2,
+    floorMinutes: 27.4,
+    ceilingMinutes: 35.8,
+    confidence: 0.82,
+    role: "starter",
+    roleConfidence: 0.78,
+    starterConfidence: 0.77,
+    rotationStability: 0.75,
+    minutesVolatility: 0.32,
+    starterLikely: true,
+    closingLineupLikely: true,
+    blowoutRisk: 0.22,
+    foulRisk: 0.16,
+    injuryRisk: 0.12,
+    restAdjustment: 1,
+    blowoutRiskAdjustment: null,
+    blowoutAdjustment: 0.96,
+    injuryAdjustment: 0.98,
+    roleAdjustment: 1,
+    blockers: [],
+    warnings: [],
+    drivers: ["baseline 32 minutes"]
+  },
+  stats: [
+    {
+      statKey: "player_points",
+      label: "PTS",
+      meanValue: 22.1,
+      medianValue: 22.1,
+      stdDev: 5.2,
+      marketLine: 21.5,
+      overProbability: 0.54,
+      underProbability: 0.46,
+      confidence: 0.74,
+      modelOnly: false,
+      noBet: false,
+      blockers: [],
+      warnings: []
+    }
+  ]
+};
+
 const blockedView: NbaFullStatProjectionView = {
   ok: true,
   generatedAt: new Date().toISOString(),
@@ -48,48 +104,32 @@ const blockedView: NbaFullStatProjectionView = {
   warnings: [],
   players: [
     {
-      playerId: "player-1",
-      playerName: "Blocked Player",
-      teamName: "Home",
-      projectedMinutes: 31.2,
+      ...healthyPlayer,
+      lineupTruth: {
+        status: "RED",
+        injuryReportFresh: false,
+        minutesTrusted: false,
+        projectedStarterConfidence: 0.38,
+        blockers: ["stale injury report"],
+        warnings: ["projected minutes are not fully trusted"]
+      },
       minutes: {
-        projectedMinutes: 31.2,
-        floorMinutes: 21.4,
-        ceilingMinutes: 36.8,
+        ...healthyPlayer.minutes!,
         confidence: 0.43,
-        role: "starter",
-        roleConfidence: 0.7,
-        starterConfidence: 0.77,
         rotationStability: 0.4,
         minutesVolatility: 0.71,
-        starterLikely: true,
-        closingLineupLikely: false,
-        blowoutRisk: 0.22,
-        foulRisk: 0.16,
         injuryRisk: 0.67,
-        restAdjustment: 1,
-        blowoutAdjustment: 0.96,
         injuryAdjustment: 0.84,
-        roleAdjustment: 1,
+        closingLineupLikely: false,
         blockers: ["stale injury report"],
-        warnings: ["rotation stability below 0.45"],
-        drivers: ["baseline 32 minutes"]
+        warnings: ["rotation stability below 0.45"]
       },
       stats: [
         {
-          statKey: "player_points",
-          label: "PTS",
-          meanValue: 22.1,
-          medianValue: 22.1,
-          stdDev: 5.2,
-          marketLine: 21.5,
-          overProbability: 0.54,
-          underProbability: 0.46,
+          ...healthyPlayer.stats[0],
           confidence: 0.41,
-          modelOnly: false,
           noBet: true,
-          blockers: ["lineup truth RED"],
-          warnings: []
+          blockers: ["lineup truth RED"]
         }
       ]
     }
@@ -100,6 +140,8 @@ const gated = applyNbaPropSafetyGate({ props: [baseProp], fullStatProjectionView
 assert.equal(gated.summary.gatedCount, 1);
 assert.ok(gated.summary.reasonCounts.some((entry) => entry.reason === "lineup truth RED"));
 assert.ok(gated.summary.reasonCounts.some((entry) => entry.reason === "stale injury report"));
+assert.ok(gated.summary.reasonCounts.some((entry) => entry.reason === "stale or missing injury report"));
+assert.ok(gated.summary.reasonCounts.some((entry) => entry.reason === "minutes not trusted by lineup truth"));
 
 const prop = gated.props[0];
 assert.equal(prop.expectedValuePct, 0);
@@ -117,30 +159,34 @@ assert.ok(prop.analyticsSummary?.tags.includes("PASS_ONLY"));
 assert.equal(prop.reasons?.[0]?.label, "NBA safety gate");
 assert.equal(prop.reasons?.[0]?.tone, "danger");
 
-const cleanView: NbaFullStatProjectionView = {
+const staleLineupOnlyView: NbaFullStatProjectionView = {
   ...blockedView,
   players: [
     {
-      ...blockedView.players[0],
-      minutes: {
-        ...blockedView.players[0].minutes!,
-        confidence: 0.82,
-        rotationStability: 0.75,
-        minutesVolatility: 0.32,
-        injuryAdjustment: 0.98,
+      ...healthyPlayer,
+      lineupTruth: {
+        status: "YELLOW",
+        injuryReportFresh: false,
+        minutesTrusted: false,
+        projectedStarterConfidence: 0.62,
         blockers: [],
-        warnings: []
-      },
-      stats: [
-        {
-          ...blockedView.players[0].stats[0],
-          noBet: false,
-          blockers: [],
-          confidence: 0.74
-        }
-      ]
+        warnings: ["injury report stale but stat projection otherwise clean"]
+      }
     }
   ]
+};
+
+const staleLineupOnly = applyNbaPropSafetyGate({ props: [baseProp], fullStatProjectionView: staleLineupOnlyView });
+assert.equal(staleLineupOnly.summary.gatedCount, 1);
+assert.ok(staleLineupOnly.summary.reasonCounts.some((entry) => entry.reason === "lineup truth YELLOW"));
+assert.ok(staleLineupOnly.summary.reasonCounts.some((entry) => entry.reason === "stale or missing injury report"));
+assert.ok(staleLineupOnly.summary.reasonCounts.some((entry) => entry.reason === "minutes not trusted by lineup truth"));
+assert.equal(staleLineupOnly.props[0].valueFlag, "NONE");
+assert.equal(staleLineupOnly.props[0].evProfile?.kellyFraction, 0);
+
+const cleanView: NbaFullStatProjectionView = {
+  ...blockedView,
+  players: [healthyPlayer]
 };
 const clean = applyNbaPropSafetyGate({ props: [baseProp], fullStatProjectionView: cleanView });
 assert.equal(clean.summary.gatedCount, 0);
