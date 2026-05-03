@@ -1,3 +1,4 @@
+import { diagnoseNbaStatCompleteness } from "./nba-player-stat-diagnostics";
 import { projectNbaPlayerStat, type NbaPlayerStatProjection, type NbaPlayerStatProjectionInput } from "./nba-player-stat-projection";
 import type { NbaStatKey } from "./nba-player-stat-profile";
 
@@ -183,9 +184,10 @@ export function projectNbaPlayerFullStatProfile(input: NbaPlayerFullStatProjecti
   ) as Record<NbaComboStatKey, NbaPlayerComboStatProjection>;
 
   const all = [...Object.values(stats), ...Object.values(combos)];
-  const blockers = [...new Set(all.flatMap((projection) => projection.blockers))];
-  const warnings = [...new Set(all.flatMap((projection) => projection.warnings))];
   const projectedMinutes = stats.points.minutes.projectedMinutes;
+  const diagnostics = diagnoseNbaStatCompleteness({ projectedMinutes, stats, combos });
+  const blockers = [...new Set([...all.flatMap((projection) => projection.blockers), ...diagnostics.blockers])];
+  const warnings = [...new Set([...all.flatMap((projection) => projection.warnings), ...diagnostics.warnings])];
   const confidence = all.length ? all.reduce((sum, projection) => sum + projection.confidence, 0) / all.length : 0;
 
   return {
@@ -194,7 +196,7 @@ export function projectNbaPlayerFullStatProfile(input: NbaPlayerFullStatProjecti
     team: input.team ?? null,
     position: input.position ?? null,
     projectedMinutes: round(projectedMinutes, 3),
-    confidence: round(confidence, 3),
+    confidence: round(diagnostics.blockers.length ? Math.min(confidence, 0.35) : confidence, 3),
     noBet: blockers.length > 0,
     blockers,
     warnings,
