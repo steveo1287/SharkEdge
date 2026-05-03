@@ -1,4 +1,5 @@
 import type { LeagueKey } from "@/lib/types/domain";
+import { simProbabilityBucket } from "@/services/simulation/sim-accuracy-buckets";
 import { getSimAccuracySummary } from "@/services/simulation/sim-accuracy-ledger";
 
 type GuardLeague = Extract<LeagueKey, "NBA" | "MLB">;
@@ -39,11 +40,6 @@ function clamp(value: number, min: number, max: number) {
 
 function round(value: number, digits = 3) {
   return Number(value.toFixed(digits));
-}
-
-export function simProbabilityBucket(probability: number) {
-  const lower = Math.floor(clamp(probability, 0, 0.999) * 10) * 10;
-  return `${lower}-${lower + 10}%`;
 }
 
 function guardrailKey(league: GuardLeague, bucket: string) {
