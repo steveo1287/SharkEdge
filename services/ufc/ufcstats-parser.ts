@@ -44,7 +44,7 @@ const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-").
 const idFrom = (prefix: string, value: string, marker: string) => `${prefix}-${value.match(new RegExp(`${marker}/([a-z0-9]+)`, "i"))?.[1] ?? slug(value)}`;
 
 function title(html: string) {
-  return strip(html.match(/b-content__title-highlight[^>]*>(.*?)<\/span>/is)?.[1] ?? "");
+  return strip(html.match(/b-content__title-highlight[^>]*>([\s\S]*?)<\/span>/i)?.[1] ?? "");
 }
 
 function valueAfter(html: string, label: string) {
@@ -84,14 +84,14 @@ export function parseUfcStatsEventPage(html: string, eventUrl = ""): UfcStatsEve
   const fights = rows.flatMap((row) => {
     const url = row.match(/data-link=["']([^"']+)/i)?.[1] ?? row.match(/href=["']([^"']*fight-details[^"']+)/i)?.[1];
     if (!url) return [];
-    const names = [...row.matchAll(/fighter-details[^>]*>(.*?)<\/a>/gis)].map((m) => strip(m[1])).filter(Boolean);
+    const names = [...row.matchAll(/fighter-details[^>]*>([\s\S]*?)<\/a>/gi)].map((m) => strip(m[1])).filter(Boolean);
     return [{ sourceFightId: idFrom("ufcstats", url, "fight-details"), url, fighterAName: names[0] ?? null, fighterBName: names[1] ?? null, weightClass: null }];
   });
   return { sourceEventId: idFrom("ufcstats", eventUrl || title(html) || "event", "event-details"), eventName: title(html) || "UFC Event", eventDate: valueAfter(html, "DATE") ?? new Date().toISOString(), location: valueAfter(html, "LOCATION"), fights };
 }
 
 export function parseUfcStatsFightDetail(html: string, url = ""): UfcStatsFightDetail {
-  const links = [...html.matchAll(/href=["']([^"']*fighter-details[^"']+)["'][^>]*>(.*?)<\/a>/gis)].map((m) => ({ url: m[1], name: strip(m[2]) })).filter((x, i, a) => x.name && a.findIndex((y) => y.name === x.name) === i).slice(0, 2);
+  const links = [...html.matchAll(/href=["']([^"']*fighter-details[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].map((m) => ({ url: m[1], name: strip(m[2]) })).filter((x, i, a) => x.name && a.findIndex((y) => y.name === x.name) === i).slice(0, 2);
   if (links.length < 2) throw new Error("UFCStats fight detail missing two fighter links.");
   return { sourceFightId: idFrom("ufcstats", url || "fight", "fight-details"), url, fighterAName: links[0].name, fighterBName: links[1].name, fighterAUrl: links[0].url, fighterBUrl: links[1].url, scheduledRounds: null, method: valueAfter(html, "METHOD"), round: maybeNumber(valueAfter(html, "ROUND")), time: valueAfter(html, "TIME") };
 }
