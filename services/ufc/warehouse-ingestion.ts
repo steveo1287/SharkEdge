@@ -12,6 +12,17 @@ const eventSchema = z.object({
   eventName: z.string().min(1),
   eventDate: z.string(),
   location: z.string().optional().nullable(),
+  venue: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  region: z.string().optional().nullable(),
+  country: z.string().optional().nullable(),
+  broadcastInfo: z.string().optional().nullable(),
+  earlyPrelimsTime: z.string().optional().nullable(),
+  prelimsTime: z.string().optional().nullable(),
+  mainCardTime: z.string().optional().nullable(),
+  sourceStatus: z.string().default("OFFICIAL_PARTIAL"),
+  sourceUrls: z.record(z.string(), z.string()).default({}),
+  lastSeenAt: z.string().optional().nullable(),
   status: z.string().default("SCHEDULED"),
   payload: jsonRecord.optional()
 });
@@ -36,11 +47,37 @@ const fightSchema = z.object({
   fightDate: z.string(),
   weightClass: z.string().optional().nullable(),
   scheduledRounds: z.union([z.literal(3), z.literal(5)]).default(3),
+  boutOrder: z.number().int().optional().nullable(),
+  cardSection: z.string().optional().nullable(),
+  sourceStatus: z.string().default("OFFICIAL_PARTIAL"),
+  isMainEvent: z.boolean().default(false),
+  isTitleFight: z.boolean().default(false),
+  isCatchweight: z.boolean().default(false),
+  lastSeenAt: z.string().optional().nullable(),
   fighterAKey: z.string().min(1),
   fighterBKey: z.string().min(1),
   winnerFighterKey: z.string().optional().nullable(),
   status: z.string().default("SCHEDULED"),
   preFightSnapshotAt: z.string().optional().nullable(),
+  payload: jsonRecord.optional()
+});
+
+const fightSourceSchema = z.object({
+  id: z.string().optional(),
+  fightKey: z.string().optional().nullable(),
+  eventKey: z.string().optional().nullable(),
+  sourceName: z.string().min(1),
+  sourceUrl: z.string().optional().nullable(),
+  sourceEventId: z.string().optional().nullable(),
+  sourceFightId: z.string().optional().nullable(),
+  sourceFighterA: z.string().optional().nullable(),
+  sourceFighterB: z.string().optional().nullable(),
+  sourceWeightClass: z.string().optional().nullable(),
+  sourceBoutOrder: z.number().int().optional().nullable(),
+  sourceCardSection: z.string().optional().nullable(),
+  sourceStatus: z.string().default("EARLY_REPORTED"),
+  confidence: z.string().default("EARLY_REPORTED"),
+  seenAt: z.string().optional().nullable(),
   payload: jsonRecord.optional()
 });
 
@@ -121,6 +158,7 @@ export const ufcWarehousePayloadSchema = z.object({
   events: z.array(eventSchema).default([]),
   fighters: z.array(fighterSchema).default([]),
   fights: z.array(fightSchema).default([]),
+  fightSources: z.array(fightSourceSchema).default([]),
   fightStatsRounds: z.array(z.record(z.string(), z.unknown())).default([]),
   fighterRatings: z.array(z.record(z.string(), z.unknown())).default([]),
   opponentStrengthSnapshots: z.array(z.record(z.string(), z.unknown())).default([]),
@@ -181,6 +219,7 @@ export function summarizeUfcWarehousePayload(raw: unknown) {
     events: payload.events.length,
     fighters: payload.fighters.length,
     fights: payload.fights.length,
+    fightSources: payload.fightSources.length,
     fightStatsRounds: payload.fightStatsRounds.length,
     fighterRatings: payload.fighterRatings.length,
     opponentStrengthSnapshots: payload.opponentStrengthSnapshots.length,
@@ -224,15 +263,15 @@ export async function upsertUfcWarehousePayload(raw: unknown) {
   }
   const eventIdFor = (key: string | null | undefined) => key ? eventIds.get(key) ?? key : null;
   const fighterIdFor = (key: string) => fighterIds.get(key) ?? stableId("ufcf", key);
-  const fightIdFor = (key: string) => fightIds.get(key) ?? stableId("ufcfi", key);
+  const fightIdFor = (key: string | null | undefined) => key ? fightIds.get(key) ?? stableId("ufcfi", key) : null;
 
   await prisma.$transaction(async (tx) => {
     for (const event of payload.events) {
       const id = eventIdFor(event.id ?? event.externalEventId ?? event.eventName) ?? stableId("ufcev", event.eventName);
       await tx.$executeRaw`
-        INSERT INTO ufc_events (id, external_event_id, source_key, event_name, event_date, location, status, payload_json, updated_at)
-        VALUES (${id}, ${event.externalEventId ?? null}, ${event.sourceKey ?? null}, ${event.eventName}, ${iso(event.eventDate)}, ${event.location ?? null}, ${event.status}, ${json(event.payload)}::jsonb, now())
-        ON CONFLICT (id) DO UPDATE SET event_name = EXCLUDED.event_name, event_date = EXCLUDED.event_date, location = EXCLUDED.location, status = EXCLUDED.status, payload_json = EXCLUDED.payload_json, updated_at = now()
+        INSERT INTO ufc_events (id, external_event_id, source_key, event_name, event_date, location, venue, city, region, country, broadcast_info, early_prelims_time, prelims_time, main_card_time, source_status, source_urls, last_seen_at, status, payload_json, updated_at)
+        VALUES (${id}, ${event.externalEventId ?? null}, ${event.sourceKey ?? null}, ${event.eventName}, ${iso(event.eventDate)}, ${event.location ?? null}, ${event.venue ?? null}, ${event.city ?? null}, ${event.region ?? null}, ${event.country ?? null}, ${event.broadcastInfo ?? null}, ${iso(event.earlyPrelimsTime)}, ${iso(event.prelimsTime)}, ${iso(event.mainCardTime)}, ${event.sourceStatus}, ${json(event.sourceUrls)}::jsonb, ${iso(event.lastSeenAt)}, ${event.status}, ${json(event.payload)}::jsonb, now())
+        ON CONFLICT (id) DO UPDATE SET event_name = EXCLUDED.event_name, event_date = EXCLUDED.event_date, location = EXCLUDED.location, venue = EXCLUDED.venue, city = EXCLUDED.city, region = EXCLUDED.region, country = EXCLUDED.country, broadcast_info = EXCLUDED.broadcast_info, early_prelims_time = EXCLUDED.early_prelims_time, prelims_time = EXCLUDED.prelims_time, main_card_time = EXCLUDED.main_card_time, source_status = EXCLUDED.source_status, source_urls = EXCLUDED.source_urls, last_seen_at = EXCLUDED.last_seen_at, status = EXCLUDED.status, payload_json = EXCLUDED.payload_json, updated_at = now()
       `;
     }
     for (const fighter of payload.fighters) {
@@ -244,12 +283,22 @@ export async function upsertUfcWarehousePayload(raw: unknown) {
       `;
     }
     for (const fight of payload.fights) {
-      const id = fightIdFor(fight.id ?? fight.externalFightId ?? fight.eventLabel);
+      const id = fightIdFor(fight.id ?? fight.externalFightId ?? fight.eventLabel) ?? stableId("ufcfi", fight.eventLabel);
       const eventId = eventIdFor(fight.eventId ?? fight.eventKey);
       await tx.$executeRaw`
-        INSERT INTO ufc_fights (id, event_id, external_fight_id, event_label, fight_date, weight_class, scheduled_rounds, fighter_a_id, fighter_b_id, winner_fighter_id, status, pre_fight_snapshot_at, payload_json, updated_at)
-        VALUES (${id}, ${eventId}, ${fight.externalFightId ?? null}, ${fight.eventLabel}, ${iso(fight.fightDate)}, ${fight.weightClass ?? null}, ${fight.scheduledRounds}, ${fighterIdFor(fight.fighterAKey)}, ${fighterIdFor(fight.fighterBKey)}, ${fight.winnerFighterKey ? fighterIdFor(fight.winnerFighterKey) : null}, ${fight.status}, ${iso(fight.preFightSnapshotAt)}, ${json(fight.payload)}::jsonb, now())
-        ON CONFLICT (id) DO UPDATE SET event_id = EXCLUDED.event_id, event_label = EXCLUDED.event_label, fight_date = EXCLUDED.fight_date, weight_class = EXCLUDED.weight_class, scheduled_rounds = EXCLUDED.scheduled_rounds, winner_fighter_id = EXCLUDED.winner_fighter_id, status = EXCLUDED.status, pre_fight_snapshot_at = EXCLUDED.pre_fight_snapshot_at, payload_json = EXCLUDED.payload_json, updated_at = now()
+        INSERT INTO ufc_fights (id, event_id, external_fight_id, event_label, fight_date, weight_class, scheduled_rounds, bout_order, card_section, source_status, is_main_event, is_title_fight, is_catchweight, last_seen_at, fighter_a_id, fighter_b_id, winner_fighter_id, status, pre_fight_snapshot_at, payload_json, updated_at)
+        VALUES (${id}, ${eventId}, ${fight.externalFightId ?? null}, ${fight.eventLabel}, ${iso(fight.fightDate)}, ${fight.weightClass ?? null}, ${fight.scheduledRounds}, ${fight.boutOrder ?? null}, ${fight.cardSection ?? null}, ${fight.sourceStatus}, ${fight.isMainEvent}, ${fight.isTitleFight}, ${fight.isCatchweight}, ${iso(fight.lastSeenAt)}, ${fighterIdFor(fight.fighterAKey)}, ${fighterIdFor(fight.fighterBKey)}, ${fight.winnerFighterKey ? fighterIdFor(fight.winnerFighterKey) : null}, ${fight.status}, ${iso(fight.preFightSnapshotAt)}, ${json(fight.payload)}::jsonb, now())
+        ON CONFLICT (id) DO UPDATE SET event_id = EXCLUDED.event_id, event_label = EXCLUDED.event_label, fight_date = EXCLUDED.fight_date, weight_class = EXCLUDED.weight_class, scheduled_rounds = EXCLUDED.scheduled_rounds, bout_order = EXCLUDED.bout_order, card_section = EXCLUDED.card_section, source_status = EXCLUDED.source_status, is_main_event = EXCLUDED.is_main_event, is_title_fight = EXCLUDED.is_title_fight, is_catchweight = EXCLUDED.is_catchweight, last_seen_at = EXCLUDED.last_seen_at, winner_fighter_id = EXCLUDED.winner_fighter_id, status = EXCLUDED.status, pre_fight_snapshot_at = EXCLUDED.pre_fight_snapshot_at, payload_json = EXCLUDED.payload_json, updated_at = now()
+      `;
+    }
+    for (const source of payload.fightSources) {
+      const fightId = fightIdFor(source.fightKey);
+      const eventId = eventIdFor(source.eventKey ?? source.sourceEventId);
+      const id = source.id ?? stableId("ufcfs", `${source.sourceName}:${source.sourceFightId ?? ""}:${source.sourceEventId ?? ""}:${source.sourceFighterA ?? ""}:${source.sourceFighterB ?? ""}`);
+      await tx.$executeRaw`
+        INSERT INTO ufc_fight_sources (id, fight_id, event_id, source_name, source_url, source_event_id, source_fight_id, source_fighter_a, source_fighter_b, source_weight_class, source_bout_order, source_card_section, source_status, confidence, seen_at, payload_json, updated_at)
+        VALUES (${id}, ${fightId}, ${eventId}, ${source.sourceName}, ${source.sourceUrl ?? null}, ${source.sourceEventId ?? null}, ${source.sourceFightId ?? null}, ${source.sourceFighterA ?? null}, ${source.sourceFighterB ?? null}, ${source.sourceWeightClass ?? null}, ${source.sourceBoutOrder ?? null}, ${source.sourceCardSection ?? null}, ${source.sourceStatus}, ${source.confidence}, ${iso(source.seenAt) ?? new Date().toISOString()}, ${json(source.payload)}::jsonb, now())
+        ON CONFLICT (id) DO UPDATE SET fight_id = EXCLUDED.fight_id, event_id = EXCLUDED.event_id, source_url = EXCLUDED.source_url, source_weight_class = EXCLUDED.source_weight_class, source_bout_order = EXCLUDED.source_bout_order, source_card_section = EXCLUDED.source_card_section, source_status = EXCLUDED.source_status, confidence = EXCLUDED.confidence, seen_at = EXCLUDED.seen_at, payload_json = EXCLUDED.payload_json, updated_at = now()
       `;
     }
     for (const feature of payload.modelFeatures) {
