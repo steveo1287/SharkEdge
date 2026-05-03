@@ -1,4 +1,4 @@
-import { getNbaLineupTruth, type NbaLineupTruth, type NbaLineupTruthStatus } from "@/services/simulation/nba-lineup-truth";
+import { getNbaLineupTruth, type NbaLineupTruth } from "@/services/simulation/nba-lineup-truth";
 import {
   buildNbaSimHealthPolicy,
   enforceNbaSimHealthPolicy,
@@ -148,13 +148,10 @@ function applyNbaLineupTruthGate(args: {
 
 async function getRuntimeLineupTruth(input: SimProjectionInput, projection: SimProjection) {
   const modules = projection.realityIntel?.modules ?? [];
-  const playerModuleReal = modules.some((module) => /player|injury|availability|rotation/i.test(module.label) && module.status === "real");
-  const feedLastUpdatedAt = playerModuleReal ? new Date() : null;
   return getNbaLineupTruth({
     awayTeam: projection.matchup.away,
     homeTeam: projection.matchup.home,
     gameTime: input.startTime,
-    feedLastUpdatedAt,
     projectionReasons: projection.nbaIntel?.reasons ?? projection.realityIntel?.factors?.map((factor) => factor.label) ?? [],
     projectionModules: modules,
     volatilityIndex: projection.realityIntel?.volatilityIndex ?? projection.nbaIntel?.volatilityIndex ?? null
