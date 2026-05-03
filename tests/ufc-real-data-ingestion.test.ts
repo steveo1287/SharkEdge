@@ -6,6 +6,12 @@ const snapshot = normalizeUfcRealDataSnapshot({
   sourceKey: "fixture-source",
   modelVersion: "ufc-fight-iq-v1",
   snapshotAt: "2026-05-31T18:00:00.000Z",
+  event: {
+    sourceEventId: "event-1",
+    eventName: "UFC Fixture Card",
+    eventDate: "2026-06-01T02:00:00.000Z",
+    location: "Chicago, Illinois"
+  },
   fights: [
     {
       sourceFightId: "fight-1",
@@ -41,8 +47,12 @@ const snapshot = normalizeUfcRealDataSnapshot({
   ]
 });
 
+assert.equal(snapshot.events.length, 1);
+assert.equal(snapshot.events[0].externalEventId, "event-1");
+assert.equal(snapshot.events[0].eventName, "UFC Fixture Card");
 assert.equal(snapshot.fighters.length, 2);
 assert.equal(snapshot.fights.length, 1);
+assert.equal(snapshot.fights[0].eventKey, "event-1");
 assert.equal(snapshot.modelFeatures.length, 2);
 assert.equal(snapshot.modelFeatures[0].fighterKey, "fighter-a");
 assert.equal(snapshot.modelFeatures[1].opponentFighterKey, "fighter-a");
