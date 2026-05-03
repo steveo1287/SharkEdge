@@ -12,6 +12,7 @@ export type UfcStatsSnapshotInput = {
 const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 const idFor = (name: string) => `ufcstats-${slug(name)}`;
 const number = (value: number | null | undefined) => typeof value === "number" && Number.isFinite(value) ? value : null;
+const scheduledRounds = (value: number | null | undefined): 3 | 5 => value === 5 ? 5 : 3;
 
 function fighterSnapshot(profile: UfcStatsFighterProfile | undefined, name: string): UfcRealFighterSnapshot {
   return {
@@ -58,7 +59,7 @@ export function normalizeUfcStatsSnapshot(input: UfcStatsSnapshotInput): UfcReal
         sourceFightId: eventFight.sourceFightId,
         eventLabel: `${fighterAName} vs ${fighterBName}`,
         fightDate,
-        scheduledRounds: detail?.scheduledRounds ?? 3,
+        scheduledRounds: scheduledRounds(detail?.scheduledRounds),
         weightClass: detail?.weightClass ?? eventFight.weightClass ?? null,
         fighterA: fighterSnapshot(fightersByName.get(fighterAName.toLowerCase()), fighterAName),
         fighterB: fighterSnapshot(fightersByName.get(fighterBName.toLowerCase()), fighterBName)
