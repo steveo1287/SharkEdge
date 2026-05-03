@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { buildNbaSimHealthPolicy } from "@/services/simulation/nba-sim-health-policy";
+import { buildNbaSimHealthPolicy, enforceNbaSimHealthPolicy } from "@/services/simulation/nba-sim-health-policy";
 import type { NbaBacktestDiagnostics } from "@/services/simulation/nba-sim-backtest-diagnostics";
 
 const healthyDiagnostics: NbaBacktestDiagnostics = {
@@ -89,5 +89,57 @@ assert.equal(redPolicy.canBetNow, false);
 assert.equal(redPolicy.maxActionState, "PASS");
 assert.equal(redPolicy.maxKellyPct, 0);
 assert.ok(redPolicy.blockers.length >= 5);
+
+const runtimeGreenPolicy = buildNbaSimHealthPolicy({
+  diagnostics: null,
+  diagnosticsRequired: false,
+  sourceHealth: "GREEN",
+  injuryReportFresh: true,
+  starQuestionable: false,
+  calibrationBucketHealthy: true
+});
+
+assert.equal(runtimeGreenPolicy.status, "GREEN");
+assert.equal(runtimeGreenPolicy.canBetNow, true);
+assert.equal(runtimeGreenPolicy.maxActionState, "BET_NOW");
+assert.equal(runtimeGreenPolicy.blockers.length, 0);
+assert.ok(runtimeGreenPolicy.checklist.some((item) => item.key === "sample_size" && item.critical === false));
+
+const runtimeYellowPolicy = buildNbaSimHealthPolicy({
+  diagnostics: null,
+  diagnosticsRequired: false,
+  sourceHealth: "YELLOW",
+  injuryReportFresh: true,
+  starQuestionable: false,
+  calibrationBucketHealthy: true
+});
+
+const cappedWatch = enforceNbaSimHealthPolicy({
+  tier: "attack",
+  noBet: false,
+  confidence: 0.74,
+  reasons: ["Raw NBA signal cleared accuracy guard."],
+  policy: runtimeYellowPolicy
+});
+
+assert.equal(cappedWatch.tier, "watch");
+assert.equal(cappedWatch.noBet, true);
+assert.ok(cappedWatch.confidence <= 0.57);
+assert.equal(cappedWatch.capped, true);
+assert.ok(cappedWatch.reasons.some((reason) => reason.includes("capped")));
+
+const forcedPass = enforceNbaSimHealthPolicy({
+  tier: "attack",
+  noBet: false,
+  confidence: 0.74,
+  reasons: ["Raw NBA signal cleared accuracy guard."],
+  policy: redPolicy
+});
+
+assert.equal(forcedPass.tier, "pass");
+assert.equal(forcedPass.noBet, true);
+assert.ok(forcedPass.confidence <= 0.49);
+assert.equal(forcedPass.capped, true);
+assert.ok(forcedPass.reasons.some((reason) => reason.includes("forced PASS")));
 
 console.log("nba-sim-health-policy.test.ts passed");
