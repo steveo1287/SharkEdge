@@ -36,6 +36,7 @@
     "worker:ufc:operational": "tsx scripts/worker-ufc-operational-sim.ts",
     "worker:ufc:upcoming": "tsx scripts/worker-ufc-upcoming-cards.ts",
     "worker:ufc:upcoming-to-sim": "tsx scripts/worker-ufc-upcoming-to-sim.ts",
+    "worker:ufc:hydrate-features": "tsx scripts/worker-ufc-feature-hydration.ts",
     "worker:ufcstats:snapshot": "tsx scripts/worker-ufcstats-snapshot.ts",
     "worker:ufcstats:smoke": "tsx scripts/worker-ufcstats-smoke.ts",
     "providers:readiness": "tsx scripts/provider-readiness.ts",
