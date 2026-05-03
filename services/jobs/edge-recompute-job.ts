@@ -11,11 +11,7 @@ import { getLatestModelTuningProfile } from "@/services/evaluation/model-tuning-
 import { applyGameOutcomePowerAdjustment } from "@/services/simulation/game-outcome-power-adjuster";
 import { captureNbaPropProjectionSnapshotsForEvent } from "@/services/simulation/nba-prop-ledger-capture";
 import { getNbaPropCalibrationHealth } from "@/services/simulation/nba-prop-calibration-store";
-import {
-  clearActiveNbaPropCalibrationBuckets,
-  getActiveNbaPropCalibrationContextStatus,
-  setActiveNbaPropCalibrationBuckets
-} from "@/services/simulation/nba-prop-calibration-context";
+import { runWithNbaPropCalibrationBuckets } from "@/services/simulation/nba-prop-calibration-context";
 
 function isProjection(
   value: Awaited<ReturnType<typeof buildPlayerPropProjectionsForEvent>>[number]
@@ -38,21 +34,22 @@ function withPlayerStatus<T extends { playerId: string; metadata?: Record<string
 
 async function loadNbaPropCalibrationContext(leagueKey: string | undefined) {
   if (leagueKey !== "NBA") {
-    clearActiveNbaPropCalibrationBuckets();
     return null;
   }
   const health = await getNbaPropCalibrationHealth({ limit: 5000 });
-  setActiveNbaPropCalibrationBuckets(health.buckets, "edge-recompute-job");
   return {
-    status: health.status,
-    rowCount: health.rowCount,
-    bucketCount: health.bucketCount,
-    healthyBucketCount: health.healthyBucketCount,
-    watchBucketCount: health.watchBucketCount,
-    poorBucketCount: health.poorBucketCount,
-    insufficientBucketCount: health.insufficientBucketCount,
-    blockers: health.blockers,
-    warnings: health.warnings
+    buckets: health.buckets,
+    summary: {
+      status: health.status,
+      rowCount: health.rowCount,
+      bucketCount: health.bucketCount,
+      healthyBucketCount: health.healthyBucketCount,
+      watchBucketCount: health.watchBucketCount,
+      poorBucketCount: health.poorBucketCount,
+      insufficientBucketCount: health.insufficientBucketCount,
+      blockers: health.blockers,
+      warnings: health.warnings
+    }
   };
 }
 
@@ -93,13 +90,13 @@ export async function edgeRecomputeJob(eventId: string) {
     : null;
 
   const nbaPropCalibrationContext = await loadNbaPropCalibrationContext(event?.league.key);
-  let playerProjections: Awaited<ReturnType<typeof buildPlayerPropProjectionsForEvent>> = [];
-  try {
-    playerProjections = await buildPlayerPropProjectionsForEvent(eventId);
-  } finally {
-    clearActiveNbaPropCalibrationBuckets();
-  }
-  const nbaPropCalibrationRuntimeContext = getActiveNbaPropCalibrationContextStatus();
+  const playerProjections = nbaPropCalibrationContext
+    ? await runWithNbaPropCalibrationBuckets(
+        nbaPropCalibrationContext.buckets,
+        "edge-recompute-job",
+        () => buildPlayerPropProjectionsForEvent(eventId)
+      )
+    : await buildPlayerPropProjectionsForEvent(eventId);
   const validPlayerProjections = playerProjections.filter(isProjection);
   const playerIds = Array.from(new Set(validPlayerProjections.map((projection) => projection.playerId)));
   const players = playerIds.length
@@ -219,8 +216,7 @@ export async function edgeRecomputeJob(eventId: string) {
     synergyAdjustedPlayerProjectionCount,
     tunedPlayerProjectionCount,
     calibratedPlayerProjectionCount,
-    nbaPropCalibrationContext,
-    nbaPropCalibrationRuntimeContext,
+    nbaPropCalibrationContext: nbaPropCalibrationContext?.summary ?? null,
     nbaPropLedgerCapture,
     tuningProfileApplied: Boolean(tuningProfile),
     skipReasons
