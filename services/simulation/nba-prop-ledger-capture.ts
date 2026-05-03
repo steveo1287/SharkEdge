@@ -50,7 +50,7 @@ async function hasRecentSnapshot(args: {
         AND player_id = ${args.playerId}
         AND stat_key = ${args.statKey}
         AND market_line = ${args.marketLine}
-        AND captured_at >= NOW() - (${args.windowMinutes} || ' minutes')::interval;
+        AND captured_at >= NOW() - (${args.windowMinutes} * INTERVAL '1 minute');
     `;
     return Number(rows[0]?.count ?? 0) > 0;
   } catch {
