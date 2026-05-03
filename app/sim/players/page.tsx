@@ -13,7 +13,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { calibrateNbaPlayerBoxScore } from "@/services/simulation/nba-box-score-calibration";
-import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
+import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
 import { getSimRunDepth } from "@/services/simulation/sim-run-depth";
 import type { BoardSportSectionView, LeagueKey } from "@/lib/types/domain";
 
