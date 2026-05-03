@@ -94,7 +94,6 @@ export async function captureNbaPropProjectionSnapshotsForEvent(eventId: string,
         include: { team: true }
       }
     },
-    orderBy: { createdAt: "desc" },
     take: 1000
   });
 
