@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { persistUfcCalibrationSnapshot } from "@/services/ufc/calibration";
+import { persistUfcEnsembleCalibrationReport } from "@/services/ufc/ensemble-calibration";
 import { runUfcOperationalSkillSim } from "@/services/ufc/operational-sim";
 import { resolveUfcShadowPrediction } from "@/services/ufc/shadow-mode";
 
@@ -19,8 +20,8 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     endpoint: "POST /api/ufc/operational-sim",
-    modes: ["simulate", "resolve-shadow", "calibrate"],
-    simulation: "warehouse feature snapshots -> skill profiles -> skill Markov sim -> prediction/sim run/shadow tables"
+    modes: ["simulate", "resolve-shadow", "calibrate", "calibrate-ensemble"],
+    simulation: "warehouse feature snapshots -> ensemble UFC sim -> prediction/sim run/shadow tables"
   });
 }
 
@@ -63,6 +64,11 @@ export async function POST(request: Request) {
 
     if (body.mode === "calibrate") {
       const result = await persistUfcCalibrationSnapshot(String(body.modelVersion ?? "ufc-fight-iq-v1"), String(body.label ?? "shadow-mode"));
+      return NextResponse.json({ ok: true, result });
+    }
+
+    if (body.mode === "calibrate-ensemble") {
+      const result = await persistUfcEnsembleCalibrationReport(String(body.modelVersion ?? "ufc-fight-iq-v1"), String(body.label ?? "ensemble-weight-learner"));
       return NextResponse.json({ ok: true, result });
     }
 

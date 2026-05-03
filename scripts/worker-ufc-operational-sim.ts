@@ -1,5 +1,6 @@
 import { runUfcOperationalSkillSim } from "@/services/ufc/operational-sim";
 import { persistUfcCalibrationSnapshot } from "@/services/ufc/calibration";
+import { persistUfcEnsembleCalibrationReport } from "@/services/ufc/ensemble-calibration";
 import { resolveUfcShadowPrediction } from "@/services/ufc/shadow-mode";
 
 function argValue(name: string) {
@@ -57,6 +58,12 @@ async function main() {
 
   if (mode === "calibrate") {
     const result = await persistUfcCalibrationSnapshot(modelVersion, argValue("label") ?? "shadow-mode");
+    console.log(JSON.stringify({ ok: true, mode, result }, null, 2));
+    return;
+  }
+
+  if (mode === "calibrate-ensemble") {
+    const result = await persistUfcEnsembleCalibrationReport(modelVersion, argValue("label") ?? "ensemble-weight-learner");
     console.log(JSON.stringify({ ok: true, mode, result }, null, 2));
     return;
   }
