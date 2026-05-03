@@ -10,9 +10,9 @@ import type { PropCardView } from "@/lib/types/domain";
 type FullStatTile = {
   statKey: string;
   label: string;
-  meanValue: number;
-  medianValue: number;
-  stdDev: number;
+  meanValue: number | null;
+  medianValue: number | null;
+  stdDev: number | null;
   marketLine: number | null;
   overProbability: number | null;
   underProbability: number | null;
@@ -277,30 +277,12 @@ function MinutesRiskStrip({ minutes }: { minutes: PlayerMinutesView | null }) {
         </div>
       </div>
       <div className="mt-3 grid grid-cols-3 gap-2 text-[10px] md:grid-cols-6">
-        <div>
-          <div className="uppercase tracking-[0.1em] text-bone/40">Conf</div>
-          <div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.confidence)}</div>
-        </div>
-        <div>
-          <div className="uppercase tracking-[0.1em] text-bone/40">Role</div>
-          <div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.roleConfidence)}</div>
-        </div>
-        <div>
-          <div className="uppercase tracking-[0.1em] text-bone/40">Stable</div>
-          <div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.rotationStability)}</div>
-        </div>
-        <div>
-          <div className="uppercase tracking-[0.1em] text-bone/40">Vol</div>
-          <div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.minutesVolatility)}</div>
-        </div>
-        <div>
-          <div className="uppercase tracking-[0.1em] text-bone/40">Inj Adj</div>
-          <div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.injuryAdjustment)}</div>
-        </div>
-        <div>
-          <div className="uppercase tracking-[0.1em] text-bone/40">Blow Adj</div>
-          <div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.blowoutAdjustment)}</div>
-        </div>
+        <div><div className="uppercase tracking-[0.1em] text-bone/40">Conf</div><div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.confidence)}</div></div>
+        <div><div className="uppercase tracking-[0.1em] text-bone/40">Role</div><div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.roleConfidence)}</div></div>
+        <div><div className="uppercase tracking-[0.1em] text-bone/40">Stable</div><div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.rotationStability)}</div></div>
+        <div><div className="uppercase tracking-[0.1em] text-bone/40">Vol</div><div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.minutesVolatility)}</div></div>
+        <div><div className="uppercase tracking-[0.1em] text-bone/40">Inj Adj</div><div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.injuryAdjustment)}</div></div>
+        <div><div className="uppercase tracking-[0.1em] text-bone/40">Blow Adj</div><div className="mt-1 font-mono text-bone/80">{ratioPct(minutes.blowoutAdjustment)}</div></div>
       </div>
       <div className="mt-2 truncate text-[10px] text-bone/45" title={topIssue}>{topIssue}</div>
     </div>
@@ -311,11 +293,7 @@ function FullStatForecastSection({ view }: { view: FullStatProjectionView }) {
   if (!view || !view.players.length) {
     return (
       <section className="grid gap-4">
-        <SectionTitle
-          eyebrow="NBA model forecast"
-          title="Full player stat tiles not populated yet"
-          description="Run the NBA edge worker to generate model-only PTS, REB, AST, 3PM, STL, BLK, TOV, and combo projections."
-        />
+        <SectionTitle eyebrow="NBA model forecast" title="Full player stat tiles not populated yet" description="Run the NBA edge worker to generate model-only PTS, REB, AST, 3PM, STL, BLK, TOV, and combo projections." />
         <Card className="surface-panel p-5 text-sm leading-6 text-bone/55">
           No stored full-stat projections are available yet. Run <span className="font-mono text-bone/75">npm run worker:edges -- --leagueKey=NBA</span>, then refresh this page.
         </Card>
@@ -326,11 +304,7 @@ function FullStatForecastSection({ view }: { view: FullStatProjectionView }) {
   const players = view.players.slice(0, 6);
   return (
     <section className="grid gap-4">
-      <SectionTitle
-        eyebrow="NBA model forecast"
-        title="Full player box-score projections"
-        description="Model forecasts are shown even when no sportsbook line exists. Minutes range and role risk are surfaced before they contaminate betting decisions."
-      />
+      <SectionTitle eyebrow="NBA model forecast" title="Full player box-score projections" description="Model forecasts are shown even when no sportsbook line exists. Minutes range and role risk are surfaced before they contaminate betting decisions." />
       <div className="grid gap-4 xl:grid-cols-2">
         {players.map((player) => {
           const health = statHealth(player);
@@ -352,12 +326,8 @@ function FullStatForecastSection({ view }: { view: FullStatProjectionView }) {
 
               {health.blockers.length || health.warnings.length ? (
                 <div className="mt-3 rounded-md border border-bone/[0.08] bg-panel/60 p-3 text-[11px] leading-5 text-bone/60">
-                  {health.blockers.length ? (
-                    <div className="text-red-100/75">Blockers: {health.blockers.slice(0, 2).join("; ")}</div>
-                  ) : null}
-                  {health.warnings.length ? (
-                    <div className="text-amber-100/75">Warnings: {health.warnings.slice(0, 2).join("; ")}</div>
-                  ) : null}
+                  {health.blockers.length ? <div className="text-red-100/75">Blockers: {health.blockers.slice(0, 2).join("; ")}</div> : null}
+                  {health.warnings.length ? <div className="text-amber-100/75">Warnings: {health.warnings.slice(0, 2).join("; ")}</div> : null}
                 </div>
               ) : null}
 
@@ -370,11 +340,9 @@ function FullStatForecastSection({ view }: { view: FullStatProjectionView }) {
                       <span>{stat.label}</span>
                       {healthBadge(stat)}
                     </div>
-                    <div className="mt-1 font-mono text-base font-semibold text-white">{stat.meanValue.toFixed(1)}</div>
+                    <div className="mt-1 font-mono text-base font-semibold text-white">{oneDecimal(stat.meanValue)}</div>
                     <div className="mt-1 text-[10px] leading-4 text-bone/45">
-                      {typeof stat.marketLine === "number"
-                        ? `Line ${stat.marketLine} | O ${probabilityPct(stat.overProbability)}`
-                        : "No market line"}
+                      {typeof stat.marketLine === "number" ? `Line ${stat.marketLine} | O ${probabilityPct(stat.overProbability)}` : "No market line"}
                     </div>
                     {stat.blockers.length || stat.warnings.length ? (
                       <div className="mt-1 truncate text-[9px] leading-4 text-bone/45" title={[...stat.blockers, ...stat.warnings].join("; ")}>
@@ -388,24 +356,12 @@ function FullStatForecastSection({ view }: { view: FullStatProjectionView }) {
           );
         })}
       </div>
-      {view.warnings.length ? (
-        <Card className="surface-panel p-4 text-xs leading-5 text-amber-100/75">
-          {view.warnings.slice(0, 4).join(" ")}
-        </Card>
-      ) : null}
+      {view.warnings.length ? <Card className="surface-panel p-4 text-xs leading-5 text-amber-100/75">{view.warnings.slice(0, 4).join(" ")}</Card> : null}
     </section>
   );
 }
 
-export function PropsTradingTerminal({
-  props,
-  sourceNote,
-  providerLabel,
-  selectedLeagueLabel,
-  realBookCount,
-  fullStatProjectionView,
-  fullStatHealthSummary
-}: {
+export function PropsTradingTerminal({ props, sourceNote, providerLabel, selectedLeagueLabel, realBookCount, fullStatProjectionView, fullStatHealthSummary }: {
   props: PropCardView[];
   sourceNote: string;
   providerLabel: string;
@@ -417,13 +373,11 @@ export function PropsTradingTerminal({
   const attack = props.filter((prop) => getDecision(prop) === "ATTACK");
   const watch = props.filter((prop) => getDecision(prop) === "WATCH");
   const positiveEv = props.filter((prop) => (prop.expectedValuePct ?? -999) > 0);
-  const top = [...props]
-    .sort((a, b) => {
-      const ev = (b.expectedValuePct ?? -999) - (a.expectedValuePct ?? -999);
-      if (ev !== 0) return ev;
-      return (b.edgeScore?.score ?? 0) - (a.edgeScore?.score ?? 0);
-    })
-    .slice(0, 6);
+  const top = [...props].sort((a, b) => {
+    const ev = (b.expectedValuePct ?? -999) - (a.expectedValuePct ?? -999);
+    if (ev !== 0) return ev;
+    return (b.edgeScore?.score ?? 0) - (a.edgeScore?.score ?? 0);
+  }).slice(0, 6);
 
   return (
     <div className="grid gap-6">
@@ -431,12 +385,8 @@ export function PropsTradingTerminal({
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <div className="section-kicker">Props Trading Terminal</div>
-            <h1 className="mt-3 max-w-4xl font-display text-4xl font-semibold tracking-tight text-white">
-              Edge board. Signal first. Noise last.
-            </h1>
-            <p className="mt-4 max-w-3xl text-sm leading-7 text-bone/65">
-              Live prop markets ranked like a trading desk: best price, EV, market depth, row-level sim, and full player matchup box-score projections surfaced before the dense table.
-            </p>
+            <h1 className="mt-3 max-w-4xl font-display text-4xl font-semibold tracking-tight text-white">Edge board. Signal first. Noise last.</h1>
+            <p className="mt-4 max-w-3xl text-sm leading-7 text-bone/65">Live prop markets ranked like a trading desk: best price, EV, market depth, row-level sim, and full player matchup box-score projections surfaced before the dense table.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link href="/sim/players?league=NBA" className="rounded-md border border-aqua/35 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-aqua">Player Matchups</Link>
@@ -461,51 +411,17 @@ export function PropsTradingTerminal({
 
       <section className="grid gap-4">
         <SectionTitle eyebrow="Top of board" title="Best opportunities surfaced first" description="Highest EV and strongest edge rows get pulled out before the full table." />
-        {top.length ? (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {top.map((prop, index) => <TopPlayCard key={prop.id} prop={prop} rank={index + 1} />)}
-          </div>
-        ) : (
-          <Card className="surface-panel p-6 text-sm text-bone/55">No top opportunities available for this filter set.</Card>
-        )}
+        {top.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{top.map((prop, index) => <TopPlayCard key={prop.id} prop={prop} rank={index + 1} />)}</div> : <Card className="surface-panel p-6 text-sm text-bone/55">No top opportunities available for this filter set.</Card>}
       </section>
 
       <PlayerSimExposurePanel props={props} />
 
       <section className="grid gap-4 xl:grid-cols-[1fr_360px]">
-        <Card className="surface-panel p-5">
-          <div className="section-kicker">Decision Queue</div>
-          <div className="mt-4 grid gap-3">
-            {[
-              ["ATTACK", attack.length, "Rows with positive EV, book depth, and strong edge score"],
-              ["WATCH", watch.length, "Rows close to playable but missing one gate"],
-              ["PASS", Math.max(0, props.length - attack.length - watch.length), "Rows kept visible but deprioritized"]
-            ].map(([label, count, desc]) => (
-              <div key={label} className="flex items-center justify-between gap-3 rounded-md border border-bone/[0.08] bg-panel p-3">
-                <div>
-                  <Badge tone={decisionTone(String(label))}>{label}</Badge>
-                  <div className="mt-2 text-xs text-bone/55">{desc}</div>
-                </div>
-                <div className="font-mono text-2xl text-white">{count}</div>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        <Card className="surface-panel p-5">
-          <div className="section-kicker">Feed Note</div>
-          <p className="mt-3 text-sm leading-7 text-bone/60">{sourceNote}</p>
-          <div className="mt-4 grid gap-2 text-xs text-bone/50">
-            <div>Use Player Matchups to inspect the full projected box score for both teams.</div>
-            <div>Use Refresh Sims before slate lock to warm the batch cache.</div>
-          </div>
-        </Card>
+        <Card className="surface-panel p-5"><div className="section-kicker">Decision Queue</div><div className="mt-4 grid gap-3">{[["ATTACK", attack.length, "Rows with positive EV, book depth, and strong edge score"], ["WATCH", watch.length, "Rows close to playable but missing one gate"], ["PASS", Math.max(0, props.length - attack.length - watch.length), "Rows kept visible but deprioritized"]].map(([label, count, desc]) => <div key={label} className="flex items-center justify-between gap-3 rounded-md border border-bone/[0.08] bg-panel p-3"><div><Badge tone={decisionTone(String(label))}>{label}</Badge><div className="mt-2 text-xs text-bone/55">{desc}</div></div><div className="font-mono text-2xl text-white">{count}</div></div>)}</div></Card>
+        <Card className="surface-panel p-5"><div className="section-kicker">Feed Note</div><p className="mt-3 text-sm leading-7 text-bone/60">{sourceNote}</p><div className="mt-4 grid gap-2 text-xs text-bone/50"><div>Use Player Matchups to inspect the full projected box score for both teams.</div><div>Use Refresh Sims before slate lock to warm the batch cache.</div></div></Card>
       </section>
 
-      <section className="grid gap-4">
-        <SectionTitle eyebrow="Full board" title="Trading table" description="Dense view remains available after the system surfaces the strongest opportunities." />
-        <PropsTable props={props} />
-      </section>
+      <section className="grid gap-4"><SectionTitle eyebrow="Full board" title="Trading table" description="Dense view remains available after the system surfaces the strongest opportunities." /><PropsTable props={props} /></section>
     </div>
   );
 }
