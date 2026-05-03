@@ -5,9 +5,9 @@ import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 export type NbaFullStatTile = {
   statKey: string;
   label: string;
-  meanValue: number;
-  medianValue: number;
-  stdDev: number;
+  meanValue: number | null;
+  medianValue: number | null;
+  stdDev: number | null;
   marketLine: number | null;
   overProbability: number | null;
   underProbability: number | null;
