@@ -71,12 +71,11 @@ export async function buildGuardedSimProjection(input: SimProjectionInput): Prom
     });
     const policyGuarded = enforceNbaSimHealthPolicy({
       tier: guardedTier,
-      probability,
       confidence: guarded.confidence ?? projection.nbaIntel.confidence,
       noBet: guarded.noBet,
       reasons: guardedReasons,
       policy
-    } as Parameters<typeof enforceNbaSimHealthPolicy>[0]);
+    });
 
     return {
       ...projection,
