@@ -1,6 +1,7 @@
 import * as safeEngine from "./sim-verdict-engine-nba-safe";
 import { applyNbaVerdictSafety, applyNbaVerdictSafetyToList, type NbaVerdictSafetyInput } from "./nba-verdict-safety";
 import type { PlayerPropSimulationSummary } from "./player-prop-sim";
+import type { NbaPropSafetyMetadata } from "./player-prop-sim-nba-elite";
 
 export type VerdictRating = safeEngine.VerdictRating;
 export type VerdictConfidence = safeEngine.VerdictConfidence;
@@ -17,6 +18,7 @@ type GameVerdictArgs = Parameters<typeof safeEngine.buildGameSimVerdict>[0] & {
 };
 
 type SafetyContext = Omit<NbaVerdictSafetyInput, "verdict">;
+type PropSummaryWithSafety = PlayerPropSimulationSummary & { nbaPropSafety?: NbaPropSafetyMetadata };
 
 function defaultMissingNbaSafety(): SafetyContext {
   return {
@@ -40,6 +42,27 @@ function buildExplicitNbaSafety(input: Partial<Omit<NbaVerdictSafetyInput, "verd
     noVigMarketAvailable: input.noVigMarketAvailable ?? fallbackNoVig,
     noBet: input.noBet === true,
     blockerReasons: input.blockerReasons ?? []
+  };
+}
+
+function propSafetyToVerdictSafety(input: {
+  propSafety: NbaPropSafetyMetadata | undefined;
+  fallbackNoVig: boolean;
+  explicitSafety?: Partial<Omit<NbaVerdictSafetyInput, "verdict">>;
+}): SafetyContext {
+  if (input.explicitSafety) return buildExplicitNbaSafety(input.explicitSafety, input.fallbackNoVig);
+  if (!input.propSafety) return defaultMissingNbaSafety();
+  return {
+    modelHealthGreen: input.propSafety.modelHealthGreen,
+    sourceHealthGreen: input.propSafety.sourceHealthGreen,
+    injuryReportFresh: input.propSafety.injuryReportFresh,
+    calibrationBucketHealthy: input.propSafety.calibrationBucketHealthy,
+    noVigMarketAvailable: input.propSafety.noVigMarketAvailable && input.fallbackNoVig,
+    noBet: input.propSafety.noBet,
+    blockerReasons: [
+      ...input.propSafety.blockerReasons,
+      `NBA prop safety: lineup=${input.propSafety.lineupTruthStatus}, player=${input.propSafety.playerStatus}, confidence=${input.propSafety.confidence.toFixed(3)}, minutesConfidence=${input.propSafety.minutesConfidence.toFixed(3)}.`
+    ]
   };
 }
 
@@ -102,7 +125,12 @@ export function buildPlayerPropVerdict(
 ): PlayerPropVerdict {
   const result = safeEngine.buildPlayerPropVerdict(sim, playerId, playerName, statKey, marketLine, overOdds, underOdds, leagueKey);
   if (leagueKey.toUpperCase() !== "NBA") return result;
-  const safety = buildExplicitNbaSafety(nbaSafety, overOdds !== null && underOdds !== null);
+  const propSafety = (sim as PropSummaryWithSafety).nbaPropSafety;
+  const safety = propSafetyToVerdictSafety({
+    propSafety,
+    fallbackNoVig: overOdds !== null && underOdds !== null,
+    explicitSafety: nbaSafety
+  });
   return {
     ...result,
     verdict: applyNbaVerdictSafety({ ...safety, verdict: result.verdict })
