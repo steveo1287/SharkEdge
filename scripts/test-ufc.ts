@@ -15,6 +15,7 @@ const tests = [
   "tests/ufc-upcoming-card-feed.test.ts",
   "tests/ufc-upcoming-to-sim-pipeline.test.ts",
   "tests/ufc-upcoming-feature-hydration.test.ts",
+  "tests/ufc-admin-load-route.test.ts",
   "tests/ufc-provider-adapters.test.ts",
   "tests/ufc-exchange-monte-carlo.test.ts",
   "tests/ufc-ensemble-sim.test.ts",
