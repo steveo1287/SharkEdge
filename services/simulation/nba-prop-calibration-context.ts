@@ -1,5 +1,3 @@
-import { AsyncLocalStorage } from "node:async_hooks";
-
 import type { NbaPropCalibrationBucket } from "./nba-prop-calibration";
 
 type NbaPropCalibrationRuntimeContext = {
@@ -8,8 +6,7 @@ type NbaPropCalibrationRuntimeContext = {
   source: string;
 };
 
-const storage = new AsyncLocalStorage<NbaPropCalibrationRuntimeContext>();
-let fallbackContext: NbaPropCalibrationRuntimeContext = {
+let activeContext: NbaPropCalibrationRuntimeContext = {
   buckets: [],
   loadedAt: null,
   source: "unset"
@@ -25,7 +22,7 @@ function contextStatus(context: NbaPropCalibrationRuntimeContext) {
 }
 
 export function setActiveNbaPropCalibrationBuckets(buckets: NbaPropCalibrationBucket[], source = "manual") {
-  fallbackContext = {
+  activeContext = {
     buckets,
     loadedAt: new Date().toISOString(),
     source
@@ -33,7 +30,7 @@ export function setActiveNbaPropCalibrationBuckets(buckets: NbaPropCalibrationBu
 }
 
 export function clearActiveNbaPropCalibrationBuckets() {
-  fallbackContext = {
+  activeContext = {
     buckets: [],
     loadedAt: null,
     source: "unset"
@@ -41,21 +38,23 @@ export function clearActiveNbaPropCalibrationBuckets() {
 }
 
 export function getActiveNbaPropCalibrationBuckets() {
-  return storage.getStore()?.buckets ?? fallbackContext.buckets;
+  return activeContext.buckets;
 }
 
 export function getActiveNbaPropCalibrationContextStatus() {
-  return contextStatus(storage.getStore() ?? fallbackContext);
+  return contextStatus(activeContext);
 }
 
-export function runWithNbaPropCalibrationBuckets<T>(
+export async function runWithNbaPropCalibrationBuckets<T>(
   buckets: NbaPropCalibrationBucket[],
   source: string,
-  callback: () => T
-): T {
-  return storage.run({
-    buckets,
-    loadedAt: new Date().toISOString(),
-    source
-  }, callback);
+  callback: () => T | Promise<T>
+): Promise<T> {
+  const previousContext = activeContext;
+  setActiveNbaPropCalibrationBuckets(buckets, source);
+  try {
+    return await callback();
+  } finally {
+    activeContext = previousContext;
+  }
 }
