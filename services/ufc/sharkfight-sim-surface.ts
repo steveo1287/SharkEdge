@@ -31,11 +31,12 @@ function round(value: number, digits = 2) {
 }
 
 function pickProbability(fight: UfcOperationalFeedCard) {
-  if (!fight.pickFighterId) return null;
+  if (!fight.hasPrediction || !fight.pickFighterId) return null;
   return fight.pickFighterId === fight.fighterAId ? fight.fighterAWinProbability : fight.fighterBWinProbability;
 }
 
 function topMethod(fight: UfcOperationalFeedCard) {
+  if (!fight.hasPrediction) return null;
   const entries = Object.entries(fight.methodProbabilities).filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]));
   return entries.sort((a, b) => b[1] - a[1])[0] ?? null;
 }
@@ -49,7 +50,7 @@ function confidenceRank(value: string | null | undefined) {
 
 export function buildSharkFightCardSimSurface(card: Pick<UfcCardDetail, "fights" | "shadowPendingCount" | "shadowResolvedCount">): SharkFightCardSimSurface {
   const fights = card.fights;
-  const simulated = fights.filter((fight) => fight.simulationCount != null);
+  const simulated = fights.filter((fight) => fight.hasPrediction && fight.simulationCount != null);
   const pickProbabilities = simulated.map(pickProbability).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   const methodCounts = new Map<string, number>();
   for (const fight of simulated) {
@@ -84,7 +85,7 @@ function enginePick(probability: unknown) {
 export function buildSharkFightDetailSimSurface(fight: UfcFightIqDetail): SharkFightDetailSimSurface {
   const prediction = fight.prediction;
   const probability = prediction ? pickProbability(prediction) : null;
-  const pickSide = prediction?.pickFighterId ? (prediction.pickFighterId === prediction.fighterAId ? "A" : "B") : null;
+  const pickSide = prediction?.hasPrediction && prediction.pickFighterId ? (prediction.pickFighterId === prediction.fighterAId ? "A" : "B") : null;
   const skillPick = enginePick(fight.sourceOutputs?.skillMarkov?.fighterAWinProbability);
   const exchangePick = enginePick(fight.sourceOutputs?.exchangeMonteCarlo?.fighterAWinProbability);
   const method = prediction ? topMethod(prediction) : null;
@@ -100,7 +101,7 @@ export function buildSharkFightDetailSimSurface(fight: UfcFightIqDetail): SharkF
     methodLeanProbability: method?.[1] ?? null,
     topRoundOutcome: roundOutcome?.[0] ?? null,
     topRoundProbability: roundOutcome?.[1] ?? null,
-    dataCompletenessPct: round(((totalCells - missingCells) / totalCells) * 100, 1),
+    dataCompletenessPct: fight.featureComparison.length ? round(((totalCells - missingCells) / totalCells) * 100, 1) : 0,
     dataMissingCount: missingFields
   };
 }
