@@ -119,6 +119,26 @@ function overProb(statKey: NbaStatKey, line: number | null | undefined, mean: nu
   return round(1 - normalCdf(line, mean, sd), 4);
 }
 
+function lineupTruthBlockers(lineupTruth: NbaLineupTruth | null | undefined) {
+  if (!lineupTruth) return ["lineup truth missing"];
+  return [
+    ...(lineupTruth.status !== "GREEN" ? [`lineup truth ${lineupTruth.status}`] : []),
+    ...(!lineupTruth.injuryReportFresh ? ["stale injury report"] : []),
+    ...(lineupTruth.starQuestionable ? ["star/high-usage player questionable or unknown"] : []),
+    ...(lineupTruth.highUsageOut && !lineupTruth.minutesTrusted ? ["high-usage player out without trusted minutes redistribution"] : []),
+    ...(lineupTruth.lateScratchRisk ? ["late scratch risk near tipoff"] : []),
+    ...lineupTruth.blockers.map((blocker) => `lineup blocker: ${blocker}`)
+  ];
+}
+
+function lineupTruthWarnings(lineupTruth: NbaLineupTruth | null | undefined) {
+  if (!lineupTruth) return ["lineup truth unavailable"];
+  return [
+    ...(!lineupTruth.minutesTrusted ? ["projected minutes are not fully trusted"] : []),
+    ...lineupTruth.warnings.map((warning) => `lineup warning: ${warning}`)
+  ];
+}
+
 export function projectNbaPlayerStat(input: NbaPlayerStatProjectionInput): NbaPlayerStatProjection {
   const profile = buildNbaPlayerStatProfile({
     playerId: input.playerId,
@@ -150,10 +170,9 @@ export function projectNbaPlayerStat(input: NbaPlayerStatProjectionInput): NbaPl
   const stdDev = distributionStd(input.statKey, mean, profile.statStdDev[input.statKey] ?? 0, usage.volatilityMultiplier);
   const overProbability = overProb(input.statKey, input.marketLine, mean, stdDev);
   const underProbability = overProbability === null ? null : round(1 - overProbability, 4);
-  const blockers = [...minutes.blockers];
-  const warnings = [...profile.warnings, ...minutes.warnings];
+  const blockers = [...minutes.blockers, ...lineupTruthBlockers(input.lineupTruth)];
+  const warnings = [...profile.warnings, ...minutes.warnings, ...lineupTruthWarnings(input.lineupTruth)];
 
-  if (input.lineupTruth?.status !== "GREEN") blockers.push(`lineup truth ${input.lineupTruth?.status ?? "missing"}`);
   if (minutes.confidence < 0.65) blockers.push("minutes confidence below 0.65");
   if (profile.sampleSize < 5) blockers.push("low player stat sample");
   if (input.playerStatus === "QUESTIONABLE" || input.playerStatus === "DOUBTFUL" || input.playerStatus === "OUT" || input.playerStatus === "UNKNOWN") blockers.push(`player status ${input.playerStatus}`);
@@ -164,6 +183,7 @@ export function projectNbaPlayerStat(input: NbaPlayerStatProjectionInput): NbaPl
     + profile.reliability * 0.24
     + usage.confidence * 0.14
     + (input.lineupTruth?.status === "GREEN" ? 0.18 : 0)
+    + (input.lineupTruth?.injuryReportFresh === true ? 0.06 : 0)
     + (typeof input.marketLine === "number" ? 0.08 : 0.02)
     + (1 - profile.attributes.volatility) * 0.08,
     0,
@@ -184,7 +204,7 @@ export function projectNbaPlayerStat(input: NbaPlayerStatProjectionInput): NbaPl
     marketLine: typeof input.marketLine === "number" ? input.marketLine : null,
     overProbability,
     underProbability,
-    confidence: round(confidence, 3),
+    confidence: round(blockers.length ? Math.min(confidence, 0.49) : confidence, 3),
     noBet: blockers.length > 0,
     blockers: [...new Set(blockers)],
     warnings: [...new Set(warnings)],
@@ -193,6 +213,7 @@ export function projectNbaPlayerStat(input: NbaPlayerStatProjectionInput): NbaPl
       `${round(baseRate, 4)} ${input.statKey}/minute baseline`,
       `${round(multiplier, 3)} stat multiplier`,
       `${round(marketBlend, 3)} market blend`,
+      ...(input.lineupTruth ? [`lineup truth ${input.lineupTruth.status}, injuryFresh=${input.lineupTruth.injuryReportFresh}`] : ["lineup truth missing"]),
       ...usage.reasons
     ],
     profile,
