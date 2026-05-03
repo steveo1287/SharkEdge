@@ -15,20 +15,28 @@ function leadingProbability(projection: SimProjection) {
 
 function nbaRuntimeSourceHealth(projection: SimProjection): NbaSimHealthStatus {
   const source = projection.realityIntel?.sourceHealth;
-  if (!source?.requiredModulesReady) return "RED";
-  if (source.realModules >= 3 && projection.realityIntel?.market?.available) return "GREEN";
-  return "YELLOW";
+  const marketAvailable = projection.realityIntel?.market?.available === true;
+  const allCoreFeedsReady = Boolean(source?.team && source.player && source.rating && source.history);
+
+  if (!source?.requiredModulesReady || !source.team || !source.player) return "RED";
+  if (allCoreFeedsReady && source.realModules >= 4 && marketAvailable) return "GREEN";
+  if (source.realModules >= 3 && marketAvailable) return "YELLOW";
+  return "RED";
 }
 
 function nbaRuntimeInjuryFresh(projection: SimProjection) {
   const source = projection.realityIntel?.sourceHealth;
-  return Boolean(source?.player && source.requiredModulesReady);
+  const modules = projection.realityIntel?.modules ?? [];
+  const playerModuleReal = modules.some((module) =>
+    /player|injury|availability|rotation/i.test(module.label) && module.status === "real"
+  );
+  return Boolean(source?.player && source.requiredModulesReady && playerModuleReal);
 }
 
 function nbaRuntimeStarQuestionable(projection: SimProjection) {
   const intel = projection.realityIntel;
   if (!intel?.sourceHealth?.player) return null;
-  return intel.volatilityIndex >= 1.85;
+  return intel.volatilityIndex >= 1.75;
 }
 
 function nbaRuntimeCalibrationHealthy(projection: SimProjection) {
@@ -36,6 +44,7 @@ function nbaRuntimeCalibrationHealthy(projection: SimProjection) {
   if (!intel) return false;
   if (intel.historyAdjustment?.shouldPass) return false;
   if (intel.learnedAdjustment?.shouldPass) return false;
+  if (!intel.market?.available) return false;
   return true;
 }
 
