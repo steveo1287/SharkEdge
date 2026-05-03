@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 
-import { applySimAccuracyGuardrail, simProbabilityBucket, type SimAccuracyGuardrailMap } from "@/services/simulation/sim-accuracy-guardrail";
+import { simPickProbabilityBucket, simProbabilityBucket } from "@/services/simulation/sim-accuracy-buckets";
+import { applySimAccuracyGuardrail, type SimAccuracyGuardrailMap } from "@/services/simulation/sim-accuracy-guardrail";
 
 assert.equal(simProbabilityBucket(0.641), "60-70%");
 assert.equal(simProbabilityBucket(0.999), "90-100%");
+assert.equal(simPickProbabilityBucket(0.41, 0.59), "50-60%");
+assert.equal(simPickProbabilityBucket(0.73, 0.27), "70-80%");
 
 const noBucket = applySimAccuracyGuardrail({
   league: "NBA",
