@@ -1,3 +1,4 @@
+import { getNbaLineupTruth, type NbaLineupTruth, type NbaLineupTruthStatus } from "@/services/simulation/nba-lineup-truth";
 import {
   buildNbaSimHealthPolicy,
   enforceNbaSimHealthPolicy,
@@ -14,18 +15,20 @@ function leadingProbability(projection: SimProjection) {
   return Math.max(projection.distribution.homeWinPct, projection.distribution.awayWinPct);
 }
 
-function nbaRuntimeSourceHealth(projection: SimProjection): NbaSimHealthStatus {
+function nbaRuntimeSourceHealth(projection: SimProjection, lineupTruth: NbaLineupTruth | null): NbaSimHealthStatus {
   const source = projection.realityIntel?.sourceHealth;
   const marketAvailable = projection.realityIntel?.market?.available === true;
   const allCoreFeedsReady = Boolean(source?.team && source.player && source.rating && source.history);
 
+  if (lineupTruth?.status === "RED") return "RED";
   if (!source?.requiredModulesReady || !source.team || !source.player) return "RED";
-  if (allCoreFeedsReady && source.realModules >= 4 && marketAvailable) return "GREEN";
+  if (allCoreFeedsReady && source.realModules >= 4 && marketAvailable && lineupTruth?.status === "GREEN") return "GREEN";
   if (source.realModules >= 3 && marketAvailable) return "YELLOW";
   return "RED";
 }
 
-function nbaRuntimeInjuryFresh(projection: SimProjection) {
+function nbaRuntimeInjuryFresh(projection: SimProjection, lineupTruth: NbaLineupTruth | null) {
+  if (lineupTruth) return lineupTruth.injuryReportFresh;
   const source = projection.realityIntel?.sourceHealth;
   const modules = projection.realityIntel?.modules ?? [];
   const playerModuleReal = modules.some((module) =>
@@ -34,7 +37,8 @@ function nbaRuntimeInjuryFresh(projection: SimProjection) {
   return Boolean(source?.player && source.requiredModulesReady && playerModuleReal);
 }
 
-function nbaRuntimeStarQuestionable(projection: SimProjection) {
+function nbaRuntimeStarQuestionable(projection: SimProjection, lineupTruth: NbaLineupTruth | null) {
+  if (lineupTruth) return lineupTruth.starQuestionable || lineupTruth.lateScratchRisk || lineupTruth.highUsageOut;
   const intel = projection.realityIntel;
   if (!intel?.sourceHealth?.player) return null;
   return intel.volatilityIndex >= 1.75;
@@ -49,7 +53,8 @@ function nbaRuntimeCalibrationHealthy(projection: SimProjection) {
   return true;
 }
 
-function nbaHasDocumentedLineupReason(projection: SimProjection) {
+function nbaHasDocumentedLineupReason(projection: SimProjection, lineupTruth: NbaLineupTruth | null) {
+  if (lineupTruth && (lineupTruth.playerFlags.length || lineupTruth.warnings.length || lineupTruth.blockers.length)) return true;
   const factors = projection.realityIntel?.factors ?? [];
   const reasons = projection.nbaIntel?.reasons ?? [];
   const modules = projection.realityIntel?.modules ?? [];
@@ -61,14 +66,14 @@ function nbaHasDocumentedLineupReason(projection: SimProjection) {
   return factorSignal || reasonSignal || moduleSignal;
 }
 
-function nbaSpreadConflict(projection: SimProjection) {
+function nbaSpreadConflict(projection: SimProjection, lineupTruth: NbaLineupTruth | null) {
   const marketSpreadHome = projection.realityIntel?.market?.spreadLine;
   if (typeof marketSpreadHome !== "number" || !Number.isFinite(marketSpreadHome)) return null;
   const projectedHomeMargin = projection.distribution.avgHome - projection.distribution.avgAway;
   const homeCoverThreshold = -marketSpreadHome;
   const spreadEdge = projectedHomeMargin - homeCoverThreshold;
   if (Math.abs(spreadEdge) <= 6) return null;
-  if (nbaHasDocumentedLineupReason(projection)) return null;
+  if (nbaHasDocumentedLineupReason(projection, lineupTruth)) return null;
   return {
     projectedHomeMargin,
     marketSpreadHome,
@@ -79,12 +84,13 @@ function nbaSpreadConflict(projection: SimProjection) {
 
 function applyNbaSpreadConflictGate(args: {
   projection: SimProjection;
+  lineupTruth: NbaLineupTruth | null;
   tier: NbaSimRecommendationTier;
   noBet: boolean;
   confidence: number;
   reasons: string[];
 }) {
-  const conflict = nbaSpreadConflict(args.projection);
+  const conflict = nbaSpreadConflict(args.projection, args.lineupTruth);
   if (!conflict) return { tier: args.tier, noBet: args.noBet, confidence: args.confidence, reasons: args.reasons };
   return {
     tier: "pass" as NbaSimRecommendationTier,
@@ -97,6 +103,64 @@ function applyNbaSpreadConflictGate(args: {
   };
 }
 
+function lineupReasonSummary(lineupTruth: NbaLineupTruth) {
+  const flags = lineupTruth.playerFlags.slice(0, 4).map((flag) => `${flag.playerName} ${flag.status} ${flag.usageTier} risk ${flag.risk}`);
+  return [
+    `NBA lineup truth ${lineupTruth.status}: starter confidence ${(lineupTruth.projectedStarterConfidence * 100).toFixed(1)}%.`,
+    ...lineupTruth.blockers.map((blocker) => `Lineup blocker: ${blocker}.`),
+    ...lineupTruth.warnings.map((warning) => `Lineup warning: ${warning}.`),
+    ...flags.map((flag) => `Lineup flag: ${flag}.`)
+  ];
+}
+
+function applyNbaLineupTruthGate(args: {
+  lineupTruth: NbaLineupTruth | null;
+  tier: NbaSimRecommendationTier;
+  noBet: boolean;
+  confidence: number;
+  reasons: string[];
+}) {
+  if (!args.lineupTruth) return { tier: args.tier, noBet: args.noBet, confidence: args.confidence, reasons: args.reasons };
+  const lineupReasons = lineupReasonSummary(args.lineupTruth);
+  if (args.lineupTruth.status === "RED") {
+    return {
+      tier: "pass" as NbaSimRecommendationTier,
+      noBet: true,
+      confidence: Math.min(args.confidence, 0.49),
+      reasons: ["NBA lineup truth forced PASS with zero Kelly.", ...lineupReasons, ...args.reasons]
+    };
+  }
+  if (args.lineupTruth.status === "YELLOW") {
+    return {
+      tier: args.tier === "attack" ? "watch" as NbaSimRecommendationTier : args.tier,
+      noBet: true,
+      confidence: Math.min(args.confidence, 0.57),
+      reasons: ["NBA lineup truth capped output to WATCH/noBet.", ...lineupReasons, ...args.reasons]
+    };
+  }
+  return {
+    tier: args.tier,
+    noBet: args.noBet,
+    confidence: args.confidence,
+    reasons: [...lineupReasons, ...args.reasons]
+  };
+}
+
+async function getRuntimeLineupTruth(input: SimProjectionInput, projection: SimProjection) {
+  const modules = projection.realityIntel?.modules ?? [];
+  const playerModuleReal = modules.some((module) => /player|injury|availability|rotation/i.test(module.label) && module.status === "real");
+  const feedLastUpdatedAt = playerModuleReal ? new Date() : null;
+  return getNbaLineupTruth({
+    awayTeam: projection.matchup.away,
+    homeTeam: projection.matchup.home,
+    gameTime: input.startTime,
+    feedLastUpdatedAt,
+    projectionReasons: projection.nbaIntel?.reasons ?? projection.realityIntel?.factors?.map((factor) => factor.label) ?? [],
+    projectionModules: modules,
+    volatilityIndex: projection.realityIntel?.volatilityIndex ?? projection.nbaIntel?.volatilityIndex ?? null
+  }).catch(() => null);
+}
+
 export async function buildGuardedSimProjection(input: SimProjectionInput): Promise<SimProjection> {
   const projection = await buildSimProjection(input);
 
@@ -106,6 +170,7 @@ export async function buildGuardedSimProjection(input: SimProjectionInput): Prom
   const probability = leadingProbability(projection);
 
   if (input.leagueKey === "NBA" && projection.nbaIntel) {
+    const lineupTruth = await getRuntimeLineupTruth(input, projection);
     const guarded = applySimAccuracyGuardrail({
       league: "NBA",
       tier: projection.nbaIntel.tier,
@@ -122,9 +187,9 @@ export async function buildGuardedSimProjection(input: SimProjectionInput): Prom
     const policy = buildNbaSimHealthPolicy({
       diagnostics: null,
       diagnosticsRequired: false,
-      sourceHealth: nbaRuntimeSourceHealth(projection),
-      injuryReportFresh: nbaRuntimeInjuryFresh(projection),
-      starQuestionable: nbaRuntimeStarQuestionable(projection),
+      sourceHealth: nbaRuntimeSourceHealth(projection, lineupTruth),
+      injuryReportFresh: nbaRuntimeInjuryFresh(projection, lineupTruth),
+      starQuestionable: nbaRuntimeStarQuestionable(projection, lineupTruth),
       calibrationBucketHealthy: nbaRuntimeCalibrationHealthy(projection)
     });
     const policyGuarded = enforceNbaSimHealthPolicy({
@@ -136,20 +201,28 @@ export async function buildGuardedSimProjection(input: SimProjectionInput): Prom
     });
     const spreadGuarded = applyNbaSpreadConflictGate({
       projection,
+      lineupTruth,
       tier: policyGuarded.tier,
       noBet: policyGuarded.noBet,
       confidence: policyGuarded.confidence,
       reasons: policyGuarded.reasons
+    });
+    const lineupGuarded = applyNbaLineupTruthGate({
+      lineupTruth,
+      tier: spreadGuarded.tier,
+      noBet: spreadGuarded.noBet,
+      confidence: spreadGuarded.confidence,
+      reasons: spreadGuarded.reasons
     });
 
     return {
       ...projection,
       nbaIntel: {
         ...projection.nbaIntel,
-        tier: spreadGuarded.tier,
-        confidence: spreadGuarded.confidence,
-        noBet: spreadGuarded.noBet,
-        reasons: spreadGuarded.reasons
+        tier: lineupGuarded.tier,
+        confidence: lineupGuarded.confidence,
+        noBet: lineupGuarded.noBet,
+        reasons: lineupGuarded.reasons
       }
     };
   }
