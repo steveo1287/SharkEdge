@@ -44,6 +44,8 @@ type EliteInput = PlayerPropSimulationInput & {
   nbaPropCalibrationBuckets?: NbaPropCalibrationBucket[];
 };
 
+type ProjectablePlayerStatus = Exclude<NbaPropSafetyMetadata["playerStatus"], "MISSING">;
+
 function round(value: number, digits = 3) {
   return Number(value.toFixed(digits));
 }
@@ -133,7 +135,7 @@ function projectionToLegacySummary(
   };
 }
 
-function playerStatusFromContext(input: EliteInput): NbaPropSafetyMetadata["playerStatus"] {
+function playerStatusFromContext(input: EliteInput): ProjectablePlayerStatus {
   if (input.playerStatus) return input.playerStatus;
   const text = [input.playerIntangibles, input.interactionContext]
     .map((value) => typeof value === "string" ? value : JSON.stringify(value ?? {}))
@@ -212,5 +214,3 @@ export function simulatePlayerPropProjection(input: EliteInput): NbaElitePlayerP
   const explicitLineupTruth = input.nbaLineupTruth ?? input.lineupTruth ?? null;
   return buildEliteProjection(input, legacySummary, explicitLineupTruth);
 }
-
-export const __playerPropSimTestHooks = legacy.__playerPropSimTestHooks;
