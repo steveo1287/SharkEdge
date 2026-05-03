@@ -9,6 +9,7 @@ const tests = [
   "tests/ufc-real-data-ingestion.test.ts",
   "tests/ufc-card-runner.test.ts",
   "tests/ufc-card-feed.test.ts",
+  "tests/ufc-sharkfight-sim-surface.test.ts",
   "tests/ufc-provider-adapters.test.ts",
   "tests/ufc-exchange-monte-carlo.test.ts",
   "tests/ufc-ensemble-sim.test.ts",
