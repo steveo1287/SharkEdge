@@ -13,6 +13,10 @@ export type NbaBacktestPick = {
   stakeUnits?: number | null;
   edgePct?: number | null;
   closingLineValuePct?: number | null;
+  isFavoriteSelection?: boolean | null;
+  favoriteWon?: boolean | null;
+  isHomeSelection?: boolean | null;
+  homeTeamWon?: boolean | null;
   result: "win" | "loss" | "push" | "void";
 };
 
@@ -34,8 +38,8 @@ export type NbaBacktestDiagnostics = {
   calibrationBuckets: Array<{ bucket: string; predicted: number; actual: number; count: number }>;
   baselines: {
     marketNoVig: { brierScore: number | null; logLoss: number | null };
-    favorite: { hitRatePct: number | null };
-    homeTeam: { hitRatePct: number | null };
+    favorite: { count: number; hitRatePct: number | null };
+    homeTeam: { count: number; hitRatePct: number | null };
     noBet: { roiPct: 0; profitUnits: 0 };
   };
   health: {
@@ -88,6 +92,12 @@ function emptyConfidenceMap<T>(factory: () => T): Record<NbaBacktestConfidence, 
 function hitRate(wins: number, losses: number) {
   const graded = wins + losses;
   return graded > 0 ? round((wins / graded) * 100, 2) : null;
+}
+
+function booleanBaselineRate(values: boolean[]) {
+  if (!values.length) return { count: 0, hitRatePct: null as number | null };
+  const wins = values.filter(Boolean).length;
+  return { count: values.length, hitRatePct: round((wins / values.length) * 100, 2) };
 }
 
 function maxDrawdown(profits: number[]) {
@@ -160,6 +170,8 @@ export function buildNbaSimBacktestDiagnostics(picks: NbaBacktestPick[]): NbaBac
   const modelLogLoss = logLoss(records);
   const marketLogLoss = marketRecords.length ? logLoss(marketRecords) : null;
   const overallHitRate = hitRate(graded.filter((pick) => pick.result === "win").length, graded.filter((pick) => pick.result === "loss").length) ?? 0;
+  const favoriteBaseline = booleanBaselineRate(graded.filter((pick) => typeof pick.favoriteWon === "boolean").map((pick) => Boolean(pick.favoriteWon)));
+  const homeTeamBaseline = booleanBaselineRate(graded.filter((pick) => typeof pick.homeTeamWon === "boolean").map((pick) => Boolean(pick.homeTeamWon)));
 
   const blockers: string[] = [];
   if (graded.length < 100) blockers.push("NBA sample below 100 graded picks");
@@ -188,8 +200,8 @@ export function buildNbaSimBacktestDiagnostics(picks: NbaBacktestPick[]): NbaBac
     calibrationBuckets: summarizeCalibrationBuckets(records),
     baselines: {
       marketNoVig: { brierScore: marketBrier === null ? null : round(marketBrier, 5), logLoss: marketLogLoss === null ? null : round(marketLogLoss, 5) },
-      favorite: { hitRatePct: null },
-      homeTeam: { hitRatePct: null },
+      favorite: favoriteBaseline,
+      homeTeam: homeTeamBaseline,
       noBet: { roiPct: 0, profitUnits: 0 }
     },
     health: { status, blockers }
