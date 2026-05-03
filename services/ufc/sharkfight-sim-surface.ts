@@ -88,7 +88,7 @@ export function buildSharkFightDetailSimSurface(fight: UfcFightIqDetail): SharkF
   const skillPick = enginePick(fight.sourceOutputs?.skillMarkov?.fighterAWinProbability);
   const exchangePick = enginePick(fight.sourceOutputs?.exchangeMonteCarlo?.fighterAWinProbability);
   const method = prediction ? topMethod(prediction) : null;
-  const round = topRound(fight.roundFinishProbabilities);
+  const roundOutcome = topRound(fight.roundFinishProbabilities);
   const missingFields = fight.featureComparison.filter((row) => row.fighterA == null || row.fighterB == null).length;
   const totalCells = Math.max(1, fight.featureComparison.length * 2);
   const missingCells = fight.featureComparison.reduce((sum, row) => sum + (row.fighterA == null ? 1 : 0) + (row.fighterB == null ? 1 : 0), 0);
@@ -98,8 +98,8 @@ export function buildSharkFightDetailSimSurface(fight: UfcFightIqDetail): SharkF
     engineAgreement: skillPick && exchangePick ? (skillPick === exchangePick ? "agreement" : "disagreement") : "unknown",
     methodLean: method?.[0]?.replace("_", "/") ?? null,
     methodLeanProbability: method?.[1] ?? null,
-    topRoundOutcome: round?.[0] ?? null,
-    topRoundProbability: round?.[1] ?? null,
+    topRoundOutcome: roundOutcome?.[0] ?? null,
+    topRoundProbability: roundOutcome?.[1] ?? null,
     dataCompletenessPct: round(((totalCells - missingCells) / totalCells) * 100, 1),
     dataMissingCount: missingFields
   };
