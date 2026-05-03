@@ -1,6 +1,6 @@
 import type { LeagueKey } from "@/lib/types/domain";
 import { simProbabilityBucket } from "@/services/simulation/sim-accuracy-buckets";
-import { getSimAccuracySummary } from "@/services/simulation/sim-accuracy-ledger";
+import { getSimPickAccuracyBucketSummary } from "@/services/simulation/sim-pick-accuracy-summary";
 
 type GuardLeague = Extract<LeagueKey, "NBA" | "MLB">;
 type SimTier = "attack" | "watch" | "pass" | "thin" | string;
@@ -55,46 +55,44 @@ function classifyBucket(args: { count: number; avgPredicted: number; actualRate:
 }
 
 function bucketNote(args: { league: GuardLeague; bucket: string; count: number; avgPredicted: number; actualRate: number; brier: number; state: SimAccuracyGuardrail["state"] }) {
+  const prefix = `${args.bucket} pick-probability bucket`;
   if (args.state === "insufficient") {
     return args.league === "NBA"
-      ? `${args.bucket} bucket has ${args.count}/${MIN_BUCKET_SAMPLE} graded samples; NBA action is blocked until this bucket has enough evidence.`
-      : `${args.bucket} bucket has ${args.count}/${MIN_BUCKET_SAMPLE} graded samples; ${args.league} accuracy guard is observation-only for insufficient buckets.`;
+      ? `${prefix} has ${args.count}/${MIN_BUCKET_SAMPLE} graded samples; NBA output stays watch/noBet until this range has enough evidence.`
+      : `${prefix} has ${args.count}/${MIN_BUCKET_SAMPLE} graded samples; ${args.league} guard is observation-only for insufficient buckets.`;
   }
   if (args.state === "poor") {
-    return `${args.bucket} bucket is overconfident: predicted ${round(args.avgPredicted * 100, 1)}%, actual ${round(args.actualRate * 100, 1)}%, Brier ${round(args.brier, 3)}.`;
+    return `${prefix} is overconfident: predicted ${round(args.avgPredicted * 100, 1)}%, actual ${round(args.actualRate * 100, 1)}%, Brier ${round(args.brier, 3)}.`;
   }
   if (args.state === "watch") {
-    return `${args.bucket} bucket needs caution: predicted ${round(args.avgPredicted * 100, 1)}%, actual ${round(args.actualRate * 100, 1)}%, Brier ${round(args.brier, 3)}.`;
+    return `${prefix} needs caution: predicted ${round(args.avgPredicted * 100, 1)}%, actual ${round(args.actualRate * 100, 1)}%, Brier ${round(args.brier, 3)}.`;
   }
-  return `${args.bucket} bucket is currently healthy: predicted ${round(args.avgPredicted * 100, 1)}%, actual ${round(args.actualRate * 100, 1)}%, Brier ${round(args.brier, 3)}.`;
+  return `${prefix} is currently healthy: predicted ${round(args.avgPredicted * 100, 1)}%, actual ${round(args.actualRate * 100, 1)}%, Brier ${round(args.brier, 3)}.`;
 }
 
 export async function getSimAccuracyGuardrails(): Promise<SimAccuracyGuardrailMap> {
-  const summary = await getSimAccuracySummary(1).catch(() => null);
-  if (!summary?.ok) return {};
+  const buckets = await getSimPickAccuracyBucketSummary().catch(() => []);
+  if (!buckets.length) return {};
 
-  const entries = summary.byLeague.flatMap((league) =>
-    league.calibrationBuckets.map((bucket) => {
-      const leagueKey = league.league as GuardLeague;
-      const state = classifyBucket(bucket);
-      const guardrail: SimAccuracyGuardrail = {
-        league: leagueKey,
-        bucket: bucket.bucket,
-        count: bucket.count,
-        avgPredicted: bucket.avgPredicted,
-        actualRate: bucket.actualRate,
-        brier: bucket.brier,
-        state,
-        note: bucketNote({ league: leagueKey, ...bucket, state })
-      };
-      return [guardrailKey(leagueKey, bucket.bucket), guardrail] as const;
-    })
-  );
+  const entries = buckets.map((bucket) => {
+    const state = classifyBucket(bucket);
+    const guardrail: SimAccuracyGuardrail = {
+      league: bucket.league,
+      bucket: bucket.bucket,
+      count: bucket.count,
+      avgPredicted: bucket.avgPredicted,
+      actualRate: bucket.actualRate,
+      brier: bucket.brier,
+      state,
+      note: bucketNote({ ...bucket, state })
+    };
+    return [guardrailKey(bucket.league, bucket.bucket), guardrail] as const;
+  });
 
   return Object.fromEntries(entries);
 }
 
-function blockUnprovenNbaAction(args: {
+function capUnprovenNbaOutput(args: {
   league: GuardLeague;
   originalTier: SimTier;
   currentConfidence: number | null;
@@ -141,32 +139,32 @@ export function applySimAccuracyGuardrail(args: {
   let downgraded = false;
 
   if (!guardrail) {
-    const block = blockUnprovenNbaAction({
+    const capped = capUnprovenNbaOutput({
       league: args.league,
       originalTier,
       currentConfidence: confidence,
-      note: `Accuracy guard: ${args.league}:${bucket} bucket has no graded history; NBA action is blocked until this probability range is proven.`
+      note: `Accuracy guard: ${args.league}:${bucket} pick-probability bucket has no graded history; NBA output remains watch/noBet until this range is proven.`
     });
-    if (block) {
-      tier = block.tier;
-      noBet = block.noBet;
-      downgraded = block.downgraded;
-      confidence = block.confidence;
-      reasons.unshift(block.note);
+    if (capped) {
+      tier = capped.tier;
+      noBet = capped.noBet;
+      downgraded = capped.downgraded;
+      confidence = capped.confidence;
+      reasons.unshift(capped.note);
     }
   } else if (guardrail.state === "insufficient") {
-    const block = blockUnprovenNbaAction({
+    const capped = capUnprovenNbaOutput({
       league: args.league,
       originalTier,
       currentConfidence: confidence,
       note: `Accuracy guard: ${guardrail.note}`
     });
-    if (block) {
-      tier = block.tier;
-      noBet = block.noBet;
-      downgraded = block.downgraded;
-      confidence = block.confidence;
-      reasons.unshift(block.note);
+    if (capped) {
+      tier = capped.tier;
+      noBet = capped.noBet;
+      downgraded = capped.downgraded;
+      confidence = capped.confidence;
+      reasons.unshift(capped.note);
     }
   } else if (guardrail.state !== "healthy") {
     const note = `Accuracy guard: ${guardrail.note}`;
