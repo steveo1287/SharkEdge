@@ -1,7 +1,7 @@
 import type { LeagueKey } from "@/lib/types/domain";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
-import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
+import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
 import {
   readSimCache,
   SIM_CACHE_KEYS,
@@ -64,7 +64,7 @@ export type TrendSignal = TrendSignalDraft & {
 
 const RESEARCH_PATTERNS: TrendSignalDraft[] = [
   { id: "mlb-bullpen-stress-total", league: "MLB", title: "Bullpen stress total pressure", angle: "Both bullpens carrying fatigue into a projected tight run environment.", category: "Totals", grade: "B", confidence: 0.61, hitRate: 57.9, sample: 219, edge: null, market: "total", risk: "medium", source: "research-pattern", actionHref: "/sim?league=MLB", notes: ["Use only when lineup locks and starting pitchers are confirmed.", "Pairs with weather/park factor and projected total."] },
-  { id: "nba-rest-spot", league: "NBA", title: "Rest advantage pressure", angle: "Rested home team versus opponent in travel/fatigue spot.", category: "Schedule", grade: "B", confidence: 0.58, hitRate: 58.4, sample: 312, edge: null, market: "moneyline/spread", risk: "medium", source: "research-pattern", actionHref: "/sim?league=NBA", notes: ["Use as a model modifier, not a blind pick."] }
+  { id: "nba-rest-spot", league: "NBA", title: "Rest advantage pressure", angle: "Rested home team versus opponent in travel/fatigue spot.", category: "Schedule", grade: "Watch", confidence: 0.54, hitRate: null, sample: null, edge: null, market: "moneyline/spread", risk: "high", source: "research-pattern", actionHref: "/sim?league=NBA", notes: ["Research-only NBA trend. It cannot become action without guarded projection, no-vig market, injury freshness, and proven accuracy bucket."] }
 ];
 
 function selected(value?: "ALL" | LeagueKey) { return value ?? "ALL"; }
@@ -161,7 +161,10 @@ function signalsFromCachedRows(rows: CachedSimGameProjection[], market: SimMarke
     const totalEdge = num(edge?.edges?.totalRuns);
     const total = rowTotal(row);
     const totalSide = totalEdge == null ? "total" : totalEdge >= 0 ? "over" : "under";
-    const baseNotes = [row.projection.read, "Loaded from warmed sim cache.", edge?.signal ? `Best market signal: ${edge.signal.market} ${edge.signal.strength}.` : "No matched sportsbook market yet."];
+    const nbaPolicyNotes = row.projection.nbaIntel?.noBet
+      ? (row.projection.nbaIntel.reasons ?? []).slice(0, 4).map((reason) => `NBA guard: ${reason}`)
+      : [];
+    const baseNotes = [row.projection.read, "Loaded from warmed sim cache.", edge?.signal ? `Best market signal: ${edge.signal.market} ${edge.signal.strength}.` : "No matched sportsbook market yet.", ...nbaPolicyNotes];
     const lean: TrendSignalDraft = {
       id: `${game.leagueKey}-${game.id}-cached-lean`,
       league: game.leagueKey,
@@ -206,7 +209,7 @@ function signalsFromCachedRows(rows: CachedSimGameProjection[], market: SimMarke
       risk,
       source: totalOddsForSide(edge, totalSide) == null ? "sim-engine" : "market-edge",
       actionHref: actionHref(game.leagueKey, game.id),
-      notes: [totalEdge == null ? "Needs sportsbook total to calculate edge." : `Model total edge ${totalEdge.toFixed(2)} runs/points.`, "Loaded from warmed sim cache."],
+      notes: [totalEdge == null ? "Needs sportsbook total to calculate edge." : `Model total edge ${totalEdge.toFixed(2)} runs/points.`, "Loaded from warmed sim cache.", ...nbaPolicyNotes],
       currentOddsAmerican: totalOddsForSide(edge, totalSide),
       fairProbability: null,
       marketBreadth: totalMarketBreadth(edge),
@@ -241,11 +244,15 @@ async function buildLiveBoardSignals(league: LeagueKey | "ALL") {
     const home = projection.distribution.homeWinPct;
     const away = projection.distribution.awayWinPct;
     const fav = home >= away ? { team: projection.matchup.home, pct: home } : { team: projection.matchup.away, pct: away };
-    const intel = projection.mlbIntel;
-    const confidence = clampConfidence(intel?.governor?.confidence ?? fav.pct);
-    const risk = riskFrom(intel?.volatilityIndex, intel?.governor?.noBet);
+    const mlbIntel = projection.mlbIntel;
+    const nbaIntel = projection.nbaIntel;
+    const confidence = clampConfidence(mlbIntel?.governor?.confidence ?? nbaIntel?.confidence ?? projection.realityIntel?.confidence ?? fav.pct);
+    const risk = riskFrom(mlbIntel?.volatilityIndex ?? nbaIntel?.volatilityIndex ?? projection.realityIntel?.volatilityIndex, mlbIntel?.governor?.noBet ?? nbaIntel?.noBet ?? false);
     const marketEdge = moneylineEdgeForTeam(edge, fav.team, projection.matchup);
     const currentOddsAmerican = moneylineOddsForTeam(edge, fav.team, projection.matchup);
+    const nbaPolicyNotes = nbaIntel?.noBet
+      ? (nbaIntel.reasons ?? []).slice(0, 4).map((reason) => `NBA guard: ${reason}`)
+      : [];
     rows.push({
       id: `${game.leagueKey}-${game.id}-model-lean`,
       league: game.leagueKey,
@@ -265,7 +272,7 @@ async function buildLiveBoardSignals(league: LeagueKey | "ALL") {
       risk,
       source: currentOddsAmerican != null ? "market-edge" : "sim-engine",
       actionHref: actionHref(game.leagueKey, game.id),
-      notes: [projection.read, edge?.signal ? `Best market signal: ${edge.signal.market} ${edge.signal.strength}.` : "No matched sportsbook market yet."],
+      notes: [projection.read, edge?.signal ? `Best market signal: ${edge.signal.market} ${edge.signal.strength}.` : "No matched sportsbook market yet.", ...nbaPolicyNotes],
       currentOddsAmerican,
       fairProbability: fav.pct,
       marketBreadth: moneylineMarketBreadth(edge),
