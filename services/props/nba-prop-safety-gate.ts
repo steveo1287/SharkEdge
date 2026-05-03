@@ -47,10 +47,15 @@ function gateContextForProp(
   const statKey = statKeyForMarket(prop.marketType);
   const stat = statKey ? player.stats.find((candidate) => candidate.statKey === statKey) : null;
   const minutes = player.minutes;
+  const lineupTruth = player.lineupTruth;
   const reasons = unique([
     ...(stat?.blockers ?? []),
     ...(stat?.noBet ? ["projection marked no-bet"] : []),
     ...(minutes?.blockers ?? []),
+    ...(lineupTruth?.blockers ?? []),
+    ...(lineupTruth && lineupTruth.status !== "GREEN" ? [`lineup truth ${lineupTruth.status ?? "MISSING"}`] : []),
+    ...(lineupTruth && lineupTruth.injuryReportFresh !== true ? ["stale or missing injury report"] : []),
+    ...(lineupTruth && lineupTruth.minutesTrusted !== true ? ["minutes not trusted by lineup truth"] : []),
     ...((minutes?.confidence ?? 1) < 0.5 ? ["minutes confidence below 50%"] : []),
     ...((minutes?.injuryAdjustment ?? 1) < 0.9 ? ["injury adjustment degraded minutes"] : []),
     ...((minutes?.rotationStability ?? 1) < 0.45 ? ["rotation stability below 45%"] : []),
