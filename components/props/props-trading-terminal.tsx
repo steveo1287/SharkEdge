@@ -78,6 +78,26 @@ function decisionTone(decision: string) {
   return "muted" as const;
 }
 
+function statHealth(player: FullStatPlayer) {
+  const blockers = [...new Set(player.stats.flatMap((stat) => stat.blockers))];
+  const warnings = [...new Set(player.stats.flatMap((stat) => stat.warnings))];
+  const noBet = player.stats.some((stat) => stat.noBet || stat.blockers.length > 0);
+  return { blockers, warnings, noBet };
+}
+
+function statTileTone(stat: FullStatTile) {
+  if (stat.blockers.length || stat.noBet) return "border-red-400/25 bg-red-500/10";
+  if (stat.warnings.length) return "border-amber-300/25 bg-amber-500/10";
+  return "border-bone/[0.08] bg-panel";
+}
+
+function healthBadge(stat: FullStatTile) {
+  if (stat.blockers.length || stat.noBet) return <span className="text-red-200/80">BLOCK</span>;
+  if (stat.warnings.length) return <span className="text-amber-100/80">WARN</span>;
+  if (stat.modelOnly) return <span className="text-aqua/70">M</span>;
+  return null;
+}
+
 function TerminalMetric({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
     <Card className="surface-panel p-4">
@@ -161,40 +181,61 @@ function FullStatForecastSection({ view }: { view: FullStatProjectionView }) {
       <SectionTitle
         eyebrow="NBA model forecast"
         title="Full player box-score projections"
-        description="Model forecasts are shown even when no sportsbook line exists. Market probabilities only appear when a line is attached."
+        description="Model forecasts are shown even when no sportsbook line exists. Blocked or suspicious stat families are marked before they contaminate betting decisions."
       />
       <div className="grid gap-4 xl:grid-cols-2">
-        {players.map((player) => (
-          <Card key={player.playerId} className="surface-panel p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="font-semibold text-white">{player.playerName}</div>
-                <div className="mt-1 text-xs text-bone/50">
-                  {player.teamName ?? "Team unknown"}
-                  {typeof player.projectedMinutes === "number" ? ` | ${player.projectedMinutes.toFixed(1)} projected min` : ""}
+        {players.map((player) => {
+          const health = statHealth(player);
+          return (
+            <Card key={player.playerId} className={`surface-panel p-4 ${health.blockers.length ? "border-red-400/20" : health.warnings.length ? "border-amber-300/20" : ""}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-white">{player.playerName}</div>
+                  <div className="mt-1 text-xs text-bone/50">
+                    {player.teamName ?? "Team unknown"}
+                    {typeof player.projectedMinutes === "number" ? ` | ${player.projectedMinutes.toFixed(1)} projected min` : ""}
+                  </div>
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  {health.blockers.length ? <Badge tone="danger">BLOCKED</Badge> : health.warnings.length ? <Badge tone="premium">WARN</Badge> : <Badge tone="muted">MODEL</Badge>}
                 </div>
               </div>
-              <Badge tone="muted">MODEL</Badge>
-            </div>
 
-            <div className="mt-4 grid grid-cols-4 gap-2 md:grid-cols-6">
-              {player.stats.slice(0, 12).map((stat) => (
-                <div key={`${player.playerId}-${stat.statKey}`} className="rounded-md border border-bone/[0.08] bg-panel p-2">
-                  <div className="flex items-center justify-between gap-1 text-[10px] uppercase tracking-[0.1em] text-bone/45">
-                    <span>{stat.label}</span>
-                    {stat.modelOnly ? <span className="text-aqua/70">M</span> : null}
-                  </div>
-                  <div className="mt-1 font-mono text-base font-semibold text-white">{stat.meanValue.toFixed(1)}</div>
-                  <div className="mt-1 text-[10px] leading-4 text-bone/45">
-                    {typeof stat.marketLine === "number"
-                      ? `Line ${stat.marketLine} | O ${probabilityPct(stat.overProbability)}`
-                      : "No market line"}
-                  </div>
+              {health.blockers.length || health.warnings.length ? (
+                <div className="mt-3 rounded-md border border-bone/[0.08] bg-panel/60 p-3 text-[11px] leading-5 text-bone/60">
+                  {health.blockers.length ? (
+                    <div className="text-red-100/75">Blockers: {health.blockers.slice(0, 2).join("; ")}</div>
+                  ) : null}
+                  {health.warnings.length ? (
+                    <div className="text-amber-100/75">Warnings: {health.warnings.slice(0, 2).join("; ")}</div>
+                  ) : null}
                 </div>
-              ))}
-            </div>
-          </Card>
-        ))}
+              ) : null}
+
+              <div className="mt-4 grid grid-cols-4 gap-2 md:grid-cols-6">
+                {player.stats.slice(0, 12).map((stat) => (
+                  <div key={`${player.playerId}-${stat.statKey}`} className={`rounded-md border p-2 ${statTileTone(stat)}`}>
+                    <div className="flex items-center justify-between gap-1 text-[10px] uppercase tracking-[0.1em] text-bone/45">
+                      <span>{stat.label}</span>
+                      {healthBadge(stat)}
+                    </div>
+                    <div className="mt-1 font-mono text-base font-semibold text-white">{stat.meanValue.toFixed(1)}</div>
+                    <div className="mt-1 text-[10px] leading-4 text-bone/45">
+                      {typeof stat.marketLine === "number"
+                        ? `Line ${stat.marketLine} | O ${probabilityPct(stat.overProbability)}`
+                        : "No market line"}
+                    </div>
+                    {stat.blockers.length || stat.warnings.length ? (
+                      <div className="mt-1 truncate text-[9px] leading-4 text-bone/45" title={[...stat.blockers, ...stat.warnings].join("; ")}>
+                        {[...stat.blockers, ...stat.warnings][0]}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          );
+        })}
       </div>
       {view.warnings.length ? (
         <Card className="surface-panel p-4 text-xs leading-5 text-amber-100/75">
