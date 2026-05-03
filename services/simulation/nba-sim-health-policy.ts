@@ -64,6 +64,10 @@ function addCheck(
   checklist.push(item);
 }
 
+function observedBoolean(value: boolean | null | undefined) {
+  return value ?? null;
+}
+
 function diagnosticMetricPassed(args: {
   value: number | null | undefined;
   baseline: number | null | undefined;
@@ -164,7 +168,7 @@ export function buildNbaSimHealthPolicy(input: NbaSimHealthPolicyInput): NbaSimH
     key: "injury_freshness",
     label: "NBA injury report freshness",
     passed: input.injuryReportFresh === true,
-    observed: input.injuryReportFresh,
+    observed: observedBoolean(input.injuryReportFresh),
     required: "fresh/current injury report",
     critical: true
   });
@@ -173,7 +177,7 @@ export function buildNbaSimHealthPolicy(input: NbaSimHealthPolicyInput): NbaSimH
     key: "star_uncertainty",
     label: "Star/questionable blocker",
     passed: input.starQuestionable === false,
-    observed: input.starQuestionable,
+    observed: observedBoolean(input.starQuestionable),
     required: "no unresolved high-usage questionable player",
     critical: true
   });
@@ -182,7 +186,7 @@ export function buildNbaSimHealthPolicy(input: NbaSimHealthPolicyInput): NbaSimH
     key: "calibration_bucket",
     label: "Calibration bucket health",
     passed: input.calibrationBucketHealthy === true,
-    observed: input.calibrationBucketHealthy,
+    observed: observedBoolean(input.calibrationBucketHealthy),
     required: "current confidence bucket healthy",
     critical: true
   });
