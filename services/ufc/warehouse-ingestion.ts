@@ -5,6 +5,17 @@ import { prisma } from "@/lib/db/prisma";
 
 const jsonRecord = z.record(z.string(), z.unknown()).default({});
 
+const eventSchema = z.object({
+  id: z.string().optional(),
+  externalEventId: z.string().optional(),
+  sourceKey: z.string().optional().nullable(),
+  eventName: z.string().min(1),
+  eventDate: z.string(),
+  location: z.string().optional().nullable(),
+  status: z.string().default("SCHEDULED"),
+  payload: jsonRecord.optional()
+});
+
 const fighterSchema = z.object({
   id: z.string().optional(),
   externalKey: z.string().optional(),
@@ -19,6 +30,8 @@ const fighterSchema = z.object({
 const fightSchema = z.object({
   id: z.string().optional(),
   externalFightId: z.string().optional(),
+  eventId: z.string().optional().nullable(),
+  eventKey: z.string().optional().nullable(),
   eventLabel: z.string().min(1),
   fightDate: z.string(),
   weightClass: z.string().optional().nullable(),
@@ -105,6 +118,7 @@ const simRunSchema = z.object({
 });
 
 export const ufcWarehousePayloadSchema = z.object({
+  events: z.array(eventSchema).default([]),
   fighters: z.array(fighterSchema).default([]),
   fights: z.array(fightSchema).default([]),
   fightStatsRounds: z.array(z.record(z.string(), z.unknown())).default([]),
@@ -164,6 +178,7 @@ export function validateUfcWarehousePayload(raw: unknown) {
 export function summarizeUfcWarehousePayload(raw: unknown) {
   const payload = validateUfcWarehousePayload(raw);
   return {
+    events: payload.events.length,
     fighters: payload.fighters.length,
     fights: payload.fights.length,
     fightStatsRounds: payload.fightStatsRounds.length,
@@ -184,10 +199,17 @@ function json(value: unknown) {
 
 export async function upsertUfcWarehousePayload(raw: unknown) {
   const payload = validateUfcWarehousePayload(raw);
+  const eventIds = new Map<string, string>();
   const fighterIds = new Map<string, string>();
   const fightIds = new Map<string, string>();
   const predictionIds = new Map<string, string>();
 
+  for (const event of payload.events) {
+    const id = event.id ?? stableId("ufcev", event.externalEventId ?? `${event.eventName}:${event.eventDate}`);
+    eventIds.set(id, id);
+    eventIds.set(event.eventName, id);
+    if (event.externalEventId) eventIds.set(event.externalEventId, id);
+  }
   for (const fighter of payload.fighters) {
     const id = fighter.id ?? stableId("ufcf", fighter.externalKey ?? fighter.fullName);
     fighterIds.set(id, id);
@@ -200,10 +222,19 @@ export async function upsertUfcWarehousePayload(raw: unknown) {
     fightIds.set(fight.eventLabel, id);
     if (fight.externalFightId) fightIds.set(fight.externalFightId, id);
   }
+  const eventIdFor = (key: string | null | undefined) => key ? eventIds.get(key) ?? key : null;
   const fighterIdFor = (key: string) => fighterIds.get(key) ?? stableId("ufcf", key);
   const fightIdFor = (key: string) => fightIds.get(key) ?? stableId("ufcfi", key);
 
   await prisma.$transaction(async (tx) => {
+    for (const event of payload.events) {
+      const id = eventIdFor(event.id ?? event.externalEventId ?? event.eventName) ?? stableId("ufcev", event.eventName);
+      await tx.$executeRaw`
+        INSERT INTO ufc_events (id, external_event_id, source_key, event_name, event_date, location, status, payload_json, updated_at)
+        VALUES (${id}, ${event.externalEventId ?? null}, ${event.sourceKey ?? null}, ${event.eventName}, ${iso(event.eventDate)}, ${event.location ?? null}, ${event.status}, ${json(event.payload)}::jsonb, now())
+        ON CONFLICT (id) DO UPDATE SET event_name = EXCLUDED.event_name, event_date = EXCLUDED.event_date, location = EXCLUDED.location, status = EXCLUDED.status, payload_json = EXCLUDED.payload_json, updated_at = now()
+      `;
+    }
     for (const fighter of payload.fighters) {
       const id = fighterIdFor(fighter.id ?? fighter.externalKey ?? fighter.fullName);
       await tx.$executeRaw`
@@ -214,10 +245,11 @@ export async function upsertUfcWarehousePayload(raw: unknown) {
     }
     for (const fight of payload.fights) {
       const id = fightIdFor(fight.id ?? fight.externalFightId ?? fight.eventLabel);
+      const eventId = eventIdFor(fight.eventId ?? fight.eventKey);
       await tx.$executeRaw`
-        INSERT INTO ufc_fights (id, external_fight_id, event_label, fight_date, weight_class, scheduled_rounds, fighter_a_id, fighter_b_id, winner_fighter_id, status, pre_fight_snapshot_at, payload_json, updated_at)
-        VALUES (${id}, ${fight.externalFightId ?? null}, ${fight.eventLabel}, ${iso(fight.fightDate)}, ${fight.weightClass ?? null}, ${fight.scheduledRounds}, ${fighterIdFor(fight.fighterAKey)}, ${fighterIdFor(fight.fighterBKey)}, ${fight.winnerFighterKey ? fighterIdFor(fight.winnerFighterKey) : null}, ${fight.status}, ${iso(fight.preFightSnapshotAt)}, ${json(fight.payload)}::jsonb, now())
-        ON CONFLICT (id) DO UPDATE SET event_label = EXCLUDED.event_label, fight_date = EXCLUDED.fight_date, weight_class = EXCLUDED.weight_class, scheduled_rounds = EXCLUDED.scheduled_rounds, winner_fighter_id = EXCLUDED.winner_fighter_id, status = EXCLUDED.status, pre_fight_snapshot_at = EXCLUDED.pre_fight_snapshot_at, payload_json = EXCLUDED.payload_json, updated_at = now()
+        INSERT INTO ufc_fights (id, event_id, external_fight_id, event_label, fight_date, weight_class, scheduled_rounds, fighter_a_id, fighter_b_id, winner_fighter_id, status, pre_fight_snapshot_at, payload_json, updated_at)
+        VALUES (${id}, ${eventId}, ${fight.externalFightId ?? null}, ${fight.eventLabel}, ${iso(fight.fightDate)}, ${fight.weightClass ?? null}, ${fight.scheduledRounds}, ${fighterIdFor(fight.fighterAKey)}, ${fighterIdFor(fight.fighterBKey)}, ${fight.winnerFighterKey ? fighterIdFor(fight.winnerFighterKey) : null}, ${fight.status}, ${iso(fight.preFightSnapshotAt)}, ${json(fight.payload)}::jsonb, now())
+        ON CONFLICT (id) DO UPDATE SET event_id = EXCLUDED.event_id, event_label = EXCLUDED.event_label, fight_date = EXCLUDED.fight_date, weight_class = EXCLUDED.weight_class, scheduled_rounds = EXCLUDED.scheduled_rounds, winner_fighter_id = EXCLUDED.winner_fighter_id, status = EXCLUDED.status, pre_fight_snapshot_at = EXCLUDED.pre_fight_snapshot_at, payload_json = EXCLUDED.payload_json, updated_at = now()
       `;
     }
     for (const feature of payload.modelFeatures) {
