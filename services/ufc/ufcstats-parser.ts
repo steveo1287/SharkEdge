@@ -31,6 +31,7 @@ export type UfcStatsFightDetail = {
   fighterAUrl?: string | null;
   fighterBUrl?: string | null;
   weightClass?: string | null;
+  scheduledRounds?: number | null;
   method?: string | null;
   round?: number | null;
   time?: string | null;
@@ -92,5 +93,5 @@ export function parseUfcStatsEventPage(html: string, eventUrl = ""): UfcStatsEve
 export function parseUfcStatsFightDetail(html: string, url = ""): UfcStatsFightDetail {
   const links = [...html.matchAll(/href=["']([^"']*fighter-details[^"']+)["'][^>]*>(.*?)<\/a>/gis)].map((m) => ({ url: m[1], name: strip(m[2]) })).filter((x, i, a) => x.name && a.findIndex((y) => y.name === x.name) === i).slice(0, 2);
   if (links.length < 2) throw new Error("UFCStats fight detail missing two fighter links.");
-  return { sourceFightId: idFrom("ufcstats", url || "fight", "fight-details"), url, fighterAName: links[0].name, fighterBName: links[1].name, fighterAUrl: links[0].url, fighterBUrl: links[1].url, method: valueAfter(html, "METHOD"), round: maybeNumber(valueAfter(html, "ROUND")), time: valueAfter(html, "TIME") };
+  return { sourceFightId: idFrom("ufcstats", url || "fight", "fight-details"), url, fighterAName: links[0].name, fighterBName: links[1].name, fighterAUrl: links[0].url, fighterBUrl: links[1].url, scheduledRounds: null, method: valueAfter(html, "METHOD"), round: maybeNumber(valueAfter(html, "ROUND")), time: valueAfter(html, "TIME") };
 }
