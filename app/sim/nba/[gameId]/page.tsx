@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import {
   SimDecisionBadge,
   SimMetricTile,
+  SimSignalCard,
   SimTableShell,
   SimWorkspaceHeader
 } from "@/components/sim/sim-ui";
@@ -68,6 +69,18 @@ function statBlockers(player: FullStatPlayer | null) {
   return [...new Set([...(player?.lineupTruth?.blockers ?? []), ...(player?.minutes?.blockers ?? []), ...((player?.stats ?? []).flatMap((stat) => stat.blockers))])];
 }
 
+function statWarnings(player: FullStatPlayer | null) {
+  return [...new Set([...(player?.lineupTruth?.warnings ?? []), ...(player?.minutes?.warnings ?? []), ...((player?.stats ?? []).flatMap((stat) => stat.warnings))])];
+}
+
+function v2Health(players: FullStatPlayer[]) {
+  const blocked = players.filter((player) => statBlockers(player).length > 0 || player.lineupTruth?.status === "RED").length;
+  const warning = players.filter((player) => !statBlockers(player).length && (statWarnings(player).length > 0 || player.lineupTruth?.status === "YELLOW")).length;
+  const status = blocked > 0 ? "RED" : warning > 0 ? "YELLOW" : players.length > 0 ? "GREEN" : "RED";
+  const topReason = players.map((player) => statBlockers(player)[0] ?? statWarnings(player)[0]).find(Boolean) ?? "No V2 projection quality issues detected.";
+  return { blocked, warning, status, topReason };
+}
+
 export default async function NbaGameDetailPage({ params }: PageProps) {
   const { gameId } = await params;
   const decodedId = decodeURIComponent(gameId);
@@ -83,6 +96,7 @@ export default async function NbaGameDetailPage({ params }: PageProps) {
     ? fullStatView
     : await getNbaFullStatProjectionView({ includeModelOnly: true, take: 1500 });
   const fullStatPlayers = fallbackFullStatView.players;
+  const health = v2Health(fullStatPlayers);
   const players = rawProjection.nbaIntel?.playerStatProjections ?? [];
   const projection = rawProjection.nbaIntel && players.length
     ? { ...rawProjection, nbaIntel: { ...rawProjection.nbaIntel, playerStatProjections: calibrateNbaPlayerBoxScore(players, { awayPoints: rawProjection.distribution.avgAway, homePoints: rawProjection.distribution.avgHome }) } }
@@ -108,19 +122,23 @@ export default async function NbaGameDetailPage({ params }: PageProps) {
         description={`${formatTime(game.startTime)} · ${projection.read}`}
         actions={[
           { href: "/sim/nba", label: "NBA Board" },
-          { href: `/sim/players?league=NBA&gameId=${encodeURIComponent(decodedId)}`, label: "Player Box Score", tone: "primary" }
+          { href: `/sim/players?league=NBA&gameId=${encodeURIComponent(decodedId)}`, label: "Player Box Score", tone: "primary" },
+          { href: "/api/simulation/nba/full-stat-health", label: "V2 Health API" }
         ]}
       >
-        <div className="flex flex-wrap gap-2"><SimDecisionBadge tier={projection.nbaIntel?.tier ?? "pass"} /><Badge tone="brand">FULL-STAT V2</Badge></div>
+        <div className="flex flex-wrap gap-2"><SimDecisionBadge tier={projection.nbaIntel?.tier ?? "pass"} /><Badge tone="brand">FULL-STAT V2</Badge><Badge tone={health.status === "RED" ? "danger" : health.status === "YELLOW" ? "premium" : "success"}>{health.status}</Badge></div>
       </SimWorkspaceHeader>
 
-      <section className="grid gap-3 md:grid-cols-5">
+      <section className="grid gap-3 md:grid-cols-6">
         <SimMetricTile label="Lean" value={lean} sub={pct(leanPct)} emphasis="strong" />
         <SimMetricTile label="Score" value={`${num(projection.distribution.avgAway)} / ${num(projection.distribution.avgHome)}`} sub="Away / Home" />
         <SimMetricTile label="Confidence" value={pct(projection.nbaIntel?.confidence, 0)} sub="Governor" />
+        <SimMetricTile label="V2 health" value={health.status} sub={`${health.blocked} blocked · ${health.warning} warning`} />
         <SimMetricTile label="V2 rows" value={String(fullStatPlayers.length)} sub="Full-stat projection players" />
         <SimMetricTile label="Players" value={String(projection.nbaIntel?.playerStatProjections.length ?? 0)} sub={projection.nbaIntel?.dataSource ?? "no NBA intel"} />
       </section>
+
+      {health.status !== "GREEN" ? <SimSignalCard className="border-red-400/25 bg-red-500/[0.045]"><div className="text-sm font-semibold text-white">V2 projection health is {health.status}</div><div className="mt-1 text-xs text-slate-400">{health.topReason}</div></SimSignalCard> : null}
 
       <SimTableShell title="Top full-stat V2 player sims" description="Uses stored full-stat projections where available, including STL/BLK/PRA and minutes risk. Falls back to live sim rows if a V2 player row is missing.">
         <table className="min-w-full text-left text-xs">
