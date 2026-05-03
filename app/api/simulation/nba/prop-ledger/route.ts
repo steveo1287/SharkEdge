@@ -5,6 +5,7 @@ import {
   getOpenNbaPropPredictionSnapshotCount,
   gradeNbaPropPredictionSnapshots
 } from "@/services/simulation/nba-prop-prediction-ledger";
+import { gradeOpenNbaPropPredictionSnapshots } from "@/services/simulation/nba-prop-ledger-grader";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,10 +25,11 @@ export async function GET() {
     ok: true,
     generatedAt: new Date().toISOString(),
     openCount,
-    actions: ["capture", "grade"],
+    actions: ["capture", "grade", "gradeOpen"],
     instructions: {
       capture: "POST { action: 'capture', snapshot: { eventId, playerId, playerName, statKey, marketLine, sim, ... } }",
-      grade: "POST { action: 'grade', grade: { eventId, playerId, statKey, actualValue, closingLine } }"
+      grade: "POST { action: 'grade', grade: { eventId, playerId, statKey, actualValue, closingLine } }",
+      gradeOpen: "POST { action: 'gradeOpen', limit: 250 }"
     }
   });
 }
@@ -65,8 +67,17 @@ export async function POST(request: Request) {
     }, { status: result.ok ? 200 : 422 });
   }
 
+  if (action === "gradeOpen") {
+    const limit = typeof body.limit === "number" && Number.isFinite(body.limit) ? body.limit : 250;
+    const result = await gradeOpenNbaPropPredictionSnapshots({ limit });
+    return NextResponse.json({
+      ...result,
+      action: "gradeOpen"
+    });
+  }
+
   return NextResponse.json({
     ok: false,
-    error: "Unsupported action. Use 'capture' or 'grade'."
+    error: "Unsupported action. Use 'capture', 'grade', or 'gradeOpen'."
   }, { status: 400 });
 }
