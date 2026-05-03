@@ -1,5 +1,3 @@
-import { Prisma } from "@prisma/client";
-
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 
 import type { NbaElitePlayerPropSimulationSummary } from "./player-prop-sim-nba-elite";
@@ -54,10 +52,15 @@ function resultFor(actualValue: number, marketLine: number, predictedOverProbabi
   return actualOver === modelOver ? "WIN" : "LOSS";
 }
 
+function jsonString(value: unknown) {
+  return JSON.stringify(value ?? null);
+}
+
 export async function captureNbaPropPredictionSnapshot(input: NbaPropPredictionSnapshotInput) {
   if (!hasUsableServerDatabaseUrl()) return { ok: false, reason: "DATABASE_URL missing" };
   const statKey = normalizeNbaPropStatKey(input.statKey);
   if (!statKey) return { ok: false, reason: `unsupported stat ${input.statKey}` };
+  if (!Number.isFinite(input.marketLine)) return { ok: false, reason: "invalid market line" };
   const overProbability = numberOrNull(input.sim.hitProbOver?.[String(input.marketLine)]);
   if (overProbability === null) return { ok: false, reason: "missing over probability for market line" };
   const safety = input.sim.nbaPropSafety;
@@ -112,10 +115,10 @@ export async function captureNbaPropPredictionSnapshot(input: NbaPropPredictionS
         ${safety?.playerStatus ?? null},
         ${safety?.propCalibrationStatus ?? null},
         ${safety?.noBet ?? false},
-        ${JSON.stringify(safety?.blockerReasons ?? [])}::jsonb,
-        ${JSON.stringify(input.sim.drivers ?? [])}::jsonb,
+        ${jsonString(safety?.blockerReasons ?? [])}::jsonb,
+        ${jsonString(input.sim.drivers ?? [])}::jsonb,
         ${toDate(input.gameStartTime)},
-        ${input.metadata ? JSON.stringify(input.metadata) : null}::jsonb
+        ${jsonString(input.metadata ?? null)}::jsonb
       );
     `;
     return { ok: true, id };
@@ -128,6 +131,7 @@ export async function gradeNbaPropPredictionSnapshots(input: NbaPropPredictionGr
   if (!hasUsableServerDatabaseUrl()) return { ok: false, updated: 0, reason: "DATABASE_URL missing" };
   const statKey = normalizeNbaPropStatKey(input.statKey);
   if (!statKey) return { ok: false, updated: 0, reason: `unsupported stat ${input.statKey}` };
+  if (!Number.isFinite(input.actualValue)) return { ok: false, updated: 0, reason: "invalid actual value" };
   try {
     const result = await prisma.$executeRaw`
       UPDATE nba_prop_prediction_snapshots
@@ -151,7 +155,7 @@ export async function gradeNbaPropPredictionSnapshots(input: NbaPropPredictionGr
         AND (${input.playerId ?? null} IS NULL OR player_id = ${input.playerId ?? null})
         AND (${input.playerName ?? null} IS NULL OR player_name = ${input.playerName ?? null});
     `;
-    return { ok: true, updated: Number(result), result: resultFor(input.actualValue, 0, 0.5) };
+    return { ok: true, updated: Number(result) };
   } catch (error) {
     return { ok: false, updated: 0, reason: error instanceof Error ? error.message : "grade failed" };
   }
