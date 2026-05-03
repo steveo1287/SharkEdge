@@ -21,6 +21,7 @@ export async function GET() {
     ok: true,
     endpoint: "POST /api/ufc/operational-sim",
     modes: ["simulate", "resolve-shadow", "calibrate", "calibrate-ensemble"],
+    weightPriority: "manual override > learned weights > default weights",
     simulation: "warehouse feature snapshots -> ensemble UFC sim -> prediction/sim run/shadow tables"
   });
 }
@@ -46,7 +47,9 @@ export async function POST(request: Request) {
         marketOddsAOpen: asNumber(body.marketOddsAOpen),
         marketOddsBOpen: asNumber(body.marketOddsBOpen),
         marketOddsAClose: asNumber(body.marketOddsAClose),
-        marketOddsBClose: asNumber(body.marketOddsBClose)
+        marketOddsBClose: asNumber(body.marketOddsBClose),
+        skillMarkovWeight: asNumber(body.skillMarkovWeight),
+        exchangeMonteCarloWeight: asNumber(body.exchangeMonteCarloWeight)
       });
       return NextResponse.json({ ok: true, result });
     }

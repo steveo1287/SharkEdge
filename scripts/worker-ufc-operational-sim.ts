@@ -36,7 +36,9 @@ async function main() {
       marketOddsAOpen: numberArg("marketOddsAOpen"),
       marketOddsBOpen: numberArg("marketOddsBOpen"),
       marketOddsAClose: numberArg("marketOddsAClose"),
-      marketOddsBClose: numberArg("marketOddsBClose")
+      marketOddsBClose: numberArg("marketOddsBClose"),
+      skillMarkovWeight: numberArg("skillMarkovWeight"),
+      exchangeMonteCarloWeight: numberArg("exchangeMonteCarloWeight")
     });
     console.log(JSON.stringify({ ok: true, mode, result }, null, 2));
     return;

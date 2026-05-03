@@ -12,6 +12,7 @@ const tests = [
   "tests/ufc-exchange-monte-carlo.test.ts",
   "tests/ufc-ensemble-sim.test.ts",
   "tests/ufc-ensemble-calibration.test.ts",
+  "tests/ufc-ensemble-weight-store.test.ts",
   "tests/ufcstats-parser.test.ts",
   "tests/ufcstats-normalizer.test.ts",
   "tests/ufcstats-fetcher.test.ts",
