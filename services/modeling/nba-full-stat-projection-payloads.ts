@@ -7,6 +7,7 @@ import {
   type NbaFullStatKey,
   type NbaPropMarketLine
 } from "@/services/simulation/nba-player-full-stat-projection";
+import type { NbaMinutesProjection } from "@/services/simulation/nba-minutes-projection";
 
 export type NbaFullStatProjectionPayload = {
   modelKey: string;
@@ -169,6 +170,33 @@ function lineupTruthMetadata(lineupTruth: NbaLineupTruth | null) {
   };
 }
 
+function minutesMetadata(minutes: NbaMinutesProjection | null | undefined) {
+  if (!minutes) return {};
+  return {
+    projectedMinutes: minutes.projectedMinutes,
+    minutesFloor: minutes.floorMinutes,
+    minutesCeiling: minutes.ceilingMinutes,
+    minutesConfidence: minutes.confidence,
+    role: minutes.role,
+    roleConfidence: minutes.roleConfidence,
+    starterConfidence: minutes.starterConfidence,
+    rotationStability: minutes.rotationStability,
+    minutesVolatility: minutes.minutesVolatility,
+    starterLikely: minutes.starterLikely,
+    closingLineupLikely: minutes.closingLineupLikely,
+    blowoutRisk: minutes.blowoutRisk,
+    foulRisk: minutes.foulRisk,
+    injuryRisk: minutes.injuryRisk,
+    restAdjustment: minutes.restAdjustment,
+    blowoutAdjustment: minutes.blowoutAdjustment,
+    injuryAdjustment: minutes.injuryAdjustment,
+    roleAdjustment: minutes.roleAdjustment,
+    minutesBlockers: minutes.blockers,
+    minutesWarnings: minutes.warnings,
+    minutesDrivers: minutes.drivers
+  };
+}
+
 function toPayload(args: {
   eventId: string;
   playerId: string;
@@ -192,6 +220,7 @@ function toPayload(args: {
   projectedMinutes: number;
   modelOnly: boolean;
   lineupTruth: NbaLineupTruth | null;
+  minutes: NbaMinutesProjection | null;
 }): NbaFullStatProjectionPayload {
   return {
     modelKey: "nba-full-stat-projection",
@@ -218,6 +247,7 @@ function toPayload(args: {
       teamName: args.teamName,
       opponentName: args.opponentName,
       projectedMinutes: args.projectedMinutes,
+      ...minutesMetadata(args.minutes),
       ...lineupTruthMetadata(args.lineupTruth)
     }
   };
@@ -291,6 +321,7 @@ export async function buildNbaFullStatProjectionPayloadsForEvent(args: {
       playerStatus: playerStatus(player.status),
       marketLinesByStat: marketLinesByPlayer.get(player.id)
     });
+    const minutes = full.stats.points.minutes;
 
     for (const [statKey, projection] of Object.entries(full.stats) as Array<[NbaFullStatKey, typeof full.stats[keyof typeof full.stats]]>) {
       const storageKey = STAT_STORAGE_KEYS[statKey];
@@ -305,7 +336,8 @@ export async function buildNbaFullStatProjectionPayloadsForEvent(args: {
         opponentName: opponent?.name ?? null,
         projectedMinutes: full.projectedMinutes,
         modelOnly: projection.marketLine === null,
-        lineupTruth
+        lineupTruth,
+        minutes: projection.minutes
       }));
     }
 
@@ -322,7 +354,8 @@ export async function buildNbaFullStatProjectionPayloadsForEvent(args: {
         opponentName: opponent?.name ?? null,
         projectedMinutes: full.projectedMinutes,
         modelOnly: projection.marketLine === null,
-        lineupTruth
+        lineupTruth,
+        minutes
       }));
     }
   }
