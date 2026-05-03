@@ -15,6 +15,10 @@
       "schedule": "0 8 * * *"
     },
     {
+      "path": "/api/internal/cron/ufc-autopilot",
+      "schedule": "17 */6 * * *"
+    },
+    {
       "path": "/api/internal/cron/settle-sim-predictions",
       "schedule": "*/30 * * * *"
     },
