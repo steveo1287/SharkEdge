@@ -77,6 +77,18 @@ function statWarnings(player: FullStatPlayer | null) {
   return [...new Set([...(player?.lineupTruth?.blockers ?? []), ...(player?.minutes?.blockers ?? []), ...((player?.stats ?? []).flatMap((stat) => stat.blockers))])];
 }
 
+function statSoftWarnings(player: FullStatPlayer | null) {
+  return [...new Set([...(player?.lineupTruth?.warnings ?? []), ...(player?.minutes?.warnings ?? []), ...((player?.stats ?? []).flatMap((stat) => stat.warnings))])];
+}
+
+function v2Health(players: FullStatPlayer[]) {
+  const blocked = players.filter((player) => statWarnings(player).length > 0 || player.lineupTruth?.status === "RED").length;
+  const warning = players.filter((player) => !statWarnings(player).length && (statSoftWarnings(player).length > 0 || player.lineupTruth?.status === "YELLOW")).length;
+  const status = blocked > 0 ? "RED" : warning > 0 ? "YELLOW" : players.length > 0 ? "GREEN" : "RED";
+  const topReason = players.map((player) => statWarnings(player)[0] ?? statSoftWarnings(player)[0]).find(Boolean) ?? "No V2 projection quality issues detected.";
+  return { blocked, warning, status, topReason };
+}
+
 function MinutesRiskMini({ fullStat }: { fullStat: FullStatPlayer | null }) {
   const minutes = fullStat?.minutes;
   if (!minutes) return null;
@@ -197,12 +209,14 @@ export default async function SimPlayersPage({ searchParams }: PageProps) {
   const playerRows = displayedRows.reduce((total, row) => total + (row.projection.nbaIntel?.playerStatProjections.length ?? 0), 0);
   const attack = displayedRows.filter((row) => row.projection.nbaIntel?.tier === "attack").length;
   const watch = displayedRows.filter((row) => row.projection.nbaIntel?.tier === "watch").length;
+  const health = v2Health(fullStatView.players);
 
   return (
     <div className="space-y-6">
-      <SimWorkspaceHeader eyebrow="Player Matchups" title="Projected box scores for every player in the matchup." description="This page now overlays the full-stat V2 projection layer: PTS, REB, AST, 3PM, STL, BLK, PRA, minutes range, lineup truth, and minutes risk. Older live sim rows remain as fallback when a stored V2 row is missing." actions={[{ href: "/sim/nba", label: "NBA Sim", tone: "primary" }, { href: "/props?league=NBA", label: "NBA Props" }, { href: "/nba-edge", label: "NBA Edge" }, ...(focusedGameId || focusPlayer ? [{ href: "/sim/players?league=NBA", label: "Clear Focus" }] : [])]} />
+      <SimWorkspaceHeader eyebrow="Player Matchups" title="Projected box scores for every player in the matchup." description="This page now overlays the full-stat V2 projection layer: PTS, REB, AST, 3PM, STL, BLK, PRA, minutes range, lineup truth, and minutes risk. Older live sim rows remain as fallback when a stored V2 row is missing." actions={[{ href: "/sim/nba", label: "NBA Sim", tone: "primary" }, { href: "/props?league=NBA", label: "NBA Props" }, { href: "/nba-edge", label: "NBA Edge" }, { href: "/api/simulation/nba/full-stat-health", label: "V2 Health API" }, ...(focusedGameId || focusPlayer ? [{ href: "/sim/players?league=NBA", label: "Clear Focus" }] : [])]} />
       {focusedGameId || focusPlayer ? <SimSignalCard className="border-sky-400/25 bg-sky-500/[0.05]"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-200/80">Prop drilldown active</div><div className="mt-1 text-sm text-slate-300">{focusedPlayerRow ? `Focused on ${focusedPlayerRow.player.playerName} in ${focusedPlayerRow.game.label}.` : `Focused query loaded${focusPlayer ? ` for ${focusPlayer}` : ""}. Matching player rows will highlight when available.`}</div></div><Link href="/sim/players?league=NBA" className="rounded-full border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-200">Show full slate</Link></div></SimSignalCard> : null}
-      <section className="grid gap-3 md:grid-cols-5"><SimMetricTile label="Matchups" value={String(displayedRows.length)} sub={`${activeLeague} active slate`} /><SimMetricTile label="Player rows" value={String(playerRows)} sub="Live sim box-score entries" /><SimMetricTile label="V2 rows" value={String(fullStatView.playerCount)} sub="Full-stat projection players" emphasis="strong" /><SimMetricTile label="Attack / Watch" value={`${attack} / ${watch}`} sub="NBA governor tiers" /><SimMetricTile label="Runs" value={boardRuns >= 1000 ? `${Math.round(boardRuns / 1000)}k` : String(boardRuns)} sub="Per-player simulation depth" /></section>
+      <section className="grid gap-3 md:grid-cols-6"><SimMetricTile label="Matchups" value={String(displayedRows.length)} sub={`${activeLeague} active slate`} /><SimMetricTile label="Player rows" value={String(playerRows)} sub="Live sim box-score entries" /><SimMetricTile label="V2 rows" value={String(fullStatView.playerCount)} sub="Full-stat projection players" emphasis="strong" /><SimMetricTile label="V2 health" value={health.status} sub={`${health.blocked} blocked · ${health.warning} warning`} emphasis={health.status === "GREEN" ? "strong" : undefined} /><SimMetricTile label="Attack / Watch" value={`${attack} / ${watch}`} sub="NBA governor tiers" /><SimMetricTile label="Runs" value={boardRuns >= 1000 ? `${Math.round(boardRuns / 1000)}k` : String(boardRuns)} sub="Per-player simulation depth" /></section>
+      {health.status !== "GREEN" ? <SimSignalCard className="border-red-400/25 bg-red-500/[0.045]"><div className="text-sm font-semibold text-white">V2 projection health is {health.status}</div><div className="mt-1 text-xs text-slate-400">{health.topReason}</div></SimSignalCard> : null}
       <section className="grid gap-4"><SectionTitle title="NBA player matchup board" description="Tables now prefer full-stat V2 rows where available and expose minutes range, lineup truth, and risk blockers inline." />{displayedRows.length ? displayedRows.map((row) => <MatchupBoxScoreCard key={`${row.game.leagueKey}:${row.game.id}`} row={row} focusPlayer={focusPlayer} focusedGameId={focusedGameId} fullStatPlayers={fullStatView.players} />) : <EmptyState title="No matching NBA matchup available" description="The scoreboard provider did not return an active NBA game matching this prop link." />}</section>
     </div>
   );
