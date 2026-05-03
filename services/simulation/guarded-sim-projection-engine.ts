@@ -54,10 +54,10 @@ function nbaHasDocumentedLineupReason(projection: SimProjection) {
   const reasons = projection.nbaIntel?.reasons ?? [];
   const modules = projection.realityIntel?.modules ?? [];
   const factorSignal = factors.some((factor) =>
-    /availability|injury|star|player|rotation|usage/i.test(factor.label) && Math.abs(factor.value * factor.weight) >= 0.12
+    /availability|injury|rotation|usage/i.test(factor.label) && Math.abs(factor.value * factor.weight) >= 0.12
   );
-  const reasonSignal = reasons.some((reason) => /injury|availability|rotation|usage|star|player/i.test(reason));
-  const moduleSignal = modules.some((module) => /injury|availability|rotation|player/i.test(module.label) && module.status === "real");
+  const reasonSignal = reasons.some((reason) => /injury|availability|rotation|usage/i.test(reason));
+  const moduleSignal = modules.some((module) => /injury|availability|rotation/i.test(module.label) && module.status === "real");
   return factorSignal || reasonSignal || moduleSignal;
 }
 
