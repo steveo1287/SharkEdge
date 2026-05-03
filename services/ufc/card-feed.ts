@@ -49,6 +49,9 @@ export type UfcFightIqDetail = {
 
 type FightDetailRow = {
   fight_id: string;
+  event_id: string | null;
+  event_name: string | null;
+  event_date: Date | string | null;
   event_label: string;
   fight_date: Date | string;
   scheduled_rounds: number;
@@ -84,8 +87,16 @@ export function ufcCardIdFromDate(value: string | Date) {
   return date.toISOString().slice(0, 10);
 }
 
+function cardIdForFight(fight: Pick<UfcOperationalFeedCard, "eventId" | "fightDate">) {
+  return fight.eventId ?? ufcCardIdFromDate(fight.fightDate);
+}
+
 function toIso(value: Date | string) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function toIsoNullable(value: Date | string | null) {
+  return value == null ? null : toIso(value);
 }
 
 function gradeRank(grade: string | null | undefined) {
@@ -102,7 +113,9 @@ function worstGrade(grades: Array<string | null>) {
   return present.sort((a, b) => gradeRank(a) - gradeRank(b))[0] ?? null;
 }
 
-function cardLabel(eventId: string) {
+function cardLabel(eventId: string, rows: UfcOperationalFeedCard[]) {
+  const eventName = rows.find((row) => row.eventName)?.eventName;
+  if (eventName) return eventName;
   const date = new Date(`${eventId}T12:00:00.000Z`);
   if (Number.isNaN(date.getTime())) return "UFC Card";
   return `UFC Card · ${date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
@@ -111,20 +124,20 @@ function cardLabel(eventId: string) {
 export function buildUfcCardSummaries(fights: UfcOperationalFeedCard[]): UfcCardSummary[] {
   const groups = new Map<string, UfcOperationalFeedCard[]>();
   for (const fight of fights) {
-    const eventId = ufcCardIdFromDate(fight.fightDate);
+    const eventId = cardIdForFight(fight);
     groups.set(eventId, [...(groups.get(eventId) ?? []), fight]);
   }
   return [...groups.entries()].map(([eventId, rows]) => ({
     eventId,
-    eventLabel: cardLabel(eventId),
-    eventDate: rows[0]?.fightDate ?? `${eventId}T00:00:00.000Z`,
+    eventLabel: cardLabel(eventId, rows),
+    eventDate: rows.find((row) => row.eventDate)?.eventDate ?? rows[0]?.fightDate ?? `${eventId}T00:00:00.000Z`,
     fightCount: rows.length,
     simulatedFightCount: rows.filter((fight) => fight.simulationCount != null).length,
     dataQualityGrade: worstGrade(rows.map((fight) => fight.dataQualityGrade)),
     lastSimulatedAt: rows.map((fight) => fight.generatedAt).sort().at(-1) ?? null,
     shadowPendingCount: rows.filter((fight) => fight.shadowStatus === "PENDING").length,
     shadowResolvedCount: rows.filter((fight) => fight.shadowStatus === "RESOLVED").length,
-    providerStatus: rows.length ? "cached" : "empty"
+    providerStatus: rows.some((fight) => fight.eventId) ? "event-linked" : rows.length ? "legacy-date" : "empty"
   })).sort((a, b) => new Date(b.eventDate).getTime() - new Date(a.eventDate).getTime());
 }
 
@@ -135,7 +148,7 @@ export async function getUfcCards(options: { modelVersion?: string; includePast?
 
 export async function getUfcCardDetail(eventId: string, options: { modelVersion?: string } = {}): Promise<UfcCardDetail | null> {
   const fights = await getUfcOperationalFeed({ modelVersion: options.modelVersion, includePast: true, limit: 100 });
-  const cardFights = fights.filter((fight) => ufcCardIdFromDate(fight.fightDate) === eventId);
+  const cardFights = fights.filter((fight) => cardIdForFight(fight) === eventId);
   if (!cardFights.length) return null;
   const summary = buildUfcCardSummaries(cardFights)[0];
   return summary ? { ...summary, fights: cardFights } : null;
@@ -177,7 +190,7 @@ function findFeedPrediction(fightId: string, fights: UfcOperationalFeedCard[]) {
 export async function getUfcFightIqDetail(fightId: string, options: { modelVersion?: string } = {}): Promise<UfcFightIqDetail | null> {
   const [rows, feed] = await Promise.all([
     prisma.$queryRaw<FightDetailRow[]>`
-      SELECT f.id AS fight_id, f.event_label, f.fight_date, f.scheduled_rounds,
+      SELECT f.id AS fight_id, e.id AS event_id, e.event_name, e.event_date, f.event_label, f.fight_date, f.scheduled_rounds,
         f.fighter_a_id, f.fighter_b_id,
         fa.full_name AS fighter_a_name,
         fb.full_name AS fighter_b_name,
@@ -202,6 +215,7 @@ export async function getUfcFightIqDetail(fightId: string, options: { modelVersi
         af.feature_json AS a_feature_json,
         bf.feature_json AS b_feature_json
       FROM ufc_fights f
+      LEFT JOIN ufc_events e ON e.id = f.event_id
       LEFT JOIN ufc_fighters fa ON fa.id = f.fighter_a_id
       LEFT JOIN ufc_fighters fb ON fb.id = f.fighter_b_id
       LEFT JOIN LATERAL (
@@ -224,8 +238,8 @@ export async function getUfcFightIqDetail(fightId: string, options: { modelVersi
   const predictionJson = row.prediction_json ?? {};
   return {
     fightId,
-    eventId: ufcCardIdFromDate(row.fight_date),
-    eventLabel: row.event_label,
+    eventId: row.event_id ?? ufcCardIdFromDate(row.fight_date),
+    eventLabel: row.event_name ?? cardLabel(ufcCardIdFromDate(row.fight_date), []),
     fightDate: toIso(row.fight_date),
     scheduledRounds: row.scheduled_rounds,
     fighters: {

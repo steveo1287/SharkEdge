@@ -22,8 +22,18 @@ export type UfcRealFighterSnapshot = {
   feature?: Record<string, unknown>;
 };
 
+export type UfcRealEventSnapshot = {
+  sourceEventId: string;
+  eventName: string;
+  eventDate: string;
+  location?: string | null;
+  status?: string | null;
+  payload?: Record<string, unknown>;
+};
+
 export type UfcRealFightSnapshot = {
   sourceFightId: string;
+  eventId?: string | null;
   eventLabel: string;
   fightDate: string;
   scheduledRounds?: 3 | 5;
@@ -38,6 +48,7 @@ export type UfcRealDataSnapshot = {
   sourceKey: string;
   modelVersion?: string;
   snapshotAt: string;
+  event?: UfcRealEventSnapshot | null;
   fights: UfcRealFightSnapshot[];
 };
 
@@ -57,7 +68,18 @@ export function normalizeUfcRealDataSnapshot(snapshot: UfcRealDataSnapshot): Ufc
     fighters.set(fight.fighterB.sourceId, fight.fighterB);
   }
 
+  const eventKey = snapshot.event?.sourceEventId ?? null;
+
   return {
+    events: snapshot.event ? [{
+      externalEventId: snapshot.event.sourceEventId,
+      sourceKey: snapshot.sourceKey,
+      eventName: snapshot.event.eventName,
+      eventDate: snapshot.event.eventDate,
+      location: snapshot.event.location ?? null,
+      status: snapshot.event.status ?? "SCHEDULED",
+      payload: { sourceKey: snapshot.sourceKey, ...(snapshot.event.payload ?? {}) }
+    }] : [],
     fighters: [...fighters.values()].map((fighter) => ({
       externalKey: fighter.sourceId,
       fullName: fighter.name,
@@ -69,6 +91,7 @@ export function normalizeUfcRealDataSnapshot(snapshot: UfcRealDataSnapshot): Ufc
     })),
     fights: snapshot.fights.map((fight) => ({
       externalFightId: fight.sourceFightId,
+      eventKey: fight.eventId ?? eventKey,
       eventLabel: fight.eventLabel,
       fightDate: fight.fightDate,
       scheduledRounds: fight.scheduledRounds ?? 3,
@@ -79,6 +102,7 @@ export function normalizeUfcRealDataSnapshot(snapshot: UfcRealDataSnapshot): Ufc
       preFightSnapshotAt: snapshot.snapshotAt,
       payload: {
         sourceKey: snapshot.sourceKey,
+        sourceEventId: fight.eventId ?? eventKey,
         marketOddsAOpen: fight.marketOddsAOpen ?? null,
         marketOddsBOpen: fight.marketOddsBOpen ?? null
       }

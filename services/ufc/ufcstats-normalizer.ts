@@ -51,12 +51,21 @@ export function normalizeUfcStatsSnapshot(input: UfcStatsSnapshotInput): UfcReal
     sourceKey: "ufcstats",
     modelVersion: input.modelVersion ?? "ufc-fight-iq-v1",
     snapshotAt: input.snapshotAt,
+    event: {
+      sourceEventId: input.event.sourceEventId,
+      eventName: input.event.eventName,
+      eventDate: fightDate,
+      location: input.event.location ?? null,
+      status: "SCHEDULED",
+      payload: { sourceEventId: input.event.sourceEventId, sourceKey: "ufcstats" }
+    },
     fights: input.event.fights.map((eventFight) => {
       const detail = fightDetailsById.get(eventFight.sourceFightId);
       const fighterAName = detail?.fighterAName ?? eventFight.fighterAName ?? "Unknown A";
       const fighterBName = detail?.fighterBName ?? eventFight.fighterBName ?? "Unknown B";
       return {
         sourceFightId: eventFight.sourceFightId,
+        eventId: input.event.sourceEventId,
         eventLabel: `${fighterAName} vs ${fighterBName}`,
         fightDate,
         scheduledRounds: scheduledRounds(detail?.scheduledRounds),
