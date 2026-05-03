@@ -27,7 +27,7 @@ export type GuardedSimDecision = {
   reasons: string[];
 };
 
-const MIN_BUCKET_SAMPLE = 8;
+const MIN_BUCKET_SAMPLE = 25;
 const WATCH_GAP = 0.08;
 const POOR_GAP = 0.15;
 const WATCH_BRIER = 0.24;
@@ -114,7 +114,20 @@ export function applySimAccuracyGuardrail(args: {
   let noBet = Boolean(args.noBet);
   let downgraded = false;
 
-  if (guardrail && guardrail.state === "insufficient") {
+  if (!guardrail) {
+    const note = `Accuracy guard: ${args.league}:${bucket} bucket has no graded history; action is blocked until this probability range is proven.`;
+    if (originalTier === "attack") {
+      tier = "watch";
+      noBet = true;
+      downgraded = true;
+      confidence = confidence == null ? null : round(clamp(confidence - 0.1, 0, 1), 3);
+      reasons.unshift(note);
+    } else if (originalTier === "watch") {
+      noBet = true;
+      confidence = confidence == null ? null : round(clamp(confidence - 0.05, 0, 1), 3);
+      reasons.unshift(note);
+    }
+  } else if (guardrail.state === "insufficient") {
     const note = `Accuracy guard: ${guardrail.note}`;
     if (originalTier === "attack") {
       tier = "watch";
@@ -127,7 +140,7 @@ export function applySimAccuracyGuardrail(args: {
       confidence = confidence == null ? null : round(clamp(confidence - 0.04, 0, 1), 3);
       reasons.unshift(note);
     }
-  } else if (guardrail && guardrail.state !== "healthy") {
+  } else if (guardrail.state !== "healthy") {
     const note = `Accuracy guard: ${guardrail.note}`;
 
     if (originalTier === "attack") {
