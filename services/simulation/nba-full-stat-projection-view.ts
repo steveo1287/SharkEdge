@@ -34,6 +34,7 @@ export type NbaPlayerMinutesView = {
   foulRisk: number | null;
   injuryRisk: number | null;
   restAdjustment: number | null;
+  blowoutRiskAdjustment: number | null;
   blowoutAdjustment: number | null;
   injuryAdjustment: number | null;
   roleAdjustment: number | null;
@@ -42,12 +43,22 @@ export type NbaPlayerMinutesView = {
   drivers: string[];
 };
 
+export type NbaPlayerLineupTruthView = {
+  status: string | null;
+  injuryReportFresh: boolean | null;
+  minutesTrusted: boolean | null;
+  projectedStarterConfidence: number | null;
+  blockers: string[];
+  warnings: string[];
+};
+
 export type NbaPlayerFullStatView = {
   playerId: string;
   playerName: string;
   teamName: string | null;
   projectedMinutes: number | null;
   minutes: NbaPlayerMinutesView | null;
+  lineupTruth: NbaPlayerLineupTruthView | null;
   stats: NbaFullStatTile[];
 };
 
@@ -174,12 +185,29 @@ function minutesFromMetadata(metadata: Record<string, unknown>): NbaPlayerMinute
     foulRisk: asNumber(metadata.foulRisk),
     injuryRisk: asNumber(metadata.injuryRisk),
     restAdjustment: asNumber(metadata.restAdjustment),
+    blowoutRiskAdjustment: asNumber(metadata.blowoutRiskAdjustment),
     blowoutAdjustment: asNumber(metadata.blowoutAdjustment),
     injuryAdjustment: asNumber(metadata.injuryAdjustment),
     roleAdjustment: asNumber(metadata.roleAdjustment),
     blockers: asStringArray(metadata.minutesBlockers),
     warnings: asStringArray(metadata.minutesWarnings),
     drivers: asStringArray(metadata.minutesDrivers)
+  };
+}
+
+function lineupTruthFromMetadata(metadata: Record<string, unknown>): NbaPlayerLineupTruthView | null {
+  const status = typeof metadata.lineupTruthStatus === "string" ? metadata.lineupTruthStatus : null;
+  const injuryReportFresh = asBoolean(metadata.injuryReportFresh);
+  const minutesTrusted = asBoolean(metadata.minutesTrusted);
+  const hasLineup = status !== null || injuryReportFresh !== null || minutesTrusted !== null;
+  if (!hasLineup) return null;
+  return {
+    status,
+    injuryReportFresh,
+    minutesTrusted,
+    projectedStarterConfidence: asNumber(metadata.projectedStarterConfidence),
+    blockers: asStringArray(metadata.lineupBlockers),
+    warnings: asStringArray(metadata.lineupWarnings)
   };
 }
 
@@ -192,6 +220,19 @@ function mergeMinutes(existing: NbaPlayerMinutesView | null, next: NbaPlayerMinu
       Object.entries(next).filter(([, value]) => value !== null && (!Array.isArray(value) || value.length > 0))
     )
   } as NbaPlayerMinutesView;
+}
+
+function mergeLineupTruth(existing: NbaPlayerLineupTruthView | null, next: NbaPlayerLineupTruthView | null) {
+  if (!existing) return next;
+  if (!next) return existing;
+  return {
+    status: existing.status ?? next.status,
+    injuryReportFresh: existing.injuryReportFresh ?? next.injuryReportFresh,
+    minutesTrusted: existing.minutesTrusted ?? next.minutesTrusted,
+    projectedStarterConfidence: existing.projectedStarterConfidence ?? next.projectedStarterConfidence,
+    blockers: [...new Set([...existing.blockers, ...next.blockers])],
+    warnings: [...new Set([...existing.warnings, ...next.warnings])]
+  };
 }
 
 export async function getNbaFullStatProjectionView(args: {
@@ -245,11 +286,13 @@ export async function getNbaFullStatProjectionView(args: {
       teamName: projection.player?.team?.name ?? (typeof metadata.teamName === "string" ? metadata.teamName : null),
       projectedMinutes: asNumber(metadata.projectedMinutes),
       minutes: null,
+      lineupTruth: null,
       stats: []
     };
 
     existing.projectedMinutes = existing.projectedMinutes ?? asNumber(metadata.projectedMinutes);
     existing.minutes = mergeMinutes(existing.minutes, minutesFromMetadata(metadata));
+    existing.lineupTruth = mergeLineupTruth(existing.lineupTruth, lineupTruthFromMetadata(metadata));
     existing.stats.push({
       statKey,
       label: STAT_LABELS[statKey] ?? statKey.replace(/^player_/, "").toUpperCase(),
