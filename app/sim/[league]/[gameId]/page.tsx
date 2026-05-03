@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { SectionTitle } from "@/components/ui/section-title";
 import { formatLongDate } from "@/lib/formatters/date";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
-import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
+import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
 import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
 import type { LeagueKey } from "@/lib/types/domain";
 
@@ -67,7 +67,11 @@ function decision(projection: Projection) {
   if (gov?.noBet || gov?.tier === "pass") return { label: "PASS", cls: "border-red-400/30 bg-red-500/10 text-red-200" };
   if (gov?.tier === "attack") return { label: "ATTACK", cls: "border-emerald-400/30 bg-emerald-500/10 text-emerald-200" };
   if (gov?.tier === "watch") return { label: "WATCH", cls: "border-amber-400/30 bg-amber-500/10 text-amber-200" };
-  const confidence = projection.nbaIntel?.confidence ?? projection.realityIntel?.confidence ?? 0;
+  const nba = projection.nbaIntel;
+  if (nba?.noBet || nba?.tier === "pass") return { label: "PASS", cls: "border-red-400/30 bg-red-500/10 text-red-200" };
+  if (nba?.tier === "attack") return { label: "ATTACK", cls: "border-emerald-400/30 bg-emerald-500/10 text-emerald-200" };
+  if (nba?.tier === "watch") return { label: "WATCH", cls: "border-amber-400/30 bg-amber-500/10 text-amber-200" };
+  const confidence = projection.realityIntel?.confidence ?? 0;
   const edge = Math.abs(projection.distribution.homeWinPct - 0.5);
   if (edge >= 0.08 && confidence >= 0.62) return { label: "ATTACK", cls: "border-emerald-400/30 bg-emerald-500/10 text-emerald-200" };
   if (edge >= 0.045 && confidence >= 0.55) return { label: "WATCH", cls: "border-amber-400/30 bg-amber-500/10 text-amber-200" };
@@ -363,7 +367,7 @@ export default async function SimMatchupPage({ params }: PageProps) {
         <Tile label="Away projection" value={String(projection.distribution.avgAway)} sub={projection.matchup.away} />
         <Tile label="Home projection" value={String(projection.distribution.avgHome)} sub={projection.matchup.home} />
         <Tile label="Projected total" value={String(projectedTotal)} sub="Model output" />
-        <Tile label="Confidence" value={confidence == null ? "--" : pct(confidence)} sub={projection.mlbIntel?.governor?.noBet ? "No bet" : "Action gate"} />
+        <Tile label="Confidence" value={confidence == null ? "--" : pct(confidence)} sub={projection.mlbIntel?.governor?.noBet || projection.nbaIntel?.noBet ? "No bet" : "Action gate"} />
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
