@@ -179,4 +179,47 @@ assert.equal(staleProp.verdict.kellyPct, 0, "stale NBA prop injury context must 
 assert.notEqual(staleProp.verdict.actionState, "BET_NOW", "stale NBA prop injury context must prevent BET_NOW");
 assert.ok(staleProp.verdict.explanation.includes("injury"), "stale prop should explain injury blocker");
 
+const blockedStructuredProp = buildPlayerPropVerdict({
+  ...propSim,
+  nbaPropSafety: {
+    modelHealthGreen: false,
+    sourceHealthGreen: false,
+    injuryReportFresh: false,
+    calibrationBucketHealthy: false,
+    noVigMarketAvailable: true,
+    noBet: true,
+    blockerReasons: ["lineup truth missing", "minutes confidence below 0.65"],
+    confidence: 0.44,
+    minutesConfidence: 0.52,
+    lineupTruthStatus: "MISSING",
+    playerStatus: "ACTIVE"
+  }
+} as PlayerPropSimulationSummary, "p1", "Player", "points", 25.5, -110, -110, "NBA");
+
+assert.equal(blockedStructuredProp.verdict.kellyPct, 0, "structured prop safety noBet must force zero Kelly");
+assert.notEqual(blockedStructuredProp.verdict.actionState, "BET_NOW", "structured prop safety noBet must prevent BET_NOW");
+assert.ok(blockedStructuredProp.verdict.explanation.includes("lineup truth missing"));
+assert.ok(blockedStructuredProp.verdict.explanation.includes("minutes confidence"));
+assert.ok(blockedStructuredProp.verdict.explanation.includes("lineup=MISSING"));
+
+const healthyStructuredProp = buildPlayerPropVerdict({
+  ...propSim,
+  nbaPropSafety: {
+    modelHealthGreen: true,
+    sourceHealthGreen: true,
+    injuryReportFresh: true,
+    calibrationBucketHealthy: true,
+    noVigMarketAvailable: true,
+    noBet: false,
+    blockerReasons: [],
+    confidence: 0.78,
+    minutesConfidence: 0.82,
+    lineupTruthStatus: "GREEN",
+    playerStatus: "ACTIVE"
+  }
+} as PlayerPropSimulationSummary, "p1", "Player", "points", 25.5, -110, -110, "NBA");
+
+assert.ok(healthyStructuredProp.verdict.kellyPct <= 0.5, "healthy structured prop Kelly must stay capped");
+assert.ok(!healthyStructuredProp.verdict.explanation.includes("Explicit NBA safety context"));
+
 console.log("nba-guarded-verdict-wrapper.test.ts passed");
