@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/db/prisma";
+import { resolveUfcEnsembleWeights } from "@/services/ufc/ensemble-weight-store";
 import { getUfcProviderReadiness } from "@/services/ufc/provider-adapters";
 
 export async function getUfcOperationalStatus(modelVersion = "ufc-fight-iq-v1") {
-  const [predictionRows, shadowRows, calibrationRows] = await Promise.all([
+  const [predictionRows, shadowRows, calibrationRows, ensembleWeights] = await Promise.all([
     prisma.$queryRaw<Array<{ last_generated_at: Date | string | null; prediction_count: bigint | number }>>`
       SELECT max(generated_at) AS last_generated_at, count(*) AS prediction_count
       FROM ufc_predictions
@@ -21,7 +22,8 @@ export async function getUfcOperationalStatus(modelVersion = "ufc-fight-iq-v1") 
       WHERE model_version = ${modelVersion}
       ORDER BY generated_at DESC
       LIMIT 1
-    `
+    `,
+    resolveUfcEnsembleWeights(modelVersion)
   ]);
 
   const predictions = predictionRows[0];
@@ -31,6 +33,12 @@ export async function getUfcOperationalStatus(modelVersion = "ufc-fight-iq-v1") 
     ok: true,
     modelVersion,
     providerReadiness: getUfcProviderReadiness(),
+    activeEnsembleWeights: ensembleWeights.weights,
+    activeEnsembleWeightSource: ensembleWeights.source,
+    latestEnsembleCalibrationAt: ensembleWeights.generatedAt ?? null,
+    ensembleCalibrationSampleCount: ensembleWeights.sampleCount ?? null,
+    ensembleCalibrationShrinkage: ensembleWeights.shrinkage ?? null,
+    ensembleCalibrationSnapshotId: ensembleWeights.calibrationSnapshotId ?? null,
     lastPredictionGeneratedAt: predictions?.last_generated_at ? new Date(predictions.last_generated_at).toISOString() : null,
     predictionCount: Number(predictions?.prediction_count ?? 0),
     shadowPendingCount: Number(shadow?.pending_count ?? 0),
