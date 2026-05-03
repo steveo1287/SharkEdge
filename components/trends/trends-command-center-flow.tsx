@@ -9,6 +9,7 @@ import { TREND_QUERY_EXAMPLES } from "@/services/trends/ai-query";
 
 type Props = { data: TrendDashboardView };
 type Tone = "sky" | "emerald" | "amber" | "cyan";
+type LaneGroups = { props: TrendCardView[]; movers: TrendCardView[]; splits: TrendCardView[]; model: TrendCardView[]; watch: TrendCardView[] };
 
 const LEAGUES = ["NBA", "NCAAB", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"];
 const MARKETS = ["spread", "moneyline", "total", "player_points", "player_rebounds", "player_assists", "player_threes", "player_pitcher_outs", "player_pitcher_strikeouts", "fight_winner"];
@@ -41,14 +42,16 @@ function current(card: TrendCardView) { return has(card, /CURRENT SIGNAL|SIM-ENG
 function prop(card: TrendCardView) { return /player_|prop|strikeout|rebounds|assists|points|threes|total bases|fight|round|method/i.test(`${card.market ?? ""} ${card.betType ?? ""} ${card.title ?? ""}`); }
 function mover(card: TrendCardView) { return !prop(card) && has(card, /STEAM|MOVE|MOVED|MOVEMENT|REPRICE|LINE|PRICE|BEST PRICE|MARKET-EDGE|CLV|COPY/); }
 function split(card: TrendCardView) { return has(card, /PUBLIC|BETS|HANDLE|MONEY %|TICKET|SPLIT|REVERSE LINE/); }
+function reviewGate(card: TrendCardView) { return (card.actionGate ?? "").toUpperCase().includes("REVIEW"); }
+function watchGate(card: TrendCardView) { return (card.actionGate ?? "").toUpperCase().includes("WATCH"); }
 function rank(card: TrendCardView) {
   let score = 0;
   if (verified(card)) score += 500;
   if (priced(card)) score += 120;
   if (current(card)) score += 45;
   if (card.todayMatches?.length) score += 90 + card.todayMatches.length * 12;
-  if ((card.actionGate ?? "").toUpperCase().includes("REVIEW")) score += 80;
-  if ((card.actionGate ?? "").toUpperCase().includes("WATCH")) score += 35;
+  if (reviewGate(card)) score += 80;
+  if (watchGate(card)) score += 35;
   score += Math.min(card.sampleSize ?? 0, 150) * 0.8;
   score += Math.max(-50, Math.min(50, percent(card.roi ?? card.value))) * 2;
   score += Math.max(0, Math.min(100, percent(card.winRate ?? card.hitRate))) * 0.4;
@@ -81,13 +84,13 @@ function QueryBox({ data }: Props) {
   return <Card className="p-4"><form action="/trends" method="get" className="grid gap-2 sm:grid-cols-[1fr_auto]"><input type="hidden" name="mode" value={data.mode} /><input name="q" defaultValue={data.aiQuery} placeholder='Ask: "MLB road underdogs after a loss"' className="rounded-xl border border-line bg-slate-950 px-3 py-2.5 text-sm text-white placeholder:text-slate-500" /><button type="submit" className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2.5 text-sm font-medium text-sky-200">Run Query</button></form><div className="mt-2 flex flex-wrap gap-1.5">{TREND_QUERY_EXAMPLES.slice(0, 4).map((example) => <Link key={example} href={trendHref(data.filters, data.mode, example, { q: example })} className="rounded-full border border-line bg-slate-950/65 px-2.5 py-1 text-[11px] text-slate-400 hover:text-slate-200">{example}</Link>)}</div></Card>;
 }
 function SignalCard({ card }: { card: TrendCardView }) {
-  const body = <Card className="h-full rounded-[1.35rem] border-white/8 bg-slate-950/70 p-4 transition hover:border-sky-300/25"><div className="flex flex-wrap items-start justify-between gap-2"><div className="flex flex-wrap gap-1.5"><Pill label={verified(card) ? "verified" : needsProof(card) ? "needs proof" : "context"} kind={verified(card) ? "good" : needsProof(card) ? "warn" : "muted"} /><Pill label={`${card.league ?? "ALL"} · ${market(card.market)}`} kind="info" /></div><Pill label={card.actionGate ?? "RESEARCH ONLY"} kind={(card.actionGate ?? "").toUpperCase().includes("REVIEW") ? "good" : (card.actionGate ?? "").toUpperCase().includes("WATCH") ? "info" : "muted"} /></div><div className="mt-3 text-base font-semibold leading-snug text-white">{card.title}</div><div className="mt-2 flex flex-wrap gap-1.5">{priced(card) ? <Pill label="price proof" kind="good" /> : null}{current(card) ? <Pill label="current signal" kind="info" /> : null}{card.todayMatches?.length ? <Pill label={`${card.todayMatches.length} live`} kind="info" /> : null}</div>{blurb(card) ? <p className="mt-3 text-xs leading-5 text-slate-400">{blurb(card)}</p> : null}<div className="mt-4 grid grid-cols-5 gap-2"><Mini label="ROI" value={card.roi ?? "—"} /><Mini label="Win" value={card.winRate ?? card.hitRate ?? "—"} /><Mini label="Units" value={units(card.profitUnits)} /><Mini label="Sample" value={card.sampleSize ? String(card.sampleSize) : "—"} /><Mini label="Live" value={String(card.todayMatches?.length ?? 0)} /></div>{card.priceCheckpoint || card.warnings?.[0] ? <div className="mt-3 rounded-xl border border-white/8 bg-black/25 px-3 py-2 text-xs leading-5 text-slate-400">{card.priceCheckpoint ? <div><span className="text-amber-200">Price:</span> {card.priceCheckpoint}</div> : null}{card.warnings?.[0] ? <div><span className="text-red-200">Warning:</span> {card.warnings[0]}</div> : null}</div> : null}</Card>;
+  const body = <Card className="h-full rounded-[1.35rem] border-white/8 bg-slate-950/70 p-4 transition hover:border-sky-300/25"><div className="flex flex-wrap items-start justify-between gap-2"><div className="flex flex-wrap gap-1.5"><Pill label={verified(card) ? "verified" : needsProof(card) ? "needs proof" : "context"} kind={verified(card) ? "good" : needsProof(card) ? "warn" : "muted"} /><Pill label={`${card.league ?? "ALL"} · ${market(card.market)}`} kind="info" /></div><Pill label={card.actionGate ?? "RESEARCH ONLY"} kind={reviewGate(card) ? "good" : watchGate(card) ? "info" : "muted"} /></div><div className="mt-3 text-base font-semibold leading-snug text-white">{card.title}</div><div className="mt-2 flex flex-wrap gap-1.5">{priced(card) ? <Pill label="price proof" kind="good" /> : null}{current(card) ? <Pill label="current signal" kind="info" /> : null}{card.todayMatches?.length ? <Pill label={`${card.todayMatches.length} live`} kind="info" /> : null}</div>{blurb(card) ? <p className="mt-3 text-xs leading-5 text-slate-400">{blurb(card)}</p> : null}<div className="mt-4 grid grid-cols-5 gap-2"><Mini label="ROI" value={card.roi ?? "—"} /><Mini label="Win" value={card.winRate ?? card.hitRate ?? "—"} /><Mini label="Units" value={units(card.profitUnits)} /><Mini label="Sample" value={card.sampleSize ? String(card.sampleSize) : "—"} /><Mini label="Live" value={String(card.todayMatches?.length ?? 0)} /></div>{card.priceCheckpoint || card.warnings?.[0] ? <div className="mt-3 rounded-xl border border-white/8 bg-black/25 px-3 py-2 text-xs leading-5 text-slate-400">{card.priceCheckpoint ? <div><span className="text-amber-200">Price:</span> {card.priceCheckpoint}</div> : null}{card.warnings?.[0] ? <div><span className="text-red-200">Warning:</span> {card.warnings[0]}</div> : null}</div> : null}</Card>;
   return card.href ? <Link href={card.href}>{body}</Link> : body;
 }
 
 function Pulse({ data, cards }: { data: TrendDashboardView; cards: TrendCardView[] }) {
   const top = cards[0];
-  const tiles = [{ label: "Top Signal", value: top?.title ?? "No signal", note: top ? `Rank ${Math.round(rank(top))} · ${top.league ?? "ALL"} · ${market(top.market)}` : "Nothing passed the filters." }, { label: "Review Gates", value: String(cards.filter((card) => (card.actionGate ?? "").toUpperCase().includes("REVIEW")).length), note: "Cards strong enough to review first." }, { label: "Price Proof", value: String(cards.filter(priced).length), note: "Current price, checkpoint, or market-edge proof." }, { label: "Live Qualifiers", value: String(data.todayMatches.length), note: "Current games attached to trend systems." }, { label: "Verified", value: String(cards.filter(verified).length), note: "Ledger or backtest-backed systems." }];
+  const tiles = [{ label: "Top Signal", value: top?.title ?? "No signal", note: top ? `Rank ${Math.round(rank(top))} · ${top.league ?? "ALL"} · ${market(top.market)}` : "Nothing passed the filters." }, { label: "Review Gates", value: String(cards.filter(reviewGate).length), note: "Cards strong enough to review first." }, { label: "Price Proof", value: String(cards.filter(priced).length), note: "Current price, checkpoint, or market-edge proof." }, { label: "Live Qualifiers", value: String(data.todayMatches.length), note: "Current games attached to trend systems." }, { label: "Verified", value: String(cards.filter(verified).length), note: "Ledger or backtest-backed systems." }];
   return <section id="pulse" className="scroll-mt-28 grid gap-3 md:grid-cols-2 xl:grid-cols-5">{tiles.map((tile) => <Card key={tile.label} className="min-h-36 p-4"><div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">{tile.label}</div><div className="mt-2 line-clamp-3 text-lg font-semibold leading-snug text-white">{tile.value}</div><div className="mt-2 text-xs leading-5 text-slate-400">{tile.note}</div></Card>)}</section>;
 }
 function Row({ row }: { row: TrendTableRow }) {
@@ -103,13 +106,33 @@ function Live({ data }: Props) {
   return <section id="live" className="scroll-mt-28"><div className="mb-3"><ToneText tone="emerald" label="Live Qualifiers Today" /><p className="mt-1 max-w-3xl text-sm leading-6 text-slate-400">Current games attached to trend systems. This is the shortest path from trend research to matchup review.</p></div>{data.todayMatches.length ? <div className="grid gap-3 lg:grid-cols-2">{data.todayMatches.slice(0, 8).map((match) => <div key={match.id} className="flex items-center justify-between gap-3 rounded-xl border border-emerald-400/10 bg-black/25 px-3 py-2.5"><div className="min-w-0"><div className="truncate text-sm font-medium text-white">{match.eventLabel}</div><div className="text-[11px] text-slate-500">{match.leagueKey}</div></div><div className="flex shrink-0 gap-2">{match.matchupHref ? <Link href={match.matchupHref} className="text-[11px] text-sky-300 hover:underline">Matchup</Link> : null}{match.boardHref ? <Link href={match.boardHref} className="text-[11px] text-sky-300 hover:underline">Board</Link> : null}</div></div>)}</div> : <div className="rounded-2xl border border-white/8 bg-slate-950/50 p-4 text-sm text-slate-400">No current games qualify under these filters.</div>}</section>;
 }
 function Metrics({ data }: Props) { return data.metrics.length ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{data.metrics.slice(0, 4).map((metric) => <Card key={metric.label} className="p-4"><div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{metric.label}</div><div className="mt-2 font-display text-2xl font-semibold text-white">{metric.value}</div><div className="mt-2 text-xs leading-5 text-slate-400">{metric.note}</div></Card>)}</div> : null; }
-function group(cards: TrendCardView[]) {
-  const props = cards.filter(prop);
-  const movers = cards.filter(mover);
-  const splits = cards.filter(split);
-  const model = cards.filter((card) => priced(card) || current(card) || (card.actionGate ?? "").toUpperCase().includes("REVIEW"));
-  const watch = cards.filter((card) => needsProof(card) || (card.actionGate ?? "").toUpperCase().includes("WATCH"));
-  return { props, movers: movers.length ? movers : cards.filter((card) => !prop(card)).slice(0, LIMIT), splits, model: model.length ? model : cards.slice(0, LIMIT), watch: watch.length ? watch : cards.slice(LIMIT, LIMIT * 2) };
+
+function addToLane(lanes: LaneGroups, lane: keyof LaneGroups, card: TrendCardView, used: Set<string>) {
+  if (used.has(card.id)) return;
+  lanes[lane].push(card);
+  used.add(card.id);
+}
+
+function group(cards: TrendCardView[]): LaneGroups {
+  const lanes: LaneGroups = { props: [], movers: [], splits: [], model: [], watch: [] };
+  const used = new Set<string>();
+
+  for (const card of cards) {
+    if (prop(card)) addToLane(lanes, "props", card, used);
+    else if (split(card)) addToLane(lanes, "splits", card, used);
+    else if (needsProof(card) || watchGate(card)) addToLane(lanes, "watch", card, used);
+    else if (mover(card)) addToLane(lanes, "movers", card, used);
+    else if (priced(card) || current(card) || reviewGate(card)) addToLane(lanes, "model", card, used);
+    else addToLane(lanes, "watch", card, used);
+  }
+
+  // Keep the first scan useful even when the current payload lacks a dedicated mover/model signal type.
+  for (const card of cards) {
+    if (!lanes.movers.length && !prop(card)) addToLane(lanes, "movers", card, used);
+    if (!lanes.model.length && (priced(card) || current(card) || reviewGate(card) || verified(card))) addToLane(lanes, "model", card, used);
+  }
+
+  return lanes;
 }
 
 export function TrendsCommandCenterFlow({ data }: Props) {
