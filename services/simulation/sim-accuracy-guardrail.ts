@@ -60,7 +60,7 @@ function classifyBucket(args: { count: number; avgPredicted: number; actualRate:
 
 function bucketNote(args: { bucket: string; count: number; avgPredicted: number; actualRate: number; brier: number; state: SimAccuracyGuardrail["state"] }) {
   if (args.state === "insufficient") {
-    return `${args.bucket} bucket has ${args.count}/${MIN_BUCKET_SAMPLE} graded samples; accuracy guard blocks action until this bucket has enough evidence.`;
+    return `${args.bucket} bucket has ${args.count}/${MIN_BUCKET_SAMPLE} graded samples; NBA action is blocked until this bucket has enough evidence.`;
   }
   if (args.state === "poor") {
     return `${args.bucket} bucket is overconfident: predicted ${round(args.avgPredicted * 100, 1)}%, actual ${round(args.actualRate * 100, 1)}%, Brier ${round(args.brier, 3)}.`;
@@ -96,6 +96,34 @@ export async function getSimAccuracyGuardrails(): Promise<SimAccuracyGuardrailMa
   return Object.fromEntries(entries);
 }
 
+function blockUnprovenNbaAction(args: {
+  league: GuardLeague;
+  originalTier: SimTier;
+  currentConfidence: number | null;
+  note: string;
+}) {
+  if (args.league !== "NBA") return null;
+  if (args.originalTier === "attack") {
+    return {
+      tier: "watch" as SimTier,
+      noBet: true,
+      downgraded: true,
+      confidence: args.currentConfidence == null ? null : round(clamp(args.currentConfidence - 0.1, 0, 1), 3),
+      note: args.note
+    };
+  }
+  if (args.originalTier === "watch") {
+    return {
+      tier: "watch" as SimTier,
+      noBet: true,
+      downgraded: false,
+      confidence: args.currentConfidence == null ? null : round(clamp(args.currentConfidence - 0.05, 0, 1), 3),
+      note: args.note
+    };
+  }
+  return null;
+}
+
 export function applySimAccuracyGuardrail(args: {
   league: GuardLeague;
   tier: SimTier | null | undefined;
@@ -115,30 +143,32 @@ export function applySimAccuracyGuardrail(args: {
   let downgraded = false;
 
   if (!guardrail) {
-    const note = `Accuracy guard: ${args.league}:${bucket} bucket has no graded history; action is blocked until this probability range is proven.`;
-    if (originalTier === "attack") {
-      tier = "watch";
-      noBet = true;
-      downgraded = true;
-      confidence = confidence == null ? null : round(clamp(confidence - 0.1, 0, 1), 3);
-      reasons.unshift(note);
-    } else if (originalTier === "watch") {
-      noBet = true;
-      confidence = confidence == null ? null : round(clamp(confidence - 0.05, 0, 1), 3);
-      reasons.unshift(note);
+    const block = blockUnprovenNbaAction({
+      league: args.league,
+      originalTier,
+      currentConfidence: confidence,
+      note: `Accuracy guard: ${args.league}:${bucket} bucket has no graded history; NBA action is blocked until this probability range is proven.`
+    });
+    if (block) {
+      tier = block.tier;
+      noBet = block.noBet;
+      downgraded = block.downgraded;
+      confidence = block.confidence;
+      reasons.unshift(block.note);
     }
   } else if (guardrail.state === "insufficient") {
-    const note = `Accuracy guard: ${guardrail.note}`;
-    if (originalTier === "attack") {
-      tier = "watch";
-      noBet = true;
-      downgraded = true;
-      confidence = confidence == null ? null : round(clamp(confidence - 0.08, 0, 1), 3);
-      reasons.unshift(note);
-    } else if (originalTier === "watch") {
-      noBet = true;
-      confidence = confidence == null ? null : round(clamp(confidence - 0.04, 0, 1), 3);
-      reasons.unshift(note);
+    const block = blockUnprovenNbaAction({
+      league: args.league,
+      originalTier,
+      currentConfidence: confidence,
+      note: `Accuracy guard: ${guardrail.note}`
+    });
+    if (block) {
+      tier = block.tier;
+      noBet = block.noBet;
+      downgraded = block.downgraded;
+      confidence = block.confidence;
+      reasons.unshift(block.note);
     }
   } else if (guardrail.state !== "healthy") {
     const note = `Accuracy guard: ${guardrail.note}`;
