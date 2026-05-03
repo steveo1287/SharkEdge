@@ -95,10 +95,6 @@ function toIso(value: Date | string) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-function toIsoNullable(value: Date | string | null) {
-  return value == null ? null : toIso(value);
-}
-
 function gradeRank(grade: string | null | undefined) {
   if (grade === "A") return 4;
   if (grade === "B") return 3;
@@ -132,9 +128,9 @@ export function buildUfcCardSummaries(fights: UfcOperationalFeedCard[]): UfcCard
     eventLabel: cardLabel(eventId, rows),
     eventDate: rows.find((row) => row.eventDate)?.eventDate ?? rows[0]?.fightDate ?? `${eventId}T00:00:00.000Z`,
     fightCount: rows.length,
-    simulatedFightCount: rows.filter((fight) => fight.simulationCount != null).length,
+    simulatedFightCount: rows.filter((fight) => fight.hasPrediction && fight.simulationCount != null).length,
     dataQualityGrade: worstGrade(rows.map((fight) => fight.dataQualityGrade)),
-    lastSimulatedAt: rows.map((fight) => fight.generatedAt).sort().at(-1) ?? null,
+    lastSimulatedAt: rows.filter((fight) => fight.hasPrediction).map((fight) => fight.generatedAt).sort().at(-1) ?? null,
     shadowPendingCount: rows.filter((fight) => fight.shadowStatus === "PENDING").length,
     shadowResolvedCount: rows.filter((fight) => fight.shadowStatus === "RESOLVED").length,
     providerStatus: rows.some((fight) => fight.eventId) ? "event-linked" : rows.length ? "legacy-date" : "empty"
@@ -142,12 +138,12 @@ export function buildUfcCardSummaries(fights: UfcOperationalFeedCard[]): UfcCard
 }
 
 export async function getUfcCards(options: { modelVersion?: string; includePast?: boolean } = {}) {
-  const fights = await getUfcOperationalFeed({ modelVersion: options.modelVersion, includePast: options.includePast ?? true, limit: 100 });
+  const fights = await getUfcOperationalFeed({ modelVersion: options.modelVersion, includePast: options.includePast ?? true, limit: 200 });
   return buildUfcCardSummaries(fights);
 }
 
 export async function getUfcCardDetail(eventId: string, options: { modelVersion?: string } = {}): Promise<UfcCardDetail | null> {
-  const fights = await getUfcOperationalFeed({ modelVersion: options.modelVersion, includePast: true, limit: 100 });
+  const fights = await getUfcOperationalFeed({ modelVersion: options.modelVersion, includePast: true, limit: 200 });
   const cardFights = fights.filter((fight) => cardIdForFight(fight) === eventId);
   if (!cardFights.length) return null;
   const summary = buildUfcCardSummaries(cardFights)[0];
@@ -187,9 +183,39 @@ function findFeedPrediction(fightId: string, fights: UfcOperationalFeedCard[]) {
   return fights.find((fight) => fight.fightId === fightId) ?? null;
 }
 
+function detailFromFeedOnly(fightId: string, feed: UfcOperationalFeedCard[]): UfcFightIqDetail | null {
+  const prediction = findFeedPrediction(fightId, feed);
+  if (!prediction) return null;
+  const predictionJson = (prediction as any).predictionJson ?? {};
+  return {
+    fightId,
+    eventId: prediction.eventId ?? ufcCardIdFromDate(prediction.fightDate),
+    eventLabel: prediction.eventName ?? cardLabel(ufcCardIdFromDate(prediction.fightDate), []),
+    fightDate: prediction.fightDate,
+    scheduledRounds: prediction.scheduledRounds,
+    fighters: {
+      fighterA: { id: prediction.fighterAId, name: prediction.fighterAName },
+      fighterB: { id: prediction.fighterBId, name: prediction.fighterBName }
+    },
+    prediction,
+    featureComparison: [],
+    methodProbabilities: prediction.methodProbabilities,
+    roundFinishProbabilities: predictionJson.roundFinishProbabilities ?? {},
+    pathSummary: prediction.pathSummary,
+    dangerFlags: prediction.dangerFlags,
+    activeEnsembleWeights: predictionJson.activeEnsembleWeights ?? null,
+    sourceOutputs: predictionJson.sourceOutputs ?? null,
+    dataQualityGrade: prediction.dataQualityGrade,
+    confidenceGrade: prediction.confidenceGrade,
+    shadowStatus: prediction.shadowStatus
+  };
+}
+
 export async function getUfcFightIqDetail(fightId: string, options: { modelVersion?: string } = {}): Promise<UfcFightIqDetail | null> {
-  const [rows, feed] = await Promise.all([
-    prisma.$queryRaw<FightDetailRow[]>`
+  const modelVersion = options.modelVersion ?? "ufc-fight-iq-v1";
+  const feed = await getUfcOperationalFeed({ modelVersion: options.modelVersion, includePast: true, limit: 200 });
+  try {
+    const rows = await prisma.$queryRaw<FightDetailRow[]>`
       SELECT f.id AS fight_id, e.id AS event_id, e.event_name, e.event_date, f.event_label, f.fight_date, f.scheduled_rounds,
         f.fighter_a_id, f.fighter_b_id,
         fa.full_name AS fighter_a_name,
@@ -220,42 +246,43 @@ export async function getUfcFightIqDetail(fightId: string, options: { modelVersi
       LEFT JOIN ufc_fighters fb ON fb.id = f.fighter_b_id
       LEFT JOIN LATERAL (
         SELECT * FROM ufc_predictions p
-        WHERE p.fight_id = f.id AND p.model_version = ${options.modelVersion ?? "ufc-fight-iq-v1"}
+        WHERE p.fight_id = f.id AND p.model_version = ${modelVersion}
         ORDER BY p.generated_at DESC
         LIMIT 1
       ) p ON true
       LEFT JOIN ufc_shadow_predictions s ON s.prediction_id = p.id
-      LEFT JOIN ufc_model_features af ON af.fight_id = f.id AND af.fighter_id = f.fighter_a_id AND af.model_version = ${options.modelVersion ?? "ufc-fight-iq-v1"}
-      LEFT JOIN ufc_model_features bf ON bf.fight_id = f.id AND bf.fighter_id = f.fighter_b_id AND bf.model_version = ${options.modelVersion ?? "ufc-fight-iq-v1"}
+      LEFT JOIN ufc_model_features af ON af.fight_id = f.id AND af.fighter_id = f.fighter_a_id AND af.model_version = ${modelVersion}
+      LEFT JOIN ufc_model_features bf ON bf.fight_id = f.id AND bf.fighter_id = f.fighter_b_id AND bf.model_version = ${modelVersion}
       WHERE f.id = ${fightId}
       LIMIT 1
-    `,
-    getUfcOperationalFeed({ modelVersion: options.modelVersion, includePast: true, limit: 100 })
-  ]);
-  const row = rows[0];
-  if (!row) return null;
-  const prediction = findFeedPrediction(fightId, feed);
-  const predictionJson = row.prediction_json ?? {};
-  return {
-    fightId,
-    eventId: row.event_id ?? ufcCardIdFromDate(row.fight_date),
-    eventLabel: row.event_name ?? cardLabel(ufcCardIdFromDate(row.fight_date), []),
-    fightDate: toIso(row.fight_date),
-    scheduledRounds: row.scheduled_rounds,
-    fighters: {
-      fighterA: { id: row.fighter_a_id, name: row.fighter_a_name },
-      fighterB: { id: row.fighter_b_id, name: row.fighter_b_name }
-    },
-    prediction,
-    featureComparison: comparison(row),
-    methodProbabilities: prediction?.methodProbabilities ?? null,
-    roundFinishProbabilities: predictionJson.roundFinishProbabilities ?? {},
-    pathSummary: Array.isArray(predictionJson.pathSummary) ? predictionJson.pathSummary : prediction?.pathSummary ?? [],
-    dangerFlags: Array.isArray(predictionJson.dangerFlags) ? predictionJson.dangerFlags : prediction?.dangerFlags ?? [],
-    activeEnsembleWeights: predictionJson.activeEnsembleWeights ?? null,
-    sourceOutputs: predictionJson.sourceOutputs ?? null,
-    dataQualityGrade: row.data_quality_grade,
-    confidenceGrade: row.confidence_grade,
-    shadowStatus: row.shadow_status
-  };
+    `;
+    const row = rows[0];
+    if (!row) return detailFromFeedOnly(fightId, feed);
+    const prediction = findFeedPrediction(fightId, feed);
+    const predictionJson = row.prediction_json ?? {};
+    return {
+      fightId,
+      eventId: row.event_id ?? ufcCardIdFromDate(row.fight_date),
+      eventLabel: row.event_name ?? cardLabel(ufcCardIdFromDate(row.fight_date), []),
+      fightDate: toIso(row.fight_date),
+      scheduledRounds: row.scheduled_rounds,
+      fighters: {
+        fighterA: { id: row.fighter_a_id, name: row.fighter_a_name },
+        fighterB: { id: row.fighter_b_id, name: row.fighter_b_name }
+      },
+      prediction: prediction ?? detailFromFeedOnly(fightId, feed)?.prediction ?? null,
+      featureComparison: comparison(row).filter((item) => item.fighterA != null || item.fighterB != null),
+      methodProbabilities: prediction?.methodProbabilities ?? null,
+      roundFinishProbabilities: predictionJson.roundFinishProbabilities ?? {},
+      pathSummary: Array.isArray(predictionJson.pathSummary) ? predictionJson.pathSummary : prediction?.pathSummary ?? [],
+      dangerFlags: Array.isArray(predictionJson.dangerFlags) ? predictionJson.dangerFlags : prediction?.dangerFlags ?? [],
+      activeEnsembleWeights: predictionJson.activeEnsembleWeights ?? null,
+      sourceOutputs: predictionJson.sourceOutputs ?? null,
+      dataQualityGrade: row.data_quality_grade,
+      confidenceGrade: row.confidence_grade,
+      shadowStatus: row.shadow_status
+    };
+  } catch {
+    return detailFromFeedOnly(fightId, feed);
+  }
 }
