@@ -1,10 +1,20 @@
 import * as legacy from "./player-prop-sim";
 import { projectNbaPlayerStat, type NbaPlayerStatProjection } from "./nba-player-stat-projection";
-import { getNbaLineupTruth } from "./nba-lineup-truth";
+import { getNbaLineupTruth, type NbaLineupTruth } from "./nba-lineup-truth";
 import type { PlayerPropSimulationInput, PlayerPropSimulationSummary } from "./player-prop-sim";
 import type { NbaStatKey } from "./nba-player-stat-profile";
 
 export type { PlayerPropSimulationInput, PlayerPropSimulationSummary } from "./player-prop-sim";
+
+type EliteInput = PlayerPropSimulationInput & {
+  nbaLineupTruth?: NbaLineupTruth | null;
+  lineupTruth?: NbaLineupTruth | null;
+  playerStatus?: "ACTIVE" | "PROBABLE" | "QUESTIONABLE" | "DOUBTFUL" | "OUT" | "UNKNOWN" | null;
+  teamSpread?: number | null;
+  backToBack?: boolean;
+  teammateOutUsageImpact?: number;
+  teammateQuestionableUsageImpact?: number;
+};
 
 function normalizeNbaStatKey(statKey: string): NbaStatKey | null {
   switch (statKey) {
@@ -84,8 +94,9 @@ function projectionToLegacySummary(projection: NbaPlayerStatProjection, legacySu
   };
 }
 
-function playerStatusFromDrivers(input: PlayerPropSimulationInput): "ACTIVE" | "PROBABLE" | "QUESTIONABLE" | "DOUBTFUL" | "OUT" | "UNKNOWN" | null {
-  const text = [input.playerName, input.playerIntangibles, input.interactionContext]
+function playerStatusFromContext(input: EliteInput): "ACTIVE" | "PROBABLE" | "QUESTIONABLE" | "DOUBTFUL" | "OUT" | "UNKNOWN" | null {
+  if (input.playerStatus) return input.playerStatus;
+  const text = [input.playerIntangibles, input.interactionContext]
     .map((value) => typeof value === "string" ? value : JSON.stringify(value ?? {}))
     .join(" ")
     .toLowerCase();
@@ -96,17 +107,11 @@ function playerStatusFromDrivers(input: PlayerPropSimulationInput): "ACTIVE" | "
   return "ACTIVE";
 }
 
-export async function simulateNbaElitePlayerPropProjection(input: PlayerPropSimulationInput): Promise<PlayerPropSimulationSummary> {
-  const legacySummary = legacy.simulatePlayerPropProjection(input);
+function buildEliteProjection(input: EliteInput, legacySummary: PlayerPropSimulationSummary, lineupTruth: NbaLineupTruth | null): PlayerPropSimulationSummary {
   const statKey = normalizeNbaStatKey(input.statKey);
   if (input.leagueKey !== "NBA" || !statKey) return legacySummary;
 
   const teamName = input.teamStyle?.teamName ?? null;
-  const opponentName = input.opponentStyle?.teamName ?? null;
-  const lineupTruth = teamName && opponentName
-    ? await getNbaLineupTruth({ awayTeam: teamName, homeTeam: opponentName }).catch(() => null)
-    : null;
-
   const projection = projectNbaPlayerStat({
     playerId: input.playerId,
     playerName: input.playerName,
@@ -118,16 +123,37 @@ export async function simulateNbaElitePlayerPropProjection(input: PlayerPropSimu
     marketLine: input.marketLine,
     marketOddsOver: input.marketOddsOver,
     marketOddsUnder: input.marketOddsUnder,
-    playerStatus: playerStatusFromDrivers(input),
-    teammateOutUsageImpact: lineupTruth?.highUsageOut ? 5 : 0,
-    teammateQuestionableUsageImpact: lineupTruth?.starQuestionable ? 4 : 0
+    playerStatus: playerStatusFromContext(input),
+    teamSpread: input.teamSpread ?? null,
+    backToBack: input.backToBack ?? false,
+    teammateOutUsageImpact: input.teammateOutUsageImpact ?? (lineupTruth?.highUsageOut ? 5 : 0),
+    teammateQuestionableUsageImpact: input.teammateQuestionableUsageImpact ?? (lineupTruth?.starQuestionable ? 4 : 0)
   });
 
   return projectionToLegacySummary(projection, legacySummary);
 }
 
-export function simulatePlayerPropProjection(input: PlayerPropSimulationInput): PlayerPropSimulationSummary {
-  return legacy.simulatePlayerPropProjection(input);
+export async function simulateNbaElitePlayerPropProjection(input: EliteInput): Promise<PlayerPropSimulationSummary> {
+  const legacySummary = legacy.simulatePlayerPropProjection(input);
+  const statKey = normalizeNbaStatKey(input.statKey);
+  if (input.leagueKey !== "NBA" || !statKey) return legacySummary;
+
+  const explicitLineupTruth = input.nbaLineupTruth ?? input.lineupTruth ?? null;
+  if (explicitLineupTruth) return buildEliteProjection(input, legacySummary, explicitLineupTruth);
+
+  const teamName = input.teamStyle?.teamName ?? null;
+  const opponentName = input.opponentStyle?.teamName ?? null;
+  const lineupTruth = teamName && opponentName
+    ? await getNbaLineupTruth({ awayTeam: teamName, homeTeam: opponentName }).catch(() => null)
+    : null;
+
+  return buildEliteProjection(input, legacySummary, lineupTruth);
+}
+
+export function simulatePlayerPropProjection(input: EliteInput): PlayerPropSimulationSummary {
+  const legacySummary = legacy.simulatePlayerPropProjection(input);
+  const explicitLineupTruth = input.nbaLineupTruth ?? input.lineupTruth ?? null;
+  return buildEliteProjection(input, legacySummary, explicitLineupTruth);
 }
 
 export const __playerPropSimTestHooks = legacy.__playerPropSimTestHooks;
