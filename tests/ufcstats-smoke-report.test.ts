@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 
 import { buildUfcStatsSmokeReport } from "@/services/ufc/ufcstats-smoke-report";
+import type { UfcStatsFetchResult } from "@/services/ufc/ufcstats-fetcher";
 
-const report = buildUfcStatsSmokeReport({
+const healthyFetchResult: UfcStatsFetchResult = {
   event: {
     sourceEventId: "event-1",
     eventName: "Smoke Card",
@@ -53,8 +54,9 @@ const report = buildUfcStatsSmokeReport({
       }
     }]
   }
-});
+};
 
+const report = buildUfcStatsSmokeReport(healthyFetchResult);
 assert.equal(report.ok, true);
 assert.equal(report.eventName, "Smoke Card");
 assert.equal(report.fightLinksFound, 1);
@@ -65,12 +67,22 @@ assert.equal(report.wouldSkipCount, 0);
 assert.deepEqual(report.missingFieldCounts, {});
 assert.equal(report.fights[0].wouldSimulate, true);
 
-const weakReport = buildUfcStatsSmokeReport({
-  ...report as any,
+const weakFetchResult: UfcStatsFetchResult = {
   event: { sourceEventId: "event-2", eventName: "Weak Card", eventDate: "2026-06-01T02:00:00.000Z", fights: [] },
   fights: [],
   fighters: [],
-  diagnostics: { ...report as any, eventUrl: "event-url", eventName: "Weak Card", eventDate: "2026-06-01T02:00:00.000Z", fightLinksFound: 1, fightDetailsParsed: 0, fighterProfilesRequested: 2, fighterProfilesParsed: 1, warnings: ["missing profile"], fatalErrors: [], dataQualityGrade: "C" },
+  diagnostics: {
+    eventUrl: "event-url",
+    eventName: "Weak Card",
+    eventDate: "2026-06-01T02:00:00.000Z",
+    fightLinksFound: 1,
+    fightDetailsParsed: 0,
+    fighterProfilesRequested: 2,
+    fighterProfilesParsed: 1,
+    warnings: ["missing profile"],
+    fatalErrors: [],
+    dataQualityGrade: "C"
+  },
   snapshot: {
     sourceKey: "ufcstats",
     modelVersion: "ufc-fight-iq-v1",
@@ -83,23 +95,35 @@ const weakReport = buildUfcStatsSmokeReport({
       fighterB: { sourceId: "d", name: "D", feature: {} }
     }]
   }
-});
+};
 
+const weakReport = buildUfcStatsSmokeReport(weakFetchResult);
 assert.equal(weakReport.ok, true);
 assert.equal(weakReport.wouldSimulateCount, 0);
 assert.equal(weakReport.wouldSkipCount, 1);
 assert.equal(weakReport.fights[0].skipReason, "missing-required-feature-fields");
 assert.ok(weakReport.missingFieldCounts["fighterB.sigStrikesLandedPerMin"] >= 1);
 
-const fatalReport = buildUfcStatsSmokeReport({
-  ...report as any,
-  event: { sourceEventId: "event-3", eventName: "Fatal Card", eventDate: null as any, fights: [] },
+const fatalFetchResult: UfcStatsFetchResult = {
+  event: { sourceEventId: "event-3", eventName: "Fatal Card", eventDate: "", fights: [] },
   fights: [],
   fighters: [],
-  diagnostics: { eventUrl: "event-url", eventName: "Fatal Card", eventDate: null, fightLinksFound: 0, fightDetailsParsed: 0, fighterProfilesRequested: 0, fighterProfilesParsed: 0, warnings: [], fatalErrors: ["event fetch failed"], dataQualityGrade: "D" },
+  diagnostics: {
+    eventUrl: "event-url",
+    eventName: "Fatal Card",
+    eventDate: null,
+    fightLinksFound: 0,
+    fightDetailsParsed: 0,
+    fighterProfilesRequested: 0,
+    fighterProfilesParsed: 0,
+    warnings: [],
+    fatalErrors: ["event fetch failed"],
+    dataQualityGrade: "D"
+  },
   snapshot: { sourceKey: "ufcstats", modelVersion: "ufc-fight-iq-v1", snapshotAt: "2026-05-31T18:00:00.000Z", fights: [] }
-});
+};
 
+const fatalReport = buildUfcStatsSmokeReport(fatalFetchResult);
 assert.equal(fatalReport.ok, false);
 assert.equal(fatalReport.wouldIngest, false);
 assert.equal(fatalReport.dataQualityGrade, "D");
