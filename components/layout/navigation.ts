@@ -50,6 +50,13 @@ export const MAIN_NAV_ITEMS: NavItem[] = [
     icon: NAV_ICONS.board
   },
   {
+    href: "/sharkfights/ufc",
+    label: "SharkFights",
+    description: "UFC Fight IQ cards with SharkSim picks, method lanes, data quality, and danger flags.",
+    icon: NAV_ICONS.sim,
+    badge: "UFC"
+  },
+  {
     href: "/props",
     label: "Props",
     description: "Player props market — price, role, movement, and EV context.",
@@ -159,7 +166,7 @@ export const LEAGUE_NAV_ITEMS: LeagueNavItem[] = [
   { href: "/leagues/nfl",   label: "NFL",    leagueKey: "NFL",    description: "NFL football hub." },
   { href: "/leagues/ncaab", label: "NCAAB",  leagueKey: "NCAAB",  description: "College basketball." },
   { href: "/leagues/ncaaf", label: "NCAAF",  leagueKey: "NCAAF",  description: "College football." },
-  { href: "/leagues/ufc",   label: "UFC",    leagueKey: "UFC",    description: "UFC fight hub." },
+  { href: "/sharkfights/ufc", label: "UFC", leagueKey: "UFC", description: "UFC SharkFights hub." },
   { href: "/leagues/boxing",label: "Boxing", leagueKey: "BOXING", description: "Boxing market desk." }
 ];
 
@@ -209,6 +216,7 @@ export function getRouteMeta(pathname: string) {
     { match: (v: string) => isActivePath(v, "/board"), eyebrow: "Market Board", title: "Board", subtitle: "Verified pricing across all sportsbooks." },
     { match: (v: string) => isActivePath(v, "/games") || v.startsWith("/game/"), eyebrow: "Games", title: "Games", subtitle: "Full slate with matchup detail and game routing." },
     { match: (v: string) => isActivePath(v, "/props"), eyebrow: "Props Lab", title: "Props", subtitle: "Player markets — price, movement, and EV context." },
+    { match: (v: string) => isActivePath(v, "/sharkfights"), eyebrow: "SharkFights", title: "SharkFights", subtitle: "UFC Fight IQ cards, cached SharkSim output, and fight-by-fight model explanations." },
     { match: (v: string) => v === "/sim", eyebrow: "Simulation Engine", title: "Sim Hub", subtitle: "Choose the correct model desk before drilling into a matchup." },
     { match: (v: string) => isActivePath(v, "/sim/nba"), eyebrow: "NBA Sim Desk", title: "NBA Sim", subtitle: "Side reads, calibrated player sims, and prop drilldowns." },
     { match: (v: string) => isActivePath(v, "/sim/mlb"), eyebrow: "MLB Edge Desk", title: "MLB Sim", subtitle: "Sides, totals, pitcher/bullpen factors, and market edge." },

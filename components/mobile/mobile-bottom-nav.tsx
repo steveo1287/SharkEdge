@@ -8,9 +8,9 @@ import { cn } from "@/lib/utils/cn";
 const NAV_ITEMS = [
   { href: "/", label: "Desk" },
   { href: "/board", label: "Board" },
+  { href: "/sharkfights/ufc", label: "Fights" },
   { href: "/sim/nba", label: "NBA" },
-  { href: "/sim/mlb", label: "MLB" },
-  { href: "/sim/accuracy", label: "Grade" }
+  { href: "/sim/mlb", label: "MLB" }
 ] as const;
 
 export function MobileBottomNav() {
