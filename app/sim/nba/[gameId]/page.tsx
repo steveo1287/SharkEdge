@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { calibrateNbaPlayerBoxScore } from "@/services/simulation/nba-box-score-calibration";
 import { getNbaFullStatProjectionView } from "@/services/simulation/nba-full-stat-projection-view";
+import { nbaFullStatPlayerBlockers, summarizeNbaFullStatViewHealth } from "@/services/simulation/nba-full-stat-view-health";
 import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
 import { getSimRunDepth } from "@/services/simulation/sim-run-depth";
 
@@ -66,19 +67,7 @@ function statConfidence(player: FullStatPlayer | null, statKey: string, fallback
 }
 
 function statBlockers(player: FullStatPlayer | null) {
-  return [...new Set([...(player?.lineupTruth?.blockers ?? []), ...(player?.minutes?.blockers ?? []), ...((player?.stats ?? []).flatMap((stat) => stat.blockers))])];
-}
-
-function statWarnings(player: FullStatPlayer | null) {
-  return [...new Set([...(player?.lineupTruth?.warnings ?? []), ...(player?.minutes?.warnings ?? []), ...((player?.stats ?? []).flatMap((stat) => stat.warnings))])];
-}
-
-function v2Health(players: FullStatPlayer[]) {
-  const blocked = players.filter((player) => statBlockers(player).length > 0 || player.lineupTruth?.status === "RED").length;
-  const warning = players.filter((player) => !statBlockers(player).length && (statWarnings(player).length > 0 || player.lineupTruth?.status === "YELLOW")).length;
-  const status = blocked > 0 ? "RED" : warning > 0 ? "YELLOW" : players.length > 0 ? "GREEN" : "RED";
-  const topReason = players.map((player) => statBlockers(player)[0] ?? statWarnings(player)[0]).find(Boolean) ?? "No V2 projection quality issues detected.";
-  return { blocked, warning, status, topReason };
+  return nbaFullStatPlayerBlockers(player);
 }
 
 export default async function NbaGameDetailPage({ params }: PageProps) {
@@ -96,7 +85,7 @@ export default async function NbaGameDetailPage({ params }: PageProps) {
     ? fullStatView
     : await getNbaFullStatProjectionView({ includeModelOnly: true, take: 1500 });
   const fullStatPlayers = fallbackFullStatView.players;
-  const health = v2Health(fullStatPlayers);
+  const health = summarizeNbaFullStatViewHealth(fallbackFullStatView);
   const players = rawProjection.nbaIntel?.playerStatProjections ?? [];
   const projection = rawProjection.nbaIntel && players.length
     ? { ...rawProjection, nbaIntel: { ...rawProjection.nbaIntel, playerStatProjections: calibrateNbaPlayerBoxScore(players, { awayPoints: rawProjection.distribution.avgAway, homePoints: rawProjection.distribution.avgHome }) } }
@@ -133,7 +122,7 @@ export default async function NbaGameDetailPage({ params }: PageProps) {
         <SimMetricTile label="Lean" value={lean} sub={pct(leanPct)} emphasis="strong" />
         <SimMetricTile label="Score" value={`${num(projection.distribution.avgAway)} / ${num(projection.distribution.avgHome)}`} sub="Away / Home" />
         <SimMetricTile label="Confidence" value={pct(projection.nbaIntel?.confidence, 0)} sub="Governor" />
-        <SimMetricTile label="V2 health" value={health.status} sub={`${health.blocked} blocked · ${health.warning} warning`} />
+        <SimMetricTile label="V2 health" value={health.status} sub={`${health.blockedPlayerCount} blocked · ${health.warningPlayerCount} warning`} />
         <SimMetricTile label="V2 rows" value={String(fullStatPlayers.length)} sub="Full-stat projection players" />
         <SimMetricTile label="Players" value={String(projection.nbaIntel?.playerStatProjections.length ?? 0)} sub={projection.nbaIntel?.dataSource ?? "no NBA intel"} />
       </section>
