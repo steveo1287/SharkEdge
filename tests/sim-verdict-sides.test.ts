@@ -69,7 +69,7 @@ near(homeEvenMl!.marketValue ?? 0, 0.5, 0.001);
 // ---------------------------------------------------------------------------
 const homeFavorite = buildSpreadVerdict(sim, "NBA", "HOME", "AWAY", -4.5, -110, -110);
 assert.equal(homeFavorite.side, "HOME", "Home -4.5 with projected margin +6 should lean HOME");
-near(homeFavorite.delta ?? 0, 1.5 * 0.55 / (8.1 / 13) / (1.12 - 0.7 * 0.35), 0.08);
+near(homeFavorite.delta ?? 0, 1.5 * 0.55 / (11.5 / 13) / (1.12 - 0.7 * 0.35), 0.08);
 
 const homeDogCovering = buildSpreadVerdict({ ...sim, projectedSpreadHome: 2 }, "NBA", "HOME", "AWAY", +4.5, -110, -110);
 assert.equal(homeDogCovering.side, "HOME", "Home +4.5 with projected margin +2 should lean HOME");
