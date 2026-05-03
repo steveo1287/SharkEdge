@@ -28,6 +28,11 @@ export type NbaLineupImpact = {
   summary: string;
 };
 
+export type NbaPlayerImpactSnapshot = {
+  teams: Record<string, NbaPlayerImpactRecord[]>;
+  lastUpdatedAt: string | null;
+};
+
 type RawPlayerImpact = Partial<NbaPlayerImpactRecord> & {
   player?: string;
   name?: string;
@@ -43,7 +48,8 @@ type RawPlayerImpact = Partial<NbaPlayerImpactRecord> & {
   volatility_impact?: number;
 };
 
-const CACHE_KEY = "nba:player-impact:v1";
+const CACHE_KEY = "nba:player-impact:v2";
+const LEGACY_CACHE_KEY = "nba:player-impact:v1";
 const CACHE_TTL_SECONDS = 60 * 60 * 2;
 
 function statusFrom(value: unknown): PlayerStatus {
@@ -79,6 +85,22 @@ function rowsFromBody(body: any): RawPlayerImpact[] {
   return [];
 }
 
+function parseDateString(value: unknown) {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function timestampFromBody(body: any, fallback: string | null) {
+  return parseDateString(body?.lastUpdatedAt)
+    ?? parseDateString(body?.updatedAt)
+    ?? parseDateString(body?.generatedAt)
+    ?? parseDateString(body?.timestamp)
+    ?? parseDateString(body?.meta?.lastUpdatedAt)
+    ?? parseDateString(body?.meta?.updatedAt)
+    ?? fallback;
+}
+
 function normalizeRaw(row: RawPlayerImpact): NbaPlayerImpactRecord | null {
   const playerName = row.playerName ?? row.player ?? row.name;
   const teamName = row.teamName ?? row.team ?? row.team_name;
@@ -104,9 +126,20 @@ function normalizeRaw(row: RawPlayerImpact): NbaPlayerImpactRecord | null {
   };
 }
 
-async function fetchPlayerImpact() {
-  const cached = await readHotCache<Record<string, NbaPlayerImpactRecord[]>>(CACHE_KEY);
-  if (cached) return cached;
+function isSnapshot(value: any): value is NbaPlayerImpactSnapshot {
+  return value && typeof value === "object" && value.teams && typeof value.teams === "object";
+}
+
+async function fetchPlayerImpactSnapshot(): Promise<NbaPlayerImpactSnapshot | null> {
+  const cached = await readHotCache<NbaPlayerImpactSnapshot | Record<string, NbaPlayerImpactRecord[]>>(CACHE_KEY);
+  if (isSnapshot(cached)) return cached;
+  if (cached && typeof cached === "object" && Object.keys(cached).length) {
+    return { teams: cached as Record<string, NbaPlayerImpactRecord[]>, lastUpdatedAt: null };
+  }
+
+  const legacy = await readHotCache<Record<string, NbaPlayerImpactRecord[]>>(LEGACY_CACHE_KEY);
+  if (legacy && Object.keys(legacy).length) return { teams: legacy, lastUpdatedAt: null };
+
   const url = process.env.NBA_PLAYER_IMPACT_URL?.trim() || process.env.NBA_INJURY_IMPACT_URL?.trim();
   if (!url) return null;
   try {
@@ -121,8 +154,13 @@ async function fetchPlayerImpact() {
       grouped[key] = [...(grouped[key] ?? []), record];
     }
     if (Object.keys(grouped).length) {
-      await writeHotCache(CACHE_KEY, grouped, CACHE_TTL_SECONDS);
-      return grouped;
+      const lastModified = response.headers.get("last-modified");
+      const snapshot = {
+        teams: grouped,
+        lastUpdatedAt: timestampFromBody(body, parseDateString(lastModified) ?? new Date().toISOString())
+      } satisfies NbaPlayerImpactSnapshot;
+      await writeHotCache(CACHE_KEY, snapshot, CACHE_TTL_SECONDS);
+      return snapshot;
     }
   } catch {
     return null;
@@ -144,9 +182,7 @@ function syntheticImpact(teamName: string): NbaLineupImpact {
   };
 }
 
-export async function getNbaLineupImpact(teamName: string): Promise<NbaLineupImpact> {
-  const grouped = await fetchPlayerImpact();
-  const players = grouped?.[normalizeNbaTeam(teamName)] ?? [];
+function buildLineupImpact(teamName: string, players: NbaPlayerImpactRecord[]): NbaLineupImpact {
   if (!players.length) return syntheticImpact(teamName);
 
   const unavailable = players.filter((player) => statusWeight(player.status) > 0);
@@ -169,4 +205,14 @@ export async function getNbaLineupImpact(teamName: string): Promise<NbaLineupImp
     activeCoreHealth,
     summary: top ? `${top.playerName} ${top.status} is the largest lineup-impact flag.` : "Lineup impact is light."
   };
+}
+
+export async function getNbaPlayerImpactSnapshot(): Promise<NbaPlayerImpactSnapshot | null> {
+  return fetchPlayerImpactSnapshot();
+}
+
+export async function getNbaLineupImpact(teamName: string): Promise<NbaLineupImpact> {
+  const snapshot = await fetchPlayerImpactSnapshot();
+  const players = snapshot?.teams?.[normalizeNbaTeam(teamName)] ?? [];
+  return buildLineupImpact(teamName, players);
 }
