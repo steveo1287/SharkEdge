@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
+import { getNbaLineupTruth, type NbaLineupTruth } from "@/services/simulation/nba-lineup-truth";
 import {
   projectNbaPlayerFullStatProfile,
   type NbaFullStatKey,
@@ -131,6 +132,43 @@ function probabilityRecord(line: number | null, probability: number | null) {
   return { [String(line)]: probability };
 }
 
+async function lineupTruthForEvent(args: {
+  awayTeam: string | null | undefined;
+  homeTeam: string | null | undefined;
+  gameTime?: Date | string | null;
+}) {
+  if (!args.awayTeam || !args.homeTeam) return null;
+  return getNbaLineupTruth({
+    awayTeam: args.awayTeam,
+    homeTeam: args.homeTeam,
+    gameTime: args.gameTime ?? null,
+    projectionReasons: ["nba full-stat projection payload builder"],
+    projectionModules: [{ label: "injury/availability/rotation", status: "real" }]
+  }).catch(() => null);
+}
+
+function lineupTruthMetadata(lineupTruth: NbaLineupTruth | null) {
+  if (!lineupTruth) {
+    return {
+      lineupTruthStatus: "MISSING",
+      injuryReportFresh: false,
+      minutesTrusted: false,
+      lineupBlockers: ["lineup truth missing"],
+      lineupWarnings: ["lineup truth unavailable"],
+      playerFlags: []
+    };
+  }
+  return {
+    lineupTruthStatus: lineupTruth.status,
+    injuryReportFresh: lineupTruth.injuryReportFresh,
+    minutesTrusted: lineupTruth.minutesTrusted,
+    projectedStarterConfidence: lineupTruth.projectedStarterConfidence,
+    lineupBlockers: lineupTruth.blockers,
+    lineupWarnings: lineupTruth.warnings,
+    playerFlags: lineupTruth.playerFlags.slice(0, 8)
+  };
+}
+
 function toPayload(args: {
   eventId: string;
   playerId: string;
@@ -153,6 +191,7 @@ function toPayload(args: {
   opponentName: string | null;
   projectedMinutes: number;
   modelOnly: boolean;
+  lineupTruth: NbaLineupTruth | null;
 }): NbaFullStatProjectionPayload {
   return {
     modelKey: "nba-full-stat-projection",
@@ -178,7 +217,8 @@ function toPayload(args: {
       playerName: args.playerName,
       teamName: args.teamName,
       opponentName: args.opponentName,
-      projectedMinutes: args.projectedMinutes
+      projectedMinutes: args.projectedMinutes,
+      ...lineupTruthMetadata(args.lineupTruth)
     }
   };
 }
@@ -218,6 +258,11 @@ export async function buildNbaFullStatProjectionPayloadsForEvent(args: {
   const teamIds = [homeTeam?.id, awayTeam?.id].filter((value): value is string => typeof value === "string");
   if (!teamIds.length) return [];
 
+  const lineupTruth = await lineupTruthForEvent({
+    awayTeam: awayTeam?.name,
+    homeTeam: homeTeam?.name,
+    gameTime: event.startTime
+  });
   const existing = new Set((args.existingProjections ?? []).map((projection) => projectionKey(projection.playerId, projection.statKey)));
   const marketLinesByPlayer = buildMarketLinesByPlayer(event.currentMarketStates);
   const players = await prisma.player.findMany({
@@ -242,6 +287,7 @@ export async function buildNbaFullStatProjectionPayloadsForEvent(args: {
       team: player.team?.name ?? null,
       position: player.position,
       recentStats,
+      lineupTruth,
       playerStatus: playerStatus(player.status),
       marketLinesByStat: marketLinesByPlayer.get(player.id)
     });
@@ -258,7 +304,8 @@ export async function buildNbaFullStatProjectionPayloadsForEvent(args: {
         teamName: player.team?.name ?? null,
         opponentName: opponent?.name ?? null,
         projectedMinutes: full.projectedMinutes,
-        modelOnly: projection.marketLine === null
+        modelOnly: projection.marketLine === null,
+        lineupTruth
       }));
     }
 
@@ -274,7 +321,8 @@ export async function buildNbaFullStatProjectionPayloadsForEvent(args: {
         teamName: player.team?.name ?? null,
         opponentName: opponent?.name ?? null,
         projectedMinutes: full.projectedMinutes,
-        modelOnly: projection.marketLine === null
+        modelOnly: projection.marketLine === null,
+        lineupTruth
       }));
     }
   }
