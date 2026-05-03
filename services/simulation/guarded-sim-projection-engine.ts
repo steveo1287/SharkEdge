@@ -1,7 +1,8 @@
 import {
   buildNbaSimHealthPolicy,
   enforceNbaSimHealthPolicy,
-  type NbaSimHealthStatus
+  type NbaSimHealthStatus,
+  type NbaSimRecommendationTier
 } from "@/services/simulation/nba-sim-health-policy";
 import { applySimAccuracyGuardrail, getSimAccuracyGuardrails } from "@/services/simulation/sim-accuracy-guardrail";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
@@ -48,6 +49,54 @@ function nbaRuntimeCalibrationHealthy(projection: SimProjection) {
   return true;
 }
 
+function nbaHasDocumentedLineupReason(projection: SimProjection) {
+  const factors = projection.realityIntel?.factors ?? [];
+  const reasons = projection.nbaIntel?.reasons ?? [];
+  const modules = projection.realityIntel?.modules ?? [];
+  const factorSignal = factors.some((factor) =>
+    /availability|injury|star|player|rotation|usage/i.test(factor.label) && Math.abs(factor.value * factor.weight) >= 0.12
+  );
+  const reasonSignal = reasons.some((reason) => /injury|availability|rotation|usage|star|player/i.test(reason));
+  const moduleSignal = modules.some((module) => /injury|availability|rotation|player/i.test(module.label) && module.status === "real");
+  return factorSignal || reasonSignal || moduleSignal;
+}
+
+function nbaSpreadConflict(projection: SimProjection) {
+  const marketSpreadHome = projection.realityIntel?.market?.spreadLine;
+  if (typeof marketSpreadHome !== "number" || !Number.isFinite(marketSpreadHome)) return null;
+  const projectedHomeMargin = projection.distribution.avgHome - projection.distribution.avgAway;
+  const homeCoverThreshold = -marketSpreadHome;
+  const spreadEdge = projectedHomeMargin - homeCoverThreshold;
+  if (Math.abs(spreadEdge) <= 6) return null;
+  if (nbaHasDocumentedLineupReason(projection)) return null;
+  return {
+    projectedHomeMargin,
+    marketSpreadHome,
+    homeCoverThreshold,
+    spreadEdge
+  };
+}
+
+function applyNbaSpreadConflictGate(args: {
+  projection: SimProjection;
+  tier: NbaSimRecommendationTier;
+  noBet: boolean;
+  confidence: number;
+  reasons: string[];
+}) {
+  const conflict = nbaSpreadConflict(args.projection);
+  if (!conflict) return { tier: args.tier, noBet: args.noBet, confidence: args.confidence, reasons: args.reasons };
+  return {
+    tier: "pass" as NbaSimRecommendationTier,
+    noBet: true,
+    confidence: Math.min(args.confidence, 0.49),
+    reasons: [
+      `NBA spread conflict gate forced PASS: projected home margin ${conflict.projectedHomeMargin.toFixed(1)} vs market home spread ${conflict.marketSpreadHome.toFixed(1)} creates ${conflict.spreadEdge.toFixed(1)} points of model-market conflict without a documented lineup/injury reason.`,
+      ...args.reasons
+    ]
+  };
+}
+
 export async function buildGuardedSimProjection(input: SimProjectionInput): Promise<SimProjection> {
   const projection = await buildSimProjection(input);
 
@@ -85,15 +134,22 @@ export async function buildGuardedSimProjection(input: SimProjectionInput): Prom
       reasons: guardedReasons,
       policy
     });
+    const spreadGuarded = applyNbaSpreadConflictGate({
+      projection,
+      tier: policyGuarded.tier,
+      noBet: policyGuarded.noBet,
+      confidence: policyGuarded.confidence,
+      reasons: policyGuarded.reasons
+    });
 
     return {
       ...projection,
       nbaIntel: {
         ...projection.nbaIntel,
-        tier: policyGuarded.tier,
-        confidence: policyGuarded.confidence,
-        noBet: policyGuarded.noBet,
-        reasons: policyGuarded.reasons
+        tier: spreadGuarded.tier,
+        confidence: spreadGuarded.confidence,
+        noBet: spreadGuarded.noBet,
+        reasons: spreadGuarded.reasons
       }
     };
   }
