@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { SharkFightCardCockpit, SharkFightDetailRibbon } from "@/components/ufc/sharkfight-sim-surface";
 import { SharkFightsHeader, UfcFightIqPanel, UfcFightList } from "@/components/ufc/sharkfights-ufc";
 import { getUfcCardDetail, getUfcFightIqDetail } from "@/services/ufc/card-feed";
 
@@ -29,8 +30,12 @@ export default async function UfcCardPage({ params, searchParams }: PageProps) {
           <span className="rounded-full border border-aqua/25 bg-aqua/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-aqua">{card.fightCount} fights</span>
           <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-300">{card.simulatedFightCount} simulated</span>
         </div>
+        <SharkFightCardCockpit card={card} />
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_430px]">
-          <UfcFightList card={card} selectedFightId={selectedFightId} />
+          <div className="grid gap-3">
+            <SharkFightDetailRibbon fight={selectedFight} />
+            <UfcFightList card={card} selectedFightId={selectedFightId} />
+          </div>
           <UfcFightIqPanel fight={selectedFight} />
         </section>
       </div>
