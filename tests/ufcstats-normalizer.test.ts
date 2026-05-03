@@ -9,6 +9,7 @@ const snapshot = normalizeUfcStatsSnapshot({
     sourceEventId: "ufcstats-event123",
     eventName: "UFC Test Night",
     eventDate: "2026-06-01T02:00:00.000Z",
+    location: "Chicago, Illinois",
     fights: [{ sourceFightId: "ufcstats-fight123", url: "http://example/fight", fighterAName: "Fighter A", fighterBName: "Fighter B" }]
   },
   fights: [{ sourceFightId: "ufcstats-fight123", url: "http://example/fight", fighterAName: "Fighter A", fighterBName: "Fighter B", scheduledRounds: 3 }],
@@ -19,8 +20,12 @@ const snapshot = normalizeUfcStatsSnapshot({
 });
 
 assert.equal(snapshot.sourceKey, "ufcstats");
+assert.equal(snapshot.event?.sourceEventId, "ufcstats-event123");
+assert.equal(snapshot.event?.eventName, "UFC Test Night");
+assert.equal(snapshot.event?.location, "Chicago, Illinois");
 assert.equal(snapshot.fights.length, 1);
 assert.equal(snapshot.fights[0].sourceFightId, "ufcstats-fight123");
+assert.equal(snapshot.fights[0].eventId, "ufcstats-event123");
 assert.equal(snapshot.fights[0].fighterA.sourceId, "ufcstats-abc123");
 assert.equal(snapshot.fights[0].fighterA.sigStrikesLandedPerMin, 4.21);
 assert.equal(snapshot.fights[0].fighterA.sigStrikesAbsorbedPerMin, 3.02);
