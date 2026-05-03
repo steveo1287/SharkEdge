@@ -21,6 +21,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
         selectedLeagueLabel={props.selectedLeagueLabel}
         realBookCount={props.realBookCount}
         fullStatProjectionView={props.fullStatProjectionView}
+        fullStatHealthSummary={props.fullStatHealthSummary}
       />
     </BetSlipBoundary>
   );
