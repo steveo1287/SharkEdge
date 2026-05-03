@@ -28,6 +28,8 @@ export type UfcRealEventSnapshot = {
   eventDate: string;
   location?: string | null;
   status?: string | null;
+  sourceStatus?: string | null;
+  sourceUrls?: Record<string, string> | null;
   payload?: Record<string, unknown>;
 };
 
@@ -77,6 +79,8 @@ export function normalizeUfcRealDataSnapshot(snapshot: UfcRealDataSnapshot): Ufc
       eventName: snapshot.event.eventName,
       eventDate: snapshot.event.eventDate,
       location: snapshot.event.location ?? null,
+      sourceStatus: snapshot.event.sourceStatus ?? "OFFICIAL_PARTIAL",
+      sourceUrls: snapshot.event.sourceUrls ?? {},
       status: snapshot.event.status ?? "SCHEDULED",
       payload: { sourceKey: snapshot.sourceKey, ...(snapshot.event.payload ?? {}) }
     }] : [],
@@ -98,6 +102,10 @@ export function normalizeUfcRealDataSnapshot(snapshot: UfcRealDataSnapshot): Ufc
       fighterAKey: fight.fighterA.sourceId,
       fighterBKey: fight.fighterB.sourceId,
       weightClass: fight.weightClass ?? null,
+      sourceStatus: "OFFICIAL_PARTIAL",
+      isMainEvent: false,
+      isTitleFight: false,
+      isCatchweight: false,
       status: "SCHEDULED",
       preFightSnapshotAt: snapshot.snapshotAt,
       payload: {
@@ -107,6 +115,7 @@ export function normalizeUfcRealDataSnapshot(snapshot: UfcRealDataSnapshot): Ufc
         marketOddsBOpen: fight.marketOddsBOpen ?? null
       }
     })),
+    fightSources: [],
     fightStatsRounds: [],
     fighterRatings: [],
     opponentStrengthSnapshots: [],
