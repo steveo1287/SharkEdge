@@ -12,10 +12,14 @@ export type UfcOperationalFeedCard = {
   fighterBId: string;
   fighterAName: string | null;
   fighterBName: string | null;
+  hasPrediction: boolean;
+  sourceStatus: string | null;
+  cardSection: string | null;
+  boutOrder: number | null;
   pickFighterId: string | null;
   pickName: string | null;
-  fighterAWinProbability: number;
-  fighterBWinProbability: number;
+  fighterAWinProbability: number | null;
+  fighterBWinProbability: number | null;
   fairOddsAmerican: number | null;
   sportsbookOddsAmerican: number | null;
   edgePct: number | null;
@@ -45,10 +49,14 @@ type FeedRow = {
   fighter_b_id: string;
   fighter_a_name: string | null;
   fighter_b_name: string | null;
+  has_prediction: boolean;
+  source_status: string | null;
+  card_section: string | null;
+  bout_order: number | null;
   pick_fighter_id: string | null;
   pick_name: string | null;
-  fighter_a_win_probability: number;
-  fighter_b_win_probability: number;
+  fighter_a_win_probability: number | null;
+  fighter_b_win_probability: number | null;
   fair_odds_american: number | null;
   sportsbook_odds_american: number | null;
   edge_pct: number | null;
@@ -88,6 +96,10 @@ function mapRows(rows: FeedRow[]): UfcOperationalFeedCard[] {
     fighterBId: row.fighter_b_id,
     fighterAName: row.fighter_a_name,
     fighterBName: row.fighter_b_name,
+    hasPrediction: Boolean(row.has_prediction),
+    sourceStatus: row.source_status,
+    cardSection: row.card_section,
+    boutOrder: row.bout_order,
     pickFighterId: row.pick_fighter_id,
     pickName: row.pick_name,
     fighterAWinProbability: row.fighter_a_win_probability,
@@ -112,7 +124,7 @@ function mapRows(rows: FeedRow[]): UfcOperationalFeedCard[] {
 
 async function queryEventLinkedFeed(modelVersion: string, limit: number, includePast: boolean) {
   return prisma.$queryRaw<FeedRow[]>`
-    SELECT DISTINCT ON (p.fight_id)
+    SELECT
       f.id AS fight_id,
       e.id AS event_id,
       e.event_name,
@@ -124,6 +136,10 @@ async function queryEventLinkedFeed(modelVersion: string, limit: number, include
       f.fighter_b_id,
       fa.full_name AS fighter_a_name,
       fb.full_name AS fighter_b_name,
+      (p.id IS NOT NULL) AS has_prediction,
+      f.source_status,
+      f.card_section,
+      f.bout_order,
       p.pick_fighter_id,
       fp.full_name AS pick_name,
       p.fighter_a_win_probability,
@@ -135,22 +151,26 @@ async function queryEventLinkedFeed(modelVersion: string, limit: number, include
       p.submission_probability,
       p.decision_probability,
       p.prediction_json,
-      p.generated_at,
+      COALESCE(p.generated_at, f.last_seen_at, f.updated_at, f.created_at) AS generated_at,
       s.data_quality_grade,
       s.confidence_grade,
       r.simulation_count,
       s.status AS shadow_status
-    FROM ufc_predictions p
-    JOIN ufc_fights f ON f.id = p.fight_id
+    FROM ufc_fights f
     LEFT JOIN ufc_events e ON e.id = f.event_id
     LEFT JOIN ufc_fighters fa ON fa.id = f.fighter_a_id
     LEFT JOIN ufc_fighters fb ON fb.id = f.fighter_b_id
+    LEFT JOIN LATERAL (
+      SELECT * FROM ufc_predictions p
+      WHERE p.fight_id = f.id AND p.model_version = ${modelVersion}
+      ORDER BY p.generated_at DESC
+      LIMIT 1
+    ) p ON true
     LEFT JOIN ufc_fighters fp ON fp.id = p.pick_fighter_id
     LEFT JOIN ufc_shadow_predictions s ON s.prediction_id = p.id
     LEFT JOIN ufc_sim_runs r ON r.prediction_id = p.id
-    WHERE p.model_version = ${modelVersion}
-      AND (${includePast}::boolean OR f.fight_date >= now() - interval '12 hours')
-    ORDER BY p.fight_id, p.generated_at DESC
+    WHERE (${includePast}::boolean OR f.fight_date >= now() - interval '12 hours')
+    ORDER BY e.event_date NULLS LAST, f.fight_date, f.bout_order NULLS LAST, f.event_label
     LIMIT ${limit}
   `;
 }
@@ -169,6 +189,10 @@ async function queryLegacyFeed(modelVersion: string, limit: number, includePast:
       f.fighter_b_id,
       fa.full_name AS fighter_a_name,
       fb.full_name AS fighter_b_name,
+      true AS has_prediction,
+      null::text AS source_status,
+      null::text AS card_section,
+      null::integer AS bout_order,
       p.pick_fighter_id,
       fp.full_name AS pick_name,
       p.fighter_a_win_probability,
@@ -201,7 +225,7 @@ async function queryLegacyFeed(modelVersion: string, limit: number, includePast:
 
 export async function getUfcOperationalFeed(options: { modelVersion?: string; limit?: number; includePast?: boolean } = {}): Promise<UfcOperationalFeedCard[]> {
   const modelVersion = options.modelVersion ?? "ufc-fight-iq-v1";
-  const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 25)));
+  const limit = Math.max(1, Math.min(200, Math.floor(options.limit ?? 100)));
   const includePast = Boolean(options.includePast);
 
   try {

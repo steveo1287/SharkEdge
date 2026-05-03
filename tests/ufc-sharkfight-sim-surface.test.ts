@@ -5,6 +5,7 @@ import type { UfcCardDetail, UfcFightIqDetail } from "@/services/ufc/card-feed";
 import type { UfcOperationalFeedCard } from "@/services/ufc/operational-feed";
 
 function feedFight(overrides: Partial<UfcOperationalFeedCard> = {}): UfcOperationalFeedCard {
+  const hasPrediction = overrides.hasPrediction ?? true;
   return {
     fightId: overrides.fightId ?? "fight-1",
     eventId: overrides.eventId ?? "event-1",
@@ -17,21 +18,25 @@ function feedFight(overrides: Partial<UfcOperationalFeedCard> = {}): UfcOperatio
     fighterBId: overrides.fighterBId ?? "b",
     fighterAName: overrides.fighterAName ?? "A",
     fighterBName: overrides.fighterBName ?? "B",
-    pickFighterId: overrides.pickFighterId ?? "a",
-    pickName: overrides.pickName ?? "A",
-    fighterAWinProbability: overrides.fighterAWinProbability ?? 0.64,
-    fighterBWinProbability: overrides.fighterBWinProbability ?? 0.36,
-    fairOddsAmerican: overrides.fairOddsAmerican ?? -178,
-    sportsbookOddsAmerican: overrides.sportsbookOddsAmerican ?? -150,
-    edgePct: overrides.edgePct ?? 4.2,
-    methodProbabilities: overrides.methodProbabilities ?? { KO_TKO: 0.22, SUBMISSION: 0.18, DECISION: 0.6 },
-    dataQualityGrade: overrides.dataQualityGrade ?? "A",
-    confidenceGrade: overrides.confidenceGrade ?? "HIGH",
-    simulationCount: overrides.simulationCount ?? 25_000,
+    hasPrediction,
+    sourceStatus: overrides.sourceStatus ?? "OFFICIAL_CONFIRMED",
+    cardSection: overrides.cardSection ?? "MAIN_CARD",
+    boutOrder: overrides.boutOrder ?? 1,
+    pickFighterId: overrides.pickFighterId ?? (hasPrediction ? "a" : null),
+    pickName: overrides.pickName ?? (hasPrediction ? "A" : null),
+    fighterAWinProbability: overrides.fighterAWinProbability ?? (hasPrediction ? 0.64 : null),
+    fighterBWinProbability: overrides.fighterBWinProbability ?? (hasPrediction ? 0.36 : null),
+    fairOddsAmerican: overrides.fairOddsAmerican ?? (hasPrediction ? -178 : null),
+    sportsbookOddsAmerican: overrides.sportsbookOddsAmerican ?? (hasPrediction ? -150 : null),
+    edgePct: overrides.edgePct ?? (hasPrediction ? 4.2 : null),
+    methodProbabilities: overrides.methodProbabilities ?? { KO_TKO: hasPrediction ? 0.22 : null, SUBMISSION: hasPrediction ? 0.18 : null, DECISION: hasPrediction ? 0.6 : null },
+    dataQualityGrade: overrides.dataQualityGrade ?? (hasPrediction ? "A" : null),
+    confidenceGrade: overrides.confidenceGrade ?? (hasPrediction ? "HIGH" : null),
+    simulationCount: overrides.simulationCount ?? (hasPrediction ? 25_000 : null),
     generatedAt: overrides.generatedAt ?? "2026-05-31T18:00:00.000Z",
-    pathSummary: overrides.pathSummary ?? ["A has the cleaner pressure and control profile."],
+    pathSummary: overrides.pathSummary ?? (hasPrediction ? ["A has the cleaner pressure and control profile."] : []),
     dangerFlags: overrides.dangerFlags ?? [],
-    shadowStatus: overrides.shadowStatus ?? "PENDING"
+    shadowStatus: overrides.shadowStatus ?? (hasPrediction ? "PENDING" : null)
   };
 }
 
@@ -49,7 +54,7 @@ const card: UfcCardDetail = {
   fights: [
     feedFight({ fightId: "fight-1", confidenceGrade: "HIGH", edgePct: 4.2, dangerFlags: ["finish-volatility"] }),
     feedFight({ fightId: "fight-2", pickFighterId: "b", fighterAWinProbability: 0.45, fighterBWinProbability: 0.55, confidenceGrade: "MEDIUM", edgePct: -1, shadowStatus: "RESOLVED", methodProbabilities: { KO_TKO: 0.55, SUBMISSION: 0.1, DECISION: 0.35 } }),
-    feedFight({ fightId: "fight-3", simulationCount: null, edgePct: null, confidenceGrade: "LOW", shadowStatus: null })
+    feedFight({ fightId: "fight-3", hasPrediction: false, simulationCount: null, edgePct: null, confidenceGrade: null, shadowStatus: null })
   ]
 };
 
@@ -98,5 +103,11 @@ assert.equal(detailSurface.topRoundOutcome, "R2");
 assert.equal(detailSurface.topRoundProbability, 0.14);
 assert.equal(detailSurface.dataCompletenessPct, 75);
 assert.equal(detailSurface.dataMissingCount, 1);
+
+const pendingDetail = buildSharkFightDetailSimSurface({ ...detail, prediction: feedFight({ hasPrediction: false }), featureComparison: [], methodProbabilities: { KO_TKO: null, SUBMISSION: null, DECISION: null }, roundFinishProbabilities: {}, pathSummary: [] });
+assert.equal(pendingDetail.pickProbability, null);
+assert.equal(pendingDetail.pickSide, null);
+assert.equal(pendingDetail.engineAgreement, "agreement");
+assert.equal(pendingDetail.methodLean, null);
 
 console.log("ufc-sharkfight-sim-surface tests passed");

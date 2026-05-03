@@ -12,6 +12,7 @@ const tests = [
   "tests/ufc-sharkfight-sim-surface.test.ts",
   "tests/ufc-upcoming-card-normalizer.test.ts",
   "tests/ufc-upcoming-card-providers.test.ts",
+  "tests/ufc-upcoming-card-feed.test.ts",
   "tests/ufc-provider-adapters.test.ts",
   "tests/ufc-exchange-monte-carlo.test.ts",
   "tests/ufc-ensemble-sim.test.ts",
