@@ -1,6 +1,5 @@
 import * as safeEngine from "./sim-verdict-engine-nba-safe";
 import { applyNbaVerdictSafety, applyNbaVerdictSafetyToList, type NbaVerdictSafetyInput } from "./nba-verdict-safety";
-import type { ContextualGameSimulationSummary } from "./contextual-game-sim";
 import type { PlayerPropSimulationSummary } from "./player-prop-sim";
 
 export type VerdictRating = safeEngine.VerdictRating;
@@ -19,25 +18,28 @@ type GameVerdictArgs = Parameters<typeof safeEngine.buildGameSimVerdict>[0] & {
 
 type SafetyContext = Omit<NbaVerdictSafetyInput, "verdict">;
 
-function hasDriver(sim: ContextualGameSimulationSummary, patterns: RegExp[]) {
-  const text = sim.drivers.join(" | ").toLowerCase();
-  return patterns.some((pattern) => pattern.test(text));
+function defaultMissingNbaSafety(): SafetyContext {
+  return {
+    modelHealthGreen: false,
+    sourceHealthGreen: false,
+    injuryReportFresh: false,
+    calibrationBucketHealthy: false,
+    noVigMarketAvailable: false,
+    noBet: true,
+    blockerReasons: ["Explicit NBA safety context was not supplied to the verdict layer."]
+  };
 }
 
-function defaultNbaGameSafety(args: GameVerdictArgs): SafetyContext {
-  const isNba = args.leagueKey.toUpperCase() === "NBA";
-  const sourceIssue = isNba && hasDriver(args.sim, [/stale/, /source health/, /provider degraded/, /feed.*degraded/, /low provider/]);
-  const injuryIssue = isNba && hasDriver(args.sim, [/injur/, /questionable/, /availability/, /game\s*time/, /minutes restriction/, /star.*uncertain/]);
-  const calibrationIssue = isNba && hasDriver(args.sim, [/uncalibrated/, /calibration red/, /bucket underperform/, /bucket fail/, /accuracy bucket/]);
-
+function buildExplicitNbaSafety(input: Partial<Omit<NbaVerdictSafetyInput, "verdict">> | undefined, fallbackNoVig: boolean): SafetyContext {
+  if (!input) return defaultMissingNbaSafety();
   return {
-    modelHealthGreen: isNba ? !calibrationIssue : true,
-    sourceHealthGreen: isNba ? !sourceIssue : true,
-    injuryReportFresh: isNba ? !injuryIssue : true,
-    calibrationBucketHealthy: isNba ? !calibrationIssue : true,
-    noVigMarketAvailable: args.homeMoneylineOdds !== null && args.awayMoneylineOdds !== null,
-    noBet: false,
-    blockerReasons: []
+    modelHealthGreen: input.modelHealthGreen === true,
+    sourceHealthGreen: input.sourceHealthGreen === true,
+    injuryReportFresh: input.injuryReportFresh === true,
+    calibrationBucketHealthy: input.calibrationBucketHealthy === true,
+    noVigMarketAvailable: input.noVigMarketAvailable ?? fallbackNoVig,
+    noBet: input.noBet === true,
+    blockerReasons: input.blockerReasons ?? []
   };
 }
 
@@ -54,7 +56,7 @@ function withGameMarketSafety(verdict: MarketVerdict, safety: SafetyContext, arg
   return applyNbaVerdictSafety({
     ...safety,
     verdict,
-    noVigMarketAvailable
+    noVigMarketAvailable: safety.noVigMarketAvailable && noVigMarketAvailable
   });
 }
 
@@ -100,16 +102,7 @@ export function buildPlayerPropVerdict(
 ): PlayerPropVerdict {
   const result = safeEngine.buildPlayerPropVerdict(sim, playerId, playerName, statKey, marketLine, overOdds, underOdds, leagueKey);
   if (leagueKey.toUpperCase() !== "NBA") return result;
-  const safety: SafetyContext = {
-    modelHealthGreen: true,
-    sourceHealthGreen: true,
-    injuryReportFresh: true,
-    calibrationBucketHealthy: true,
-    noVigMarketAvailable: overOdds !== null && underOdds !== null,
-    noBet: false,
-    blockerReasons: [],
-    ...nbaSafety
-  };
+  const safety = buildExplicitNbaSafety(nbaSafety, overOdds !== null && underOdds !== null);
   return {
     ...result,
     verdict: applyNbaVerdictSafety({ ...safety, verdict: result.verdict })
@@ -119,10 +112,7 @@ export function buildPlayerPropVerdict(
 export function buildGameSimVerdict(args: GameVerdictArgs): GameSimVerdict {
   const result = safeEngine.buildGameSimVerdict(args);
   if (args.leagueKey.toUpperCase() !== "NBA") return result;
-  const safety: SafetyContext = {
-    ...defaultNbaGameSafety(args),
-    ...args.nbaSafety
-  };
+  const safety = buildExplicitNbaSafety(args.nbaSafety, args.homeMoneylineOdds !== null && args.awayMoneylineOdds !== null);
   const verdicts = result.verdicts.map((verdict) => withGameMarketSafety(verdict, safety, args));
   return {
     ...result,
