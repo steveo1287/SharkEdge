@@ -1,3 +1,4 @@
+import { getNbaFullStatProjectionView } from "@/services/simulation/nba-full-stat-projection-view";
 import { buildPropsDeskPresentation } from "@/services/props/props-desk-presenter";
 
 export async function getPropsCommandData(
@@ -12,9 +13,14 @@ export async function getPropsCommandData(
     filters
   });
 
+  const fullStatProjectionView = filters.league === "NBA" || filters.league === "ALL"
+    ? await getNbaFullStatProjectionView({ includeModelOnly: true, take: 500 })
+    : null;
+
   return {
     filters,
     data,
+    fullStatProjectionView,
     ...presentation
   };
 }
