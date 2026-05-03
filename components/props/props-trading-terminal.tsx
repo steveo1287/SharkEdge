@@ -41,6 +41,23 @@ type FullStatProjectionView = {
   warnings: string[];
 } | null;
 
+type FullStatHealthSummary = {
+  status: "GREEN" | "YELLOW" | "RED";
+  playerCount: number;
+  statTileCount: number;
+  healthyPlayerCount: number;
+  warningPlayerCount: number;
+  blockedPlayerCount: number;
+  healthyTileCount: number;
+  warningTileCount: number;
+  blockedTileCount: number;
+  modelOnlyTileCount: number;
+  marketBackedTileCount: number;
+  blockerReasons: Array<{ reason: string; count: number }>;
+  warningReasons: Array<{ reason: string; count: number }>;
+  topBlockedPlayers: Array<{ playerId: string; playerName: string; reasons: string[] }>;
+} | null;
+
 function pct(value: number | null | undefined) {
   return typeof value === "number" ? `${value > 0 ? "+" : ""}${value.toFixed(2)}%` : "--";
 }
@@ -75,6 +92,13 @@ function getDecision(prop: PropCardView) {
 function decisionTone(decision: string) {
   if (decision === "ATTACK") return "success" as const;
   if (decision === "WATCH") return "premium" as const;
+  return "muted" as const;
+}
+
+function healthTone(status: "GREEN" | "YELLOW" | "RED" | undefined) {
+  if (status === "GREEN") return "success" as const;
+  if (status === "YELLOW") return "premium" as const;
+  if (status === "RED") return "danger" as const;
   return "muted" as const;
 }
 
@@ -155,6 +179,43 @@ function TopPlayCard({ prop, rank }: { prop: PropCardView; rank: number }) {
           Engine
         </Link>
       </div>
+    </Card>
+  );
+}
+
+function FullStatHealthPanel({ summary }: { summary: FullStatHealthSummary }) {
+  if (!summary) return null;
+  const topReason = summary.blockerReasons[0]?.reason ?? summary.warningReasons[0]?.reason ?? "No major full-stat source issues detected.";
+  return (
+    <Card className="surface-panel p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-bone/45">NBA Stat Health</div>
+          <div className="mt-2 flex items-center gap-2">
+            <Badge tone={healthTone(summary.status)}>{summary.status}</Badge>
+            <span className="font-mono text-lg font-semibold text-white">{summary.healthyPlayerCount}/{summary.playerCount}</span>
+          </div>
+          <div className="mt-1 text-xs leading-5 text-bone/55">healthy players | {summary.blockedPlayerCount} blocked | {summary.warningPlayerCount} warning</div>
+        </div>
+        <Link href="/api/simulation/nba/full-stat-health" className="rounded-md border border-bone/[0.12] bg-panel px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-bone/65">
+          API
+        </Link>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
+        <div className="rounded-md border border-bone/[0.08] bg-panel p-2">
+          <div className="text-bone/45">Tiles</div>
+          <div className="font-mono text-white">{summary.statTileCount}</div>
+        </div>
+        <div className="rounded-md border border-bone/[0.08] bg-panel p-2">
+          <div className="text-bone/45">Model-only</div>
+          <div className="font-mono text-white">{summary.modelOnlyTileCount}</div>
+        </div>
+        <div className="rounded-md border border-bone/[0.08] bg-panel p-2">
+          <div className="text-bone/45">Market</div>
+          <div className="font-mono text-white">{summary.marketBackedTileCount}</div>
+        </div>
+      </div>
+      <div className="mt-3 truncate text-xs text-bone/50" title={topReason}>{topReason}</div>
     </Card>
   );
 }
@@ -252,7 +313,8 @@ export function PropsTradingTerminal({
   providerLabel,
   selectedLeagueLabel,
   realBookCount,
-  fullStatProjectionView
+  fullStatProjectionView,
+  fullStatHealthSummary
 }: {
   props: PropCardView[];
   sourceNote: string;
@@ -260,6 +322,7 @@ export function PropsTradingTerminal({
   selectedLeagueLabel: string;
   realBookCount: number;
   fullStatProjectionView?: FullStatProjectionView;
+  fullStatHealthSummary?: FullStatHealthSummary;
 }) {
   const attack = props.filter((prop) => getDecision(prop) === "ATTACK");
   const watch = props.filter((prop) => getDecision(prop) === "WATCH");
@@ -295,12 +358,13 @@ export function PropsTradingTerminal({
         </div>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-5">
+      <section className="grid gap-3 md:grid-cols-5 xl:grid-cols-6">
         <TerminalMetric label="Scope" value={selectedLeagueLabel} sub="Active filter" />
         <TerminalMetric label="Rows" value={String(props.length)} sub="Tradable board entries" />
         <TerminalMetric label="Attack" value={String(attack.length)} sub="Cleared decision gate" />
         <TerminalMetric label="Positive EV" value={String(positiveEv.length)} sub="Market-derived EV" />
         <TerminalMetric label="Books" value={String(realBookCount)} sub="Price sources" />
+        <FullStatHealthPanel summary={fullStatHealthSummary ?? null} />
       </section>
 
       <FullStatForecastSection view={fullStatProjectionView ?? null} />
