@@ -1,6 +1,7 @@
 import { invalidateHotCache } from "@/lib/cache/live-cache";
 import { prisma } from "@/lib/db/prisma";
 import { buildEventProjectionFromHistory, buildPlayerPropProjectionsForEvent } from "@/services/modeling/model-engine";
+import { buildNbaFullStatProjectionPayloadsForEvent } from "@/services/modeling/nba-full-stat-projection-payloads";
 import { recomputeCurrentMarketState, recomputeEdgeSignals } from "@/services/edges/edge-engine";
 import { ingestEventProjection, ingestPlayerProjection } from "@/services/market-data/market-data-service";
 import { applyMarketCalibrationToPlayerProjection } from "@/services/simulation/prop-projection-calibrator";
@@ -98,7 +99,17 @@ export async function edgeRecomputeJob(eventId: string) {
       )
     : await buildPlayerPropProjectionsForEvent(eventId);
   const validPlayerProjections = playerProjections.filter(isProjection);
-  const playerIds = Array.from(new Set(validPlayerProjections.map((projection) => projection.playerId)));
+  const nbaFullStatProjections = event?.league.key === "NBA"
+    ? await buildNbaFullStatProjectionPayloadsForEvent({
+        eventId,
+        existingProjections: validPlayerProjections.map((projection) => ({
+          playerId: projection.playerId,
+          statKey: projection.statKey
+        }))
+      })
+    : [];
+  const allPlayerProjections = [...validPlayerProjections, ...nbaFullStatProjections];
+  const playerIds = Array.from(new Set(allPlayerProjections.map((projection) => projection.playerId)));
   const players = playerIds.length
     ? await prisma.player.findMany({
         where: { id: { in: playerIds } },
@@ -137,9 +148,10 @@ export async function edgeRecomputeJob(eventId: string) {
   let moneyballAdjustedPlayerProjectionCount = 0;
   let synergyAdjustedPlayerProjectionCount = 0;
   let tunedPlayerProjectionCount = 0;
+  let fullStatPlayerProjectionCount = 0;
   const skipReasons: Record<string, number> = {};
 
-  for (const projection of validPlayerProjections) {
+  for (const projection of allPlayerProjections) {
     const projectionWithStatus = withPlayerStatus(projection, playerStatusById);
     const readiness = evaluatePlayerProjectionReadiness(
       projectionWithStatus,
@@ -188,6 +200,9 @@ export async function edgeRecomputeJob(eventId: string) {
     if (metadata?.marketCalibrated === true) {
       calibratedPlayerProjectionCount += 1;
     }
+    if (metadata?.fullStatProjection === true) {
+      fullStatPlayerProjectionCount += 1;
+    }
     await ingestPlayerProjection(calibratedProjection);
   }
 
@@ -208,7 +223,9 @@ export async function edgeRecomputeJob(eventId: string) {
     eventId,
     eventProjectionBuilt: Boolean(eventProjection),
     gameOutcomePowerAdjusted,
-    playerProjectionCount: validPlayerProjections.length,
+    playerProjectionCount: allPlayerProjections.length,
+    marketDrivenPlayerProjectionCount: validPlayerProjections.length,
+    nbaFullStatProjectionBuiltCount: nbaFullStatProjections.length,
     removedExistingPlayerProjectionCount: removedExistingPlayerProjections.count,
     eligiblePlayerProjectionCount,
     skippedPlayerProjectionCount,
@@ -216,6 +233,7 @@ export async function edgeRecomputeJob(eventId: string) {
     synergyAdjustedPlayerProjectionCount,
     tunedPlayerProjectionCount,
     calibratedPlayerProjectionCount,
+    fullStatPlayerProjectionCount,
     nbaPropCalibrationContext: nbaPropCalibrationContext?.summary ?? null,
     nbaPropLedgerCapture,
     tuningProfileApplied: Boolean(tuningProfile),
