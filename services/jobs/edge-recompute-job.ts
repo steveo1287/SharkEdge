@@ -9,6 +9,7 @@ import { applyNbaSynergyAdjustmentToProjection } from "@/services/simulation/nba
 import { applyNbaMoneyballAdjustmentToProjection } from "@/services/simulation/nba-moneyball-projection-adjuster";
 import { getLatestModelTuningProfile } from "@/services/evaluation/model-tuning-service";
 import { applyGameOutcomePowerAdjustment } from "@/services/simulation/game-outcome-power-adjuster";
+import { captureNbaPropProjectionSnapshotsForEvent } from "@/services/simulation/nba-prop-ledger-capture";
 
 function isProjection(
   value: Awaited<ReturnType<typeof buildPlayerPropProjectionsForEvent>>[number]
@@ -160,6 +161,10 @@ export async function edgeRecomputeJob(eventId: string) {
     await ingestPlayerProjection(calibratedProjection);
   }
 
+  const nbaPropLedgerCapture = event?.league.key === "NBA"
+    ? await captureNbaPropProjectionSnapshotsForEvent(eventId)
+    : null;
+
   await recomputeCurrentMarketState(eventId);
   await recomputeEdgeSignals(eventId);
 
@@ -181,6 +186,7 @@ export async function edgeRecomputeJob(eventId: string) {
     synergyAdjustedPlayerProjectionCount,
     tunedPlayerProjectionCount,
     calibratedPlayerProjectionCount,
+    nbaPropLedgerCapture,
     tuningProfileApplied: Boolean(tuningProfile),
     skipReasons
   };
