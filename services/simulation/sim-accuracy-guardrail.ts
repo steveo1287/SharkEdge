@@ -60,7 +60,7 @@ function classifyBucket(args: { count: number; avgPredicted: number; actualRate:
 
 function bucketNote(args: { bucket: string; count: number; avgPredicted: number; actualRate: number; brier: number; state: SimAccuracyGuardrail["state"] }) {
   if (args.state === "insufficient") {
-    return `${args.bucket} bucket has ${args.count}/${MIN_BUCKET_SAMPLE} graded samples; accuracy guard is observation-only.`;
+    return `${args.bucket} bucket has ${args.count}/${MIN_BUCKET_SAMPLE} graded samples; accuracy guard blocks action until this bucket has enough evidence.`;
   }
   if (args.state === "poor") {
     return `${args.bucket} bucket is overconfident: predicted ${round(args.avgPredicted * 100, 1)}%, actual ${round(args.actualRate * 100, 1)}%, Brier ${round(args.brier, 3)}.`;
@@ -114,7 +114,20 @@ export function applySimAccuracyGuardrail(args: {
   let noBet = Boolean(args.noBet);
   let downgraded = false;
 
-  if (guardrail && guardrail.state !== "healthy" && guardrail.state !== "insufficient") {
+  if (guardrail && guardrail.state === "insufficient") {
+    const note = `Accuracy guard: ${guardrail.note}`;
+    if (originalTier === "attack") {
+      tier = "watch";
+      noBet = true;
+      downgraded = true;
+      confidence = confidence == null ? null : round(clamp(confidence - 0.08, 0, 1), 3);
+      reasons.unshift(note);
+    } else if (originalTier === "watch") {
+      noBet = true;
+      confidence = confidence == null ? null : round(clamp(confidence - 0.04, 0, 1), 3);
+      reasons.unshift(note);
+    }
+  } else if (guardrail && guardrail.state !== "healthy") {
     const note = `Accuracy guard: ${guardrail.note}`;
 
     if (originalTier === "attack") {
