@@ -6,7 +6,7 @@ import { getModelTrustGrade, type ModelTrustSnapshot } from "@/services/sim/mode
 import { compareModelToMarket } from "@/services/sim/market-benchmark";
 import { buildSimTwinCommandQueue } from "@/services/sim/sim-twin-command-queue";
 import { getNbaSimControl, type NbaSimControlSnapshot } from "@/services/simulation/nba-sim-control";
-import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
+import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
 
 type BoardGame = {
   id: string;
