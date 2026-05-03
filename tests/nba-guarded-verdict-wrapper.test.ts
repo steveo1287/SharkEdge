@@ -34,6 +34,28 @@ const sim: ContextualGameSimulationSummary & { sampleSize: number } = {
   sampleSize: 2500
 };
 
+const missingSafety = buildGameSimVerdict({
+  sim,
+  leagueKey: "NBA",
+  homeTeam: "Home",
+  awayTeam: "Away",
+  marketTotal: 219.5,
+  marketSpreadHome: -4.5,
+  homeMoneylineOdds: -110,
+  awayMoneylineOdds: -110,
+  overOdds: -110,
+  underOdds: -110,
+  homeSpreadOdds: -110,
+  awaySpreadOdds: -110
+});
+
+assert.equal(missingSafety.overallVerdict.bestBet, null, "NBA verdict must default closed without explicit safety context");
+for (const verdict of missingSafety.verdicts) {
+  assert.equal(verdict.kellyPct, 0, "missing NBA safety context must force zero Kelly");
+  assert.notEqual(verdict.actionState, "BET_NOW", "missing NBA safety context must prevent BET_NOW");
+  assert.ok(verdict.explanation.includes("Explicit NBA safety context"), "missing safety blocker must be visible");
+}
+
 const healthy = buildGameSimVerdict({
   sim,
   leagueKey: "NBA",
@@ -52,6 +74,7 @@ const healthy = buildGameSimVerdict({
     sourceHealthGreen: true,
     injuryReportFresh: true,
     calibrationBucketHealthy: true,
+    noVigMarketAvailable: true,
     noBet: false
   }
 });
@@ -78,6 +101,7 @@ const noVigMissing = buildGameSimVerdict({
     sourceHealthGreen: true,
     injuryReportFresh: true,
     calibrationBucketHealthy: true,
+    noVigMarketAvailable: true,
     noBet: false
   }
 });
@@ -107,6 +131,7 @@ const upstreamNoBet = buildGameSimVerdict({
     sourceHealthGreen: true,
     injuryReportFresh: true,
     calibrationBucketHealthy: true,
+    noVigMarketAvailable: true,
     noBet: true,
     blockerReasons: ["Accuracy bucket unproven."]
   }
@@ -136,6 +161,11 @@ const propSim: PlayerPropSimulationSummary = {
   minutesSampleSize: 2500,
   roleConfidence: 0.9
 };
+
+const missingPropSafety = buildPlayerPropVerdict(propSim, "p1", "Player", "points", 25.5, -110, -110, "NBA");
+assert.equal(missingPropSafety.verdict.kellyPct, 0, "missing NBA prop safety context must force zero Kelly");
+assert.notEqual(missingPropSafety.verdict.actionState, "BET_NOW", "missing NBA prop safety context must prevent BET_NOW");
+assert.ok(missingPropSafety.verdict.explanation.includes("Explicit NBA safety context"), "missing prop safety blocker must be visible");
 
 const staleProp = buildPlayerPropVerdict(propSim, "p1", "Player", "points", 25.5, -110, -110, "NBA", {
   modelHealthGreen: true,
