@@ -6,6 +6,9 @@ import type { UfcOperationalFeedCard } from "@/services/ufc/operational-feed";
 function fight(overrides: Partial<UfcOperationalFeedCard>): UfcOperationalFeedCard {
   return {
     fightId: overrides.fightId ?? "fight-1",
+    eventId: overrides.eventId ?? null,
+    eventName: overrides.eventName ?? null,
+    eventDate: overrides.eventDate ?? null,
     eventLabel: overrides.eventLabel ?? "A vs B",
     fightDate: overrides.fightDate ?? "2026-06-01T02:00:00.000Z",
     scheduledRounds: overrides.scheduledRounds ?? 3,
@@ -35,22 +38,25 @@ assert.equal(ufcCardIdFromDate("2026-06-01T02:00:00.000Z"), "2026-06-01");
 assert.equal(ufcCardIdFromDate("bad-date"), "unknown-card");
 
 const cards = buildUfcCardSummaries([
-  fight({ fightId: "fight-1", fightDate: "2026-06-01T02:00:00.000Z", dataQualityGrade: "A", shadowStatus: "PENDING" }),
-  fight({ fightId: "fight-2", fightDate: "2026-06-01T03:00:00.000Z", dataQualityGrade: "C", shadowStatus: "RESOLVED" }),
+  fight({ fightId: "fight-1", eventId: "ufcev-main", eventName: "UFC Main Card", eventDate: "2026-06-01T01:00:00.000Z", fightDate: "2026-06-01T02:00:00.000Z", dataQualityGrade: "A", shadowStatus: "PENDING" }),
+  fight({ fightId: "fight-2", eventId: "ufcev-main", eventName: "UFC Main Card", eventDate: "2026-06-01T01:00:00.000Z", fightDate: "2026-06-01T03:00:00.000Z", dataQualityGrade: "C", shadowStatus: "RESOLVED" }),
   fight({ fightId: "fight-3", fightDate: "2026-06-08T02:00:00.000Z", dataQualityGrade: "B", simulationCount: null })
 ]);
 
 assert.equal(cards.length, 2);
-const juneOne = cards.find((card) => card.eventId === "2026-06-01");
-assert.equal(juneOne?.fightCount, 2);
-assert.equal(juneOne?.simulatedFightCount, 2);
-assert.equal(juneOne?.dataQualityGrade, "C");
-assert.equal(juneOne?.shadowPendingCount, 1);
-assert.equal(juneOne?.shadowResolvedCount, 1);
-assert.equal(juneOne?.providerStatus, "cached");
+const trueEvent = cards.find((card) => card.eventId === "ufcev-main");
+assert.equal(trueEvent?.eventLabel, "UFC Main Card");
+assert.equal(trueEvent?.eventDate, "2026-06-01T01:00:00.000Z");
+assert.equal(trueEvent?.fightCount, 2);
+assert.equal(trueEvent?.simulatedFightCount, 2);
+assert.equal(trueEvent?.dataQualityGrade, "C");
+assert.equal(trueEvent?.shadowPendingCount, 1);
+assert.equal(trueEvent?.shadowResolvedCount, 1);
+assert.equal(trueEvent?.providerStatus, "event-linked");
 
-const juneEight = cards.find((card) => card.eventId === "2026-06-08");
-assert.equal(juneEight?.fightCount, 1);
-assert.equal(juneEight?.simulatedFightCount, 0);
+const legacy = cards.find((card) => card.eventId === "2026-06-08");
+assert.equal(legacy?.fightCount, 1);
+assert.equal(legacy?.simulatedFightCount, 0);
+assert.equal(legacy?.providerStatus, "legacy-date");
 
 console.log("ufc-card-feed tests passed");
