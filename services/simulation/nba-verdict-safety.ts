@@ -1,4 +1,4 @@
-import type { ActionState, MarketVerdict, VerdictConfidence, VerdictRating } from "@/services/simulation/sim-verdict-engine";
+import type { ActionState, MarketVerdict, VerdictConfidence, VerdictRating } from "./sim-verdict-engine-nba-safe";
 
 const LOW_TRUST_CONFIDENCE = new Set<VerdictConfidence>(["LOW", "INSUFFICIENT"]);
 
