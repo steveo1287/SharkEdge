@@ -10,6 +10,12 @@ import { applyNbaMoneyballAdjustmentToProjection } from "@/services/simulation/n
 import { getLatestModelTuningProfile } from "@/services/evaluation/model-tuning-service";
 import { applyGameOutcomePowerAdjustment } from "@/services/simulation/game-outcome-power-adjuster";
 import { captureNbaPropProjectionSnapshotsForEvent } from "@/services/simulation/nba-prop-ledger-capture";
+import { getNbaPropCalibrationHealth } from "@/services/simulation/nba-prop-calibration-store";
+import {
+  clearActiveNbaPropCalibrationBuckets,
+  getActiveNbaPropCalibrationContextStatus,
+  setActiveNbaPropCalibrationBuckets
+} from "@/services/simulation/nba-prop-calibration-context";
 
 function isProjection(
   value: Awaited<ReturnType<typeof buildPlayerPropProjectionsForEvent>>[number]
@@ -27,6 +33,26 @@ function withPlayerStatus<T extends { playerId: string; metadata?: Record<string
       ...(projection.metadata ?? {}),
       playerStatus: playerStatusById.get(projection.playerId) ?? "ACTIVE"
     }
+  };
+}
+
+async function loadNbaPropCalibrationContext(leagueKey: string | undefined) {
+  if (leagueKey !== "NBA") {
+    clearActiveNbaPropCalibrationBuckets();
+    return null;
+  }
+  const health = await getNbaPropCalibrationHealth({ limit: 5000 });
+  setActiveNbaPropCalibrationBuckets(health.buckets, "edge-recompute-job");
+  return {
+    status: health.status,
+    rowCount: health.rowCount,
+    bucketCount: health.bucketCount,
+    healthyBucketCount: health.healthyBucketCount,
+    watchBucketCount: health.watchBucketCount,
+    poorBucketCount: health.poorBucketCount,
+    insufficientBucketCount: health.insufficientBucketCount,
+    blockers: health.blockers,
+    warnings: health.warnings
   };
 }
 
@@ -66,7 +92,14 @@ export async function edgeRecomputeJob(eventId: string) {
     ? await getLatestModelTuningProfile(event.league.key)
     : null;
 
-  const playerProjections = await buildPlayerPropProjectionsForEvent(eventId);
+  const nbaPropCalibrationContext = await loadNbaPropCalibrationContext(event?.league.key);
+  let playerProjections: Awaited<ReturnType<typeof buildPlayerPropProjectionsForEvent>> = [];
+  try {
+    playerProjections = await buildPlayerPropProjectionsForEvent(eventId);
+  } finally {
+    clearActiveNbaPropCalibrationBuckets();
+  }
+  const nbaPropCalibrationRuntimeContext = getActiveNbaPropCalibrationContextStatus();
   const validPlayerProjections = playerProjections.filter(isProjection);
   const playerIds = Array.from(new Set(validPlayerProjections.map((projection) => projection.playerId)));
   const players = playerIds.length
@@ -186,6 +219,8 @@ export async function edgeRecomputeJob(eventId: string) {
     synergyAdjustedPlayerProjectionCount,
     tunedPlayerProjectionCount,
     calibratedPlayerProjectionCount,
+    nbaPropCalibrationContext,
+    nbaPropCalibrationRuntimeContext,
     nbaPropLedgerCapture,
     tuningProfileApplied: Boolean(tuningProfile),
     skipReasons
