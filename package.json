@@ -29,6 +29,7 @@
     "worker:props": "tsx scripts/worker-props.ts",
     "worker:props-backfill": "tsx scripts/worker-props-backfill.ts",
     "worker:props-refresh": "tsx scripts/worker-props-refresh.ts",
+    "worker:nba:prop-ledger-grade": "tsx scripts/worker-nba-prop-ledger-grade.ts",
     "worker:historical-free": "tsx scripts/worker-free-historical.ts",
     "worker:historical-refresh": "tsx scripts/worker-historical-refresh.ts",
     "worker:odds-refresh": "tsx workers/odds-refresh-worker.ts",
