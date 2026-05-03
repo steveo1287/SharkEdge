@@ -20,6 +20,7 @@ export default async function PropsPage({ searchParams }: PageProps) {
         providerLabel={props.data.providerHealth.label}
         selectedLeagueLabel={props.selectedLeagueLabel}
         realBookCount={props.realBookCount}
+        fullStatProjectionView={props.fullStatProjectionView}
       />
     </BetSlipBoundary>
   );
