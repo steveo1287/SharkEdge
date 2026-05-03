@@ -1,29 +1,15 @@
 import { NextResponse } from "next/server";
 
 import { getNbaLineupTruth } from "@/services/simulation/nba-lineup-truth";
-import { getNbaPlayerImpactSnapshot } from "@/services/simulation/nba-player-impact";
+import {
+  getNbaPlayerImpactFeedHealth,
+  getNbaPlayerImpactSnapshot
+} from "@/services/simulation/nba-player-impact";
 import { normalizeNbaTeam } from "@/services/simulation/nba-team-analytics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function configured(name: string) {
-  return Boolean(process.env[name]?.trim());
-}
-
-function configuredName() {
-  if (configured("NBA_PLAYER_IMPACT_URL")) return "NBA_PLAYER_IMPACT_URL";
-  if (configured("NBA_INJURY_IMPACT_URL")) return "NBA_INJURY_IMPACT_URL";
-  return null;
-}
-
-function minutesOld(value: string | null | undefined) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return Math.round((Date.now() - date.getTime()) / 60000);
-}
 
 function getQuery(request: Request) {
   const url = new URL(request.url);
@@ -32,11 +18,6 @@ function getQuery(request: Request) {
   const team = url.searchParams.get("team")?.trim() || null;
   const gameTime = url.searchParams.get("gameTime")?.trim() || null;
   return { awayTeam, homeTeam, team, gameTime };
-}
-
-function countPlayers(snapshot: Awaited<ReturnType<typeof getNbaPlayerImpactSnapshot>>) {
-  if (!snapshot?.teams) return 0;
-  return Object.values(snapshot.teams).reduce((total, rows) => total + rows.length, 0);
 }
 
 function sourceCounts(snapshot: Awaited<ReturnType<typeof getNbaPlayerImpactSnapshot>>) {
@@ -68,18 +49,28 @@ function samplePlayersForTeam(snapshot: Awaited<ReturnType<typeof getNbaPlayerIm
   }));
 }
 
+function routeVerdict(args: {
+  truth: Awaited<ReturnType<typeof getNbaLineupTruth>> | null;
+  feedHealthStatus: "GREEN" | "YELLOW" | "RED";
+  canEvaluateGame: boolean;
+}) {
+  if (args.truth) {
+    if (args.truth.status === "GREEN" && args.feedHealthStatus === "GREEN") return "LINEUP_TRUTH_GREEN";
+    if (args.truth.status === "RED" || args.feedHealthStatus === "RED") return "LINEUP_TRUTH_PASS";
+    return "LINEUP_TRUTH_WATCH_ONLY";
+  }
+  if (args.feedHealthStatus === "GREEN") return args.canEvaluateGame ? "FEED_READY" : "FEED_FLOWING_ADD_TEAM_QUERY_TO_EVALUATE_LINEUP_TRUTH";
+  if (args.feedHealthStatus === "YELLOW") return "FEED_DEGRADED_WATCH_ONLY";
+  return "FEED_NOT_ACTIONABLE";
+}
+
 export async function GET(request: Request) {
   try {
     const { awayTeam, homeTeam, team, gameTime } = getQuery(request);
-    const snapshot = await getNbaPlayerImpactSnapshot();
-    const envName = configuredName();
-    const hasFeedUrl = Boolean(envName);
-    const playerCount = countPlayers(snapshot);
-    const teamCount = Object.keys(snapshot?.teams ?? {}).length;
-    const lastUpdatedAt = snapshot?.lastUpdatedAt ?? null;
-    const ageMinutes = minutesOld(lastUpdatedAt);
-    const feedFlowing = Boolean(snapshot && teamCount > 0 && playerCount > 0);
-    const feedFresh = typeof ageMinutes === "number" && ageMinutes <= 90;
+    const [snapshot, feedHealth] = await Promise.all([
+      getNbaPlayerImpactSnapshot(),
+      getNbaPlayerImpactFeedHealth()
+    ]);
     const canEvaluateGame = Boolean((awayTeam && homeTeam) || team);
     const truth = awayTeam && homeTeam
       ? await getNbaLineupTruth({ awayTeam, homeTeam, gameTime })
@@ -91,14 +82,7 @@ export async function GET(request: Request) {
       ok: true,
       generatedAt: new Date().toISOString(),
       feed: {
-        hasFeedUrl,
-        configuredEnv: envName,
-        feedFlowing,
-        feedFresh,
-        lastUpdatedAt,
-        ageMinutes,
-        teamCount,
-        playerCount,
+        ...feedHealth,
         sourceCounts: sourceCounts(snapshot),
         sampleTeams: sampleTeams(snapshot),
         samplePlayers: samplePlayersForTeam(snapshot, team ?? homeTeam ?? awayTeam)
@@ -111,19 +95,10 @@ export async function GET(request: Request) {
         canEvaluateGame
       },
       lineupTruth: truth,
-      verdict: truth
-        ? truth.status === "GREEN"
-          ? "LINEUP_TRUTH_GREEN"
-          : truth.status === "YELLOW"
-            ? "LINEUP_TRUTH_WATCH_ONLY"
-            : "LINEUP_TRUTH_PASS"
-        : feedFlowing
-          ? "FEED_FLOWING_ADD_TEAM_QUERY_TO_EVALUATE_LINEUP_TRUTH"
-          : hasFeedUrl
-            ? "FEED_CONFIGURED_BUT_NOT_FLOWING"
-            : "NO_INJURY_FEED_URL_CONFIGURED",
+      verdict: routeVerdict({ truth, feedHealthStatus: feedHealth.status, canEvaluateGame }),
       instructions: {
         envNeeded: "Set NBA_PLAYER_IMPACT_URL or NBA_INJURY_IMPACT_URL in Vercel Production/Preview and redeploy.",
+        actionRule: "Only LINEUP_TRUTH_GREEN with feed.status GREEN should allow NBA action. RED must force PASS; YELLOW must force WATCH/noBet.",
         exampleTeamCheck: "/api/simulation/nba/lineup-truth?team=Boston%20Celtics",
         exampleGameCheck: "/api/simulation/nba/lineup-truth?away=Boston%20Celtics&home=Chicago%20Bulls&gameTime=2026-05-03T20:00:00.000Z"
       }
@@ -132,7 +107,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       ok: false,
       generatedAt: new Date().toISOString(),
-      error: error instanceof Error ? error.message : "NBA lineup truth check failed."
+      error: error instanceof Error ? error.message : "NBA lineup truth check failed.",
+      verdict: "LINEUP_TRUTH_ROUTE_ERROR_PASS"
     }, { status: 500 });
   }
 }
