@@ -73,19 +73,26 @@ function normalizeText(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+function canonicalLeague(league?: string, sport?: string) {
+  const raw = String(league ?? "").toUpperCase();
+  if (raw === "MLB" || raw.includes("MLB")) return "MLB";
+  if (raw === "NBA" || raw.includes("NBA")) return "NBA";
+  if (raw === "NFL" || raw.includes("NFL")) return "NFL";
+  if (raw === "NHL" || raw.includes("NHL")) return "NHL";
+  if (raw === "NCAAF" || raw.includes("NCAAF")) return "NCAAF";
+  if (raw === "UFC" || raw.includes("UFC")) return "UFC";
+  const sportText = String(sport ?? "").toLowerCase();
+  if (sportText === "baseball") return "MLB";
+  return raw || "ALL";
+}
+
 function eventTokens(eventLabel: string) {
   return normalizeText(eventLabel).split(" ").filter((token) => token.length >= 3 && !["the", "and", "at", "vs"].includes(token));
 }
 
-async function resolveInternalEventId(event: OddsApiIoNormalizedEvent) {
-  if (!event.startTime || !event.league) return null;
-  try {
-    const start = new Date(event.startTime);
-    const min = new Date(start);
-    min.setUTCHours(min.getUTCHours() - 18);
-    const max = new Date(start);
-    max.setUTCHours(max.getUTCHours() + 18);
-    const rows = await prisma.$queryRaw<Array<{ id: string; name: string }>>`
+async function findEventCandidates(event: OddsApiIoNormalizedEvent, min: Date, max: Date, strictLeague: boolean) {
+  if (strictLeague) {
+    return prisma.$queryRaw<Array<{ id: string; name: string }>>`
       SELECT e.id, e.name
       FROM events e
       JOIN leagues l ON l.id = e.league_id
@@ -94,13 +101,38 @@ async function resolveInternalEventId(event: OddsApiIoNormalizedEvent) {
         AND e.start_time <= ${max}
       LIMIT 50
     `;
+  }
+  return prisma.$queryRaw<Array<{ id: string; name: string }>>`
+    SELECT e.id, e.name
+    FROM events e
+    JOIN leagues l ON l.id = e.league_id
+    WHERE e.start_time >= ${min}
+      AND e.start_time <= ${max}
+    LIMIT 100
+  `;
+}
+
+async function resolveInternalEventId(event: OddsApiIoNormalizedEvent) {
+  if (!event.startTime) return null;
+  try {
+    const start = new Date(event.startTime);
+    const min = new Date(start);
+    min.setUTCHours(min.getUTCHours() - 24);
+    const max = new Date(start);
+    max.setUTCHours(max.getUTCHours() + 24);
     const tokens = eventTokens(event.eventLabel);
-    const scored = rows.map((row) => {
-      const name = normalizeText(row.name);
-      const score = tokens.reduce((total, token) => total + (name.includes(token) ? 1 : 0), 0);
-      return { ...row, score };
-    }).sort((left, right) => right.score - left.score);
-    return scored[0]?.score ? scored[0].id : null;
+
+    for (const strictLeague of [true, false]) {
+      const rows = await findEventCandidates(event, min, max, strictLeague);
+      const scored = rows.map((row) => {
+        const name = normalizeText(row.name);
+        const score = tokens.reduce((total, token) => total + (name.includes(token) ? 1 : 0), 0);
+        return { ...row, score };
+      }).sort((left, right) => right.score - left.score);
+      if (scored[0]?.score) return scored[0].id;
+    }
+
+    return null;
   } catch {
     return null;
   }
@@ -161,6 +193,8 @@ async function writeSnapshot(row: OddsApiIoNormalizedOddsRow, eventId: string) {
       now()
     )
     ON CONFLICT (source, source_snapshot_id) WHERE source_snapshot_id IS NOT NULL DO UPDATE SET
+      event_id = EXCLUDED.event_id,
+      league = EXCLUDED.league,
       price = EXCLUDED.price,
       point = EXCLUDED.point,
       current_price = EXCLUDED.current_price,
@@ -240,10 +274,13 @@ export async function ingestOddsApiIo(options: OddsApiIoIngestionOptions): Promi
   }
 
   const window = dateWindow(options.from, options.to);
+  const canonical = canonicalLeague(options.league, options.sport);
   const eventsResponse = await client.getEvents({ sport: options.sport, league: toApiLeagueSlug(options.league), status: toApiStatus(options.status ?? "upcoming"), from: window.from, to: window.to, bookmaker: options.bookmaker });
   providerMeta.push({ url: eventsResponse.meta.url, status: eventsResponse.meta.status, remaining: eventsResponse.meta.rateLimit.remaining });
 
-  const events = normalizeOddsApiIoEvents(eventsResponse.data, { league: options.league ?? options.sport, sport: options.sport }).slice(0, options.eventLimit ?? 20);
+  const events = normalizeOddsApiIoEvents(eventsResponse.data, { league: canonical, sport: options.sport })
+    .map((event) => ({ ...event, league: canonicalLeague(canonical, options.sport) }))
+    .slice(0, options.eventLimit ?? 20);
   const bookmakers = options.bookmakers ?? defaultOddsApiIoBookmakers();
   const oddsRows: OddsApiIoNormalizedOddsRow[] = [];
   const eventIdMap = new Map<string, string>();
