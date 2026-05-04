@@ -6,6 +6,7 @@ import {
   type NbaSimRecommendationTier
 } from "@/services/simulation/nba-sim-health-policy";
 import { buildNbaWinnerProbability } from "@/services/simulation/nba-winner-probability-engine";
+import { getNbaWinnerRuntimeCalibrationGate } from "@/services/simulation/nba-winner-calibration-gate";
 import { applySimAccuracyGuardrail, getSimAccuracyGuardrails } from "@/services/simulation/sim-accuracy-guardrail";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 
@@ -201,6 +202,48 @@ function applyNbaWinnerAnchorGate(args: {
   };
 }
 
+async function applyNbaWinnerCalibrationGate(args: {
+  tier: NbaSimRecommendationTier;
+  noBet: boolean;
+  confidence: number;
+  reasons: string[];
+  finalHomeWinPct: number;
+  finalAwayWinPct: number;
+}) {
+  const gate = await getNbaWinnerRuntimeCalibrationGate({
+    finalHomeWinPct: args.finalHomeWinPct,
+    finalAwayWinPct: args.finalAwayWinPct,
+    limit: 5000
+  });
+  const gateReasons = [
+    `NBA winner calibration gate: bucket ${gate.bucketKey ?? "missing"}, status ${gate.bucket?.status ?? gate.reportStatus}, sample ${gate.bucket?.sampleSize ?? 0}.`,
+    ...gate.blockers.map((blocker) => `Winner calibration blocker: ${blocker}.`),
+    ...gate.warnings.map((warning) => `Winner calibration warning: ${warning}.`)
+  ];
+  if (gate.shouldPass) {
+    return {
+      tier: "pass" as NbaSimRecommendationTier,
+      noBet: true,
+      confidence: Math.min(args.confidence, 0.49),
+      reasons: ["NBA winner calibration forced PASS/noBet.", ...gateReasons, ...args.reasons]
+    };
+  }
+  if (gate.shouldBlockStrongBet && args.tier === "attack") {
+    return {
+      tier: "watch" as NbaSimRecommendationTier,
+      noBet: true,
+      confidence: Math.min(args.confidence, 0.57),
+      reasons: ["NBA winner calibration capped ATTACK to WATCH/noBet until bucket proves green.", ...gateReasons, ...args.reasons]
+    };
+  }
+  return {
+    tier: args.tier,
+    noBet: args.noBet,
+    confidence: args.confidence,
+    reasons: [...gateReasons, ...args.reasons]
+  };
+}
+
 async function getRuntimeLineupTruth(input: SimProjectionInput, projection: SimProjection) {
   const modules = projection.realityIntel?.modules ?? [];
   return getNbaLineupTruth({
@@ -274,6 +317,14 @@ export async function buildGuardedSimProjection(input: SimProjectionInput): Prom
       confidence: lineupGuarded.confidence,
       reasons: lineupGuarded.reasons
     });
+    const winnerCalibrated = await applyNbaWinnerCalibrationGate({
+      tier: winnerGuarded.tier,
+      noBet: winnerGuarded.noBet,
+      confidence: winnerGuarded.confidence,
+      reasons: winnerGuarded.reasons,
+      finalHomeWinPct: winnerGuarded.winner.finalHomeWinPct,
+      finalAwayWinPct: winnerGuarded.winner.finalAwayWinPct
+    });
 
     return {
       ...projection,
@@ -284,10 +335,10 @@ export async function buildGuardedSimProjection(input: SimProjectionInput): Prom
       },
       nbaIntel: {
         ...projection.nbaIntel,
-        tier: winnerGuarded.tier,
-        confidence: winnerGuarded.confidence,
-        noBet: winnerGuarded.noBet,
-        reasons: winnerGuarded.reasons
+        tier: winnerCalibrated.tier,
+        confidence: winnerCalibrated.confidence,
+        noBet: winnerCalibrated.noBet,
+        reasons: winnerCalibrated.reasons
       }
     };
   }
