@@ -78,9 +78,11 @@ export function normalizeOddsApiIoEvents(data: unknown, fallback: { league: stri
     const home = teamName(event, ["home", "homeTeam", "home_team", "teamHome", "participant1"]);
     const away = teamName(event, ["away", "awayTeam", "away_team", "teamAway", "participant2"]);
     const eventLabel = text(event.name ?? event.eventName ?? event.label ?? event.matchup) || [away, home].filter(Boolean).join(" @ ") || sourceEventId;
+    const rawLeague = event.league;
+    const leagueStr = typeof rawLeague === "string" ? rawLeague : null;
     return [{
       sourceEventId,
-      league: text(event.league ?? event.leagueKey ?? fallback.league).toUpperCase(),
+      league: (leagueStr ?? text(event.leagueKey ?? fallback.league)).toUpperCase(),
       sport: text(event.sport ?? fallback.sport) || null,
       eventLabel,
       startTime: date(event.startTime ?? event.start_time ?? event.commence_time ?? event.date),

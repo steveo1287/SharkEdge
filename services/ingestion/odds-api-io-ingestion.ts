@@ -2,6 +2,17 @@ import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import { defaultOddsApiIoBookmakers, OddsApiIoClient } from "@/services/data-providers/odds-api-io/client";
 import { normalizeOddsApiIoEvents, normalizeOddsApiIoOdds, type OddsApiIoNormalizedEvent, type OddsApiIoNormalizedOddsRow } from "@/services/data-providers/odds-api-io/normalizer";
 
+const LEAGUE_API_SLUG: Record<string, string> = {
+  MLB: "usa-mlb",
+  NPB: "japan-npb",
+  KBO: "republic-of-korea-kbo-league",
+};
+
+function toApiLeagueSlug(league?: string): string | undefined {
+  if (!league) return undefined;
+  return LEAGUE_API_SLUG[league.toUpperCase()] ?? league.toLowerCase();
+}
+
 export type OddsApiIoIngestionOptions = {
   sport: string;
   league?: string;
@@ -220,7 +231,7 @@ export async function ingestOddsApiIo(options: OddsApiIoIngestionOptions): Promi
   }
 
   const window = dateWindow(options.from, options.to);
-  const eventsResponse = await client.getEvents({ sport: options.sport, league: options.league, status: options.status ?? "upcoming", from: window.from, to: window.to, bookmaker: options.bookmaker });
+  const eventsResponse = await client.getEvents({ sport: options.sport, league: toApiLeagueSlug(options.league), status: options.status ?? "upcoming", from: window.from, to: window.to, bookmaker: options.bookmaker });
   providerMeta.push({ url: eventsResponse.meta.url, status: eventsResponse.meta.status, remaining: eventsResponse.meta.rateLimit.remaining });
 
   const events = normalizeOddsApiIoEvents(eventsResponse.data, { league: options.league ?? options.sport, sport: options.sport }).slice(0, options.eventLimit ?? 20);
