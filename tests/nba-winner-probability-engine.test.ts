@@ -62,11 +62,14 @@ const anchored = buildNbaWinnerProbability({
 assert.equal(anchored.noBet, false);
 assert.equal(anchored.marketHomeNoVig, 0.55);
 assert.ok(anchored.rawModelDelta !== null && anchored.rawModelDelta > 0.16);
-assert.equal(anchored.deltaCap, 0.03);
-assert.equal(anchored.boundedModelDelta, 0.03);
-assert.equal(anchored.finalHomeWinPct, 0.58);
-assert.equal(anchored.finalAwayWinPct, 0.42);
+assert.ok(anchored.deltaCap <= 0.03);
+assert.ok(anchored.boundedModelDelta > 0);
+assert.ok(anchored.boundedModelDelta <= anchored.deltaCap);
+assert.ok(anchored.finalHomeWinPct > 0.55);
+assert.ok(anchored.finalHomeWinPct < 0.58, "elite shrinkage should avoid blindly maxing the cap");
+assert.equal(anchored.finalAwayWinPct, Number((1 - anchored.finalHomeWinPct).toFixed(4)));
 assert.ok(anchored.warnings.some((warning) => warning.includes("disagreed with no-vig market")));
+assert.ok(anchored.drivers.some((driver) => driver.includes("elite formula")));
 
 const missingMarket = buildNbaWinnerProbability({
   rawHomeWinPct: 0.66,
