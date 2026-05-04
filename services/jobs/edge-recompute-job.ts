@@ -11,6 +11,7 @@ import { applyNbaMoneyballAdjustmentToProjection } from "@/services/simulation/n
 import { getLatestModelTuningProfile } from "@/services/evaluation/model-tuning-service";
 import { applyGameOutcomePowerAdjustment } from "@/services/simulation/game-outcome-power-adjuster";
 import { captureNbaPropProjectionSnapshotsForEvent } from "@/services/simulation/nba-prop-ledger-capture";
+import { captureNbaWinnerLedgerSnapshotForEvent } from "@/services/simulation/nba-winner-ledger";
 import { getNbaPropCalibrationHealth } from "@/services/simulation/nba-prop-calibration-store";
 import { runWithNbaPropCalibrationBuckets } from "@/services/simulation/nba-prop-calibration-context";
 
@@ -213,6 +214,10 @@ export async function edgeRecomputeJob(eventId: string) {
   await recomputeCurrentMarketState(eventId);
   await recomputeEdgeSignals(eventId);
 
+  const nbaWinnerLedgerCapture = event?.league.key === "NBA"
+    ? await captureNbaWinnerLedgerSnapshotForEvent(eventId)
+    : null;
+
   if (event) {
     await invalidateHotCache("edges:v1:all");
     await invalidateHotCache(`event:v1:${event.id}`);
@@ -236,6 +241,7 @@ export async function edgeRecomputeJob(eventId: string) {
     fullStatPlayerProjectionCount,
     nbaPropCalibrationContext: nbaPropCalibrationContext?.summary ?? null,
     nbaPropLedgerCapture,
+    nbaWinnerLedgerCapture,
     tuningProfileApplied: Boolean(tuningProfile),
     skipReasons
   };
