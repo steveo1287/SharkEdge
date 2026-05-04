@@ -154,6 +154,30 @@ async function fetchTodaysEvents(options: Required<Pick<MarketIntelligenceOption
 
 async function fetchOddsRows(eventIds: string[]) {
   if (!eventIds.length) return [];
+
+  try {
+    const rows = await prisma.$queryRaw<OddsRow[]>`
+      SELECT
+        event_id,
+        sportsbook_id,
+        sportsbook_name,
+        market_type,
+        side,
+        price,
+        open_price,
+        closing_price AS close_price,
+        current_price,
+        captured_at AS updated_at,
+        source
+      FROM market_odds_snapshots
+      WHERE event_id = ANY(${eventIds})
+      ORDER BY captured_at DESC
+    `;
+    if (rows.length) return rows;
+  } catch {
+    // Fall through to the legacy odds table if the ingestion table has not been migrated yet.
+  }
+
   try {
     const rows = await prisma.$queryRaw<OddsRow[]>`
       SELECT
@@ -166,7 +190,8 @@ async function fetchOddsRows(eventIds: string[]) {
         open_price,
         close_price,
         current_price,
-        updated_at
+        updated_at,
+        'legacy_odds' AS source
       FROM odds
       WHERE event_id = ANY(${eventIds})
     `;
@@ -178,6 +203,28 @@ async function fetchOddsRows(eventIds: string[]) {
 
 async function fetchSplitRows(eventIds: string[]) {
   if (!eventIds.length) return [];
+
+  try {
+    const rows = await prisma.$queryRaw<OddsRow[]>`
+      SELECT
+        event_id,
+        market_type,
+        side,
+        bet_pct,
+        money_pct,
+        diff_pct,
+        ticket_count,
+        captured_at AS updated_at,
+        source
+      FROM market_betting_splits
+      WHERE event_id = ANY(${eventIds})
+      ORDER BY captured_at DESC
+    `;
+    if (rows.length) return rows;
+  } catch {
+    // Fall through to the legacy betting_splits table if present.
+  }
+
   try {
     const rows = await prisma.$queryRaw<OddsRow[]>`
       SELECT
@@ -187,7 +234,8 @@ async function fetchSplitRows(eventIds: string[]) {
         bet_pct,
         money_pct,
         ticket_count,
-        updated_at
+        updated_at,
+        'legacy_splits' AS source
       FROM betting_splits
       WHERE event_id = ANY(${eventIds})
     `;
@@ -209,7 +257,7 @@ function buildSignal(event: EventRow, oddsRows: OddsRow[], splitRows: OddsRow[])
   const prices = oddsRows.map((row) => asNumber(row.price ?? row.current_price)).filter((value): value is number => typeof value === "number");
   const openPrice = oddsRows.map((row) => asNumber(row.open_price)).find((value) => value != null) ?? null;
   const currentPrice = prices.length ? Math.round(prices.reduce((total, value) => total + value, 0) / prices.length) : null;
-  const closingPrice = oddsRows.map((row) => asNumber(row.close_price)).find((value) => value != null) ?? null;
+  const closingPrice = oddsRows.map((row) => asNumber(row.close_price ?? row.closing_price)).find((value) => value != null) ?? null;
   const bestPrice = prices.length ? Math.max(...prices) : null;
   const worstPrice = prices.length ? Math.min(...prices) : null;
   const spread = bestPrice != null && worstPrice != null ? bestPrice - worstPrice : null;
@@ -219,7 +267,9 @@ function buildSignal(event: EventRow, oddsRows: OddsRow[], splitRows: OddsRow[])
   const betPct = asNumber(split?.bet_pct);
   const moneyPct = asNumber(split?.money_pct);
   const ticketCount = asNumber(split?.ticket_count);
-  const splitSummary = splitLabel(betPct, moneyPct);
+  const splitSummary = split?.diff_pct != null && betPct != null && moneyPct != null
+    ? { diffPct: asNumber(split.diff_pct), label: splitLabel(betPct, moneyPct).label }
+    : splitLabel(betPct, moneyPct);
   const hasOdds = oddsRows.length > 0;
   const hasSplits = splitRows.length > 0;
   const sourceStatus = statusFromParts(hasOdds, hasSplits);
@@ -250,7 +300,7 @@ function buildSignal(event: EventRow, oddsRows: OddsRow[], splitRows: OddsRow[])
       closingPrice,
       moveDirection: movementData.moveDirection,
       moveAmount: movementData.moveAmount,
-      source: hasOdds ? "odds" : "not_sourced"
+      source: hasOdds ? String(oddsRows[0]?.source ?? "market_odds_snapshots") : "not_sourced"
     },
     clv: {
       clvPct: clv,
@@ -297,7 +347,7 @@ export async function buildMarketIntelligencePayload(options: MarketIntelligence
 
     return {
       generatedAt: new Date().toISOString(),
-      sourceNote: "Market intelligence uses sourced odds/splits tables when available. Missing splits are explicitly labeled not sourced.",
+      sourceNote: "Market intelligence prefers market ingestion tables, then falls back to compatible legacy odds/splits tables. Missing splits are explicitly labeled not sourced.",
       signals,
       stats: {
         eventsScanned: events.length,
