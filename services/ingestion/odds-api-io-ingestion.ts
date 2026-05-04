@@ -8,9 +8,18 @@ const LEAGUE_API_SLUG: Record<string, string> = {
   KBO: "republic-of-korea-kbo-league",
 };
 
+const STATUS_API_MAP: Record<string, string> = {
+  upcoming: "pending",
+};
+
 function toApiLeagueSlug(league?: string): string | undefined {
   if (!league) return undefined;
   return LEAGUE_API_SLUG[league.toUpperCase()] ?? league.toLowerCase();
+}
+
+function toApiStatus(status?: string): string | undefined {
+  if (!status) return undefined;
+  return STATUS_API_MAP[status.toLowerCase()] ?? status;
 }
 
 export type OddsApiIoIngestionOptions = {
@@ -231,7 +240,7 @@ export async function ingestOddsApiIo(options: OddsApiIoIngestionOptions): Promi
   }
 
   const window = dateWindow(options.from, options.to);
-  const eventsResponse = await client.getEvents({ sport: options.sport, league: toApiLeagueSlug(options.league), status: options.status ?? "upcoming", from: window.from, to: window.to, bookmaker: options.bookmaker });
+  const eventsResponse = await client.getEvents({ sport: options.sport, league: toApiLeagueSlug(options.league), status: toApiStatus(options.status ?? "upcoming"), from: window.from, to: window.to, bookmaker: options.bookmaker });
   providerMeta.push({ url: eventsResponse.meta.url, status: eventsResponse.meta.status, remaining: eventsResponse.meta.rateLimit.remaining });
 
   const events = normalizeOddsApiIoEvents(eventsResponse.data, { league: options.league ?? options.sport, sport: options.sport }).slice(0, options.eventLimit ?? 20);
