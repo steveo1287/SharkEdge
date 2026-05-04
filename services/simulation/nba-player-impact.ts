@@ -1,4 +1,5 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
+import { getFreeNbaInjuryFeed } from "@/services/injuries/free-nba-injury-feed";
 import { normalizeNbaTeam } from "@/services/simulation/nba-team-analytics";
 
 export type PlayerStatus = "available" | "questionable" | "doubtful" | "out" | "unknown";
@@ -13,7 +14,7 @@ export type NbaPlayerImpactRecord = {
   offensiveImpact: number;
   defensiveImpact: number;
   volatilityImpact: number;
-  source?: "real" | "synthetic";
+  source?: "real" | "synthetic" | "free-official-nba" | "free-espn";
 };
 
 export type NbaLineupImpact = {
@@ -36,7 +37,7 @@ export type NbaPlayerImpactSnapshot = {
 export type NbaPlayerImpactFeedHealth = {
   status: "GREEN" | "YELLOW" | "RED";
   hasFeedUrl: boolean;
-  configuredEnv: "NBA_PLAYER_IMPACT_URL" | "NBA_INJURY_IMPACT_URL" | null;
+  configuredEnv: "NBA_PLAYER_IMPACT_URL" | "NBA_INJURY_IMPACT_URL" | "FREE_NBA_INJURY_FEED" | null;
   feedFlowing: boolean;
   feedFresh: boolean;
   lastUpdatedAt: string | null;
@@ -162,7 +163,7 @@ function normalizeRaw(row: RawPlayerImpact): NbaPlayerImpactRecord | null {
     offensiveImpact: baseOff,
     defensiveImpact: baseDef,
     volatilityImpact: baseVol,
-    source: "real"
+    source: row.source ?? "real"
   };
 }
 
@@ -237,6 +238,23 @@ async function fetchJsonWithTimeout(url: string) {
   }
 }
 
+async function snapshotFromFreeFeed(): Promise<NbaPlayerImpactSnapshot | null> {
+  const feed = await getFreeNbaInjuryFeed().catch(() => null);
+  if (!feed?.ok) return null;
+  const grouped: Record<string, NbaPlayerImpactRecord[]> = {};
+  for (const player of feed.players) {
+    const record = normalizeRaw({
+      ...player,
+      source: player.source === "official-nba" ? "free-official-nba" : "free-espn"
+    });
+    if (!record) continue;
+    const key = normalizeNbaTeam(record.teamName);
+    grouped[key] = [...(grouped[key] ?? []), record];
+  }
+  if (!Object.keys(grouped).length) return null;
+  return { teams: grouped, lastUpdatedAt: feed.lastUpdatedAt ?? feed.generatedAt };
+}
+
 async function fetchPlayerImpactSnapshot(): Promise<NbaPlayerImpactSnapshot | null> {
   const cached = await readHotCache<NbaPlayerImpactSnapshot | Record<string, NbaPlayerImpactRecord[]>>(CACHE_KEY);
   if (isSnapshot(cached)) return cached;
@@ -248,29 +266,37 @@ async function fetchPlayerImpactSnapshot(): Promise<NbaPlayerImpactSnapshot | nu
   if (legacy && Object.keys(legacy).length) return { teams: legacy, lastUpdatedAt: null };
 
   const url = configuredImpactFeedUrl();
-  if (!isAllowedFeedUrl(url)) return null;
-  try {
-    const response = await fetchJsonWithTimeout(url!);
-    if (!response.ok) return null;
-    const body = await response.json();
-    const grouped: Record<string, NbaPlayerImpactRecord[]> = {};
-    for (const row of rowsFromBody(body)) {
-      const record = normalizeRaw(row);
-      if (!record) continue;
-      const key = normalizeNbaTeam(record.teamName);
-      grouped[key] = [...(grouped[key] ?? []), record];
+  if (isAllowedFeedUrl(url)) {
+    try {
+      const response = await fetchJsonWithTimeout(url!);
+      if (response.ok) {
+        const body = await response.json();
+        const grouped: Record<string, NbaPlayerImpactRecord[]> = {};
+        for (const row of rowsFromBody(body)) {
+          const record = normalizeRaw(row);
+          if (!record) continue;
+          const key = normalizeNbaTeam(record.teamName);
+          grouped[key] = [...(grouped[key] ?? []), record];
+        }
+        if (Object.keys(grouped).length) {
+          const lastModified = response.headers.get("last-modified");
+          const snapshot = {
+            teams: grouped,
+            lastUpdatedAt: timestampFromBody(body, parseDateString(lastModified))
+          } satisfies NbaPlayerImpactSnapshot;
+          await writeHotCache(CACHE_KEY, snapshot, CACHE_TTL_SECONDS);
+          return snapshot;
+        }
+      }
+    } catch {
+      // Fall through to free no-key sources.
     }
-    if (Object.keys(grouped).length) {
-      const lastModified = response.headers.get("last-modified");
-      const snapshot = {
-        teams: grouped,
-        lastUpdatedAt: timestampFromBody(body, parseDateString(lastModified))
-      } satisfies NbaPlayerImpactSnapshot;
-      await writeHotCache(CACHE_KEY, snapshot, CACHE_TTL_SECONDS);
-      return snapshot;
-    }
-  } catch {
-    return null;
+  }
+
+  const freeSnapshot = await snapshotFromFreeFeed();
+  if (freeSnapshot) {
+    await writeHotCache(CACHE_KEY, freeSnapshot, CACHE_TTL_SECONDS);
+    return freeSnapshot;
   }
   return null;
 }
@@ -323,8 +349,8 @@ export async function getNbaPlayerImpactFeedHealth(): Promise<NbaPlayerImpactFee
   const snapshot = await fetchPlayerImpactSnapshot();
   return classifyNbaPlayerImpactFeedHealth({
     snapshot,
-    hasFeedUrl: configuredEnv !== null,
-    configuredEnv
+    hasFeedUrl: configuredEnv !== null || Boolean(snapshot),
+    configuredEnv: configuredEnv ?? (snapshot ? "FREE_NBA_INJURY_FEED" : null)
   });
 }
 
