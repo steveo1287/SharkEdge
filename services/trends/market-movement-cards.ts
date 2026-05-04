@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
-import type { LeagueKey, MarketType, SportCode, TrendCardView, TrendFilters, TrendMatchView, TrendTableRow } from "@/lib/types/domain";
+import type { GameStatus, LeagueKey, MarketType, SportCode, TrendCardView, TrendFilters, TrendMatchView, TrendTableRow } from "@/lib/types/domain";
 
 export type MarketMovementTrendPayload = {
   cards: TrendCardView[];
@@ -25,6 +25,14 @@ function leagueToSport(league: LeagueKey | "ALL"): SportCode {
   if (league === "UFC") return "MMA";
   if (league === "BOXING") return "BOXING";
   return "OTHER";
+}
+
+function normalizeGameStatus(status: string): GameStatus {
+  if (status === "LIVE" || status === "IN_PROGRESS") return "LIVE";
+  if (status === "FINAL" || status === "COMPLETED") return "FINAL";
+  if (status === "POSTPONED") return "POSTPONED";
+  if (status === "CANCELED" || status === "CANCELLED") return "CANCELED";
+  return "PREGAME";
 }
 
 function fmtOdds(value: number | null | undefined) {
@@ -105,7 +113,7 @@ function matchView(row: LineMovementRow): TrendMatchView {
     leagueKey: league,
     eventLabel: row.event.name,
     startTime: row.event.startTime.toISOString(),
-    status: row.event.status,
+    status: normalizeGameStatus(row.event.status),
     stateDetail: null,
     matchingLogic: `${league} | ${row.marketType} | ${row.side} | ${row.sportsbook.name}`,
     recommendedBetLabel: "MARKET UPDATE",
