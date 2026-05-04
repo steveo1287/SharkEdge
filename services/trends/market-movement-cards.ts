@@ -98,14 +98,14 @@ function matchView(row: LineMovementRow): TrendMatchView {
     eventLabel: row.event.name,
     startTime: row.event.startTime.toISOString(),
     status: row.event.status,
-    stateDetail: row.event.stateDetail ?? null,
+    stateDetail: null,
     matchingLogic: `${league} | ${row.marketType} | ${row.side} | ${row.sportsbook.name}`,
-    recommendedBetLabel: "MARKET MOVEMENT",
+    recommendedBetLabel: "MARKET UPDATE",
     oddsContext: movementLabel(row),
     matchupHref: hrefFor(row),
     boardHref: `/?league=${league}`,
     propsHref: row.playerId ? `/props?league=${league}` : null,
-    supportNote: `Proof-backed line movement from ${row.sportsbook.name}; captured ${ageLabel(row.movedAt)}.`
+    supportNote: `Line movement row from ${row.sportsbook.name}; captured ${ageLabel(row.movedAt)}.`
   };
 }
 
@@ -133,7 +133,7 @@ function rowToCard(row: LineMovementRow): TrendCardView {
       row.player?.name ? `Player: ${row.player.name}` : null,
       row.movementType ? `Type: ${row.movementType}` : null
     ].filter(Boolean).join(" · "),
-    caution: "Movement is not a recommendation by itself. Confirm current price, market depth, injury/news context, and model agreement before action.",
+    caution: "Movement is a data record only. Review current price, market depth, news context, and model agreement separately.",
     href: hrefFor(row),
     tone: cardTone(row),
     todayMatches: [matchView(row)]
@@ -144,7 +144,7 @@ function rowToTable(row: LineMovementRow): TrendTableRow {
   return {
     label: `${row.event.name} · ${String(row.marketType).replace(/_/g, " ")} ${row.side}`,
     movement: movementLabel(row),
-    note: `${row.sportsbook.name} · ${ageLabel(row.movedAt)} · proof-backed line_movements row${row.player?.name ? ` · ${row.player.name}` : ""}`,
+    note: `${row.sportsbook.name} · ${ageLabel(row.movedAt)} · line_movements row${row.player?.name ? ` · ${row.player.name}` : ""}`,
     href: hrefFor(row)
   };
 }
