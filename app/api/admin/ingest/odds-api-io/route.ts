@@ -33,14 +33,18 @@ function parseOptions(input: URLSearchParams | Record<string, unknown>) {
 function tokenFromRequest(request: Request, input: URLSearchParams | Record<string, unknown>) {
   const auth = request.headers.get("authorization") ?? "";
   const bearer = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  const header = request.headers.get("x-ingest-secret") ?? "";
+  const header = request.headers.get("x-ingest-secret") ?? request.headers.get("x-cron-secret") ?? "";
   const query = input instanceof URLSearchParams ? input.get("secret") ?? "" : input.secret ? String(input.secret) : "";
   return bearer || header || query;
 }
 
+function expectedSecret() {
+  return process.env.ODDS_API_IO_INGEST_SECRET ?? process.env.CRON_SECRET ?? process.env.INGEST_SECRET ?? "";
+}
+
 function authorizedForWrite(request: Request, input: URLSearchParams | Record<string, unknown>, dryRun: boolean) {
   if (dryRun) return true;
-  const expected = process.env.ODDS_API_IO_INGEST_SECRET ?? process.env.INGEST_SECRET;
+  const expected = expectedSecret();
   if (!expected) return false;
   return tokenFromRequest(request, input) === expected;
 }
@@ -48,7 +52,7 @@ function authorizedForWrite(request: Request, input: URLSearchParams | Record<st
 async function execute(request: Request, input: URLSearchParams | Record<string, unknown>) {
   const options = parseOptions(input);
   if (!authorizedForWrite(request, input, options.dryRun)) {
-    return NextResponse.json({ ok: false, error: "Unauthorized Odds-API.io write ingestion. Use dryRun=true or provide ODDS_API_IO_INGEST_SECRET." }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "Unauthorized Odds-API.io write ingestion. Use dryRun=true or provide ODDS_API_IO_INGEST_SECRET, CRON_SECRET, or INGEST_SECRET." }, { status: 401 });
   }
 
   try {

@@ -1,6 +1,6 @@
 {
   "framework": "nextjs",
-  "buildCommand": "npx prisma migrate deploy && npm run build",
+  "buildCommand": "npm run build",
   "crons": [
     {
       "path": "/api/jobs/odds-snapshot",
