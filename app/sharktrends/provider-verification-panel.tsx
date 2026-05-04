@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { buildOddsApiIoHealth } from "@/services/ingestion/odds-api-io-health";
+import InlineProviderTrigger from "./inline-provider-trigger";
 
 function fmtTime(value: string | null) {
   if (!value) return "never";
@@ -58,6 +59,8 @@ export default async function ProviderVerificationPanel() {
           <MiniMetric label="line history" value={health.stats.totalLineRowsWritten} note="Rows written to line history." />
         </div>
 
+        <InlineProviderTrigger />
+
         {health.attachmentReadiness.blockers.length ? (
           <div className="mt-4 rounded-xl border border-red-400/20 bg-red-400/10 p-3">
             <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-red-200">Current blockers</div>
@@ -74,8 +77,8 @@ export default async function ProviderVerificationPanel() {
         ) : null}
 
         <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.14em]">
-          <Link href="/sharktrends/provider-trigger" className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-emerald-100">Trigger provider</Link>
-          <a href={dryRunHref} className={`rounded-xl border px-3 py-2 ${canRunDry ? "border-amber-300/25 bg-black/20 text-amber-100" : "pointer-events-none border-white/10 bg-black/10 text-slate-500"}`}>Run dry test</a>
+          <Link href="/sharktrends/provider-trigger" className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-emerald-100">Trigger page</Link>
+          <a href={dryRunHref} className={`rounded-xl border px-3 py-2 ${canRunDry ? "border-amber-300/25 bg-black/20 text-amber-100" : "pointer-events-none border-white/10 bg-black/10 text-slate-500"}`}>Dry-test URL</a>
           <Link href="/sharktrends/ingestion-health" className="rounded-xl border border-amber-300/25 bg-black/20 px-3 py-2 text-amber-100">Full health</Link>
           <Link href="/sharktrends/market-data-source" className="rounded-xl border border-amber-300/25 bg-black/20 px-3 py-2 text-amber-100">Market source</Link>
           <Link href="/sharktrends?mode=all" className="rounded-xl border border-amber-300/25 bg-black/20 px-3 py-2 text-amber-100">Debug all games</Link>
