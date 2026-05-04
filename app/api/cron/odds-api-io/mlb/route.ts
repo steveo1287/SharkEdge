@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { recordOddsApiIoRun } from "@/services/ingestion/odds-api-io-health";
 import { ingestOddsApiIo } from "@/services/ingestion/odds-api-io-ingestion";
 
 export const dynamic = "force-dynamic";
@@ -27,26 +28,31 @@ function parseIntParam(value: string | null, fallback: number, min: number, max:
 }
 
 export async function GET(request: Request) {
-  if (!isAuthorized(request)) {
-    return NextResponse.json({ ok: false, error: "Unauthorized cron ingestion. Set CRON_SECRET or ODDS_API_IO_INGEST_SECRET." }, { status: 401 });
-  }
-
   const url = new URL(request.url);
   const eventLimit = parseIntParam(url.searchParams.get("eventLimit"), 15, 1, 40);
   const status = url.searchParams.get("status") ?? "upcoming";
   const bookmakers = url.searchParams.get("bookmakers") ?? undefined;
+  const options = {
+    sport: "baseball",
+    league: "MLB",
+    status,
+    eventLimit,
+    bookmakers,
+    dryRun: false
+  };
+
+  if (!isAuthorized(request)) {
+    await recordOddsApiIoRun({ mode: "cron", options, error: "unauthorized" });
+    return NextResponse.json({ ok: false, error: "Unauthorized cron ingestion. Set CRON_SECRET or ODDS_API_IO_INGEST_SECRET." }, { status: 401 });
+  }
 
   try {
-    const result = await ingestOddsApiIo({
-      sport: "baseball",
-      league: "MLB",
-      status,
-      eventLimit,
-      bookmakers,
-      dryRun: false
-    });
+    const result = await ingestOddsApiIo(options);
+    await recordOddsApiIoRun({ mode: "cron", options, result });
     return NextResponse.json({ ok: true, mode: "cron", league: "MLB", ...result });
   } catch (error) {
-    return NextResponse.json({ ok: false, mode: "cron", league: "MLB", error: error instanceof Error ? error.message : "MLB odds cron failed." }, { status: 500 });
+    const message = error instanceof Error ? error.message : "MLB odds cron failed.";
+    await recordOddsApiIoRun({ mode: "cron", options, error: message });
+    return NextResponse.json({ ok: false, mode: "cron", league: "MLB", error: message }, { status: 500 });
   }
 }

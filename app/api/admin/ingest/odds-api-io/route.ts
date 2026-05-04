@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { recordOddsApiIoRun } from "@/services/ingestion/odds-api-io-health";
 import { ingestOddsApiIo } from "@/services/ingestion/odds-api-io-ingestion";
 
 export const dynamic = "force-dynamic";
@@ -52,14 +53,18 @@ function authorizedForWrite(request: Request, input: URLSearchParams | Record<st
 async function execute(request: Request, input: URLSearchParams | Record<string, unknown>) {
   const options = parseOptions(input);
   if (!authorizedForWrite(request, input, options.dryRun)) {
+    await recordOddsApiIoRun({ mode: "manual", options, error: "unauthorized" });
     return NextResponse.json({ ok: false, error: "Unauthorized Odds-API.io write ingestion. Use dryRun=true or provide ODDS_API_IO_INGEST_SECRET, CRON_SECRET, or INGEST_SECRET." }, { status: 401 });
   }
 
   try {
     const result = await ingestOddsApiIo(options);
+    await recordOddsApiIoRun({ mode: "manual", options, result });
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Odds-API.io ingestion failed." }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Odds-API.io ingestion failed.";
+    await recordOddsApiIoRun({ mode: "manual", options, error: message });
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
 
