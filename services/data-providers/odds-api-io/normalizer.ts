@@ -127,8 +127,67 @@ function bookmakerName(path: string[], row: Record<string, unknown>) {
   return text(row.bookmaker ?? row.bookmakerName ?? row.sportsbook ?? row.site ?? row.book ?? path.find((item: string) => /^[A-Za-z][A-Za-z0-9 _.-]{2,}$/.test(item))) || null;
 }
 
+const OUTCOME_SIDE_KEYS = ["home", "away", "over", "under", "draw"] as const;
+
+function normalizeBookmakersOdds(
+  event: Record<string, unknown>,
+  context: { sourceEventId: string; league: string; sport?: string | null; capturedAt: string }
+): OddsApiIoNormalizedOddsRow[] {
+  const bookmakers = event.bookmakers as Record<string, unknown>;
+  const rows: OddsApiIoNormalizedOddsRow[] = [];
+  let idx = 0;
+
+  for (const [bkName, markets] of Object.entries(bookmakers)) {
+    if (!Array.isArray(markets)) continue;
+    for (const market of markets) {
+      if (!market || typeof market !== "object") continue;
+      const m = market as Record<string, unknown>;
+      const marketType = inferMarket(text(m.name ?? ""));
+      const odds = m.odds;
+      if (!Array.isArray(odds)) continue;
+      for (const outcome of odds) {
+        if (!outcome || typeof outcome !== "object") continue;
+        const o = outcome as Record<string, unknown>;
+        const hdp = num(o.hdp);
+        const label = o.label ? text(o.label) : null;
+        for (const sideKey of OUTCOME_SIDE_KEYS) {
+          const price = num(o[sideKey]);
+          if (price == null) continue;
+          const selection = label ?? sideKey;
+          const side = inferSide(selection, marketType);
+          const sourceSnapshotId = idSafe(`${context.sourceEventId}:${bkName}:${marketType}:${side}:${selection}:${hdp ?? "np"}:${idx}`);
+          idx++;
+          rows.push({
+            id: `oddsapiio:${sourceSnapshotId}`,
+            eventId: context.sourceEventId,
+            league: context.league,
+            sport: context.sport ?? null,
+            marketType,
+            side,
+            selection,
+            sportsbookName: bkName,
+            price,
+            point: hdp,
+            sourceSnapshotId,
+            capturedAt: context.capturedAt
+          });
+        }
+      }
+    }
+  }
+  return rows;
+}
+
 export function normalizeOddsApiIoOdds(data: unknown, context: { sourceEventId: string; league: string; sport?: string | null; capturedAt?: string }): OddsApiIoNormalizedOddsRow[] {
   const capturedAt = context.capturedAt ?? new Date().toISOString();
+
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const obj = data as Record<string, unknown>;
+    if (obj.bookmakers && typeof obj.bookmakers === "object" && !Array.isArray(obj.bookmakers)) {
+      return normalizeBookmakersOdds(obj, { ...context, capturedAt });
+    }
+  }
+
   const outcomes = collectOutcomes(data);
   return outcomes.flatMap(({ path, outcome }: { path: string[]; outcome: Record<string, unknown> }, index: number): OddsApiIoNormalizedOddsRow[] => {
     const price = num(outcome.price ?? outcome.odds ?? outcome.american ?? outcome.value);
