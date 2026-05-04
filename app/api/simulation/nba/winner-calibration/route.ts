@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { getNbaWinnerAdvancedCalibrationReport } from "@/services/simulation/nba-winner-calibration-metrics";
 import {
   captureNbaWinnerLedgerSnapshotForEvent,
   getNbaWinnerCalibrationReport,
@@ -11,7 +12,11 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const limit = Number(url.searchParams.get("limit") ?? "5000");
-  const report = await getNbaWinnerCalibrationReport({ limit: Number.isFinite(limit) ? limit : 5000 });
+  const safeLimit = Number.isFinite(limit) ? limit : 5000;
+  const mode = String(url.searchParams.get("mode") ?? "advanced").toLowerCase();
+  const report = mode === "basic"
+    ? await getNbaWinnerCalibrationReport({ limit: safeLimit })
+    : await getNbaWinnerAdvancedCalibrationReport({ limit: safeLimit });
   return NextResponse.json(report);
 }
 
