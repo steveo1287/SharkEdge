@@ -112,7 +112,7 @@ async function upsertBook(row: OddsApiIoNormalizedOddsRow) {
   await prisma.$executeRaw`
     INSERT INTO market_books (id, name, display_name, source, source_book_id, updated_at)
     VALUES (${id}, ${row.sportsbookName}, ${row.sportsbookName}, 'odds-api-io', ${row.sportsbookName}, now())
-    ON CONFLICT (source, source_book_id) DO UPDATE SET
+    ON CONFLICT ON CONSTRAINT market_books_source_book_uniq DO UPDATE SET
       name = EXCLUDED.name,
       display_name = EXCLUDED.display_name,
       updated_at = now()
@@ -160,7 +160,7 @@ async function writeSnapshot(row: OddsApiIoNormalizedOddsRow, eventId: string) {
       ${new Date(row.capturedAt)},
       now()
     )
-    ON CONFLICT (source, source_snapshot_id) DO UPDATE SET
+    ON CONFLICT (source, source_snapshot_id) WHERE source_snapshot_id IS NOT NULL DO UPDATE SET
       price = EXCLUDED.price,
       point = EXCLUDED.point,
       current_price = EXCLUDED.current_price,
@@ -205,7 +205,7 @@ async function writeLineHistory(row: OddsApiIoNormalizedOddsRow, eventId: string
       ${id},
       ${new Date(row.capturedAt)}
     )
-    ON CONFLICT (source, source_line_id) DO NOTHING
+    ON CONFLICT (source, source_line_id) WHERE source_line_id IS NOT NULL DO NOTHING
   `;
 }
 
