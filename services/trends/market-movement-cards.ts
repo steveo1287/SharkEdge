@@ -3,6 +3,8 @@ import type { Prisma } from "@prisma/client";
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import type { GameStatus, LeagueKey, MarketType, SportCode, TrendCardView, TrendFilters, TrendMatchView, TrendTableRow } from "@/lib/types/domain";
 
+import { buildMarketLineHistoryMovementPayload } from "./market-line-history-cards";
+
 export type MarketMovementTrendPayload = {
   cards: TrendCardView[];
   rows: TrendTableRow[];
@@ -192,12 +194,21 @@ export async function buildMarketMovementTrendPayload(filters: TrendFilters): Pr
   try {
     const rows = (await fetchLineMovements(filters)).sort((left, right) => movementScore(right) - movementScore(left));
     const cards = rows.slice(0, 12).map(rowToCard);
+    if (cards.length) {
+      return {
+        cards,
+        rows: rows.slice(0, 20).map(rowToTable),
+        sourceNote: `${cards.length} proof-backed market movement card${cards.length === 1 ? "" : "s"} built from line_movements.`
+      };
+    }
+
+    const fallback = await buildMarketLineHistoryMovementPayload(filters);
     return {
-      cards,
-      rows: rows.slice(0, 20).map(rowToTable),
-      sourceNote: cards.length
-        ? `${cards.length} proof-backed market movement card${cards.length === 1 ? "" : "s"} built from line_movements.`
-        : "No line_movements rows matched the current filters."
+      cards: fallback.cards,
+      rows: fallback.rows,
+      sourceNote: fallback.cards.length
+        ? `${fallback.sourceNote} line_movements is empty, so provider market_line_history is being used as the movement source.`
+        : "No line_movements or market_line_history rows matched the current filters."
     };
   } catch (error) {
     return {
