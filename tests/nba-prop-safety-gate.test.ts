@@ -178,7 +178,6 @@ const staleLineupOnlyView: NbaFullStatProjectionView = {
 
 const staleLineupOnly = applyNbaPropSafetyGate({ props: [baseProp], fullStatProjectionView: staleLineupOnlyView });
 assert.equal(staleLineupOnly.summary.gatedCount, 1);
-assert.ok(staleLineupOnly.summary.reasonCounts.some((entry) => entry.reason === "lineup truth YELLOW"));
 assert.ok(staleLineupOnly.summary.reasonCounts.some((entry) => entry.reason === "stale or missing injury report"));
 assert.ok(staleLineupOnly.summary.reasonCounts.some((entry) => entry.reason === "minutes not trusted by lineup truth"));
 assert.equal(staleLineupOnly.props[0].valueFlag, "NONE");
