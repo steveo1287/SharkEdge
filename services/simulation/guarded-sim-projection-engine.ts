@@ -7,6 +7,7 @@ import {
 } from "@/services/simulation/nba-sim-health-policy";
 import { buildNbaWinnerProbability } from "@/services/simulation/nba-winner-probability-engine";
 import { getNbaWinnerRuntimeCalibrationGate } from "@/services/simulation/nba-winner-calibration-gate";
+import { buildNbaTeamStrengthRosterImpact } from "@/services/simulation/nba-team-strength-roster-impact";
 import { applySimAccuracyGuardrail, getSimAccuracyGuardrails } from "@/services/simulation/sim-accuracy-guardrail";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 
@@ -157,6 +158,19 @@ function confidenceCap(confidence: "HIGH" | "MEDIUM" | "LOW" | "INSUFFICIENT") {
   }
 }
 
+function buildRuntimeRosterImpact(projection: SimProjection) {
+  return buildNbaTeamStrengthRosterImpact({
+    awayTeam: projection.matchup.away,
+    homeTeam: projection.matchup.home,
+    projectedHomeMargin: projection.distribution.avgHome - projection.distribution.avgAway,
+    projectedTotal: projection.nbaIntel?.projectedTotal ?? null,
+    homeWinPct: projection.distribution.homeWinPct,
+    awayWinPct: projection.distribution.awayWinPct,
+    realityIntel: projection.realityIntel ?? null,
+    playerStatProjections: projection.nbaIntel?.playerStatProjections ?? []
+  });
+}
+
 function applyNbaWinnerAnchorGate(args: {
   projection: SimProjection;
   lineupTruth: NbaLineupTruth | null;
@@ -165,6 +179,7 @@ function applyNbaWinnerAnchorGate(args: {
   confidence: number;
   reasons: string[];
 }) {
+  const rosterImpact = buildRuntimeRosterImpact(args.projection);
   const winner = buildNbaWinnerProbability({
     rawHomeWinPct: args.projection.distribution.homeWinPct,
     rawAwayWinPct: args.projection.distribution.awayWinPct,
@@ -172,11 +187,13 @@ function applyNbaWinnerAnchorGate(args: {
     projectedTotal: args.projection.nbaIntel?.projectedTotal ?? null,
     market: args.projection.realityIntel?.market ?? null,
     lineupTruth: args.lineupTruth,
+    teamStrengthRosterImpact: rosterImpact,
     sourceHealth: args.projection.realityIntel?.sourceHealth ?? null,
     calibrationHealthy: nbaRuntimeCalibrationHealthy(args.projection)
   });
   const winnerReasons = [
     `NBA winner anchor: market home ${winner.marketHomeNoVig == null ? "missing" : `${(winner.marketHomeNoVig * 100).toFixed(1)}%`}, raw sim home ${(winner.rawHomeWinPct * 100).toFixed(1)}%, final home ${(winner.finalHomeWinPct * 100).toFixed(1)}%.`,
+    `NBA roster/team impact: margin ${rosterImpact.finalProjectedHomeMargin.toFixed(1)}, delta ${(rosterImpact.boundedProbabilityDelta * 100).toFixed(1)}%, confidence ${(rosterImpact.confidence * 100).toFixed(1)}%.`,
     ...winner.blockers.map((blocker) => `Winner blocker: ${blocker}.`),
     ...winner.warnings.map((warning) => `Winner warning: ${warning}.`),
     ...winner.drivers.map((driver) => `Winner driver: ${driver}.`)
