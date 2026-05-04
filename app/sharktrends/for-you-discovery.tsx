@@ -1,3 +1,5 @@
+import { buildGeneratedSystemAttachments } from "@/services/trends/generated-system-attachments";
+
 type DiscoveryItem = Record<string, any>;
 
 type DiscoverySection = {
@@ -24,7 +26,7 @@ function price(value: number | null | undefined) {
 }
 
 function score(item: DiscoveryItem) {
-  return Number(item.strength?.score ?? item.sharkScore ?? item.score ?? 0);
+  return Number(item.strength?.score ?? item.sharkScore ?? item.score ?? item.rankScore ?? 0);
 }
 
 function proof(item: DiscoveryItem) {
@@ -81,11 +83,50 @@ function top(items: DiscoveryItem[], limit = 5) {
   return dedupe(items).slice(0, limit);
 }
 
+function generatedAttachmentItems(games: Awaited<ReturnType<typeof buildGeneratedSystemAttachments>>["games"]): DiscoveryItem[] {
+  return games.flatMap((game) => game.topSystems.map((system) => ({
+    id: system.systemId,
+    systemId: system.systemId,
+    gameId: game.eventId,
+    href: `/sharktrends/generated-attachments?league=${encodeURIComponent(game.league)}`,
+    name: system.name,
+    eventLabel: game.eventLabel,
+    league: game.league,
+    market: system.market,
+    side: system.side,
+    category: "generated system",
+    activeMatches: 1,
+    rankScore: system.rankScore,
+    proof: {
+      record: system.record,
+      sampleSize: system.sampleSize,
+      profitUnits: system.profitUnits,
+      roiPct: system.roiPct,
+      winRatePct: system.winRatePct,
+      clvPct: system.clvPct,
+      last10: system.last10,
+      last30: system.last30,
+      currentStreak: system.currentStreak
+    },
+    strength: {
+      grade: system.grade,
+      score: system.rankScore,
+      reasons: system.reasons,
+      penalties: system.blockers
+    },
+    reason: system.matchedConditions.length
+      ? `Generated fit attached to ${game.eventLabel}: ${system.matchedConditions.slice(0, 3).join(" · ")}`
+      : `Generated fit attached to ${game.eventLabel}.`,
+    blockers: system.blockers,
+    source: "generated-system-attachment"
+  })));
+}
+
 function DiscoveryCard({ item }: { item: DiscoveryItem }) {
   const packet = proof(item);
   const strength = item.strength;
   const title = item.eventLabel ? `${item.eventLabel} · ${item.name}` : item.name;
-  const href = systemHref(item);
+  const href = item.href ?? systemHref(item);
   return (
     <a href={href} className="rounded-2xl border border-white/10 bg-black/25 p-4 transition hover:border-cyan-300/30">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -126,7 +167,9 @@ function DiscoveryRail({ section }: { section: DiscoverySection }) {
   );
 }
 
-export function ForYouTrendDiscovery({ rows, matchups }: { rows: DiscoveryItem[]; matchups: DiscoveryItem[] }) {
+export async function ForYouTrendDiscovery({ rows, matchups }: { rows: DiscoveryItem[]; matchups: DiscoveryItem[] }) {
+  const generatedPayload = await buildGeneratedSystemAttachments({ league: "ALL", topSystemsPerGame: 3, includeResearch: false });
+  const generatedSystems = top(generatedAttachmentItems(generatedPayload.games).sort((left, right) => score(right) - score(left)), 8);
   const matchupTrends = matchups.flatMap((matchup) => (matchup.trends ?? []).map((trend: DiscoveryItem) => ({
     ...trend,
     eventLabel: matchup.eventLabel,
@@ -145,6 +188,7 @@ export function ForYouTrendDiscovery({ rows, matchups }: { rows: DiscoveryItem[]
   const verifiedIdle = top(rows.filter((item) => item.verified && !isActive(item)).sort((left, right) => score(right) - score(left)), 6);
 
   const sections: DiscoverySection[] = [
+    { id: "generated-systems", title: "Generated Systems Attached", description: "Gate-cleared generated systems that are attached to today's games. Related duplicates stay collapsed in the generated-attachments view.", items: generatedSystems, empty: generatedPayload.sourceNote || "No generated systems are attached to today's games yet." },
     { id: "best-current-fits", title: "Best Current Fits", description: "Highest-strength attached matchup signals from the current board.", items: currentFits, empty: "No current matchup signals match the current filters." },
     { id: "most-profitable-active", title: "Most Profitable Active", description: "Active systems ranked by stored profit units, then strength.", items: mostProfitableActive, empty: "No profitable active systems are available under the current filters." },
     { id: "undefeated-active", title: "Undefeated Active", description: "Active systems with wins and no recorded losses in the proof packet.", items: undefeatedActive, empty: "No undefeated active systems were found." },
@@ -160,9 +204,9 @@ export function ForYouTrendDiscovery({ rows, matchups }: { rows: DiscoveryItem[]
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">For You Trend Discovery</div>
-            <div className="mt-1 text-xs leading-5 text-slate-400">Curated sections stay below matchup lanes so discovery adds depth without bringing back doom scrolling.</div>
+            <div className="mt-1 text-xs leading-5 text-slate-400">Curated sections stay below matchup lanes so discovery adds depth without bringing back doom scrolling. Generated systems are shown only after they are stored, gate-cleared, and attached to games.</div>
           </div>
-          <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.13em] text-cyan-100">7 sections</span>
+          <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.13em] text-cyan-100">8 sections</span>
         </div>
       </summary>
       <div className="mt-4 grid gap-4">
