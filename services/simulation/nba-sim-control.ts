@@ -2,6 +2,7 @@ import type { LeagueKey } from "@/lib/types/domain";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { getNbaFourFactorsControl, type NbaFourFactorsControl } from "@/services/simulation/nba-four-factors-control";
 import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
+import { buildNbaInputQualityGate, type NbaInputQualityGate } from "@/services/simulation/nba-input-quality-gate";
 import { buildNbaPregameLock, type NbaPregameLock } from "@/services/simulation/nba-pregame-lock";
 import { getNbaRotationLock, type NbaRotationLock } from "@/services/simulation/nba-rotation-lock";
 import { getNbaScheduleContextControl, type NbaScheduleContextControl } from "@/services/simulation/nba-schedule-context-control";
@@ -21,8 +22,9 @@ export type NbaSimControlSnapshot = {
   scheduleContext: NbaScheduleContextControl | null;
   winnerConfidence: NbaWinnerConfidence | null;
   pregameLock: NbaPregameLock | null;
+  inputQuality: NbaInputQualityGate | null;
   formula: {
-    version: "nba-sim-control-v4";
+    version: "nba-sim-control-v5";
     model: string;
     inputs: string[];
     notes: string[];
@@ -121,6 +123,14 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
       scheduleContext,
       winnerConfidence: null
     }), projection);
+    const inputQuality = buildNbaInputQualityGate({
+      projection,
+      rotationLock,
+      fourFactors,
+      scheduleContext,
+      winnerConfidence: null,
+      pregameLock
+    });
 
     return {
       ok: false,
@@ -133,6 +143,7 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
       scheduleContext,
       winnerConfidence: null,
       pregameLock,
+      inputQuality,
       formula: baseFormula(),
       error: "NBA real-data reality intelligence is unavailable for this game."
     };
@@ -152,6 +163,14 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
     scheduleContext,
     winnerConfidence
   }), projection);
+  const inputQuality = buildNbaInputQualityGate({
+    projection,
+    rotationLock,
+    fourFactors,
+    scheduleContext,
+    winnerConfidence,
+    pregameLock
+  });
 
   return {
     ok: true,
@@ -164,14 +183,15 @@ export async function buildNbaSimControlForGame(game: SimGame): Promise<NbaSimCo
     scheduleContext,
     winnerConfidence,
     pregameLock,
+    inputQuality,
     formula: baseFormula()
   };
 }
 
 function baseFormula(): NbaSimControlSnapshot["formula"] {
   return {
-    version: "nba-sim-control-v4",
-    model: "final NBA control = guarded projection health policy + market-aware probability + rotation certainty + Four Factors + schedule context + pregame lock gate",
+    version: "nba-sim-control-v5",
+    model: "final NBA control = input quality gate + guarded projection health policy + market-aware probability + rotation certainty + Four Factors + schedule context + pregame lock gate",
     inputs: [
       "team efficiency and net rating",
       "player impact and projected minutes",
@@ -183,10 +203,12 @@ function baseFormula(): NbaSimControlSnapshot["formula"] {
       "learned calibration and graded-pick history tuner",
       "pregame timing window, lock score, market movement flag, and blocker state",
       "volatility and source-health penalties",
-      "NBA guarded projection health policy and accuracy guardrail"
+      "NBA guarded projection health policy and accuracy guardrail",
+      "input-quality source map for reality intel, market baseline, rotation, Four Factors, schedule, and pregame lock readiness"
     ],
     notes: [
       "Confidence is separated from win probability.",
+      "Input quality is the top-level source trust gate and reports GREEN, YELLOW, or RED before a recommendation is trusted.",
       "Pregame lock status is the final timing and trust gate: LOCKED, WATCH, WAIT, or PASS.",
       "Low lineup certainty, high usage redistribution, missing market baseline, weak Four Factors confidence, schedule-context uncertainty, outside-lock timing, and calibration-pass flags reduce trust.",
       "The guarded projection wrapper can force winner confidence and pregame lock to PASS when NBA health policy caps the upstream recommendation.",
@@ -209,6 +231,7 @@ export async function getNbaSimControl(gameId: string): Promise<NbaSimControlSna
       scheduleContext: null,
       winnerConfidence: null,
       pregameLock: null,
+      inputQuality: null,
       formula: baseFormula(),
       error: "NBA game not found in current board data."
     };
