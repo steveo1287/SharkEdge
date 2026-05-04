@@ -1,5 +1,6 @@
 import type { PropCardView, PropMarketType, ReasonAttributionView } from "@/lib/types/domain";
 import type { NbaFullStatProjectionView } from "@/services/simulation/nba-full-stat-projection-view";
+import { nbaFullStatPlayerBlockers } from "@/services/simulation/nba-full-stat-view-health";
 
 const MARKET_TO_STAT: Partial<Record<PropMarketType | string, string>> = {
   player_points: "player_points",
@@ -47,20 +48,16 @@ function gateContextForProp(
   const statKey = statKeyForMarket(prop.marketType);
   const stat = statKey ? player.stats.find((candidate) => candidate.statKey === statKey) : null;
   const minutes = player.minutes;
-  const lineupTruth = player.lineupTruth;
-  const reasons = unique([
+  const sharedBlockers = nbaFullStatPlayerBlockers(player);
+  const marketSpecificBlockers = unique([
     ...(stat?.blockers ?? []),
     ...(stat?.noBet ? ["projection marked no-bet"] : []),
-    ...(minutes?.blockers ?? []),
-    ...(lineupTruth?.blockers ?? []),
-    ...(lineupTruth && lineupTruth.status !== "GREEN" ? [`lineup truth ${lineupTruth.status ?? "MISSING"}`] : []),
-    ...(lineupTruth && lineupTruth.injuryReportFresh !== true ? ["stale or missing injury report"] : []),
-    ...(lineupTruth && lineupTruth.minutesTrusted !== true ? ["minutes not trusted by lineup truth"] : []),
     ...((minutes?.confidence ?? 1) < 0.5 ? ["minutes confidence below 50%"] : []),
     ...((minutes?.injuryAdjustment ?? 1) < 0.9 ? ["injury adjustment degraded minutes"] : []),
     ...((minutes?.rotationStability ?? 1) < 0.45 ? ["rotation stability below 45%"] : []),
     ...((minutes?.minutesVolatility ?? 0) > 0.65 ? ["minutes volatility above 65%"] : [])
   ]);
+  const reasons = unique([...sharedBlockers, ...marketSpecificBlockers]);
 
   return {
     blocked: reasons.length > 0,
@@ -142,7 +139,7 @@ export function applyNbaPropSafetyGate(args: {
       gatedCount,
       reasonCounts: [...reasonCounts.entries()]
         .map(([reason, count]) => ({ reason, count }))
-        .sort((left, right) => right.count - left.count || left.reason.localeCompare(right.reason))
+        .sort((left, right) => right.count - left.reason.localeCompare(left.reason))
     }
   };
 }
