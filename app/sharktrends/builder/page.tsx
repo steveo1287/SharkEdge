@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { buildSystemBuilderResult, type SystemBuilderInput } from "@/services/trends/system-builder";
+import { sportSpecificOptions } from "@/services/trends/sport-specific-trend-families";
 import type { TrendCandidateSystem, TrendFactoryDepth, TrendFactoryLeague, TrendFactoryMarket, TrendFactorySide } from "@/services/trends/trend-candidate-types";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +55,8 @@ const MARKET_CONTEXT_OPTIONS = [
   ["positive_clv", "Positive CLV history"]
 ] as const;
 
+const SPORT_SPECIFIC_OPTIONS = [["ALL", "Any sport-specific edge"], ...sportSpecificOptions().map((item) => [item.key, `${item.league} · ${item.label}`])] as Array<[string, string]>;
+
 function readValue(searchParams: Record<string, string | string[] | undefined>, key: string) {
   const value = searchParams[key];
   return Array.isArray(value) ? value[0] : value;
@@ -79,6 +82,7 @@ function buildInput(searchParams: Record<string, string | string[] | undefined>)
     form: readValue(searchParams, "form") ?? "ALL",
     rest: readValue(searchParams, "rest") ?? "ALL",
     marketContext: readValue(searchParams, "marketContext") ?? "ALL",
+    sportSpecific: readValue(searchParams, "sportSpecific") ?? "ALL",
     depth: parseEnum((readValue(searchParams, "depth") ?? "core").toLowerCase(), DEPTHS, "core") as TrendFactoryDepth,
     limit: parseLimit(readValue(searchParams, "limit"))
   };
@@ -175,6 +179,7 @@ export default async function SharkTrendsBuilderPage({ searchParams }: PageProps
           <SelectField label="Form" name="form" value={input.form} options={FORM_OPTIONS} />
           <SelectField label="Rest" name="rest" value={input.rest} options={REST_OPTIONS} />
           <SelectField label="Market context" name="marketContext" value={input.marketContext} options={MARKET_CONTEXT_OPTIONS} />
+          <SelectField label="Sport-specific" name="sportSpecific" value={input.sportSpecific ?? "ALL"} options={SPORT_SPECIFIC_OPTIONS} />
           <SelectField label="Depth" name="depth" value={input.depth} options={DEPTHS} />
           <label className="grid gap-1 text-xs text-slate-400"><span className="font-semibold uppercase tracking-[0.14em] text-slate-500">Limit</span><input name="limit" defaultValue={String(input.limit)} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white" /></label>
           <button className="md:col-span-3 xl:col-span-5 rounded-xl border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100 hover:bg-cyan-300/15">Build candidate systems</button>
@@ -196,7 +201,7 @@ export default async function SharkTrendsBuilderPage({ searchParams }: PageProps
       </section>
 
       <section className="grid gap-3 xl:grid-cols-2">
-        {result.candidates.length ? result.candidates.map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} />) : <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4 text-sm leading-6 text-slate-400">No candidates match these builder filters. Broaden side, venue, price, rest, or market context.</div>}
+        {result.candidates.length ? result.candidates.map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} />) : <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4 text-sm leading-6 text-slate-400">No candidates match these builder filters. Broaden side, venue, price, rest, market context, or sport-specific edge.</div>}
       </section>
     </main>
   );
