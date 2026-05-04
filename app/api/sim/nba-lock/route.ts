@@ -21,6 +21,7 @@ export async function GET(request: Request) {
       gameId: control.gameId,
       eventLabel: control.eventLabel,
       matchup: control.matchup,
+      inputQuality: control.inputQuality,
       pregameLock: control.pregameLock,
       winnerConfidence: control.winnerConfidence,
       rotationLock: control.rotationLock,
