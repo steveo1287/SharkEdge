@@ -139,7 +139,7 @@ export function applyNbaPropSafetyGate(args: {
       gatedCount,
       reasonCounts: [...reasonCounts.entries()]
         .map(([reason, count]) => ({ reason, count }))
-        .sort((left, right) => right.count - left.reason.localeCompare(left.reason))
+        .sort((left, right) => right.count - left.count || left.reason.localeCompare(right.reason))
     }
   };
 }
