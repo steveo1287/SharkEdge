@@ -1,4 +1,7 @@
+import type { ReactNode } from "react";
+
 import { buildTrendsCenterSnapshot } from "@/services/trends/trends-center";
+import { buildTrendStrengthScore } from "@/services/trends/trend-strength-score";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -17,6 +20,7 @@ type SharkTrendsFilters = {
 };
 
 type LaneKey = "actionable" | "watch" | "market" | "research" | "blocked";
+type ChipKind = "good" | "watch" | "warn" | "bad" | "muted";
 
 function readValue(searchParams: Record<string, string | string[] | undefined>, key: string) {
   const value = searchParams[key];
@@ -67,7 +71,7 @@ function time(value: string | null | undefined) {
   return parsed.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-function chipClass(kind: "good" | "watch" | "warn" | "bad" | "muted") {
+function chipClass(kind: ChipKind) {
   if (kind === "good") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
   if (kind === "watch") return "border-sky-400/25 bg-sky-400/10 text-sky-200";
   if (kind === "warn") return "border-amber-300/25 bg-amber-300/10 text-amber-100";
@@ -75,28 +79,36 @@ function chipClass(kind: "good" | "watch" | "warn" | "bad" | "muted") {
   return "border-slate-500/25 bg-slate-800/60 text-slate-300";
 }
 
-function gradeClass(grade: string | null | undefined) {
+function gradeKind(grade: string | null | undefined): ChipKind {
   const value = String(grade ?? "").toUpperCase();
-  if (value === "A") return chipClass("good");
-  if (value === "B") return chipClass("watch");
-  if (value === "C") return "border-cyan-400/25 bg-cyan-400/10 text-cyan-200";
-  return chipClass("warn");
+  if (value === "A") return "good";
+  if (value === "B") return "watch";
+  if (value === "C") return "warn";
+  return "muted";
 }
 
-function actionKind(value: string | null | undefined): "good" | "watch" | "warn" | "bad" | "muted" {
+function scoreKind(score: number | null | undefined): ChipKind {
+  const value = typeof score === "number" ? score : 0;
+  if (value >= 82) return "good";
+  if (value >= 68) return "watch";
+  if (value >= 52) return "warn";
+  return "bad";
+}
+
+function actionKind(value: string | null | undefined): ChipKind {
   const action = String(value ?? "").toUpperCase();
-  if (action.includes("ACTIONABLE") || action.includes("ACTIVE")) return "good";
-  if (action.includes("WATCH")) return "watch";
-  if (action.includes("WAIT")) return "warn";
+  if (action.includes("ACTIONABLE") || action.includes("ACTIVE") || action.includes("PROMOTE")) return "good";
+  if (action.includes("WATCH") || action.includes("REVIEW")) return "watch";
+  if (action.includes("WAIT") || action.includes("RESEARCH")) return "warn";
   if (action.includes("PASS") || action.includes("BENCH")) return "bad";
   return "muted";
 }
 
-function Chip({ children, kind = "muted" }: { children: React.ReactNode; kind?: "good" | "watch" | "warn" | "bad" | "muted" }) {
+function Chip({ children, kind = "muted" }: { children: ReactNode; kind?: ChipKind }) {
   return <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.13em] ${chipClass(kind)}`}>{children}</span>;
 }
 
-function Metric({ label, value, note, kind = "muted" }: { label: string; value: string | number; note: string; kind?: "good" | "watch" | "warn" | "bad" | "muted" }) {
+function Metric({ label, value, note, kind = "muted" }: { label: string; value: string | number; note: string; kind?: ChipKind }) {
   return (
     <div className={`rounded-2xl border p-4 ${chipClass(kind).replace("text-emerald-200", "").replace("text-sky-200", "").replace("text-amber-100", "").replace("text-red-200", "").replace("text-slate-300", "")}`}>
       <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</div>
@@ -104,6 +116,10 @@ function Metric({ label, value, note, kind = "muted" }: { label: string; value: 
       <div className="mt-2 text-xs leading-5 text-slate-400">{note}</div>
     </div>
   );
+}
+
+function withStrength<T extends Record<string, any>>(item: T): T & { strength: ReturnType<typeof buildTrendStrengthScore> } {
+  return { ...item, strength: buildTrendStrengthScore(item) };
 }
 
 function rowPassesFilters(item: any, filters: SharkTrendsFilters) {
@@ -127,13 +143,13 @@ function trendPassesFilters(trend: any, league: string, filters: SharkTrendsFilt
 }
 
 function classifyTrend(trend: any): LaneKey {
-  const action = String(trend.primaryAction ?? trend.actionability ?? "").toUpperCase();
+  const action = String(trend.primaryAction ?? trend.actionLabel ?? trend.actionability ?? "").toUpperCase();
   const blockers = Array.isArray(trend.blockers) ? trend.blockers : [];
   const hasPrice = typeof trend.price === "number" && Number.isFinite(trend.price);
   const edge = typeof trend.edgePct === "number" ? trend.edgePct : null;
-  if (action.includes("ACTIONABLE") || (String(trend.actionability ?? "").toUpperCase().includes("ACTIVE") && trend.verified && hasPrice && (edge ?? 0) > 0 && !blockers.length)) return "actionable";
+  if (action.includes("ACTIONABLE") || (action.includes("ACTIVE") && trend.verified && hasPrice && (edge ?? 0) > 0 && !blockers.length)) return "actionable";
   if (/MOVE|MARKET|STEAM|LINE/i.test(`${trend.name ?? ""} ${trend.reason ?? ""} ${trend.category ?? ""}`)) return "market";
-  if (String(trend.actionability ?? "").toUpperCase().includes("WATCH") || action.includes("WATCH") || action.includes("WAIT") || hasPrice || (edge ?? 0) > 0) return "watch";
+  if (action.includes("WATCH") || action.includes("WAIT") || hasPrice || (edge ?? 0) > 0) return "watch";
   if (blockers.length || action.includes("PASS") || !trend.verified) return "blocked";
   return "research";
 }
@@ -159,16 +175,15 @@ function groupMatchups(groups: any[], filters: SharkTrendsFilters, trendLimit = 
     .filter((group) => filters.league === "ALL" || String(group.league ?? "").toUpperCase() === filters.league)
     .flatMap((group) => (group.matchups ?? []).map((matchup: any) => ({ group, matchup })))
     .map(({ group, matchup }) => {
-      const trends = (matchup.allTrends ?? matchup.trends ?? []).filter((trend: any) => trendPassesFilters(trend, group.league, filters));
+      const trends = (matchup.allTrends ?? matchup.trends ?? [])
+        .filter((trend: any) => trendPassesFilters(trend, group.league, filters))
+        .map(withStrength);
       if (!trends.length) return null;
-      const sorted = [...trends].sort((left: any, right: any) => (lanePriority(classifyTrend(left)) - lanePriority(classifyTrend(right))) || ((right.score ?? 0) - (left.score ?? 0)));
+      const sorted = [...trends].sort((left: any, right: any) => (lanePriority(classifyTrend(left)) - lanePriority(classifyTrend(right))) || ((right.strength?.score ?? 0) - (left.strength?.score ?? 0)) || ((right.score ?? 0) - (left.score ?? 0)));
       const best = sorted[0];
       const lane = classifyTrend(best);
       const bestRoi = sorted.reduce((max: number, trend: any) => Math.max(max, trend.proof?.roiPct ?? Number.NEGATIVE_INFINITY), Number.NEGATIVE_INFINITY);
       const bestProfit = sorted.reduce((max: number, trend: any) => Math.max(max, trend.proof?.profitUnits ?? Number.NEGATIVE_INFINITY), Number.NEGATIVE_INFINITY);
-      const active = sorted.filter((trend: any) => String(trend.actionability ?? "").toUpperCase().includes("ACTIVE")).length;
-      const verified = sorted.filter((trend: any) => trend.verified).length;
-      const blocked = sorted.filter((trend: any) => trend.blockers?.length).length;
       return {
         ...matchup,
         league: group.league,
@@ -177,12 +192,12 @@ function groupMatchups(groups: any[], filters: SharkTrendsFilters, trendLimit = 
         trends: sorted.slice(0, trendLimit),
         hiddenTrendCount: Math.max(0, sorted.length - trendLimit),
         trendCount: sorted.length,
-        activeTrendCount: active,
-        verifiedTrendCount: verified,
-        blockedTrendCount: blocked,
+        activeTrendCount: sorted.filter((trend: any) => String(trend.actionability ?? "").toUpperCase().includes("ACTIVE")).length,
+        verifiedTrendCount: sorted.filter((trend: any) => trend.verified).length,
+        blockedTrendCount: sorted.filter((trend: any) => trend.blockers?.length).length,
         bestRoiPct: Number.isFinite(bestRoi) ? bestRoi : null,
         bestProfitUnits: Number.isFinite(bestProfit) ? bestProfit : null,
-        topScore: best?.score ?? 0
+        topScore: best?.strength?.score ?? best?.score ?? 0
       };
     })
     .filter(Boolean)
@@ -212,12 +227,16 @@ function FilterPanel({ filters }: { filters: SharkTrendsFilters }) {
   );
 }
 
+function StrengthBadge({ strength }: { strength: ReturnType<typeof buildTrendStrengthScore> }) {
+  return <Chip kind={scoreKind(strength.score)}>Strength {strength.grade} · {strength.score}</Chip>;
+}
+
 function TrendRow({ trend }: { trend: any }) {
   return (
     <a href={trend.href} className="rounded-xl border border-white/10 bg-black/25 p-3 hover:border-cyan-300/30">
-      <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><div className="truncate text-sm font-semibold text-white">{trend.name}</div><div className="mt-1 text-[11px] uppercase tracking-[0.12em] text-slate-500">{trend.market} · {trend.side}</div></div><Chip kind={actionKind(trend.actionability)}>{trend.actionability ?? trend.primaryAction ?? "review"}</Chip></div>
+      <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><div className="truncate text-sm font-semibold text-white">{trend.name}</div><div className="mt-1 text-[11px] uppercase tracking-[0.12em] text-slate-500">{trend.market} · {trend.side}</div></div><div className="flex flex-wrap gap-1.5"><StrengthBadge strength={trend.strength} /><Chip kind={actionKind(trend.actionability)}>{trend.actionability ?? trend.primaryAction ?? "review"}</Chip></div></div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400 sm:grid-cols-4"><span>{price(trend.price)}</span><span>{trend.edgePct == null ? "edge TBD" : `${trend.edgePct}% edge`}</span><span>{trend.proof?.record ?? "record TBD"}</span><span>{pct(trend.proof?.roiPct)} ROI</span></div>
-      <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] uppercase tracking-[0.12em] text-slate-500"><span>{trend.verified ? "verified" : "provisional"}</span><span>score {trend.score ?? 0}</span>{trend.blockers?.slice(0, 2).map((blocker: string) => <span key={blocker}>· {blocker}</span>)}</div>
+      <div className="mt-2 text-[11px] leading-5 text-slate-500">{trend.strength?.reasons?.[0] ?? "Strength score is based on proof, current price, edge, confidence, blockers, and action gate."}</div>
     </a>
   );
 }
@@ -230,20 +249,18 @@ function MatchupCard({ matchup }: { matchup: any }) {
     <article className="rounded-[1.35rem] border border-white/10 bg-slate-950/70 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="flex flex-wrap gap-2"><Chip kind={laneKind}>{laneLabel(lane)}</Chip><Chip kind="muted">{matchup.league}</Chip>{primary?.proof?.grade ? <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.13em] ${gradeClass(primary.proof.grade)}`}>Grade {primary.proof.grade}</span> : null}</div>
+          <div className="flex flex-wrap gap-2"><Chip kind={laneKind}>{laneLabel(lane)}</Chip><Chip kind="muted">{matchup.league}</Chip>{primary?.strength ? <StrengthBadge strength={primary.strength} /> : null}</div>
           <a href={matchup.href} className="mt-3 block text-lg font-semibold leading-snug text-white hover:text-cyan-100">{matchup.eventLabel}</a>
           <div className="mt-1 text-xs leading-5 text-slate-500">{time(matchup.startTime)} · {matchup.status}</div>
         </div>
         <div className="grid grid-cols-3 gap-2 text-center text-[10px] uppercase tracking-[0.12em] text-slate-500"><div className="rounded-xl border border-white/10 bg-black/25 px-2 py-2"><div className="text-sm font-semibold text-white">{matchup.trendCount}</div>signals</div><div className="rounded-xl border border-white/10 bg-black/25 px-2 py-2"><div className="text-sm font-semibold text-white">{matchup.activeTrendCount}</div>active</div><div className="rounded-xl border border-white/10 bg-black/25 px-2 py-2"><div className="text-sm font-semibold text-white">{matchup.verifiedTrendCount}</div>verified</div></div>
       </div>
-
       <div className="mt-4 rounded-xl border border-cyan-300/15 bg-cyan-300/[0.04] p-3">
         <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300">Primary signal</div>
         <div className="mt-1 text-sm font-semibold text-white">{primary?.name ?? "No primary signal"}</div>
         <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-400 sm:grid-cols-4"><span>{primary?.market ?? "market"}</span><span>{primary?.side ?? "side"}</span><span>{price(primary?.price)}</span><span>{primary?.edgePct == null ? "edge TBD" : `${primary.edgePct}% edge`}</span></div>
         {primary?.proof ? <div className="mt-2 text-[11px] text-cyan-100/75">{primary.proof.record} · {unit(primary.proof.profitUnits)} · {pct(primary.proof.roiPct)} ROI · {pct(primary.proof.winRatePct)} hit</div> : null}
       </div>
-
       <div className="mt-3 grid gap-2">{matchup.trends.map((trend: any) => <TrendRow key={trend.id} trend={trend} />)}</div>
       {matchup.hiddenTrendCount ? <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] uppercase tracking-[0.14em] text-slate-500">+{matchup.hiddenTrendCount} more signals in matchup detail</div> : null}
     </article>
@@ -252,18 +269,17 @@ function MatchupCard({ matchup }: { matchup: any }) {
 
 function MatchupLane({ id, title, description, items, collapsed = false }: { id: string; title: string; description: string; items: any[]; collapsed?: boolean }) {
   const body = <div className="mt-4 grid gap-3 xl:grid-cols-2">{items.length ? items.map((matchup) => <MatchupCard key={matchup.id} matchup={matchup} />) : <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-500">No matchups in this lane under the current filters.</div>}</div>;
-  if (collapsed) {
-    return <details id={id} className="scroll-mt-28 rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-4"><summary className="cursor-pointer list-none"><div className="flex flex-wrap items-end justify-between gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">{title}</div><div className="mt-1 text-xs leading-5 text-slate-400">{description}</div></div><Chip kind="muted">{items.length}</Chip></div></summary>{body}</details>;
-  }
+  if (collapsed) return <details id={id} className="scroll-mt-28 rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-4"><summary className="cursor-pointer list-none"><div className="flex flex-wrap items-end justify-between gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">{title}</div><div className="mt-1 text-xs leading-5 text-slate-400">{description}</div></div><Chip kind="muted">{items.length}</Chip></div></summary>{body}</details>;
   return <section id={id} className="scroll-mt-28 rounded-[1.5rem] border border-cyan-300/15 bg-cyan-300/[0.035] p-4"><div className="flex flex-wrap items-end justify-between gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">{title}</div><div className="mt-1 text-xs leading-5 text-slate-400">{description}</div></div><Chip kind="watch">{items.length}</Chip></div>{body}</section>;
 }
 
 function SystemCard({ item }: { item: any }) {
+  const href = `/sharktrends/system/${encodeURIComponent(item.id)}`;
   return (
-    <a href={item.href} className="rounded-2xl border border-white/10 bg-black/25 p-4 hover:border-cyan-300/30">
-      <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><div className="truncate text-sm font-semibold text-white">#{item.rank} {item.name}</div><div className="mt-1 text-xs leading-5 text-slate-500">{item.league} · {item.market} · {item.category}</div></div><Chip kind={item.tier === "promote" ? "good" : item.tier === "watch" ? "watch" : item.tier === "bench" ? "bad" : "muted"}>{item.tier}</Chip></div>
+    <a href={href} className="rounded-2xl border border-white/10 bg-black/25 p-4 hover:border-cyan-300/30">
+      <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><div className="truncate text-sm font-semibold text-white">#{item.rank} {item.name}</div><div className="mt-1 text-xs leading-5 text-slate-500">{item.league} · {item.market} · {item.category}</div></div><div className="flex flex-wrap gap-1.5"><StrengthBadge strength={item.strength} /><Chip kind={item.tier === "promote" ? "good" : item.tier === "watch" ? "watch" : item.tier === "bench" ? "bad" : "muted"}>{item.tier}</Chip></div></div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400"><span>{item.proof?.record ?? "record TBD"}</span><span>{unit(item.proof?.profitUnits)}</span><span>{pct(item.proof?.roiPct)} ROI</span><span>{pct(item.proof?.winRatePct)} hit</span></div>
-      <div className="mt-3 text-xs leading-5 text-slate-400">{item.reason}</div>
+      <div className="mt-3 text-xs leading-5 text-slate-400">{item.strength?.reasons?.[0] ?? item.reason}</div>
     </a>
   );
 }
@@ -271,7 +287,7 @@ function SystemCard({ item }: { item: any }) {
 function ResearchDrawer({ rows }: { rows: any[] }) {
   return (
     <details className="rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-4">
-      <summary className="cursor-pointer list-none"><div className="flex flex-wrap items-end justify-between gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Research library</div><div className="mt-1 text-xs leading-5 text-slate-400">Historical systems stay here unless attached to a current matchup. This replaces the old repeated rail stack.</div></div><Chip kind="muted">{rows.length} systems</Chip></div></summary>
+      <summary className="cursor-pointer list-none"><div className="flex flex-wrap items-end justify-between gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Research library</div><div className="mt-1 text-xs leading-5 text-slate-400">Historical systems stay here unless attached to a current matchup. Strength scores make the library sortable and explainable.</div></div><Chip kind="muted">{rows.length} systems</Chip></div></summary>
       <div className="mt-4 grid gap-3 xl:grid-cols-3">{rows.slice(0, 18).map((item) => <SystemCard key={item.id} item={item} />)}</div>
     </details>
   );
@@ -281,8 +297,7 @@ export default async function SharkTrendsPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
   const filters = buildFilters(resolved);
   const snapshot = await buildTrendsCenterSnapshot();
-  const rawRows = snapshot.allPromotionRows ?? [];
-  const rows = rawRows.filter((item: any) => rowPassesFilters(item, filters));
+  const rows = (snapshot.allPromotionRows ?? []).map(withStrength).filter((item: any) => rowPassesFilters(item, filters)).sort((left: any, right: any) => (right.strength?.score ?? 0) - (left.strength?.score ?? 0));
   const matchups = groupMatchups(snapshot.matchupsByLeague ?? [], filters, 4);
   const actionable = matchups.filter((item: any) => item.lane === "actionable");
   const watch = matchups.filter((item: any) => item.lane === "watch");
@@ -292,20 +307,17 @@ export default async function SharkTrendsPage({ searchParams }: PageProps) {
   const activeRows = rows.filter((item: any) => Number(item.activeMatches ?? 0) > 0);
   const verifiedRows = rows.filter((item: any) => item.verified);
   const blockedRows = rows.filter((item: any) => item.blockers?.length);
+  const topStrength = rows[0]?.strength;
 
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
       <section className="rounded-[1.75rem] border border-cyan-300/15 bg-slate-950/70 p-5 shadow-[0_0_60px_rgba(14,165,233,0.10)]">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between"><div><div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">SharkTrends</div><h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Matchup command board</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Default path: league → matchup → attached signal stack. Historical systems are still available, but they no longer own the main screen unless tied to a game, team, current price, or movement record.</p></div><div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]"><a href="#actionable" className="text-cyan-200 hover:text-cyan-100">Actionable</a><a href="#watch" className="text-cyan-200 hover:text-cyan-100">Watch</a><a href="#market" className="text-cyan-200 hover:text-cyan-100">Market</a><a href="#research" className="text-cyan-200 hover:text-cyan-100">Research</a></div></div>
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between"><div><div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">SharkTrends</div><h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Matchup command board</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Default path: league → matchup → attached signal stack. Trend Strength scores combine proof, sample, ROI, CLV, current price, edge, confidence, action gate, and blockers.</p></div><div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]"><a href="#actionable" className="text-cyan-200 hover:text-cyan-100">Actionable</a><a href="#watch" className="text-cyan-200 hover:text-cyan-100">Watch</a><a href="#market" className="text-cyan-200 hover:text-cyan-100">Market</a><a href="#research" className="text-cyan-200 hover:text-cyan-100">Research</a></div></div>
       </section>
-
       <FilterPanel filters={filters} />
-
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5"><Metric label="Matchups" value={matchups.length} note="Games with attached filtered signals." kind="watch" /><Metric label="Actionable" value={actionable.length} note="Current matchup plus clean signal stack." kind="good" /><Metric label="Watch" value={watch.length} note="Interesting, but still needs price, proof, or gate cleanup." kind="watch" /><Metric label="Verified systems" value={verifiedRows.length} note="Historical systems inside the current filter set." kind="muted" /><Metric label="Blocked" value={blockedRows.length} note="Rows blocked by proof, activity, price, or gate issues." kind="bad" /></section>
-
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5"><Metric label="Matchups" value={matchups.length} note="Games with attached filtered signals." kind="watch" /><Metric label="Actionable" value={actionable.length} note="Current matchup plus clean signal stack." kind="good" /><Metric label="Top strength" value={topStrength ? `${topStrength.grade} ${topStrength.score}` : "TBD"} note="Best system under current filters." kind={scoreKind(topStrength?.score)} /><Metric label="Verified systems" value={verifiedRows.length} note="Historical systems inside the current filter set." kind="muted" /><Metric label="Blocked" value={blockedRows.length} note="Rows blocked by proof, activity, price, or gate issues." kind="bad" /></section>
       <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-4"><div className="flex flex-wrap items-center gap-2"><Chip kind="good">Actionable {actionable.length}</Chip><Chip kind="watch">Watch {watch.length}</Chip><Chip kind="watch">Market {market.length}</Chip><Chip kind="muted">Research {researchMatchups.length}</Chip><Chip kind="bad">Blocked {blocked.length}</Chip><Chip kind="muted">Active systems {activeRows.length}</Chip></div></section>
-
-      <MatchupLane id="actionable" title="Actionable matchups" description="These get the top screen space: current matchup, attached signal, proof, price context, and clean action gate." items={actionable} />
+      <MatchupLane id="actionable" title="Actionable matchups" description="These get the top screen space: current matchup, attached signal, proof, price context, strength score, and clean action gate." items={actionable} />
       <MatchupLane id="watch" title="Watch / needs price" description="Current or near-current setups that still need a cleaner price, stronger proof, or gate confirmation." items={watch} />
       <MatchupLane id="market" title="Market movement attached to games" description="Movement-style signals stay attached to matchup cards instead of floating as a global feed." items={market} />
       <MatchupLane id="research-matchups" title="Current research matchups" description="Matched games with context, but not enough to promote above the fold." items={researchMatchups} collapsed />

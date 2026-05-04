@@ -1,7 +1,9 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { buildTrendsCenterSnapshot } from "@/services/trends/trends-center";
+import { buildTrendStrengthScore } from "@/services/trends/trend-strength-score";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -33,13 +35,6 @@ function price(value: number | null | undefined) {
   return value > 0 ? `+${value}` : String(value);
 }
 
-function time(value: string | null | undefined) {
-  if (!value) return "time TBD";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-}
-
 function chipClass(kind: ChipKind) {
   if (kind === "good") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
   if (kind === "watch") return "border-sky-400/25 bg-sky-400/10 text-sky-200";
@@ -65,7 +60,15 @@ function gradeKind(grade: string | null | undefined): ChipKind {
   return "muted";
 }
 
-function Chip({ children, kind = "muted" }: { children: React.ReactNode; kind?: ChipKind }) {
+function scoreKind(score: number | null | undefined): ChipKind {
+  const value = typeof score === "number" ? score : 0;
+  if (value >= 82) return "good";
+  if (value >= 68) return "watch";
+  if (value >= 52) return "warn";
+  return "bad";
+}
+
+function Chip({ children, kind = "muted" }: { children: ReactNode; kind?: ChipKind }) {
   return <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.13em] ${chipClass(kind)}`}>{children}</span>;
 }
 
@@ -79,7 +82,7 @@ function Stat({ label, value, note }: { label: string; value: string | number; n
   );
 }
 
-function Section({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+function Section({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return (
     <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4">
       <div className="mb-4">
@@ -98,10 +101,14 @@ function systemDetailHref(systemId: string, gameId?: string | null) {
   return `/sharktrends/system/${encodeURIComponent(systemId)}${suffix ? `?${suffix}` : ""}`;
 }
 
+function withStrength<T extends Record<string, any>>(item: T): T & { strength: ReturnType<typeof buildTrendStrengthScore> } {
+  return { ...item, strength: buildTrendStrengthScore(item) };
+}
+
 function buildQualifyingChecks(system: any, selectedMatch: any | null) {
   const proof = system.proof ?? {};
   const filters = proof.filters ?? {};
-  const checks = [
+  return [
     { label: "League", value: filters.league ?? system.league ?? "ALL", matched: true },
     { label: "Market", value: filters.market ?? system.market ?? "ALL", matched: true },
     { label: "Side", value: filters.side ?? selectedMatch?.side ?? "ALL", matched: Boolean(filters.side || selectedMatch?.side) },
@@ -111,7 +118,32 @@ function buildQualifyingChecks(system: any, selectedMatch: any | null) {
     { label: "Current price", value: price(selectedMatch?.price), matched: typeof selectedMatch?.price === "number" },
     { label: "Current edge", value: selectedMatch?.edgePct == null ? "edge TBD" : `${selectedMatch.edgePct}%`, matched: Number(selectedMatch?.edgePct ?? 0) > 0 }
   ];
-  return checks;
+}
+
+function StrengthPanel({ strength, title }: { strength: ReturnType<typeof buildTrendStrengthScore>; title: string }) {
+  return (
+    <Section title={title} description="Score is calculated from proof, sample, ROI, units, hit rate, recent form, CLV, current price, edge, confidence, action gate, category, streak, and blockers.">
+      <div className="grid gap-3 md:grid-cols-[220px_1fr_1fr]">
+        <div className={`rounded-2xl border p-4 ${chipClass(scoreKind(strength.score))}`}>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-75">Trend Strength</div>
+          <div className="mt-2 text-4xl font-semibold text-white">{strength.grade} {strength.score}</div>
+          <div className="mt-2 text-xs leading-5 opacity-80">A transparent SharkEdge score, not just ROI sorting.</div>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-300">Reasons</div>
+          <div className="mt-3 grid gap-2 text-xs leading-5 text-slate-300">
+            {strength.reasons.length ? strength.reasons.map((reason) => <div key={reason}>• {reason}</div>) : <div className="text-slate-500">No positive score reasons were generated.</div>}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-300">Penalties</div>
+          <div className="mt-3 grid gap-2 text-xs leading-5 text-slate-300">
+            {strength.penalties.length ? strength.penalties.map((penalty) => <div key={penalty}>• {penalty}</div>) : <div className="text-slate-500">No penalties were applied.</div>}
+          </div>
+        </div>
+      </div>
+    </Section>
+  );
 }
 
 function MatchCard({ trend, selected }: { trend: any; selected: boolean }) {
@@ -122,7 +154,10 @@ function MatchCard({ trend, selected }: { trend: any; selected: boolean }) {
           <div className="text-sm font-semibold text-white">{trend.eventLabel ?? trend.name}</div>
           <div className="mt-1 text-xs leading-5 text-slate-500">{trend.league ?? "league"} · {trend.market} · {trend.side}</div>
         </div>
-        <Chip kind={actionKind(trend.actionLabel ?? trend.actionability)}>{trend.actionLabel ?? trend.actionability ?? "review"}</Chip>
+        <div className="flex flex-wrap gap-1.5">
+          <Chip kind={scoreKind(trend.strength?.score)}>Strength {trend.strength?.grade} · {trend.strength?.score}</Chip>
+          <Chip kind={actionKind(trend.actionLabel ?? trend.actionability)}>{trend.actionLabel ?? trend.actionability ?? "review"}</Chip>
+        </div>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400 sm:grid-cols-4">
         <span>{price(trend.price)}</span>
@@ -130,7 +165,7 @@ function MatchCard({ trend, selected }: { trend: any; selected: boolean }) {
         <span>{trend.confidencePct == null ? "confidence TBD" : `${trend.confidencePct}% conf`}</span>
         <span>Score {trend.sharkScore ?? trend.score ?? 0}</span>
       </div>
-      {trend.reasons?.length ? <div className="mt-3 line-clamp-2 text-xs leading-5 text-slate-400">{trend.reasons[0]}</div> : null}
+      <div className="mt-3 text-xs leading-5 text-slate-400">{trend.strength?.reasons?.[0] ?? trend.reasons?.[0] ?? "Strength score explains this matchup fit."}</div>
       {trend.blockers?.length ? <div className="mt-2 text-[11px] leading-5 text-red-100/80">Blockers: {trend.blockers.slice(0, 3).join(", ")}</div> : <div className="mt-2 text-[11px] text-emerald-200/80">No hard blockers listed.</div>}
     </Link>
   );
@@ -142,19 +177,21 @@ export default async function SharkTrendsSystemDetailPage({ params, searchParams
   const selectedGameId = readValue(resolvedSearch, "gameId") ?? null;
   const snapshot = await buildTrendsCenterSnapshot();
   const rows = snapshot.allPromotionRows ?? [];
-  const system = rows.find((row: any) => row.id === decodeURIComponent(systemId));
+  const rawSystem = rows.find((row: any) => row.id === decodeURIComponent(systemId));
 
-  if (!system) notFound();
+  if (!rawSystem) notFound();
 
+  const system = withStrength(rawSystem);
   const activeTrendRows = (snapshot.matchupsByLeague ?? [])
     .flatMap((group: any) => (group.matchups ?? []).map((matchup: any) => ({ group, matchup })))
     .flatMap(({ group, matchup }: any) => (matchup.allTrends ?? matchup.trends ?? [])
       .filter((trend: any) => trend.systemId === system.id)
-      .map((trend: any) => ({ ...trend, eventLabel: matchup.eventLabel, startTime: matchup.startTime, status: matchup.status, league: group.league, matchupHref: matchup.href }))
+      .map((trend: any) => withStrength({ ...trend, eventLabel: matchup.eventLabel, startTime: matchup.startTime, status: matchup.status, league: group.league, matchupHref: matchup.href }))
     )
-    .sort((left: any, right: any) => (right.sharkScore ?? right.score ?? 0) - (left.sharkScore ?? left.score ?? 0));
+    .sort((left: any, right: any) => (right.strength?.score ?? 0) - (left.strength?.score ?? 0));
 
   const selectedTrend = activeTrendRows.find((trend: any) => trend.gameId === selectedGameId) ?? activeTrendRows[0] ?? null;
+  const selectedStrength = selectedTrend?.strength ?? system.strength;
   const proof = system.proof ?? {};
   const checks = buildQualifyingChecks(system, selectedTrend);
   const rules = Array.isArray(proof.rules) ? proof.rules : [];
@@ -167,8 +204,9 @@ export default async function SharkTrendsSystemDetailPage({ params, searchParams
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">SharkTrends System Detail</div>
             <h1 className="mt-2 font-display text-3xl font-semibold leading-tight text-white md:text-4xl">{system.name}</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{proof.description ?? system.reason ?? "System detail, proof summary, current matchups, filter DNA, blockers, and history readiness."}</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{proof.description ?? system.reason ?? "System detail, proof summary, current matchups, filter DNA, blockers, and strength scoring."}</p>
             <div className="mt-4 flex flex-wrap gap-2">
+              <Chip kind={scoreKind(system.strength.score)}>Strength {system.strength.grade} · {system.strength.score}</Chip>
               <Chip kind={gradeKind(proof.grade)}>Grade {proof.grade ?? "P"}</Chip>
               <Chip kind={system.verified ? "good" : "warn"}>{system.verified ? "verified" : "provisional"}</Chip>
               <Chip kind={actionKind(system.actionLabel ?? system.primaryAction)}>{system.actionLabel ?? system.primaryAction ?? "research"}</Chip>
@@ -184,13 +222,16 @@ export default async function SharkTrendsSystemDetailPage({ params, searchParams
       </section>
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <Stat label="Strength" value={`${system.strength.grade} ${system.strength.score}`} note="Transparent weighted system score." />
         <Stat label="Record" value={proof.record ?? "TBD"} note="Full stored system record." />
         <Stat label="Profit" value={unit(proof.profitUnits)} note="Units from stored proof packet." />
         <Stat label="ROI" value={pct(proof.roiPct)} note="Return from historical qualifiers." />
         <Stat label="Win rate" value={pct(proof.winRatePct)} note="Hit rate across stored record." />
         <Stat label="CLV" value={pct(proof.clvPct)} note="Closing-line value, if available." />
-        <Stat label="Score" value={system.sharkScore ?? system.score ?? 0} note="Current SharkTrends placement score." />
       </section>
+
+      <StrengthPanel title="System strength score" strength={system.strength} />
+      {selectedTrend ? <StrengthPanel title="Selected matchup strength" strength={selectedStrength} /> : null}
 
       <Section title="Current attached matchups" description="These are today's games or current board events that match this system. The selected matchup drives the qualification checks below.">
         <div className="grid gap-3 xl:grid-cols-2">
@@ -224,7 +265,7 @@ export default async function SharkTrendsSystemDetailPage({ params, searchParams
           </div>
         </Section>
 
-        <Section title="Game history foundation" description="PR #159 adds the detail shell. PR #162 should replace this placeholder with full qualifier history rows.">
+        <Section title="Game history foundation" description="PR #162 should replace this placeholder with full qualifier history rows.">
           <div className="rounded-xl border border-white/10 bg-black/25 p-4 text-sm leading-6 text-slate-400">
             <div className="font-semibold text-white">History table planned fields</div>
             <div className="mt-2 grid gap-1 text-xs uppercase tracking-[0.12em] text-slate-500">
