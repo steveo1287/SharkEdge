@@ -5,6 +5,7 @@ import {
   type NbaSimHealthStatus,
   type NbaSimRecommendationTier
 } from "@/services/simulation/nba-sim-health-policy";
+import { buildNbaWinnerProbability } from "@/services/simulation/nba-winner-probability-engine";
 import { applySimAccuracyGuardrail, getSimAccuracyGuardrails } from "@/services/simulation/sim-accuracy-guardrail";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 
@@ -146,6 +147,60 @@ function applyNbaLineupTruthGate(args: {
   };
 }
 
+function confidenceCap(confidence: "HIGH" | "MEDIUM" | "LOW" | "INSUFFICIENT") {
+  switch (confidence) {
+    case "HIGH": return 0.72;
+    case "MEDIUM": return 0.64;
+    case "LOW": return 0.56;
+    case "INSUFFICIENT": return 0.49;
+  }
+}
+
+function applyNbaWinnerAnchorGate(args: {
+  projection: SimProjection;
+  lineupTruth: NbaLineupTruth | null;
+  tier: NbaSimRecommendationTier;
+  noBet: boolean;
+  confidence: number;
+  reasons: string[];
+}) {
+  const winner = buildNbaWinnerProbability({
+    rawHomeWinPct: args.projection.distribution.homeWinPct,
+    rawAwayWinPct: args.projection.distribution.awayWinPct,
+    projectedHomeMargin: args.projection.distribution.avgHome - args.projection.distribution.avgAway,
+    projectedTotal: args.projection.nbaIntel?.projectedTotal ?? null,
+    market: args.projection.realityIntel?.market ?? null,
+    lineupTruth: args.lineupTruth,
+    sourceHealth: args.projection.realityIntel?.sourceHealth ?? null,
+    calibrationHealthy: nbaRuntimeCalibrationHealthy(args.projection)
+  });
+  const winnerReasons = [
+    `NBA winner anchor: market home ${winner.marketHomeNoVig == null ? "missing" : `${(winner.marketHomeNoVig * 100).toFixed(1)}%`}, raw sim home ${(winner.rawHomeWinPct * 100).toFixed(1)}%, final home ${(winner.finalHomeWinPct * 100).toFixed(1)}%.`,
+    ...winner.blockers.map((blocker) => `Winner blocker: ${blocker}.`),
+    ...winner.warnings.map((warning) => `Winner warning: ${warning}.`),
+    ...winner.drivers.map((driver) => `Winner driver: ${driver}.`)
+  ];
+
+  if (winner.noBet) {
+    return {
+      tier: "pass" as NbaSimRecommendationTier,
+      noBet: true,
+      confidence: Math.min(args.confidence, 0.49),
+      reasons: ["NBA winner anchor forced PASS/noBet.", ...winnerReasons, ...args.reasons],
+      winner
+    };
+  }
+
+  const tier = args.tier === "attack" && winner.confidence !== "HIGH" ? "watch" as NbaSimRecommendationTier : args.tier;
+  return {
+    tier,
+    noBet: args.noBet,
+    confidence: Math.min(args.confidence, confidenceCap(winner.confidence)),
+    reasons: [...winnerReasons, ...args.reasons],
+    winner
+  };
+}
+
 async function getRuntimeLineupTruth(input: SimProjectionInput, projection: SimProjection) {
   const modules = projection.realityIntel?.modules ?? [];
   return getNbaLineupTruth({
@@ -211,15 +266,28 @@ export async function buildGuardedSimProjection(input: SimProjectionInput): Prom
       confidence: spreadGuarded.confidence,
       reasons: spreadGuarded.reasons
     });
+    const winnerGuarded = applyNbaWinnerAnchorGate({
+      projection,
+      lineupTruth,
+      tier: lineupGuarded.tier,
+      noBet: lineupGuarded.noBet,
+      confidence: lineupGuarded.confidence,
+      reasons: lineupGuarded.reasons
+    });
 
     return {
       ...projection,
+      distribution: {
+        ...projection.distribution,
+        homeWinPct: winnerGuarded.winner.finalHomeWinPct,
+        awayWinPct: winnerGuarded.winner.finalAwayWinPct
+      },
       nbaIntel: {
         ...projection.nbaIntel,
-        tier: lineupGuarded.tier,
-        confidence: lineupGuarded.confidence,
-        noBet: lineupGuarded.noBet,
-        reasons: lineupGuarded.reasons
+        tier: winnerGuarded.tier,
+        confidence: winnerGuarded.confidence,
+        noBet: winnerGuarded.noBet,
+        reasons: winnerGuarded.reasons
       }
     };
   }
