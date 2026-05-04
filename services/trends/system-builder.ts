@@ -10,6 +10,7 @@ export type SystemBuilderInput = {
   form: string | "ALL";
   rest: string | "ALL";
   marketContext: string | "ALL";
+  sportSpecific?: string | "ALL";
   depth: TrendFactoryDepth;
   limit: number;
 };
@@ -44,6 +45,7 @@ function rankCandidate(candidate: TrendCandidateSystem) {
   score += candidate.previewTags.includes("model") ? 14 : 0;
   score += candidate.previewTags.includes("clv") ? 12 : 0;
   score += candidate.previewTags.includes("movement") ? 10 : 0;
+  score += candidate.previewTags.includes("sport-specific") ? 10 : 0;
   score -= candidate.blockers.length * 18;
   score -= candidate.conditions.length > 4 ? 10 : 0;
   return score;
@@ -64,6 +66,7 @@ export function buildSystemBuilderResult(input: SystemBuilderInput): SystemBuild
     .filter((candidate) => matchesValue(candidate, "form", input.form))
     .filter((candidate) => matchesValue(candidate, "rest", input.rest))
     .filter((candidate) => matchesValue(candidate, "market_context", input.marketContext))
+    .filter((candidate) => matchesValue(candidate, "sport_specific", input.sportSpecific ?? "ALL"))
     .sort((left, right) => rankCandidate(right) - rankCandidate(left) || left.conditions.length - right.conditions.length)
     .slice(0, input.limit);
 
@@ -87,6 +90,7 @@ export function buildSystemBuilderResult(input: SystemBuilderInput): SystemBuild
     },
     notes: [
       "System Builder creates generated-system candidates from selected filters; it does not persist anything by itself.",
+      "Sport-specific candidate families are source-dependent and must be validated with historical rows before verification.",
       "Every candidate still needs historical backtest rows before it can become a verified generated system.",
       "Strong candidates should be sent through the backtest and generated-system persistence flow before they appear on the main board."
     ]
