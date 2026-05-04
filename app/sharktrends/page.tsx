@@ -191,7 +191,7 @@ function groupMatchups(groups: any[], filters: SharkTrendsFilters, trendLimit = 
 
 function FilterPanel({ filters }: { filters: SharkTrendsFilters }) {
   return (
-    <section className="sticky top-3 z-20 rounded-[1.5rem] border border-white/10 bg-slate-950/90 p-4 backdrop-blur-xl">
+    <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/90 p-4 backdrop-blur-xl">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Command filters</div>
