@@ -1,3 +1,4 @@
+import { sportSpecificConditions, sportSpecificFamilySummary } from "./sport-specific-trend-families";
 import type {
   TrendCandidateSystem,
   TrendFactoryDepth,
@@ -88,9 +89,9 @@ function sideLabel(side: TrendFactorySide) {
 }
 
 function depthLimit(depth: TrendFactoryDepth) {
-  if (depth === "debug") return 2000;
-  if (depth === "expanded") return 750;
-  return 300;
+  if (depth === "debug") return 2500;
+  if (depth === "expanded") return 1000;
+  return 400;
 }
 
 function maxConditionCount(depth: TrendFactoryDepth) {
@@ -101,6 +102,7 @@ function maxConditionCount(depth: TrendFactoryDepth) {
 
 function chooseGate(candidate: Omit<TrendCandidateSystem, "qualityGate" | "gateReasons" | "blockers" | "previewTags">): Pick<TrendCandidateSystem, "qualityGate" | "gateReasons" | "blockers" | "previewTags"> {
   const keys = candidate.conditions.map((item) => item.key);
+  const families = candidate.conditions.map((item) => item.family);
   const gateReasons: string[] = [];
   const blockers: string[] = [];
   const previewTags: string[] = [];
@@ -117,6 +119,10 @@ function chooseGate(candidate: Omit<TrendCandidateSystem, "qualityGate" | "gateR
     gateReasons.push("Market movement support condition included.");
     previewTags.push("movement");
   }
+  if (families.includes("sport_specific")) {
+    gateReasons.push("Sport-specific context condition included.");
+    previewTags.push("sport-specific");
+  }
   if (keys.includes("line_moved_against")) {
     blockers.push("Line movement is against the candidate side.");
     previewTags.push("hostile-move");
@@ -124,6 +130,9 @@ function chooseGate(candidate: Omit<TrendCandidateSystem, "qualityGate" | "gateR
   if (keys.includes("rest_0") || keys.includes("b2b")) {
     blockers.push("Fatigue/rest risk condition needs sport-specific validation.");
     previewTags.push("rest-risk");
+  }
+  if (families.includes("sport_specific") && !keys.includes("model_agrees") && !keys.includes("positive_clv") && !keys.includes("line_moved_for")) {
+    blockers.push("Sport-specific condition requires source validation before promotion.");
   }
   if (candidate.conditions.length >= 5) {
     blockers.push("High condition count can overfit without backtest validation.");
@@ -169,13 +178,15 @@ function createCandidate(league: TrendFactoryLeague, market: TrendFactoryMarket,
   return { ...partial, ...chooseGate(partial) };
 }
 
-function conditionSets(league: TrendFactoryLeague, side: TrendFactorySide, depth: TrendFactoryDepth) {
+function conditionSets(league: TrendFactoryLeague, market: TrendFactoryMarket, side: TrendFactorySide, depth: TrendFactoryDepth) {
+  const sportSpecific = sportSpecificConditions(league, market, side);
   const baseFamilies = [
     ...VENUE.filter((item) => appliesToLeague(item, league)).map((item) => condition("venue", item.value, item.label, item.value)),
     ...PRICE_RANGES.filter((item) => appliesToSide(item, side)).map((item) => condition("price", item.value, item.label, item.value, "range")),
     ...FORM.map((item) => condition("form", item.value, item.label, item.value)),
     ...REST.filter((item) => appliesToLeague(item, league)).map((item) => condition("rest", item.value, item.label, item.value)),
-    ...MARKET_CONTEXT.map((item) => condition("market_context", item.value, item.label, item.value, "derived"))
+    ...MARKET_CONTEXT.map((item) => condition("market_context", item.value, item.label, item.value, "derived")),
+    ...sportSpecific
   ];
 
   const sets: TrendFilterCondition[][] = [[]];
@@ -195,29 +206,38 @@ function conditionSets(league: TrendFactoryLeague, side: TrendFactorySide, depth
   if (maxCount >= 3) {
     const venues = baseFamilies.filter((item) => item.family === "venue");
     const forms = baseFamilies.filter((item) => item.family === "form");
-    const market = baseFamilies.filter((item) => item.family === "market_context");
+    const marketContext = baseFamilies.filter((item) => item.family === "market_context");
     const prices = baseFamilies.filter((item) => item.family === "price");
     const rests = baseFamilies.filter((item) => item.family === "rest");
+    const sport = baseFamilies.filter((item) => item.family === "sport_specific");
 
     for (const venue of venues) {
       for (const form of forms) {
-        for (const context of market) {
+        for (const context of marketContext) {
           sets.push([venue, form, context]);
         }
       }
     }
     for (const price of prices) {
       for (const form of forms) {
-        for (const context of market) {
+        for (const context of marketContext) {
           sets.push([price, form, context]);
         }
       }
     }
     for (const rest of rests) {
       for (const form of forms) {
-        for (const context of market) {
+        for (const context of marketContext) {
           sets.push([rest, form, context]);
         }
+      }
+    }
+    for (const sportCondition of sport) {
+      for (const context of marketContext) {
+        sets.push([sportCondition, context]);
+      }
+      for (const price of prices.slice(0, 2)) {
+        sets.push([sportCondition, price]);
       }
     }
   }
@@ -226,13 +246,21 @@ function conditionSets(league: TrendFactoryLeague, side: TrendFactorySide, depth
     const prices = baseFamilies.filter((item) => item.family === "price").slice(0, 3);
     const venues = baseFamilies.filter((item) => item.family === "venue").slice(0, 3);
     const forms = baseFamilies.filter((item) => item.family === "form");
-    const market = baseFamilies.filter((item) => item.family === "market_context");
+    const marketContext = baseFamilies.filter((item) => item.family === "market_context");
+    const sport = baseFamilies.filter((item) => item.family === "sport_specific").slice(0, 6);
     for (const price of prices) {
       for (const venue of venues) {
         for (const form of forms) {
-          for (const context of market) {
+          for (const context of marketContext) {
             sets.push([price, venue, form, context]);
           }
+        }
+      }
+    }
+    for (const sportCondition of sport) {
+      for (const price of prices) {
+        for (const context of marketContext) {
+          sets.push([sportCondition, price, context]);
         }
       }
     }
@@ -291,7 +319,7 @@ export function buildTrendFactoryPreview(options: TrendFactoryOptions = {}): Tre
     const markets = (selectedMarkets ?? MARKETS_BY_LEAGUE[league]).filter((market) => MARKETS_BY_LEAGUE[league].includes(market));
     for (const market of markets) {
       for (const side of SIDE_BY_MARKET[market]) {
-        for (const set of conditionSets(league, side, depth)) {
+        for (const set of conditionSets(league, market, side, depth)) {
           raw.push(createCandidate(league, market, side, set));
           if (raw.length >= hardLimit * 3) break;
         }
@@ -318,6 +346,8 @@ export function buildTrendFactoryPreview(options: TrendFactoryOptions = {}): Tre
     dedupeGroups: relatedGroups(candidates),
     notes: [
       "Trend Factory v1 generates candidate systems only; it does not backtest, persist, or promote them to the main board yet.",
+      "Sport-specific families are included for MLB, NBA, NFL, NHL, NCAAF, UFC, and Boxing, but source-dependent conditions still require historical/source validation.",
+      `Sport-specific family coverage: ${sportSpecificFamilySummary().map((item) => `${item.league} ${item.conditions}`).join(", ")}.`,
       "Backtesting should validate sample size, ROI, win rate, units, CLV, recent form, and per-game history before any candidate becomes a verified system.",
       "Candidates include dedupeKey and relatedKey so future PRs can collapse near-duplicate systems instead of flooding the UI."
     ]
