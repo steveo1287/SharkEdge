@@ -59,9 +59,18 @@ function teamName(event: Record<string, unknown>, keys: string[]) {
   return "";
 }
 
+function rowsFromUnknown(data: unknown): unknown[] {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== "object") return [];
+  const row = data as Record<string, unknown>;
+  if (Array.isArray(row.data)) return row.data;
+  if (Array.isArray(row.events)) return row.events;
+  return [];
+}
+
 export function normalizeOddsApiIoEvents(data: unknown, fallback: { league: string; sport?: string | null }): OddsApiIoNormalizedEvent[] {
-  const rows = Array.isArray(data) ? data : Array.isArray((data as any)?.data) ? (data as any).data : Array.isArray((data as any)?.events) ? (data as any).events : [];
-  return rows.flatMap((raw) => {
+  const rows: unknown[] = rowsFromUnknown(data);
+  return rows.flatMap((raw: unknown): OddsApiIoNormalizedEvent[] => {
     if (!raw || typeof raw !== "object") return [];
     const event = raw as Record<string, unknown>;
     const sourceEventId = eventId(event);
@@ -107,22 +116,22 @@ function looksLikeOutcome(value: unknown): value is Record<string, unknown> {
 
 function collectOutcomes(node: unknown, path: string[] = []): Array<{ path: string[]; outcome: Record<string, unknown> }> {
   if (!node || typeof node !== "object") return [];
-  if (looksLikeOutcome(node)) return [{ path, outcome: node as Record<string, unknown> }];
-  if (Array.isArray(node)) return node.flatMap((item, index) => collectOutcomes(item, [...path, String(index)]));
-  return Object.entries(node as Record<string, unknown>).flatMap(([key, value]) => collectOutcomes(value, [...path, key]));
+  if (looksLikeOutcome(node)) return [{ path, outcome: node }];
+  if (Array.isArray(node)) return node.flatMap((item: unknown, index: number) => collectOutcomes(item, [...path, String(index)]));
+  return Object.entries(node as Record<string, unknown>).flatMap(([key, value]: [string, unknown]) => collectOutcomes(value, [...path, key]));
 }
 
 function bookmakerName(path: string[], row: Record<string, unknown>) {
-  return text(row.bookmaker ?? row.bookmakerName ?? row.sportsbook ?? row.site ?? row.book ?? path.find((item) => /^[A-Za-z][A-Za-z0-9 _.-]{2,}$/.test(item))) || null;
+  return text(row.bookmaker ?? row.bookmakerName ?? row.sportsbook ?? row.site ?? row.book ?? path.find((item: string) => /^[A-Za-z][A-Za-z0-9 _.-]{2,}$/.test(item))) || null;
 }
 
 export function normalizeOddsApiIoOdds(data: unknown, context: { sourceEventId: string; league: string; sport?: string | null; capturedAt?: string }): OddsApiIoNormalizedOddsRow[] {
   const capturedAt = context.capturedAt ?? new Date().toISOString();
   const outcomes = collectOutcomes(data);
-  return outcomes.flatMap(({ path, outcome }, index) => {
+  return outcomes.flatMap(({ path, outcome }: { path: string[]; outcome: Record<string, unknown> }, index: number): OddsApiIoNormalizedOddsRow[] => {
     const price = num(outcome.price ?? outcome.odds ?? outcome.american ?? outcome.value);
     if (price == null) return [];
-    const marketType = inferMarket(text(outcome.market ?? outcome.marketType ?? outcome.key ?? path.find((item) => /money|h2h|spread|handicap|total|over|under/i.test(item)) ?? "unknown"));
+    const marketType = inferMarket(text(outcome.market ?? outcome.marketType ?? outcome.key ?? path.find((item: string) => /money|h2h|spread|handicap|total|over|under/i.test(item)) ?? "unknown"));
     const selection = text(outcome.name ?? outcome.selection ?? outcome.team ?? outcome.label ?? outcome.side) || null;
     const side = inferSide(selection ?? text(path[path.length - 1]), marketType);
     const point = num(outcome.point ?? outcome.handicap ?? outcome.hdp ?? outcome.line);
