@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { ForYouTrendDiscovery } from "./for-you-discovery";
 import { buildTrendsCenterSnapshot } from "@/services/trends/trends-center";
 import { buildTrendStrengthScore } from "@/services/trends/trend-strength-score";
 
@@ -41,7 +42,7 @@ function readNumber(value: string | undefined) {
 function buildFilters(searchParams: Record<string, string | string[] | undefined>): SharkTrendsFilters {
   return {
     league: (readValue(searchParams, "league") || "ALL").toUpperCase(),
-    market: (readValue(searchParams, "market") || "ALL").toLowerCase(),
+    market: (readValue(searchParams, "market") || "all").toLowerCase(),
     grade: (readValue(searchParams, "grade") || "ALL").toUpperCase(),
     roiFloor: readNumber(readValue(searchParams, "roiFloor")),
     activeOnly: readBool(searchParams, "active"),
@@ -122,6 +123,12 @@ function withStrength<T extends Record<string, any>>(item: T): T & { strength: R
   return { ...item, strength: buildTrendStrengthScore(item) };
 }
 
+function systemHref(item: any) {
+  const systemId = item.systemId ?? item.id;
+  const gameId = item.gameId ? `?gameId=${encodeURIComponent(item.gameId)}` : "";
+  return `/sharktrends/system/${encodeURIComponent(systemId)}${gameId}`;
+}
+
 function rowPassesFilters(item: any, filters: SharkTrendsFilters) {
   if (filters.league !== "ALL" && String(item.league ?? "").toUpperCase() !== filters.league) return false;
   if (filters.market !== "all" && String(item.market ?? "").toLowerCase() !== filters.market) return false;
@@ -182,8 +189,6 @@ function groupMatchups(groups: any[], filters: SharkTrendsFilters, trendLimit = 
       const sorted = [...trends].sort((left: any, right: any) => (lanePriority(classifyTrend(left)) - lanePriority(classifyTrend(right))) || ((right.strength?.score ?? 0) - (left.strength?.score ?? 0)) || ((right.score ?? 0) - (left.score ?? 0)));
       const best = sorted[0];
       const lane = classifyTrend(best);
-      const bestRoi = sorted.reduce((max: number, trend: any) => Math.max(max, trend.proof?.roiPct ?? Number.NEGATIVE_INFINITY), Number.NEGATIVE_INFINITY);
-      const bestProfit = sorted.reduce((max: number, trend: any) => Math.max(max, trend.proof?.profitUnits ?? Number.NEGATIVE_INFINITY), Number.NEGATIVE_INFINITY);
       return {
         ...matchup,
         league: group.league,
@@ -195,8 +200,6 @@ function groupMatchups(groups: any[], filters: SharkTrendsFilters, trendLimit = 
         activeTrendCount: sorted.filter((trend: any) => String(trend.actionability ?? "").toUpperCase().includes("ACTIVE")).length,
         verifiedTrendCount: sorted.filter((trend: any) => trend.verified).length,
         blockedTrendCount: sorted.filter((trend: any) => trend.blockers?.length).length,
-        bestRoiPct: Number.isFinite(bestRoi) ? bestRoi : null,
-        bestProfitUnits: Number.isFinite(bestProfit) ? bestProfit : null,
         topScore: best?.strength?.score ?? best?.score ?? 0
       };
     })
@@ -216,7 +219,7 @@ function FilterPanel({ filters }: { filters: SharkTrendsFilters }) {
       </div>
       <form method="get" className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
         <label className="grid gap-1 text-xs text-slate-400"><span className="font-semibold uppercase tracking-[0.14em] text-slate-500">League</span><select name="league" defaultValue={filters.league} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white">{["ALL", "NBA", "MLB", "NFL", "NHL", "NCAAF", "UFC", "BOXING"].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-        <label className="grid gap-1 text-xs text-slate-400"><span className="font-semibold uppercase tracking-[0.14em] text-slate-500">Market</span><select name="market" defaultValue={filters.market} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"><option value="ALL">ALL</option><option value="moneyline">Moneyline</option><option value="total">Total</option><option value="spread">Spread</option><option value="player_prop">Player prop</option><option value="fight_winner">Fight winner</option></select></label>
+        <label className="grid gap-1 text-xs text-slate-400"><span className="font-semibold uppercase tracking-[0.14em] text-slate-500">Market</span><select name="market" defaultValue={filters.market} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"><option value="all">ALL</option><option value="moneyline">Moneyline</option><option value="total">Total</option><option value="spread">Spread</option><option value="player_prop">Player prop</option><option value="fight_winner">Fight winner</option></select></label>
         <label className="grid gap-1 text-xs text-slate-400"><span className="font-semibold uppercase tracking-[0.14em] text-slate-500">Proof grade</span><select name="grade" defaultValue={filters.grade} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"><option value="ALL">ALL</option><option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="PROVISIONAL">PROVISIONAL</option></select></label>
         <label className="grid gap-1 text-xs text-slate-400"><span className="font-semibold uppercase tracking-[0.14em] text-slate-500">ROI floor</span><select name="roiFloor" defaultValue={filters.roiFloor === null ? "" : String(filters.roiFloor)} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"><option value="">Any</option><option value="0">0%+</option><option value="5">5%+</option><option value="10">10%+</option><option value="15">15%+</option><option value="20">20%+</option></select></label>
         <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-300"><input type="checkbox" name="active" value="1" defaultChecked={filters.activeOnly} className="h-4 w-4 accent-cyan-300" />Active only</label>
@@ -233,7 +236,7 @@ function StrengthBadge({ strength }: { strength: ReturnType<typeof buildTrendStr
 
 function TrendRow({ trend }: { trend: any }) {
   return (
-    <a href={trend.href} className="rounded-xl border border-white/10 bg-black/25 p-3 hover:border-cyan-300/30">
+    <a href={systemHref(trend)} className="rounded-xl border border-white/10 bg-black/25 p-3 hover:border-cyan-300/30">
       <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><div className="truncate text-sm font-semibold text-white">{trend.name}</div><div className="mt-1 text-[11px] uppercase tracking-[0.12em] text-slate-500">{trend.market} · {trend.side}</div></div><div className="flex flex-wrap gap-1.5"><StrengthBadge strength={trend.strength} /><Chip kind={actionKind(trend.actionability)}>{trend.actionability ?? trend.primaryAction ?? "review"}</Chip></div></div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400 sm:grid-cols-4"><span>{price(trend.price)}</span><span>{trend.edgePct == null ? "edge TBD" : `${trend.edgePct}% edge`}</span><span>{trend.proof?.record ?? "record TBD"}</span><span>{pct(trend.proof?.roiPct)} ROI</span></div>
       <div className="mt-2 text-[11px] leading-5 text-slate-500">{trend.strength?.reasons?.[0] ?? "Strength score is based on proof, current price, edge, confidence, blockers, and action gate."}</div>
@@ -274,9 +277,8 @@ function MatchupLane({ id, title, description, items, collapsed = false }: { id:
 }
 
 function SystemCard({ item }: { item: any }) {
-  const href = `/sharktrends/system/${encodeURIComponent(item.id)}`;
   return (
-    <a href={href} className="rounded-2xl border border-white/10 bg-black/25 p-4 hover:border-cyan-300/30">
+    <a href={systemHref(item)} className="rounded-2xl border border-white/10 bg-black/25 p-4 hover:border-cyan-300/30">
       <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><div className="truncate text-sm font-semibold text-white">#{item.rank} {item.name}</div><div className="mt-1 text-xs leading-5 text-slate-500">{item.league} · {item.market} · {item.category}</div></div><div className="flex flex-wrap gap-1.5"><StrengthBadge strength={item.strength} /><Chip kind={item.tier === "promote" ? "good" : item.tier === "watch" ? "watch" : item.tier === "bench" ? "bad" : "muted"}>{item.tier}</Chip></div></div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400"><span>{item.proof?.record ?? "record TBD"}</span><span>{unit(item.proof?.profitUnits)}</span><span>{pct(item.proof?.roiPct)} ROI</span><span>{pct(item.proof?.winRatePct)} hit</span></div>
       <div className="mt-3 text-xs leading-5 text-slate-400">{item.strength?.reasons?.[0] ?? item.reason}</div>
@@ -312,7 +314,7 @@ export default async function SharkTrendsPage({ searchParams }: PageProps) {
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
       <section className="rounded-[1.75rem] border border-cyan-300/15 bg-slate-950/70 p-5 shadow-[0_0_60px_rgba(14,165,233,0.10)]">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between"><div><div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">SharkTrends</div><h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Matchup command board</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Default path: league → matchup → attached signal stack. Trend Strength scores combine proof, sample, ROI, CLV, current price, edge, confidence, action gate, and blockers.</p></div><div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]"><a href="#actionable" className="text-cyan-200 hover:text-cyan-100">Actionable</a><a href="#watch" className="text-cyan-200 hover:text-cyan-100">Watch</a><a href="#market" className="text-cyan-200 hover:text-cyan-100">Market</a><a href="#research" className="text-cyan-200 hover:text-cyan-100">Research</a></div></div>
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between"><div><div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">SharkTrends</div><h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Matchup command board</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Default path: league → matchup → attached signal stack. Trend Strength scores combine proof, sample, ROI, CLV, current price, edge, confidence, action gate, and blockers.</p></div><div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]"><a href="#actionable" className="text-cyan-200 hover:text-cyan-100">Actionable</a><a href="#watch" className="text-cyan-200 hover:text-cyan-100">Watch</a><a href="#market" className="text-cyan-200 hover:text-cyan-100">Market</a><a href="#for-you" className="text-cyan-200 hover:text-cyan-100">For You</a><a href="#research" className="text-cyan-200 hover:text-cyan-100">Research</a></div></div>
       </section>
       <FilterPanel filters={filters} />
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5"><Metric label="Matchups" value={matchups.length} note="Games with attached filtered signals." kind="watch" /><Metric label="Actionable" value={actionable.length} note="Current matchup plus clean signal stack." kind="good" /><Metric label="Top strength" value={topStrength ? `${topStrength.grade} ${topStrength.score}` : "TBD"} note="Best system under current filters." kind={scoreKind(topStrength?.score)} /><Metric label="Verified systems" value={verifiedRows.length} note="Historical systems inside the current filter set." kind="muted" /><Metric label="Blocked" value={blockedRows.length} note="Rows blocked by proof, activity, price, or gate issues." kind="bad" /></section>
@@ -322,6 +324,7 @@ export default async function SharkTrendsPage({ searchParams }: PageProps) {
       <MatchupLane id="market" title="Market movement attached to games" description="Movement-style signals stay attached to matchup cards instead of floating as a global feed." items={market} />
       <MatchupLane id="research-matchups" title="Current research matchups" description="Matched games with context, but not enough to promote above the fold." items={researchMatchups} collapsed />
       <MatchupLane id="blocked" title="Bench / blocked matchups" description="Provisional, missing proof, missing qualifier, or hard-blocked signals are collapsed by default." items={blocked} collapsed />
+      <ForYouTrendDiscovery rows={rows} matchups={matchups} />
       <ResearchDrawer rows={rows} />
     </main>
   );
