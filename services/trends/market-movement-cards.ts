@@ -1,3 +1,5 @@
+import type { Prisma } from "@prisma/client";
+
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import type { LeagueKey, MarketType, SportCode, TrendCardView, TrendFilters, TrendMatchView, TrendTableRow } from "@/lib/types/domain";
 
@@ -7,7 +9,13 @@ export type MarketMovementTrendPayload = {
   sourceNote: string;
 };
 
-type LineMovementRow = Awaited<ReturnType<typeof fetchLineMovements>>[number];
+type LineMovementRow = Prisma.LineMovementGetPayload<{
+  include: {
+    event: { include: { league: true } };
+    sportsbook: true;
+    player: true;
+  };
+}>;
 
 function leagueToSport(league: LeagueKey | "ALL"): SportCode {
   if (league === "MLB") return "BASEBALL";
@@ -149,7 +157,7 @@ function rowToTable(row: LineMovementRow): TrendTableRow {
   };
 }
 
-async function fetchLineMovements(filters: TrendFilters) {
+async function fetchLineMovements(filters: TrendFilters): Promise<LineMovementRow[]> {
   const leagueWhere = filters.league === "ALL" ? {} : { event: { league: { key: filters.league } } };
   const marketWhere = filters.market === "ALL" ? {} : { marketType: filters.market as MarketType };
   const rows = await prisma.lineMovement.findMany({
