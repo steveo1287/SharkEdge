@@ -19,7 +19,7 @@ type LineMovementRow = Prisma.LineMovementGetPayload<{
 
 function leagueToSport(league: LeagueKey | "ALL"): SportCode {
   if (league === "MLB") return "BASEBALL";
-  if (league === "NBA" || league === "NCAAB") return "BASKETBALL";
+  if (league === "NBA") return "BASKETBALL";
   if (league === "NHL") return "HOCKEY";
   if (league === "NFL" || league === "NCAAF") return "FOOTBALL";
   if (league === "UFC") return "MMA";
