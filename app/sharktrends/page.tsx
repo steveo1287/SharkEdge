@@ -3,8 +3,6 @@ import { buildTrendsCenterSnapshot } from "@/services/trends/trends-center";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type TileTone = "good" | "warn" | "bad" | "neutral";
-
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
@@ -17,6 +15,8 @@ type SharkTrendsFilters = {
   activeOnly: boolean;
   verifiedOnly: boolean;
 };
+
+type LaneKey = "actionable" | "watch" | "market" | "research" | "blocked";
 
 function readValue(searchParams: Record<string, string | string[] | undefined>, key: string) {
   const value = searchParams[key];
@@ -45,85 +45,65 @@ function buildFilters(searchParams: Record<string, string | string[] | undefined
   };
 }
 
-function toneClass(tone: TileTone) {
-  if (tone === "good") return "border-emerald-400/20 bg-emerald-400/7";
-  if (tone === "warn") return "border-amber-300/25 bg-amber-300/7";
-  if (tone === "bad") return "border-red-400/20 bg-red-400/7";
-  return "border-white/10 bg-slate-950/60";
+function unit(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "TBD";
+  return `${value > 0 ? "+" : ""}${value}u`;
 }
 
-function Tile({ label, value, note, tone = "neutral" }: { label: string; value: string | number; note: string; tone?: TileTone }) {
+function pct(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "TBD";
+  return `${value}%`;
+}
+
+function price(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "price needed";
+  return value > 0 ? `+${value}` : String(value);
+}
+
+function time(value: string | null | undefined) {
+  if (!value) return "time TBD";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function chipClass(kind: "good" | "watch" | "warn" | "bad" | "muted") {
+  if (kind === "good") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
+  if (kind === "watch") return "border-sky-400/25 bg-sky-400/10 text-sky-200";
+  if (kind === "warn") return "border-amber-300/25 bg-amber-300/10 text-amber-100";
+  if (kind === "bad") return "border-red-400/25 bg-red-400/10 text-red-200";
+  return "border-slate-500/25 bg-slate-800/60 text-slate-300";
+}
+
+function gradeClass(grade: string | null | undefined) {
+  const value = String(grade ?? "").toUpperCase();
+  if (value === "A") return chipClass("good");
+  if (value === "B") return chipClass("watch");
+  if (value === "C") return "border-cyan-400/25 bg-cyan-400/10 text-cyan-200";
+  return chipClass("warn");
+}
+
+function actionKind(value: string | null | undefined): "good" | "watch" | "warn" | "bad" | "muted" {
+  const action = String(value ?? "").toUpperCase();
+  if (action.includes("ACTIONABLE") || action.includes("ACTIVE")) return "good";
+  if (action.includes("WATCH")) return "watch";
+  if (action.includes("WAIT")) return "warn";
+  if (action.includes("PASS") || action.includes("BENCH")) return "bad";
+  return "muted";
+}
+
+function Chip({ children, kind = "muted" }: { children: React.ReactNode; kind?: "good" | "watch" | "warn" | "bad" | "muted" }) {
+  return <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.13em] ${chipClass(kind)}`}>{children}</span>;
+}
+
+function Metric({ label, value, note, kind = "muted" }: { label: string; value: string | number; note: string; kind?: "good" | "watch" | "warn" | "bad" | "muted" }) {
   return (
-    <div className={`rounded-2xl border p-4 ${toneClass(tone)}`}>
+    <div className={`rounded-2xl border p-4 ${chipClass(kind).replace("text-emerald-200", "").replace("text-sky-200", "").replace("text-amber-100", "").replace("text-red-200", "").replace("text-slate-300", "")}`}>
       <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</div>
       <div className="mt-2 font-display text-2xl font-semibold text-white">{value}</div>
       <div className="mt-2 text-xs leading-5 text-slate-400">{note}</div>
     </div>
   );
-}
-
-function unitsLabel(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "TBD";
-  return `${value > 0 ? "+" : ""}${value}u`;
-}
-
-function pctLabel(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "TBD";
-  return `${value}%`;
-}
-
-function proofClass(grade: string | null | undefined) {
-  const value = String(grade ?? "").toUpperCase();
-  if (value === "A") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
-  if (value === "B") return "border-sky-400/25 bg-sky-400/10 text-sky-200";
-  if (value === "C") return "border-cyan-400/25 bg-cyan-400/10 text-cyan-200";
-  return "border-amber-300/25 bg-amber-300/10 text-amber-100";
-}
-
-function tierClass(tier: string) {
-  if (tier === "promote") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
-  if (tier === "watch") return "border-sky-400/25 bg-sky-400/10 text-sky-200";
-  if (tier === "verified-idle") return "border-cyan-400/25 bg-cyan-400/10 text-cyan-200";
-  return "border-slate-500/25 bg-slate-800/60 text-slate-300";
-}
-
-function actionClass(actionability: string | null | undefined) {
-  const value = String(actionability ?? "").toUpperCase();
-  if (value.includes("ACTIVE")) return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
-  if (value.includes("WATCH")) return "border-sky-400/25 bg-sky-400/10 text-sky-200";
-  return "border-slate-500/25 bg-slate-800/60 text-slate-300";
-}
-
-function laneClass(tier: string) {
-  if (tier === "promote") return "border-emerald-400/20 bg-emerald-400/[0.05]";
-  if (tier === "watch") return "border-sky-400/20 bg-sky-400/[0.05]";
-  if (tier === "verified-idle") return "border-cyan-400/20 bg-cyan-400/[0.05]";
-  return "border-white/10 bg-slate-950/50";
-}
-
-function countBy(items: string[]) {
-  return items.reduce<Record<string, number>>((acc, item) => {
-    const key = item || "UNKNOWN";
-    acc[key] = (acc[key] ?? 0) + 1;
-    return acc;
-  }, {});
-}
-
-function distributionText(record: Record<string, number> | undefined, limit = 6) {
-  const entries = Object.entries(record ?? {}).sort((left, right) => right[1] - left[1]).slice(0, limit);
-  return entries.length ? entries.map(([key, value]) => `${key} ${value}`).join(" · ") : "none";
-}
-
-function formatTime(value: string | null | undefined) {
-  if (!value) return "time TBD";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-}
-
-function priceLabel(price: number | null | undefined) {
-  if (typeof price !== "number" || !Number.isFinite(price)) return "price needed";
-  return price > 0 ? `+${price}` : String(price);
 }
 
 function rowPassesFilters(item: any, filters: SharkTrendsFilters) {
@@ -146,262 +126,154 @@ function trendPassesFilters(trend: any, league: string, filters: SharkTrendsFilt
   return true;
 }
 
-function pageLanes(rows: any[]) {
-  return {
-    promote: rows.filter((item) => item.tier === "promote"),
-    watch: rows.filter((item) => item.tier === "watch"),
-    "verified-idle": rows.filter((item) => item.tier === "verified-idle"),
-    bench: rows.filter((item) => item.tier === "bench")
-  };
+function classifyTrend(trend: any): LaneKey {
+  const action = String(trend.primaryAction ?? trend.actionability ?? "").toUpperCase();
+  const blockers = Array.isArray(trend.blockers) ? trend.blockers : [];
+  const hasPrice = typeof trend.price === "number" && Number.isFinite(trend.price);
+  const edge = typeof trend.edgePct === "number" ? trend.edgePct : null;
+  if (action.includes("ACTIONABLE") || (String(trend.actionability ?? "").toUpperCase().includes("ACTIVE") && trend.verified && hasPrice && (edge ?? 0) > 0 && !blockers.length)) return "actionable";
+  if (/MOVE|MARKET|STEAM|LINE/i.test(`${trend.name ?? ""} ${trend.reason ?? ""} ${trend.category ?? ""}`)) return "market";
+  if (String(trend.actionability ?? "").toUpperCase().includes("WATCH") || action.includes("WATCH") || action.includes("WAIT") || hasPrice || (edge ?? 0) > 0) return "watch";
+  if (blockers.length || action.includes("PASS") || !trend.verified) return "blocked";
+  return "research";
 }
 
-function filterMatchupGroups(groups: any[], filters: SharkTrendsFilters, trendLimit: number) {
+function lanePriority(lane: LaneKey) {
+  if (lane === "actionable") return 1;
+  if (lane === "watch") return 2;
+  if (lane === "market") return 3;
+  if (lane === "research") return 4;
+  return 5;
+}
+
+function laneLabel(lane: LaneKey) {
+  if (lane === "actionable") return "Actionable now";
+  if (lane === "watch") return "Watch / needs price";
+  if (lane === "market") return "Market movement";
+  if (lane === "research") return "Research library";
+  return "Bench / blocked";
+}
+
+function groupMatchups(groups: any[], filters: SharkTrendsFilters, trendLimit = 4) {
   return groups
     .filter((group) => filters.league === "ALL" || String(group.league ?? "").toUpperCase() === filters.league)
-    .map((group) => {
-      const matchups = (group.matchups ?? [])
-        .map((matchup: any) => {
-          const allTrends = (matchup.allTrends ?? matchup.trends ?? []).filter((trend: any) => trendPassesFilters(trend, group.league, filters));
-          if (!allTrends.length) return null;
-          const topScore = allTrends[0]?.score ?? 0;
-          const verifiedTrends = allTrends.filter((trend: any) => trend.verified).length;
-          const activeTrends = allTrends.filter((trend: any) => String(trend.actionability ?? "").toUpperCase().includes("ACTIVE")).length;
-          const blockedTrends = allTrends.filter((trend: any) => trend.blockers?.length).length;
-          const bestRoiPct = allTrends.reduce((max: number, trend: any) => Math.max(max, trend.proof?.roiPct ?? Number.NEGATIVE_INFINITY), Number.NEGATIVE_INFINITY);
-          const bestProfitUnits = allTrends.reduce((max: number, trend: any) => Math.max(max, trend.proof?.profitUnits ?? Number.NEGATIVE_INFINITY), Number.NEGATIVE_INFINITY);
-          return {
-            ...matchup,
-            trendCount: allTrends.length,
-            visibleTrendCount: Math.min(trendLimit, allTrends.length),
-            hiddenTrendCount: Math.max(0, allTrends.length - trendLimit),
-            verifiedTrends,
-            activeTrends,
-            blockedTrends,
-            topScore,
-            bestRoiPct: Number.isFinite(bestRoiPct) ? bestRoiPct : null,
-            bestProfitUnits: Number.isFinite(bestProfitUnits) ? bestProfitUnits : null,
-            trends: allTrends.slice(0, trendLimit),
-            allTrends
-          };
-        })
-        .filter(Boolean);
+    .flatMap((group) => (group.matchups ?? []).map((matchup: any) => ({ group, matchup })))
+    .map(({ group, matchup }) => {
+      const trends = (matchup.allTrends ?? matchup.trends ?? []).filter((trend: any) => trendPassesFilters(trend, group.league, filters));
+      if (!trends.length) return null;
+      const sorted = [...trends].sort((left: any, right: any) => (lanePriority(classifyTrend(left)) - lanePriority(classifyTrend(right))) || ((right.score ?? 0) - (left.score ?? 0)));
+      const best = sorted[0];
+      const lane = classifyTrend(best);
+      const bestRoi = sorted.reduce((max: number, trend: any) => Math.max(max, trend.proof?.roiPct ?? Number.NEGATIVE_INFINITY), Number.NEGATIVE_INFINITY);
+      const bestProfit = sorted.reduce((max: number, trend: any) => Math.max(max, trend.proof?.profitUnits ?? Number.NEGATIVE_INFINITY), Number.NEGATIVE_INFINITY);
+      const active = sorted.filter((trend: any) => String(trend.actionability ?? "").toUpperCase().includes("ACTIVE")).length;
+      const verified = sorted.filter((trend: any) => trend.verified).length;
+      const blocked = sorted.filter((trend: any) => trend.blockers?.length).length;
       return {
-        ...group,
-        matchupCount: matchups.length,
-        trendCount: matchups.reduce((sum: number, item: any) => sum + item.trendCount, 0),
-        activeTrendCount: matchups.reduce((sum: number, item: any) => sum + item.activeTrends, 0),
-        verifiedTrendCount: matchups.reduce((sum: number, item: any) => sum + item.verifiedTrends, 0),
-        matchups
+        ...matchup,
+        league: group.league,
+        lane,
+        primaryTrend: best,
+        trends: sorted.slice(0, trendLimit),
+        hiddenTrendCount: Math.max(0, sorted.length - trendLimit),
+        trendCount: sorted.length,
+        activeTrendCount: active,
+        verifiedTrendCount: verified,
+        blockedTrendCount: blocked,
+        bestRoiPct: Number.isFinite(bestRoi) ? bestRoi : null,
+        bestProfitUnits: Number.isFinite(bestProfit) ? bestProfit : null,
+        topScore: best?.score ?? 0
       };
     })
-    .filter((group) => group.matchups.length > 0);
+    .filter(Boolean)
+    .sort((left: any, right: any) => lanePriority(left.lane) - lanePriority(right.lane) || (right.topScore ?? 0) - (left.topScore ?? 0));
 }
 
 function FilterPanel({ filters }: { filters: SharkTrendsFilters }) {
   return (
-    <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <section className="sticky top-3 z-20 rounded-[1.5rem] border border-white/10 bg-slate-950/90 p-4 backdrop-blur-xl">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Filters</div>
-          <div className="mt-1 text-xs leading-5 text-slate-400">Narrow SharkTrends by league, market, proof grade, ROI floor, live-active status, and verification.</div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Command filters</div>
+          <div className="mt-1 text-xs leading-5 text-slate-400">Keep the default board matchup-first. Filters narrow games, attached signals, and the research drawer.</div>
         </div>
         <a href="/sharktrends" className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-200 hover:text-cyan-100">Reset</a>
       </div>
       <form method="get" className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <label className="grid gap-1 text-xs text-slate-400">
-          <span className="font-semibold uppercase tracking-[0.14em] text-slate-500">League</span>
-          <select name="league" defaultValue={filters.league} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white">
-            {[
-              "ALL", "NBA", "MLB", "NFL", "NHL", "NCAAB", "NCAAF", "UFC", "BOXING"
-            ].map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-        </label>
-        <label className="grid gap-1 text-xs text-slate-400">
-          <span className="font-semibold uppercase tracking-[0.14em] text-slate-500">Market</span>
-          <select name="market" defaultValue={filters.market} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white">
-            <option value="ALL">ALL</option>
-            <option value="moneyline">Moneyline</option>
-            <option value="total">Total</option>
-            <option value="spread">Spread</option>
-            <option value="player_prop">Player prop</option>
-          </select>
-        </label>
-        <label className="grid gap-1 text-xs text-slate-400">
-          <span className="font-semibold uppercase tracking-[0.14em] text-slate-500">Proof grade</span>
-          <select name="grade" defaultValue={filters.grade} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white">
-            <option value="ALL">ALL</option>
-            <option value="A">A</option>
-            <option value="B">B</option>
-            <option value="C">C</option>
-            <option value="PROVISIONAL">PROVISIONAL</option>
-          </select>
-        </label>
-        <label className="grid gap-1 text-xs text-slate-400">
-          <span className="font-semibold uppercase tracking-[0.14em] text-slate-500">ROI floor</span>
-          <select name="roiFloor" defaultValue={filters.roiFloor === null ? "" : String(filters.roiFloor)} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white">
-            <option value="">Any</option>
-            <option value="0">0%+</option>
-            <option value="5">5%+</option>
-            <option value="10">10%+</option>
-            <option value="15">15%+</option>
-            <option value="20">20%+</option>
-          </select>
-        </label>
-        <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-300">
-          <input type="checkbox" name="active" value="1" defaultChecked={filters.activeOnly} className="h-4 w-4 accent-cyan-300" />
-          Active only
-        </label>
-        <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-300">
-          <input type="checkbox" name="verified" value="1" defaultChecked={filters.verifiedOnly} className="h-4 w-4 accent-cyan-300" />
-          Verified only
-        </label>
-        <div className="md:col-span-3 xl:col-span-6 flex flex-wrap gap-2">
-          <button type="submit" className="rounded-xl border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100 hover:bg-cyan-300/15">Apply filters</button>
-          <a href="/sharktrends?active=1&verified=1" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300 hover:border-cyan-300/25">Active verified</a>
-          <a href="/sharktrends?roiFloor=10" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300 hover:border-cyan-300/25">ROI 10%+</a>
-          <a href="/sharktrends?grade=A" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300 hover:border-cyan-300/25">Grade A</a>
-        </div>
+        <label className="grid gap-1 text-xs text-slate-400"><span className="font-semibold uppercase tracking-[0.14em] text-slate-500">League</span><select name="league" defaultValue={filters.league} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white">{["ALL", "NBA", "MLB", "NFL", "NHL", "NCAAF", "UFC", "BOXING"].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label className="grid gap-1 text-xs text-slate-400"><span className="font-semibold uppercase tracking-[0.14em] text-slate-500">Market</span><select name="market" defaultValue={filters.market} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"><option value="ALL">ALL</option><option value="moneyline">Moneyline</option><option value="total">Total</option><option value="spread">Spread</option><option value="player_prop">Player prop</option><option value="fight_winner">Fight winner</option></select></label>
+        <label className="grid gap-1 text-xs text-slate-400"><span className="font-semibold uppercase tracking-[0.14em] text-slate-500">Proof grade</span><select name="grade" defaultValue={filters.grade} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"><option value="ALL">ALL</option><option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="PROVISIONAL">PROVISIONAL</option></select></label>
+        <label className="grid gap-1 text-xs text-slate-400"><span className="font-semibold uppercase tracking-[0.14em] text-slate-500">ROI floor</span><select name="roiFloor" defaultValue={filters.roiFloor === null ? "" : String(filters.roiFloor)} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"><option value="">Any</option><option value="0">0%+</option><option value="5">5%+</option><option value="10">10%+</option><option value="15">15%+</option><option value="20">20%+</option></select></label>
+        <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-300"><input type="checkbox" name="active" value="1" defaultChecked={filters.activeOnly} className="h-4 w-4 accent-cyan-300" />Active only</label>
+        <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-slate-300"><input type="checkbox" name="verified" value="1" defaultChecked={filters.verifiedOnly} className="h-4 w-4 accent-cyan-300" />Verified only</label>
+        <div className="md:col-span-3 xl:col-span-6 flex flex-wrap gap-2"><button type="submit" className="rounded-xl border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100 hover:bg-cyan-300/15">Apply filters</button><a href="/sharktrends?active=1&verified=1" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300 hover:border-cyan-300/25">Active verified</a><a href="/sharktrends?roiFloor=10" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300 hover:border-cyan-300/25">ROI 10%+</a><a href="/sharktrends?grade=A" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300 hover:border-cyan-300/25">Grade A</a></div>
       </form>
     </section>
   );
 }
 
-function LaneCard({ item }: { item: any }) {
-  return (
-    <a href={item.href} className="block rounded-xl border border-white/10 bg-black/25 p-3 hover:border-cyan-300/30">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0 truncate text-sm font-semibold text-white">#{item.rank} {item.name}</div>
-        <div className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${tierClass(item.tier)}`}>{item.score}</div>
-      </div>
-      <div className="mt-1 text-xs leading-5 text-slate-400">{item.reason}</div>
-      {item.proof ? <div className="mt-2 text-[11px] leading-5 text-cyan-100/75">{item.proof.summary}</div> : null}
-      <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] uppercase tracking-[0.12em] text-slate-500">
-        <span>{item.primaryAction}</span>
-        {item.blockers?.length ? item.blockers.map((blocker: string) => <span key={blocker}>· {blocker}</span>) : <span>· clear</span>}
-      </div>
-    </a>
-  );
-}
-
-function PlacementLane({ title, description, tier, items }: { title: string; description: string; tier: string; items: any[] }) {
-  const hidden = Math.max(0, items.length - 4);
-  return (
-    <div className={`rounded-[1.25rem] border p-4 ${laneClass(tier)}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">{title}</div>
-          <div className="mt-1 text-xs leading-5 text-slate-400">{description}</div>
-        </div>
-        <div className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${tierClass(tier)}`}>{items.length}</div>
-      </div>
-      <div className="mt-3 grid gap-2">
-        {items.length ? items.slice(0, 4).map((item) => <LaneCard key={item.id} item={item} />) : <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-500">No systems in this lane.</div>}
-      </div>
-      {hidden ? <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] uppercase tracking-[0.14em] text-slate-500">+{hidden} more in filtered inventory</div> : null}
-    </div>
-  );
-}
-
-function CuratedRail({ title, description, items }: { title: string; description: string; items: any[] }) {
-  return (
-    <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">{title}</div>
-          <div className="mt-1 text-xs leading-5 text-slate-400">{description}</div>
-        </div>
-        <div className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{items.length}</div>
-      </div>
-      <div className="mt-4 grid gap-3 xl:grid-cols-3">
-        {items.length ? items.slice(0, 6).map((item) => (
-          <a key={`${title}-${item.id}`} href={item.href} className="rounded-2xl border border-white/10 bg-black/25 p-4 hover:border-cyan-300/30">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-white">{item.name}</div>
-                <div className="mt-1 text-xs leading-5 text-slate-500">{item.league} · {item.market} · {item.category}</div>
-              </div>
-              <div className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${proofClass(item.proof?.grade)}`}>Grade {item.proof?.grade ?? "P"}</div>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400">
-              <span>{item.proof?.record ?? "Record TBD"}</span>
-              <span>{unitsLabel(item.proof?.profitUnits)}</span>
-              <span>{pctLabel(item.proof?.roiPct)} ROI</span>
-              <span>{pctLabel(item.proof?.winRatePct)} hit</span>
-            </div>
-            <div className="mt-3 text-xs leading-5 text-slate-400">{item.proof?.description ?? item.reason}</div>
-          </a>
-        )) : <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-500">No systems match this rail under the current filters.</div>}
-      </div>
-    </section>
-  );
-}
-
-function MatchupTrendTile({ trend }: { trend: any }) {
+function TrendRow({ trend }: { trend: any }) {
   return (
     <a href={trend.href} className="rounded-xl border border-white/10 bg-black/25 p-3 hover:border-cyan-300/30">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0 truncate text-sm font-semibold text-white">{trend.name}</div>
-        <div className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${actionClass(trend.actionability)}`}>{trend.actionability}</div>
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-400 sm:grid-cols-4">
-        <span>{trend.market}</span>
-        <span>{trend.side}</span>
-        <span>{priceLabel(trend.price)}</span>
-        <span>{trend.edgePct == null ? "edge TBD" : `${trend.edgePct}% edge`}</span>
-      </div>
-      {trend.proof ? <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-cyan-100/75 sm:grid-cols-4">
-        <span>{trend.proof.record}</span>
-        <span>{unitsLabel(trend.proof.profitUnits)}</span>
-        <span>{pctLabel(trend.proof.roiPct)} ROI</span>
-        <span>Grade {trend.proof.grade}</span>
-      </div> : null}
-      <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] uppercase tracking-[0.12em] text-slate-500">
-        <span>{trend.verified ? "verified" : "provisional"}</span>
-        <span>score {trend.score}</span>
-        <span>{trend.primaryAction}</span>
-      </div>
+      <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><div className="truncate text-sm font-semibold text-white">{trend.name}</div><div className="mt-1 text-[11px] uppercase tracking-[0.12em] text-slate-500">{trend.market} · {trend.side}</div></div><Chip kind={actionKind(trend.actionability)}>{trend.actionability ?? trend.primaryAction ?? "review"}</Chip></div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400 sm:grid-cols-4"><span>{price(trend.price)}</span><span>{trend.edgePct == null ? "edge TBD" : `${trend.edgePct}% edge`}</span><span>{trend.proof?.record ?? "record TBD"}</span><span>{pct(trend.proof?.roiPct)} ROI</span></div>
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] uppercase tracking-[0.12em] text-slate-500"><span>{trend.verified ? "verified" : "provisional"}</span><span>score {trend.score ?? 0}</span>{trend.blockers?.slice(0, 2).map((blocker: string) => <span key={blocker}>· {blocker}</span>)}</div>
     </a>
   );
 }
 
-function MatchupTile({ matchup }: { matchup: any }) {
+function MatchupCard({ matchup }: { matchup: any }) {
+  const primary = matchup.primaryTrend;
+  const lane = matchup.lane as LaneKey;
+  const laneKind = lane === "actionable" ? "good" : lane === "watch" || lane === "market" ? "watch" : lane === "blocked" ? "bad" : "muted";
   return (
-    <div className="rounded-[1.35rem] border border-white/10 bg-slate-950/60 p-4">
+    <article className="rounded-[1.35rem] border border-white/10 bg-slate-950/70 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <a href={matchup.href} className="text-base font-semibold text-white hover:text-cyan-100">{matchup.eventLabel}</a>
-          <div className="mt-1 text-xs leading-5 text-slate-500">{formatTime(matchup.startTime)} · {matchup.status}</div>
-          <div className="mt-1 text-xs leading-5 text-cyan-100/70">Best ROI {pctLabel(matchup.bestRoiPct)} · Best profit {unitsLabel(matchup.bestProfitUnits)}</div>
+          <div className="flex flex-wrap gap-2"><Chip kind={laneKind}>{laneLabel(lane)}</Chip><Chip kind="muted">{matchup.league}</Chip>{primary?.proof?.grade ? <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.13em] ${gradeClass(primary.proof.grade)}`}>Grade {primary.proof.grade}</span> : null}</div>
+          <a href={matchup.href} className="mt-3 block text-lg font-semibold leading-snug text-white hover:text-cyan-100">{matchup.eventLabel}</a>
+          <div className="mt-1 text-xs leading-5 text-slate-500">{time(matchup.startTime)} · {matchup.status}</div>
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          <span className="rounded-full border border-cyan-400/25 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-200">{matchup.trendCount} trends</span>
-          <span className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-200">{matchup.activeTrends} active</span>
-          <span className="rounded-full border border-sky-400/25 bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-200">{matchup.verifiedTrends} verified</span>
-        </div>
+        <div className="grid grid-cols-3 gap-2 text-center text-[10px] uppercase tracking-[0.12em] text-slate-500"><div className="rounded-xl border border-white/10 bg-black/25 px-2 py-2"><div className="text-sm font-semibold text-white">{matchup.trendCount}</div>signals</div><div className="rounded-xl border border-white/10 bg-black/25 px-2 py-2"><div className="text-sm font-semibold text-white">{matchup.activeTrendCount}</div>active</div><div className="rounded-xl border border-white/10 bg-black/25 px-2 py-2"><div className="text-sm font-semibold text-white">{matchup.verifiedTrendCount}</div>verified</div></div>
       </div>
-      <div className="mt-3 grid gap-2">
-        {matchup.trends?.length ? matchup.trends.map((trend: any) => <MatchupTrendTile key={trend.id} trend={trend} />) : <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-500">No visible trends for this matchup.</div>}
+
+      <div className="mt-4 rounded-xl border border-cyan-300/15 bg-cyan-300/[0.04] p-3">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300">Primary signal</div>
+        <div className="mt-1 text-sm font-semibold text-white">{primary?.name ?? "No primary signal"}</div>
+        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-400 sm:grid-cols-4"><span>{primary?.market ?? "market"}</span><span>{primary?.side ?? "side"}</span><span>{price(primary?.price)}</span><span>{primary?.edgePct == null ? "edge TBD" : `${primary.edgePct}% edge`}</span></div>
+        {primary?.proof ? <div className="mt-2 text-[11px] text-cyan-100/75">{primary.proof.record} · {unit(primary.proof.profitUnits)} · {pct(primary.proof.roiPct)} ROI · {pct(primary.proof.winRatePct)} hit</div> : null}
       </div>
-      {matchup.hiddenTrendCount ? <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] uppercase tracking-[0.14em] text-slate-500">+{matchup.hiddenTrendCount} more trends in matchup detail</div> : null}
-    </div>
+
+      <div className="mt-3 grid gap-2">{matchup.trends.map((trend: any) => <TrendRow key={trend.id} trend={trend} />)}</div>
+      {matchup.hiddenTrendCount ? <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] uppercase tracking-[0.14em] text-slate-500">+{matchup.hiddenTrendCount} more signals in matchup detail</div> : null}
+    </article>
   );
 }
 
-function LeagueMatchupSection({ group }: { group: any }) {
+function MatchupLane({ id, title, description, items, collapsed = false }: { id: string; title: string; description: string; items: any[]; collapsed?: boolean }) {
+  const body = <div className="mt-4 grid gap-3 xl:grid-cols-2">{items.length ? items.map((matchup) => <MatchupCard key={matchup.id} matchup={matchup} />) : <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-500">No matchups in this lane under the current filters.</div>}</div>;
+  if (collapsed) {
+    return <details id={id} className="scroll-mt-28 rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-4"><summary className="cursor-pointer list-none"><div className="flex flex-wrap items-end justify-between gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">{title}</div><div className="mt-1 text-xs leading-5 text-slate-400">{description}</div></div><Chip kind="muted">{items.length}</Chip></div></summary>{body}</details>;
+  }
+  return <section id={id} className="scroll-mt-28 rounded-[1.5rem] border border-cyan-300/15 bg-cyan-300/[0.035] p-4"><div className="flex flex-wrap items-end justify-between gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">{title}</div><div className="mt-1 text-xs leading-5 text-slate-400">{description}</div></div><Chip kind="watch">{items.length}</Chip></div>{body}</section>;
+}
+
+function SystemCard({ item }: { item: any }) {
   return (
-    <section className="rounded-[1.5rem] border border-cyan-300/15 bg-cyan-300/[0.035] p-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">{group.league}</div>
-          <h2 className="mt-1 text-xl font-semibold text-white">{group.matchupCount} matchup{group.matchupCount === 1 ? "" : "s"}</h2>
-          <div className="mt-1 text-xs leading-5 text-slate-400">{group.trendCount} filtered trend links · {group.activeTrendCount} active · {group.verifiedTrendCount} verified</div>
-        </div>
-        <a href={`/trends?league=${encodeURIComponent(group.league)}&mode=power`} className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-200 hover:text-cyan-100">League trends</a>
-      </div>
-      <div className="mt-4 grid gap-3 xl:grid-cols-2">
-        {group.matchups?.map((matchup: any) => <MatchupTile key={matchup.id} matchup={matchup} />)}
-      </div>
-    </section>
+    <a href={item.href} className="rounded-2xl border border-white/10 bg-black/25 p-4 hover:border-cyan-300/30">
+      <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><div className="truncate text-sm font-semibold text-white">#{item.rank} {item.name}</div><div className="mt-1 text-xs leading-5 text-slate-500">{item.league} · {item.market} · {item.category}</div></div><Chip kind={item.tier === "promote" ? "good" : item.tier === "watch" ? "watch" : item.tier === "bench" ? "bad" : "muted"}>{item.tier}</Chip></div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400"><span>{item.proof?.record ?? "record TBD"}</span><span>{unit(item.proof?.profitUnits)}</span><span>{pct(item.proof?.roiPct)} ROI</span><span>{pct(item.proof?.winRatePct)} hit</span></div>
+      <div className="mt-3 text-xs leading-5 text-slate-400">{item.reason}</div>
+    </a>
+  );
+}
+
+function ResearchDrawer({ rows }: { rows: any[] }) {
+  return (
+    <details className="rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-4">
+      <summary className="cursor-pointer list-none"><div className="flex flex-wrap items-end justify-between gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Research library</div><div className="mt-1 text-xs leading-5 text-slate-400">Historical systems stay here unless attached to a current matchup. This replaces the old repeated rail stack.</div></div><Chip kind="muted">{rows.length} systems</Chip></div></summary>
+      <div className="mt-4 grid gap-3 xl:grid-cols-3">{rows.slice(0, 18).map((item) => <SystemCard key={item.id} item={item} />)}</div>
+    </details>
   );
 }
 
@@ -409,181 +281,36 @@ export default async function SharkTrendsPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
   const filters = buildFilters(resolved);
   const snapshot = await buildTrendsCenterSnapshot();
-  const trendLimit = snapshot.thresholds?.matchupTrendLimit ?? 6;
-  const boardLimit = snapshot.thresholds?.promotionBoardLimit ?? 12;
   const rawRows = snapshot.allPromotionRows ?? [];
-  const allRows = rawRows.filter((item: any) => rowPassesFilters(item, filters));
-  const board = allRows.slice(0, boardLimit);
-  const lanes = pageLanes(allRows);
-  const queue = snapshot.commandQueue ?? [];
-  const activeSystems = (snapshot.activeSystems ?? []).filter((item: any) => rowPassesFilters(item, filters));
-  const matchupGroups = filterMatchupGroups(snapshot.matchupsByLeague ?? [], filters, trendLimit);
-  const counts = snapshot.counts;
-  const coverage = snapshot.coverage;
-  const hiddenBoardRows = Math.max(0, allRows.length - board.length);
-  const filteredMatchups = matchupGroups.reduce((sum: number, group: any) => sum + group.matchupCount, 0);
-  const filteredTrendLinks = matchupGroups.reduce((sum: number, group: any) => sum + group.trendCount, 0);
-  const filteredActiveRows = allRows.filter((item: any) => Number(item.activeMatches ?? 0) > 0).length;
-  const filteredVerifiedRows = allRows.filter((item: any) => item.verified).length;
-  const filteredBlockedRows = allRows.filter((item: any) => item.blockers?.length).length;
-  const mostProfitable = [...allRows].sort((left: any, right: any) => (right.proof?.profitUnits ?? 0) - (left.proof?.profitUnits ?? 0));
-  const undefeated = allRows.filter((item: any) => (item.proof?.losses ?? 1) === 0 || String(item.proof?.currentStreak ?? "").toUpperCase().startsWith("W")).sort((left: any, right: any) => (right.proof?.winRatePct ?? 0) - (left.proof?.winRatePct ?? 0));
-  const hotTeam = allRows.filter((item: any) => String(item.category ?? "").toLowerCase().includes("hot") || (item.proof?.last30WinRatePct ?? 0) >= 60).sort((left: any, right: any) => (right.proof?.last30WinRatePct ?? 0) - (left.proof?.last30WinRatePct ?? 0));
-  const verified = allRows.filter((item: any) => item.verified).sort((left: any, right: any) => String(left.proof?.grade ?? "Z").localeCompare(String(right.proof?.grade ?? "Z")) || (right.proof?.sampleSize ?? 0) - (left.proof?.sampleSize ?? 0));
-  const filteredDistribution = {
-    byMatchupLeague: Object.fromEntries(matchupGroups.map((group: any) => [group.league, group.matchupCount])),
-    byProofGrade: countBy(allRows.map((item: any) => String(item.proof?.grade ?? "UNKNOWN"))),
-    byBlocker: countBy(allRows.flatMap((item: any) => item.blockers ?? [])),
-    byPrimaryAction: countBy(allRows.map((item: any) => String(item.primaryAction ?? "UNKNOWN"))),
-    byPromotionTier: countBy(allRows.map((item: any) => String(item.tier ?? "UNKNOWN")))
-  };
+  const rows = rawRows.filter((item: any) => rowPassesFilters(item, filters));
+  const matchups = groupMatchups(snapshot.matchupsByLeague ?? [], filters, 4);
+  const actionable = matchups.filter((item: any) => item.lane === "actionable");
+  const watch = matchups.filter((item: any) => item.lane === "watch");
+  const market = matchups.filter((item: any) => item.lane === "market");
+  const researchMatchups = matchups.filter((item: any) => item.lane === "research");
+  const blocked = matchups.filter((item: any) => item.lane === "blocked");
+  const activeRows = rows.filter((item: any) => Number(item.activeMatches ?? 0) > 0);
+  const verifiedRows = rows.filter((item: any) => item.verified);
+  const blockedRows = rows.filter((item: any) => item.blockers?.length);
 
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
       <section className="rounded-[1.75rem] border border-cyan-300/15 bg-slate-950/70 p-5 shadow-[0_0_60px_rgba(14,165,233,0.10)]">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">SharkTrends</div>
-            <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Matchup trend board</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              The main browse path is league → matchup tiles → trend links. Filters now narrow the rails, matchups, placement lanes, and global top rail by proof and market quality.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.14em]">
-            <a href="/trends" className="text-cyan-200 hover:text-cyan-100">Trends</a>
-            <a href="/api/trends/sharktrends" className="text-cyan-200 hover:text-cyan-100">JSON</a>
-            <a href="/api/trends/systems/cycle?inactive=true&limit=500" className="text-cyan-200 hover:text-cyan-100">Run cycle</a>
-            <a href="/api/trends/historical-audit" className="text-cyan-200 hover:text-cyan-100">Historical audit</a>
-          </div>
-        </div>
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between"><div><div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">SharkTrends</div><h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Matchup command board</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Default path: league → matchup → attached signal stack. Historical systems are still available, but they no longer own the main screen unless tied to a game, team, current price, or movement record.</p></div><div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]"><a href="#actionable" className="text-cyan-200 hover:text-cyan-100">Actionable</a><a href="#watch" className="text-cyan-200 hover:text-cyan-100">Watch</a><a href="#market" className="text-cyan-200 hover:text-cyan-100">Market</a><a href="#research" className="text-cyan-200 hover:text-cyan-100">Research</a></div></div>
       </section>
 
       <FilterPanel filters={filters} />
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-        <Tile label="Filtered systems" value={`${allRows.length}/${counts.allPromotionRows ?? counts.publishedTotal}`} tone={allRows.length ? "good" : "warn"} note={`Global board shows top ${board.length}. Reset filters to view all systems.`} />
-        <Tile label="Matchups" value={filteredMatchups} tone={filteredMatchups ? "good" : "warn"} note={`${matchupGroups.length} league groups · ${filteredTrendLinks} attached trend links after filters.`} />
-        <Tile label="Active published" value={`${filteredActiveRows}/${allRows.length}`} tone={filteredActiveRows ? "good" : "warn"} note={`Filtered active systems. Full active coverage is ${coverage.publishedActivePct}%.`} />
-        <Tile label="Promotion ready" value={`${lanes.promote.length}/${allRows.length}`} tone={lanes.promote.length ? "good" : lanes.watch.length ? "warn" : "neutral"} note={`${lanes.watch.length} watchlist · ${lanes.bench.length + lanes["verified-idle"].length} bench/idle after filters.`} />
-        <Tile label="Verified" value={`${filteredVerifiedRows}/${allRows.length}`} tone={filteredVerifiedRows ? "good" : "warn"} note="Verified systems inside the current filter set." />
-        <Tile label="Blocked" value={filteredBlockedRows} tone={filteredBlockedRows ? "warn" : "good"} note="Filtered systems blocked by proof, activity, ROI, or action-gate issues." />
-      </section>
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5"><Metric label="Matchups" value={matchups.length} note="Games with attached filtered signals." kind="watch" /><Metric label="Actionable" value={actionable.length} note="Current matchup plus clean signal stack." kind="good" /><Metric label="Watch" value={watch.length} note="Interesting, but still needs price, proof, or gate cleanup." kind="watch" /><Metric label="Verified systems" value={verifiedRows.length} note="Historical systems inside the current filter set." kind="muted" /><Metric label="Blocked" value={blockedRows.length} note="Rows blocked by proof, activity, price, or gate issues." kind="bad" /></section>
 
-      <section className="grid gap-4">
-        <CuratedRail title="Most profitable systems" description="Sorted by historical profit units with ROI and hit-rate proof shown on every card." items={mostProfitable} />
-        <CuratedRail title="Undefeated / hot streak trends" description="Undefeated systems and current winning streaks with proof grade and record visible." items={undefeated} />
-        <CuratedRail title="Hot team trends" description="Systems with strong last-30 performance or hot-team classification." items={hotTeam} />
-        <CuratedRail title="Verified systems" description="Verified systems sorted by proof grade and sample size." items={verified} />
-      </section>
+      <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-4"><div className="flex flex-wrap items-center gap-2"><Chip kind="good">Actionable {actionable.length}</Chip><Chip kind="watch">Watch {watch.length}</Chip><Chip kind="watch">Market {market.length}</Chip><Chip kind="muted">Research {researchMatchups.length}</Chip><Chip kind="bad">Blocked {blocked.length}</Chip><Chip kind="muted">Active systems {activeRows.length}</Chip></div></section>
 
-      {matchupGroups.length ? (
-        <section className="grid gap-4">
-          {matchupGroups.map((group: any) => <LeagueMatchupSection key={group.league} group={group} />)}
-        </section>
-      ) : (
-        <section className="rounded-[1.5rem] border border-amber-300/20 bg-amber-300/7 p-4 text-sm text-amber-100">
-          No matchup trend tiles match the current filters. Loosen league, market, grade, ROI, active-only, or verified-only filters.
-        </section>
-      )}
-
-      <section className="grid gap-4 xl:grid-cols-4">
-        <PlacementLane title="Promote" tier="promote" description="Verified systems with live qualifiers. These deserve the top rail." items={lanes.promote ?? []} />
-        <PlacementLane title="Watch" tier="watch" description="Live qualifiers without enough proof. Keep visible but not premium." items={lanes.watch ?? []} />
-        <PlacementLane title="Verified idle" tier="verified-idle" description="Verified but no current qualifier. Keep ready for the next slate." items={lanes["verified-idle"] ?? []} />
-        <PlacementLane title="Bench" tier="bench" description="No live qualifier and/or proof/action blockers. Do not promote." items={lanes.bench ?? []} />
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
-        <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300">Global top rail</div>
-              <h2 className="mt-1 text-xl font-semibold text-white">Top {board.length} of {allRows.length} filtered systems</h2>
-              <div className="mt-1 text-xs leading-5 text-slate-500">Display limit {boardLimit}. Filters apply before ranking.</div>
-            </div>
-            <a href="/api/trends/sharktrends" className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-200 hover:text-cyan-100">Inspect JSON</a>
-          </div>
-
-          <div className="mt-4 grid gap-3">
-            {board.length ? board.map((item: any) => (
-              <a key={item.id} href={item.href} className="rounded-2xl border border-white/10 bg-black/25 p-4 hover:border-cyan-300/30">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-white">#{item.rank} {item.name}</div>
-                    <div className="mt-1 text-xs leading-5 text-slate-400">{item.reason}</div>
-                    {item.proof ? <div className="mt-1 text-xs leading-5 text-cyan-100/75">{item.proof.summary}</div> : null}
-                  </div>
-                  <div className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${tierClass(item.tier)}`}>
-                    {item.tier} · {item.score}
-                  </div>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.14em] text-slate-500">
-                  <span>{item.league}</span>
-                  <span>{item.market}</span>
-                  <span>{item.category}</span>
-                  <span>{item.activeMatches} live</span>
-                  <span>{item.verified ? "verified" : "provisional"}</span>
-                  <span>{item.primaryAction}</span>
-                  {item.blockers?.map((blocker: string) => <span key={blocker}>{blocker}</span>)}
-                </div>
-              </a>
-            )) : (
-              <div className="rounded-2xl border border-amber-300/20 bg-amber-300/7 p-4 text-sm text-amber-100">
-                No systems match the current filter set.
-              </div>
-            )}
-            {hiddenBoardRows ? <div className="rounded-2xl border border-cyan-300/15 bg-cyan-300/[0.04] p-3 text-xs leading-5 text-cyan-100/80">{hiddenBoardRows} lower-ranked filtered systems are omitted from the display board but still counted in lanes and distributions.</div> : null}
-          </div>
-        </div>
-
-        <div className="grid gap-4">
-          <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Command queue</div>
-            <div className="mt-3 grid gap-2">
-              {queue.length ? queue.map((item: any) => (
-                <a key={`${item.reason}-${item.id}`} href={item.href} className="rounded-xl border border-amber-300/15 bg-amber-300/[0.04] p-3 hover:border-amber-200/30">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-sm font-semibold text-white">{item.name}</div>
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-200">{item.reason}</div>
-                  </div>
-                  <div className="mt-1 text-xs leading-5 text-slate-400">{item.note}</div>
-                </a>
-              )) : (
-                <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] p-3 text-xs leading-5 text-emerald-100/80">
-                  No command blockers. Use matchup tiles, proof grade, ROI, and live signal quality for placement.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Filtered distribution</div>
-            <div className="mt-3 space-y-2 text-xs leading-5 text-slate-400">
-              <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Matchups</span><span className="ml-2">{distributionText(filteredDistribution.byMatchupLeague)}</span></div>
-              <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Proof</span><span className="ml-2">{distributionText(filteredDistribution.byProofGrade)}</span></div>
-              <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Blockers</span><span className="ml-2">{distributionText(filteredDistribution.byBlocker)}</span></div>
-              <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Actions</span><span className="ml-2">{distributionText(filteredDistribution.byPrimaryAction)}</span></div>
-              <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Tiers</span><span className="ml-2">{distributionText(filteredDistribution.byPromotionTier)}</span></div>
-            </div>
-          </div>
-
-          <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Active systems</div>
-            <div className="mt-3 grid gap-2">
-              {activeSystems.length ? activeSystems.map((item: any) => (
-                <a key={item.id} href={item.href} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs hover:border-cyan-300/25">
-                  <span className="min-w-0 truncate text-slate-200">{item.name}</span>
-                  <span className="shrink-0 text-slate-500">{item.league} · {item.market} · {item.activeMatches} live</span>
-                </a>
-              )) : <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-500">No active published systems match the current filters.</div>}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4 text-xs leading-5 text-slate-400">
-        <span className="font-semibold uppercase tracking-[0.16em] text-cyan-300">Next action:</span> {snapshot.nextAction}
-      </section>
+      <MatchupLane id="actionable" title="Actionable matchups" description="These get the top screen space: current matchup, attached signal, proof, price context, and clean action gate." items={actionable} />
+      <MatchupLane id="watch" title="Watch / needs price" description="Current or near-current setups that still need a cleaner price, stronger proof, or gate confirmation." items={watch} />
+      <MatchupLane id="market" title="Market movement attached to games" description="Movement-style signals stay attached to matchup cards instead of floating as a global feed." items={market} />
+      <MatchupLane id="research-matchups" title="Current research matchups" description="Matched games with context, but not enough to promote above the fold." items={researchMatchups} collapsed />
+      <MatchupLane id="blocked" title="Bench / blocked matchups" description="Provisional, missing proof, missing qualifier, or hard-blocked signals are collapsed by default." items={blocked} collapsed />
+      <ResearchDrawer rows={rows} />
     </main>
   );
 }
