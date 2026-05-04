@@ -11,6 +11,7 @@ import type {
 import { getPublishedTrendFeed, type PublishedTrendCard } from "@/lib/trends/publisher";
 
 import { buildFallbackTrendDashboard } from "./fallback-dashboard";
+import { buildMarketMovementTrendPayload } from "./market-movement-cards";
 import { getTrendDashboard } from "./query-engine";
 import { buildSignalTrendDashboard } from "./signal-dashboard";
 
@@ -108,15 +109,6 @@ function killSwitches(card: PublishedTrendCard, filters: TrendFilters) {
   return flags.length ? `Kill switches: ${flags.slice(0, 3).join("; ")}.` : "Kill switches: stale price, late injury/news change, lineup change, or odds moving through the fair checkpoint.";
 }
 
-function smartGrade(card: PublishedTrendCard) {
-  const score = smartScore(card);
-  if (score >= 800) return "A+";
-  if (score >= 720) return "A";
-  if (score >= 640) return "B+";
-  if (score >= 560) return "B";
-  return "Watch";
-}
-
 function tone(card: PublishedTrendCard): TrendCardView["tone"] {
   const score = smartScore(card);
   if (score >= 720 || card.confidence === "strong" || card.category === "Most Profitable") return "success";
@@ -150,18 +142,6 @@ function normalizeMatches(card: PublishedTrendCard, filters: TrendFilters): Tren
       supportNote: match.tag
     };
   });
-}
-
-function smartNote(card: PublishedTrendCard, filters: TrendFilters) {
-  const parts = [
-    card.description,
-    `Action Gate: ${actionGate(card, filters)}`,
-    `SmartScore ${smartScore(card)}`,
-    fairPriceNote(card),
-    card.intelligenceTags.length ? `Tags: ${card.intelligenceTags.join(", ")}` : null,
-    card.todayMatches.length ? `${card.todayMatches.length} live qualifier${card.todayMatches.length === 1 ? "" : "s"}` : null
-  ].filter(Boolean);
-  return parts.join(". ");
 }
 
 function smartWhy(card: PublishedTrendCard, filters: TrendFilters) {
@@ -224,7 +204,6 @@ function toCard(card: PublishedTrendCard, filters: TrendFilters): TrendCardView 
     href: card.href,
     tone: tone(card),
     todayMatches: normalizeMatches(card, filters),
-    // Structured stats — wins/losses/pushes live on the source trend result
     wins: card.sourceTrend?.wins,
     losses: card.sourceTrend?.losses,
     pushes: card.sourceTrend?.pushes,
@@ -232,12 +211,10 @@ function toCard(card: PublishedTrendCard, filters: TrendFilters): TrendCardView 
     streak: card.streak ?? null,
     profitUnits: card.profitUnits ?? null,
     winRate: hitRate,
-    // Identity
     league: card.leagueLabel,
     market: card.marketLabel,
     betType: card.category,
     description: card.description,
-    // Action control
     actionGate: gate,
     priceCheckpoint: buildPriceCheckpoint(card),
     killSwitchList: buildKillSwitchList(card, filters),
@@ -292,6 +269,32 @@ function rows(cards: PublishedTrendCard[], filters: TrendFilters): TrendTableRow
     note: [card.title, `Score ${smartScore(card)}`, card.primaryMetricValue, fairPriceNote(card), ...card.whyNow, ...card.intelligenceTags.slice(0, 2)].filter(Boolean).join(" · "),
     href: card.href
   }));
+}
+
+function appendMarketMovement(view: TrendDashboardView, movement: { cards: TrendCardView[]; rows: TrendTableRow[]; sourceNote: string }): TrendDashboardView {
+  if (!movement.cards.length && !movement.rows.length) {
+    return {
+      ...view,
+      sourceNote: `${view.sourceNote} ${movement.sourceNote}`.trim()
+    };
+  }
+
+  const existingCardIds = new Set(view.cards.map((card) => card.id));
+  const movementCards = movement.cards.filter((card) => !existingCardIds.has(card.id));
+  return {
+    ...view,
+    cards: [...movementCards, ...view.cards].slice(0, 60),
+    movementRows: [...movement.rows, ...view.movementRows].slice(0, 30),
+    todayMatches: dedupeMatches([...movementCards.flatMap((card) => card.todayMatches ?? []), ...view.todayMatches]),
+    sourceNote: `${view.sourceNote} ${movement.sourceNote}`.trim(),
+    sampleNote: [view.sampleNote, movement.sourceNote].filter(Boolean).join(" ") || null
+  };
+}
+
+async function withMarketMovement(view: TrendDashboardView | null, filters: TrendFilters): Promise<TrendDashboardView | null> {
+  if (!view || view.setup) return view;
+  const movement = await buildMarketMovementTrendPayload(filters);
+  return appendMarketMovement(view, movement);
 }
 
 async function publishedDashboard(
@@ -388,13 +391,13 @@ async function bestAvailableDashboard(
   existing?: TrendDashboardView | null
 ) {
   const signal = await signalDashboard(filters, options);
-  if (signal && hasRealCurrentGameCards(signal)) return signal;
+  if (signal && hasRealCurrentGameCards(signal)) return withMarketMovement(signal, filters);
 
-  return (
+  const view =
     (await publishedDashboard(filters, options, existing)) ??
     signal ??
-    buildFallbackTrendDashboard(filters)
-  );
+    buildFallbackTrendDashboard(filters);
+  return withMarketMovement(view, filters);
 }
 
 export async function getTrendDashboardSafe(
@@ -402,17 +405,17 @@ export async function getTrendDashboardSafe(
   options?: { mode?: TrendMode; aiQuery?: string; savedTrendId?: string | null }
 ): Promise<TrendDashboardView> {
   const signal = await signalDashboard(filters, options);
-  if (signal && hasRealCurrentGameCards(signal)) return signal;
+  if (signal && hasRealCurrentGameCards(signal)) return (await withMarketMovement(signal, filters)) ?? signal;
 
   if (!hasUsableServerDatabaseUrl()) {
-    return bestAvailableDashboard(filters, options);
+    return (await bestAvailableDashboard(filters, options)) ?? buildFallbackTrendDashboard(filters);
   }
 
   try {
     const view = await getTrendDashboard(filters, options);
-    if (hasCards(view)) return view;
-    return bestAvailableDashboard(filters, options, view);
+    if (hasCards(view)) return (await withMarketMovement(view, filters)) ?? view;
+    return (await bestAvailableDashboard(filters, options, view)) ?? buildFallbackTrendDashboard(filters);
   } catch {
-    return bestAvailableDashboard(filters, options);
+    return (await bestAvailableDashboard(filters, options)) ?? buildFallbackTrendDashboard(filters);
   }
 }
