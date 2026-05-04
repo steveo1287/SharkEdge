@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { GameHistoryTable } from "./game-history";
 import { buildTrendsCenterSnapshot } from "@/services/trends/trends-center";
 import { buildTrendStrengthScore } from "@/services/trends/trend-strength-score";
 
@@ -204,7 +205,7 @@ export default async function SharkTrendsSystemDetailPage({ params, searchParams
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">SharkTrends System Detail</div>
             <h1 className="mt-2 font-display text-3xl font-semibold leading-tight text-white md:text-4xl">{system.name}</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{proof.description ?? system.reason ?? "System detail, proof summary, current matchups, filter DNA, blockers, and strength scoring."}</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{proof.description ?? system.reason ?? "System detail, proof summary, current matchups, filter DNA, blockers, strength scoring, and game-by-game history."}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Chip kind={scoreKind(system.strength.score)}>Strength {system.strength.grade} · {system.strength.score}</Chip>
               <Chip kind={gradeKind(proof.grade)}>Grade {proof.grade ?? "P"}</Chip>
@@ -257,26 +258,14 @@ export default async function SharkTrendsSystemDetailPage({ params, searchParams
         </Section>
       </section>
 
-      <section className="grid gap-5 lg:grid-cols-2">
-        <Section title="Kill switches" description="Reasons this system should not be promoted without review.">
-          <div className="grid gap-2">
-            {system.blockers?.length ? system.blockers.map((blocker: string) => <div key={blocker} className="rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{blocker}</div>) : <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm text-emerald-100">No hard system blockers listed.</div>}
-            {selectedTrend?.blockers?.length ? selectedTrend.blockers.map((blocker: string) => <div key={`match:${blocker}`} className="rounded-xl border border-amber-300/20 bg-amber-300/10 p-3 text-sm text-amber-100">Selected matchup: {blocker}</div>) : null}
-          </div>
-        </Section>
+      <Section title="Kill switches" description="Reasons this system should not be promoted without review.">
+        <div className="grid gap-2">
+          {system.blockers?.length ? system.blockers.map((blocker: string) => <div key={blocker} className="rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{blocker}</div>) : <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm text-emerald-100">No hard system blockers listed.</div>}
+          {selectedTrend?.blockers?.length ? selectedTrend.blockers.map((blocker: string) => <div key={`match:${blocker}`} className="rounded-xl border border-amber-300/20 bg-amber-300/10 p-3 text-sm text-amber-100">Selected matchup: {blocker}</div>) : null}
+        </div>
+      </Section>
 
-        <Section title="Game history foundation" description="PR #162 should replace this placeholder with full qualifier history rows.">
-          <div className="rounded-xl border border-white/10 bg-black/25 p-4 text-sm leading-6 text-slate-400">
-            <div className="font-semibold text-white">History table planned fields</div>
-            <div className="mt-2 grid gap-1 text-xs uppercase tracking-[0.12em] text-slate-500">
-              <span>Date · matchup · side · price</span>
-              <span>Result · units · closing price · CLV</span>
-              <span>Qualifying tags · rule match explanation</span>
-            </div>
-            <div className="mt-3 text-xs leading-5 text-slate-400">Current proof packet already exposes record, wins, losses, pushes, ROI, units, win rate, streak, CLV, and seasons. The next data step is exposing per-game qualifier rows.</div>
-          </div>
-        </Section>
-      </section>
+      <GameHistoryTable system={system} activeTrendRows={activeTrendRows} />
 
       <Section title="Raw proof packet" description="Debug-friendly proof data kept visible while the deeper system pages are being hardened.">
         <pre className="max-h-[45vh] overflow-auto whitespace-pre-wrap rounded-xl border border-white/10 bg-black/30 p-4 text-xs leading-5 text-slate-300">{JSON.stringify({ system, selectedTrend, activeTrendCount: activeTrendRows.length }, null, 2)}</pre>
