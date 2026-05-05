@@ -39,8 +39,8 @@ echo "🚆  Running prisma migrate deploy on Railway..."
 echo "    Project: $RAILWAY_PROJECT_ID  Service: $RAILWAY_SERVICE_ID"
 
 railway run \
-  --project-id "$RAILWAY_PROJECT_ID" \
-  --service-id "$RAILWAY_SERVICE_ID" \
+  --project "$RAILWAY_PROJECT_ID" \
+  --service "$RAILWAY_SERVICE_ID" \
   npx prisma migrate deploy
 
 echo "✅  Railway migration complete."
