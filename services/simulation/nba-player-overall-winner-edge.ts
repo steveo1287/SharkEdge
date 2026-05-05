@@ -1,4 +1,5 @@
 import type { NbaPlayerStatProjection } from "@/services/simulation/nba-player-stat-sim";
+import { buildNbaAdvancedPlayerBoxScore } from "@/services/simulation/nba-player-advanced-box-score";
 import { buildNbaPlayerRoleDepth, type NbaPlayerRoleDepth } from "@/services/simulation/nba-player-role-depth";
 
 export type NbaPlayerOverallCategory =
@@ -9,6 +10,9 @@ export type NbaPlayerOverallCategory =
   | "spacing"
   | "defensiveProxy"
   | "turnoverSecurity"
+  | "foulPressure"
+  | "advancedUsage"
+  | "stocks"
   | "availability"
   | "closing"
   | "roleValue"
@@ -53,7 +57,7 @@ export type NbaTeamPlayerOverallWinnerScore = {
 };
 
 export type NbaPlayerOverallWinnerEdge = {
-  modelVersion: "nba-player-overall-winner-edge-v1";
+  modelVersion: "nba-player-overall-winner-edge-v2";
   home: NbaTeamPlayerOverallWinnerScore;
   away: NbaTeamPlayerOverallWinnerScore;
   homeCompositeEdge: number;
@@ -113,6 +117,7 @@ function roleTierMultiplier(roleDepth: NbaPlayerRoleDepth) {
 
 function scorePlayer(player: NbaPlayerStatProjection): NbaPlayerOverallWinnerScore {
   const roleDepth = buildNbaPlayerRoleDepth(player);
+  const advanced = buildNbaAdvancedPlayerBoxScore(player);
   const minutes = clamp(player.projectedMinutes, 0, 42);
   const availability = statusAvailability(player.status);
   const minuteWeight = clamp(minutes / 34, 0, 1.16);
@@ -123,34 +128,60 @@ function scorePlayer(player: NbaPlayerStatProjection): NbaPlayerOverallWinnerSco
   const pra36 = pts36 + reb36 + ast36;
 
   const volume = clamp((pra36 - 18) / 34, 0, 1);
-  const efficiencyProxy = clamp(0.36 + threes36 * 0.055 + roleDepth.spacingScore * 0.18 + roleDepth.rolePlayerScore * 0.12 - Math.max(0, pts36 - 30) * 0.012, 0, 1);
-  const creation = clamp(roleDepth.creationScore * 0.58 + ast36 / 17 * 0.42, 0, 1);
-  const rebounding = clamp(roleDepth.reboundingScore * 0.58 + reb36 / 16 * 0.42, 0, 1);
-  const spacing = clamp(roleDepth.spacingScore * 0.7 + threes36 / 5.5 * 0.3, 0, 1);
-  const defensiveProxy = clamp(roleDepth.rolePlayerScore * 0.28 + rebounding * 0.22 + roleDepth.closingLineupScore * 0.2 + Math.min(1, minutes / 32) * 0.16 + availability * 0.14, 0, 1);
-  const turnoverSecurity = clamp(1 - (roleDepth.possessionLoadScore * 0.22 + Math.max(0, ast36 - 8) * 0.035 + Math.max(0, pts36 - 29) * 0.025), 0, 1);
+  const advancedUsage = clamp((advanced.projectedUsagePct - 10) / 25, 0, 1);
+  const shotVolume = clamp((advanced.projectedFga + advanced.projectedFta * 0.44 - 5) / 20, 0, 1);
+  const foulPressure = clamp(advanced.foulPressureRate / 0.42, 0, 1);
+  const stocks = clamp(advanced.stocks / 3.5, 0, 1);
+  const efficiencyProxy = clamp(
+    0.34 +
+    threes36 * 0.05 +
+    roleDepth.spacingScore * 0.16 +
+    roleDepth.rolePlayerScore * 0.1 +
+    foulPressure * 0.08 -
+    Math.max(0, advanced.projectedTurnoverPct - 12) * 0.018 -
+    Math.max(0, pts36 - 31) * 0.01,
+    0,
+    1
+  );
+  const creation = clamp(roleDepth.creationScore * 0.52 + ast36 / 17 * 0.28 + advanced.projectedAssistPct / 48 * 0.2, 0, 1);
+  const rebounding = clamp(roleDepth.reboundingScore * 0.5 + reb36 / 16 * 0.28 + advanced.projectedReboundPct / 32 * 0.22, 0, 1);
+  const spacing = clamp(roleDepth.spacingScore * 0.58 + threes36 / 5.5 * 0.22 + advanced.projectedThreePointAttempts / 11 * 0.2, 0, 1);
+  const defensiveProxy = clamp(
+    roleDepth.rolePlayerScore * 0.22 +
+    rebounding * 0.18 +
+    roleDepth.closingLineupScore * 0.16 +
+    stocks * 0.25 +
+    Math.min(1, advanced.defensiveEventRate / 4.5) * 0.12 +
+    availability * 0.07,
+    0,
+    1
+  );
+  const turnoverSecurity = clamp(1 - (advanced.projectedTurnoverPct - 5) / 18, 0, 1);
   const availabilityScore = clamp(availability * roleDepth.availabilityScore, 0, 1);
-  const closing = clamp(roleDepth.closingLineupScore * 0.72 + minuteWeight * 0.18 + roleDepth.starScore * 0.1, 0, 1);
-  const roleValue = clamp(roleDepth.starScore * 0.36 + roleDepth.rolePlayerScore * 0.24 + roleDepth.possessionLoadScore * 0.18 + roleDepth.roleConfidence * 0.22, 0, 1);
+  const closing = clamp(roleDepth.closingLineupScore * 0.62 + minuteWeight * 0.14 + roleDepth.starScore * 0.1 + turnoverSecurity * 0.08 + foulPressure * 0.06, 0, 1);
+  const roleValue = clamp(roleDepth.starScore * 0.3 + roleDepth.rolePlayerScore * 0.2 + roleDepth.possessionLoadScore * 0.14 + roleDepth.roleConfidence * 0.18 + advancedUsage * 0.1 + turnoverSecurity * 0.08, 0, 1);
 
   const baseOverall = clamp(
-    volume * 0.14 +
-    efficiencyProxy * 0.11 +
-    creation * 0.12 +
-    rebounding * 0.08 +
-    spacing * 0.08 +
-    defensiveProxy * 0.08 +
-    turnoverSecurity * 0.06 +
-    availabilityScore * 0.12 +
-    closing * 0.12 +
+    volume * 0.11 +
+    efficiencyProxy * 0.1 +
+    creation * 0.11 +
+    rebounding * 0.075 +
+    spacing * 0.075 +
+    defensiveProxy * 0.095 +
+    turnoverSecurity * 0.075 +
+    foulPressure * 0.045 +
+    advancedUsage * 0.065 +
+    stocks * 0.045 +
+    availabilityScore * 0.105 +
+    closing * 0.105 +
     roleValue * 0.09,
     0,
     1
   );
   const weightedOverall = clamp(baseOverall * minuteWeight * roleTierMultiplier(roleDepth) * availability, 0, 1.45);
   const closingWeightedOverall = clamp(weightedOverall * (0.65 + closing * 0.65), 0, 1.75);
-  const starWeightedOverall = clamp(weightedOverall * (0.7 + roleDepth.starScore * 0.9 + roleDepth.possessionLoadScore * 0.24), 0, 2.1);
-  const confidence = clamp(player.confidence * roleDepth.roleConfidence * availability * (minutes >= 14 ? 1 : 0.76), 0.05, 0.95);
+  const starWeightedOverall = clamp(weightedOverall * (0.66 + roleDepth.starScore * 0.78 + roleDepth.possessionLoadScore * 0.18 + advancedUsage * 0.18), 0, 2.1);
+  const confidence = clamp(player.confidence * roleDepth.roleConfidence * advanced.confidence * availability * (minutes >= 14 ? 1.04 : 0.76), 0.05, 0.95);
 
   return {
     playerName: player.playerName,
@@ -169,6 +200,9 @@ function scorePlayer(player: NbaPlayerStatProjection): NbaPlayerOverallWinnerSco
       spacing: round(spacing, 4),
       defensiveProxy: round(defensiveProxy, 4),
       turnoverSecurity: round(turnoverSecurity, 4),
+      foulPressure: round(foulPressure, 4),
+      advancedUsage: round(advancedUsage, 4),
+      stocks: round(stocks, 4),
       availability: round(availabilityScore, 4),
       closing: round(closing, 4),
       roleValue: round(roleValue, 4),
@@ -183,8 +217,13 @@ function scorePlayer(player: NbaPlayerStatProjection): NbaPlayerOverallWinnerSco
       `${reb36.toFixed(1)} reb/36`,
       `${ast36.toFixed(1)} ast/36`,
       `${threes36.toFixed(1)} 3pm/36`,
+      `usage ${advanced.projectedUsagePct.toFixed(1)}%`,
+      `TOV ${advanced.projectedTurnoverPct.toFixed(1)}%`,
+      `FGA ${advanced.projectedFga.toFixed(1)}`,
+      `FTA ${advanced.projectedFta.toFixed(1)}`,
+      `stocks ${advanced.stocks.toFixed(1)}`,
       `role ${roleDepth.roleTier}`,
-      `usage ${roleDepth.usageTier}`,
+      `usage tier ${roleDepth.usageTier}`,
       `overall ${(weightedOverall * 100).toFixed(1)}%`,
       `closing ${(closingWeightedOverall * 100).toFixed(1)}%`,
       `availability ${(availabilityScore * 100).toFixed(1)}%`
@@ -286,7 +325,7 @@ export function buildNbaPlayerOverallWinnerEdge(args: {
   const warnings = [...home.warnings, ...away.warnings];
 
   return {
-    modelVersion: "nba-player-overall-winner-edge-v1",
+    modelVersion: "nba-player-overall-winner-edge-v2",
     home,
     away,
     homeCompositeEdge: round(homeCompositeEdge, 4),
