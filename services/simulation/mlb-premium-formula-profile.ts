@@ -26,6 +26,15 @@ type TrainingRow = {
   prediction_json: unknown;
 };
 
+type FormulaFeatures = {
+  outcome: 0 | 1;
+  raw: number;
+  v8: number;
+  v7: number;
+  pythagorean: number;
+  market: number | null;
+};
+
 export const DEFAULT_MLB_PREMIUM_FORMULA_WEIGHTS: MlbPremiumFormulaWeights = {
   rawWeight: 0.08,
   v8Weight: 0.2,
@@ -51,7 +60,8 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function round(value: number, digits = 4) {
+function round(value: number | null | undefined, digits = 4) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return Number(value.toFixed(digits));
 }
 
@@ -113,19 +123,19 @@ function normalizeWeights(weights: MlbPremiumFormulaWeights): MlbPremiumFormulaW
   const total = Math.max(0, weights.rawWeight) + Math.max(0, weights.v8Weight) + Math.max(0, weights.v7Weight) + Math.max(0, weights.pythagoreanWeight);
   if (!Number.isFinite(total) || total <= 0) return DEFAULT_MLB_PREMIUM_FORMULA_WEIGHTS;
   return {
-    rawWeight: round(Math.max(0, weights.rawWeight) / total, 4),
-    v8Weight: round(Math.max(0, weights.v8Weight) / total, 4),
-    v7Weight: round(Math.max(0, weights.v7Weight) / total, 4),
-    pythagoreanWeight: round(Math.max(0, weights.pythagoreanWeight) / total, 4),
-    marketAgreementWeight: round(clamp(weights.marketAgreementWeight, 0, 0.2), 4),
-    disagreementPenaltyScale: round(clamp(weights.disagreementPenaltyScale, 0.2, 1.1), 4),
-    confidenceCapBase: round(clamp(weights.confidenceCapBase, 0.62, 0.76), 4),
-    confidenceCapFloor: round(clamp(weights.confidenceCapFloor, 0.48, 0.6), 4),
-    pythagoreanExponent: round(clamp(weights.pythagoreanExponent, 1.5, 2.2), 4)
+    rawWeight: Number((Math.max(0, weights.rawWeight) / total).toFixed(4)),
+    v8Weight: Number((Math.max(0, weights.v8Weight) / total).toFixed(4)),
+    v7Weight: Number((Math.max(0, weights.v7Weight) / total).toFixed(4)),
+    pythagoreanWeight: Number((Math.max(0, weights.pythagoreanWeight) / total).toFixed(4)),
+    marketAgreementWeight: Number(clamp(weights.marketAgreementWeight, 0, 0.2).toFixed(4)),
+    disagreementPenaltyScale: Number(clamp(weights.disagreementPenaltyScale, 0.2, 1.1).toFixed(4)),
+    confidenceCapBase: Number(clamp(weights.confidenceCapBase, 0.62, 0.76).toFixed(4)),
+    confidenceCapFloor: Number(clamp(weights.confidenceCapFloor, 0.48, 0.6).toFixed(4)),
+    pythagoreanExponent: Number(clamp(weights.pythagoreanExponent, 1.5, 2.2).toFixed(4))
   };
 }
 
-function blendedProbability(features: { raw: number; v8: number; v7: number; pythagorean: number }, weights: MlbPremiumFormulaWeights) {
+function blendedProbability(features: FormulaFeatures, weights: MlbPremiumFormulaWeights) {
   const w = normalizeWeights(weights);
   return invLogit(
     logit(features.raw) * w.rawWeight +
@@ -135,7 +145,7 @@ function blendedProbability(features: { raw: number; v8: number; v7: number; pyt
   );
 }
 
-function extractFeatures(row: TrainingRow) {
+function extractFeatures(row: TrainingRow): FormulaFeatures | null {
   const json = predictionJsonObject(row.prediction_json);
   const mainBrain = isRecord(json?.mainBrain) ? json.mainBrain : null;
   const mlbIntel = isRecord(json?.mlbIntel) ? json.mlbIntel : null;
@@ -148,17 +158,10 @@ function extractFeatures(row: TrainingRow) {
   const market = clampProb(formulaStack?.marketHomeNoVigProbability ?? v7?.marketHomeNoVigProbability);
 
   if (raw == null || v8 == null || v7Prob == null || pythagorean == null) return null;
-  return {
-    outcome: row.result === "WIN" ? 1 as const : 0 as const,
-    raw,
-    v8,
-    v7: v7Prob,
-    pythagorean,
-    market
-  };
+  return { outcome: row.result === "WIN" ? 1 : 0, raw, v8, v7: v7Prob, pythagorean, market };
 }
 
-function scoreComponent(features: Array<ReturnType<typeof extractFeatures> extends infer T ? NonNullable<T> : never>, key: "raw" | "v8" | "v7" | "pythagorean") {
+function scoreComponent(features: FormulaFeatures[], key: "raw" | "v8" | "v7" | "pythagorean") {
   const briers = features.map((row) => brier(row[key], row.outcome));
   const losses = features.map((row) => logLoss(row[key], row.outcome));
   return { brier: avg(briers) ?? 0.25, logLoss: avg(losses) ?? Math.log(2) };
@@ -243,7 +246,7 @@ export async function fitAndPersistMlbPremiumFormulaProfile(limit = 5000) {
     ORDER BY captured_at DESC
     LIMIT ${Math.max(50, Math.min(20000, Math.round(limit)))};
   `;
-  const features = rows.map(extractFeatures).filter((row): row is NonNullable<ReturnType<typeof extractFeatures>> => Boolean(row));
+  const features = rows.map(extractFeatures).filter((row): row is FormulaFeatures => Boolean(row));
   const sampleSize = features.length;
   const reliability = clamp((sampleSize - 75) / 925, 0, 1);
   const rawScore = scoreComponent(features, "raw");
@@ -272,7 +275,7 @@ export async function fitAndPersistMlbPremiumFormulaProfile(limit = 5000) {
     trainedAt: new Date().toISOString(),
     weights: sampleSize >= 30 ? weights : DEFAULT_MLB_PREMIUM_FORMULA_WEIGHTS,
     metrics: {
-      reliability: round(reliability, 4),
+      reliability: Number(reliability.toFixed(4)),
       sourceRows: rows.length,
       usableRows: sampleSize,
       formulaBrier: round(formulaBrier),
