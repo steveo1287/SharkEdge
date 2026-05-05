@@ -2,6 +2,7 @@ import type { LeagueKey } from "@/lib/types/domain";
 import { applySimAccuracyGuardrail, getSimAccuracyGuardrails } from "@/services/simulation/sim-accuracy-guardrail";
 import { buildGuardedSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
 import { buildMlbIntelV7Probability } from "@/services/simulation/mlb-intel-v7-probability";
+import { applyMlbPremiumPickPolicy } from "@/services/simulation/mlb-premium-pick-policy";
 import { applyMlbV8PlayerImpactModel } from "@/services/simulation/mlb-v8-player-impact-model";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 
@@ -10,11 +11,11 @@ type SimProjection = Awaited<ReturnType<typeof buildSimProjection>>;
 
 type MlbIntel = NonNullable<SimProjection["mlbIntel"]>;
 type MlbGovernor = NonNullable<MlbIntel["governor"]>;
-type MlbIntelWithGovernor = MlbIntel & { governor: MlbGovernor; playerImpact?: unknown };
+type MlbIntelWithGovernor = MlbIntel & { governor: MlbGovernor; playerImpact?: unknown; premiumPolicy?: unknown };
 
 type MainBrainMetadata = {
   modelVersion: "main-sim-brain-v1";
-  primaryMlbBrain: "mlb-intel-v8-player-impact+mlb-intel-v7-calibration";
+  primaryMlbBrain: "mlb-intel-v8-player-impact+mlb-intel-v7-calibration+premium-policy";
   rawHomeWinPct: number;
   v8HomeWinPct: number;
   finalHomeWinPct: number;
@@ -22,6 +23,9 @@ type MainBrainMetadata = {
   v7Tier: string;
   v7NoBet: boolean;
   v7Confidence: number;
+  premiumTier: string;
+  premiumNoBet: boolean;
+  premiumConfidence: number;
 };
 
 function leadingProbability(distribution: SimProjection["distribution"]) {
@@ -65,24 +69,31 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
     existingConfidence: governor.confidence ?? null,
     existingTier: governor.tier ?? null
   });
+  const premiumPolicy = applyMlbPremiumPickPolicy({
+    v7,
+    playerImpact: mlbIntel.playerImpact,
+    lock: mlbIntel.lock,
+    marketSource: mlbIntel.market?.source ?? null
+  });
   const guardrails = await getSimAccuracyGuardrails();
   const v8Reasons = (mlbIntel.playerImpact as { reasons?: string[] } | null | undefined)?.reasons ?? [];
   const brainReasons = [
-    "Main sim brain active for MLB: v8 player-impact model feeds v7 shrinkage, no-vig market anchoring, and accuracy guardrails.",
+    "Main sim brain active for MLB: v8 player-impact model feeds v7 shrinkage, no-vig market anchoring, premium pick policy, and accuracy guardrails.",
     ...v8Reasons,
     ...v7.reasons,
+    ...premiumPolicy.reasons,
     ...previousMlbReasons(rawProjection)
   ];
   const guarded = applySimAccuracyGuardrail({
     league: "MLB",
-    tier: v7.tier,
+    tier: premiumPolicy.tier,
     probability: leadingProbability({
       ...v8Projection.distribution,
       homeWinPct: v7.finalHomeWinPct,
       awayWinPct: v7.finalAwayWinPct
     }),
-    confidence: v7.confidence,
-    noBet: v7.noBet,
+    confidence: premiumPolicy.confidence,
+    noBet: premiumPolicy.noBet,
     reasons: brainReasons,
     guardrails
   });
@@ -92,14 +103,17 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
     : guarded.reasons;
   const mainBrain: MainBrainMetadata = {
     modelVersion: "main-sim-brain-v1",
-    primaryMlbBrain: "mlb-intel-v8-player-impact+mlb-intel-v7-calibration",
+    primaryMlbBrain: "mlb-intel-v8-player-impact+mlb-intel-v7-calibration+premium-policy",
     rawHomeWinPct: round(rawProjection.distribution.homeWinPct),
     v8HomeWinPct: round(v8Projection.distribution.homeWinPct),
     finalHomeWinPct: v7.finalHomeWinPct,
     finalAwayWinPct: v7.finalAwayWinPct,
     v7Tier: v7.tier,
     v7NoBet: v7.noBet,
-    v7Confidence: v7.confidence
+    v7Confidence: v7.confidence,
+    premiumTier: premiumPolicy.tier,
+    premiumNoBet: premiumPolicy.noBet,
+    premiumConfidence: premiumPolicy.confidence
   };
 
   return {
@@ -114,14 +128,15 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
       governor: {
         ...governor,
         source: "main-sim-brain-v1",
-        confidence: guarded.confidence ?? v7.confidence,
+        confidence: guarded.confidence ?? premiumPolicy.confidence,
         tier: finalTier,
         noBet: guarded.noBet,
         reasons
       },
       mainBrain,
+      premiumPolicy,
       v7
-    } as SimProjection["mlbIntel"] & { mainBrain: MainBrainMetadata; v7: typeof v7 }
+    } as SimProjection["mlbIntel"] & { mainBrain: MainBrainMetadata; premiumPolicy: typeof premiumPolicy; v7: typeof v7 }
   };
 }
 
@@ -131,7 +146,7 @@ export async function buildMainSimProjection(input: SimProjectionInput): Promise
 }
 
 export function mainBrainLabel(leagueKey: LeagueKey) {
-  if (leagueKey === "MLB") return "mlb-intel-v8-player-impact+mlb-intel-v7-calibration";
+  if (leagueKey === "MLB") return "mlb-intel-v8-player-impact+mlb-intel-v7-calibration+premium-policy";
   if (leagueKey === "NBA") return "nba-guarded-winner-anchor";
   return "base-sim-projection";
 }
