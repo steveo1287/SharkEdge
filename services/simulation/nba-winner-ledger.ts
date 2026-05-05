@@ -351,7 +351,7 @@ async function loadEventContext(eventId: string) {
       },
       eventProjections: {
         include: { modelRun: true },
-        orderBy: { createdAt: "desc" },
+        orderBy: { id: "desc" },
         take: 20
       }
     }
@@ -594,7 +594,7 @@ export async function getNbaWinnerCalibrationReport(args: { limit?: number } = {
   }
   const rows = await prisma.eventProjection.findMany({
     where: { modelRunId: modelRun.id },
-    orderBy: { createdAt: "desc" },
+    orderBy: { id: "desc" },
     take: Math.max(1, Math.min(args.limit ?? 5000, 10000))
   });
   const latestByEvent = new Map<string, NbaWinnerLedgerMetadata>();
@@ -664,7 +664,7 @@ export async function getNbaWinnerCalibrationGate(args: {
     bucket,
     reportStatus: report.status,
     shouldBlockStrongBet: true,
-    shouldPass: blockers.length > 0 || bucket?.status === "RED",
+    shouldPass: blockers.length > 0 || bucket?.status === "INSUFFICIENT",
     blockers,
     warnings,
     summary: report
