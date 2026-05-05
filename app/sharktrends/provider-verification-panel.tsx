@@ -3,11 +3,65 @@ import Link from "next/link";
 import { buildOddsApiIoHealth } from "@/services/ingestion/odds-api-io-health";
 import InlineProviderTrigger from "./inline-provider-trigger";
 
+type ProviderHealthView = Awaited<ReturnType<typeof buildOddsApiIoHealth>>;
+
 function fmtTime(value: string | null) {
   if (!value) return "never";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return "unknown provider health error";
+}
+
+function fallbackHealth(error: unknown): ProviderHealthView {
+  const message = errorMessage(error);
+  return {
+    configured: {
+      apiKey: false,
+      writeSecret: false
+    },
+    stats: {
+      latestRunAt: null,
+      latestSuccessAt: null,
+      totalProviderEvents: 0,
+      totalOddsRows: 0,
+      totalSnapshotsWritten: 0,
+      totalLineRowsWritten: 0
+    },
+    recentRuns: [
+      {
+        id: "provider-health-fallback",
+        startedAt: new Date().toISOString(),
+        finishedAt: null,
+        mode: "health_check",
+        dryRun: true,
+        ok: false,
+        providerEvents: 0,
+        oddsRows: 0,
+        snapshotsWritten: 0,
+        lineRowsWritten: 0,
+        error: message
+      }
+    ],
+    attachmentReadiness: {
+      ready: false,
+      blockers: [`Provider verification fallback active: ${message}`],
+      notes: ["SharkTrends provider health failed upstream, but the page is rendering in recovery mode."]
+    }
+  } as ProviderHealthView;
+}
+
+async function getSafeOddsApiIoHealth() {
+  try {
+    return await buildOddsApiIoHealth(10);
+  } catch (error) {
+    console.error("[sharktrends] provider verification fallback activated", error);
+    return fallbackHealth(error);
+  }
 }
 
 function StatusPill({ ok, label }: { ok: boolean; label: string }) {
@@ -29,7 +83,7 @@ function MiniMetric({ label, value, note }: { label: string; value: string | num
 }
 
 export default async function ProviderVerificationPanel() {
-  const health = await buildOddsApiIoHealth(10);
+  const health = await getSafeOddsApiIoHealth();
   const latest = health.recentRuns[0];
   const latestError = latest?.error ?? null;
   const canRunDry = health.configured.apiKey;
