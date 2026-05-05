@@ -80,7 +80,7 @@ async function refreshTeamSituations() {
 }
 
 async function refreshResultGradesAndTrendRows() {
-  await prisma.$executeRaw`DELETE FROM mlb_result_grades WHERE source IS NULL OR source IS NOT NULL`;
+  await prisma.$executeRaw`DELETE FROM mlb_result_grades`;
   await prisma.$executeRaw`DELETE FROM mlb_trend_rows WHERE source = 'mlb-betting-warehouse'`;
   await prisma.$executeRaw`
     INSERT INTO mlb_result_grades (id, game_pk, market_type, side, result, units, grading_note, updated_at)
