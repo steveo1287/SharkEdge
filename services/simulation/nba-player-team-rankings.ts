@@ -319,7 +319,7 @@ function teamCategoryValue(teamPlayers: NbaRankedPlayer[], category: NbaRankingC
     case "creation": return average(teamPlayers.map((player) => player.roleDepth.creationScore * Math.min(1, player.projectedMinutes / 30)));
     case "spacing": return average(teamPlayers.map((player) => player.roleDepth.spacingScore * Math.min(1, player.projectedMinutes / 28)));
     case "rebounding": return average(teamPlayers.map((player) => player.roleDepth.reboundingScore * Math.min(1, player.projectedMinutes / 28)));
-    case "availabilityRisk": return average(teamPlayers.map((player) => player.replacementRisk));
+    case "availabilityRisk": return average(teamPlayers.map((player) => player.roleDepth.replacementRisk));
     case "closingLineup": return sum(teamPlayers.slice(0, 7).map((player) => player.roleDepth.closingLineupScore));
     case "roleDepth": return average(teamPlayers.map((player) => player.roleDepth.rolePlayerScore * Math.min(1, player.projectedMinutes / 24)));
     case "overall": return sum(teamPlayers.map((player) => player.overallScore));
