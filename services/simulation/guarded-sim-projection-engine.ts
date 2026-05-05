@@ -7,6 +7,7 @@ import {
 } from "@/services/simulation/nba-sim-health-policy";
 import { buildNbaWinnerProbability } from "@/services/simulation/nba-winner-probability-engine";
 import { getNbaWinnerRuntimeCalibrationGate } from "@/services/simulation/nba-winner-calibration-gate";
+import { getNbaWinnerRuntimeFactorWeights } from "@/services/simulation/nba-winner-runtime-factor-weights";
 import { buildNbaRankedTeamStrengthRosterImpact } from "@/services/simulation/nba-ranked-team-strength-roster-impact";
 import { applySimAccuracyGuardrail, getSimAccuracyGuardrails } from "@/services/simulation/sim-accuracy-guardrail";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
@@ -171,7 +172,7 @@ function buildRuntimeRosterImpact(projection: SimProjection) {
   });
 }
 
-function applyNbaWinnerAnchorGate(args: {
+async function applyNbaWinnerAnchorGate(args: {
   projection: SimProjection;
   lineupTruth: NbaLineupTruth | null;
   tier: NbaSimRecommendationTier;
@@ -180,6 +181,7 @@ function applyNbaWinnerAnchorGate(args: {
   reasons: string[];
 }) {
   const rosterImpact = buildRuntimeRosterImpact(args.projection);
+  const factorWeights = await getNbaWinnerRuntimeFactorWeights({ limit: 5000 });
   const winner = buildNbaWinnerProbability({
     rawHomeWinPct: args.projection.distribution.homeWinPct,
     rawAwayWinPct: args.projection.distribution.awayWinPct,
@@ -188,6 +190,7 @@ function applyNbaWinnerAnchorGate(args: {
     market: args.projection.realityIntel?.market ?? null,
     lineupTruth: args.lineupTruth,
     teamStrengthRosterImpact: rosterImpact,
+    factorWeights,
     sourceHealth: args.projection.realityIntel?.sourceHealth ?? null,
     calibrationHealthy: nbaRuntimeCalibrationHealthy(args.projection)
   });
@@ -195,6 +198,7 @@ function applyNbaWinnerAnchorGate(args: {
     `NBA winner anchor: market home ${winner.marketHomeNoVig == null ? "missing" : `${(winner.marketHomeNoVig * 100).toFixed(1)}%`}, raw sim home ${(winner.rawHomeWinPct * 100).toFixed(1)}%, final home ${(winner.finalHomeWinPct * 100).toFixed(1)}%.`,
     `NBA roster/team impact: margin ${rosterImpact.finalProjectedHomeMargin.toFixed(1)}, delta ${(rosterImpact.boundedProbabilityDelta * 100).toFixed(1)}%, confidence ${(rosterImpact.confidence * 100).toFixed(1)}%.`,
     `NBA ranking overlay: edge ${(rosterImpact.rankingSnapshot.homeCompositeEdge * 100).toFixed(1)}%, ranking delta ${(rosterImpact.rankingSnapshot.boundedProbabilityDelta * 100).toFixed(1)}%.`,
+    `NBA learned factor weights: ${factorWeights?.status ?? "UNAVAILABLE"}, sample ${factorWeights?.sampleSize ?? 0}.`,
     ...winner.blockers.map((blocker) => `Winner blocker: ${blocker}.`),
     ...winner.warnings.map((warning) => `Winner warning: ${warning}.`),
     ...winner.drivers.map((driver) => `Winner driver: ${driver}.`)
@@ -327,7 +331,7 @@ export async function buildGuardedSimProjection(input: SimProjectionInput): Prom
       confidence: spreadGuarded.confidence,
       reasons: spreadGuarded.reasons
     });
-    const winnerGuarded = applyNbaWinnerAnchorGate({
+    const winnerGuarded = await applyNbaWinnerAnchorGate({
       projection,
       lineupTruth,
       tier: lineupGuarded.tier,
