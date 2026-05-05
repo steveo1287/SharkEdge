@@ -7,7 +7,7 @@ import {
 } from "@/services/home/home-command-service";
 
 const VALID_HOME_DATES: HomeDeskDateKey[] = ["today", "tomorrow", "upcoming"];
-const VALID_HOME_LEAGUES = ["ALL", "NBA", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"];
+const VALID_HOME_LEAGUES: HomeLeagueScope[] = ["ALL", "NBA", "MLB", "NHL", "NFL", "NCAAF", "UFC", "BOXING"];
 
 function readValue(searchParams: Record<string, string | string[] | undefined>, key: string) {
   const value = searchParams[key];
@@ -15,8 +15,8 @@ function readValue(searchParams: Record<string, string | string[] | undefined>, 
 }
 
 function selectedLeague(searchParams: Record<string, string | string[] | undefined>): HomeLeagueScope {
-  const value = readValue(searchParams, "league")?.toUpperCase();
-  return (value && VALID_HOME_LEAGUES.includes(value) ? value : "ALL") as HomeLeagueScope;
+  const value = readValue(searchParams, "league")?.toUpperCase() as HomeLeagueScope | undefined;
+  return value && VALID_HOME_LEAGUES.includes(value) ? value : "ALL";
 }
 
 function selectedDate(searchParams: Record<string, string | string[] | undefined>): HomeDeskDateKey {
@@ -25,8 +25,8 @@ function selectedDate(searchParams: Record<string, string | string[] | undefined
 }
 
 function focusedLeague(league: HomeLeagueScope): LeagueKey {
-  if (league === "ALL" || league === "BOXING") return "MLB";
-  return league as LeagueKey;
+  if (league === "ALL") return "MLB";
+  return league;
 }
 
 function fallbackFilters(league: HomeLeagueScope, date: HomeDeskDateKey): BoardFilters {
@@ -36,15 +36,41 @@ function fallbackFilters(league: HomeLeagueScope, date: HomeDeskDateKey): BoardF
     sportsbook: "best",
     market: "all",
     status: "all"
-  } as BoardFilters;
+  };
 }
 
-function fallbackBoardData(filters: BoardFilters, reason: string): BoardPageData {
+function fallbackBoardData(filters: BoardFilters, reason: string, focus: LeagueKey): BoardPageData {
+  const now = new Date().toISOString();
+
   return {
     filters,
+    availableDates: [],
+    leagues: [
+      {
+        id: `fallback-${focus.toLowerCase()}`,
+        key: focus,
+        name: focus,
+        sport:
+          focus === "MLB"
+            ? "BASEBALL"
+            : focus === "NHL"
+              ? "HOCKEY"
+              : focus === "NFL" || focus === "NCAAF"
+                ? "FOOTBALL"
+                : focus === "UFC"
+                  ? "MMA"
+                  : focus === "BOXING"
+                    ? "BOXING"
+                    : "BASKETBALL",
+        createdAt: now,
+        updatedAt: now
+      }
+    ],
+    sportsbooks: [],
     games: [],
     sportSections: [],
-    source: "fallback",
+    snapshots: [],
+    source: "mock",
     sourceNote: `Home recovery mode: ${reason}`,
     liveMessage: "Home command data failed upstream. Core navigation remains online while the live desk recovers.",
     providerHealth: {
@@ -53,16 +79,15 @@ function fallbackBoardData(filters: BoardFilters, reason: string): BoardPageData
       summary: "Home command data failed upstream. SharkEdge is serving a safe fallback instead of throwing.",
       freshnessLabel: "Recovery mode",
       freshnessMinutes: null,
+      asOf: now,
       warnings: [reason]
     },
     summary: {
       totalGames: 0,
-      liveGames: 0,
-      completedGames: 0,
-      upcomingGames: 0,
-      bestBookCount: 0
+      totalProps: 0,
+      totalSportsbooks: 0
     }
-  } as BoardPageData;
+  };
 }
 
 function errorLabel(error: unknown) {
@@ -78,8 +103,8 @@ export function buildFallbackHomeCommandData(
   const date = selectedDate(searchParams);
   const filters = fallbackFilters(league, date);
   const reason = errorLabel(error);
-  const boardData = fallbackBoardData(filters, reason);
   const focus = focusedLeague(league);
+  const boardData = fallbackBoardData(filters, reason, focus);
 
   return {
     selectedLeague: league,
