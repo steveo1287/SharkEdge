@@ -1,4 +1,5 @@
 import type { NbaPlayerStatProjection } from "@/services/simulation/nba-player-stat-sim";
+import { buildNbaAdvancedPlayerBoxScore } from "@/services/simulation/nba-player-advanced-box-score";
 import { buildNbaPlayerRoleDepth } from "@/services/simulation/nba-player-role-depth";
 
 export type NbaPossessionTeamScore = {
@@ -24,7 +25,7 @@ export type NbaPossessionTeamScore = {
 };
 
 export type NbaPossessionScoreModel = {
-  modelVersion: "nba-possession-score-model-v1";
+  modelVersion: "nba-possession-score-model-v2";
   home: NbaPossessionTeamScore;
   away: NbaPossessionTeamScore;
   projectedHomeScore: number;
@@ -69,10 +70,6 @@ function sidePlayers(players: NbaPlayerStatProjection[], side: "home" | "away") 
   return players.filter((player) => player.teamSide === side);
 }
 
-function per36(value: number, minutes: number) {
-  return minutes > 0 ? value / minutes * 36 : 0;
-}
-
 function basePossessions(projectedTotal: number | null | undefined) {
   // NBA team efficiency generally lives near 108-122 points per 100 possessions.
   // Use market/engine total as the pace anchor but keep it bounded so score math
@@ -90,40 +87,53 @@ function buildTeamScore(args: {
 }) {
   const projectedPossessions = basePossessions(args.projectedTotal);
   const playerPointSum = sum(args.players.map((player) => player.projectedPoints * statusAvailability(player.status)));
-  const playerRebounds = sum(args.players.map((player) => player.projectedRebounds * statusAvailability(player.status)));
-  const playerAssists = sum(args.players.map((player) => player.projectedAssists * statusAvailability(player.status)));
-  const playerThrees = sum(args.players.map((player) => player.projectedThrees * statusAvailability(player.status)));
   const opponentRebounds = sum(args.opponentPlayers.map((player) => player.projectedRebounds * statusAvailability(player.status)));
-  const roleRows = args.players.map((player) => ({ player, roleDepth: buildNbaPlayerRoleDepth(player) }));
-  const activeMinuteTotal = sum(args.players.map((player) => player.projectedMinutes * statusAvailability(player.status)));
-  const minutesTotal = sum(args.players.map((player) => Math.max(0, player.projectedMinutes)));
+  const rows = args.players.map((player) => ({
+    player,
+    roleDepth: buildNbaPlayerRoleDepth(player),
+    advanced: buildNbaAdvancedPlayerBoxScore(player),
+    availability: statusAvailability(player.status)
+  }));
+  const activeMinuteTotal = sum(rows.map((row) => row.player.projectedMinutes * row.availability));
+  const minutesTotal = sum(rows.map((row) => Math.max(0, row.player.projectedMinutes)));
+  const projectedAssists = sum(rows.map((row) => row.player.projectedAssists * row.availability));
+  const projectedRebounds = sum(rows.map((row) => row.player.projectedRebounds * row.availability));
+  const projectedThrees = sum(rows.map((row) => row.player.projectedThrees * row.availability));
+  const projectedFga = sum(rows.map((row) => row.advanced.projectedFga * row.availability));
+  const projectedThreePointAttempts = sum(rows.map((row) => row.advanced.projectedThreePointAttempts * row.availability));
+  const projectedFta = sum(rows.map((row) => row.advanced.projectedFta * row.availability));
+  const projectedTurnovers = sum(rows.map((row) => row.advanced.projectedTurnovers * row.availability));
+  const avgTurnoverPct = average(rows.map((row) => row.advanced.projectedTurnoverPct * row.availability));
+  const avgFoulPressure = average(rows.map((row) => row.advanced.foulPressureRate * row.availability));
 
-  const creationIndex = clamp(0.5 + (playerAssists - 24) / 36 + average(roleRows.map((row) => row.roleDepth.creationScore)) * 0.22, 0, 1.35);
-  const shootingIndex = clamp(0.5 + (playerThrees - 12) / 22 + average(roleRows.map((row) => row.roleDepth.spacingScore)) * 0.24, 0, 1.35);
-  const reboundingIndex = clamp(0.5 + (playerRebounds - opponentRebounds) / 48 + average(roleRows.map((row) => row.roleDepth.reboundingScore)) * 0.2, 0, 1.35);
-  const turnoverSecurityIndex = clamp(0.82 - average(roleRows.map((row) => row.roleDepth.possessionLoadScore)) * 0.18 + creationIndex * 0.16, 0.35, 1.15);
-  const freeThrowPressureProxy = clamp(0.42 + average(args.players.map((player) => per36(player.projectedPoints, player.projectedMinutes))) / 58 + average(roleRows.map((row) => row.roleDepth.starScore)) * 0.2, 0, 1.25);
-  const starCreationIndex = clamp(sum(roleRows.map((row) => row.roleDepth.starScore * row.roleDepth.creationScore * Math.min(1, row.player.projectedMinutes / 32))), 0, 3.2);
-  const closingIndex = clamp(sum(roleRows.map((row) => row.roleDepth.closingLineupScore * Math.min(1, row.player.projectedMinutes / 30))) / 5.5, 0, 1.45);
+  const creationIndex = clamp(0.5 + (projectedAssists - 24) / 38 + average(rows.map((row) => row.roleDepth.creationScore)) * 0.18 + average(rows.map((row) => row.advanced.projectedAssistPct / 48 * row.availability)) * 0.2, 0, 1.35);
+  const shootingIndex = clamp(0.5 + (projectedThrees - 12) / 26 + (projectedThreePointAttempts - 32) / 90 + average(rows.map((row) => row.roleDepth.spacingScore)) * 0.18, 0, 1.35);
+  const reboundingIndex = clamp(0.5 + (projectedRebounds - opponentRebounds) / 48 + average(rows.map((row) => row.roleDepth.reboundingScore)) * 0.16 + average(rows.map((row) => row.advanced.projectedReboundPct / 32 * row.availability)) * 0.16, 0, 1.35);
+  const turnoverSecurityIndex = clamp(0.94 - projectedTurnovers / 18 - avgTurnoverPct / 70 + creationIndex * 0.14, 0.35, 1.15);
+  const freeThrowPressureProxy = clamp(0.36 + projectedFta / 34 + avgFoulPressure * 0.34 + average(rows.map((row) => row.roleDepth.starScore)) * 0.13, 0, 1.25);
+  const shotVolumeIndex = clamp(projectedFga / 92 + projectedThreePointAttempts / 88 + projectedFta / 72, 0, 1.35);
+  const starCreationIndex = clamp(sum(rows.map((row) => row.roleDepth.starScore * row.roleDepth.creationScore * Math.min(1, row.player.projectedMinutes / 32))), 0, 3.2);
+  const closingIndex = clamp(sum(rows.map((row) => row.roleDepth.closingLineupScore * Math.min(1, row.player.projectedMinutes / 30))) / 5.5, 0, 1.45);
   const availabilityIndex = minutesTotal > 0 ? clamp(activeMinuteTotal / minutesTotal, 0, 1) : 0;
 
   // Four-factor shape in efficiency form: shooting is king, then creation/turnover
-  // security, rebounding, and foul/FT pressure proxy. Star and closing creation are
-  // used as late-clock efficiency stabilizers.
+  // security, rebounding, and foul/FT pressure. The advanced box score supplies
+  // turnover, FGA, 3PA and FTA estimates so this is no longer only proxy-driven.
   const efficiencyEdge =
-    (shootingIndex - 0.5) * 9.8 +
-    (creationIndex - 0.5) * 6.4 +
+    (shootingIndex - 0.5) * 9.4 +
+    (creationIndex - 0.5) * 6.1 +
     (reboundingIndex - 0.5) * 3.7 +
-    (turnoverSecurityIndex - 0.75) * 5.4 +
-    (freeThrowPressureProxy - 0.5) * 3.1 +
-    starCreationIndex * 1.15 +
-    (closingIndex - 0.75) * 2.6 -
+    (turnoverSecurityIndex - 0.75) * 6.0 +
+    (freeThrowPressureProxy - 0.5) * 3.8 +
+    (shotVolumeIndex - 0.95) * 2.1 +
+    starCreationIndex * 1.1 +
+    (closingIndex - 0.75) * 2.5 -
     (1 - availabilityIndex) * 8.5;
   const playerPointEfficiency = projectedPossessions > 0 ? playerPointSum / projectedPossessions * 100 : 113.5;
-  const projectedOffensiveEfficiency = clamp(playerPointEfficiency * 0.54 + (113.5 + efficiencyEdge) * 0.46, 96, 129);
+  const projectedOffensiveEfficiency = clamp(playerPointEfficiency * 0.52 + (113.5 + efficiencyEdge) * 0.48, 96, 129);
   const rawProjectedPoints = projectedPossessions * projectedOffensiveEfficiency / 100;
   const marketAnchoredProjectedPoints = clamp(args.marketAnchorPoints * 0.58 + rawProjectedPoints * 0.42, 82, 152);
-  const confidence = clamp(average(args.players.map((player) => player.confidence)) * availabilityIndex * (args.players.length >= 7 ? 1 : 0.76), 0.08, 0.95);
+  const confidence = clamp(average(rows.map((row) => row.player.confidence * row.advanced.confidence)) * availabilityIndex * (args.players.length >= 7 ? 1 : 0.76), 0.08, 0.95);
   const warnings: string[] = [];
   if (args.players.length < 7) warnings.push(`${args.teamName} possession model has fewer than 7 projected players`);
   if (availabilityIndex < 0.82) warnings.push(`${args.teamName} possession model availability below 82%`);
@@ -152,11 +162,15 @@ function buildTeamScore(args: {
       `possessions ${projectedPossessions.toFixed(1)}`,
       `off eff ${projectedOffensiveEfficiency.toFixed(1)}`,
       `player points ${playerPointSum.toFixed(1)}`,
+      `FGA ${projectedFga.toFixed(1)}`,
+      `3PA ${projectedThreePointAttempts.toFixed(1)}`,
+      `FTA ${projectedFta.toFixed(1)}`,
+      `TOV ${projectedTurnovers.toFixed(1)}`,
       `creation ${(creationIndex * 100).toFixed(1)}%`,
       `shooting ${(shootingIndex * 100).toFixed(1)}%`,
       `rebounding ${(reboundingIndex * 100).toFixed(1)}%`,
       `turnover security ${(turnoverSecurityIndex * 100).toFixed(1)}%`,
-      `FT pressure proxy ${(freeThrowPressureProxy * 100).toFixed(1)}%`,
+      `FT pressure ${(freeThrowPressureProxy * 100).toFixed(1)}%`,
       `availability ${(availabilityIndex * 100).toFixed(1)}%`
     ]
   } satisfies NbaPossessionTeamScore;
@@ -203,7 +217,7 @@ export function buildNbaPossessionScoreModel(args: {
   if (args.playerStatProjections.length < 14) warnings.push("possession score model has fewer than 14 player rows");
 
   return {
-    modelVersion: "nba-possession-score-model-v1",
+    modelVersion: "nba-possession-score-model-v2",
     home,
     away,
     projectedHomeScore: round(projectedHomeScore),
