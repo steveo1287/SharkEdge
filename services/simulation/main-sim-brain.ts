@@ -8,7 +8,9 @@ import { buildSimProjection } from "@/services/simulation/sim-projection-engine"
 type SimProjectionInput = Parameters<typeof buildSimProjection>[0];
 type SimProjection = Awaited<ReturnType<typeof buildSimProjection>>;
 
-type MlbGovernor = NonNullable<NonNullable<SimProjection["mlbIntel"]>["governor"]>;
+type MlbIntel = NonNullable<SimProjection["mlbIntel"]>;
+type MlbGovernor = NonNullable<MlbIntel["governor"]>;
+type MlbIntelWithGovernor = MlbIntel & { governor: MlbGovernor; playerImpact?: unknown };
 
 type MainBrainMetadata = {
   modelVersion: "main-sim-brain-v1";
@@ -39,9 +41,13 @@ function previousMlbReasons(projection: SimProjection) {
   return projection.mlbIntel?.governor?.reasons ?? [];
 }
 
+function hasMlbGovernor(projection: SimProjection): projection is SimProjection & { mlbIntel: MlbIntelWithGovernor } {
+  return Boolean(projection.mlbIntel?.governor);
+}
+
 export async function buildMlbMainSimBrainProjection(input: SimProjectionInput): Promise<SimProjection> {
   const rawProjection = await buildSimProjection(input);
-  if (input.leagueKey !== "MLB" || !rawProjection.mlbIntel?.governor) return rawProjection;
+  if (input.leagueKey !== "MLB" || !hasMlbGovernor(rawProjection)) return rawProjection;
 
   const v8Projection = await applyMlbV8PlayerImpactModel({
     gameId: input.id,
@@ -49,14 +55,15 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
     homeTeam: rawProjection.matchup.home,
     projection: rawProjection
   });
-  if (!v8Projection.mlbIntel?.governor) return rawProjection;
+  if (!hasMlbGovernor(v8Projection)) return rawProjection;
 
   const mlbIntel = v8Projection.mlbIntel;
+  const governor = mlbIntel.governor;
   const v7 = buildMlbIntelV7Probability({
     rawHomeWinPct: v8Projection.distribution.homeWinPct,
     marketHomeNoVigProbability: mlbIntel.market?.homeNoVigProbability ?? null,
-    existingConfidence: mlbIntel.governor.confidence ?? null,
-    existingTier: mlbIntel.governor.tier ?? null
+    existingConfidence: governor.confidence ?? null,
+    existingTier: governor.tier ?? null
   });
   const guardrails = await getSimAccuracyGuardrails();
   const v8Reasons = (mlbIntel.playerImpact as { reasons?: string[] } | null | undefined)?.reasons ?? [];
@@ -105,7 +112,7 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
     mlbIntel: {
       ...mlbIntel,
       governor: {
-        ...mlbIntel.governor,
+        ...governor,
         source: "main-sim-brain-v1",
         confidence: guarded.confidence ?? v7.confidence,
         tier: finalTier,
