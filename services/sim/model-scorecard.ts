@@ -398,22 +398,28 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
     return emptyScorecard({ league, market, modelVersion, windowDays }, true);
   }
 
-  const rows = await prisma.$queryRaw<SnapshotRow[]>`
-    SELECT
-      id, league, game_id, event_label, away_team, home_team, captured_at,
-      model_version, data_source, tier, no_bet, confidence,
-      model_home_win_pct, model_away_win_pct, model_spread, model_total,
-      market_home_win_pct, market_spread, market_total,
-      final_home_score, final_away_score, home_won,
-      brier, log_loss, spread_error, total_error,
-      prediction_json, result_json, graded_at, created_at, updated_at
-    FROM sim_prediction_snapshots
-    WHERE captured_at >= ${since}
-      AND (${league} = 'ALL' OR league = ${league})
-      AND (${modelVersion} = 'ALL' OR COALESCE(model_version, ${DEFAULT_MODEL_VERSION}) = ${modelVersion})
-    ORDER BY captured_at DESC
-    LIMIT 5000;
-  `;
+  let rows: SnapshotRow[];
+  try {
+    rows = await prisma.$queryRaw<SnapshotRow[]>`
+      SELECT
+        id, league, game_id, event_label, away_team, home_team, captured_at,
+        model_version, data_source, tier, no_bet, confidence,
+        model_home_win_pct, model_away_win_pct, model_spread, model_total,
+        market_home_win_pct, market_spread, market_total,
+        final_home_score, final_away_score, home_won,
+        brier, log_loss, spread_error, total_error,
+        prediction_json, result_json, graded_at, created_at, updated_at
+      FROM sim_prediction_snapshots
+      WHERE captured_at >= ${since}
+        AND (${league} = 'ALL' OR league = ${league})
+        AND (${modelVersion} = 'ALL' OR COALESCE(model_version, ${DEFAULT_MODEL_VERSION}) = ${modelVersion})
+      ORDER BY captured_at DESC
+      LIMIT 5000;
+    `;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return emptyScorecard({ league, market, modelVersion, windowDays }, true, `Snapshot query failed: ${message}`);
+  }
 
   const predictions = rows.map(mapSnapshotRow);
   const groups = new Map<string, SimulationPredictionRow[]>();
