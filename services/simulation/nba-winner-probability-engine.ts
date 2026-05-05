@@ -2,6 +2,7 @@ import type { NbaNoVigMarket } from "./nba-market-sanity";
 import type { NbaLineupTruth } from "./nba-lineup-truth";
 import { buildNbaEliteWinnerFormula } from "@/services/simulation/nba-elite-winner-formula";
 import type { NbaTeamStrengthRosterImpact } from "@/services/simulation/nba-team-strength-roster-impact";
+import type { NbaWinnerFactorWeightReport } from "@/services/simulation/nba-winner-factor-weights";
 
 export type NbaWinnerProbabilityConfidence = "HIGH" | "MEDIUM" | "LOW" | "INSUFFICIENT";
 
@@ -13,6 +14,7 @@ export type NbaWinnerProbabilityInput = {
   market: NbaNoVigMarket | null | undefined;
   lineupTruth: NbaLineupTruth | null | undefined;
   teamStrengthRosterImpact?: NbaTeamStrengthRosterImpact | null;
+  factorWeights?: NbaWinnerFactorWeightReport | null;
   sourceHealth?: {
     team: boolean;
     player: boolean;
@@ -130,6 +132,7 @@ export function buildNbaWinnerProbability(input: NbaWinnerProbabilityInput): Nba
     market: input.market,
     lineupTruth: input.lineupTruth,
     rosterImpact,
+    factorWeights: input.factorWeights,
     sourceHealth: input.sourceHealth
   });
 
