@@ -5,6 +5,7 @@ import { buildNbaDefensiveEventEdge } from "@/services/simulation/nba-defensive-
 import { buildNbaCloseGameLeverageEdge } from "@/services/simulation/nba-close-game-leverage-edge";
 import { buildNbaCoachingPaceProfile } from "@/services/simulation/nba-coaching-pace-profile";
 import { buildNbaRestFatigueEdge } from "@/services/simulation/nba-rest-fatigue-edge";
+import { buildNbaMarketPressureEdge } from "@/services/simulation/nba-market-pressure-edge";
 import { buildNbaWinnerSignalConsensus } from "@/services/simulation/nba-winner-signal-consensus";
 import {
   buildNbaTeamStrengthRosterImpact,
@@ -20,6 +21,7 @@ export type NbaRankedTeamStrengthRosterImpact = NbaTeamStrengthRosterImpact & {
   closeGameLeverageEdge: ReturnType<typeof buildNbaCloseGameLeverageEdge>;
   coachingPaceProfile: ReturnType<typeof buildNbaCoachingPaceProfile>;
   restFatigueEdge: ReturnType<typeof buildNbaRestFatigueEdge>;
+  marketPressureEdge: ReturnType<typeof buildNbaMarketPressureEdge>;
   signalConsensus: ReturnType<typeof buildNbaWinnerSignalConsensus>;
 };
 
@@ -85,6 +87,11 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
     realityIntel: input.realityIntel,
     playerStatProjections: input.playerStatProjections ?? []
   });
+  const marketPressureEdge = buildNbaMarketPressureEdge({
+    market: input.realityIntel?.market ?? null,
+    projectedHomeMargin: input.projectedHomeMargin,
+    projectedTotal: input.projectedTotal
+  });
 
   const baseMarginAdjustment = clamp(base.finalProjectedHomeMargin - input.projectedHomeMargin, -5.5, 5.5);
   const rankingDelta = rankingSnapshot.boundedProbabilityDelta;
@@ -101,6 +108,8 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
   const coachingMarginAdjustment = coachingPaceProfile.marginDelta * 0.58;
   const restFatigueProbabilityDelta = restFatigueEdge.probabilityDelta;
   const restFatigueMarginAdjustment = restFatigueEdge.marginDelta * 0.62;
+  const marketPressureProbabilityDelta = marketPressureEdge.probabilityDelta;
+  const marketPressureMarginAdjustment = marketPressureEdge.marginDelta * 0.72;
 
   const signalConsensus = buildNbaWinnerSignalConsensus([
     {
@@ -166,6 +175,14 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
       marginDelta: restFatigueMarginAdjustment,
       confidence: restFatigueEdge.confidence,
       weight: 0.68
+    },
+    {
+      key: "market-pressure",
+      label: "market pressure edge",
+      probabilityDelta: marketPressureProbabilityDelta,
+      marginDelta: marketPressureMarginAdjustment,
+      confidence: marketPressureEdge.confidence,
+      weight: 0.74
     }
   ]);
 
@@ -173,7 +190,7 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
   const probabilityDelta = round(clamp(signalConsensus.consensusProbabilityDelta, -0.0775, 0.0775), 4);
   const boundedProbabilityDelta = round(clamp(signalConsensus.consensusProbabilityDelta, -cap, cap), 4);
   const finalProjectedHomeMargin = round(clamp(input.projectedHomeMargin + signalConsensus.consensusMarginDelta, -17, 17), 3);
-  const confidence = round(clamp((base.confidence * 0.28) + (rankingSnapshot.confidence * 0.09) + (playerOverallEdge.confidence * 0.11) + (possessionScoreModel.confidence * 0.09) + (defensiveEventEdge.confidence * 0.07) + (closeGameLeverageEdge.confidence * 0.07) + (coachingPaceProfile.confidence * 0.07) + (restFatigueEdge.confidence * 0.07) + (signalConsensus.directionalConfidence * 0.15), 0.1, 0.96), 3);
+  const confidence = round(clamp((base.confidence * 0.25) + (rankingSnapshot.confidence * 0.08) + (playerOverallEdge.confidence * 0.1) + (possessionScoreModel.confidence * 0.08) + (defensiveEventEdge.confidence * 0.06) + (closeGameLeverageEdge.confidence * 0.06) + (coachingPaceProfile.confidence * 0.06) + (restFatigueEdge.confidence * 0.06) + (marketPressureEdge.confidence * 0.08) + (signalConsensus.directionalConfidence * 0.17), 0.1, 0.96), 3);
 
   return {
     ...base,
@@ -184,6 +201,7 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
     closeGameLeverageEdge,
     coachingPaceProfile,
     restFatigueEdge,
+    marketPressureEdge,
     signalConsensus,
     finalProjectedHomeMargin,
     probabilityDelta,
@@ -198,6 +216,7 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
       ...closeGameLeverageEdge.warnings,
       ...coachingPaceProfile.warnings,
       ...restFatigueEdge.warnings,
+      ...marketPressureEdge.warnings,
       ...signalConsensus.warnings,
       ...signalConsensus.blockers.map((blocker) => `signal consensus blocker: ${blocker}`)
     ])],
@@ -230,6 +249,10 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
       `rest fatigue delta ${(restFatigueProbabilityDelta * 100).toFixed(1)}%`,
       `rest fatigue margin adjustment ${restFatigueMarginAdjustment.toFixed(2)}`,
       `rest fatigue total delta ${restFatigueEdge.totalDelta.toFixed(2)}`,
+      `market pressure delta ${(marketPressureProbabilityDelta * 100).toFixed(1)}%`,
+      `market pressure margin adjustment ${marketPressureMarginAdjustment.toFixed(2)}`,
+      `market pressure trust ${(marketPressureEdge.marketTrustScore * 100).toFixed(1)}%`,
+      `market pressure conflict ${(marketPressureEdge.marketConflictScore * 100).toFixed(1)}%`,
       ...signalConsensus.drivers.map((driver) => `consensus: ${driver}`),
       ...rankingSnapshot.drivers.map((driver) => `ranking: ${driver}`),
       ...playerOverallEdge.drivers.map((driver) => `player overall: ${driver}`),
@@ -237,7 +260,8 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
       ...defensiveEventEdge.drivers.map((driver) => `defense event: ${driver}`),
       ...closeGameLeverageEdge.drivers.map((driver) => `close game: ${driver}`),
       ...coachingPaceProfile.drivers.map((driver) => `coaching pace: ${driver}`),
-      ...restFatigueEdge.drivers.map((driver) => `rest fatigue: ${driver}`)
+      ...restFatigueEdge.drivers.map((driver) => `rest fatigue: ${driver}`),
+      ...marketPressureEdge.drivers.map((driver) => `market pressure: ${driver}`)
     ]
   };
 }
