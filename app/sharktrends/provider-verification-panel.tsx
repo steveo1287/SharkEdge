@@ -19,40 +19,65 @@ function errorMessage(error: unknown) {
 
 function fallbackHealth(error: unknown): ProviderHealthView {
   const message = errorMessage(error);
+  const generatedAt = new Date().toISOString();
   return {
+    generatedAt,
+    sourceNote: `Provider verification recovery mode: ${message}`,
     configured: {
       apiKey: false,
       writeSecret: false
     },
     stats: {
-      latestRunAt: null,
+      runCount: 1,
+      successfulRuns: 0,
+      failedRuns: 1,
+      latestRunAt: generatedAt,
       latestSuccessAt: null,
       totalProviderEvents: 0,
       totalOddsRows: 0,
       totalSnapshotsWritten: 0,
-      totalLineRowsWritten: 0
+      totalLineRowsWritten: 0,
+      latestRateLimitRemaining: null
     },
     recentRuns: [
       {
         id: "provider-health-fallback",
-        startedAt: new Date().toISOString(),
-        finishedAt: null,
         mode: "health_check",
+        league: "MLB",
+        sport: "baseball",
+        status: "upcoming",
         dryRun: true,
         ok: false,
         providerEvents: 0,
+        matchedInternalEvents: 0,
         oddsRows: 0,
         snapshotsWritten: 0,
         lineRowsWritten: 0,
-        error: message
+        skippedOddsRows: 0,
+        rateLimitRemaining: null,
+        error: message,
+        createdAt: generatedAt
       }
     ],
+    marketCoverage: {
+      generatedAt,
+      sourceNote: "Market data source unavailable because provider health failed upstream.",
+      connected: false,
+      tables: { books: 0, oddsSnapshots: 0, bettingSplits: 0, lineHistory: 0 },
+      coverage: [],
+      readiness: {
+        usableForMarketIntelligence: false,
+        blockers: [`Provider health failed: ${message}`],
+        recommendations: ["Check provider health/server logs, then rerun Odds-API.io ingestion."]
+      }
+    },
     attachmentReadiness: {
-      ready: false,
-      blockers: [`Provider verification fallback active: ${message}`],
-      notes: ["SharkTrends provider health failed upstream, but the page is rendering in recovery mode."]
+      oddsRowsAvailable: false,
+      lineRowsAvailable: false,
+      marketMovementAvailable: false,
+      blockers: [`Provider verification fallback active: ${message}`]
     }
-  } as ProviderHealthView;
+  };
 }
 
 async function getSafeOddsApiIoHealth() {
