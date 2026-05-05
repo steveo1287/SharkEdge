@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import type { LeagueKey } from "@/lib/types/domain";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
-import { applyMlbIntelV7Guard } from "@/services/simulation/mlb-intel-v7-guard";
+import { buildMainSimProjection } from "@/services/simulation/main-sim-brain";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +40,7 @@ export async function GET(req: Request) {
   for (const game of games.slice(0, limit)) {
     try {
       const rawProjection = await buildSimProjection(game);
-      const guardedProjection = applyMlbIntelV7Guard(rawProjection);
+      const mainProjection = await buildMainSimProjection(game);
       rows.push({
         game: {
           id: game.id,
@@ -49,21 +49,23 @@ export async function GET(req: Request) {
           status: game.status
         },
         rawDistribution: rawProjection.distribution,
-        guardedDistribution: guardedProjection.distribution,
-        governor: guardedProjection.mlbIntel?.governor ?? null,
-        v7: (guardedProjection.mlbIntel as { v7?: unknown } | null | undefined)?.v7 ?? null,
-        runModel: guardedProjection.mlbIntel?.runModel ?? null,
-        market: guardedProjection.mlbIntel?.market ?? null,
-        lock: guardedProjection.mlbIntel?.lock ?? null
+        guardedDistribution: mainProjection.distribution,
+        governor: mainProjection.mlbIntel?.governor ?? null,
+        mainBrain: (mainProjection.mlbIntel as { mainBrain?: unknown } | null | undefined)?.mainBrain ?? null,
+        playerImpact: (mainProjection.mlbIntel as { playerImpact?: unknown } | null | undefined)?.playerImpact ?? null,
+        v7: (mainProjection.mlbIntel as { v7?: unknown } | null | undefined)?.v7 ?? null,
+        runModel: mainProjection.mlbIntel?.runModel ?? null,
+        market: mainProjection.mlbIntel?.market ?? null,
+        lock: mainProjection.mlbIntel?.lock ?? null
       });
     } catch (error) {
-      warnings.push(`${game.label}: ${error instanceof Error ? error.message : "unknown guarded projection error"}`);
+      warnings.push(`${game.label}: ${error instanceof Error ? error.message : "unknown main-brain projection error"}`);
     }
   }
 
   return NextResponse.json({
     ok: true,
-    modelVersion: "mlb-intel-v7-guarded-projection",
+    modelVersion: "main-sim-brain-v1",
     generatedAt: new Date().toISOString(),
     gameCount: games.length,
     rowCount: rows.length,
