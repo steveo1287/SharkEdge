@@ -79,15 +79,17 @@ export async function getMlbIntelV7HealthReport(limit = 60) {
   const marketRows = board.rows.filter((row) => typeof row.market.homeNoVigProbability === "number" && Number.isFinite(row.market.homeNoVigProbability)).length;
   const rosterRows = board.rows.filter((row) => row.roster.away.available && row.roster.home.available).length;
   const lineupRows = board.rows.filter((row) => row.lock.lineupsConfirmed).length;
+  const snapshotLedger = ledger.ok && "snapshotLedger" in ledger ? ledger.snapshotLedger : null;
+  const officialPickLedger = ledger.ok && "officialPickLedger" in ledger ? ledger.officialPickLedger : null;
 
   const input: MlbIntelV7HealthInput = {
     rowCount,
     marketCoverage: rowCount > 0 ? marketRows / rowCount : 0,
     rosterCoverage: rowCount > 0 ? rosterRows / rowCount : 0,
     lineupLockCoverage: rowCount > 0 ? lineupRows / rowCount : 0,
-    snapshotBrier: ledger.ok ? ledger.snapshotLedger.brier : null,
-    snapshotLogLoss: ledger.ok ? ledger.snapshotLedger.logLoss : null,
-    officialPickCount: ledger.ok ? ledger.officialPickLedger.total : 0,
+    snapshotBrier: snapshotLedger?.brier ?? null,
+    snapshotLogLoss: snapshotLedger?.logLoss ?? null,
+    officialPickCount: officialPickLedger?.total ?? 0,
     warningCount: board.warnings.length
   };
 
