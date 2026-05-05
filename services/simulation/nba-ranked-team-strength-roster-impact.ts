@@ -3,6 +3,7 @@ import { buildNbaPlayerOverallWinnerEdge } from "@/services/simulation/nba-playe
 import { buildNbaPossessionScoreModel } from "@/services/simulation/nba-possession-score-model";
 import { buildNbaDefensiveEventEdge } from "@/services/simulation/nba-defensive-event-edge";
 import { buildNbaCloseGameLeverageEdge } from "@/services/simulation/nba-close-game-leverage-edge";
+import { buildNbaWinnerSignalConsensus } from "@/services/simulation/nba-winner-signal-consensus";
 import {
   buildNbaTeamStrengthRosterImpact,
   type NbaTeamStrengthRosterImpact,
@@ -15,6 +16,7 @@ export type NbaRankedTeamStrengthRosterImpact = NbaTeamStrengthRosterImpact & {
   possessionScoreModel: ReturnType<typeof buildNbaPossessionScoreModel>;
   defensiveEventEdge: ReturnType<typeof buildNbaDefensiveEventEdge>;
   closeGameLeverageEdge: ReturnType<typeof buildNbaCloseGameLeverageEdge>;
+  signalConsensus: ReturnType<typeof buildNbaWinnerSignalConsensus>;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -23,6 +25,15 @@ function clamp(value: number, min: number, max: number) {
 
 function round(value: number, digits = 4) {
   return Number(value.toFixed(digits));
+}
+
+function consensusCap(status: ReturnType<typeof buildNbaWinnerSignalConsensus>["status"]) {
+  switch (status) {
+    case "GREEN": return 0.0525;
+    case "YELLOW": return 0.035;
+    case "RED": return 0.0125;
+    case "INSUFFICIENT": return 0.018;
+  }
 }
 
 export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRosterInput): NbaRankedTeamStrengthRosterImpact {
@@ -55,20 +66,75 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
     projectedHomeMargin: input.projectedHomeMargin,
     playerStatProjections: input.playerStatProjections ?? []
   });
+
+  const baseMarginAdjustment = clamp(base.finalProjectedHomeMargin - input.projectedHomeMargin, -5.5, 5.5);
   const rankingDelta = rankingSnapshot.boundedProbabilityDelta;
-  const playerOverallProbabilityDelta = playerOverallEdge.probabilityDelta;
-  const possessionProbabilityDelta = clamp(possessionScoreModel.marginDelta * possessionScoreModel.confidence * 0.01, -0.022, 0.022);
-  const defensiveEventProbabilityDelta = defensiveEventEdge.probabilityDelta;
-  const closeGameProbabilityDelta = closeGameLeverageEdge.probabilityDelta;
-  const combinedProbabilityDelta = clamp(base.probabilityDelta + rankingDelta + playerOverallProbabilityDelta + possessionProbabilityDelta + defensiveEventProbabilityDelta + closeGameProbabilityDelta, -0.0775, 0.0775);
-  const boundedProbabilityDelta = round(clamp(base.boundedProbabilityDelta + rankingDelta + playerOverallProbabilityDelta + possessionProbabilityDelta + defensiveEventProbabilityDelta + closeGameProbabilityDelta, -0.0525, 0.0525), 4);
   const rankingMarginAdjustment = rankingSnapshot.homeCompositeEdge * rankingSnapshot.confidence * 1.35;
+  const playerOverallProbabilityDelta = playerOverallEdge.probabilityDelta;
   const playerOverallMarginAdjustment = playerOverallEdge.marginDelta * 0.72;
+  const possessionProbabilityDelta = clamp(possessionScoreModel.marginDelta * possessionScoreModel.confidence * 0.01, -0.022, 0.022);
   const possessionMarginAdjustment = possessionScoreModel.marginDelta * 0.58;
+  const defensiveEventProbabilityDelta = defensiveEventEdge.probabilityDelta;
   const defensiveEventMarginAdjustment = defensiveEventEdge.marginDelta * 0.56;
+  const closeGameProbabilityDelta = closeGameLeverageEdge.probabilityDelta;
   const closeGameMarginAdjustment = closeGameLeverageEdge.marginDelta * 0.62;
-  const finalProjectedHomeMargin = round(clamp(base.finalProjectedHomeMargin + rankingMarginAdjustment + playerOverallMarginAdjustment + possessionMarginAdjustment + defensiveEventMarginAdjustment + closeGameMarginAdjustment, -17, 17), 3);
-  const confidence = round(clamp((base.confidence * 0.44) + (rankingSnapshot.confidence * 0.12) + (playerOverallEdge.confidence * 0.14) + (possessionScoreModel.confidence * 0.12) + (defensiveEventEdge.confidence * 0.09) + (closeGameLeverageEdge.confidence * 0.09), 0.1, 0.96), 3);
+
+  const signalConsensus = buildNbaWinnerSignalConsensus([
+    {
+      key: "base-roster",
+      label: "base roster/team strength",
+      probabilityDelta: base.boundedProbabilityDelta,
+      marginDelta: baseMarginAdjustment,
+      confidence: base.confidence,
+      weight: 1.12
+    },
+    {
+      key: "ranking",
+      label: "player/team ranking overlay",
+      probabilityDelta: rankingDelta,
+      marginDelta: rankingMarginAdjustment,
+      confidence: rankingSnapshot.confidence,
+      weight: 0.78
+    },
+    {
+      key: "player-overall",
+      label: "player overall edge",
+      probabilityDelta: playerOverallProbabilityDelta,
+      marginDelta: playerOverallMarginAdjustment,
+      confidence: playerOverallEdge.confidence,
+      weight: 0.92
+    },
+    {
+      key: "possession-score",
+      label: "possession score model",
+      probabilityDelta: possessionProbabilityDelta,
+      marginDelta: possessionMarginAdjustment,
+      confidence: possessionScoreModel.confidence,
+      weight: 0.86
+    },
+    {
+      key: "defensive-event",
+      label: "defensive event edge",
+      probabilityDelta: defensiveEventProbabilityDelta,
+      marginDelta: defensiveEventMarginAdjustment,
+      confidence: defensiveEventEdge.confidence,
+      weight: 0.72
+    },
+    {
+      key: "close-game",
+      label: "close-game leverage",
+      probabilityDelta: closeGameProbabilityDelta,
+      marginDelta: closeGameMarginAdjustment,
+      confidence: closeGameLeverageEdge.confidence,
+      weight: 0.74
+    }
+  ]);
+
+  const cap = consensusCap(signalConsensus.status);
+  const probabilityDelta = round(clamp(signalConsensus.consensusProbabilityDelta, -0.0775, 0.0775), 4);
+  const boundedProbabilityDelta = round(clamp(signalConsensus.consensusProbabilityDelta, -cap, cap), 4);
+  const finalProjectedHomeMargin = round(clamp(input.projectedHomeMargin + signalConsensus.consensusMarginDelta, -17, 17), 3);
+  const confidence = round(clamp((base.confidence * 0.36) + (rankingSnapshot.confidence * 0.11) + (playerOverallEdge.confidence * 0.13) + (possessionScoreModel.confidence * 0.11) + (defensiveEventEdge.confidence * 0.08) + (closeGameLeverageEdge.confidence * 0.08) + (signalConsensus.directionalConfidence * 0.13), 0.1, 0.96), 3);
 
   return {
     ...base,
@@ -77,13 +143,27 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
     possessionScoreModel,
     defensiveEventEdge,
     closeGameLeverageEdge,
+    signalConsensus,
     finalProjectedHomeMargin,
-    probabilityDelta: round(combinedProbabilityDelta, 4),
+    probabilityDelta,
     boundedProbabilityDelta,
     confidence,
-    warnings: [...new Set([...base.warnings, ...rankingSnapshot.warnings, ...playerOverallEdge.warnings, ...possessionScoreModel.warnings, ...defensiveEventEdge.warnings, ...closeGameLeverageEdge.warnings])],
+    warnings: [...new Set([
+      ...base.warnings,
+      ...rankingSnapshot.warnings,
+      ...playerOverallEdge.warnings,
+      ...possessionScoreModel.warnings,
+      ...defensiveEventEdge.warnings,
+      ...closeGameLeverageEdge.warnings,
+      ...signalConsensus.warnings,
+      ...signalConsensus.blockers.map((blocker) => `signal consensus blocker: ${blocker}`)
+    ])],
     drivers: [
       ...base.drivers,
+      `signal consensus status ${signalConsensus.status}`,
+      `signal consensus probability delta ${(signalConsensus.consensusProbabilityDelta * 100).toFixed(1)}%`,
+      `signal consensus bounded cap ${(cap * 100).toFixed(1)}%`,
+      `signal consensus margin delta ${signalConsensus.consensusMarginDelta.toFixed(2)}`,
       `ranking overlay delta ${(rankingDelta * 100).toFixed(1)}%`,
       `ranking composite edge ${(rankingSnapshot.homeCompositeEdge * 100).toFixed(1)}%`,
       `ranking confidence ${(rankingSnapshot.confidence * 100).toFixed(1)}%`,
@@ -100,6 +180,7 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
       `close-game delta ${(closeGameProbabilityDelta * 100).toFixed(1)}%`,
       `close-game margin adjustment ${closeGameMarginAdjustment.toFixed(2)}`,
       `close-game spread leverage ${(closeGameLeverageEdge.spreadLeverage * 100).toFixed(1)}%`,
+      ...signalConsensus.drivers.map((driver) => `consensus: ${driver}`),
       ...rankingSnapshot.drivers.map((driver) => `ranking: ${driver}`),
       ...playerOverallEdge.drivers.map((driver) => `player overall: ${driver}`),
       ...possessionScoreModel.drivers.map((driver) => `possession: ${driver}`),
