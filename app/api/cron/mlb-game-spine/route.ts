@@ -25,5 +25,5 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized MLB game spine refresh." }, { status: 401 });
   }
   const result = await runMlbGameSpineIngestion();
-  return NextResponse.json(result.ok ? { ok: true, ...result } : { ok: false, ...result }, { status: result.ok ? 200 : 500 });
+  return NextResponse.json(result, { status: result.ok ? 200 : 500 });
 }
