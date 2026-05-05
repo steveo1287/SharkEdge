@@ -33,6 +33,10 @@ type RuntimeMlbIntel = NonNullable<Awaited<ReturnType<typeof buildMainSimProject
   features?: unknown;
 };
 
+type V8GatedCaptureOptions = {
+  shadowOnly?: boolean;
+};
+
 const MODEL_VERSION = "main-sim-brain-v1+v8-promotion-gate";
 
 function parseMatchup(label: string) {
@@ -124,10 +128,10 @@ async function insertOfficialPick(args: {
   `;
 }
 
-export async function captureCurrentMlbV8GatedLedgers(windowDays = 180) {
+export async function captureCurrentMlbV8GatedLedgers(windowDays = 180, options: V8GatedCaptureOptions = {}) {
   const databaseReady = await ensureMlbIntelV7Ledgers();
   if (!databaseReady) {
-    return { ok: false, databaseReady, capturedSnapshots: 0, officialPicks: 0, gateBlocked: 0, premiumBlocked: 0, skipped: 0, error: "No usable server database URL is configured." };
+    return { ok: false, databaseReady, capturedSnapshots: 0, officialPicks: 0, gateBlocked: 0, premiumBlocked: 0, shadowBlocked: 0, skipped: 0, error: "No usable server database URL is configured." };
   }
 
   const gate = await getMlbV8PromotionGate(windowDays);
@@ -136,6 +140,7 @@ export async function captureCurrentMlbV8GatedLedgers(windowDays = 180) {
   let officialPicks = 0;
   let gateBlocked = 0;
   let premiumBlocked = 0;
+  let shadowBlocked = 0;
   let skipped = 0;
 
   for (const game of games) {
@@ -168,6 +173,7 @@ export async function captureCurrentMlbV8GatedLedgers(windowDays = 180) {
       mainBrain: mlbIntel?.mainBrain ?? null,
       premiumPolicy,
       gatedPolicy,
+      productionMode: options.shadowOnly ? "shadow" : "gated",
       v8PromotionGate: gatedPolicy.v8PromotionGate,
       v7,
       mlbIntel: {
@@ -190,7 +196,9 @@ export async function captureCurrentMlbV8GatedLedgers(windowDays = 180) {
     await insertSnapshot({ game, side: snapshotSide, rawSideProbability, calibratedSideProbability, marketSideProbability, edge, predictionJson });
     capturedSnapshots += 1;
 
-    if (gatedPolicy.pickSide && !gatedPolicy.noBet) {
+    if (options.shadowOnly) {
+      shadowBlocked += 1;
+    } else if (gatedPolicy.pickSide && !gatedPolicy.noBet) {
       const officialSide = gatedPolicy.pickSide;
       const officialRawProbability = sideProbabilityFromHome(officialSide, v7.rawHomeWinPct);
       const officialCalibratedProbability = sideProbabilityFromHome(officialSide, v7.finalHomeWinPct);
@@ -209,12 +217,14 @@ export async function captureCurrentMlbV8GatedLedgers(windowDays = 180) {
     ok: true,
     databaseReady,
     modelVersion: MODEL_VERSION,
+    productionMode: options.shadowOnly ? "shadow" : "gated",
     gateMode: gate.mode,
     gateStatus: gate.sourceStatus,
     capturedSnapshots,
     officialPicks,
     gateBlocked,
     premiumBlocked,
+    shadowBlocked,
     skipped
   };
 }
