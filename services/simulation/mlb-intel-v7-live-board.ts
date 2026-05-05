@@ -2,6 +2,7 @@ import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import type { LeagueKey } from "@/lib/types/domain";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { buildMlbIntelV7Probability } from "@/services/simulation/mlb-intel-v7-probability";
+import { applyMlbV8PlayerImpactModel } from "@/services/simulation/mlb-v8-player-impact-model";
 import { ensureMlbRosterIntelligenceTables } from "@/services/simulation/mlb-roster-intelligence";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 
@@ -18,6 +19,7 @@ type SimGame = {
 type RuntimeMlbIntel = {
   modelVersion?: string | null;
   dataSource?: string | null;
+  playerImpact?: unknown;
   market?: {
     homeNoVigProbability?: number | null;
     homeOddsAmerican?: number | null;
@@ -172,7 +174,13 @@ async function buildTeamRosterContext(gameId: string, team: string) {
 
 async function buildLiveRow(game: SimGame) {
   const matchup = parseMatchup(game.label);
-  const projection = await buildSimProjection(game);
+  const rawProjection = await buildSimProjection(game);
+  const projection = await applyMlbV8PlayerImpactModel({
+    gameId: game.id,
+    awayTeam: matchup.away,
+    homeTeam: matchup.home,
+    projection: rawProjection
+  });
   const mlbIntel = (projection.mlbIntel ?? null) as RuntimeMlbIntel | null;
   const v7 = buildMlbIntelV7Probability({
     rawHomeWinPct: projection.distribution.homeWinPct,
@@ -195,6 +203,13 @@ async function buildLiveRow(game: SimGame) {
     },
     modelVersion: v7.modelVersion,
     raw: {
+      homeWinPct: round(rawProjection.distribution.homeWinPct),
+      awayWinPct: round(rawProjection.distribution.awayWinPct),
+      awayRuns: round(rawProjection.distribution.avgAway, 2),
+      homeRuns: round(rawProjection.distribution.avgHome, 2)
+    },
+    playerImpact: mlbIntel?.playerImpact ?? null,
+    adjusted: {
       homeWinPct: round(projection.distribution.homeWinPct),
       awayWinPct: round(projection.distribution.awayWinPct),
       awayRuns: round(projection.distribution.avgAway, 2),
@@ -209,7 +224,10 @@ async function buildLiveRow(game: SimGame) {
       tier: v7.tier,
       noBet: v7.noBet,
       confidence: v7.confidence,
-      reasons: v7.reasons
+      reasons: [
+        ...((mlbIntel?.playerImpact as { reasons?: string[] } | null)?.reasons ?? []),
+        ...v7.reasons
+      ]
     },
     market: {
       source: mlbIntel?.market?.source ?? null,
@@ -249,7 +267,7 @@ export async function buildMlbIntelV7LiveBoard(args: { limit?: number } = {}) {
   return {
     ok: true,
     generatedAt,
-    modelVersion: "mlb-intel-v7",
+    modelVersion: "mlb-intel-v7+v8-player-impact",
     gameCount: games.length,
     rowCount: rows.length,
     warnings,
