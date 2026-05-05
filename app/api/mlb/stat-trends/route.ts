@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { buildMlbEliteDecisionTrends } from "@/services/mlb/mlb-elite-decision-layer";
+import { buildMlbPregameContextTrends } from "@/services/mlb/mlb-pregame-context-layer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +13,6 @@ function readDate(value: string | null) {
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const payload = await buildMlbEliteDecisionTrends({ date: readDate(url.searchParams.get("date")) });
+  const payload = await buildMlbPregameContextTrends({ date: readDate(url.searchParams.get("date")) });
   return NextResponse.json(payload, { status: 200 });
 }
