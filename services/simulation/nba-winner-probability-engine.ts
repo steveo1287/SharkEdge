@@ -5,10 +5,10 @@ import type { NbaTeamStrengthRosterImpact } from "@/services/simulation/nba-team
 export type NbaWinnerProbabilityConfidence = "HIGH" | "MEDIUM" | "LOW" | "INSUFFICIENT";
 
 export type NbaWinnerProbabilityInput = {
-  rawHomeWinPct: number;
-  rawAwayWinPct: number;
-  projectedHomeMargin: number;
-  projectedTotal: number | null;
+  rawHomeWinPct: number | null | undefined;
+  rawAwayWinPct: number | null | undefined;
+  projectedHomeMargin: number | null | undefined;
+  projectedTotal: number | null | undefined;
   market: NbaNoVigMarket | null | undefined;
   lineupTruth: NbaLineupTruth | null | undefined;
   teamStrengthRosterImpact?: NbaTeamStrengthRosterImpact | null;
@@ -49,6 +49,10 @@ function clamp(value: number, min: number, max: number) {
 
 function round(value: number, digits = 4) {
   return Number(value.toFixed(digits));
+}
+
+function finiteNumber(value: number | null | undefined, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function logit(probability: number) {
@@ -116,14 +120,17 @@ export function buildNbaWinnerProbability(input: NbaWinnerProbabilityInput): Nba
   if (input.lineupTruth?.starQuestionable) blockers.push("star/high-usage player questionable");
   if (input.lineupTruth?.lateScratchRisk) blockers.push("late scratch risk");
   if (input.calibrationHealthy === false) blockers.push("NBA winner calibration unhealthy");
+  if (input.rawHomeWinPct == null || input.rawAwayWinPct == null) warnings.push("NBA source projection probabilities missing; using neutral 50/50 fallback.");
+  if (input.projectedHomeMargin == null) warnings.push("NBA source projected margin missing; using neutral margin fallback.");
 
   const rosterImpact = input.teamStrengthRosterImpact ?? null;
   if (rosterImpact?.blockers.length) blockers.push(...rosterImpact.blockers.map((blocker) => `roster-impact blocker: ${blocker}`));
   if (rosterImpact && rosterImpact.confidence < 0.45) blockers.push("NBA roster-impact confidence too low");
   if (rosterImpact?.warnings.length) warnings.push(...rosterImpact.warnings.map((warning) => `roster-impact warning: ${warning}`));
 
-  const rawHome = clamp(input.rawHomeWinPct, 0.01, 0.99);
-  const rawAway = clamp(input.rawAwayWinPct, 0.01, 0.99);
+  const projectedHomeMargin = finiteNumber(input.projectedHomeMargin, 0);
+  const rawHome = clamp(finiteNumber(input.rawHomeWinPct, 0.5), 0.01, 0.99);
+  const rawAway = clamp(finiteNumber(input.rawAwayWinPct, 1 - rawHome), 0.01, 0.99);
   const rosterImpactDelta = clamp(rosterImpact?.boundedProbabilityDelta ?? 0, -0.035, 0.035);
   const deltaCap = deltaCapFor(input);
   const rawModelDelta = market ? rawHome - market.home : null;
@@ -131,9 +138,9 @@ export function buildNbaWinnerProbability(input: NbaWinnerProbabilityInput): Nba
   const boundedModelDelta = enhancedModelDelta == null ? 0 : clamp(enhancedModelDelta, -deltaCap, deltaCap);
   const finalHome = market ? clamp(market.home + boundedModelDelta, 0.01, 0.99) : rawHome;
   const finalAway = 1 - finalHome;
-  const marketMargin = market ? probabilityToMargin(market.home) : input.projectedHomeMargin;
-  const rosterMargin = rosterImpact?.finalProjectedHomeMargin ?? input.projectedHomeMargin;
-  const finalProjectedHomeMargin = clamp(marketMargin + boundedModelDelta * 80 + (rosterMargin - input.projectedHomeMargin) * 0.18, -18, 18);
+  const marketMargin = market ? probabilityToMargin(market.home) : projectedHomeMargin;
+  const rosterMargin = rosterImpact?.finalProjectedHomeMargin ?? projectedHomeMargin;
+  const finalProjectedHomeMargin = clamp(marketMargin + boundedModelDelta * 80 + (rosterMargin - projectedHomeMargin) * 0.18, -18, 18);
   const confidence = confidenceFor(input, blockers, boundedModelDelta);
 
   if (rawModelDelta != null && Math.abs(rawModelDelta) > 0.075) {
@@ -142,7 +149,7 @@ export function buildNbaWinnerProbability(input: NbaWinnerProbabilityInput): Nba
   if (rosterImpact && Math.abs(rosterImpactDelta) >= 0.02) {
     warnings.push(`NBA roster/team impact moved model delta by ${(rosterImpactDelta * 100).toFixed(1)} percentage points before cap.`);
   }
-  if (Math.abs(input.projectedHomeMargin - finalProjectedHomeMargin) > 5.5) {
+  if (Math.abs(projectedHomeMargin - finalProjectedHomeMargin) > 5.5) {
     warnings.push("winner anchor materially changed projected margin; use market-anchored probability for picks.");
   }
 
