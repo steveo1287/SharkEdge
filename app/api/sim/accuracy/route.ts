@@ -5,7 +5,7 @@ import { getMlbIntelV7AccuracyProof } from "@/services/simulation/mlb-intel-v7-a
 import {
   captureCurrentSimPredictionSnapshots,
   getSimAccuracySummary,
-  gradePendingSimPredictionSnapshots,
+  gradeFinalSimPredictionSnapshots,
   runSimAccuracyLedgerJob
 } from "@/services/simulation/sim-accuracy-ledger";
 
@@ -79,7 +79,7 @@ export async function GET(req: Request) {
   }
 
   if (action === "grade") {
-    const result = await gradePendingSimPredictionSnapshots(limit);
+    const result = await gradeFinalSimPredictionSnapshots(limit);
     return NextResponse.json(result, { status: result.ok ? 200 : 503 });
   }
 
@@ -125,7 +125,7 @@ export async function POST(req: Request) {
 
   if (action === "grade") {
     const limit = typeof body.limit === "number" ? Math.max(1, Math.min(100, body.limit)) : 20;
-    const result = await gradePendingSimPredictionSnapshots(limit);
+    const result = await gradeFinalSimPredictionSnapshots(limit);
     return NextResponse.json(result, { status: result.ok ? 200 : 503 });
   }
 
