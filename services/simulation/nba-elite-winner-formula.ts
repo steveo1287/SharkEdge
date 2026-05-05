@@ -1,6 +1,7 @@
 import type { NbaLineupTruth } from "@/services/simulation/nba-lineup-truth";
 import type { NbaNoVigMarket } from "@/services/simulation/nba-market-sanity";
 import type { NbaTeamStrengthRosterImpact } from "@/services/simulation/nba-team-strength-roster-impact";
+import type { NbaWinnerFactorWeightReport } from "@/services/simulation/nba-winner-factor-weights";
 
 export type NbaEliteWinnerFormulaInput = {
   rawHomeWinPct: number;
@@ -8,6 +9,7 @@ export type NbaEliteWinnerFormulaInput = {
   market: NbaNoVigMarket | null | undefined;
   lineupTruth: NbaLineupTruth | null | undefined;
   rosterImpact?: NbaTeamStrengthRosterImpact | null;
+  factorWeights?: NbaWinnerFactorWeightReport | null;
   sourceHealth?: {
     team: boolean;
     player: boolean;
@@ -28,6 +30,8 @@ export type NbaEliteWinnerFormulaResult = {
   rosterRatingDelta: number;
   rankingDelta: number;
   lineupPenaltyDelta: number;
+  learnedFactorDelta: number;
+  learnedFactorStatus: "GREEN" | "YELLOW" | "RED" | "INSUFFICIENT" | "UNAVAILABLE";
   sourceConfidence: number;
   shrinkageToMarket: number;
   modelMarginDelta: number;
@@ -120,6 +124,45 @@ function lineupPenaltyDelta(lineupTruth: NbaLineupTruth | null | undefined) {
   return 0;
 }
 
+function learnedFactorStatus(report: NbaWinnerFactorWeightReport | null | undefined) {
+  return report?.status ?? "UNAVAILABLE";
+}
+
+function learnedFactorDelta(args: {
+  report: NbaWinnerFactorWeightReport | null | undefined;
+  factorValues: Record<string, number>;
+  confidence: number;
+}) {
+  const report = args.report;
+  if (!report || report.status === "RED") return { delta: 0, applied: [] as string[], warnings: [] as string[] };
+  const singleCap = clamp(report.recommendedCaps.singleFactorMarginPoints ?? 1, 0.15, 1);
+  const totalCap = clamp(report.recommendedCaps.totalLearnedMarginPoints ?? 3, 0.5, 3);
+  const statusScale = report.status === "GREEN" ? 1 : report.status === "YELLOW" ? 0.45 : 0;
+  const applied: string[] = [];
+  const warnings: string[] = [];
+  let total = 0;
+
+  for (const factor of report.factors) {
+    const value = args.factorValues[factor.factor];
+    if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    if (factor.sampleSize < 100) continue;
+    if (factor.status === "RED" || factor.status === "INSUFFICIENT") continue;
+    if ((factor.correlationToResult ?? 0) <= 0) continue;
+    if (factor.suggestedWeight <= 0) continue;
+    const factorCap = clamp(factor.maxMarginContribution || singleCap, 0.15, singleCap);
+    const contribution = clamp(value * clamp(factor.suggestedWeight, 0, 1) * 0.22, -factorCap, factorCap);
+    if (Math.abs(contribution) < 0.01) continue;
+    total += contribution;
+    applied.push(`${factor.factor} ${contribution.toFixed(2)}pts w=${factor.suggestedWeight.toFixed(3)} n=${factor.sampleSize}`);
+  }
+
+  const confidenceScale = clamp(args.confidence, 0.12, 0.96);
+  const delta = clamp(total * statusScale * confidenceScale, -totalCap, totalCap);
+  if (report.status === "YELLOW" && applied.length) warnings.push("learned factor overlay is YELLOW; applied at reduced strength");
+  if (!applied.length && report.sampleSize >= 100) warnings.push("learned factor overlay found no eligible positive factors");
+  return { delta, applied, warnings };
+}
+
 function capFor(input: NbaEliteWinnerFormulaInput, confidence: number) {
   const lineupGreen = input.lineupTruth?.status === "GREEN" && input.lineupTruth.injuryReportFresh === true;
   const sourceGreen = input.sourceHealth?.requiredModulesReady === true && input.sourceHealth.realModules >= 4;
@@ -140,17 +183,32 @@ export function buildNbaEliteWinnerFormula(input: NbaEliteWinnerFormulaInput): N
   const rosterDelta = rosterRatingDelta(input.rosterImpact);
   const rankDelta = rankingDelta(input.rosterImpact);
   const lineupDelta = lineupPenaltyDelta(input.lineupTruth);
+  const confidence = sourceConfidence(input);
+  const learned = learnedFactorDelta({
+    report: input.factorWeights,
+    confidence,
+    factorValues: {
+      "four-factor style delta": fourFactor,
+      "roster rating delta": rosterDelta,
+      "ranking delta": rankDelta,
+      "lineup penalty": lineupDelta,
+      "roster/team delta": input.rosterImpact?.boundedProbabilityDelta ?? 0,
+      "raw model delta": marketProbability == null ? 0 : input.rawHomeWinPct - marketProbability,
+      "source confidence": confidence
+    }
+  });
+  warnings.push(...learned.warnings);
+
   const blendedModelMargin = clamp(
-    input.projectedHomeMargin * 0.34 + rawModelMargin * 0.16 + (rosterMargin ?? input.projectedHomeMargin) * 0.24 + fourFactor + rosterDelta + rankDelta + lineupDelta,
+    input.projectedHomeMargin * 0.34 + rawModelMargin * 0.16 + (rosterMargin ?? input.projectedHomeMargin) * 0.24 + fourFactor + rosterDelta + rankDelta + lineupDelta + learned.delta,
     -18,
     18
   );
   const modelMarginDelta = marketMargin == null ? 0 : blendedModelMargin - marketMargin;
-  const confidence = sourceConfidence(input);
   const shrinkage = shrinkageToMarket(confidence, modelMarginDelta);
   const shrunkMarginDelta = modelMarginDelta * shrinkage;
   const probabilityDelta = marketMargin == null ? 0 : nbaMarginToProbability(marketMargin + shrunkMarginDelta) - marketProbability!;
-  const cap = capFor(input, confidence);
+  const cap = Math.min(capFor(input, confidence), input.factorWeights?.recommendedCaps.probabilityDeltaHardCap ?? 0.045);
   const boundedProbabilityDelta = clamp(probabilityDelta, -cap, cap);
   const finalHomeProbability = marketProbability == null ? null : clamp(marketProbability + boundedProbabilityDelta, 0.01, 0.99);
   const finalHomeMargin = marketMargin == null
@@ -160,6 +218,7 @@ export function buildNbaEliteWinnerFormula(input: NbaEliteWinnerFormulaInput): N
   if (marketMargin != null && Math.abs(modelMarginDelta) > 7) warnings.push("elite formula saw major model-market margin disagreement; shrinkage heavily applied");
   if (input.rosterImpact && input.rosterImpact.confidence < 0.52) warnings.push("roster/ranking confidence is weak; formula delta should stay small");
   if (input.lineupTruth?.status !== "GREEN") warnings.push("lineup truth is not green; formula cannot be trusted for strong action");
+  if (input.factorWeights?.status === "RED") warnings.push("learned factor overlay skipped because factor report is RED");
 
   return {
     marketHomeNoVig: marketProbability == null ? null : round(marketProbability),
@@ -171,6 +230,8 @@ export function buildNbaEliteWinnerFormula(input: NbaEliteWinnerFormulaInput): N
     rosterRatingDelta: round(rosterDelta, 3),
     rankingDelta: round(rankDelta, 3),
     lineupPenaltyDelta: round(lineupDelta, 3),
+    learnedFactorDelta: round(learned.delta, 3),
+    learnedFactorStatus: learnedFactorStatus(input.factorWeights),
     sourceConfidence: round(confidence, 3),
     shrinkageToMarket: round(shrinkage, 3),
     modelMarginDelta: round(modelMarginDelta, 3),
@@ -188,6 +249,8 @@ export function buildNbaEliteWinnerFormula(input: NbaEliteWinnerFormulaInput): N
       `roster rating delta ${rosterDelta.toFixed(2)}`,
       `ranking delta ${rankDelta.toFixed(2)}`,
       `lineup penalty ${lineupDelta.toFixed(2)}`,
+      `learned factor delta ${learned.delta.toFixed(2)} status ${learnedFactorStatus(input.factorWeights)}`,
+      ...learned.applied.map((driver) => `learned factor applied: ${driver}`),
       `source confidence ${(confidence * 100).toFixed(1)}%`,
       `shrinkage to market ${(shrinkage * 100).toFixed(1)}%`,
       `bounded probability delta ${(boundedProbabilityDelta * 100).toFixed(1)}%`
