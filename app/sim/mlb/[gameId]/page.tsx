@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
@@ -10,7 +9,7 @@ import {
 } from "@/components/sim/sim-ui";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
-import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
+import { buildMainSimProjection as buildSimProjection, mainBrainLabel } from "@/services/simulation/main-sim-brain";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -79,15 +78,17 @@ export default async function MlbGameDetailPage({ params }: PageProps) {
   const lean = winLean(projection);
   const factors = [...(projection.mlbIntel?.factors ?? [])].sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).slice(0, 12);
   const governor = projection.mlbIntel?.governor;
+  const brain = mainBrainLabel("MLB");
 
   return (
     <div className="space-y-6">
       <SimWorkspaceHeader
         eyebrow="MLB Game Sim"
         title={`${projection.matchup.away} @ ${projection.matchup.home}`}
-        description={`${formatTime(game.startTime)} · ${projection.read}`}
+        description={`${formatTime(game.startTime)} · ${brain} · ${projection.read}`}
         actions={[
           { href: "/sim/mlb", label: "MLB Board" },
+          { href: "/sim/mlb/v7/live", label: "V8 Live" },
           { href: "/mlb-edge", label: "MLB Edge", tone: "primary" }
         ]}
       >
