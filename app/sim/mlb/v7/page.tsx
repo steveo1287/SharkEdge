@@ -50,6 +50,12 @@ export default async function MlbIntelV7Page() {
     getMlbIntelV7LedgerSummary(90),
     getMlbRosterIntelligenceSummary()
   ]);
+  const snapshotLedger = ledger.ok ? ledger.snapshotLedger : undefined;
+  const officialPickLedger = ledger.ok ? ledger.officialPickLedger : undefined;
+  const neutralBaselines = ledger.ok ? ledger.neutralBaselines : undefined;
+  const hitters = roster.ok ? roster.hitters : undefined;
+  const pitchers = roster.ok ? roster.pitchers : undefined;
+  const lineupSnapshots = roster.ok ? roster.lineupSnapshots : undefined;
 
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -71,30 +77,30 @@ export default async function MlbIntelV7Page() {
       </section>
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Tile label="Snapshot rows" value={ledger.ok ? ledger.snapshotLedger.total : "--"} note="Calibration snapshots, not official picks" />
-        <Tile label="Official picks" value={ledger.ok ? ledger.officialPickLedger.total : "--"} note="Dedupe by game/market/side/model" />
-        <Tile label="Neutral Brier" value={ledger.ok ? num(ledger.neutralBaselines.brier, 4) : "--"} note="50/50 benchmark to beat" />
-        <Tile label="Neutral log loss" value={ledger.ok ? num(ledger.neutralBaselines.logLoss, 4) : "--"} note="Overconfidence benchmark" />
+        <Tile label="Snapshot rows" value={snapshotLedger?.total ?? "--"} note="Calibration snapshots, not official picks" />
+        <Tile label="Official picks" value={officialPickLedger?.total ?? "--"} note="Dedupe by game/market/side/model" />
+        <Tile label="Neutral Brier" value={num(neutralBaselines?.brier, 4)} note="50/50 benchmark to beat" />
+        <Tile label="Neutral log loss" value={num(neutralBaselines?.logLoss, 4)} note="Overconfidence benchmark" />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
         <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4">
           <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Snapshot calibration ledger</div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <Tile label="Settled" value={ledger.ok ? ledger.snapshotLedger.settled : "--"} note="Rows with final scores" />
-            <Tile label="Pending" value={ledger.ok ? ledger.snapshotLedger.pending : "--"} note="Awaiting result" />
-            <Tile label="Brier" value={ledger.ok ? num(ledger.snapshotLedger.brier, 4) : "--"} note="Lower than .250 is the target" />
-            <Tile label="Log loss" value={ledger.ok ? num(ledger.snapshotLedger.logLoss, 4) : "--"} note="Lower than .693 is the target" />
+            <Tile label="Settled" value={snapshotLedger?.settled ?? "--"} note="Rows with final scores" />
+            <Tile label="Pending" value={snapshotLedger?.pending ?? "--"} note="Awaiting result" />
+            <Tile label="Brier" value={num(snapshotLedger?.brier, 4)} note="Lower than .250 is the target" />
+            <Tile label="Log loss" value={num(snapshotLedger?.logLoss, 4)} note="Lower than .693 is the target" />
           </div>
         </div>
 
         <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4">
           <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Official pick ledger</div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <Tile label="Win rate" value={ledger.ok ? pct(ledger.officialPickLedger.winRate) : "--"} note="Official picks only" />
-            <Tile label="CLV" value={ledger.ok ? pctRaw(ledger.officialPickLedger.clv) : "--"} note="Close-line movement proof" />
-            <Tile label="Brier" value={ledger.ok ? num(ledger.officialPickLedger.brier, 4) : "--"} note="Pick probability calibration" />
-            <Tile label="ROI" value={ledger.ok ? pctRaw(ledger.officialPickLedger.roi) : "--"} note="Future staking layer" />
+            <Tile label="Win rate" value={pct(officialPickLedger?.winRate)} note="Official picks only" />
+            <Tile label="CLV" value={pctRaw(officialPickLedger?.clv)} note="Close-line movement proof" />
+            <Tile label="Brier" value={num(officialPickLedger?.brier, 4)} note="Pick probability calibration" />
+            <Tile label="ROI" value={pctRaw(officialPickLedger?.roi)} note="Future staking layer" />
           </div>
         </div>
       </section>
@@ -102,22 +108,22 @@ export default async function MlbIntelV7Page() {
       <section className="grid gap-4 xl:grid-cols-2">
         <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4">
           <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Hitter ratings</div>
-          <div className="mt-2 text-sm text-slate-400">{roster.ok ? `${roster.hitters.total} hitter rows across ${roster.hitters.teams} teams.` : "Roster tables are not ready."}</div>
-          <div className="mt-4"><RoleRows rows={roster.ok ? roster.hitters.roles : []} /></div>
+          <div className="mt-2 text-sm text-slate-400">{hitters ? `${hitters.total} hitter rows across ${hitters.teams} teams.` : "Roster tables are not ready."}</div>
+          <div className="mt-4"><RoleRows rows={hitters?.roles ?? []} /></div>
         </div>
 
         <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4">
           <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Pitcher ratings</div>
-          <div className="mt-2 text-sm text-slate-400">{roster.ok ? `${roster.pitchers.total} pitcher rows across ${roster.pitchers.teams} teams.` : "Roster tables are not ready."}</div>
-          <div className="mt-4"><RoleRows rows={roster.ok ? roster.pitchers.roles : []} /></div>
+          <div className="mt-2 text-sm text-slate-400">{pitchers ? `${pitchers.total} pitcher rows across ${pitchers.teams} teams.` : "Roster tables are not ready."}</div>
+          <div className="mt-4"><RoleRows rows={pitchers?.roles ?? []} /></div>
         </div>
       </section>
 
       <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4">
         <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Lineup snapshot readiness</div>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <Tile label="Lineup snapshots" value={roster.ok ? roster.lineupSnapshots.total : "--"} note="Projected or confirmed batting orders" />
-          <Tile label="Confirmed" value={roster.ok ? roster.lineupSnapshots.confirmed : "--"} note="Official lineup lock rows" />
+          <Tile label="Lineup snapshots" value={lineupSnapshots?.total ?? "--"} note="Projected or confirmed batting orders" />
+          <Tile label="Confirmed" value={lineupSnapshots?.confirmed ?? "--"} note="Official lineup lock rows" />
           <Tile label="Model target" value="Roster-aware" note="Stars, starters, bench, aces, rotation tiers, bullpen roles" />
         </div>
       </section>
