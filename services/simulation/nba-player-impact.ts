@@ -48,19 +48,28 @@ export type NbaPlayerImpactFeedHealth = {
   warnings: string[];
 };
 
-type RawPlayerImpact = Partial<NbaPlayerImpactRecord> & {
+type RawPlayerImpact = {
+  playerName?: string;
+  teamName?: string;
   player?: string;
   name?: string;
   team?: string;
   team_name?: string;
   injury_status?: string;
   status?: string;
-  minutes_impact?: number;
-  usage_impact?: number;
-  net_rating_impact?: number;
-  offensive_impact?: number;
-  defensive_impact?: number;
-  volatility_impact?: number;
+  minutesImpact?: number | string;
+  usageImpact?: number | string;
+  netRatingImpact?: number | string;
+  offensiveImpact?: number | string;
+  defensiveImpact?: number | string;
+  volatilityImpact?: number | string;
+  minutes_impact?: number | string;
+  usage_impact?: number | string;
+  net_rating_impact?: number | string;
+  offensive_impact?: number | string;
+  defensive_impact?: number | string;
+  volatility_impact?: number | string;
+  source?: NbaPlayerImpactRecord["source"];
 };
 
 const CACHE_KEY = "nba:player-impact:v2";
@@ -118,11 +127,12 @@ function statusWeight(status: PlayerStatus) {
   return 0;
 }
 
-function rowsFromBody(body: any): RawPlayerImpact[] {
-  if (Array.isArray(body)) return body;
-  if (Array.isArray(body?.players)) return body.players;
-  if (Array.isArray(body?.injuries)) return body.injuries;
-  if (Array.isArray(body?.data)) return body.data;
+function rowsFromBody(body: unknown): RawPlayerImpact[] {
+  const payload = body as { players?: unknown; injuries?: unknown; data?: unknown } | null;
+  if (Array.isArray(body)) return body as RawPlayerImpact[];
+  if (Array.isArray(payload?.players)) return payload.players as RawPlayerImpact[];
+  if (Array.isArray(payload?.injuries)) return payload.injuries as RawPlayerImpact[];
+  if (Array.isArray(payload?.data)) return payload.data as RawPlayerImpact[];
   return [];
 }
 
@@ -132,13 +142,20 @@ function parseDateString(value: unknown) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function timestampFromBody(body: any, fallback: string | null) {
-  return parseDateString(body?.lastUpdatedAt)
-    ?? parseDateString(body?.updatedAt)
-    ?? parseDateString(body?.generatedAt)
-    ?? parseDateString(body?.timestamp)
-    ?? parseDateString(body?.meta?.lastUpdatedAt)
-    ?? parseDateString(body?.meta?.updatedAt)
+function timestampFromBody(body: unknown, fallback: string | null) {
+  const payload = body as {
+    lastUpdatedAt?: unknown;
+    updatedAt?: unknown;
+    generatedAt?: unknown;
+    timestamp?: unknown;
+    meta?: { lastUpdatedAt?: unknown; updatedAt?: unknown };
+  } | null;
+  return parseDateString(payload?.lastUpdatedAt)
+    ?? parseDateString(payload?.updatedAt)
+    ?? parseDateString(payload?.generatedAt)
+    ?? parseDateString(payload?.timestamp)
+    ?? parseDateString(payload?.meta?.lastUpdatedAt)
+    ?? parseDateString(payload?.meta?.updatedAt)
     ?? fallback;
 }
 
@@ -167,8 +184,8 @@ function normalizeRaw(row: RawPlayerImpact): NbaPlayerImpactRecord | null {
   };
 }
 
-function isSnapshot(value: any): value is NbaPlayerImpactSnapshot {
-  return value && typeof value === "object" && value.teams && typeof value.teams === "object";
+function isSnapshot(value: unknown): value is NbaPlayerImpactSnapshot {
+  return Boolean(value && typeof value === "object" && "teams" in value && typeof (value as { teams?: unknown }).teams === "object");
 }
 
 function minutesOld(value: string | null | undefined, now = new Date()) {
@@ -245,6 +262,7 @@ async function snapshotFromFreeFeed(): Promise<NbaPlayerImpactSnapshot | null> {
   for (const player of feed.players) {
     const record = normalizeRaw({
       ...player,
+      status: player.status,
       source: player.source === "official-nba" ? "free-official-nba" : "free-espn"
     });
     if (!record) continue;
@@ -270,7 +288,7 @@ async function fetchPlayerImpactSnapshot(): Promise<NbaPlayerImpactSnapshot | nu
     try {
       const response = await fetchJsonWithTimeout(url!);
       if (response.ok) {
-        const body = await response.json();
+        const body: unknown = await response.json();
         const grouped: Record<string, NbaPlayerImpactRecord[]> = {};
         for (const row of rowsFromBody(body)) {
           const record = normalizeRaw(row);
