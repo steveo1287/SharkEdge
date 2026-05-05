@@ -383,7 +383,13 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
     return emptyScorecard(filters, false, "No usable server database URL is configured.");
   }
 
-  const initialization = await getSimAccuracySummary(1);
+  let initialization: Awaited<ReturnType<typeof getSimAccuracySummary>>;
+  try {
+    initialization = await getSimAccuracySummary(1);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return emptyScorecard(filters, true, `Ledger initialization failed: ${message}`);
+  }
   if (!initialization.ok) {
     return emptyScorecard(filters, initialization.databaseReady, initialization.error ?? "Unable to initialize sim accuracy snapshot ledger.");
   }
