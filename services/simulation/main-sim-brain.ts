@@ -49,15 +49,17 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
     homeTeam: rawProjection.matchup.home,
     projection: rawProjection
   });
+  if (!v8Projection.mlbIntel?.governor) return rawProjection;
+
   const mlbIntel = v8Projection.mlbIntel;
   const v7 = buildMlbIntelV7Probability({
     rawHomeWinPct: v8Projection.distribution.homeWinPct,
-    marketHomeNoVigProbability: mlbIntel?.market?.homeNoVigProbability ?? null,
-    existingConfidence: mlbIntel?.governor?.confidence ?? null,
-    existingTier: mlbIntel?.governor?.tier ?? null
+    marketHomeNoVigProbability: mlbIntel.market?.homeNoVigProbability ?? null,
+    existingConfidence: mlbIntel.governor.confidence ?? null,
+    existingTier: mlbIntel.governor.tier ?? null
   });
   const guardrails = await getSimAccuracyGuardrails();
-  const v8Reasons = (mlbIntel?.playerImpact as { reasons?: string[] } | null | undefined)?.reasons ?? [];
+  const v8Reasons = (mlbIntel.playerImpact as { reasons?: string[] } | null | undefined)?.reasons ?? [];
   const brainReasons = [
     "Main sim brain active for MLB: v8 player-impact model feeds v7 shrinkage, no-vig market anchoring, and accuracy guardrails.",
     ...v8Reasons,
