@@ -1,4 +1,5 @@
 import type { NbaPlayerStatProjection } from "@/services/simulation/nba-player-stat-sim";
+import { buildNbaAdvancedPlayerBoxScore } from "@/services/simulation/nba-player-advanced-box-score";
 import { buildNbaPlayerRoleDepth } from "@/services/simulation/nba-player-role-depth";
 
 export type NbaDefensiveEventTeam = {
@@ -22,7 +23,7 @@ export type NbaDefensiveEventTeam = {
 };
 
 export type NbaDefensiveEventEdge = {
-  modelVersion: "nba-defensive-event-edge-v1";
+  modelVersion: "nba-defensive-event-edge-v2";
   home: NbaDefensiveEventTeam;
   away: NbaDefensiveEventTeam;
   homeStopEdge: number;
@@ -72,48 +73,57 @@ function side(players: NbaPlayerStatProjection[], teamSide: "home" | "away") {
 }
 
 function buildTeam(teamName: string, teamSide: "home" | "away", players: NbaPlayerStatProjection[]): NbaDefensiveEventTeam {
-  const rows = players.map((player) => ({ player, roleDepth: buildNbaPlayerRoleDepth(player), availability: statusAvailability(player.status) }));
+  const rows = players.map((player) => ({
+    player,
+    roleDepth: buildNbaPlayerRoleDepth(player),
+    advanced: buildNbaAdvancedPlayerBoxScore(player),
+    availability: statusAvailability(player.status)
+  }));
   const activeMinutes = sum(rows.map((row) => row.player.projectedMinutes * row.availability));
   const totalMinutes = sum(rows.map((row) => Math.max(0, row.player.projectedMinutes)));
   const availabilityIndex = totalMinutes > 0 ? clamp(activeMinutes / totalMinutes, 0, 1) : 0;
   const minuteWeights = rows.map((row) => Math.min(1, row.player.projectedMinutes / 32) * row.availability);
   const stealPressure = clamp(sum(rows.map((row, index) => (
-    row.roleDepth.rolePlayerScore * 0.34 +
-    row.roleDepth.creationScore * 0.1 +
-    row.roleDepth.possessionLoadScore * 0.08 +
-    Math.min(1, per36(row.player.projectedAssists, row.player.projectedMinutes) / 8.5) * 0.1 +
-    row.roleDepth.closingLineupScore * 0.12
-  ) * minuteWeights[index])) / 3.4, 0, 1.45);
-  const blockPressure = clamp(sum(rows.map((row, index) => (
-    row.roleDepth.reboundingScore * 0.34 +
-    row.roleDepth.rolePlayerScore * 0.12 +
-    Math.min(1, per36(row.player.projectedRebounds, row.player.projectedMinutes) / 11.5) * 0.18 +
+    row.roleDepth.rolePlayerScore * 0.22 +
+    row.advanced.projectedSteals / 2.4 * 0.34 +
+    row.advanced.defensiveEventRate / 4.8 * 0.16 +
+    row.roleDepth.creationScore * 0.07 +
+    row.roleDepth.possessionLoadScore * 0.05 +
+    Math.min(1, per36(row.player.projectedAssists, row.player.projectedMinutes) / 8.5) * 0.06 +
     row.roleDepth.closingLineupScore * 0.1
-  ) * minuteWeights[index])) / 3.3, 0, 1.45);
-  const deflectionProxy = clamp(stealPressure * 0.58 + average(rows.map((row) => row.roleDepth.rolePlayerScore * row.availability)) * 0.42, 0, 1.4);
-  const rimProtection = clamp(blockPressure * 0.68 + average(rows.map((row) => row.roleDepth.reboundingScore * row.availability)) * 0.32, 0, 1.4);
+  ) * minuteWeights[index])) / 3.2, 0, 1.45);
+  const blockPressure = clamp(sum(rows.map((row, index) => (
+    row.roleDepth.reboundingScore * 0.22 +
+    row.advanced.projectedBlocks / 2.6 * 0.42 +
+    row.roleDepth.rolePlayerScore * 0.09 +
+    Math.min(1, per36(row.player.projectedRebounds, row.player.projectedMinutes) / 11.5) * 0.14 +
+    row.roleDepth.closingLineupScore * 0.08
+  ) * minuteWeights[index])) / 3.1, 0, 1.45);
+  const deflectionProxy = clamp(stealPressure * 0.52 + average(rows.map((row) => row.advanced.defensiveEventRate / 4.8 * row.availability)) * 0.3 + average(rows.map((row) => row.roleDepth.rolePlayerScore * row.availability)) * 0.18, 0, 1.4);
+  const rimProtection = clamp(blockPressure * 0.64 + average(rows.map((row) => row.advanced.projectedBlocks / 2.6 * row.availability)) * 0.18 + average(rows.map((row) => row.roleDepth.reboundingScore * row.availability)) * 0.18, 0, 1.4);
   const defensiveReboundSecurity = clamp(sum(rows.map((row, index) => (
-    row.roleDepth.reboundingScore * 0.54 +
-    Math.min(1, per36(row.player.projectedRebounds, row.player.projectedMinutes) / 12) * 0.34 +
+    row.roleDepth.reboundingScore * 0.42 +
+    row.advanced.projectedReboundPct / 28 * 0.24 +
+    Math.min(1, per36(row.player.projectedRebounds, row.player.projectedMinutes) / 12) * 0.22 +
     row.roleDepth.rolePlayerScore * 0.12
-  ) * minuteWeights[index])) / 3.5, 0, 1.45);
-  const possessionDisruption = clamp(stealPressure * 0.52 + deflectionProxy * 0.3 + blockPressure * 0.18, 0, 1.45);
-  const opponentTurnoverPressure = clamp(stealPressure * 0.62 + deflectionProxy * 0.38, 0, 1.45);
-  const transitionPressure = clamp(stealPressure * 0.55 + average(rows.map((row) => row.roleDepth.creationScore * row.availability)) * 0.22 + average(rows.map((row) => row.roleDepth.spacingScore * row.availability)) * 0.18, 0, 1.35);
+  ) * minuteWeights[index])) / 3.35, 0, 1.45);
+  const possessionDisruption = clamp(stealPressure * 0.44 + deflectionProxy * 0.28 + blockPressure * 0.14 + average(rows.map((row) => row.advanced.stocks / 3.6 * row.availability)) * 0.14, 0, 1.45);
+  const opponentTurnoverPressure = clamp(stealPressure * 0.52 + deflectionProxy * 0.3 + average(rows.map((row) => row.advanced.projectedSteals / 2.4 * row.availability)) * 0.18, 0, 1.45);
+  const transitionPressure = clamp(stealPressure * 0.5 + average(rows.map((row) => row.roleDepth.creationScore * row.availability)) * 0.19 + average(rows.map((row) => row.roleDepth.spacingScore * row.availability)) * 0.15 + average(rows.map((row) => row.advanced.projectedSteals / 2.4 * row.availability)) * 0.16, 0, 1.35);
   const highUsageLoad = average(rows.map((row) => row.roleDepth.possessionLoadScore * Math.min(1, row.player.projectedMinutes / 34) * row.availability));
-  const foulRiskProxy = clamp(0.42 + highUsageLoad * 0.18 + blockPressure * 0.14 - defensiveReboundSecurity * 0.1, 0.15, 1.15);
+  const foulRiskProxy = clamp(0.38 + highUsageLoad * 0.16 + blockPressure * 0.1 + average(rows.map((row) => row.advanced.foulPressureRate * row.availability)) * 0.2 - defensiveReboundSecurity * 0.1, 0.15, 1.15);
   const eventStopScore = clamp(
-    possessionDisruption * 0.28 +
-    opponentTurnoverPressure * 0.18 +
-    rimProtection * 0.2 +
-    defensiveReboundSecurity * 0.18 +
+    possessionDisruption * 0.3 +
+    opponentTurnoverPressure * 0.19 +
+    rimProtection * 0.19 +
+    defensiveReboundSecurity * 0.17 +
     transitionPressure * 0.08 +
     availabilityIndex * 0.08 -
-    foulRiskProxy * 0.07,
+    foulRiskProxy * 0.06,
     0,
     1.55
   );
-  const confidence = clamp(average(rows.map((row) => row.player.confidence * row.roleDepth.roleConfidence * row.availability)) * (players.length >= 7 ? 1 : 0.76), 0.08, 0.95);
+  const confidence = clamp(average(rows.map((row) => row.player.confidence * row.roleDepth.roleConfidence * row.advanced.confidence * row.availability)) * (players.length >= 7 ? 1 : 0.76), 0.08, 0.95);
   const warnings: string[] = [];
   if (players.length < 7) warnings.push(`${teamName} defensive event model has fewer than 7 player rows`);
   if (availabilityIndex < 0.82) warnings.push(`${teamName} defensive event availability below 82%`);
@@ -185,7 +195,7 @@ export function buildNbaDefensiveEventEdge(args: {
   const warnings = [...home.warnings, ...away.warnings];
 
   return {
-    modelVersion: "nba-defensive-event-edge-v1",
+    modelVersion: "nba-defensive-event-edge-v2",
     home,
     away,
     homeStopEdge: round(homeStopEdge),
