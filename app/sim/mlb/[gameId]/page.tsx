@@ -8,14 +8,18 @@ import {
   SimWorkspaceHeader
 } from "@/components/sim/sim-ui";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
+import { cacheAgeLabel, readCachedMlbGameDetail } from "@/services/simulation/mlb-game-detail-cache";
 import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
 import { buildMainSimProjection as buildSimProjection, mainBrainLabel } from "@/services/simulation/main-sim-brain";
+
+type LiveProjection = Awaited<ReturnType<typeof buildSimProjection>>;
+type ProjectionView = Pick<LiveProjection, "matchup" | "distribution" | "read" | "statSheet" | "realityIntel" | "mlbIntel" | "nbaIntel">;
+type EdgeResult = Awaited<ReturnType<typeof buildMlbEdges>>["edges"][number];
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type PageProps = { params: Promise<{ gameId: string }> };
-type EdgeResult = Awaited<ReturnType<typeof buildMlbEdges>>["edges"][number];
 
 function pct(value: number | null | undefined, digits = 1) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
@@ -38,7 +42,7 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
 }
 
-function winLean(projection: Awaited<ReturnType<typeof buildSimProjection>>) {
+function winLean(projection: ProjectionView) {
   const home = projection.distribution.homeWinPct;
   const away = projection.distribution.awayWinPct;
   return home >= away
@@ -63,18 +67,43 @@ function MarketPanel({ edge }: { edge?: EdgeResult | null }) {
   );
 }
 
-export default async function MlbGameDetailPage({ params }: PageProps) {
-  const { gameId } = await params;
-  const decodedId = decodeURIComponent(gameId);
+async function buildLiveFallback(gameId: string) {
   const [sections, edgeData] = await Promise.all([
     buildBoardSportSections({ selectedLeague: "MLB", gamesByLeague: {}, maxScoreboardGames: null }),
     buildMlbEdges().catch(() => ({ edges: [] as EdgeResult[] }))
   ]);
-  const game = sections.flatMap((section) => section.scoreboard.map((item) => ({ ...item, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel }))).find((item) => item.id === decodedId);
-  if (!game) notFound();
+  const game = sections
+    .flatMap((section) => section.scoreboard.map((item) => ({ ...item, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel })))
+    .find((item) => item.id === gameId);
+  if (!game) return null;
 
   const projection = await buildSimProjection(game);
-  const edge = edgeData.edges.find((item) => item.gameId === decodedId) ?? null;
+  return {
+    game,
+    projection: projection as ProjectionView,
+    edge: edgeData.edges.find((item) => item.gameId === gameId) ?? null,
+    cacheLabel: "live fallback",
+    stale: false
+  };
+}
+
+export default async function MlbGameDetailPage({ params }: PageProps) {
+  const { gameId } = await params;
+  const decodedId = decodeURIComponent(gameId);
+  const cached = await readCachedMlbGameDetail(decodedId);
+  const detail = cached
+    ? {
+      game: cached.row.game,
+      projection: cached.row.projection as ProjectionView,
+      edge: cached.edge as EdgeResult | null,
+      cacheLabel: `${cacheAgeLabel(cached.generatedAt)}${cached.stale ? " · stale" : ""}`,
+      stale: cached.stale
+    }
+    : await buildLiveFallback(decodedId);
+
+  if (!detail) notFound();
+
+  const { game, projection, edge, cacheLabel } = detail;
   const lean = winLean(projection);
   const factors = [...(projection.mlbIntel?.factors ?? [])].sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).slice(0, 12);
   const governor = projection.mlbIntel?.governor;
@@ -85,10 +114,11 @@ export default async function MlbGameDetailPage({ params }: PageProps) {
       <SimWorkspaceHeader
         eyebrow="MLB Game Sim"
         title={`${projection.matchup.away} @ ${projection.matchup.home}`}
-        description={`${formatTime(game.startTime)} · ${brain} · ${projection.read}`}
+        description={`${formatTime(game.startTime)} · ${brain} · ${cacheLabel} · ${projection.read}`}
         actions={[
           { href: "/sim/mlb", label: "MLB Board" },
           { href: "/sim/mlb/v7/live", label: "V8 Live" },
+          { href: "/sim/mlb/calibration-lab", label: "Calibration Lab" },
           { href: "/mlb-edge", label: "MLB Edge", tone: "primary" }
         ]}
       >
