@@ -1669,3 +1669,50 @@ model SimTuning {
   @@index([scope])
   @@map("sim_tuning")
 }
+
+model SimPredictionSnapshot {
+  id                String    @id
+  snapshotKey       String    @unique @map("snapshot_key")
+  league            String
+  gameId            String    @map("game_id")
+  eventLabel        String    @map("event_label")
+  awayTeam          String    @map("away_team")
+  homeTeam          String    @map("home_team")
+  startTime         DateTime  @map("start_time")
+  status            String
+  capturedAt        DateTime  @map("captured_at")
+  modelVersion      String?   @map("model_version")
+  dataSource        String?   @map("data_source")
+  tier              String?
+  noBet             Boolean?  @default(false) @map("no_bet")
+  confidence        Float?
+  modelHomeWinPct   Float     @map("model_home_win_pct")
+  modelAwayWinPct   Float     @map("model_away_win_pct")
+  modelSpread       Float     @map("model_spread")
+  modelTotal        Float     @map("model_total")
+  modelHomeScore    Float     @map("model_home_score")
+  modelAwayScore    Float     @map("model_away_score")
+  marketHomeWinPct  Float?    @map("market_home_win_pct")
+  marketSpread      Float?    @map("market_spread")
+  marketTotal       Float?    @map("market_total")
+  finalHomeScore    Float?    @map("final_home_score")
+  finalAwayScore    Float?    @map("final_away_score")
+  finalMargin       Float?    @map("final_margin")
+  finalTotal        Float?    @map("final_total")
+  homeWon           Boolean?  @map("home_won")
+  brier             Float?
+  logLoss           Float?    @map("log_loss")
+  spreadError       Float?    @map("spread_error")
+  totalError        Float?    @map("total_error")
+  calibrationBucket String?   @map("calibration_bucket")
+  predictionJson    Json?     @map("prediction_json")
+  resultJson        Json?     @map("result_json")
+  gradedAt          DateTime? @map("graded_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([league, capturedAt(sort: Desc)])
+  @@index([league, gameId])
+  @@index([gradedAt, startTime])
+  @@map("sim_prediction_snapshots")
+}
