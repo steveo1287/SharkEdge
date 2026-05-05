@@ -3,6 +3,7 @@ import { applySimAccuracyGuardrail, getSimAccuracyGuardrails } from "@/services/
 import { buildGuardedSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
 import { buildMlbIntelV7Probability, type MlbIntelV7Tier } from "@/services/simulation/mlb-intel-v7-probability";
 import { buildMlbPremiumFormulaStack } from "@/services/simulation/mlb-premium-formula-stack";
+import { getActiveMlbPremiumFormulaProfile } from "@/services/simulation/mlb-premium-formula-profile";
 import { applyMlbPremiumPickPolicy } from "@/services/simulation/mlb-premium-pick-policy";
 import { applyMlbV8PlayerImpactModel } from "@/services/simulation/mlb-v8-player-impact-model";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
@@ -16,7 +17,7 @@ type MlbIntelWithGovernor = MlbIntel & { governor: MlbGovernor; playerImpact?: u
 
 type MainBrainMetadata = {
   modelVersion: "main-sim-brain-v1";
-  primaryMlbBrain: "mlb-intel-v8-player-impact+premium-formula-stack+mlb-intel-v7-calibration+premium-policy";
+  primaryMlbBrain: "mlb-intel-v8-player-impact+learned-formula-profile+mlb-intel-v7-calibration+premium-policy";
   rawHomeWinPct: number;
   v8HomeWinPct: number;
   v7HomeWinPct: number;
@@ -26,6 +27,8 @@ type MainBrainMetadata = {
   v7Tier: string;
   v7NoBet: boolean;
   v7Confidence: number;
+  formulaProfileStatus: string;
+  formulaProfileSampleSize: number;
   formulaTier: string;
   formulaConfidence: number;
   premiumTier: string;
@@ -64,12 +67,15 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
   const rawProjection = await buildSimProjection(input);
   if (input.leagueKey !== "MLB" || !hasMlbGovernor(rawProjection)) return rawProjection;
 
-  const v8Projection = await applyMlbV8PlayerImpactModel({
-    gameId: input.id,
-    awayTeam: rawProjection.matchup.away,
-    homeTeam: rawProjection.matchup.home,
-    projection: rawProjection
-  });
+  const [v8Projection, formulaProfile] = await Promise.all([
+    applyMlbV8PlayerImpactModel({
+      gameId: input.id,
+      awayTeam: rawProjection.matchup.away,
+      homeTeam: rawProjection.matchup.home,
+      projection: rawProjection
+    }),
+    getActiveMlbPremiumFormulaProfile()
+  ]);
   if (!hasMlbGovernor(v8Projection)) return rawProjection;
 
   const mlbIntel = v8Projection.mlbIntel;
@@ -86,7 +92,8 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
     v7HomeWinPct: v7.finalHomeWinPct,
     marketHomeNoVigProbability: v7.marketHomeNoVigProbability,
     homeRuns: v8Projection.distribution.avgHome,
-    awayRuns: v8Projection.distribution.avgAway
+    awayRuns: v8Projection.distribution.avgAway,
+    profile: formulaProfile
   });
   const formulaConfidence = Math.min(v7.confidence, premiumFormulaStack.confidenceCap);
   const formulaTier = tierForFormula(premiumFormulaStack.edgeHomePct, formulaConfidence, v7.minEdgePct);
@@ -113,7 +120,7 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
   const guardrails = await getSimAccuracyGuardrails();
   const v8Reasons = (mlbIntel.playerImpact as { reasons?: string[] } | null | undefined)?.reasons ?? [];
   const brainReasons = [
-    "Main sim brain active for MLB: v8 player-impact model feeds formula consensus, v7 shrinkage, no-vig market anchoring, premium pick policy, and accuracy guardrails.",
+    "Main sim brain active for MLB: v8 player-impact model feeds learned formula profile, v7 shrinkage, no-vig market anchoring, premium pick policy, and accuracy guardrails.",
     ...v8Reasons,
     ...premiumFormulaStack.reasons,
     ...v7.reasons,
@@ -139,7 +146,7 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
     : guarded.reasons;
   const mainBrain: MainBrainMetadata = {
     modelVersion: "main-sim-brain-v1",
-    primaryMlbBrain: "mlb-intel-v8-player-impact+premium-formula-stack+mlb-intel-v7-calibration+premium-policy",
+    primaryMlbBrain: "mlb-intel-v8-player-impact+learned-formula-profile+mlb-intel-v7-calibration+premium-policy",
     rawHomeWinPct: round(rawProjection.distribution.homeWinPct),
     v8HomeWinPct: round(v8Projection.distribution.homeWinPct),
     v7HomeWinPct: v7.finalHomeWinPct,
@@ -149,6 +156,8 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
     v7Tier: v7.tier,
     v7NoBet: v7.noBet,
     v7Confidence: v7.confidence,
+    formulaProfileStatus: formulaProfile.status,
+    formulaProfileSampleSize: formulaProfile.sampleSize,
     formulaTier,
     formulaConfidence: round(formulaConfidence, 3),
     premiumTier: premiumPolicy.tier,
@@ -187,7 +196,7 @@ export async function buildMainSimProjection(input: SimProjectionInput): Promise
 }
 
 export function mainBrainLabel(leagueKey: LeagueKey) {
-  if (leagueKey === "MLB") return "mlb-intel-v8-player-impact+premium-formula-stack+mlb-intel-v7-calibration+premium-policy";
+  if (leagueKey === "MLB") return "mlb-intel-v8-player-impact+learned-formula-profile+mlb-intel-v7-calibration+premium-policy";
   if (leagueKey === "NBA") return "nba-guarded-winner-anchor";
   return "base-sim-projection";
 }
