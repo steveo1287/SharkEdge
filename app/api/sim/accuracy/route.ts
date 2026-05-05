@@ -79,7 +79,7 @@ export async function GET(req: Request) {
   }
 
   if (action === "grade") {
-    const result = await gradeFinalSimPredictionSnapshots(limit);
+    const result = await gradeFinalSimPredictionSnapshots();
     return NextResponse.json(result, { status: result.ok ? 200 : 503 });
   }
 
@@ -124,8 +124,7 @@ export async function POST(req: Request) {
   }
 
   if (action === "grade") {
-    const limit = typeof body.limit === "number" ? Math.max(1, Math.min(100, body.limit)) : 20;
-    const result = await gradeFinalSimPredictionSnapshots(limit);
+    const result = await gradeFinalSimPredictionSnapshots();
     return NextResponse.json(result, { status: result.ok ? 200 : 503 });
   }
 
