@@ -2,6 +2,7 @@ import { buildNbaPlayerTeamRankingSnapshot } from "@/services/simulation/nba-pla
 import { buildNbaPlayerOverallWinnerEdge } from "@/services/simulation/nba-player-overall-winner-edge";
 import { buildNbaPossessionScoreModel } from "@/services/simulation/nba-possession-score-model";
 import { buildNbaDefensiveEventEdge } from "@/services/simulation/nba-defensive-event-edge";
+import { buildNbaCloseGameLeverageEdge } from "@/services/simulation/nba-close-game-leverage-edge";
 import {
   buildNbaTeamStrengthRosterImpact,
   type NbaTeamStrengthRosterImpact,
@@ -13,6 +14,7 @@ export type NbaRankedTeamStrengthRosterImpact = NbaTeamStrengthRosterImpact & {
   playerOverallEdge: ReturnType<typeof buildNbaPlayerOverallWinnerEdge>;
   possessionScoreModel: ReturnType<typeof buildNbaPossessionScoreModel>;
   defensiveEventEdge: ReturnType<typeof buildNbaDefensiveEventEdge>;
+  closeGameLeverageEdge: ReturnType<typeof buildNbaCloseGameLeverageEdge>;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -47,18 +49,26 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
     awayTeam: input.awayTeam,
     playerStatProjections: input.playerStatProjections ?? []
   });
+  const closeGameLeverageEdge = buildNbaCloseGameLeverageEdge({
+    homeTeam: input.homeTeam,
+    awayTeam: input.awayTeam,
+    projectedHomeMargin: input.projectedHomeMargin,
+    playerStatProjections: input.playerStatProjections ?? []
+  });
   const rankingDelta = rankingSnapshot.boundedProbabilityDelta;
   const playerOverallProbabilityDelta = playerOverallEdge.probabilityDelta;
   const possessionProbabilityDelta = clamp(possessionScoreModel.marginDelta * possessionScoreModel.confidence * 0.01, -0.022, 0.022);
   const defensiveEventProbabilityDelta = defensiveEventEdge.probabilityDelta;
-  const combinedProbabilityDelta = clamp(base.probabilityDelta + rankingDelta + playerOverallProbabilityDelta + possessionProbabilityDelta + defensiveEventProbabilityDelta, -0.075, 0.075);
-  const boundedProbabilityDelta = round(clamp(base.boundedProbabilityDelta + rankingDelta + playerOverallProbabilityDelta + possessionProbabilityDelta + defensiveEventProbabilityDelta, -0.05, 0.05), 4);
+  const closeGameProbabilityDelta = closeGameLeverageEdge.probabilityDelta;
+  const combinedProbabilityDelta = clamp(base.probabilityDelta + rankingDelta + playerOverallProbabilityDelta + possessionProbabilityDelta + defensiveEventProbabilityDelta + closeGameProbabilityDelta, -0.0775, 0.0775);
+  const boundedProbabilityDelta = round(clamp(base.boundedProbabilityDelta + rankingDelta + playerOverallProbabilityDelta + possessionProbabilityDelta + defensiveEventProbabilityDelta + closeGameProbabilityDelta, -0.0525, 0.0525), 4);
   const rankingMarginAdjustment = rankingSnapshot.homeCompositeEdge * rankingSnapshot.confidence * 1.35;
   const playerOverallMarginAdjustment = playerOverallEdge.marginDelta * 0.72;
   const possessionMarginAdjustment = possessionScoreModel.marginDelta * 0.58;
   const defensiveEventMarginAdjustment = defensiveEventEdge.marginDelta * 0.56;
-  const finalProjectedHomeMargin = round(clamp(base.finalProjectedHomeMargin + rankingMarginAdjustment + playerOverallMarginAdjustment + possessionMarginAdjustment + defensiveEventMarginAdjustment, -17, 17), 3);
-  const confidence = round(clamp((base.confidence * 0.49) + (rankingSnapshot.confidence * 0.13) + (playerOverallEdge.confidence * 0.15) + (possessionScoreModel.confidence * 0.13) + (defensiveEventEdge.confidence * 0.1), 0.1, 0.96), 3);
+  const closeGameMarginAdjustment = closeGameLeverageEdge.marginDelta * 0.62;
+  const finalProjectedHomeMargin = round(clamp(base.finalProjectedHomeMargin + rankingMarginAdjustment + playerOverallMarginAdjustment + possessionMarginAdjustment + defensiveEventMarginAdjustment + closeGameMarginAdjustment, -17, 17), 3);
+  const confidence = round(clamp((base.confidence * 0.44) + (rankingSnapshot.confidence * 0.12) + (playerOverallEdge.confidence * 0.14) + (possessionScoreModel.confidence * 0.12) + (defensiveEventEdge.confidence * 0.09) + (closeGameLeverageEdge.confidence * 0.09), 0.1, 0.96), 3);
 
   return {
     ...base,
@@ -66,11 +76,12 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
     playerOverallEdge,
     possessionScoreModel,
     defensiveEventEdge,
+    closeGameLeverageEdge,
     finalProjectedHomeMargin,
     probabilityDelta: round(combinedProbabilityDelta, 4),
     boundedProbabilityDelta,
     confidence,
-    warnings: [...new Set([...base.warnings, ...rankingSnapshot.warnings, ...playerOverallEdge.warnings, ...possessionScoreModel.warnings, ...defensiveEventEdge.warnings])],
+    warnings: [...new Set([...base.warnings, ...rankingSnapshot.warnings, ...playerOverallEdge.warnings, ...possessionScoreModel.warnings, ...defensiveEventEdge.warnings, ...closeGameLeverageEdge.warnings])],
     drivers: [
       ...base.drivers,
       `ranking overlay delta ${(rankingDelta * 100).toFixed(1)}%`,
@@ -86,10 +97,14 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
       `defensive event delta ${(defensiveEventProbabilityDelta * 100).toFixed(1)}%`,
       `defensive event margin adjustment ${defensiveEventMarginAdjustment.toFixed(2)}`,
       `defensive event extra possessions ${defensiveEventEdge.homeExpectedExtraPossessions.toFixed(2)}`,
+      `close-game delta ${(closeGameProbabilityDelta * 100).toFixed(1)}%`,
+      `close-game margin adjustment ${closeGameMarginAdjustment.toFixed(2)}`,
+      `close-game spread leverage ${(closeGameLeverageEdge.spreadLeverage * 100).toFixed(1)}%`,
       ...rankingSnapshot.drivers.map((driver) => `ranking: ${driver}`),
       ...playerOverallEdge.drivers.map((driver) => `player overall: ${driver}`),
       ...possessionScoreModel.drivers.map((driver) => `possession: ${driver}`),
-      ...defensiveEventEdge.drivers.map((driver) => `defense event: ${driver}`)
+      ...defensiveEventEdge.drivers.map((driver) => `defense event: ${driver}`),
+      ...closeGameLeverageEdge.drivers.map((driver) => `close game: ${driver}`)
     ]
   };
 }
