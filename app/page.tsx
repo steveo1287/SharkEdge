@@ -11,9 +11,9 @@ import type { TrendFilters } from "@/lib/types/domain";
 import {
   HOME_DESK_DATES,
   HOME_LEAGUE_ITEMS,
-  formatHomeDateLabel,
-  getHomeCommandData
+  formatHomeDateLabel
 } from "@/services/home/home-command-service";
+import { getSafeHomeCommandData } from "@/services/home/safe-home-command-service";
 import { getProviderHealthTone } from "@/app/_components/home-primitives";
 
 export const dynamic = "force-dynamic";
@@ -260,7 +260,7 @@ function BottomNav({ league }: { league: string }) {
 
 export default async function HomePage({ searchParams }: HomePageProps) {
   const resolvedSearch = (await searchParams) ?? {};
-  const home = await getHomeCommandData(resolvedSearch);
+  const home = await getSafeHomeCommandData(resolvedSearch);
   const trendFeed = await getSafeTrendFeed(home.focusedLeague);
   const topSignal = home.topActionables[0] as any;
   const watchItems = home.topActionables.filter((opp: any) => !home.decisionWindows.some((item: any) => item.id === opp.id)) as any[];
