@@ -4,6 +4,7 @@ import { buildNbaPossessionScoreModel } from "@/services/simulation/nba-possessi
 import { buildNbaDefensiveEventEdge } from "@/services/simulation/nba-defensive-event-edge";
 import { buildNbaCloseGameLeverageEdge } from "@/services/simulation/nba-close-game-leverage-edge";
 import { buildNbaCoachingPaceProfile } from "@/services/simulation/nba-coaching-pace-profile";
+import { buildNbaRestFatigueEdge } from "@/services/simulation/nba-rest-fatigue-edge";
 import { buildNbaWinnerSignalConsensus } from "@/services/simulation/nba-winner-signal-consensus";
 import {
   buildNbaTeamStrengthRosterImpact,
@@ -18,6 +19,7 @@ export type NbaRankedTeamStrengthRosterImpact = NbaTeamStrengthRosterImpact & {
   defensiveEventEdge: ReturnType<typeof buildNbaDefensiveEventEdge>;
   closeGameLeverageEdge: ReturnType<typeof buildNbaCloseGameLeverageEdge>;
   coachingPaceProfile: ReturnType<typeof buildNbaCoachingPaceProfile>;
+  restFatigueEdge: ReturnType<typeof buildNbaRestFatigueEdge>;
   signalConsensus: ReturnType<typeof buildNbaWinnerSignalConsensus>;
 };
 
@@ -76,6 +78,13 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
     realityIntel: input.realityIntel,
     playerStatProjections: input.playerStatProjections ?? []
   });
+  const restFatigueEdge = buildNbaRestFatigueEdge({
+    homeTeam: input.homeTeam,
+    awayTeam: input.awayTeam,
+    projectedHomeMargin: input.projectedHomeMargin,
+    realityIntel: input.realityIntel,
+    playerStatProjections: input.playerStatProjections ?? []
+  });
 
   const baseMarginAdjustment = clamp(base.finalProjectedHomeMargin - input.projectedHomeMargin, -5.5, 5.5);
   const rankingDelta = rankingSnapshot.boundedProbabilityDelta;
@@ -90,6 +99,8 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
   const closeGameMarginAdjustment = closeGameLeverageEdge.marginDelta * 0.62;
   const coachingProbabilityDelta = coachingPaceProfile.probabilityDelta;
   const coachingMarginAdjustment = coachingPaceProfile.marginDelta * 0.58;
+  const restFatigueProbabilityDelta = restFatigueEdge.probabilityDelta;
+  const restFatigueMarginAdjustment = restFatigueEdge.marginDelta * 0.62;
 
   const signalConsensus = buildNbaWinnerSignalConsensus([
     {
@@ -147,6 +158,14 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
       marginDelta: coachingMarginAdjustment,
       confidence: coachingPaceProfile.confidence,
       weight: 0.7
+    },
+    {
+      key: "rest-fatigue",
+      label: "rest/fatigue edge",
+      probabilityDelta: restFatigueProbabilityDelta,
+      marginDelta: restFatigueMarginAdjustment,
+      confidence: restFatigueEdge.confidence,
+      weight: 0.68
     }
   ]);
 
@@ -154,7 +173,7 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
   const probabilityDelta = round(clamp(signalConsensus.consensusProbabilityDelta, -0.0775, 0.0775), 4);
   const boundedProbabilityDelta = round(clamp(signalConsensus.consensusProbabilityDelta, -cap, cap), 4);
   const finalProjectedHomeMargin = round(clamp(input.projectedHomeMargin + signalConsensus.consensusMarginDelta, -17, 17), 3);
-  const confidence = round(clamp((base.confidence * 0.32) + (rankingSnapshot.confidence * 0.1) + (playerOverallEdge.confidence * 0.12) + (possessionScoreModel.confidence * 0.1) + (defensiveEventEdge.confidence * 0.08) + (closeGameLeverageEdge.confidence * 0.08) + (coachingPaceProfile.confidence * 0.08) + (signalConsensus.directionalConfidence * 0.12), 0.1, 0.96), 3);
+  const confidence = round(clamp((base.confidence * 0.28) + (rankingSnapshot.confidence * 0.09) + (playerOverallEdge.confidence * 0.11) + (possessionScoreModel.confidence * 0.09) + (defensiveEventEdge.confidence * 0.07) + (closeGameLeverageEdge.confidence * 0.07) + (coachingPaceProfile.confidence * 0.07) + (restFatigueEdge.confidence * 0.07) + (signalConsensus.directionalConfidence * 0.15), 0.1, 0.96), 3);
 
   return {
     ...base,
@@ -164,6 +183,7 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
     defensiveEventEdge,
     closeGameLeverageEdge,
     coachingPaceProfile,
+    restFatigueEdge,
     signalConsensus,
     finalProjectedHomeMargin,
     probabilityDelta,
@@ -177,6 +197,7 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
       ...defensiveEventEdge.warnings,
       ...closeGameLeverageEdge.warnings,
       ...coachingPaceProfile.warnings,
+      ...restFatigueEdge.warnings,
       ...signalConsensus.warnings,
       ...signalConsensus.blockers.map((blocker) => `signal consensus blocker: ${blocker}`)
     ])],
@@ -206,13 +227,17 @@ export function buildNbaRankedTeamStrengthRosterImpact(input: NbaTeamStrengthRos
       `coaching margin adjustment ${coachingMarginAdjustment.toFixed(2)}`,
       `coaching total delta ${coachingPaceProfile.totalDelta.toFixed(2)}`,
       `coaching possession delta ${coachingPaceProfile.projectedPossessionDelta.toFixed(2)}`,
+      `rest fatigue delta ${(restFatigueProbabilityDelta * 100).toFixed(1)}%`,
+      `rest fatigue margin adjustment ${restFatigueMarginAdjustment.toFixed(2)}`,
+      `rest fatigue total delta ${restFatigueEdge.totalDelta.toFixed(2)}`,
       ...signalConsensus.drivers.map((driver) => `consensus: ${driver}`),
       ...rankingSnapshot.drivers.map((driver) => `ranking: ${driver}`),
       ...playerOverallEdge.drivers.map((driver) => `player overall: ${driver}`),
       ...possessionScoreModel.drivers.map((driver) => `possession: ${driver}`),
       ...defensiveEventEdge.drivers.map((driver) => `defense event: ${driver}`),
       ...closeGameLeverageEdge.drivers.map((driver) => `close game: ${driver}`),
-      ...coachingPaceProfile.drivers.map((driver) => `coaching pace: ${driver}`)
+      ...coachingPaceProfile.drivers.map((driver) => `coaching pace: ${driver}`),
+      ...restFatigueEdge.drivers.map((driver) => `rest fatigue: ${driver}`)
     ]
   };
 }
