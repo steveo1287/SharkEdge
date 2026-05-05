@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 
 import {
-  captureCurrentMlbIntelV7Ledgers,
   getMlbIntelV7LedgerSummary,
   gradeMlbIntelV7Ledgers
 } from "@/services/simulation/mlb-intel-v7-ledgers";
 import { updateMlbIntelV7ClosingLines } from "@/services/simulation/mlb-intel-v7-closing-lines";
+import { captureCurrentMlbPremiumLedgers } from "@/services/simulation/mlb-premium-ledger-capture";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const limit = parseLimit(searchParams.get("limit"));
 
-  const capture = await captureCurrentMlbIntelV7Ledgers();
+  const capture = await captureCurrentMlbPremiumLedgers();
   const closingLines = await updateMlbIntelV7ClosingLines(limit);
   const grade = await gradeMlbIntelV7Ledgers();
   const summary = await getMlbIntelV7LedgerSummary(90);
