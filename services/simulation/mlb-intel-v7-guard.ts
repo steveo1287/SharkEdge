@@ -44,12 +44,14 @@ export function buildMlbIntelV7Guard(projection: ProjectionLike): MlbIntelV7Guar
     existingConfidence: projection.mlbIntel.governor?.confidence ?? null,
     existingTier: projection.mlbIntel.governor?.tier ?? null
   });
+  const previousReasons = projection.mlbIntel.governor?.reasons ?? [];
 
   return {
     v7,
     reasons: [
       "MLB v7 guarded projection applied: live sim probability now uses shrinkage plus market anchoring before display/action gates.",
-      ...v7.reasons
+      ...v7.reasons,
+      ...previousReasons
     ],
     homeWinPct: round(clamp(v7.finalHomeWinPct, 0.02, 0.98)),
     awayWinPct: round(clamp(v7.finalAwayWinPct, 0.02, 0.98))
