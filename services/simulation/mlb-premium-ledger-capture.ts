@@ -16,10 +16,22 @@ type SimGame = {
   scoreboard?: string | null;
 };
 
-type RuntimeMlbIntel = NonNullable<Awaited<ReturnType<typeof buildMainSimProjection>>["mlbIntel"]> & {
-  v7?: MlbIntelV7ProbabilityResult;
-  premiumPolicy?: MlbPremiumPickPolicyResult;
+type RuntimeMlbIntel = {
+  modelVersion?: string | null;
+  dataSource?: string | null;
   mainBrain?: unknown;
+  playerImpact?: unknown;
+  premiumFormulaStack?: unknown;
+  premiumPolicy?: MlbPremiumPickPolicyResult;
+  v7?: MlbIntelV7ProbabilityResult;
+  market?: unknown;
+  governor?: unknown;
+  calibration?: unknown;
+  uncertainty?: unknown;
+  lock?: unknown;
+  runModel?: unknown;
+  factors?: unknown;
+  features?: unknown;
 };
 
 const MODEL_VERSION = "main-sim-brain-v1";
@@ -152,12 +164,14 @@ export async function captureCurrentMlbPremiumLedgers() {
       matchup: projection.matchup,
       distribution: projection.distribution,
       mainBrain: mlbIntel?.mainBrain ?? null,
+      premiumFormulaStack: mlbIntel?.premiumFormulaStack ?? null,
       premiumPolicy: premiumPolicy ?? null,
       v7,
       mlbIntel: {
         modelVersion: mlbIntel?.modelVersion ?? null,
         dataSource: mlbIntel?.dataSource ?? null,
         playerImpact: mlbIntel?.playerImpact ?? null,
+        premiumFormulaStack: mlbIntel?.premiumFormulaStack ?? null,
         premiumPolicy: premiumPolicy ?? null,
         market: mlbIntel?.market ?? null,
         governor: mlbIntel?.governor ?? null,
