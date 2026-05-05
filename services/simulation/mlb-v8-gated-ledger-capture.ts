@@ -22,6 +22,15 @@ type RuntimeMlbIntel = NonNullable<Awaited<ReturnType<typeof buildMainSimProject
   v7?: MlbIntelV7ProbabilityResult;
   premiumPolicy?: MlbPremiumPickPolicyResult;
   mainBrain?: unknown;
+  playerImpact?: unknown;
+  market?: unknown;
+  governor?: unknown;
+  calibration?: unknown;
+  uncertainty?: unknown;
+  lock?: unknown;
+  runModel?: unknown;
+  factors?: unknown;
+  features?: unknown;
 };
 
 const MODEL_VERSION = "main-sim-brain-v1+v8-promotion-gate";
