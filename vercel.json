@@ -11,6 +11,10 @@
       "schedule": "*/30 * * * *"
     },
     {
+      "path": "/api/internal/cron/mlb-intel-v7-ledger?limit=60",
+      "schedule": "*/30 * * * *"
+    },
+    {
       "path": "/api/internal/cron/sim-calibration",
       "schedule": "0 */6 * * *"
     },
