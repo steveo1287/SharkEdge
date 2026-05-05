@@ -21,7 +21,9 @@ export async function readCachedMlbGameDetail(gameId: string): Promise<CachedMlb
     readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market)
   ]);
 
-  const row = board?.games?.find((item) => item.game.id === gameId) ?? null;
+  if (!board) return null;
+
+  const row = board.games?.find((item) => item.game.id === gameId) ?? null;
   if (!row) return null;
 
   return {
