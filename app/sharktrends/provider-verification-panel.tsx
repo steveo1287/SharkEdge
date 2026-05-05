@@ -77,6 +77,7 @@ export default async function ProviderVerificationPanel() {
         ) : null}
 
         <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.14em]">
+          <Link href="/sharktrends/mlb-spine" className="rounded-xl border border-cyan-300/25 bg-cyan-300/10 px-3 py-2 text-cyan-100">MLB spine</Link>
           <Link href="/sharktrends/provider-trigger" className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-emerald-100">Trigger page</Link>
           <a href={dryRunHref} className={`rounded-xl border px-3 py-2 ${canRunDry ? "border-amber-300/25 bg-black/20 text-amber-100" : "pointer-events-none border-white/10 bg-black/10 text-slate-500"}`}>Dry-test URL</a>
           <Link href="/sharktrends/ingestion-health" className="rounded-xl border border-amber-300/25 bg-black/20 px-3 py-2 text-amber-100">Full health</Link>
