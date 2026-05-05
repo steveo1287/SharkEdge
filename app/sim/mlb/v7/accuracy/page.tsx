@@ -23,6 +23,34 @@ type LedgerView = {
   roi?: number | null;
 };
 
+type AccuracyRulesView = {
+  gradedRowsOnly: boolean;
+  pendingExcludedFromWinRate: boolean;
+  pendingExcludedFromRoi: boolean;
+  historicalV6Preserved: boolean;
+};
+
+const EMPTY_LEDGER: LedgerView = {
+  total: 0,
+  settled: 0,
+  pending: 0,
+  wins: 0,
+  losses: 0,
+  settleRate: null,
+  winRate: null,
+  brier: null,
+  logLoss: null,
+  clv: null,
+  roi: null
+};
+
+const DEFAULT_RULES: AccuracyRulesView = {
+  gradedRowsOnly: true,
+  pendingExcludedFromWinRate: true,
+  pendingExcludedFromRoi: true,
+  historicalV6Preserved: true
+};
+
 function readValue(searchParams: Record<string, string | string[] | undefined>, key: string) {
   const value = searchParams[key];
   return Array.isArray(value) ? value[0] : value;
@@ -85,7 +113,7 @@ function LedgerCard({ title, subtitle, ledger, official = false }: { title: stri
         <Tile label="Brier" value={num(ledger.brier)} note="Lower is better" />
         <Tile label="Log loss" value={num(ledger.logLoss)} note="Overconfidence penalty" />
         <Tile label="CLV" value={rawPct(ledger.clv)} note="Market-to-close proof" />
-        <Tile label={official ? "ROI" : "ROI"} value={official ? rawPct(ledger.roi) : "--"} note={official ? "Official picks only" : "Snapshots are calibration rows"} />
+        <Tile label="ROI" value={official ? rawPct(ledger.roi) : "--"} note={official ? "Official picks only" : "Snapshots are calibration rows"} />
       </div>
     </section>
   );
@@ -93,8 +121,8 @@ function LedgerCard({ title, subtitle, ledger, official = false }: { title: stri
 
 export default async function MlbIntelV7AccuracyPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
-  const windowDays = readWindowDays(readValue(resolved, "windowDays"));
-  const proof = await getMlbIntelV7AccuracyProof(windowDays);
+  const requestedWindowDays = readWindowDays(readValue(resolved, "windowDays"));
+  const proof = await getMlbIntelV7AccuracyProof(requestedWindowDays);
 
   if (!proof.ok) {
     return (
@@ -112,6 +140,13 @@ export default async function MlbIntelV7AccuracyPage({ searchParams }: PageProps
     );
   }
 
+  const status = proof.status ?? "unknown";
+  const windowDays = proof.windowDays ?? requestedWindowDays;
+  const warnings = proof.warnings ?? [];
+  const snapshotLedger = proof.snapshotLedger ?? EMPTY_LEDGER;
+  const officialPickLedger = proof.officialPickLedger ?? EMPTY_LEDGER;
+  const accuracyRules = proof.accuracyRules ?? DEFAULT_RULES;
+
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
       <section className="rounded-[1.75rem] border border-cyan-300/15 bg-slate-950/80 p-5 shadow-[0_0_60px_rgba(14,165,233,0.10)]">
@@ -125,23 +160,23 @@ export default async function MlbIntelV7AccuracyPage({ searchParams }: PageProps
           </div>
           <div className="flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.14em]">
             <Link href="/sim/accuracy" className="text-cyan-200 hover:text-cyan-100">Full accuracy</Link>
-            <Link href={`/api/sim/accuracy?action=v7-proof&windowDays=${proof.windowDays}`} className="text-cyan-200 hover:text-cyan-100">API JSON</Link>
+            <Link href={`/api/sim/accuracy?action=v7-proof&windowDays=${windowDays}`} className="text-cyan-200 hover:text-cyan-100">API JSON</Link>
             <Link href="/sim/mlb/v7/live" className="text-cyan-200 hover:text-cyan-100">Live V7 board</Link>
           </div>
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <Tile label="Status" value={proof.status} note="V7 ledger state" />
-          <Tile label="Window" value={`${proof.windowDays}d`} note="Reporting range" />
+          <Tile label="Status" value={status} note="V7 ledger state" />
+          <Tile label="Window" value={`${windowDays}d`} note="Reporting range" />
           <Tile label="Source" value="2" note="V7 ledger tables" />
           <Tile label="Pending rule" value="Excluded" note="Win rate / ROI" />
           <Tile label="History" value="V6 kept" note="No row rewrites" />
         </div>
       </section>
 
-      {proof.warnings.length ? (
+      {warnings.length ? (
         <section className="grid gap-2 rounded-[1.5rem] border border-amber-300/20 bg-amber-300/[0.06] p-4 text-sm leading-6 text-amber-100">
-          {proof.warnings.map((warning) => <div key={warning}>{warning}</div>)}
+          {warnings.map((warning) => <div key={warning}>{warning}</div>)}
         </section>
       ) : null}
 
@@ -149,12 +184,12 @@ export default async function MlbIntelV7AccuracyPage({ searchParams }: PageProps
         <LedgerCard
           title="Snapshot Ledger"
           subtitle="All current V7 model snapshots captured for calibration."
-          ledger={proof.snapshotLedger}
+          ledger={snapshotLedger}
         />
         <LedgerCard
           title="Official Pick Ledger"
           subtitle="Released V7 official picks. ROI belongs here, not the snapshot ledger."
-          ledger={proof.officialPickLedger}
+          ledger={officialPickLedger}
           official
         />
       </div>
@@ -162,10 +197,10 @@ export default async function MlbIntelV7AccuracyPage({ searchParams }: PageProps
       <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-5">
         <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Accuracy rules</div>
         <div className="mt-3 grid gap-3 md:grid-cols-4">
-          <Tile label="Graded rows only" value={proof.accuracyRules.gradedRowsOnly ? "Yes" : "No"} note="Accuracy source" />
-          <Tile label="Pending win rate" value={proof.accuracyRules.pendingExcludedFromWinRate ? "Excluded" : "Included"} note="No fake records" />
-          <Tile label="Pending ROI" value={proof.accuracyRules.pendingExcludedFromRoi ? "Excluded" : "Included"} note="No open-row ROI" />
-          <Tile label="V6 history" value={proof.accuracyRules.historicalV6Preserved ? "Preserved" : "Modified"} note="Historical rows remain" />
+          <Tile label="Graded rows only" value={accuracyRules.gradedRowsOnly ? "Yes" : "No"} note="Accuracy source" />
+          <Tile label="Pending win rate" value={accuracyRules.pendingExcludedFromWinRate ? "Excluded" : "Included"} note="No fake records" />
+          <Tile label="Pending ROI" value={accuracyRules.pendingExcludedFromRoi ? "Excluded" : "Included"} note="No open-row ROI" />
+          <Tile label="V6 history" value={accuracyRules.historicalV6Preserved ? "Preserved" : "Modified"} note="Historical rows remain" />
         </div>
       </section>
     </main>
