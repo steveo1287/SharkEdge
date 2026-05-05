@@ -1,6 +1,8 @@
 import Link from "next/link";
 
 import { getMlbV8PromotionReport, type MlbV8PromotionBucket, type MlbV8PromotionMetricSet } from "@/services/simulation/mlb-v8-promotion-comparator";
+import { getMlbV8ProductionMode } from "@/services/simulation/mlb-v8-production-control";
+import { getMlbV8PromotionGate } from "@/services/simulation/mlb-v8-promotion-gate";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,9 +23,16 @@ function signed(value: number | null | undefined, digits = 4) {
 }
 
 function statusClass(status: string) {
-  if (status === "PROMOTE") return "border-emerald-300/25 bg-emerald-300/10 text-emerald-100";
-  if (status === "SHADOW" || status === "INSUFFICIENT_DATA") return "border-amber-300/25 bg-amber-300/10 text-amber-100";
+  if (status === "PROMOTE" || status === "broad_promotion" || status === "gated") return "border-emerald-300/25 bg-emerald-300/10 text-emerald-100";
+  if (status === "SHADOW" || status === "INSUFFICIENT_DATA" || status === "bucket_promotion" || status === "shadow") return "border-amber-300/25 bg-amber-300/10 text-amber-100";
   return "border-red-300/25 bg-red-300/10 text-red-100";
+}
+
+function capturePath(mode: string) {
+  if (mode === "force_v7") return "premium_v7_fallback";
+  if (mode === "shadow") return "v8_shadow_capture";
+  if (mode === "off") return "disabled";
+  return "v8_gated_capture";
 }
 
 function Tile({ label, value, note }: { label: string; value: string | number; note: string }) {
@@ -103,7 +112,11 @@ function MessageList({ title, rows }: { title: string; rows: string[] }) {
 }
 
 export default async function MlbV8PromotionPage() {
-  const report = await getMlbV8PromotionReport(180);
+  const [report, gate] = await Promise.all([
+    getMlbV8PromotionReport(180),
+    getMlbV8PromotionGate(180)
+  ]);
+  const productionMode = getMlbV8ProductionMode();
 
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -113,7 +126,7 @@ export default async function MlbV8PromotionPage() {
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">MLB V8 Promotion Comparator</div>
             <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Shadow-mode proof before promotion</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Compares raw baseline probability, V8 player-impact probability, final V7-calibrated probability, and no-vig market probability on settled V7 ledger rows. This page decides whether V8 should stay shadow, be blocked, or be promoted by bucket.
+              Compares raw baseline probability, V8 player-impact probability, final V7-calibrated probability, and no-vig market probability on settled V7 ledger rows. The production control panel shows what the cron path is allowed to publish.
             </p>
           </div>
           <div className="flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.14em]">
@@ -121,6 +134,23 @@ export default async function MlbV8PromotionPage() {
             <Link href="/sim/mlb/calibration-lab" className="text-cyan-200 hover:text-cyan-100">Calibration lab</Link>
             <Link href="/api/sim/mlb-v8/promotion" className="text-cyan-200 hover:text-cyan-100">API JSON</Link>
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-[1.5rem] border border-cyan-300/15 bg-slate-950/70 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Production control</div>
+            <div className="mt-2 text-sm text-slate-300">Cron capture path: {capturePath(productionMode)}. Gate mode: {gate.mode}.</div>
+          </div>
+          <div className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${statusClass(productionMode)}`}>{productionMode}</div>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <Tile label="Capture path" value={capturePath(productionMode)} note="Active cron behavior" />
+          <Tile label="Gate mode" value={gate.mode} note="Promotion decision" />
+          <Tile label="Official V8" value={gate.allowOfficialV8Promotion && productionMode !== "off" ? "Allowed" : "Blocked"} note="Official pick capture" />
+          <Tile label="Attack picks" value={gate.allowAttackPicks && productionMode === "gated" ? "Allowed" : "Blocked"} note="Aggressive tier" />
+          <Tile label="Shadow" value={gate.requireShadowCapture || productionMode === "shadow" ? "Required" : "Optional"} note="Snapshot capture" />
         </div>
       </section>
 
