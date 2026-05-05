@@ -1,0 +1,76 @@
+CREATE TABLE IF NOT EXISTS mlb_model_snapshot_ledger (
+  id TEXT PRIMARY KEY,
+  snapshot_key TEXT NOT NULL UNIQUE,
+  game_id TEXT NOT NULL,
+  event_label TEXT NOT NULL,
+  away_team TEXT NOT NULL,
+  home_team TEXT NOT NULL,
+  start_time TIMESTAMPTZ NOT NULL,
+  market TEXT NOT NULL DEFAULT 'moneyline',
+  side TEXT NOT NULL,
+  model_version TEXT NOT NULL DEFAULT 'mlb-intel-v7',
+  captured_at TIMESTAMPTZ NOT NULL,
+  released_at TIMESTAMPTZ,
+  raw_probability DOUBLE PRECISION NOT NULL,
+  calibrated_probability DOUBLE PRECISION NOT NULL,
+  market_open_odds DOUBLE PRECISION,
+  market_close_odds DOUBLE PRECISION,
+  market_no_vig_probability DOUBLE PRECISION,
+  closing_probability DOUBLE PRECISION,
+  edge DOUBLE PRECISION,
+  result TEXT NOT NULL DEFAULT 'PENDING',
+  final_home_score DOUBLE PRECISION,
+  final_away_score DOUBLE PRECISION,
+  brier DOUBLE PRECISION,
+  log_loss DOUBLE PRECISION,
+  clv DOUBLE PRECISION,
+  roi DOUBLE PRECISION,
+  prediction_json JSONB,
+  result_json JSONB,
+  graded_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS mlb_official_pick_ledger (
+  id TEXT PRIMARY KEY,
+  game_id TEXT NOT NULL,
+  event_label TEXT NOT NULL,
+  away_team TEXT NOT NULL,
+  home_team TEXT NOT NULL,
+  start_time TIMESTAMPTZ NOT NULL,
+  market TEXT NOT NULL DEFAULT 'moneyline',
+  side TEXT NOT NULL,
+  model_version TEXT NOT NULL DEFAULT 'mlb-intel-v7',
+  captured_at TIMESTAMPTZ NOT NULL,
+  released_at TIMESTAMPTZ NOT NULL,
+  raw_probability DOUBLE PRECISION NOT NULL,
+  calibrated_probability DOUBLE PRECISION NOT NULL,
+  market_open_odds DOUBLE PRECISION,
+  market_close_odds DOUBLE PRECISION,
+  market_no_vig_probability DOUBLE PRECISION,
+  closing_probability DOUBLE PRECISION,
+  edge DOUBLE PRECISION,
+  stake DOUBLE PRECISION NOT NULL DEFAULT 1,
+  result TEXT NOT NULL DEFAULT 'PENDING',
+  final_home_score DOUBLE PRECISION,
+  final_away_score DOUBLE PRECISION,
+  brier DOUBLE PRECISION,
+  log_loss DOUBLE PRECISION,
+  clv DOUBLE PRECISION,
+  roi DOUBLE PRECISION,
+  profit_loss DOUBLE PRECISION,
+  prediction_json JSONB,
+  result_json JSONB,
+  graded_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (game_id, market, side, model_version)
+);
+
+CREATE INDEX IF NOT EXISTS mlb_model_snapshot_ledger_game_idx ON mlb_model_snapshot_ledger (game_id, captured_at DESC);
+CREATE INDEX IF NOT EXISTS mlb_model_snapshot_ledger_model_idx ON mlb_model_snapshot_ledger (model_version, market, captured_at DESC);
+CREATE INDEX IF NOT EXISTS mlb_model_snapshot_ledger_grade_idx ON mlb_model_snapshot_ledger (graded_at, start_time);
+CREATE INDEX IF NOT EXISTS mlb_official_pick_ledger_game_idx ON mlb_official_pick_ledger (game_id, released_at DESC);
+CREATE INDEX IF NOT EXISTS mlb_official_pick_ledger_model_idx ON mlb_official_pick_ledger (model_version, market, released_at DESC);
+CREATE INDEX IF NOT EXISTS mlb_official_pick_ledger_grade_idx ON mlb_official_pick_ledger (graded_at, start_time);
