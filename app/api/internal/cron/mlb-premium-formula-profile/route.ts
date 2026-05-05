@@ -10,6 +10,7 @@ export const revalidate = 0;
 export const maxDuration = 60;
 
 function isAuthorized(request: Request) {
+  if (request.headers.get("x-vercel-cron") === "1") return true;
   const authHeader = request.headers.get("authorization");
   const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : null;
   const cronSecret = process.env.CRON_SECRET?.trim();
