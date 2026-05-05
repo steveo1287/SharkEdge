@@ -388,7 +388,7 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
     initialization = await getSimAccuracySummary(1);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return emptyScorecard(filters, true, `Ledger initialization failed: ${message}`);
+    return emptyScorecard(filters, false, `Ledger initialization failed: ${message}`);
   }
   if (!initialization.ok) {
     return emptyScorecard(filters, initialization.databaseReady, initialization.error ?? "Unable to initialize sim accuracy snapshot ledger.");
@@ -424,7 +424,7 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
     `;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return emptyScorecard({ league, market, modelVersion, windowDays }, true, `Snapshot query failed: ${message}`);
+    return emptyScorecard({ league, market, modelVersion, windowDays }, false, `Snapshot query failed: ${message}`);
   }
 
   const predictions = rows.map(mapSnapshotRow);
