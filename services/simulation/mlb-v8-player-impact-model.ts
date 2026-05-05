@@ -1,5 +1,11 @@
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import { ensureMlbRosterIntelligenceTables } from "@/services/simulation/mlb-roster-intelligence";
+import {
+  DEFAULT_MLB_V8_PLAYER_IMPACT_PROFILE,
+  getActiveMlbV8PlayerImpactProfile,
+  type MlbV8PlayerImpactProfile,
+  type MlbV8PlayerImpactWeights
+} from "@/services/simulation/mlb-v8-player-impact-profile";
 
 type ProjectionLike = {
   matchup?: { away: string; home: string };
@@ -73,6 +79,10 @@ export type MlbV8PlayerImpactResult = {
   modelVersion: "mlb-intel-v8-player-impact";
   applied: boolean;
   confidence: number;
+  profileStatus: MlbV8PlayerImpactProfile["status"];
+  profileSampleSize: number;
+  profileTrainedAt: string | null;
+  profileMetrics: Record<string, unknown>;
   awayRunsBase: number;
   homeRunsBase: number;
   awayRunsAdjusted: number;
@@ -150,34 +160,36 @@ function findRatingForLineupEntry(entry: Record<string, unknown>, ratings: Ratin
   return ratings.find((rating) => (id && playerKey(rating.id) === id) || (name && playerKey(rating.name) === name)) ?? null;
 }
 
-function hitterSkill(row: RatingRow | null, pitcherThrows: "L" | "R" = "R") {
+function hitterSkill(row: RatingRow | null, pitcherThrows: "L" | "R", weights: MlbV8PlayerImpactWeights) {
   if (!row) return DEFAULT_SKILL;
   const split = pitcherThrows === "L" ? safeNumber(row.vs_lhp) : safeNumber(row.vs_rhp);
+  const w = weights.hitterWeights;
   return clamp(
-    safeNumber(row.contact) * 0.2 +
-    safeNumber(row.power) * 0.24 +
-    safeNumber(row.discipline) * 0.18 +
-    split * 0.22 +
-    safeNumber(row.current_form) * 0.1 +
-    safeNumber(row.baserunning) * 0.04 +
-    safeNumber(row.fielding) * 0.02,
+    safeNumber(row.contact) * w.contact +
+    safeNumber(row.power) * w.power +
+    safeNumber(row.discipline) * w.discipline +
+    split * w.split +
+    safeNumber(row.current_form) * w.currentForm +
+    safeNumber(row.baserunning) * w.baserunning +
+    safeNumber(row.fielding) * w.fielding,
     35,
     95
   );
 }
 
-function pitcherSkill(row: RatingRow | null) {
+function pitcherSkill(row: RatingRow | null, weights: MlbV8PlayerImpactWeights) {
   if (!row) return DEFAULT_SKILL;
+  const w = weights.pitcherWeights;
   return clamp(
-    safeNumber(row.xera_quality) * 0.24 +
-    safeNumber(row.fip_quality) * 0.2 +
-    safeNumber(row.k_bb) * 0.16 +
-    (100 - safeNumber(row.hr_risk, 30)) * 0.1 +
-    safeNumber(row.groundball_rate) * 0.06 +
-    safeNumber(row.platoon_split) * 0.08 +
-    safeNumber(row.stamina) * 0.05 +
-    (100 - safeNumber(row.recent_workload, 30)) * 0.04 +
-    safeNumber(row.arsenal_quality) * 0.07,
+    safeNumber(row.xera_quality) * w.xeraQuality +
+    safeNumber(row.fip_quality) * w.fipQuality +
+    safeNumber(row.k_bb) * w.kBb +
+    (100 - safeNumber(row.hr_risk, 30)) * w.hrRiskAvoidance +
+    safeNumber(row.groundball_rate) * w.groundballRate +
+    safeNumber(row.platoon_split) * w.platoonSplit +
+    safeNumber(row.stamina) * w.stamina +
+    (100 - safeNumber(row.recent_workload, 30)) * w.workloadFreshness +
+    safeNumber(row.arsenal_quality) * w.arsenalQuality,
     35,
     95
   );
@@ -200,17 +212,17 @@ function selectStarter(team: TeamContext | null) {
   return starters.sort((a, b) => safeNumber(b.overall) - safeNumber(a.overall))[0] ?? team.pitchers[0] ?? null;
 }
 
-function bullpenScore(team: TeamContext | null) {
+function bullpenScore(team: TeamContext | null, weights: MlbV8PlayerImpactWeights) {
   if (!team || !team.pitchers.length) return DEFAULT_SKILL;
   const relievers = team.pitchers.filter((pitcher) => RELIEF_ROLES.has(String(pitcher.role_tier ?? "")));
   const source = relievers.length ? relievers : team.pitchers.slice(0, 8);
-  const scores = source.map((pitcher) => pitcherSkill(pitcher));
+  const scores = source.map((pitcher) => pitcherSkill(pitcher, weights));
   const unavailable = normalizeJsonArray(team.lineup?.unavailable_relievers_json).length;
-  const fatiguePenalty = clamp(unavailable * 1.8, 0, 8);
+  const fatiguePenalty = clamp(unavailable * weights.unavailableRelieverPenalty, 0, 8);
   return bayesianShrink(scores.reduce((sum, score) => sum + score, 0) / Math.max(1, scores.length) - fatiguePenalty, Math.min(1, source.length / 7));
 }
 
-function offenseScore(team: TeamContext | null, opponentStarter: RatingRow | null) {
+function offenseScore(team: TeamContext | null, opponentStarter: RatingRow | null, weights: MlbV8PlayerImpactWeights) {
   if (!team || !team.hitters.length) return DEFAULT_SKILL;
   const order = normalizeJsonArray(team.lineup?.batting_order_json);
   const throws = pitcherThrows(opponentStarter);
@@ -223,27 +235,27 @@ function offenseScore(team: TeamContext | null, opponentStarter: RatingRow | nul
   if (!selected.length || selected.filter(Boolean).length < 5) {
     selected = team.hitters
       .slice()
-      .sort((a, b) => hitterSkill(b, throws) - hitterSkill(a, throws))
+      .sort((a, b) => hitterSkill(b, throws, weights) - hitterSkill(a, throws, weights))
       .slice(0, 9);
   }
 
-  const weighted = selected.slice(0, 9).map((rating, index) => hitterSkill(rating, throws) * (LINEUP_WEIGHTS[index] ?? 1));
-  const weights = selected.slice(0, 9).map((_, index) => LINEUP_WEIGHTS[index] ?? 1);
-  const raw = weighted.reduce((sum, score) => sum + score, 0) / Math.max(1, weights.reduce((sum, weight) => sum + weight, 0));
-  const confirmedBonus = team.lineup?.confirmed ? 0.4 : 0;
-  const injuryPenalty = clamp(normalizeJsonArray(team.lineup?.injuries_json).length * 0.9, 0, 6);
+  const weighted = selected.slice(0, 9).map((rating, index) => hitterSkill(rating, throws, weights) * (LINEUP_WEIGHTS[index] ?? 1));
+  const lineupWeights = selected.slice(0, 9).map((_, index) => LINEUP_WEIGHTS[index] ?? 1);
+  const raw = weighted.reduce((sum, score) => sum + score, 0) / Math.max(1, lineupWeights.reduce((sum, weight) => sum + weight, 0));
+  const confirmedBonus = team.lineup?.confirmed ? weights.confirmedLineupBonus : 0;
+  const injuryPenalty = clamp(normalizeJsonArray(team.lineup?.injuries_json).length * weights.injuryPenaltyPerPlayer, 0, 6);
   return bayesianShrink(raw + confirmedBonus - injuryPenalty, Math.min(1, selected.filter(Boolean).length / 9));
 }
 
-function runDeltaFor(offense: number, opponentStarter: number, opponentBullpen: number) {
-  const starterComponent = (offense - opponentStarter) * 0.026;
-  const bullpenComponent = (offense - opponentBullpen) * 0.012;
-  return clamp(starterComponent + bullpenComponent, -0.85, 0.85);
+function runDeltaFor(offense: number, opponentStarter: number, opponentBullpen: number, weights: MlbV8PlayerImpactWeights) {
+  const starterComponent = (offense - opponentStarter) * weights.starterRunWeight;
+  const bullpenComponent = (offense - opponentBullpen) * weights.bullpenRunWeight;
+  return clamp(starterComponent + bullpenComponent, -weights.runDeltaCap, weights.runDeltaCap);
 }
 
-function blendProbability(rawHomeWinPct: number, adjustedAwayRuns: number, adjustedHomeRuns: number, confidence: number) {
-  const runDerived = logistic((adjustedHomeRuns - adjustedAwayRuns) * 0.55);
-  const blend = clamp(confidence, 0.25, 0.55);
+function blendProbability(rawHomeWinPct: number, adjustedAwayRuns: number, adjustedHomeRuns: number, confidence: number, weights: MlbV8PlayerImpactWeights) {
+  const runDerived = logistic((adjustedHomeRuns - adjustedAwayRuns) * weights.runProbabilityScale);
+  const blend = clamp(confidence, weights.probabilityBlendMin, weights.probabilityBlendMax);
   return clamp(invLogit(logit(rawHomeWinPct) * (1 - blend) + logit(runDerived) * blend), 0.05, 0.95);
 }
 
@@ -319,7 +331,10 @@ export async function buildMlbV8PlayerImpactContext(args: { gameId: string; away
 export function calculateMlbV8PlayerImpact(args: {
   projection: ProjectionLike;
   context: MlbV8PlayerImpactContext;
+  profile?: MlbV8PlayerImpactProfile;
 }): MlbV8PlayerImpactResult {
+  const profile = args.profile ?? DEFAULT_MLB_V8_PLAYER_IMPACT_PROFILE;
+  const weights = profile.weights;
   const baseAway = safeNumber(args.projection.distribution.avgAway, 4.3);
   const baseHome = safeNumber(args.projection.distribution.avgHome, 4.5);
   const rawHomeWinPct = clamp(safeNumber(args.projection.distribution.homeWinPct, 0.5), 0.05, 0.95);
@@ -329,6 +344,10 @@ export function calculateMlbV8PlayerImpact(args: {
       modelVersion: "mlb-intel-v8-player-impact",
       applied: false,
       confidence: 0,
+      profileStatus: profile.status,
+      profileSampleSize: profile.sampleSize,
+      profileTrainedAt: profile.trainedAt,
+      profileMetrics: profile.metrics,
       awayRunsBase: round(baseAway, 2),
       homeRunsBase: round(baseHome, 2),
       awayRunsAdjusted: round(baseAway, 2),
@@ -350,24 +369,28 @@ export function calculateMlbV8PlayerImpact(args: {
 
   const awayStarter = selectStarter(args.context.away);
   const homeStarter = selectStarter(args.context.home);
-  const awayOffense = offenseScore(args.context.away, homeStarter);
-  const homeOffense = offenseScore(args.context.home, awayStarter);
-  const awayStarterScore = bayesianShrink(pitcherSkill(awayStarter), awayStarter ? 0.85 : 0);
-  const homeStarterScore = bayesianShrink(pitcherSkill(homeStarter), homeStarter ? 0.85 : 0);
-  const awayPen = bullpenScore(args.context.away);
-  const homePen = bullpenScore(args.context.home);
-  const awayDelta = runDeltaFor(awayOffense, homeStarterScore, homePen);
-  const homeDelta = runDeltaFor(homeOffense, awayStarterScore, awayPen);
+  const awayOffense = offenseScore(args.context.away, homeStarter, weights);
+  const homeOffense = offenseScore(args.context.home, awayStarter, weights);
+  const awayStarterScore = bayesianShrink(pitcherSkill(awayStarter, weights), awayStarter ? 0.85 : 0);
+  const homeStarterScore = bayesianShrink(pitcherSkill(homeStarter, weights), homeStarter ? 0.85 : 0);
+  const awayPen = bullpenScore(args.context.away, weights);
+  const homePen = bullpenScore(args.context.home, weights);
+  const awayDelta = runDeltaFor(awayOffense, homeStarterScore, homePen, weights);
+  const homeDelta = runDeltaFor(homeOffense, awayStarterScore, awayPen, weights);
   const adjustedAwayRuns = clamp(baseAway + awayDelta, 1.5, 9.5);
   const adjustedHomeRuns = clamp(baseHome + homeDelta, 1.5, 9.5);
   const dataPieces = [args.context.away.hitters.length >= 9, args.context.home.hitters.length >= 9, Boolean(awayStarter), Boolean(homeStarter), Boolean(args.context.away.lineup), Boolean(args.context.home.lineup)].filter(Boolean).length;
   const confidence = clamp(dataPieces / 6, 0.2, 0.85);
-  const adjustedHomeWinPct = blendProbability(rawHomeWinPct, adjustedAwayRuns, adjustedHomeRuns, confidence);
+  const adjustedHomeWinPct = blendProbability(rawHomeWinPct, adjustedAwayRuns, adjustedHomeRuns, confidence, weights);
 
   return {
     modelVersion: "mlb-intel-v8-player-impact",
     applied: true,
     confidence: round(confidence, 3),
+    profileStatus: profile.status,
+    profileSampleSize: profile.sampleSize,
+    profileTrainedAt: profile.trainedAt,
+    profileMetrics: profile.metrics,
     awayRunsBase: round(baseAway, 2),
     homeRunsBase: round(baseHome, 2),
     awayRunsAdjusted: round(adjustedAwayRuns, 2),
@@ -384,7 +407,7 @@ export function calculateMlbV8PlayerImpact(args: {
     awayRunDelta: round(awayDelta, 3),
     homeRunDelta: round(homeDelta, 3),
     reasons: [
-      `MLB v8 player-impact applied with ${(confidence * 100).toFixed(1)}% data confidence.`,
+      `MLB v8 player-impact applied with ${(confidence * 100).toFixed(1)}% data confidence using ${profile.status} profile (${profile.sampleSize} samples).`,
       `Away offense ${awayOffense.toFixed(1)} vs home starter ${homeStarterScore.toFixed(1)} and bullpen ${homePen.toFixed(1)} moved away runs ${awayDelta >= 0 ? "+" : ""}${awayDelta.toFixed(2)}.`,
       `Home offense ${homeOffense.toFixed(1)} vs away starter ${awayStarterScore.toFixed(1)} and bullpen ${awayPen.toFixed(1)} moved home runs ${homeDelta >= 0 ? "+" : ""}${homeDelta.toFixed(2)}.`,
       `Run-derived probability was blended with raw home probability ${rawHomeWinPct.toFixed(3)} to produce ${adjustedHomeWinPct.toFixed(3)} before v7 market calibration.`
@@ -425,7 +448,10 @@ export async function applyMlbV8PlayerImpactModel<TProjection extends Projection
   homeTeam: string;
   projection: TProjection;
 }) {
-  const context = await buildMlbV8PlayerImpactContext({ gameId: args.gameId, awayTeam: args.awayTeam, homeTeam: args.homeTeam });
-  const impact = calculateMlbV8PlayerImpact({ projection: args.projection, context });
+  const [context, profile] = await Promise.all([
+    buildMlbV8PlayerImpactContext({ gameId: args.gameId, awayTeam: args.awayTeam, homeTeam: args.homeTeam }),
+    getActiveMlbV8PlayerImpactProfile()
+  ]);
+  const impact = calculateMlbV8PlayerImpact({ projection: args.projection, context, profile });
   return applyMlbV8PlayerImpactToProjection(args.projection, impact);
 }

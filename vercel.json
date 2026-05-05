@@ -15,6 +15,10 @@
       "schedule": "*/30 * * * *"
     },
     {
+      "path": "/api/internal/cron/mlb-v8-player-impact-profile?limit=2000",
+      "schedule": "23 */6 * * *"
+    },
+    {
       "path": "/api/internal/cron/sim-calibration",
       "schedule": "0 */6 * * *"
     },
