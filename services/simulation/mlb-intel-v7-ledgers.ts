@@ -1,8 +1,9 @@
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import type { LeagueKey } from "@/lib/types/domain";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
-import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 import { buildMlbIntelV7Probability, calculateProbabilityClvPct } from "@/services/simulation/mlb-intel-v7-probability";
+import { applyMlbV8PlayerImpactModel } from "@/services/simulation/mlb-v8-player-impact-model";
+import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 
 type SimGame = {
   id: string;
@@ -25,6 +26,7 @@ type ScoreResult = {
 type RuntimeMlbIntel = {
   modelVersion?: string | null;
   dataSource?: string | null;
+  playerImpact?: unknown;
   market?: {
     homeNoVigProbability?: number | null;
     homeOddsAmerican?: number | null;
@@ -285,7 +287,14 @@ export async function captureCurrentMlbIntelV7Ledgers() {
       continue;
     }
 
-    const projection = await buildSimProjection(game);
+    const rawProjection = await buildSimProjection(game);
+    const matchup = parseMatchup(game.label);
+    const projection = await applyMlbV8PlayerImpactModel({
+      gameId: game.id,
+      awayTeam: matchup.away,
+      homeTeam: matchup.home,
+      projection: rawProjection
+    });
     const mlbIntel = (projection.mlbIntel ?? null) as RuntimeMlbIntel | null;
     const v7 = buildMlbIntelV7Probability({
       rawHomeWinPct: projection.distribution.homeWinPct,
@@ -299,15 +308,17 @@ export async function captureCurrentMlbIntelV7Ledgers() {
     const marketSideProbability = v7.marketHomeNoVigProbability == null ? null : sideProbabilityFromHome(snapshotSide, v7.marketHomeNoVigProbability);
     const edge = marketSideProbability == null ? null : round(calibratedSideProbability - marketSideProbability, 4);
     const predictionJson = {
-      version: "mlb-intel-v7",
+      version: "mlb-intel-v7+v8-player-impact",
       gameId: game.id,
       eventLabel: game.label,
       matchup: projection.matchup,
-      rawDistribution: projection.distribution,
+      rawDistribution: rawProjection.distribution,
+      playerImpactDistribution: projection.distribution,
       v7,
       mlbIntel: {
         previousModelVersion: mlbIntel?.modelVersion ?? null,
         dataSource: mlbIntel?.dataSource ?? null,
+        playerImpact: mlbIntel?.playerImpact ?? null,
         market: mlbIntel?.market ?? null,
         governor: mlbIntel?.governor ?? null,
         calibration: mlbIntel?.calibration ?? null,
