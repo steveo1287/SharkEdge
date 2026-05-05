@@ -193,7 +193,6 @@ function summarizeBaseline(label: string, rows: LedgerRow[], pickSide: (row: Led
     .filter((entry): entry is { row: LedgerRow; side: "HOME" | "AWAY" } => entry.side === "HOME" || entry.side === "AWAY");
   const hits = played.filter((entry) => entry.row.actualWinner === entry.side).length;
   const probabilities = played.map((entry) => entry.side === "HOME" ? entry.row.marketHomeNoVig : entry.row.marketAwayNoVig).filter((value): value is number => typeof value === "number");
-  const actuals = played.map((entry) => entry.row.actualWinner === entry.side ? 1 : 0 as 0 | 1);
   const briers = played.map((entry) => {
     const probability = entry.side === "HOME" ? entry.row.marketHomeNoVig : entry.row.marketAwayNoVig;
     return probability == null ? null : brier(probability, entry.row.actualWinner === entry.side ? 1 : 0);
@@ -338,7 +337,7 @@ export async function getNbaWinnerAdvancedCalibrationReport(args: { limit?: numb
 
   const rows = await prisma.eventProjection.findMany({
     where: { modelRunId: modelRun.id },
-    orderBy: { createdAt: "desc" },
+    orderBy: { id: "desc" },
     take: Math.max(1, Math.min(args.limit ?? 5000, 10000))
   });
   const latestByEvent = new Map<string, LedgerRow>();
