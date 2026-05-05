@@ -1,6 +1,7 @@
 import Link from "next/link";
 
-import { buildCommandBoardV2, type CommandBoardV2Game } from "@/services/trends/command-board-v2";
+import { buildSafeCommandBoardV2 } from "@/services/trends/safe-command-board-v2";
+import type { CommandBoardV2Game } from "@/services/trends/command-board-v2";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -115,7 +116,7 @@ export default async function CommandBoardV2Page({ searchParams }: PageProps) {
   const market = (readValue(resolved, "market") ?? "ALL").toLowerCase();
   const limit = parseLimit(readValue(resolved, "limit"));
   const mode = parseMode(readValue(resolved, "mode"));
-  const payload = await buildCommandBoardV2({ league, market, limit });
+  const payload = await buildSafeCommandBoardV2({ league, market, limit });
   const commandGames = payload.games.filter(isCommandReady);
   const fallbackGames = commandGames.length ? [] : payload.games.slice(0, Math.min(limit, 8));
   const visibleGames = mode === "all" ? payload.games : commandGames.length ? commandGames : fallbackGames;
