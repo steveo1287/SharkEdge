@@ -1711,8 +1711,8 @@ model SimPredictionSnapshot {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at")
 
-  @@index([league, capturedAt(sort: Desc)])
-  @@index([league, gameId])
-  @@index([gradedAt, startTime])
+  @@index([league, capturedAt(sort: Desc)], map: "sim_prediction_snapshots_league_captured_idx")
+  @@index([league, gameId], map: "sim_prediction_snapshots_game_idx")
+  @@index([gradedAt, startTime], map: "sim_prediction_snapshots_graded_idx")
   @@map("sim_prediction_snapshots")
 }

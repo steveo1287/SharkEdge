@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS "sim_prediction_snapshots" (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "sim_prediction_snapshots_snapshot_key_key" ON "sim_prediction_snapshots"("snapshot_key");
-CREATE INDEX IF NOT EXISTS "sim_prediction_snapshots_league_captured_at_idx" ON "sim_prediction_snapshots"("league", "captured_at" DESC);
-CREATE INDEX IF NOT EXISTS "sim_prediction_snapshots_league_game_id_idx" ON "sim_prediction_snapshots"("league", "game_id");
-CREATE INDEX IF NOT EXISTS "sim_prediction_snapshots_graded_at_start_time_idx" ON "sim_prediction_snapshots"("graded_at", "start_time");
+-- Index names match what ensureAccuracyTable() created so IF NOT EXISTS is a true no-op on existing databases.
+CREATE INDEX IF NOT EXISTS "sim_prediction_snapshots_league_captured_idx" ON "sim_prediction_snapshots"("league", "captured_at" DESC);
+CREATE INDEX IF NOT EXISTS "sim_prediction_snapshots_game_idx" ON "sim_prediction_snapshots"("league", "game_id");
+CREATE INDEX IF NOT EXISTS "sim_prediction_snapshots_graded_idx" ON "sim_prediction_snapshots"("graded_at", "start_time");
