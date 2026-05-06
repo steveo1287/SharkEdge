@@ -8,4 +8,4 @@ RUN npm ci --include=dev || true
 
 COPY . .
 
-CMD ["sh", "-lc", "npm run dev -- -p ${PORT:-3000}"]
+CMD ["sh", "-lc", "npx prisma migrate deploy && npm run dev -- -p ${PORT:-3000}"]
