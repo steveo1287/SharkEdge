@@ -82,22 +82,136 @@ async function refreshTeamSituations() {
 async function refreshResultGradesAndTrendRows() {
   await prisma.$executeRaw`DELETE FROM mlb_result_grades`;
   await prisma.$executeRaw`DELETE FROM mlb_trend_rows WHERE source = 'mlb-betting-warehouse'`;
+
+  // Grade home and away moneyline for all final games
   await prisma.$executeRaw`
-    INSERT INTO mlb_result_grades (id, game_pk, market_type, side, result, units, grading_note, updated_at)
-    SELECT CONCAT(bg.game_pk, ':moneyline:home'), bg.game_pk, 'moneyline', 'home', bg.home_result, CASE WHEN bg.home_result = 'win' THEN 1 WHEN bg.home_result = 'loss' THEN -1 ELSE 0 END, 'MLB spine moneyline grade without price.', now() FROM mlb_betting_games bg WHERE bg.is_final = true
+    INSERT INTO mlb_result_grades (id, game_pk, market_type, side, result, units, closing_price, grading_note, updated_at)
+    SELECT
+      CONCAT(bg.game_pk, ':moneyline:home'), bg.game_pk, 'moneyline', 'home',
+      bg.home_result,
+      CASE WHEN bg.home_result = 'win' THEN 1 WHEN bg.home_result = 'loss' THEN -1 ELSE 0 END,
+      moc.close_price,
+      'MLB spine moneyline grade.', now()
+    FROM mlb_betting_games bg
+    LEFT JOIN mlb_market_open_close moc ON moc.game_pk = bg.game_pk AND moc.market_type = 'moneyline' AND moc.side = 'home'
+    WHERE bg.is_final = true
   `;
   await prisma.$executeRaw`
-    INSERT INTO mlb_result_grades (id, game_pk, market_type, side, result, units, grading_note, updated_at)
-    SELECT CONCAT(bg.game_pk, ':moneyline:away'), bg.game_pk, 'moneyline', 'away', bg.away_result, CASE WHEN bg.away_result = 'win' THEN 1 WHEN bg.away_result = 'loss' THEN -1 ELSE 0 END, 'MLB spine moneyline grade without price.', now() FROM mlb_betting_games bg WHERE bg.is_final = true
+    INSERT INTO mlb_result_grades (id, game_pk, market_type, side, result, units, closing_price, grading_note, updated_at)
+    SELECT
+      CONCAT(bg.game_pk, ':moneyline:away'), bg.game_pk, 'moneyline', 'away',
+      bg.away_result,
+      CASE WHEN bg.away_result = 'win' THEN 1 WHEN bg.away_result = 'loss' THEN -1 ELSE 0 END,
+      moc.close_price,
+      'MLB spine moneyline grade.', now()
+    FROM mlb_betting_games bg
+    LEFT JOIN mlb_market_open_close moc ON moc.game_pk = bg.game_pk AND moc.market_type = 'moneyline' AND moc.side = 'away'
+    WHERE bg.is_final = true
   `;
+
+  // Update team situations with favorite/price-bucket from closing market
+  await prisma.$executeRaw`
+    UPDATE mlb_team_situations s
+    SET
+      is_favorite = (moc.close_price IS NOT NULL AND moc.close_price < 0),
+      price_bucket = CASE
+        WHEN moc.close_price IS NULL THEN 'unknown'
+        WHEN moc.close_price <= -200 THEN 'big_favorite'
+        WHEN moc.close_price <= -130 THEN 'favorite'
+        WHEN moc.close_price < 100  THEN 'slight_favorite'
+        WHEN moc.close_price <= 130 THEN 'pick'
+        WHEN moc.close_price <= 180 THEN 'dog'
+        ELSE 'big_dog'
+      END,
+      total_bucket = CASE
+        WHEN s.total_runs IS NULL THEN 'unknown'
+        WHEN s.total_runs <= 5    THEN 'low'
+        WHEN s.total_runs <= 8    THEN 'mid'
+        ELSE 'high'
+      END
+    FROM mlb_market_open_close moc
+    WHERE moc.game_pk = s.game_pk AND moc.market_type = 'moneyline' AND moc.side = s.side
+  `;
+
+  // Trend row generation: 4 qualifier dimensions × 2 sides = 8 rows per game
+
+  // 1. Base row (home/away only, no extra qualifier)
   await prisma.$executeRaw`
     INSERT INTO mlb_trend_rows (id, game_pk, team_id, event_label, market_type, side, result, units, trend_key, qualifiers, updated_at)
-    SELECT CONCAT('trend:', rg.id), rg.game_pk, s.team_id, bg.event_label, rg.market_type, rg.side, rg.result, rg.units,
-      CONCAT('MLB|', rg.market_type, '|', rg.side, '|', s.home_away, '|runs_', CASE WHEN s.scored >= 5 THEN '5_plus' ELSE 'under_5' END),
-      jsonb_build_object('homeAway', s.home_away, 'scored', s.scored, 'allowed', s.allowed, 'totalRuns', s.total_runs), now()
+    SELECT
+      CONCAT('trend:base:', rg.id), rg.game_pk, s.team_id, bg.event_label,
+      rg.market_type, rg.side, rg.result, rg.units,
+      CONCAT('MLB|', rg.market_type, '|', rg.side, '|', s.home_away),
+      jsonb_build_object('homeAway', s.home_away, 'scored', s.scored, 'allowed', s.allowed, 'totalRuns', s.total_runs, 'qualifier', 'base'),
+      now()
     FROM mlb_result_grades rg
     JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
     JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, updated_at = now()
+  `;
+
+  // 2. Runs scored bucket (scored 5+ vs under 5)
+  await prisma.$executeRaw`
+    INSERT INTO mlb_trend_rows (id, game_pk, team_id, event_label, market_type, side, result, units, trend_key, qualifiers, updated_at)
+    SELECT
+      CONCAT('trend:scored:', rg.id), rg.game_pk, s.team_id, bg.event_label,
+      rg.market_type, rg.side, rg.result, rg.units,
+      CONCAT('MLB|', rg.market_type, '|', rg.side, '|', s.home_away, '|scored_', CASE WHEN s.scored >= 5 THEN '5_plus' ELSE 'under_5' END),
+      jsonb_build_object('homeAway', s.home_away, 'scored', s.scored, 'allowed', s.allowed, 'totalRuns', s.total_runs, 'qualifier', CASE WHEN s.scored >= 5 THEN 'scored_5_plus' ELSE 'scored_under_5' END),
+      now()
+    FROM mlb_result_grades rg
+    JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
+    JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
+    WHERE s.scored IS NOT NULL
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, updated_at = now()
+  `;
+
+  // 3. Total runs bucket (8+ vs under 8)
+  await prisma.$executeRaw`
+    INSERT INTO mlb_trend_rows (id, game_pk, team_id, event_label, market_type, side, result, units, trend_key, qualifiers, updated_at)
+    SELECT
+      CONCAT('trend:total:', rg.id), rg.game_pk, s.team_id, bg.event_label,
+      rg.market_type, rg.side, rg.result, rg.units,
+      CONCAT('MLB|', rg.market_type, '|', rg.side, '|', s.home_away, '|total_', CASE WHEN s.total_runs >= 8 THEN '8_plus' ELSE 'under_8' END),
+      jsonb_build_object('homeAway', s.home_away, 'scored', s.scored, 'allowed', s.allowed, 'totalRuns', s.total_runs, 'qualifier', CASE WHEN s.total_runs >= 8 THEN 'total_8_plus' ELSE 'total_under_8' END),
+      now()
+    FROM mlb_result_grades rg
+    JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
+    JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
+    WHERE s.total_runs IS NOT NULL
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, updated_at = now()
+  `;
+
+  // 4. Runs allowed bucket (allowed 3 or fewer vs 4+)
+  await prisma.$executeRaw`
+    INSERT INTO mlb_trend_rows (id, game_pk, team_id, event_label, market_type, side, result, units, trend_key, qualifiers, updated_at)
+    SELECT
+      CONCAT('trend:allowed:', rg.id), rg.game_pk, s.team_id, bg.event_label,
+      rg.market_type, rg.side, rg.result, rg.units,
+      CONCAT('MLB|', rg.market_type, '|', rg.side, '|', s.home_away, '|allowed_', CASE WHEN s.allowed <= 3 THEN '3_or_less' ELSE '4_plus' END),
+      jsonb_build_object('homeAway', s.home_away, 'scored', s.scored, 'allowed', s.allowed, 'totalRuns', s.total_runs, 'qualifier', CASE WHEN s.allowed <= 3 THEN 'allowed_3_or_less' ELSE 'allowed_4_plus' END),
+      now()
+    FROM mlb_result_grades rg
+    JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
+    JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
+    WHERE s.allowed IS NOT NULL
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, updated_at = now()
+  `;
+
+  // 5. Price bucket (favorite / dog / big_dog)
+  await prisma.$executeRaw`
+    INSERT INTO mlb_trend_rows (id, game_pk, team_id, event_label, market_type, side, result, units, trend_key, qualifiers, updated_at)
+    SELECT
+      CONCAT('trend:price:', rg.id), rg.game_pk, s.team_id, bg.event_label,
+      rg.market_type, rg.side, rg.result, rg.units,
+      CONCAT('MLB|', rg.market_type, '|', rg.side, '|', s.home_away, '|', COALESCE(s.price_bucket, 'unknown')),
+      jsonb_build_object('homeAway', s.home_away, 'scored', s.scored, 'allowed', s.allowed, 'totalRuns', s.total_runs, 'priceBucket', s.price_bucket, 'qualifier', s.price_bucket),
+      now()
+    FROM mlb_result_grades rg
+    JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
+    JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
+    WHERE s.price_bucket IS NOT NULL AND s.price_bucket != 'unknown'
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, updated_at = now()
   `;
 }
 

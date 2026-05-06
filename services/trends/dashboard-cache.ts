@@ -266,7 +266,7 @@ async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, concurrency
   return output;
 }
 export async function warmTrendDashboardCaches(args?: { leagues?: Array<LeagueKey | "ALL">; markets?: Array<TrendFilters["market"]>; mode?: TrendMode }) {
-  const leagues = args?.leagues?.length ? args.leagues : ["ALL", "MLB", "NBA"] as Array<LeagueKey | "ALL">;
+  const leagues = args?.leagues?.length ? args.leagues : ["ALL", "MLB"] as Array<LeagueKey | "ALL">;
   const markets = args?.markets?.length ? args.markets : ["ALL", "moneyline", "spread", "total"] as Array<TrendFilters["market"]>;
   const modes: TrendMode[] = args?.mode ? [args.mode] : ["simple", "power"];
   const tasks: Array<() => Promise<{ league: string; market: string; mode: TrendMode; cards: number; ok: boolean; error?: string }>> = [];
