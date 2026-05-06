@@ -4,6 +4,9 @@ import { ingestNbaAvailability } from "@/services/stats/nba-availability-ingesti
 import { refreshTeamPowerRatings } from "@/services/stats/team-power-ratings";
 import { ingestMlbAdvancedStats } from "@/services/stats/mlb-advanced-ingestion";
 import { ingestMlbStatcastQuality } from "@/services/stats/mlb-statcast-ingestion";
+import { ingestMlbPitchTracking } from "@/services/stats/mlb-pitch-tracking-feed";
+import { refreshUmpireAssignments, seedMlbUmpireDb } from "@/services/simulation/mlb-umpire-db";
+import { captureMlbClosingLines } from "@/services/mlb/mlb-closing-line-capture";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -25,17 +28,20 @@ export async function GET(request: Request) {
 
   try {
     const results = await ingestTeamStats({ leagues: ["MLB", "NBA"], lookbackDays: 3 });
-    const [availability, mlbAdvanced, mlbStatcast] = await Promise.all([
+    const [availability, mlbAdvanced, mlbStatcast, mlbPitchTracking, mlbUmpire, mlbClosingLines] = await Promise.all([
       ingestNbaAvailability({ lookaheadDays: 3 }),
       ingestMlbAdvancedStats({ lookbackDays: 7 }),
-      ingestMlbStatcastQuality({ lookbackDays: 2 })
+      ingestMlbStatcastQuality({ lookbackDays: 2 }),
+      ingestMlbPitchTracking(),
+      seedMlbUmpireDb().then(() => refreshUmpireAssignments()),
+      captureMlbClosingLines({ windowBeforeMinutes: 90, windowAfterMinutes: 180 }),
     ]);
     const powerRatings = await Promise.all([
       refreshTeamPowerRatings({ leagueKey: "NBA", lookbackGames: 12 }),
       refreshTeamPowerRatings({ leagueKey: "MLB", lookbackGames: 12 })
     ]);
 
-    return NextResponse.json({ ok: true, results, availability, mlbAdvanced, mlbStatcast, powerRatings });
+    return NextResponse.json({ ok: true, results, availability, mlbAdvanced, mlbStatcast, mlbPitchTracking, mlbUmpire, mlbClosingLines, powerRatings });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Stats cron failed";
     console.error("[cron/stats-ingest]", message);
