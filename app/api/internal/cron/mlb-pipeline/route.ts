@@ -6,6 +6,7 @@ import { captureMlbClosingLines } from "@/services/mlb/mlb-closing-line-capture"
 import { runMlbFeatureMonitor } from "@/services/simulation/mlb-feature-monitor";
 import { runMlbRetrainPipeline } from "@/services/simulation/mlb-retrain-pipeline";
 import { runMlbGameSpineIngestion } from "@/services/mlb/mlb-game-spine";
+import { runMlbBettingWarehouseRefresh } from "@/services/mlb/mlb-betting-warehouse";
 import { getMlbLineupLock } from "@/services/simulation/mlb-lineup-locks";
 
 export const dynamic = "force-dynamic";
@@ -92,6 +93,13 @@ export async function GET(request: Request) {
     warnings.push(`retrain: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // 7. Betting warehouse refresh — rebuilds mlb_trend_rows for the trends browser
+  try {
+    results.bettingWarehouse = await runMlbBettingWarehouseRefresh();
+  } catch (err) {
+    warnings.push(`bettingWarehouse: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   return NextResponse.json({
     ok: true,
     durationMs: Date.now() - started,
@@ -117,12 +125,14 @@ async function runSingleStep(step: string) {
         return NextResponse.json({ ok: true, result: await runMlbFeatureMonitor() });
       case "retrain":
         return NextResponse.json({ ok: true, result: await runMlbRetrainPipeline({ force: true, reason: "manual" }) });
+      case "warehouse":
+        return NextResponse.json({ ok: true, result: await runMlbBettingWarehouseRefresh() });
       case "lineup-test": {
         const lock = await getMlbLineupLock("New York Yankees", "Boston Red Sox");
         return NextResponse.json({ ok: true, result: lock });
       }
       default:
-        return NextResponse.json({ ok: false, error: `Unknown step: ${step}`, validSteps: ["game-spine", "umpire", "statcast", "pitch-tracking", "closing-lines", "feature-monitor", "retrain", "lineup-test"] }, { status: 400 });
+        return NextResponse.json({ ok: false, error: `Unknown step: ${step}`, validSteps: ["game-spine", "umpire", "statcast", "pitch-tracking", "closing-lines", "feature-monitor", "retrain", "warehouse", "lineup-test"] }, { status: 400 });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
