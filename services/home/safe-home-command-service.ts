@@ -39,6 +39,18 @@ function fallbackFilters(league: HomeLeagueScope, date: HomeDeskDateKey): BoardF
   };
 }
 
+function publicErrorLabel(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const lower = message.toLowerCase();
+  if (lower.includes("can't reach database") || lower.includes("database server") || lower.includes("prisma")) {
+    return "Database is unavailable. SharkEdge is serving recovery mode until the data service comes back online.";
+  }
+  if (lower.includes("timeout") || lower.includes("timed out")) {
+    return "Live data request timed out. SharkEdge is serving recovery mode until the next refresh.";
+  }
+  return "Home command data failed upstream. SharkEdge is serving recovery mode instead of throwing.";
+}
+
 function fallbackBoardData(filters: BoardFilters, reason: string, focus: LeagueKey): BoardPageData {
   const now = new Date().toISOString();
 
@@ -76,7 +88,7 @@ function fallbackBoardData(filters: BoardFilters, reason: string, focus: LeagueK
     providerHealth: {
       state: "FALLBACK",
       label: "Recovery mode",
-      summary: "Home command data failed upstream. SharkEdge is serving a safe fallback instead of throwing.",
+      summary: reason,
       freshnessLabel: "Recovery mode",
       freshnessMinutes: null,
       asOf: now,
@@ -90,11 +102,6 @@ function fallbackBoardData(filters: BoardFilters, reason: string, focus: LeagueK
   };
 }
 
-function errorLabel(error: unknown) {
-  if (error instanceof Error && error.message.trim()) return error.message;
-  return "unknown home command error";
-}
-
 export function buildFallbackHomeCommandData(
   searchParams: Record<string, string | string[] | undefined>,
   error: unknown
@@ -102,7 +109,7 @@ export function buildFallbackHomeCommandData(
   const league = selectedLeague(searchParams);
   const date = selectedDate(searchParams);
   const filters = fallbackFilters(league, date);
-  const reason = errorLabel(error);
+  const reason = publicErrorLabel(error);
   const focus = focusedLeague(league);
   const boardData = fallbackBoardData(filters, reason, focus);
 
