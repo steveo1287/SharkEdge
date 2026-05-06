@@ -27,6 +27,18 @@
       "schedule": "0 8 * * *"
     },
     {
+      "path": "/api/internal/cron/stats-ingest",
+      "schedule": "0 20 * * *"
+    },
+    {
+      "path": "/api/internal/cron/mlb-pipeline",
+      "schedule": "*/30 13-23 * * *"
+    },
+    {
+      "path": "/api/internal/cron/mlb-pipeline",
+      "schedule": "*/30 0-6 * * *"
+    },
+    {
       "path": "/api/internal/cron/ufc-autopilot",
       "schedule": "17 */6 * * *"
     },
