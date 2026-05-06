@@ -126,56 +126,6 @@ function bucketFor(probability: number) {
   return `${lower}-${lower + 10}%`;
 }
 
-async function ensureAccuracyTable() {
-  if (!hasUsableServerDatabaseUrl()) return false;
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS sim_prediction_snapshots (
-      id TEXT PRIMARY KEY,
-      snapshot_key TEXT NOT NULL UNIQUE,
-      league TEXT NOT NULL,
-      game_id TEXT NOT NULL,
-      event_label TEXT NOT NULL,
-      away_team TEXT NOT NULL,
-      home_team TEXT NOT NULL,
-      start_time TIMESTAMPTZ NOT NULL,
-      status TEXT NOT NULL,
-      captured_at TIMESTAMPTZ NOT NULL,
-      model_version TEXT,
-      data_source TEXT,
-      tier TEXT,
-      no_bet BOOLEAN DEFAULT FALSE,
-      confidence DOUBLE PRECISION,
-      model_home_win_pct DOUBLE PRECISION NOT NULL,
-      model_away_win_pct DOUBLE PRECISION NOT NULL,
-      model_spread DOUBLE PRECISION NOT NULL,
-      model_total DOUBLE PRECISION NOT NULL,
-      model_home_score DOUBLE PRECISION NOT NULL,
-      model_away_score DOUBLE PRECISION NOT NULL,
-      market_home_win_pct DOUBLE PRECISION,
-      market_spread DOUBLE PRECISION,
-      market_total DOUBLE PRECISION,
-      final_home_score DOUBLE PRECISION,
-      final_away_score DOUBLE PRECISION,
-      final_margin DOUBLE PRECISION,
-      final_total DOUBLE PRECISION,
-      home_won BOOLEAN,
-      brier DOUBLE PRECISION,
-      log_loss DOUBLE PRECISION,
-      spread_error DOUBLE PRECISION,
-      total_error DOUBLE PRECISION,
-      calibration_bucket TEXT,
-      prediction_json JSONB,
-      result_json JSONB,
-      graded_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-  `);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS sim_prediction_snapshots_league_captured_idx ON sim_prediction_snapshots (league, captured_at DESC);`);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS sim_prediction_snapshots_game_idx ON sim_prediction_snapshots (league, game_id);`);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS sim_prediction_snapshots_graded_idx ON sim_prediction_snapshots (graded_at, start_time);`);
-  return true;
-}
 
 function richMlbIntel(projection: Projection): RichMlbIntel | null { return projection.mlbIntel ? projection.mlbIntel as RichMlbIntel : null; }
 function richRealityIntel(projection: Projection, league: LeagueKey): RichRealityIntel | null { return league === "NBA" && projection.realityIntel ? projection.realityIntel as RichRealityIntel : null; }
@@ -320,7 +270,7 @@ async function fetchSimGames(leagues: SupportedAccuracyLeague[]) {
 }
 
 export async function captureCurrentSimPredictionSnapshots(leagues: SupportedAccuracyLeague[] = ["NBA", "MLB"]) {
-  const databaseReady = await ensureAccuracyTable();
+  const databaseReady = hasUsableServerDatabaseUrl();
   if (!databaseReady) return { ok: false, databaseReady, captured: 0, skipped: 0, error: "No usable server database URL is configured." };
   const [games, edgeData] = await Promise.all([
     fetchSimGames(leagues),
@@ -350,7 +300,7 @@ async function finalScoreMap(leagues: SupportedAccuracyLeague[]) {
 }
 
 export async function gradeFinalSimPredictionSnapshots(leagues: SupportedAccuracyLeague[] = ["NBA", "MLB"]) {
-  const databaseReady = await ensureAccuracyTable();
+  const databaseReady = hasUsableServerDatabaseUrl();
   if (!databaseReady) return { ok: false, databaseReady, graded: 0, availableFinals: 0, error: "No usable server database URL is configured." };
   const finals = await finalScoreMap(leagues);
   let graded = 0;
@@ -397,7 +347,7 @@ function pickResult(row: { model_home_win_pct: number; home_won: boolean | null;
 }
 
 export async function getSimAccuracySummary(limit = 20): Promise<SimAccuracySummary> {
-  const databaseReady = await ensureAccuracyTable();
+  const databaseReady = hasUsableServerDatabaseUrl();
   if (!databaseReady) return { ok: false, databaseReady, totalSnapshots: 0, gradedSnapshots: 0, ungradedSnapshots: 0, history: [], byLeague: [], recent: [], error: "No usable server database URL is configured." };
   try {
     const totals = await prisma.$queryRaw<Array<{ total: bigint; graded: bigint }>>`SELECT COUNT(*)::bigint AS total, COUNT(graded_at)::bigint AS graded FROM sim_prediction_snapshots;`;
