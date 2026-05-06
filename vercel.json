@@ -47,6 +47,10 @@
       "schedule": "0 2 * * *"
     },
     {
+      "path": "/api/internal/cron/db-space-repair",
+      "schedule": "35 7 * * *"
+    },
+    {
       "path": "/api/mlb/refresh",
       "schedule": "0 */6 * * *"
     },
