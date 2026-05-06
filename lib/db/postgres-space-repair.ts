@@ -4,8 +4,8 @@ export type PostgresSpaceRepairMode = "dry-run" | "apply";
 
 type CleanupRule = {
   table: string;
-  predicateSql: string;
   label: string;
+  predicate: (columns: Set<string>) => string | null;
 };
 
 const VACUUM_TABLES = [
@@ -22,45 +22,70 @@ const VACUUM_TABLES = [
 const RULES: CleanupRule[] = [
   {
     table: "event_market_snapshots",
-    predicateSql: "\"capturedAt\" < NOW() - INTERVAL '14 days'",
-    label: "event market snapshots older than 14d"
+    label: "event market snapshots older than 14d",
+    predicate: (columns) => olderThanPredicate(columns, ["capturedAt", "captured_at"], "14 days")
   },
   {
     table: "market_snapshots",
-    predicateSql: "\"capturedAt\" < NOW() - INTERVAL '14 days'",
-    label: "market snapshots older than 14d"
+    label: "market snapshots older than 14d",
+    predicate: (columns) => olderThanPredicate(columns, ["capturedAt", "captured_at"], "14 days")
   },
   {
     table: "edge_explanation_snapshots",
-    predicateSql: "\"createdAt\" < NOW() - INTERVAL '30 days'",
-    label: "edge explanation snapshots older than 30d"
+    label: "edge explanation snapshots older than 30d",
+    predicate: (columns) => olderThanPredicate(columns, ["createdAt", "created_at"], "30 days")
   },
   {
     table: "simulation_cache",
-    predicateSql: "(\"expiresAt\" IS NOT NULL AND \"expiresAt\" < NOW()) OR \"createdAt\" < NOW() - INTERVAL '7 days'",
-    label: "expired/stale simulation cache"
+    label: "expired/stale simulation cache",
+    predicate: (columns) => {
+      const expires = pickColumn(columns, ["expiresAt", "expires_at"]);
+      const created = pickColumn(columns, ["createdAt", "created_at"]);
+      const parts = [
+        expires ? `(${quoteIdent(expires)} IS NOT NULL AND ${quoteIdent(expires)} < NOW())` : null,
+        created ? `${quoteIdent(created)} < NOW() - INTERVAL '7 days'` : null
+      ].filter(Boolean);
+      return parts.length ? parts.join(" OR ") : null;
+    }
   },
   {
     table: "trend_cache",
-    predicateSql: "\"expiresAt\" < NOW() - INTERVAL '1 day'",
-    label: "expired trend cache"
+    label: "expired trend cache",
+    predicate: (columns) => olderThanPredicate(columns, ["expiresAt", "expires_at"], "1 day")
   },
   {
     table: "saved_trend_snapshots",
-    predicateSql: "\"createdAt\" < NOW() - INTERVAL '45 days'",
-    label: "saved trend snapshots older than 45d"
+    label: "saved trend snapshots older than 45d",
+    predicate: (columns) => olderThanPredicate(columns, ["createdAt", "created_at"], "45 days")
   },
   {
     table: "discovered_trend_system_snapshots",
-    predicateSql: "\"createdAt\" < NOW() - INTERVAL '45 days'",
-    label: "discovered trend snapshots older than 45d"
+    label: "discovered trend snapshots older than 45d",
+    predicate: (columns) => olderThanPredicate(columns, ["createdAt", "created_at"], "45 days")
   },
   {
     table: "sim_predictions",
-    predicateSql: "result <> 'OPEN' AND \"createdAt\" < NOW() - INTERVAL '90 days'",
-    label: "settled sim predictions older than 90d"
+    label: "settled sim predictions older than 90d",
+    predicate: (columns) => {
+      const created = pickColumn(columns, ["createdAt", "created_at"]);
+      if (!created || !columns.has("result")) return null;
+      return `result <> 'OPEN' AND ${quoteIdent(created)} < NOW() - INTERVAL '90 days'`;
+    }
   }
 ];
+
+function quoteIdent(value: string) {
+  return `"${value.replace(/"/g, "\"\"")}"`;
+}
+
+function pickColumn(columns: Set<string>, candidates: string[]) {
+  return candidates.find((candidate) => columns.has(candidate)) ?? null;
+}
+
+function olderThanPredicate(columns: Set<string>, candidates: string[], interval: string) {
+  const column = pickColumn(columns, candidates);
+  return column ? `${quoteIdent(column)} < NOW() - INTERVAL '${interval}'` : null;
+}
 
 async function tableExists(prisma: PrismaClient, table: string) {
   const rows = await prisma.$queryRawUnsafe<Array<{ exists: string | null }>>(
@@ -68,6 +93,17 @@ async function tableExists(prisma: PrismaClient, table: string) {
     `public.${table}`
   );
   return Boolean(rows[0]?.exists);
+}
+
+async function getColumns(prisma: PrismaClient, table: string) {
+  const rows = await prisma.$queryRawUnsafe<Array<{ column_name: string }>>(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = $1`,
+    table
+  );
+  return new Set(rows.map((row) => row.column_name));
 }
 
 export async function repairPostgresSpace(prisma: PrismaClient, mode: PostgresSpaceRepairMode = "dry-run") {
@@ -82,8 +118,15 @@ export async function repairPostgresSpace(prisma: PrismaClient, mode: PostgresSp
       continue;
     }
 
+    const columns = await getColumns(prisma, rule.table);
+    const predicateSql = rule.predicate(columns);
+    if (!predicateSql) {
+      skippedTables.push(`${rule.table}:missing_retention_columns`);
+      continue;
+    }
+
     const countRows = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
-      `SELECT COUNT(*)::bigint AS count FROM ${rule.table} WHERE ${rule.predicateSql}`
+      `SELECT COUNT(*)::bigint AS count FROM ${rule.table} WHERE ${predicateSql}`
     );
     const matched = Number(countRows[0]?.count ?? BigInt(0));
     let deleted = 0;
@@ -92,7 +135,7 @@ export async function repairPostgresSpace(prisma: PrismaClient, mode: PostgresSp
       const deletedRows = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
         `WITH deleted AS (
            DELETE FROM ${rule.table}
-           WHERE ${rule.predicateSql}
+           WHERE ${predicateSql}
            RETURNING 1
          )
          SELECT COUNT(*)::bigint AS count FROM deleted`
@@ -143,4 +186,3 @@ export async function repairPostgresSpace(prisma: PrismaClient, mode: PostgresSp
     }
   };
 }
-
