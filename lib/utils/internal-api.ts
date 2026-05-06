@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 
 export function ensureInternalApiAccess(request: Request) {
-  if (request.headers.get("x-vercel-cron") === "1") {
-    return null;
-  }
-
   const acceptedKeys = [
     process.env.INTERNAL_API_KEY?.trim(),
     process.env.INTERNAL_API_KEY2?.trim(),

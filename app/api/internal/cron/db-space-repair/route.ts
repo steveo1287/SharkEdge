@@ -9,7 +9,8 @@ export const revalidate = 0;
 export const maxDuration = 120;
 
 export async function GET(request: Request) {
-  const unauthorized = ensureInternalApiAccess(request);
+  const isVercelCron = request.headers.get("x-vercel-cron") === "1";
+  const unauthorized = isVercelCron ? null : ensureInternalApiAccess(request);
   if (unauthorized) return unauthorized;
 
   try {
@@ -26,4 +27,3 @@ export async function GET(request: Request) {
     );
   }
 }
-
