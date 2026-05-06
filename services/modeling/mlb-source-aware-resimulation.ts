@@ -199,7 +199,7 @@ function buildTierTwoProfile(team: TierTeamContext, venue: MlbSourceNativeContex
   const restRecoveryScore = clamp(team.restRecoveryScore ?? 50, 0, 100);
   const umpireZoneRunImpact = clamp(team.umpireZoneRunImpact ?? 0, -1, 1);
   const weatherTrajectoryRunImpact = clamp(team.weatherTrajectoryRunImpact ?? 0, -1, 1);
-  const inferredWeatherConfidence = venue.weatherExposure === "HIGH" || venue.windSensitivity === "HIGH" ? 58 : venue.weatherExposure === "MEDIUM" ? 46 : 28;
+  const inferredWeatherConfidence = venue.weatherExposure === "OUTDOOR" || venue.windSensitivity === "HIGH" ? 58 : venue.weatherExposure === "MIXED" ? 46 : 28;
   const weatherTrajectoryConfidence = clamp(team.weatherTrajectoryConfidence ?? inferredWeatherConfidence, 0, 100);
   const contextRiskScore =
     (100 - defensiveRunPreventionScore) * 0.12 +
