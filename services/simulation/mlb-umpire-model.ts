@@ -1,5 +1,6 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
 import { normalizeMlbTeam } from "@/services/simulation/mlb-team-analytics";
+import { getMlbUmpireTendencyFromDb } from "@/services/simulation/mlb-umpire-db";
 
 export type MlbUmpireTendency = {
   source: "real" | "synthetic";
@@ -139,8 +140,12 @@ async function fetchUmpireContexts(): Promise<Record<string, MlbUmpireTendency> 
 }
 
 export async function getMlbUmpireTendency(awayTeam: string, homeTeam: string): Promise<MlbUmpireTendency> {
+  // 1. Try the DB-backed umpire store (has seed data + daily assignment refresh)
+  const dbTendency = await getMlbUmpireTendencyFromDb(awayTeam, homeTeam).catch(() => null);
+  if (dbTendency) return dbTendency;
+
+  // 2. Fall back to the configured external URL feed
   const contexts = await fetchUmpireContexts();
   if (!contexts) return syntheticTendency();
-  // Prefer game-specific matchup key; fall back to synthetic
   return contexts[keyFor(awayTeam, homeTeam)] ?? syntheticTendency();
 }
