@@ -371,7 +371,7 @@ export default async function SharkTrendsPage({ searchParams }: PageProps) {
             <span>·</span>
             <span>updated {fmtRefresh(summary.lastUpdated)}</span>
             {!hasData && (
-              <a href="/sharktrends/mlb-warehouse" className="rounded-lg border border-amber-300/30 bg-amber-400/10 px-3 py-1.5 text-amber-200 hover:bg-amber-400/15">Run warehouse refresh →</a>
+              <a href="/api/internal/mlb/spine/backfill?seasons=2024,2025&warehouse=true" className="rounded-lg border border-amber-300/30 bg-amber-400/10 px-3 py-1.5 text-amber-200 hover:bg-amber-400/15">Backfill 2024–2025 seasons →</a>
             )}
           </div>
         </div>
@@ -451,6 +451,8 @@ export default async function SharkTrendsPage({ searchParams }: PageProps) {
         <div className="mt-10 flex flex-wrap items-center gap-4 border-t border-white/[0.06] pt-6 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
           <Link href="/sharktrends/mlb-warehouse" className="hover:text-slate-300">MLB Warehouse</Link>
           <Link href="/sharktrends/mlb-spine" className="hover:text-slate-300">MLB Spine</Link>
+          <Link href="/api/internal/mlb/warehouse/refresh" className="hover:text-slate-300">Warehouse Health</Link>
+          <Link href="/api/internal/mlb/spine/backfill?seasons=2024,2025&warehouse=true" className="hover:text-slate-300">Backfill Seasons</Link>
           <Link href="/api/trends/mlb/browser" className="hover:text-slate-300">Browser API</Link>
           <Link href="/api/trends/mlb/today" className="hover:text-slate-300">Today API</Link>
           <Link href="/sharktrends/market-intelligence" className="hover:text-slate-300">Market Intel</Link>

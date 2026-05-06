@@ -37,6 +37,18 @@ async function fetchMlbSchedule(daysBack = 1, daysForward = 2) {
   return (payload.dates ?? []).flatMap((date) => date.games ?? []);
 }
 
+async function fetchMlbSeasonSchedule(season: number) {
+  // Full regular season + postseason window for a given year
+  const startDate = `${season}-03-01`;
+  const endDate = `${season}-11-15`;
+  const url = new URL("https://statsapi.mlb.com/api/v1/schedule");
+  url.searchParams.set("sportId", "1"); url.searchParams.set("startDate", startDate); url.searchParams.set("endDate", endDate); url.searchParams.set("hydrate", "probablePitcher,team"); url.searchParams.set("gameType", "R,F,D,L,W");
+  const response = await fetch(url.toString(), { cache: "no-store", signal: AbortSignal.timeout(60_000) });
+  if (!response.ok) throw new Error(`MLB season ${season} schedule fetch failed with status ${response.status}.`);
+  const payload = await response.json() as MlbSchedule;
+  return (payload.dates ?? []).flatMap((date) => date.games ?? []);
+}
+
 async function upsertTeam(node: TeamNode | undefined) {
   const team = node?.team; if (!team?.id) return 0;
   await prisma.$executeRaw`INSERT INTO mlb_teams (team_id, name, abbreviation, team_name, updated_at) VALUES (${team.id}, ${team.name ?? "Unknown"}, ${team.abbreviation ?? null}, ${team.teamName ?? null}, now()) ON CONFLICT (team_id) DO UPDATE SET name = EXCLUDED.name, abbreviation = EXCLUDED.abbreviation, team_name = EXCLUDED.team_name, updated_at = now()`;
@@ -73,6 +85,48 @@ export async function runMlbGameSpineIngestion(): Promise<MlbSpineRun> {
     return { ok: true, generatedAt: new Date().toISOString(), sourceNote: "MLB game spine ingested official schedule, teams, results, and probable pitchers.", stats: { providerGames: games.length, teamsUpserted, gamesUpserted, resultsUpserted, probablePitchersUpserted }, samples: games.slice(0, 8).map((game) => ({ gamePk: game.gamePk, eventLabel: eventLabel(game), gameDate: game.gameDate, status: statusLabel(game), score: scoreLabel(game) })) };
   } catch (error) {
     return { ok: false, generatedAt: new Date().toISOString(), sourceNote: "MLB game spine ingestion failed.", stats: { providerGames: 0, teamsUpserted: 0, gamesUpserted: 0, resultsUpserted: 0, probablePitchersUpserted: 0 }, samples: [], error: error instanceof Error ? error.message : "Unknown MLB spine error." };
+  }
+}
+
+export type MlbSpineBackfillRun = {
+  ok: boolean;
+  seasons: number[];
+  totalGames: number;
+  teamsUpserted: number;
+  gamesUpserted: number;
+  resultsUpserted: number;
+  durationMs: number;
+  error?: string;
+};
+
+export async function runMlbSeasonBackfill(seasons?: number[]): Promise<MlbSpineBackfillRun> {
+  if (!hasUsableServerDatabaseUrl()) {
+    return { ok: false, seasons: [], totalGames: 0, teamsUpserted: 0, gamesUpserted: 0, resultsUpserted: 0, durationMs: 0, error: "DATABASE_URL unavailable." };
+  }
+  const currentYear = new Date().getFullYear();
+  const targetSeasons = seasons?.length ? seasons : [currentYear - 1, currentYear];
+  const started = Date.now();
+
+  try {
+    await ensureMlbSpineTables();
+    let totalGames = 0, teamsUpserted = 0, gamesUpserted = 0, resultsUpserted = 0;
+
+    for (const season of targetSeasons) {
+      const games = await fetchMlbSeasonSchedule(season);
+      totalGames += games.length;
+      for (const game of games) {
+        teamsUpserted += await upsertTeam(game.teams?.away);
+        teamsUpserted += await upsertTeam(game.teams?.home);
+        gamesUpserted += await upsertGame(game);
+        resultsUpserted += await upsertResult(game);
+        await upsertPitcher(game, "away");
+        await upsertPitcher(game, "home");
+      }
+    }
+
+    return { ok: true, seasons: targetSeasons, totalGames, teamsUpserted, gamesUpserted, resultsUpserted, durationMs: Date.now() - started };
+  } catch (error) {
+    return { ok: false, seasons: targetSeasons, totalGames: 0, teamsUpserted: 0, gamesUpserted: 0, resultsUpserted: 0, durationMs: Date.now() - started, error: error instanceof Error ? error.message : "Backfill failed." };
   }
 }
 

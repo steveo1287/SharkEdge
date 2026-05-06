@@ -50,10 +50,12 @@ async function refreshBettingGames() {
 }
 
 async function refreshMarketOpenClose() {
+  // Insert market history rows, resolving game_pk via date + team name matching
   await prisma.$executeRaw`
     INSERT INTO mlb_market_open_close (id, game_pk, event_id, market_type, side, selection, sportsbook_name, open_price, close_price, current_price, open_point, close_point, current_point, first_seen_at, last_seen_at, source, updated_at)
-    SELECT CONCAT('mlb-market:', e.id, ':', mlh.market_type, ':', mlh.side, ':', COALESCE(mlh.selection, ''), ':', COALESCE(mlh.sportsbook_name, 'book')),
-      NULL, e.id, mlh.market_type, mlh.side, mlh.selection, mlh.sportsbook_name,
+    SELECT
+      CONCAT('mlb-market:', e.id, ':', mlh.market_type, ':', mlh.side, ':', COALESCE(mlh.selection, ''), ':', COALESCE(mlh.sportsbook_name, 'book')),
+      gm.game_pk, e.id, mlh.market_type, mlh.side, mlh.selection, mlh.sportsbook_name,
       first_row.price, latest_row.price, latest_row.price, first_row.point, latest_row.point, latest_row.point,
       MIN(mlh.captured_at), MAX(mlh.captured_at), 'market_line_history', now()
     FROM market_line_history mlh
@@ -61,8 +63,41 @@ async function refreshMarketOpenClose() {
     JOIN leagues l ON l.id = e.league_id AND l.key = 'MLB'
     JOIN LATERAL (SELECT price, point FROM market_line_history x WHERE x.event_id = mlh.event_id AND x.market_type = mlh.market_type AND x.side = mlh.side AND COALESCE(x.selection, '') = COALESCE(mlh.selection, '') AND COALESCE(x.sportsbook_name, '') = COALESCE(mlh.sportsbook_name, '') ORDER BY x.captured_at ASC LIMIT 1) first_row ON TRUE
     JOIN LATERAL (SELECT price, point FROM market_line_history x WHERE x.event_id = mlh.event_id AND x.market_type = mlh.market_type AND x.side = mlh.side AND COALESCE(x.selection, '') = COALESCE(mlh.selection, '') AND COALESCE(x.sportsbook_name, '') = COALESCE(mlh.sportsbook_name, '') ORDER BY x.captured_at DESC LIMIT 1) latest_row ON TRUE
-    GROUP BY e.id, mlh.market_type, mlh.side, mlh.selection, mlh.sportsbook_name, first_row.price, latest_row.price, first_row.point, latest_row.point
-    ON CONFLICT (id) DO UPDATE SET open_price = EXCLUDED.open_price, close_price = EXCLUDED.close_price, current_price = EXCLUDED.current_price, open_point = EXCLUDED.open_point, close_point = EXCLUDED.close_point, current_point = EXCLUDED.current_point, first_seen_at = EXCLUDED.first_seen_at, last_seen_at = EXCLUDED.last_seen_at, updated_at = now()
+    LEFT JOIN LATERAL (
+      SELECT g.game_pk FROM mlb_games g
+      WHERE g.official_date = (e.start_time AT TIME ZONE 'America/New_York')::DATE
+        AND lower(e.name) LIKE '%' || lower(g.away_team_name) || '%'
+        AND lower(e.name) LIKE '%' || lower(g.home_team_name) || '%'
+      ORDER BY g.game_pk
+      LIMIT 1
+    ) gm ON TRUE
+    GROUP BY e.id, mlh.market_type, mlh.side, mlh.selection, mlh.sportsbook_name, first_row.price, latest_row.price, first_row.point, latest_row.point, gm.game_pk
+    ON CONFLICT (id) DO UPDATE SET
+      game_pk       = COALESCE(mlb_market_open_close.game_pk, EXCLUDED.game_pk),
+      open_price    = EXCLUDED.open_price,
+      close_price   = EXCLUDED.close_price,
+      current_price = EXCLUDED.current_price,
+      open_point    = EXCLUDED.open_point,
+      close_point   = EXCLUDED.close_point,
+      current_point = EXCLUDED.current_point,
+      first_seen_at = EXCLUDED.first_seen_at,
+      last_seen_at  = EXCLUDED.last_seen_at,
+      updated_at    = now()
+  `;
+
+  // Back-fill any still-NULL game_pks using event start_time + name
+  await prisma.$executeRaw`
+    UPDATE mlb_market_open_close moc
+    SET game_pk = (
+      SELECT g.game_pk FROM mlb_games g
+      JOIN events e ON e.id = moc.event_id
+      WHERE g.official_date = (e.start_time AT TIME ZONE 'America/New_York')::DATE
+        AND lower(e.name) LIKE '%' || lower(g.away_team_name) || '%'
+        AND lower(e.name) LIKE '%' || lower(g.home_team_name) || '%'
+      ORDER BY g.game_pk
+      LIMIT 1
+    )
+    WHERE moc.game_pk IS NULL AND moc.event_id IS NOT NULL
   `;
 }
 

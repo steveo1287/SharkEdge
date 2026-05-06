@@ -70,28 +70,35 @@ function marketId(gamePk: number, marketType: string, side: string, sbName: stri
 }
 
 async function resolveGamePk(eventId: string, awayName: string, homeName: string): Promise<number | null> {
-  // First try via event_id column on mlb_games
-  const byEvent = await prisma.$queryRaw<GamePkRow[]>`
-    SELECT g.game_pk
-    FROM mlb_games g
-    WHERE g.event_id = ${eventId}
-    LIMIT 1
-  `.catch(() => [] as GamePkRow[]);
-  if (byEvent[0]?.game_pk) return byEvent[0].game_pk;
-
-  // Fall back: match today's games by team name
   const today = new Date().toISOString().slice(0, 10);
-  const byTeam = await prisma.$queryRaw<GamePkRow[]>`
-    SELECT g.game_pk
-    FROM mlb_games g
-    WHERE g.game_date::TEXT = ${today}
-      AND (
-        lower(g.away_team_abbr) = lower(${awayName.slice(0, 3)})
-        OR lower(g.home_team_abbr) = lower(${homeName.slice(0, 3)})
-      )
+  // Use last 2 words of team name to handle multi-word names (Red Sox, Blue Jays, White Sox)
+  const nameKey = (name: string) => name.trim().split(/\s+/).slice(-2).join(" ");
+  const awayPat = `%${nameKey(awayName)}%`;
+  const homePat = `%${nameKey(homeName)}%`;
+
+  // Match by date + both team names
+  const byBoth = await prisma.$queryRaw<GamePkRow[]>`
+    SELECT game_pk FROM mlb_games
+    WHERE official_date = ${today}::DATE
+      AND lower(away_team_name) LIKE lower(${awayPat})
+      AND lower(home_team_name) LIKE lower(${homePat})
+    ORDER BY game_pk
     LIMIT 1
   `.catch(() => [] as GamePkRow[]);
-  return byTeam[0]?.game_pk ?? null;
+  if (byBoth[0]?.game_pk) return byBoth[0].game_pk;
+
+  // Looser fallback: match either team
+  const byEither = await prisma.$queryRaw<GamePkRow[]>`
+    SELECT game_pk FROM mlb_games
+    WHERE official_date = ${today}::DATE
+      AND (
+        lower(away_team_name) LIKE lower(${awayPat})
+        OR lower(home_team_name) LIKE lower(${homePat})
+      )
+    ORDER BY game_pk
+    LIMIT 1
+  `.catch(() => [] as GamePkRow[]);
+  return byEither[0]?.game_pk ?? null;
 }
 
 async function ensureWarehouseTable() {
