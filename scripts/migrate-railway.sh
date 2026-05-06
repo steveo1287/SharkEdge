@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Run prisma migrate deploy against the Railway Postgres database.
 #
-# Requires .env.migrations with RAILWAY_TOKEN, RAILWAY_PROJECT_ID,
-# and RAILWAY_SERVICE_ID filled in (see .env.migrations.example).
+# Requires .env.migrations with either:
+#   RAILWAY_DATABASE_URL  — direct postgres URL (preferred, no CLI auth needed)
+#   RAILWAY_TOKEN + RAILWAY_PROJECT_ID + RAILWAY_SERVICE_ID  — use railway run
 #
 # Usage:
 #   bash scripts/migrate-railway.sh
@@ -22,25 +23,32 @@ fi
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 
-if [[ -z "${RAILWAY_TOKEN:-}" ]]; then
-  echo "❌  RAILWAY_TOKEN is not set in .env.migrations"
-  exit 1
+# Path A: direct DATABASE_URL (works without CLI auth)
+if [[ -n "${RAILWAY_DATABASE_URL:-}" ]]; then
+  echo "🚆  Running prisma migrate deploy on Railway (direct URL)..."
+  DATABASE_URL="$RAILWAY_DATABASE_URL" \
+  POSTGRES_PRISMA_URL="" \
+  POSTGRES_URL="" \
+    npx prisma migrate deploy
+  echo "✅  Railway migration complete."
+  exit 0
 fi
 
+# Path B: railway run (requires RAILWAY_TOKEN + project/service IDs)
+if [[ -z "${RAILWAY_TOKEN:-}" ]]; then
+  echo "❌  Set RAILWAY_DATABASE_URL or RAILWAY_TOKEN in .env.migrations"
+  exit 1
+fi
 if [[ -z "${RAILWAY_PROJECT_ID:-}" || -z "${RAILWAY_SERVICE_ID:-}" ]]; then
   echo "❌  RAILWAY_PROJECT_ID and RAILWAY_SERVICE_ID must be set in .env.migrations"
-  echo "    Find them: Railway dashboard → project → service → Settings → IDs"
   exit 1
 fi
 
 export RAILWAY_TOKEN
-
-echo "🚆  Running prisma migrate deploy on Railway..."
+echo "🚆  Running prisma migrate deploy on Railway (CLI)..."
 echo "    Project: $RAILWAY_PROJECT_ID  Service: $RAILWAY_SERVICE_ID"
-
 railway run \
   --project "$RAILWAY_PROJECT_ID" \
   --service "$RAILWAY_SERVICE_ID" \
   npx prisma migrate deploy
-
 echo "✅  Railway migration complete."
