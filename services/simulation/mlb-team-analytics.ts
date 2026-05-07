@@ -146,8 +146,8 @@ export async function getMlbTeamProfile(teamName: string): Promise<MlbTeamProfil
 }
 
 export type StarterOverrides = {
-  away?: { starterEraMinus?: number; starterXFip?: number };
-  home?: { starterEraMinus?: number; starterXFip?: number };
+  away?: { starterEraMinus?: number; starterXFip?: number; bullpenFatigue?: number; recentForm?: number };
+  home?: { starterEraMinus?: number; starterXFip?: number; bullpenFatigue?: number; recentForm?: number };
 };
 
 export async function compareMlbProfiles(awayTeam: string, homeTeam: string, starterOverrides?: StarterOverrides): Promise<MlbMatchupComparison> {
@@ -160,11 +160,15 @@ export async function compareMlbProfiles(awayTeam: string, homeTeam: string, sta
     away.travelRest = restMatchup.awayRest.travelRest;
     home.travelRest = restMatchup.homeRest.travelRest;
   }
-  // Override starter stats with individual pitcher data when available
+  // Override with real data from live feeds when available
   if (starterOverrides?.away?.starterEraMinus != null) away.starterEraMinus = starterOverrides.away.starterEraMinus;
   if (starterOverrides?.away?.starterXFip != null) away.starterXFip = starterOverrides.away.starterXFip;
+  if (starterOverrides?.away?.bullpenFatigue != null) away.bullpenFatigue = starterOverrides.away.bullpenFatigue;
+  if (starterOverrides?.away?.recentForm != null) away.recentForm = starterOverrides.away.recentForm;
   if (starterOverrides?.home?.starterEraMinus != null) home.starterEraMinus = starterOverrides.home.starterEraMinus;
   if (starterOverrides?.home?.starterXFip != null) home.starterXFip = starterOverrides.home.starterXFip;
+  if (starterOverrides?.home?.bullpenFatigue != null) home.bullpenFatigue = starterOverrides.home.bullpenFatigue;
+  if (starterOverrides?.home?.recentForm != null) home.recentForm = starterOverrides.home.recentForm;
 
   const offensiveEdge = Number((((home.wrcPlus - away.wrcPlus) / 10) + (home.xwoba - away.xwoba) * 55).toFixed(2));
   const powerEdge = Number(((home.isoPower - away.isoPower) * 45).toFixed(2));
