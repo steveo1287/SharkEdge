@@ -10,6 +10,7 @@ import { governMlbProjection, type MlbGovernorFeatures } from "@/services/simula
 import { getCachedMlbCalibrationConformal, applyMlbCalibration, applyMlbConformalDecision } from "@/services/simulation/mlb-calibration-conformal";
 import { getMlbUmpireTendency } from "@/services/simulation/mlb-umpire-model";
 import { getMlbGameWeather } from "@/services/mlb/mlb-weather-service";
+import { getMatchupRecentForms } from "@/services/mlb/mlb-recent-team-form";
 import { buildRealitySimIntel, type RealitySimIntel } from "@/services/simulation/reality-sim-engine";
 import { getNbaTeamPlayerProfileSummary } from "@/services/simulation/nba-player-profiles";
 import { simulateNbaPlayerGameProjections, type NbaPlayerStatProjection } from "@/services/simulation/nba-player-stat-sim";
@@ -480,18 +481,26 @@ export async function buildSimProjection(input: SimProjectionInput): Promise<Sim
   const matchup = parseMatchup(input.label);
   const base = leagueBaseline(input.leagueKey);
   const seed = hashSeed(`${input.id}:${input.startTime}:${input.leagueKey}:${input.status}`);
-  // Pre-fetch lineup lock to get confirmed starter player IDs before comparison is built.
-  // getMlbLineupLock() is cached so the second call inside buildMlbIntel() is a free cache hit.
+  // Pre-fetch lineup lock + recent form before comparison is built so all real data
+  // feeds into startingPitchingEdge, bullpenFatigue, and recentForm.
+  // getMlbLineupLock() is cached so the second call inside buildMlbIntel() is free.
   let starterOverrides: StarterOverrides | undefined;
   if (input.leagueKey === "MLB") {
-    const lock = await getMlbLineupLock(matchup.away, matchup.home).catch(() => null);
+    const [lock, recentForms] = await Promise.all([
+      getMlbLineupLock(matchup.away, matchup.home).catch(() => null),
+      getMatchupRecentForms(matchup.away, matchup.home).catch(() => ({ awayForm: null, homeForm: null }))
+    ]);
+    const o: StarterOverrides = {};
     if (lock?.awayStarterId || lock?.homeStarterId) {
-      const starters = await getMlbGameStarterStats(lock.awayStarterId, lock.homeStarterId).catch(() => ({ away: null, home: null }));
-      const o: StarterOverrides = {};
+      const starters = await getMlbGameStarterStats(lock?.awayStarterId, lock?.homeStarterId).catch(() => ({ away: null, home: null }));
       if (starters.away?.source === "real") o.away = { starterEraMinus: starters.away.eraMinus, starterXFip: starters.away.fip };
       if (starters.home?.source === "real") o.home = { starterEraMinus: starters.home.eraMinus, starterXFip: starters.home.fip };
-      if (o.away || o.home) starterOverrides = o;
     }
+    if (lock?.awayBullpenUsage?.fatigueScore != null) o.away = { ...o.away, bullpenFatigue: lock.awayBullpenUsage.fatigueScore };
+    if (lock?.homeBullpenUsage?.fatigueScore != null) o.home = { ...o.home, bullpenFatigue: lock.homeBullpenUsage.fatigueScore };
+    if (recentForms.awayForm != null) o.away = { ...o.away, recentForm: recentForms.awayForm };
+    if (recentForms.homeForm != null) o.home = { ...o.home, recentForm: recentForms.homeForm };
+    if (o.away || o.home) starterOverrides = o;
   }
   const mlbComparison = input.leagueKey === "MLB" ? await compareMlbProfiles(matchup.away, matchup.home, starterOverrides) : null;
   if (mlbComparison) {
