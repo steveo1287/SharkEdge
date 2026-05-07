@@ -70,6 +70,9 @@ export type MarketScorecard = {
   predictionCount: number;
   settledCount: number;
   pendingCount: number;
+  winCount: number;
+  lossCount: number;
+  pushCount: number;
   sampleWarning: string | null;
   brierScoreAvg: number | null;
   logLossAvg: number | null;
@@ -92,6 +95,10 @@ export type SimModelScorecard = {
     predictionCount: number;
     settledCount: number;
     pendingCount: number;
+    winCount: number;
+    lossCount: number;
+    pushCount: number;
+    winRate: number | null;
     leagueCount: number;
     marketCount: number;
     modelVersionCount: number;
@@ -105,6 +112,10 @@ export type SimModelScorecard = {
   byLeague: Record<string, {
     predictionCount: number;
     settledCount: number;
+    winCount: number;
+    lossCount: number;
+    pushCount: number;
+    winRate: number | null;
     brierScoreAvg: number | null;
     logLossAvg: number | null;
     spreadMae: number | null;
@@ -117,7 +128,8 @@ export type SimModelScorecard = {
   error?: string;
 };
 
-const DEFAULT_LEAGUES = ["NBA", "MLB", "UFC", "NHL", "NFL"];
+const ACTIVE_LEAGUE = "MLB";
+const DEFAULT_LEAGUES = [ACTIVE_LEAGUE];
 const SNAPSHOT_MARKET = "moneyline";
 const DEFAULT_MODEL_VERSION = "sim-accuracy-snapshot";
 const BUCKETS = [
@@ -186,8 +198,7 @@ function round(value: number | null | undefined, digits = 4) {
 
 function avg(values: Array<number | null | undefined>) {
   const usable = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  if (!usable.length) return null;
-  return usable.reduce((sum, value) => sum + value, 0) / usable.length;
+  return usable.length ? usable.reduce((sum, value) => sum + value, 0) / usable.length : null;
 }
 
 function toIso(value: unknown) {
@@ -225,7 +236,7 @@ function mapSnapshotRow(row: SnapshotRow): SimulationPredictionRow {
   return {
     id: String(row.id),
     gameId: String(row.game_id),
-    league: String(row.league),
+    league: ACTIVE_LEAGUE,
     market: SNAPSHOT_MARKET,
     modelVersion: row.model_version ?? DEFAULT_MODEL_VERSION,
     predictionTime,
@@ -250,12 +261,7 @@ function mapSnapshotRow(row: SnapshotRow): SimulationPredictionRow {
     totalError: normalizeNumber(row.total_error),
     clvPct: null,
     dataQualityGrade: row.tier ?? "UNKNOWN",
-    dataQualityFlags: {
-      tier: row.tier,
-      dataSource: row.data_source,
-      noBet: row.no_bet,
-      confidence: normalizeNumber(row.confidence)
-    },
+    dataQualityFlags: { tier: row.tier, dataSource: row.data_source, noBet: row.no_bet, confidence: normalizeNumber(row.confidence) },
     predictionJson: normalizeJson(row.prediction_json),
     resultJson: normalizeJson(row.result_json),
     settledAt,
@@ -279,7 +285,7 @@ function calibrationBucketFor(probability: number | null | undefined) {
 
 function buildCalibrationBuckets(rows: SimulationPredictionRow[]): CalibrationBucket[] {
   return BUCKETS.map((bucket) => {
-    const bucketRows = rows.filter((row) => calibrationBucketFor(row.modelProbability) === bucket.bucket && row.outcome != null);
+    const bucketRows = rows.filter((row) => calibrationBucketFor(row.modelProbability) === bucket.bucket && row.outcome != null && row.resultBucket !== "PUSH");
     const actualHitRate = bucketRows.length ? bucketRows.reduce((sum, row) => sum + Number(row.outcome ?? 0), 0) / bucketRows.length : null;
     const avgPredictedProbability = avg(bucketRows.map((row) => row.modelProbability));
     return {
@@ -296,43 +302,63 @@ function buildCalibrationBuckets(rows: SimulationPredictionRow[]): CalibrationBu
 }
 
 function sampleWarning(predictionCount: number, settledCount: number) {
-  if (settledCount < 30) return "Very small settled sample. Treat calibration as directional only.";
-  if (settledCount < 100) return "Small settled sample. Track before making hard model claims.";
-  if (predictionCount - settledCount > settledCount) return "Many pending predictions. Latest accuracy may move after grading.";
+  if (settledCount < 30) return "Very small MLB settled sample. Treat calibration as directional only.";
+  if (settledCount < 100) return "Small MLB settled sample. Track before making hard model claims.";
+  if (predictionCount - settledCount > settledCount) return "Many pending MLB predictions. Latest accuracy may move after grading.";
   return null;
 }
 
 function buildMarketScorecard(rows: SimulationPredictionRow[]): MarketScorecard {
   const first = rows[0];
-  const settledRows = rows.filter((row) => row.settledAt);
-  const wins = settledRows.filter((row) => row.resultBucket === "WIN").length;
-  const losses = settledRows.filter((row) => row.resultBucket === "LOSS").length;
+  const settledRows = rows.filter((row) => row.resultBucket !== "PENDING");
+  const winCount = settledRows.filter((row) => row.resultBucket === "WIN").length;
+  const lossCount = settledRows.filter((row) => row.resultBucket === "LOSS").length;
+  const pushCount = settledRows.filter((row) => row.resultBucket === "PUSH").length;
   const calibrationBuckets = buildCalibrationBuckets(rows);
   const calibrationErrorAvg = avg(calibrationBuckets.map((bucket) => bucket.calibrationError));
 
   return {
-    league: first?.league ?? "UNKNOWN",
+    league: ACTIVE_LEAGUE,
     market: first?.market ?? SNAPSHOT_MARKET,
     modelVersion: first?.modelVersion ?? DEFAULT_MODEL_VERSION,
     predictionCount: rows.length,
     settledCount: settledRows.length,
-    pendingCount: Math.max(0, rows.length - settledRows.length),
+    pendingCount: rows.filter((row) => row.resultBucket === "PENDING").length,
+    winCount,
+    lossCount,
+    pushCount,
     sampleWarning: sampleWarning(rows.length, settledRows.length),
     brierScoreAvg: round(avg(settledRows.map((row) => row.brierScore)), 4),
     logLossAvg: round(avg(settledRows.map((row) => row.logLoss)), 4),
     spreadMae: round(avg(settledRows.map((row) => row.spreadError)), 2),
     totalMae: round(avg(settledRows.map((row) => row.totalError)), 2),
     clvAvgPct: null,
-    winRate: wins + losses > 0 ? round(wins / (wins + losses), 3) : null,
+    winRate: winCount + lossCount > 0 ? round(winCount / (winCount + lossCount), 3) : null,
     calibrationErrorAvg: round(calibrationErrorAvg, 4),
     dataQualityBreakdown: countBy(rows.map((row) => row.dataQualityGrade ?? "UNKNOWN")),
     calibrationBuckets
   };
 }
 
+function emptyLeagueSummary() {
+  return {
+    predictionCount: 0,
+    settledCount: 0,
+    winCount: 0,
+    lossCount: 0,
+    pushCount: 0,
+    winRate: null,
+    brierScoreAvg: null,
+    logLossAvg: null,
+    spreadMae: null,
+    totalMae: null,
+    clvAvgPct: null
+  };
+}
+
 function emptyScorecard(filters: ScorecardFilters, databaseReady: boolean, error?: string): SimModelScorecard {
   const resolvedFilters = {
-    league: normalizeFilter(filters.league),
+    league: ACTIVE_LEAGUE,
     market: normalizeFilter(filters.market),
     modelVersion: normalizeFilter(filters.modelVersion),
     windowDays: normalizeWindowDays(filters.windowDays)
@@ -348,6 +374,10 @@ function emptyScorecard(filters: ScorecardFilters, databaseReady: boolean, error
       predictionCount: 0,
       settledCount: 0,
       pendingCount: 0,
+      winCount: 0,
+      lossCount: 0,
+      pushCount: 0,
+      winRate: null,
       leagueCount: 0,
       marketCount: 0,
       modelVersionCount: 0,
@@ -358,15 +388,7 @@ function emptyScorecard(filters: ScorecardFilters, databaseReady: boolean, error
       clvAvgPct: null
     },
     scorecards: [],
-    byLeague: Object.fromEntries(DEFAULT_LEAGUES.map((league) => [league, {
-      predictionCount: 0,
-      settledCount: 0,
-      brierScoreAvg: null,
-      logLossAvg: null,
-      spreadMae: null,
-      totalMae: null,
-      clvAvgPct: null
-    }])),
+    byLeague: { [ACTIVE_LEAGUE]: emptyLeagueSummary() },
     strongestMarkets: [],
     weakestMarkets: [],
     recent: [],
@@ -379,14 +401,13 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
     return emptyScorecard(filters, false, "No usable server database URL is configured.");
   }
 
-  const league = normalizeFilter(filters.league);
   const market = normalizeFilter(filters.market);
   const modelVersion = normalizeFilter(filters.modelVersion);
   const windowDays = normalizeWindowDays(filters.windowDays);
   const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
 
   if (market !== "ALL" && market !== SNAPSHOT_MARKET) {
-    return emptyScorecard({ league, market, modelVersion, windowDays }, true);
+    return emptyScorecard({ league: ACTIVE_LEAGUE, market, modelVersion, windowDays }, true);
   }
 
   let rows: SnapshotRow[];
@@ -402,24 +423,24 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
         prediction_json, result_json, graded_at, created_at, updated_at
       FROM sim_prediction_snapshots
       WHERE captured_at >= ${since}
-        AND (${league} = 'ALL' OR league = ${league})
+        AND UPPER(league) = ${ACTIVE_LEAGUE}
         AND (${modelVersion} = 'ALL' OR COALESCE(model_version, ${DEFAULT_MODEL_VERSION}) = ${modelVersion})
       ORDER BY captured_at DESC
       LIMIT 5000;
     `;
   } catch (error) {
-    console.error("[sim-accuracy] scorecard query failed", error);
+    console.error("[sim-accuracy] MLB scorecard query failed", error);
     return emptyScorecard(
-      { league, market, modelVersion, windowDays },
+      { league: ACTIVE_LEAGUE, market, modelVersion, windowDays },
       false,
-      "Sim accuracy database is unavailable. Verify DATABASE_URL and run the Prisma migration before using the accuracy ledger."
+      "Sim accuracy database is unavailable. Verify DATABASE_URL and run the Prisma migration before using the MLB accuracy ledger."
     );
   }
 
   const predictions = rows.map(mapSnapshotRow);
   const groups = new Map<string, SimulationPredictionRow[]>();
   for (const row of predictions) {
-    const key = `${row.league}::${row.market}::${row.modelVersion}`;
+    const key = `${ACTIVE_LEAGUE}::${row.market}::${row.modelVersion}`;
     groups.set(key, [...(groups.get(key) ?? []), row]);
   }
 
@@ -429,21 +450,26 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
     return leftScore - rightScore || right.settledCount - left.settledCount;
   });
 
-  const settledRows = predictions.filter((row) => row.settledAt);
-  const byLeague = Object.fromEntries(DEFAULT_LEAGUES.map((defaultLeague) => {
-    const leagueRows = predictions.filter((row) => row.league === defaultLeague);
-    const leagueSettled = leagueRows.filter((row) => row.settledAt);
-    return [defaultLeague, {
-      predictionCount: leagueRows.length,
-      settledCount: leagueSettled.length,
-      brierScoreAvg: round(avg(leagueSettled.map((row) => row.brierScore)), 4),
-      logLossAvg: round(avg(leagueSettled.map((row) => row.logLoss)), 4),
-      spreadMae: round(avg(leagueSettled.map((row) => row.spreadError)), 2),
-      totalMae: round(avg(leagueSettled.map((row) => row.totalError)), 2),
+  const settledRows = predictions.filter((row) => row.resultBucket !== "PENDING");
+  const winCount = settledRows.filter((row) => row.resultBucket === "WIN").length;
+  const lossCount = settledRows.filter((row) => row.resultBucket === "LOSS").length;
+  const pushCount = settledRows.filter((row) => row.resultBucket === "PUSH").length;
+  const winRate = winCount + lossCount > 0 ? round(winCount / (winCount + lossCount), 3) : null;
+  const byLeague = {
+    [ACTIVE_LEAGUE]: {
+      predictionCount: predictions.length,
+      settledCount: settledRows.length,
+      winCount,
+      lossCount,
+      pushCount,
+      winRate,
+      brierScoreAvg: round(avg(settledRows.map((row) => row.brierScore)), 4),
+      logLossAvg: round(avg(settledRows.map((row) => row.logLoss)), 4),
+      spreadMae: round(avg(settledRows.map((row) => row.spreadError)), 2),
+      totalMae: round(avg(settledRows.map((row) => row.totalError)), 2),
       clvAvgPct: null
-    }];
-  }));
-
+    }
+  };
   const viableMarkets = scorecards.filter((card) => card.settledCount >= 10);
 
   return {
@@ -451,12 +477,16 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
     databaseReady: true,
     generatedAt: new Date().toISOString(),
     sourceTable: "sim_prediction_snapshots",
-    filters: { league, market, modelVersion, windowDays },
+    filters: { league: ACTIVE_LEAGUE, market, modelVersion, windowDays },
     totals: {
       predictionCount: predictions.length,
       settledCount: settledRows.length,
-      pendingCount: Math.max(0, predictions.length - settledRows.length),
-      leagueCount: new Set(predictions.map((row) => row.league)).size,
+      pendingCount: predictions.filter((row) => row.resultBucket === "PENDING").length,
+      winCount,
+      lossCount,
+      pushCount,
+      winRate,
+      leagueCount: predictions.length ? DEFAULT_LEAGUES.length : 0,
       marketCount: predictions.length ? 1 : 0,
       modelVersionCount: new Set(predictions.map((row) => row.modelVersion)).size,
       brierScoreAvg: round(avg(settledRows.map((row) => row.brierScore)), 4),
