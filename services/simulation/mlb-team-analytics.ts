@@ -3,6 +3,7 @@ import { fetchRawFeedRows, pick } from "@/services/mlb/raw-feed-parser";
 import { normalizeTeamKey } from "@/lib/utils/team-normalization";
 import { getMlbRestMatchup } from "@/services/simulation/mlb-schedule-rest-service";
 import { getMlbLiveTeamProfile } from "@/services/simulation/mlb-live-stats-feed";
+import { getMlbParkFactor } from "@/services/mlb/mlb-park-factors";
 
 export type MlbTeamProfile = {
   teamName: string;
@@ -79,7 +80,7 @@ function syntheticProfile(teamName: string): MlbTeamProfile {
     bullpenXFip: range(seed >>> 11, 3.25, 4.95),
     bullpenFatigue: range(seed >>> 12, 0, 1),
     defensiveRunsSaved: range(seed >>> 13, -12, 18),
-    parkRunFactor: range(seed >>> 14, 0.9, 1.12),
+    parkRunFactor: getMlbParkFactor(teamName),
     weatherRunFactor: range(seed >>> 15, 0.9, 1.16),
     recentForm: range(seed >>> 16, -5, 6),
     travelRest: range(seed >>> 17, -2, 2)
@@ -144,7 +145,12 @@ export async function getMlbTeamProfile(teamName: string): Promise<MlbTeamProfil
   return live ?? syntheticProfile(teamName);
 }
 
-export async function compareMlbProfiles(awayTeam: string, homeTeam: string): Promise<MlbMatchupComparison> {
+export type StarterOverrides = {
+  away?: { starterEraMinus?: number; starterXFip?: number };
+  home?: { starterEraMinus?: number; starterXFip?: number };
+};
+
+export async function compareMlbProfiles(awayTeam: string, homeTeam: string, starterOverrides?: StarterOverrides): Promise<MlbMatchupComparison> {
   const [[away, home], restMatchup] = await Promise.all([
     Promise.all([getMlbTeamProfile(awayTeam), getMlbTeamProfile(homeTeam)]),
     getMlbRestMatchup(awayTeam, homeTeam)
@@ -154,6 +160,12 @@ export async function compareMlbProfiles(awayTeam: string, homeTeam: string): Pr
     away.travelRest = restMatchup.awayRest.travelRest;
     home.travelRest = restMatchup.homeRest.travelRest;
   }
+  // Override starter stats with individual pitcher data when available
+  if (starterOverrides?.away?.starterEraMinus != null) away.starterEraMinus = starterOverrides.away.starterEraMinus;
+  if (starterOverrides?.away?.starterXFip != null) away.starterXFip = starterOverrides.away.starterXFip;
+  if (starterOverrides?.home?.starterEraMinus != null) home.starterEraMinus = starterOverrides.home.starterEraMinus;
+  if (starterOverrides?.home?.starterXFip != null) home.starterXFip = starterOverrides.home.starterXFip;
+
   const offensiveEdge = Number((((home.wrcPlus - away.wrcPlus) / 10) + (home.xwoba - away.xwoba) * 55).toFixed(2));
   const powerEdge = Number(((home.isoPower - away.isoPower) * 45).toFixed(2));
   const plateDisciplineEdge = Number((((away.kRate - home.kRate) + (home.bbRate - away.bbRate)) / 4).toFixed(2));
