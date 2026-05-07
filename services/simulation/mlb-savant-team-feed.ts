@@ -138,7 +138,7 @@ function savantUrl(startDate: string, endDate: string): string {
 
 async function fetchCsv(url: string): Promise<string> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25_000);
+  const timer = setTimeout(() => controller.abort(), 10_000);
   try {
     const res = await fetch(url, {
       headers: { "User-Agent": "SharkEdge/2.0 savant-team-feed", accept: "text/csv,*/*" },
