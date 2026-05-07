@@ -49,10 +49,54 @@ function determineResult(
 }
 
 export async function settleSimPredictions() {
-  // Settlement disabled - database schema not yet set up
+  const openPredictions = await prisma.simPrediction.findMany({
+    where: { result: "OPEN" },
+    orderBy: { createdAt: "asc" },
+    take: 500
+  });
+
+  const errors: string[] = [];
+  let settledCount = 0;
+
+  for (const prediction of openPredictions) {
+    try {
+      if (!prediction.playerId) continue;
+
+      const game = await prisma.game.findFirst({
+        where: {
+          OR: [
+            { externalEventId: prediction.eventId },
+            { id: prediction.eventId }
+          ]
+        },
+        include: {
+          playerGameStats: {
+            where: { playerId: prediction.playerId }
+          }
+        }
+      });
+
+      const stat = game?.playerGameStats?.[0];
+      if (!stat) continue;
+
+      const actualValue = extractStat(stat.statsJson, prediction.propType);
+      if (actualValue === null) continue;
+
+      const result = determineResult(prediction.side, prediction.line, actualValue);
+      await prisma.simPrediction.update({
+        where: { id: prediction.id },
+        data: { result, actualValue, settledAt: new Date() }
+      });
+
+      settledCount++;
+    } catch (err) {
+      errors.push(`Failed to settle ${prediction.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   return {
-    settledCount: 0,
-    totalOpen: 0,
-    errors: []
+    settledCount,
+    totalOpen: openPredictions.length,
+    errors
   };
 }
