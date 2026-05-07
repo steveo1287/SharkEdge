@@ -15,9 +15,14 @@ import {
 import {
   readSimCache,
   SIM_CACHE_KEYS,
+  type CachedSimGameProjection,
+  type SimBoardSnapshot,
   type SimPriorityRow,
   type SimPrioritySnapshot,
 } from "@/services/simulation/sim-snapshot-service";
+import { fetchSavantPitcherProfiles, type SavantPitcherSplitProfile } from "@/services/simulation/mlb-savant-team-feed";
+import { getMlbUmpireTendencyFromDb, type MlbUmpireTendency } from "@/services/simulation/mlb-umpire-db";
+import { normalizeMlbTeam } from "@/services/simulation/mlb-team-analytics";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -26,6 +31,25 @@ type PageProps = { searchParams?: Promise<Record<string, string | string[] | und
 type SortKey = "roi" | "winPct" | "wins" | "total" | "streak";
 type TabKey = "today" | "trends" | "team";
 type MarketFilter = "all" | "moneyline" | "spread" | "total";
+
+type StarterInfo = {
+  awayName: string | null;
+  homeName: string | null;
+  awayHand: "L" | "R" | "unknown";
+  homeHand: "L" | "R" | "unknown";
+  awayLocked: boolean;
+  homeLocked: boolean;
+  bullpenGameRisk: boolean;
+};
+
+type GameEnrichment = {
+  starters: StarterInfo | null;
+  bullpen: { awayFatigue: number; homeFatigue: number } | null;
+  projectedTotal: number | null;
+  awaySavant: SavantPitcherSplitProfile | null;
+  homeSavant: SavantPitcherSplitProfile | null;
+  umpire: MlbUmpireTendency | null;
+};
 
 function one(v: string | string[] | undefined) { return Array.isArray(v) ? v[0] : v; }
 
@@ -171,6 +195,53 @@ function gameScore(game: MlbTodayGame, sim: SimPriorityRow | null, stack: EdgeSt
   return score;
 }
 
+// ─── Enrichment extraction ────────────────────────────────────────────────────
+
+function extractEnrichment(
+  boardGames: CachedSimGameProjection[],
+  game: MlbTodayGame,
+  savantProfiles: Record<string, SavantPitcherSplitProfile> | null,
+  umpire: MlbUmpireTendency | null
+): GameEnrichment {
+  const row = boardGames.find(
+    (g) => teamsMatch(g.projection.matchup.away, game.awayTeam) &&
+           teamsMatch(g.projection.matchup.home, game.homeTeam)
+  ) ?? null;
+
+  const mlb = (row?.projection?.mlbIntel ?? null) as Record<string, unknown> | null;
+  const lock = (mlb?.lock ?? null) as Record<string, unknown> | null;
+  const rawTotal = mlb?.projectedTotal;
+  const projectedTotal = typeof rawTotal === "number" && Number.isFinite(rawTotal) ? rawTotal : null;
+
+  const awaySavant = savantProfiles?.[normalizeMlbTeam(game.awayTeam)] ?? null;
+  const homeSavant = savantProfiles?.[normalizeMlbTeam(game.homeTeam)] ?? null;
+
+  if (!lock) return { starters: null, bullpen: null, projectedTotal, awaySavant, homeSavant, umpire };
+
+  const awayBp = (lock.awayBullpenUsage ?? null) as Record<string, unknown> | null;
+  const homeBp = (lock.homeBullpenUsage ?? null) as Record<string, unknown> | null;
+
+  return {
+    starters: {
+      awayName: typeof lock.awayStarterName === "string" ? lock.awayStarterName : null,
+      homeName: typeof lock.homeStarterName === "string" ? lock.homeStarterName : null,
+      awayHand: (["L", "R", "unknown"].includes(lock.awayStarterThrows as string) ? lock.awayStarterThrows : "unknown") as "L" | "R" | "unknown",
+      homeHand: (["L", "R", "unknown"].includes(lock.homeStarterThrows as string) ? lock.homeStarterThrows : "unknown") as "L" | "R" | "unknown",
+      awayLocked: Boolean(lock.awayStarterLocked),
+      homeLocked: Boolean(lock.homeStarterLocked),
+      bullpenGameRisk: Boolean(lock.bullpenGameRisk),
+    },
+    bullpen: {
+      awayFatigue: typeof awayBp?.fatigueScore === "number" ? awayBp.fatigueScore : 0,
+      homeFatigue: typeof homeBp?.fatigueScore === "number" ? homeBp.fatigueScore : 0,
+    },
+    projectedTotal,
+    awaySavant,
+    homeSavant,
+    umpire,
+  };
+}
+
 // ─── Color helpers ────────────────────────────────────────────────────────────
 
 function roiColor(roi: number, n: number) {
@@ -275,7 +346,96 @@ function EdgeStackBar({ stack }: { stack: EdgeStack }) {
   );
 }
 
-function GameEdgeCard({ game, sim }: { game: MlbTodayGame; sim: SimPriorityRow | null }) {
+function fatigueTag(score: number): { label: string; color: string } {
+  if (score < 0.5) return { label: "Fresh", color: "text-mint/80" };
+  if (score < 1.5) return { label: "Light", color: "text-slate-300" };
+  if (score < 2.5) return { label: "Moderate", color: "text-amber-300/80" };
+  if (score < 4.0) return { label: "Heavy", color: "text-amber-400" };
+  return { label: "Taxed", color: "text-crimson" };
+}
+
+function handBadge(hand: "L" | "R" | "unknown") {
+  if (hand === "L") return <span className="rounded px-1 py-0.5 text-[9px] font-bold bg-blue-500/15 text-blue-300 border border-blue-400/20">L</span>;
+  if (hand === "R") return <span className="rounded px-1 py-0.5 text-[9px] font-bold bg-slate-500/20 text-slate-400 border border-slate-400/15">R</span>;
+  return null;
+}
+
+function savantQuality(p: SavantPitcherSplitProfile) {
+  if (p.sample < 30) return null;
+  return (
+    <div className="mt-1.5 flex gap-3 tabular-nums text-[10px] text-slate-500">
+      <span>xEV <span className={p.pitcherAvgExitVeloAllowed <= 87 ? "text-mint/80" : p.pitcherAvgExitVeloAllowed >= 90 ? "text-crimson/70" : "text-slate-400"}>{p.pitcherAvgExitVeloAllowed.toFixed(1)}</span></span>
+      <span>BBE% <span className={p.pitcherBarrelAllowedRate <= 5 ? "text-mint/80" : p.pitcherBarrelAllowedRate >= 9 ? "text-crimson/70" : "text-slate-400"}>{p.pitcherBarrelAllowedRate.toFixed(1)}%</span></span>
+    </div>
+  );
+}
+
+function StarterPanel({ enrichment }: { enrichment: GameEnrichment | null }) {
+  const s = enrichment?.starters;
+  if (!s) return null;
+  return (
+    <div className="grid grid-cols-2 gap-px bg-white/[0.04] border-t border-white/[0.04]">
+      <div className="bg-black/30 px-5 py-3">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">Away SP</div>
+        <div className="mt-1 flex items-center gap-1.5">
+          <span className={cn("text-[12px] font-semibold", s.awayLocked ? "text-white" : "text-slate-400")}>{s.awayName ?? "TBD"}</span>
+          {handBadge(s.awayHand)}
+          {!s.awayLocked && s.awayName && <span className="text-[9px] text-slate-600">unconfirmed</span>}
+          {s.bullpenGameRisk && !s.awayName && <span className="text-[9px] font-semibold text-amber-300">opener risk</span>}
+        </div>
+        {enrichment?.awaySavant && savantQuality(enrichment.awaySavant)}
+      </div>
+      <div className="bg-black/30 px-5 py-3">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">Home SP</div>
+        <div className="mt-1 flex items-center gap-1.5">
+          <span className={cn("text-[12px] font-semibold", s.homeLocked ? "text-white" : "text-slate-400")}>{s.homeName ?? "TBD"}</span>
+          {handBadge(s.homeHand)}
+          {!s.homeLocked && s.homeName && <span className="text-[9px] text-slate-600">unconfirmed</span>}
+        </div>
+        {enrichment?.homeSavant && savantQuality(enrichment.homeSavant)}
+      </div>
+    </div>
+  );
+}
+
+function BullpenRow({ enrichment }: { enrichment: GameEnrichment | null }) {
+  const bp = enrichment?.bullpen;
+  const s = enrichment?.starters;
+  if (!bp) return null;
+  const { awayFatigue, homeFatigue } = bp;
+  if (awayFatigue < 1.0 && homeFatigue < 1.0 && !s?.bullpenGameRisk) return null;
+  const awayTag = fatigueTag(awayFatigue);
+  const homeTag = fatigueTag(homeFatigue);
+  return (
+    <div className="flex flex-wrap items-center gap-4 border-t border-white/[0.04] px-5 py-2.5">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">Bullpen</span>
+      <span className="text-[11px] text-slate-500">Away: <span className={awayTag.color}>{awayTag.label}</span></span>
+      <span className="text-[11px] text-slate-500">Home: <span className={homeTag.color}>{homeTag.label}</span></span>
+      {s?.bullpenGameRisk && <span className="ml-auto text-[10px] font-semibold text-amber-300">Opener / bullpen game risk</span>}
+    </div>
+  );
+}
+
+function UmpireChip({ umpire }: { umpire: MlbUmpireTendency | null }) {
+  if (!umpire?.umpireName) return null;
+  const zone = umpire.kZoneSize;
+  const zoneColor = zone === "tight" ? "text-crimson/80" : zone === "generous" ? "text-mint/80" : "text-slate-400";
+  const runBias = umpire.strikeoutBiasEdge * -0.09 + umpire.walkBiasEdge * 0.18;
+  return (
+    <div className="flex items-center gap-2 border-t border-white/[0.04] px-5 py-2.5">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">HP Ump</span>
+      <span className="text-[11px] text-slate-300">{umpire.umpireName}</span>
+      <span className={cn("text-[10px] font-semibold", zoneColor)}>{zone} zone</span>
+      {Math.abs(runBias) >= 0.05 && (
+        <span className={cn("text-[10px] tabular-nums", runBias > 0 ? "text-mint/70" : "text-crimson/70")}>
+          {runBias > 0 ? "+" : ""}{(runBias * 100).toFixed(1)}% run bias
+        </span>
+      )}
+    </div>
+  );
+}
+
+function GameEdgeCard({ game, sim, enrichment }: { game: MlbTodayGame; sim: SimPriorityRow | null; enrichment: GameEnrichment | null }) {
   const stack = buildEdgeStack(game, sim);
   const hasAway = game.awayTeamTrends.length > 0;
   const hasHome = game.homeTeamTrends.length > 0;
@@ -310,7 +470,7 @@ function GameEdgeCard({ game, sim }: { game: MlbTodayGame; sim: SimPriorityRow |
 
       {/* Sim insight strip */}
       {sim && (
-        <div className="grid grid-cols-2 gap-px bg-white/[0.04] border-b border-white/[0.08]">
+        <div className={cn("grid gap-px bg-white/[0.04] border-b border-white/[0.08]", enrichment?.projectedTotal ? "grid-cols-3" : "grid-cols-2")}>
           <div className="bg-black/30 px-5 py-3">
             <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">Model lean</div>
             <div className="mt-1 flex items-baseline gap-2">
@@ -325,8 +485,23 @@ function GameEdgeCard({ game, sim }: { game: MlbTodayGame; sim: SimPriorityRow |
               {sim.edgeMatched ? <span className="ml-2 text-[10px] text-slate-500">line matched</span> : <span className="ml-2 text-[10px] text-slate-600">no line</span>}
             </div>
           </div>
+          {enrichment?.projectedTotal && (
+            <div className="bg-black/30 px-5 py-3">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">Projected total</div>
+              <div className="mt-1 font-semibold tabular-nums text-white">{enrichment.projectedTotal.toFixed(1)} runs</div>
+            </div>
+          )}
         </div>
       )}
+
+      {/* Starter matchup */}
+      <StarterPanel enrichment={enrichment} />
+
+      {/* Bullpen fatigue */}
+      <BullpenRow enrichment={enrichment} />
+
+      {/* Umpire */}
+      <UmpireChip umpire={enrichment?.umpire ?? null} />
 
       {/* Edge stack */}
       {(stack.count > 0 || stack.conflicted) && (
@@ -595,24 +770,41 @@ export default async function SharkTrendsPage({ searchParams }: PageProps) {
   const market = (one(params.market) ?? "all") as MarketFilter;
   const team = one(params.team)?.trim() ?? "";
 
-  const [summary, trends, todayGames, teamProfile, teamNames, simPriority] = await Promise.all([
+  const [summary, trends, todayGames, teamProfile, teamNames, simPriority, mlbBoard, savantProfiles] = await Promise.all([
     getMlbTrendBrowserSummary().catch(() => ({ totalRows: 0, finalRows: 0, teamCount: 0, lastUpdated: null })),
     tab === "trends" || tab === "today" ? getMlbLeagueTrends(15).catch(() => [] as MlbTrendRecord[]) : Promise.resolve([] as MlbTrendRecord[]),
     tab === "today" ? getMlbTodayActivations().catch(() => [] as MlbTodayGame[]) : Promise.resolve([] as MlbTodayGame[]),
     tab === "team" && team ? getMlbTeamProfile(team).catch(() => null as MlbTeamProfile | null) : Promise.resolve(null as MlbTeamProfile | null),
     tab === "team" ? getMlbTeamNames().catch(() => [] as string[]) : Promise.resolve([] as string[]),
     readSimCache<SimPrioritySnapshot>(SIM_CACHE_KEYS.priority).catch(() => null),
+    tab === "today" ? readSimCache<SimBoardSnapshot>(SIM_CACHE_KEYS.mlbBoard).catch(() => null) : Promise.resolve(null),
+    tab === "today" ? fetchSavantPitcherProfiles().catch(() => null) : Promise.resolve(null as Record<string, SavantPitcherSplitProfile> | null),
   ]);
 
   const mlbSimRows = (simPriority?.rows ?? []).filter((r) => r.leagueKey === "MLB");
+  const boardGames: CachedSimGameProjection[] = mlbBoard?.games ?? [];
   const displayTrends = sortTrends(filterTrends(trends, market), sort);
   const hasData = summary.finalRows > 0;
+
+  // Fetch umpire tendencies per game in parallel (today tab only)
+  const umpireMap = new Map<string, MlbUmpireTendency | null>();
+  if (tab === "today" && todayGames.length > 0) {
+    await Promise.all(
+      todayGames.map(async (game) => {
+        const k = `${teamToken(game.awayTeam)}:${teamToken(game.homeTeam)}`;
+        const u = await getMlbUmpireTendencyFromDb(game.awayTeam, game.homeTeam).catch(() => null);
+        umpireMap.set(k, u);
+      })
+    );
+  }
 
   // Build today's edge board sorted by composite score
   const scoredGames = todayGames.map((game) => {
     const sim = matchSim(game, mlbSimRows);
     const stack = buildEdgeStack(game, sim);
-    return { game, sim, stack, score: gameScore(game, sim, stack) };
+    const umpireKey = `${teamToken(game.awayTeam)}:${teamToken(game.homeTeam)}`;
+    const enrichment = extractEnrichment(boardGames, game, savantProfiles, umpireMap.get(umpireKey) ?? null);
+    return { game, sim, stack, score: gameScore(game, sim, stack), enrichment };
   }).sort((a, b) => b.score - a.score);
 
   const attackCount = scoredGames.filter((g) => g.sim?.tier === "attack").length;
@@ -680,8 +872,8 @@ export default async function SharkTrendsPage({ searchParams }: PageProps) {
               <div className="text-sm text-slate-500">No MLB games scheduled today, or schedule data is not yet loaded.</div>
             </div>
           )}
-          {scoredGames.map(({ game, sim }) => (
-            <GameEdgeCard key={game.gamePk} game={game} sim={sim} />
+          {scoredGames.map(({ game, sim, enrichment }) => (
+            <GameEdgeCard key={game.gamePk} game={game} sim={sim} enrichment={enrichment} />
           ))}
 
           {/* Context strip */}
