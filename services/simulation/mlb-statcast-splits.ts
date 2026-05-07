@@ -1,6 +1,7 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
 import { fetchRawFeedRows, pick } from "@/services/mlb/raw-feed-parser";
 import { normalizeMlbTeam } from "@/services/simulation/mlb-team-analytics";
+import { prisma } from "@/lib/db/prisma";
 
 export type MlbStatcastSplit = {
   teamName: string;
@@ -119,7 +120,95 @@ async function fetchSplits() {
   return null;
 }
 
+type JsonRecord = Record<string, unknown>;
+function asRecord(v: unknown): JsonRecord { return v && typeof v === "object" && !Array.isArray(v) ? (v as JsonRecord) : {}; }
+function safeNum(v: unknown): number | null { if (typeof v === "number" && Number.isFinite(v)) return v; if (typeof v === "string" && v.trim() && Number.isFinite(Number(v))) return Number(v); return null; }
+function avgNonNull(values: Array<number | null>): number | null { const clean = values.filter((v): v is number => v !== null); return clean.length ? clean.reduce((s, v) => s + v, 0) / clean.length : null; }
+
+async function getDbStatcastSplits(): Promise<Record<string, MlbStatcastSplit> | null> {
+  try {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const rows = await prisma.teamGameStat.findMany({
+      where: { game: { startTime: { gte: since } }, team: { league: { key: "MLB" } } },
+      select: { statsJson: true, team: { select: { name: true, abbreviation: true } } },
+      orderBy: { updatedAt: "desc" },
+      take: 2000
+    });
+
+    type StatAcc = {
+      name: string;
+      xwobas: (number | null)[];
+      hardHits: (number | null)[];
+      barrels: (number | null)[];
+      chases: (number | null)[];
+      whiffs: (number | null)[];
+      xwobaVsLeft: (number | null)[];
+      xwobaVsRight: (number | null)[];
+    };
+    const byTeam = new Map<string, StatAcc>();
+
+    for (const row of rows) {
+      const sc = asRecord(asRecord(row.statsJson).statcast);
+      if (!Object.keys(sc).length) continue;
+      const key = normalizeMlbTeam(row.team.name);
+      const acc = byTeam.get(key) ?? { name: row.team.name, xwobas: [], hardHits: [], barrels: [], chases: [], whiffs: [], xwobaVsLeft: [], xwobaVsRight: [] };
+      acc.xwobas.push(safeNum(sc.xwoba));
+      acc.hardHits.push(safeNum(sc.hardHitRate));
+      acc.barrels.push(safeNum(sc.barrelRate));
+      acc.chases.push(safeNum(sc.chaseRate));
+      acc.whiffs.push(safeNum(sc.whiffRate));
+      const vsLeft = asRecord(asRecord(sc.platoonSplits).vsLeft);
+      const vsRight = asRecord(asRecord(sc.platoonSplits).vsRight);
+      acc.xwobaVsLeft.push(safeNum(vsLeft.xwoba));
+      acc.xwobaVsRight.push(safeNum(vsRight.xwoba));
+      byTeam.set(key, acc);
+    }
+
+    if (!byTeam.size) return null;
+
+    const result: Record<string, MlbStatcastSplit> = {};
+    for (const [key, acc] of byTeam.entries()) {
+      const xwoba = avgNonNull(acc.xwobas) ?? 0.315;
+      const hardHitRate = avgNonNull(acc.hardHits) ?? 0.38;
+      const barrelRate = avgNonNull(acc.barrels) ?? 0.08;
+      const chaseRate = avgNonNull(acc.chases) ?? 0.29;
+      const whiffRate = avgNonNull(acc.whiffs) ?? 0.24;
+      const xwobaVsL = avgNonNull(acc.xwobaVsLeft) ?? xwoba;
+      const xwobaVsR = avgNonNull(acc.xwobaVsRight) ?? xwoba;
+      const base = {
+        teamName: acc.name,
+        source: "real" as const,
+        hitterXwobaVsFastball: Number((xwobaVsR * 1.04).toFixed(4)),
+        hitterXwobaVsBreaking: Number((xwobaVsL * 0.91).toFixed(4)),
+        hitterXwobaVsOffspeed: Number((xwoba * 0.95).toFixed(4)),
+        barrelRate: Number(barrelRate.toFixed(4)),
+        hardHitRate: Number(hardHitRate.toFixed(4)),
+        sweetSpotRate: Number(Math.min(0.45, hardHitRate * 0.82).toFixed(4)),
+        chaseRate: Number(chaseRate.toFixed(4)),
+        whiffRate: Number(whiffRate.toFixed(4)),
+        pitcherFastballRunValue: 0,
+        pitcherBreakingRunValue: 0,
+        pitcherOffspeedRunValue: 0,
+        pitcherAvgExitVeloAllowed: 88,
+        pitcherBarrelAllowedRate: 0.08,
+        weatherCarrySensitivity: syntheticSplit(acc.name).weatherCarrySensitivity
+      };
+      result[key] = { ...base, ...derive(base) };
+    }
+
+    return Object.keys(result).length ? result : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getMlbStatcastSplit(teamName: string): Promise<MlbStatcastSplit> {
   const splits = await fetchSplits();
-  return splits?.[normalizeMlbTeam(teamName)] ?? syntheticSplit(teamName);
+  if (splits?.[normalizeMlbTeam(teamName)]) return splits[normalizeMlbTeam(teamName)];
+  const dbSplits = await getDbStatcastSplits();
+  return dbSplits?.[normalizeMlbTeam(teamName)] ?? syntheticSplit(teamName);
+}
+
+export async function getAllDbStatcastSplits(): Promise<Record<string, MlbStatcastSplit> | null> {
+  return getDbStatcastSplits();
 }
