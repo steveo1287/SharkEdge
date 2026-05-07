@@ -49,6 +49,13 @@ function asMlbTier(value: string): MlbGovernor["tier"] {
   return "pass";
 }
 
+function extractRatingsSource(dataSource: string): { away: string | null; home: string | null } {
+  const match = dataSource.match(/\+ratings:([^+]+)/);
+  if (!match) return { away: null, home: null };
+  const [away, home] = match[1].split("/");
+  return { away: away ?? null, home: home ?? null };
+}
+
 function previousMlbReasons(projection: SimProjection) {
   return projection.mlbIntel?.governor?.reasons ?? [];
 }
@@ -111,11 +118,14 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
     noBet: formulaTier === "pass",
     reasons: [...v7.reasons, ...premiumFormulaStack.reasons]
   };
+  const ratingSources = extractRatingsSource(mlbIntel.dataSource ?? "");
   const premiumPolicy = applyMlbPremiumPickPolicy({
     v7: formulaAdjustedV7,
     playerImpact: mlbIntel.playerImpact,
     lock: mlbIntel.lock,
-    marketSource: mlbIntel.market?.source ?? null
+    marketSource: mlbIntel.market?.source ?? null,
+    awayRatingsSource: ratingSources.away,
+    homeRatingsSource: ratingSources.home
   });
   const guardrails = await getSimAccuracyGuardrails();
   const v8Reasons = (mlbIntel.playerImpact as { reasons?: string[] } | null | undefined)?.reasons ?? [];

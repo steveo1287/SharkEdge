@@ -108,22 +108,31 @@ function lockEdges(lock: MlbLineupLock) {
   return { lockBoost, handednessEdge, bullpenUsageEdge, lateScratchEdge, starterCertaintyEdge, lineupCertaintyEdge };
 }
 
-function poissonProbability(mean: number, runs: number) {
+// MLB runs are overdispersed relative to Poisson (variance > mean).
+// Negative binomial with dispersion r≈20 adds ~22% extra variance, which
+// better reflects realistic run distribution tails and blowout/shutout rates.
+const MLB_NB_DISPERSION = 20;
+
+function negativeBinomialProbability(mean: number, runs: number, r: number) {
   const safeMean = clamp(mean, 0.2, 14);
-  let probability = Math.exp(-safeMean);
+  const safeR = Math.max(1, r);
+  const p = safeR / (safeR + safeMean);
+  // log-space computation avoids overflow for large k
+  let logProb = safeR * Math.log(p);
   for (let index = 1; index <= runs; index += 1) {
-    probability *= safeMean / index;
+    logProb += Math.log((safeR + index - 1) / index) + Math.log(1 - p);
   }
-  return probability;
+  return Math.exp(logProb);
 }
 
 function poissonWinModel(awayExpectedRuns: number, homeExpectedRuns: number) {
-  const maxRuns = 24;
+  const maxRuns = 26;
+  const r = MLB_NB_DISPERSION;
   let homeWin = 0;
   let awayWin = 0;
   let tie = 0;
-  const awayProbabilities = Array.from({ length: maxRuns + 1 }, (_, runs) => poissonProbability(awayExpectedRuns, runs));
-  const homeProbabilities = Array.from({ length: maxRuns + 1 }, (_, runs) => poissonProbability(homeExpectedRuns, runs));
+  const awayProbabilities = Array.from({ length: maxRuns + 1 }, (_, runs) => negativeBinomialProbability(awayExpectedRuns, runs, r));
+  const homeProbabilities = Array.from({ length: maxRuns + 1 }, (_, runs) => negativeBinomialProbability(homeExpectedRuns, runs, r));
 
   for (let awayRuns = 0; awayRuns <= maxRuns; awayRuns += 1) {
     for (let homeRuns = 0; homeRuns <= maxRuns; homeRuns += 1) {

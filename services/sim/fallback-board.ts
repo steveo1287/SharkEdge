@@ -33,6 +33,8 @@ type SimBoardEvent = {
 
 type SimBoardFeed = {
   generatedAt: string;
+  offline?: boolean;
+  offlineReason?: string;
   summary: {
     totalEvents: number;
     projectedEvents: number;
@@ -181,6 +183,16 @@ function buildMockSimEvent(league: string, index: number): SimBoardEvent {
 }
 
 export function buildFallbackSimBoard(): SimBoardFeed {
+  if (process.env.NODE_ENV === "production") {
+    return {
+      generatedAt: new Date().toISOString(),
+      offline: true,
+      offlineReason: "Live data unavailable. Mock projections are disabled in production.",
+      summary: { totalEvents: 0, projectedEvents: 0, signalEvents: 0, marketReadyEvents: 0, attackableEvents: 0 },
+      events: []
+    };
+  }
+
   const events = Array.from({ length: 6 }, (_, i) => buildMockSimEvent("NBA", i));
   const attackable = events.filter((e) => e.diagnostics.recommendation === "ATTACK").length;
   const projected = events.filter((e) => e.diagnostics.hasProjection).length;
