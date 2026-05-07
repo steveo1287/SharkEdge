@@ -176,3 +176,7 @@ You can also bypass the guard one time with:
 ```bash
 npm run dev -- --skip-guard
 ```
+
+## Sim Detail UX
+
+The MLB detail page should keep game intelligence concise and avoid raw repeated notes.
