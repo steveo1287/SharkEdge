@@ -142,8 +142,22 @@ async function sourceHealth() {
   if (!teamProfileSources.every((source) => source === "real")) warnings.push(`Team analytics are ${teamProfileSources.join("/")}; configure MLB_TEAM_ANALYTICS_URL or improve the MLB Stats API warehouse.`);
   if (!ratingSources.every((source) => source === "real")) warnings.push(`Ratings are ${ratingSources.join("/")}; synthetic ratings are display-only/low-weight.`);
 
+  const analyticsEnvVars = {
+    FANGRAPHS_PLAYER_FEED_URL: !!process.env.FANGRAPHS_PLAYER_FEED_URL?.trim(),
+    MLB_TEAM_ANALYTICS_URL: !!process.env.MLB_TEAM_ANALYTICS_URL?.trim(),
+    MLB_STATCAST_SPLITS_URL: !!process.env.MLB_STATCAST_SPLITS_URL?.trim(),
+    MLB_TEAM_RATINGS_URL: !!process.env.MLB_TEAM_RATINGS_URL?.trim()
+  };
+  const missingFeeds = Object.entries(analyticsEnvVars)
+    .filter(([, configured]) => !configured)
+    .map(([key]) => key);
+  if (missingFeeds.length > 0) {
+    warnings.push(`Analytics feeds not configured: ${missingFeeds.join(", ")}. ATTACK picks will use synthetic fallback data and be blocked by the data quality gate.`);
+  }
+
+  const allSourcesReal = playerSources.every((s) => s === "real") && teamProfileSources.every((s) => s === "real");
   return {
-    ok: playerSources.every((source) => source === "real") && teamProfileSources.every((source) => source === "real"),
+    ok: allSourcesReal,
     sampleMatchup: `${SAMPLE_AWAY} @ ${SAMPLE_HOME}`,
     player: {
       source: playerSources.join("/"),
@@ -162,6 +176,11 @@ async function sourceHealth() {
       note: ratingSources.every((source) => source === "real")
         ? "Real ratings feed is active."
         : "Synthetic ratings are heavily downweighted and should not drive attack picks."
+    },
+    analyticsFeeds: {
+      configured: analyticsEnvVars,
+      missing: missingFeeds,
+      productionReady: missingFeeds.length === 0
     },
     warnings
   };

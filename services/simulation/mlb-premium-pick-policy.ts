@@ -5,6 +5,8 @@ export type MlbPremiumPickPolicyInput = {
   playerImpact?: unknown;
   lock?: unknown;
   marketSource?: string | null;
+  awayRatingsSource?: string | null;
+  homeRatingsSource?: string | null;
 };
 
 export type MlbPremiumPickPolicyResult = {
@@ -29,6 +31,8 @@ export type MlbPremiumPickPolicyResult = {
     profileSampleSize: number | null;
     startersConfirmed: boolean;
     lineupsConfirmed: boolean;
+    awayRatingsSource: string | null;
+    homeRatingsSource: string | null;
   };
 };
 
@@ -84,6 +88,13 @@ export function applyMlbPremiumPickPolicy(input: MlbPremiumPickPolicyInput): Mlb
   if (!hasMarket) blockers.push("Premium policy blocked pick: no-vig market anchor is missing.");
   if (input.v7.noBet || !input.v7.pickSide) blockers.push("Premium policy blocked pick: v7 official-pick gate did not qualify a side.");
   if (edgeAbs == null || edgeAbs < input.v7.minEdgePct) blockers.push("Premium policy blocked pick: calibrated edge is below the minimum gate.");
+
+  const syntheticAway = input.awayRatingsSource === "synthetic";
+  const syntheticHome = input.homeRatingsSource === "synthetic";
+  if (syntheticAway || syntheticHome) {
+    const which = [syntheticAway ? "away" : null, syntheticHome ? "home" : null].filter(Boolean).join("/");
+    blockers.push(`Synthetic team ratings (${which}); ATTACK requires real analytics or spine-Elo-derived ratings.`);
+  }
 
   if (!playerImpactApplied) {
     tier = capTier(tier, "watch");
@@ -170,7 +181,9 @@ export function applyMlbPremiumPickPolicy(input: MlbPremiumPickPolicyInput): Mlb
       profileStatus,
       profileSampleSize,
       startersConfirmed,
-      lineupsConfirmed
+      lineupsConfirmed,
+      awayRatingsSource: input.awayRatingsSource ?? null,
+      homeRatingsSource: input.homeRatingsSource ?? null
     }
   };
 }

@@ -267,7 +267,12 @@ export async function buildMlbIntelV7LiveBoard(args: { limit?: number } = {}) {
   return {
     ok: true,
     generatedAt,
-    modelVersion: "mlb-intel-v7+v8-player-impact",
+    modelStack: {
+      runtime: "mlb-intel-v6",
+      pickGate: "mlb-intel-v7",
+      playerImpact: "mlb-v8-experimental",
+      combined: "mlb-intel-v6+v7-pick-gate+v8-player-impact"
+    },
     gameCount: games.length,
     rowCount: rows.length,
     warnings,

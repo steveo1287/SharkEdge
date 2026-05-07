@@ -183,7 +183,7 @@ function currentSlateWindow(event: ProviderEvent) {
 export const mlbOfficialEventProvider: EventProvider = {
   key: "mlb-stats-api",
   label: "Official MLB schedule",
-  kind: "FALLBACK",
+  kind: "LIVE",
   supportsLeague(leagueKey: SupportedLeagueKey) {
     return leagueKey === "MLB";
   },

@@ -140,7 +140,7 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
   MLB: {
     leagueKey: "MLB",
     status: "LIVE",
-    scoreProviders: [espnEventProvider, mlbOfficialEventProvider],
+    scoreProviders: [mlbOfficialEventProvider, espnEventProvider],
     matchupProviders: [espnMatchupStatsProvider],
     currentOddsProviders: [backendCurrentOddsProvider],
     bookFeedProviders: getBookFeedLabelsForLeague("MLB"),
@@ -153,16 +153,16 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
     sourceMesh: {
       scores: [
         {
+          name: "Official MLB Stats API",
+          stage: "ACTIVE",
+          url: "https://statsapi.mlb.com/api/v1/schedule",
+          note: "Primary canonical event spine: gamePk, teams, venue, probable pitchers, live/final status, official results."
+        },
+        {
           name: "ESPN Public API",
           stage: "ACTIVE",
           url: "https://github.com/pseudo-r/Public-ESPN-API",
-          note: "Primary live scoreboard feed."
-        },
-        {
-          name: "Official MLB schedule API",
-          stage: "FALLBACK",
-          url: "https://statsapi.mlb.com/api/v1/schedule",
-          note: "Fallback slate source when ESPN returns empty or times out."
+          note: "Secondary scoreboard feed; used when MLB Stats API returns empty."
         },
         {
           name: "sportsdataverse-js",
@@ -173,10 +173,16 @@ export const PROVIDER_REGISTRY: Record<LeagueKey, LeagueProviderRegistryEntry> =
       ],
       stats: [
         {
+          name: "Official MLB Stats API",
+          stage: "ACTIVE",
+          url: "https://statsapi.mlb.com/api/v1/schedule",
+          note: "gamePk-keyed probable pitchers, batting orders, and boxscore hydration."
+        },
+        {
           name: "ESPN Public API",
           stage: "ACTIVE",
           url: "https://github.com/pseudo-r/Public-ESPN-API",
-          note: "Current matchup detail layer."
+          note: "Secondary matchup detail layer."
         },
         {
           name: "sportsdataverse-js",
