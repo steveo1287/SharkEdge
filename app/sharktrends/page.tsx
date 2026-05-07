@@ -118,17 +118,40 @@ function streakTone(streak: MlbTrendRecord["streak"]) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
+const STABILITY_BADGE: Record<string, { label: string; cls: string }> = {
+  stable:     { label: "Stable",      cls: "bg-emerald-400/10 text-emerald-300 border-emerald-400/20" },
+  solid:      { label: "Solid",       cls: "bg-sky-400/10 text-sky-300 border-sky-400/20" },
+  noisy:      { label: "Noisy",       cls: "bg-amber-400/10 text-amber-300 border-amber-400/20" },
+  low_sample: { label: "Low sample",  cls: "bg-slate-700/50 text-slate-400 border-slate-600/30" },
+};
+
 function TrendRow({ r, rank }: { r: MlbTrendRecord; rank: number }) {
   const decided = r.wins + r.losses;
+  const badge = STABILITY_BADGE[r.stability];
+  const edgeSign = r.edgeVsBaseline !== null && r.edgeVsBaseline > 0 ? "+" : "";
+  const edgeTone = r.edgeVsBaseline === null || r.qualifier === "base" ? ""
+    : r.edgeVsBaseline >= 5 ? "text-emerald-300 font-semibold"
+    : r.edgeVsBaseline >= 2 ? "text-emerald-400"
+    : r.edgeVsBaseline <= -5 ? "text-red-400"
+    : r.edgeVsBaseline <= -2 ? "text-red-400/70"
+    : "text-slate-500";
   return (
     <tr className="group border-b border-white/[0.04] hover:bg-white/[0.025] transition-colors">
       <td className="py-3 pl-4 pr-2 text-[11px] text-slate-500 tabular-nums">{rank}</td>
       <td className="py-3 pr-4">
-        <div className="text-sm text-white leading-5">{r.label}</div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm text-white leading-5">{r.label}</span>
+          <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] border ${badge.cls}`}>{badge.label}</span>
+        </div>
         <div className="mt-0.5 text-[10px] text-slate-500 tracking-wide">{r.market.toUpperCase()} · {r.homeAway}</div>
       </td>
       <td className="py-3 pr-6 tabular-nums text-sm text-slate-200 font-mono">{fmtRecord(r)}</td>
-      <td className={`py-3 pr-6 tabular-nums text-sm font-mono ${winPctTone(r.winPct, decided)}`}>{fmtWinPct(r)}</td>
+      <td className={`py-3 pr-6 tabular-nums text-sm font-mono ${winPctTone(r.winPct, decided)}`}>
+        {fmtWinPct(r)}
+        {r.edgeVsBaseline !== null && r.qualifier !== "base" && (
+          <span className={`ml-1.5 text-[10px] ${edgeTone}`}>{edgeSign}{r.edgeVsBaseline.toFixed(1)}%</span>
+        )}
+      </td>
       <td className={`py-3 pr-6 tabular-nums text-sm font-mono ${roiTone(r.roi, decided)}`}>{fmtRoi(r)}</td>
       <td className={`py-3 pr-6 tabular-nums text-sm font-mono ${streakTone(r.streak)}`}>{fmtStreak(r)}</td>
       <td className="py-3 pr-4 tabular-nums text-xs text-slate-500">{r.total}</td>
@@ -411,7 +434,7 @@ export default async function SharkTrendsPage({ searchParams }: PageProps) {
               <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Market:</span>
               <MarketTabLink label="All" marketKey="all" current={market} tab={tab} team={team} sort={sort} />
               <MarketTabLink label="Moneyline" marketKey="moneyline" current={market} tab={tab} team={team} sort={sort} />
-              <MarketTabLink label="Spread" marketKey="spread" current={market} tab={tab} team={team} sort={sort} />
+              <MarketTabLink label="Run Line" marketKey="spread" current={market} tab={tab} team={team} sort={sort} />
               <MarketTabLink label="O/U" marketKey="total" current={market} tab={tab} team={team} sort={sort} />
               <span className="ml-auto text-[10px] text-slate-500">{displayTrends.length} trends</span>
             </div>
@@ -419,8 +442,14 @@ export default async function SharkTrendsPage({ searchParams }: PageProps) {
             <TrendTable trends={displayTrends} sort={sort} tab={tab} market={market} team={team} />
 
             <div className="rounded-2xl border border-white/[0.06] bg-slate-950/40 px-4 py-3 text-xs leading-5 text-slate-500">
-              Win% and ROI calculated on settled (win/loss) games only. Records require ≥15 settled games. ROI uses +100 flat unit sizing.
-              Trends with 54%+ win rate and +2.0 ROI across 30+ games are historically significant.
+              Win% and edge vs baseline calculated on settled (win/loss) games only. Records require ≥15 games.
+              Run line graded on closing spread (default ±1.5). O/U graded on closing total.
+              <span className="ml-2 inline-flex items-center gap-3">
+                <span className="text-emerald-400">■ Stable = 300+ games</span>
+                <span className="text-sky-400">■ Solid = 80–299</span>
+                <span className="text-amber-400">■ Noisy = 30–79</span>
+                <span className="text-slate-500">■ Low sample = &lt;30</span>
+              </span>
             </div>
           </div>
         )}

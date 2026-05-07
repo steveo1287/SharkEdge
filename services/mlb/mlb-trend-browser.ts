@@ -22,6 +22,9 @@ export type MlbTrendRecord = {
   totalUnits: number;
   streak: { type: "W" | "L" | null; count: number };
   lastResult: string | null;
+  baselineWinPct: number | null;
+  edgeVsBaseline: number | null;
+  stability: "stable" | "solid" | "noisy" | "low_sample";
 };
 
 export type MlbTodayGame = {
@@ -81,17 +84,30 @@ function qualifierLabel(qualifier: string): string {
     scored_under_5: "scored under 5 runs",
     total_8_plus: "game total 8+ runs",
     total_under_8: "game total under 8 runs",
-    allowed_3_or_less: "allowed 3 or fewer runs",
+    allowed_3_or_less: "allowed ≤3 runs",
     allowed_4_plus: "allowed 4+ runs",
-    big_favorite: "as big favorite (≤-200)",
-    favorite: "as favorite (-130 to -200)",
-    slight_favorite: "as slight favorite",
+    big_favorite: "big favorite (≤-200)",
+    favorite: "favorite (-130 to -200)",
+    slight_favorite: "slight favorite",
     pick: "pick 'em",
-    dog: "as underdog",
-    big_dog: "as big underdog (+180+)",
+    dog: "underdog",
+    big_dog: "big dog (+180+)",
+    rest_b2b: "back-to-back",
+    rest_1_day: "1-day rest",
+    rest_2_plus: "fresh (2+ days rest)",
+    series_opener: "series opener",
+    series_middle: "series middle game",
+    series_getaway: "getaway day (game 3+)",
     unknown: "",
   };
   return map[qualifier] ?? qualifier.replace(/_/g, " ");
+}
+
+function stabilityRating(decided: number): MlbTrendRecord["stability"] {
+  if (decided >= 300) return "stable";
+  if (decided >= 80) return "solid";
+  if (decided >= 30) return "noisy";
+  return "low_sample";
 }
 
 function buildLabel(side: string, homeAway: string, market: string, qualifier: string): string {
@@ -136,7 +152,7 @@ function computeStreak(rows: StreakRow[], trendKey: string): { type: "W" | "L" |
 
 // ── Core aggregation ──────────────────────────────────────────────────────────
 
-function aggToRecord(row: AggRow, streakRows: StreakRow[]): MlbTrendRecord {
+function aggToRecord(row: AggRow, streakRows: StreakRow[], baselineMap?: Map<string, number>): MlbTrendRecord {
   const { market, side, homeAway, qualifier } = parseKey(row.trend_key);
   const wins = Number(row.wins);
   const losses = Number(row.losses);
@@ -147,6 +163,12 @@ function aggToRecord(row: AggRow, streakRows: StreakRow[]): MlbTrendRecord {
   const totalUnits = Number(row.total_units ?? 0);
   const roi = decided > 0 ? Math.round((totalUnits / decided) * 1000) / 10 : 0;
   const streak = computeStreak(streakRows, row.trend_key);
+
+  const baselineKey = `MLB|${market}|${side}|${homeAway}`;
+  const baselineWinPct = baselineMap?.get(baselineKey) ?? null;
+  const edgeVsBaseline = baselineWinPct !== null && decided > 0
+    ? Math.round((winPct - baselineWinPct) * 10) / 10
+    : null;
 
   return {
     trendKey: row.trend_key,
@@ -165,13 +187,16 @@ function aggToRecord(row: AggRow, streakRows: StreakRow[]): MlbTrendRecord {
     totalUnits: Math.round(totalUnits * 100) / 100,
     streak,
     lastResult: streakRows.find((r) => r.trend_key === row.trend_key)?.result ?? null,
+    baselineWinPct,
+    edgeVsBaseline,
+    stability: stabilityRating(decided),
   };
 }
 
 // ── League-wide trends ────────────────────────────────────────────────────────
 
 export async function getMlbLeagueTrends(minSample = 20): Promise<MlbTrendRecord[]> {
-  const [agg, streakRows] = await Promise.all([
+  const [agg, baselineAgg, streakRows] = await Promise.all([
     prisma.$queryRaw<AggRow[]>`
       SELECT
         trend_key,
@@ -188,6 +213,22 @@ export async function getMlbLeagueTrends(minSample = 20): Promise<MlbTrendRecord
       HAVING COUNT(*) FILTER (WHERE result IN ('win','loss','push')) >= ${minSample}
       ORDER BY SUM(units) DESC
     `,
+    // Baseline: base qualifier rows only (no extra qualifiers — just home/away overall record)
+    prisma.$queryRaw<AggRow[]>`
+      SELECT
+        trend_key,
+        market_type,
+        side,
+        COUNT(*) FILTER (WHERE result = 'win')  AS wins,
+        COUNT(*) FILTER (WHERE result = 'loss') AS losses,
+        COUNT(*) FILTER (WHERE result = 'push') AS pushes,
+        COUNT(*) FILTER (WHERE result = 'pending') AS pending,
+        COUNT(*) AS total,
+        SUM(units) AS total_units
+      FROM mlb_trend_rows
+      WHERE trend_key NOT LIKE '%|%|%|%|%'
+      GROUP BY trend_key, market_type, side
+    `,
     prisma.$queryRaw<StreakRow[]>`
       SELECT DISTINCT ON (trend_key, game_pk) trend_key, result, game_pk
       FROM mlb_trend_rows
@@ -197,7 +238,16 @@ export async function getMlbLeagueTrends(minSample = 20): Promise<MlbTrendRecord
     `,
   ]);
 
-  return agg.map((row) => aggToRecord(row, streakRows));
+  // Build baseline win% map keyed by base trend_key (market|side|homeAway)
+  const baselineMap = new Map<string, number>();
+  for (const b of baselineAgg) {
+    const wins = Number(b.wins);
+    const losses = Number(b.losses);
+    const decided = wins + losses;
+    if (decided > 0) baselineMap.set(b.trend_key, Math.round((wins / decided) * 1000) / 10);
+  }
+
+  return agg.map((row) => aggToRecord(row, streakRows, baselineMap));
 }
 
 // ── Team situational profile ──────────────────────────────────────────────────
@@ -240,8 +290,19 @@ export async function getMlbTeamProfile(teamName: string): Promise<MlbTeamProfil
   const teamId = Number(row0.team_id);
   const resolvedName = row0.team_name ?? teamName;
 
-  const home = agg.filter((r) => parseKey(r.trend_key).homeAway === "home").map((r) => aggToRecord(r, streakRows));
-  const away = agg.filter((r) => parseKey(r.trend_key).homeAway === "away").map((r) => aggToRecord(r, streakRows));
+  // Build team-level baseline map from base qualifier rows
+  const baselineMap = new Map<string, number>();
+  for (const b of agg) {
+    const { qualifier } = parseKey(b.trend_key);
+    if (qualifier !== "base") continue;
+    const wins = Number(b.wins);
+    const losses = Number(b.losses);
+    const decided = wins + losses;
+    if (decided > 0) baselineMap.set(b.trend_key, Math.round((wins / decided) * 1000) / 10);
+  }
+
+  const home = agg.filter((r) => parseKey(r.trend_key).homeAway === "home").map((r) => aggToRecord(r, streakRows, baselineMap));
+  const away = agg.filter((r) => parseKey(r.trend_key).homeAway === "away").map((r) => aggToRecord(r, streakRows, baselineMap));
 
   return { teamId, teamName: resolvedName, home, away };
 }
@@ -337,7 +398,16 @@ async function getTeamTrendsById(teamIds: number[]): Promise<Map<number, MlbTren
 
   const result = new Map<number, MlbTrendRecord[]>();
   for (const { teamId, agg, streakRows } of teamResults) {
-    result.set(teamId, agg.map((row) => aggToRecord(row, streakRows)));
+    const baselineMap = new Map<string, number>();
+    for (const b of agg) {
+      const { qualifier } = parseKey(b.trend_key);
+      if (qualifier !== "base") continue;
+      const wins = Number(b.wins);
+      const losses = Number(b.losses);
+      const decided = wins + losses;
+      if (decided > 0) baselineMap.set(b.trend_key, Math.round((wins / decided) * 1000) / 10);
+    }
+    result.set(teamId, agg.map((row) => aggToRecord(row, streakRows, baselineMap)));
   }
   return result;
 }
