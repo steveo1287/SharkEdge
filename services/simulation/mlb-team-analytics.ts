@@ -1,4 +1,5 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
+import { fetchRawFeedRows, pick } from "@/services/mlb/raw-feed-parser";
 import { normalizeTeamKey } from "@/lib/utils/team-normalization";
 import { getMlbRestMatchup } from "@/services/simulation/mlb-schedule-rest-service";
 import { getMlbLiveTeamProfile } from "@/services/simulation/mlb-live-stats-feed";
@@ -58,7 +59,7 @@ function hashString(value: string) { let hash = 0; for (let i = 0; i < value.len
 function seedUnit(seed: number) { return (seed % 1000) / 1000; }
 function range(seed: number, min: number, max: number) { return Number((min + seedUnit(seed) * (max - min)).toFixed(2)); }
 function num(value: unknown, fallback: number) { if (typeof value === "number" && Number.isFinite(value)) return value; if (typeof value === "string" && Number.isFinite(Number(value))) return Number(value); return fallback; }
-function teamName(row: RawMlbTeam) { return row.teamName ?? row.team ?? row.team_name ?? row.name ?? null; }
+function teamName(row: RawMlbTeam) { return pick(row, "teamName", "team", "team_name", "name", "Team", "Tm") as string | null ?? null; }
 
 function syntheticProfile(teamName: string): MlbTeamProfile {
   const seed = hashString(`${teamName}:mlb-team-profile`);
@@ -92,23 +93,23 @@ function normalizeRaw(row: RawMlbTeam): MlbTeamProfile | null {
   return {
     ...base,
     source: "real",
-    wrcPlus: num(row.wrcPlus, base.wrcPlus),
-    xwoba: num(row.xwoba, base.xwoba),
-    isoPower: num(row.isoPower, base.isoPower),
-    kRate: num(row.kRate, base.kRate),
-    bbRate: num(row.bbRate, base.bbRate),
-    babip: num(row.babip, base.babip),
-    baseRunning: num(row.baseRunning, base.baseRunning),
-    starterEraMinus: num(row.starterEraMinus, base.starterEraMinus),
-    starterXFip: num(row.starterXFip, base.starterXFip),
-    bullpenEraMinus: num(row.bullpenEraMinus, base.bullpenEraMinus),
-    bullpenXFip: num(row.bullpenXFip, base.bullpenXFip),
-    bullpenFatigue: num(row.bullpenFatigue, base.bullpenFatigue),
-    defensiveRunsSaved: num(row.defensiveRunsSaved, base.defensiveRunsSaved),
-    parkRunFactor: num(row.parkRunFactor, base.parkRunFactor),
-    weatherRunFactor: num(row.weatherRunFactor, base.weatherRunFactor),
-    recentForm: num(row.recentForm, base.recentForm),
-    travelRest: num(row.travelRest, base.travelRest)
+    wrcPlus: num(pick(row, "wrcPlus", "wRC+", "WRC_PLUS"), base.wrcPlus),
+    xwoba: num(pick(row, "xwoba", "xwOBA", "wOBA", "woba"), base.xwoba),
+    isoPower: num(pick(row, "isoPower", "ISO", "iso"), base.isoPower),
+    kRate: num(pick(row, "kRate", "K%", "K_PCT", "k_pct"), base.kRate),
+    bbRate: num(pick(row, "bbRate", "BB%", "BB_PCT", "bb_pct"), base.bbRate),
+    babip: num(pick(row, "babip", "BABIP"), base.babip),
+    baseRunning: num(pick(row, "baseRunning", "BsR", "baserunning"), base.baseRunning),
+    starterEraMinus: num(pick(row, "starterEraMinus", "starter_era_minus", "SP_ERA-", "rotationEraMinus"), base.starterEraMinus),
+    starterXFip: num(pick(row, "starterXFip", "starter_xfip", "SP_xFIP", "rotationXFip"), base.starterXFip),
+    bullpenEraMinus: num(pick(row, "bullpenEraMinus", "bullpen_era_minus", "RP_ERA-", "reliefEraMinus"), base.bullpenEraMinus),
+    bullpenXFip: num(pick(row, "bullpenXFip", "bullpen_xfip", "RP_xFIP", "reliefXFip"), base.bullpenXFip),
+    bullpenFatigue: num(pick(row, "bullpenFatigue", "bullpen_fatigue"), base.bullpenFatigue),
+    defensiveRunsSaved: num(pick(row, "defensiveRunsSaved", "DRS", "OAA", "Def"), base.defensiveRunsSaved),
+    parkRunFactor: num(pick(row, "parkRunFactor", "park_factor", "ParkFactor"), base.parkRunFactor),
+    weatherRunFactor: num(pick(row, "weatherRunFactor", "weather_factor"), base.weatherRunFactor),
+    recentForm: num(pick(row, "recentForm", "recent_form"), base.recentForm),
+    travelRest: num(pick(row, "travelRest", "travel_rest"), base.travelRest)
   };
 }
 
@@ -120,10 +121,8 @@ async function fetchProfiles() {
   const url = process.env.MLB_TEAM_ANALYTICS_URL?.trim();
   if (!url) return null;
   try {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) return null;
     const grouped: Record<string, MlbTeamProfile> = {};
-    for (const row of rowsFromBody(await response.json())) {
+    for (const row of await fetchRawFeedRows(url, ["teams", "data", "rows"])) {
       const profile = normalizeRaw(row);
       if (profile) grouped[normalizeMlbTeam(profile.teamName)] = profile;
     }

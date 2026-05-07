@@ -1,4 +1,5 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
+import { fetchRawFeedRows, pick } from "@/services/mlb/raw-feed-parser";
 import { normalizeMlbTeam } from "@/services/simulation/mlb-team-analytics";
 
 export type MlbStatcastSplit = {
@@ -30,7 +31,6 @@ const CACHE_TTL_SECONDS = 60 * 60 * 8;
 
 function num(value: unknown, fallback: number) { if (typeof value === "number" && Number.isFinite(value)) return value; if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value); return fallback; }
 function text(...values: unknown[]) { for (const value of values) if (typeof value === "string" && value.trim()) return value.trim(); return null; }
-function rowsFromBody(body: any): RawSplit[] { if (Array.isArray(body)) return body; if (Array.isArray(body?.teams)) return body.teams; if (Array.isArray(body?.data)) return body.data; if (Array.isArray(body?.splits)) return body.splits; return []; }
 function hashString(value: string) { let hash = 0; for (let i = 0; i < value.length; i += 1) hash = (hash * 31 + value.charCodeAt(i)) >>> 0; return hash; }
 function seedUnit(seed: number) { return (seed % 1000) / 1000; }
 function range(seed: number, min: number, max: number) { return Number((min + seedUnit(seed) * (max - min)).toFixed(3)); }
@@ -74,26 +74,26 @@ function syntheticSplit(teamName: string): MlbStatcastSplit {
 }
 
 function normalizeRaw(row: RawSplit): MlbStatcastSplit | null {
-  const teamName = text(row.teamName, row.team, row.team_name, row.Team);
+  const teamName = text(pick(row, "teamName", "team", "team_name", "Team", "Tm"));
   if (!teamName) return null;
   const fallback = syntheticSplit(teamName);
   const base = {
     teamName,
     source: "real" as const,
-    hitterXwobaVsFastball: num(row.hitterXwobaVsFastball ?? row.xwoba_fastball ?? row.xwobaVsFastball, fallback.hitterXwobaVsFastball),
-    hitterXwobaVsBreaking: num(row.hitterXwobaVsBreaking ?? row.xwoba_breaking ?? row.xwobaVsBreaking, fallback.hitterXwobaVsBreaking),
-    hitterXwobaVsOffspeed: num(row.hitterXwobaVsOffspeed ?? row.xwoba_offspeed ?? row.xwobaVsOffspeed, fallback.hitterXwobaVsOffspeed),
-    barrelRate: num(row.barrelRate ?? row.barrel_rate ?? row.BarrelPct, fallback.barrelRate),
-    hardHitRate: num(row.hardHitRate ?? row.hard_hit_rate ?? row.HardHitPct, fallback.hardHitRate),
-    sweetSpotRate: num(row.sweetSpotRate ?? row.sweet_spot_rate, fallback.sweetSpotRate),
-    chaseRate: num(row.chaseRate ?? row.chase_rate, fallback.chaseRate),
-    whiffRate: num(row.whiffRate ?? row.whiff_rate, fallback.whiffRate),
-    pitcherFastballRunValue: num(row.pitcherFastballRunValue ?? row.fastball_run_value, fallback.pitcherFastballRunValue),
-    pitcherBreakingRunValue: num(row.pitcherBreakingRunValue ?? row.breaking_run_value, fallback.pitcherBreakingRunValue),
-    pitcherOffspeedRunValue: num(row.pitcherOffspeedRunValue ?? row.offspeed_run_value, fallback.pitcherOffspeedRunValue),
-    pitcherAvgExitVeloAllowed: num(row.pitcherAvgExitVeloAllowed ?? row.avg_exit_velo_allowed, fallback.pitcherAvgExitVeloAllowed),
-    pitcherBarrelAllowedRate: num(row.pitcherBarrelAllowedRate ?? row.barrel_allowed_rate, fallback.pitcherBarrelAllowedRate),
-    weatherCarrySensitivity: num(row.weatherCarrySensitivity ?? row.weather_carry_sensitivity, fallback.weatherCarrySensitivity)
+    hitterXwobaVsFastball: num(pick(row, "hitterXwobaVsFastball", "xwoba_fastball", "xwobaVsFastball"), fallback.hitterXwobaVsFastball),
+    hitterXwobaVsBreaking: num(pick(row, "hitterXwobaVsBreaking", "xwoba_breaking", "xwobaVsBreaking"), fallback.hitterXwobaVsBreaking),
+    hitterXwobaVsOffspeed: num(pick(row, "hitterXwobaVsOffspeed", "xwoba_offspeed", "xwobaVsOffspeed"), fallback.hitterXwobaVsOffspeed),
+    barrelRate: num(pick(row, "barrelRate", "barrel_rate", "Barrel%", "BarrelPct"), fallback.barrelRate),
+    hardHitRate: num(pick(row, "hardHitRate", "hard_hit_rate", "HardHit%", "HardHitPct"), fallback.hardHitRate),
+    sweetSpotRate: num(pick(row, "sweetSpotRate", "sweet_spot_rate", "SweetSpot%"), fallback.sweetSpotRate),
+    chaseRate: num(pick(row, "chaseRate", "chase_rate", "Chase%"), fallback.chaseRate),
+    whiffRate: num(pick(row, "whiffRate", "whiff_rate", "Whiff%"), fallback.whiffRate),
+    pitcherFastballRunValue: num(pick(row, "pitcherFastballRunValue", "fastball_run_value", "FBRunValue"), fallback.pitcherFastballRunValue),
+    pitcherBreakingRunValue: num(pick(row, "pitcherBreakingRunValue", "breaking_run_value", "BreakingRunValue"), fallback.pitcherBreakingRunValue),
+    pitcherOffspeedRunValue: num(pick(row, "pitcherOffspeedRunValue", "offspeed_run_value", "OffspeedRunValue"), fallback.pitcherOffspeedRunValue),
+    pitcherAvgExitVeloAllowed: num(pick(row, "pitcherAvgExitVeloAllowed", "avg_exit_velo_allowed", "EVAllowed"), fallback.pitcherAvgExitVeloAllowed),
+    pitcherBarrelAllowedRate: num(pick(row, "pitcherBarrelAllowedRate", "barrel_allowed_rate", "BarrelAllowed%"), fallback.pitcherBarrelAllowedRate),
+    weatherCarrySensitivity: num(pick(row, "weatherCarrySensitivity", "weather_carry_sensitivity"), fallback.weatherCarrySensitivity)
   };
   return { ...base, ...derive(base) };
 }
@@ -104,10 +104,8 @@ async function fetchSplits() {
   const url = process.env.MLB_STATCAST_SPLITS_URL?.trim();
   if (!url) return null;
   try {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) return null;
     const grouped: Record<string, MlbStatcastSplit> = {};
-    for (const row of rowsFromBody(await response.json())) {
+    for (const row of await fetchRawFeedRows(url, ["teams", "data", "rows", "splits"])) {
       const split = normalizeRaw(row);
       if (split) grouped[normalizeMlbTeam(split.teamName)] = split;
     }

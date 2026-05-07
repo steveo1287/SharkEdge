@@ -1,4 +1,5 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
+import { fetchRawFeedRows, pick } from "@/services/mlb/raw-feed-parser";
 import { getMlbTeamProfile, normalizeMlbTeam, type MlbTeamProfile } from "@/services/simulation/mlb-team-analytics";
 
 export type MlbRatingsProfile = {
@@ -66,16 +67,6 @@ function text(...values: unknown[]) {
   return null;
 }
 
-function rowsFromBody(body: unknown): RawRating[] {
-  const value = body as { teams?: RawRating[]; ratings?: RawRating[]; data?: RawRating[]; rows?: RawRating[] };
-  if (Array.isArray(body)) return body as RawRating[];
-  if (Array.isArray(value.teams)) return value.teams;
-  if (Array.isArray(value.ratings)) return value.ratings;
-  if (Array.isArray(value.data)) return value.data;
-  if (Array.isArray(value.rows)) return value.rows;
-  return [];
-}
-
 function syntheticProfile(teamName: string): MlbRatingsProfile {
   const seed = hashString(`${teamName}:mlb-ratings-blend`);
   return {
@@ -122,24 +113,24 @@ function ratingFromTeamProfile(profile: MlbTeamProfile): MlbRatingsProfile {
 }
 
 function normalizeRaw(row: RawRating): MlbRatingsProfile | null {
-  const teamName = text(row.teamName, row.team, row.team_name, row.name, row.TEAM_NAME);
+  const teamName = text(pick(row, "teamName", "team", "team_name", "name", "TEAM_NAME", "Team", "Tm"));
   if (!teamName) return null;
   const base = syntheticProfile(teamName);
   return {
     ...base,
     source: "real",
-    teamOverall: num(row.teamOverall ?? row.overall ?? row.ovr ?? row.rating ?? row.gameRating, base.teamOverall),
-    contactRating: num(row.contactRating ?? row.contact ?? row.hitTool ?? row.battingContact, base.contactRating),
-    powerRating: num(row.powerRating ?? row.power ?? row.slugging ?? row.battingPower, base.powerRating),
-    speedRating: num(row.speedRating ?? row.speed ?? row.baseRunning ?? row.baserunning, base.speedRating),
-    defenseRating: num(row.defenseRating ?? row.defense ?? row.fielding ?? row.glove, base.defenseRating),
-    starterRating: num(row.starterRating ?? row.rotationRating ?? row.startingPitching ?? row.rotation, base.starterRating),
-    bullpenRating: num(row.bullpenRating ?? row.bullpen ?? row.reliefPitching, base.bullpenRating),
-    clutchRating: num(row.clutchRating ?? row.clutch ?? row.composure ?? row.lateGame, base.clutchRating),
-    disciplineRating: num(row.disciplineRating ?? row.discipline ?? row.plateDiscipline ?? row.vision, base.disciplineRating),
-    playerStarRating: num(row.playerStarRating ?? row.starRating ?? row.topPlayers ?? row.starPower, base.playerStarRating),
-    playerDepthRating: num(row.playerDepthRating ?? row.depthRating ?? row.rosterDepth ?? row.depth, base.playerDepthRating),
-    injuryRating: num(row.injuryRating ?? row.healthRating ?? row.durability ?? row.health, base.injuryRating)
+    teamOverall: num(pick(row, "teamOverall", "overall", "ovr", "rating", "gameRating"), base.teamOverall),
+    contactRating: num(pick(row, "contactRating", "contact", "hitTool", "battingContact"), base.contactRating),
+    powerRating: num(pick(row, "powerRating", "power", "slugging", "battingPower"), base.powerRating),
+    speedRating: num(pick(row, "speedRating", "speed", "baseRunning", "baserunning"), base.speedRating),
+    defenseRating: num(pick(row, "defenseRating", "defense", "fielding", "glove"), base.defenseRating),
+    starterRating: num(pick(row, "starterRating", "rotationRating", "startingPitching", "rotation"), base.starterRating),
+    bullpenRating: num(pick(row, "bullpenRating", "bullpen", "reliefPitching"), base.bullpenRating),
+    clutchRating: num(pick(row, "clutchRating", "clutch", "composure", "lateGame"), base.clutchRating),
+    disciplineRating: num(pick(row, "disciplineRating", "discipline", "plateDiscipline", "vision"), base.disciplineRating),
+    playerStarRating: num(pick(row, "playerStarRating", "starRating", "topPlayers", "starPower"), base.playerStarRating),
+    playerDepthRating: num(pick(row, "playerDepthRating", "depthRating", "rosterDepth", "depth"), base.playerDepthRating),
+    injuryRating: num(pick(row, "injuryRating", "healthRating", "durability", "health"), base.injuryRating)
   };
 }
 
@@ -154,10 +145,8 @@ async function fetchProfiles() {
   if (!url) return null;
 
   try {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) return null;
     const grouped: Record<string, MlbRatingsProfile> = {};
-    for (const row of rowsFromBody(await response.json())) {
+    for (const row of await fetchRawFeedRows(url, ["teams", "ratings", "data", "rows"])) {
       const profile = normalizeRaw(row);
       if (profile) grouped[normalizeMlbTeam(profile.teamName)] = profile;
     }
