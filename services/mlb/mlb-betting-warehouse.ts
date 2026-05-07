@@ -74,12 +74,12 @@ async function refreshMarketOpenClose() {
       MIN(mlh.captured_at), MAX(mlh.captured_at), 'market_line_history', now()
     FROM market_line_history mlh
     JOIN events e ON e.id = mlh.event_id
-    JOIN leagues l ON l.id = e.league_id AND l.key = 'MLB'
+    JOIN leagues l ON l.id = e."leagueId" AND l.key = 'MLB'
     JOIN LATERAL (SELECT price, point FROM market_line_history x WHERE x.event_id = mlh.event_id AND x.market_type = mlh.market_type AND x.side = mlh.side AND COALESCE(x.selection, '') = COALESCE(mlh.selection, '') AND COALESCE(x.sportsbook_name, '') = COALESCE(mlh.sportsbook_name, '') ORDER BY x.captured_at ASC LIMIT 1) first_row ON TRUE
     JOIN LATERAL (SELECT price, point FROM market_line_history x WHERE x.event_id = mlh.event_id AND x.market_type = mlh.market_type AND x.side = mlh.side AND COALESCE(x.selection, '') = COALESCE(mlh.selection, '') AND COALESCE(x.sportsbook_name, '') = COALESCE(mlh.sportsbook_name, '') ORDER BY x.captured_at DESC LIMIT 1) latest_row ON TRUE
     LEFT JOIN LATERAL (
       SELECT g.game_pk FROM mlb_games g
-      WHERE g.official_date = (e.start_time AT TIME ZONE 'America/New_York')::DATE
+      WHERE g.official_date = (e."startTime" AT TIME ZONE 'America/New_York')::DATE
         AND lower(e.name) LIKE '%' || lower(g.away_team_name) || '%'
         AND lower(e.name) LIKE '%' || lower(g.home_team_name) || '%'
       ORDER BY g.game_pk
@@ -105,7 +105,7 @@ async function refreshMarketOpenClose() {
     SET game_pk = (
       SELECT g.game_pk FROM mlb_games g
       JOIN events e ON e.id = moc.event_id
-      WHERE g.official_date = (e.start_time AT TIME ZONE 'America/New_York')::DATE
+      WHERE g.official_date = (e."startTime" AT TIME ZONE 'America/New_York')::DATE
         AND lower(e.name) LIKE '%' || lower(g.away_team_name) || '%'
         AND lower(e.name) LIKE '%' || lower(g.home_team_name) || '%'
       ORDER BY g.game_pk
