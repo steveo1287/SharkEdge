@@ -1,10 +1,10 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
-import { fetchRawFeedRows, pick } from "@/services/mlb/raw-feed-parser";
-import { getMlbTeamProfile, normalizeMlbTeam, type MlbTeamProfile } from "@/services/simulation/mlb-team-analytics";
+import { normalizeMlbTeam } from "@/services/simulation/mlb-team-analytics";
+import { prisma } from "@/lib/db/prisma";
 
 export type MlbRatingsProfile = {
   teamName: string;
-  source: "real" | "estimated" | "synthetic";
+  source: "real" | "synthetic";
   teamOverall: number;
   contactRating: number;
   powerRating: number;
@@ -67,6 +67,16 @@ function text(...values: unknown[]) {
   return null;
 }
 
+function rowsFromBody(body: unknown): RawRating[] {
+  const value = body as { teams?: RawRating[]; ratings?: RawRating[]; data?: RawRating[]; rows?: RawRating[] };
+  if (Array.isArray(body)) return body as RawRating[];
+  if (Array.isArray(value.teams)) return value.teams;
+  if (Array.isArray(value.ratings)) return value.ratings;
+  if (Array.isArray(value.data)) return value.data;
+  if (Array.isArray(value.rows)) return value.rows;
+  return [];
+}
+
 function syntheticProfile(teamName: string): MlbRatingsProfile {
   const seed = hashString(`${teamName}:mlb-ratings-blend`);
   return {
@@ -87,50 +97,25 @@ function syntheticProfile(teamName: string): MlbRatingsProfile {
   };
 }
 
-function ratingFromTeamProfile(profile: MlbTeamProfile): MlbRatingsProfile {
-  const offense = profile.wrcPlus;
-  const contact = 72 + (profile.xwoba - 0.3) * 180 + (100 - profile.kRate) * 0.08;
-  const power = 70 + profile.isoPower * 95 + (profile.wrcPlus - 100) * 0.12;
-  const starter = 82 + (100 - profile.starterEraMinus) * 0.16 + (4.2 - profile.starterXFip) * 3.2;
-  const bullpen = 81 + (100 - profile.bullpenEraMinus) * 0.15 + (4.2 - profile.bullpenXFip) * 2.6 - profile.bullpenFatigue * 4;
-  const defense = 76 + profile.defensiveRunsSaved * 0.45;
-  return {
-    teamName: profile.teamName,
-    source: profile.source === "real" ? "estimated" : "synthetic",
-    teamOverall: num((offense + starter + bullpen + defense) / 4, 78),
-    contactRating: num(contact, 76),
-    powerRating: num(power, 76),
-    speedRating: num(78 + profile.baseRunning * 1.2, 78),
-    defenseRating: num(defense, 78),
-    starterRating: num(starter, 78),
-    bullpenRating: num(bullpen, 78),
-    clutchRating: num(78 + profile.recentForm * 0.8, 78),
-    disciplineRating: num(76 + profile.bbRate * 1.1 - profile.kRate * 0.28, 76),
-    playerStarRating: num(78 + Math.max(0, profile.wrcPlus - 100) * 0.18 + Math.max(0, 100 - profile.starterEraMinus) * 0.12, 78),
-    playerDepthRating: num(77 + (profile.wrcPlus - 100) * 0.08 + Math.max(0, 100 - profile.bullpenEraMinus) * 0.12, 77),
-    injuryRating: num(88 - profile.bullpenFatigue * 5, 88)
-  };
-}
-
 function normalizeRaw(row: RawRating): MlbRatingsProfile | null {
-  const teamName = text(pick(row, "teamName", "team", "team_name", "name", "TEAM_NAME", "Team", "Tm"));
+  const teamName = text(row.teamName, row.team, row.team_name, row.name, row.TEAM_NAME);
   if (!teamName) return null;
   const base = syntheticProfile(teamName);
   return {
     ...base,
     source: "real",
-    teamOverall: num(pick(row, "teamOverall", "overall", "ovr", "rating", "gameRating"), base.teamOverall),
-    contactRating: num(pick(row, "contactRating", "contact", "hitTool", "battingContact"), base.contactRating),
-    powerRating: num(pick(row, "powerRating", "power", "slugging", "battingPower"), base.powerRating),
-    speedRating: num(pick(row, "speedRating", "speed", "baseRunning", "baserunning"), base.speedRating),
-    defenseRating: num(pick(row, "defenseRating", "defense", "fielding", "glove"), base.defenseRating),
-    starterRating: num(pick(row, "starterRating", "rotationRating", "startingPitching", "rotation"), base.starterRating),
-    bullpenRating: num(pick(row, "bullpenRating", "bullpen", "reliefPitching"), base.bullpenRating),
-    clutchRating: num(pick(row, "clutchRating", "clutch", "composure", "lateGame"), base.clutchRating),
-    disciplineRating: num(pick(row, "disciplineRating", "discipline", "plateDiscipline", "vision"), base.disciplineRating),
-    playerStarRating: num(pick(row, "playerStarRating", "starRating", "topPlayers", "starPower"), base.playerStarRating),
-    playerDepthRating: num(pick(row, "playerDepthRating", "depthRating", "rosterDepth", "depth"), base.playerDepthRating),
-    injuryRating: num(pick(row, "injuryRating", "healthRating", "durability", "health"), base.injuryRating)
+    teamOverall: num(row.teamOverall ?? row.overall ?? row.ovr ?? row.rating ?? row.gameRating, base.teamOverall),
+    contactRating: num(row.contactRating ?? row.contact ?? row.hitTool ?? row.battingContact, base.contactRating),
+    powerRating: num(row.powerRating ?? row.power ?? row.slugging ?? row.battingPower, base.powerRating),
+    speedRating: num(row.speedRating ?? row.speed ?? row.baseRunning ?? row.baserunning, base.speedRating),
+    defenseRating: num(row.defenseRating ?? row.defense ?? row.fielding ?? row.glove, base.defenseRating),
+    starterRating: num(row.starterRating ?? row.rotationRating ?? row.startingPitching ?? row.rotation, base.starterRating),
+    bullpenRating: num(row.bullpenRating ?? row.bullpen ?? row.reliefPitching, base.bullpenRating),
+    clutchRating: num(row.clutchRating ?? row.clutch ?? row.composure ?? row.lateGame, base.clutchRating),
+    disciplineRating: num(row.disciplineRating ?? row.discipline ?? row.plateDiscipline ?? row.vision, base.disciplineRating),
+    playerStarRating: num(row.playerStarRating ?? row.starRating ?? row.topPlayers ?? row.starPower, base.playerStarRating),
+    playerDepthRating: num(row.playerDepthRating ?? row.depthRating ?? row.rosterDepth ?? row.depth, base.playerDepthRating),
+    injuryRating: num(row.injuryRating ?? row.healthRating ?? row.durability ?? row.health, base.injuryRating)
   };
 }
 
@@ -145,8 +130,10 @@ async function fetchProfiles() {
   if (!url) return null;
 
   try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) return null;
     const grouped: Record<string, MlbRatingsProfile> = {};
-    for (const row of await fetchRawFeedRows(url, ["teams", "ratings", "data", "rows"])) {
+    for (const row of rowsFromBody(await response.json())) {
       const profile = normalizeRaw(row);
       if (profile) grouped[normalizeMlbTeam(profile.teamName)] = profile;
     }
@@ -161,45 +148,84 @@ async function fetchProfiles() {
   return null;
 }
 
+function eloToRatingsProfile(teamName: string, elo: number): MlbRatingsProfile {
+  const pin = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v)));
+  const base = pin(79 + (elo - 1500) * 0.025, 65, 95);
+  return {
+    teamName,
+    source: "real",
+    teamOverall: base,
+    contactRating: pin(base + 1, 65, 96),
+    powerRating: pin(base - 1, 63, 96),
+    speedRating: pin(base - 3, 60, 93),
+    defenseRating: pin(base, 62, 95),
+    starterRating: pin(base + 1, 65, 96),
+    bullpenRating: pin(base - 1, 63, 94),
+    clutchRating: pin(base, 63, 93),
+    disciplineRating: pin(base, 63, 95),
+    playerStarRating: pin(base + 2, 65, 96),
+    playerDepthRating: pin(base - 2, 62, 92),
+    injuryRating: 88,
+  };
+}
+
+async function getSpineEloProfile(teamName: string): Promise<MlbRatingsProfile | null> {
+  try {
+    const normalizedName = normalizeMlbTeam(teamName);
+    // Resolve the integer team ID stored in mlb_betting_games using the normalized name.
+    const idRows = await prisma.$queryRaw<{ team_id: number }[]>`
+      SELECT home_team_id AS team_id FROM mlb_betting_games
+      WHERE LOWER(REGEXP_REPLACE(home_team_name, '[^a-z0-9]', '', 'g')) = ${normalizedName}
+        AND home_team_id IS NOT NULL
+      UNION
+      SELECT away_team_id FROM mlb_betting_games
+      WHERE LOWER(REGEXP_REPLACE(away_team_name, '[^a-z0-9]', '', 'g')) = ${normalizedName}
+        AND away_team_id IS NOT NULL
+      LIMIT 1
+    `;
+    const teamId = idRows[0]?.team_id;
+    if (!teamId) return null;
+
+    const snapshot = await prisma.mlbTeamEloSnapshot.findFirst({
+      where: { sourceKey: "SPINE", teamId: String(teamId) },
+      orderBy: { gameDate: "desc" },
+    });
+    if (!snapshot) return null;
+
+    return eloToRatingsProfile(teamName, snapshot.postGameElo);
+  } catch {
+    return null;
+  }
+}
+
 export async function getMlbRatingsProfile(teamName: string): Promise<MlbRatingsProfile> {
   const profiles = await fetchProfiles();
   if (profiles?.[normalizeMlbTeam(teamName)]) return profiles[normalizeMlbTeam(teamName)];
-  const teamProfile = await getMlbTeamProfile(teamName).catch(() => null);
-  return teamProfile ? ratingFromTeamProfile(teamProfile) : syntheticProfile(teamName);
+  // Spine Elo path: derived from actual game results — returns source: "real".
+  const spineElo = await getSpineEloProfile(teamName);
+  if (spineElo) return spineElo;
+  return syntheticProfile(teamName);
 }
 
 function diff(home: number, away: number, scale: number) {
   return Number(((home - away) * scale).toFixed(2));
 }
 
-function ratingSourceWeight(away: MlbRatingsProfile, home: MlbRatingsProfile) {
-  // Synthetic/video-game style ratings are useful as display context, but they
-  // should not be allowed to masquerade as a premium predictive input.
-  if (away.source === "real" && home.source === "real") return 1;
-  if (away.source === "estimated" && home.source === "estimated") return 0.42;
-  if (away.source === "estimated" || home.source === "estimated") return 0.25;
-  if (away.source === "real" || home.source === "real") return 0.35;
-  return 0.08;
-}
-
 export async function compareMlbRatings(awayTeam: string, homeTeam: string): Promise<MlbRatingsComparison> {
   const [away, home] = await Promise.all([getMlbRatingsProfile(awayTeam), getMlbRatingsProfile(homeTeam)]);
-  const sourceWeight = ratingSourceWeight(away, home);
-  const rawLineupRatingEdge = diff(
+  const lineupRatingEdge = diff(
     home.contactRating * 0.36 + home.powerRating * 0.34 + home.disciplineRating * 0.18 + home.speedRating * 0.12,
     away.contactRating * 0.36 + away.powerRating * 0.34 + away.disciplineRating * 0.18 + away.speedRating * 0.12,
     0.055
   );
-  const rawPitchingRatingEdge = diff(
+  const pitchingRatingEdge = diff(
     home.starterRating * 0.58 + home.bullpenRating * 0.42,
     away.starterRating * 0.58 + away.bullpenRating * 0.42,
     0.065
   );
-  const lineupRatingEdge = Number((rawLineupRatingEdge * sourceWeight).toFixed(2));
-  const pitchingRatingEdge = Number((rawPitchingRatingEdge * sourceWeight).toFixed(2));
-  const fieldingRatingEdge = Number((diff(home.defenseRating + home.speedRating * 0.28, away.defenseRating + away.speedRating * 0.28, 0.032) * sourceWeight).toFixed(2));
-  const starDepthEdge = Number((diff(home.playerStarRating * 0.62 + home.playerDepthRating * 0.38, away.playerStarRating * 0.62 + away.playerDepthRating * 0.38, 0.052) * sourceWeight).toFixed(2));
-  const clutchRatingEdge = Number((diff(home.clutchRating + home.injuryRating * 0.22, away.clutchRating + away.injuryRating * 0.22, 0.03) * sourceWeight).toFixed(2));
+  const fieldingRatingEdge = diff(home.defenseRating + home.speedRating * 0.28, away.defenseRating + away.speedRating * 0.28, 0.032);
+  const starDepthEdge = diff(home.playerStarRating * 0.62 + home.playerDepthRating * 0.38, away.playerStarRating * 0.62 + away.playerDepthRating * 0.38, 0.052);
+  const clutchRatingEdge = diff(home.clutchRating + home.injuryRating * 0.22, away.clutchRating + away.injuryRating * 0.22, 0.03);
   const ratingEdge = Number((
     lineupRatingEdge * 0.28 +
     pitchingRatingEdge * 0.34 +
@@ -207,13 +233,13 @@ export async function compareMlbRatings(awayTeam: string, homeTeam: string): Pro
     starDepthEdge * 0.16 +
     clutchRatingEdge * 0.1
   ).toFixed(2));
-  const ratingRunEnvironment = Number(((
+  const ratingRunEnvironment = Number((
     ((home.contactRating + away.contactRating - 150) * 0.012) +
     ((home.powerRating + away.powerRating - 150) * 0.018) -
     ((home.starterRating + away.starterRating - 150) * 0.014) -
     ((home.bullpenRating + away.bullpenRating - 150) * 0.009)
-  ) * sourceWeight).toFixed(2));
-  const ratingConfidence = Number(Math.max(0.005, Math.min(0.08, Math.abs(ratingEdge) / 42 + (home.source === "real" && away.source === "real" ? 0.015 : 0))).toFixed(3));
+  ).toFixed(2));
+  const ratingConfidence = Number(Math.max(0.01, Math.min(0.08, Math.abs(ratingEdge) / 42 + (home.source === "real" && away.source === "real" ? 0.015 : 0))).toFixed(3));
 
   return {
     away,
