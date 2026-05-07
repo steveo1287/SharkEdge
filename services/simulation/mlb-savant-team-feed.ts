@@ -49,6 +49,18 @@ type TeamPitchAgg = {
   bullpenBattedBalls: number;
   bullpenXwobaSum: number;
   bullpenXwobaCount: number;
+  // quality-of-contact allowed
+  exitVeloSum: number;
+  exitVeloCount: number;
+  barrelsAllowed: number;
+  battedBallsAllowed: number;
+  // pitch-type run values (delta_run_exp per pitch, per type group)
+  fastballRvSum: number;
+  fastballRvCount: number;
+  breakingRvSum: number;
+  breakingRvCount: number;
+  offspeedRvSum: number;
+  offspeedRvCount: number;
 };
 
 type TeamStats = {
@@ -151,10 +163,18 @@ function emptyBatAgg(): TeamBatAgg {
   };
 }
 
+const FASTBALL_TYPES = new Set(["FF", "SI", "FT", "FC"]);
+const BREAKING_TYPES = new Set(["SL", "CU", "KC", "SV", "ST", "CS"]);
+const OFFSPEED_TYPES = new Set(["CH", "FS", "FO", "SC"]);
+
 function emptyPitchAgg(): TeamPitchAgg {
   return {
     starterBattedBalls: 0, starterXwobaSum: 0, starterXwobaCount: 0,
     bullpenBattedBalls: 0, bullpenXwobaSum: 0, bullpenXwobaCount: 0,
+    exitVeloSum: 0, exitVeloCount: 0, barrelsAllowed: 0, battedBallsAllowed: 0,
+    fastballRvSum: 0, fastballRvCount: 0,
+    breakingRvSum: 0, breakingRvCount: 0,
+    offspeedRvSum: 0, offspeedRvCount: 0,
   };
 }
 
@@ -216,15 +236,35 @@ function aggregateRows(rows: CsvRow[]): Map<string, TeamStats> {
     }
 
     // ── Pitching team aggregation ───────────────────────────────────────────
-    if (pitcherTeam && isBattedBall) {
+    if (pitcherTeam) {
       const { pitchAgg } = getTeam(pitcherTeam);
-      const isStarter = inning <= 5;
-      if (isStarter) {
-        pitchAgg.starterBattedBalls += 1;
-        if (xwoba !== null) { pitchAgg.starterXwobaSum += xwoba; pitchAgg.starterXwobaCount += 1; }
-      } else {
-        pitchAgg.bullpenBattedBalls += 1;
-        if (xwoba !== null) { pitchAgg.bullpenXwobaSum += xwoba; pitchAgg.bullpenXwobaCount += 1; }
+
+      // Quality-of-contact allowed (batted balls only)
+      if (isBattedBall) {
+        const isStarter = inning <= 5;
+        if (isStarter) {
+          pitchAgg.starterBattedBalls += 1;
+          if (xwoba !== null) { pitchAgg.starterXwobaSum += xwoba; pitchAgg.starterXwobaCount += 1; }
+        } else {
+          pitchAgg.bullpenBattedBalls += 1;
+          if (xwoba !== null) { pitchAgg.bullpenXwobaSum += xwoba; pitchAgg.bullpenXwobaCount += 1; }
+        }
+        pitchAgg.battedBallsAllowed += 1;
+        if (exitVelo !== null) { pitchAgg.exitVeloSum += exitVelo; pitchAgg.exitVeloCount += 1; }
+        if (isBarrel) pitchAgg.barrelsAllowed += 1;
+      }
+
+      // Pitch-type run values — all pitch events (include strikes, balls, foul balls)
+      const pitchType = row.pitch_type?.trim().toUpperCase();
+      const rv = readNum(row.delta_run_exp);
+      if (pitchType && rv !== null) {
+        if (FASTBALL_TYPES.has(pitchType)) {
+          pitchAgg.fastballRvSum += rv; pitchAgg.fastballRvCount += 1;
+        } else if (BREAKING_TYPES.has(pitchType)) {
+          pitchAgg.breakingRvSum += rv; pitchAgg.breakingRvCount += 1;
+        } else if (OFFSPEED_TYPES.has(pitchType)) {
+          pitchAgg.offspeedRvSum += rv; pitchAgg.offspeedRvCount += 1;
+        }
       }
     }
   }
@@ -381,6 +421,64 @@ function buildProfile(
     baseRunningTrend: 0, // sprint speed requires separate Savant endpoint
     historySample,
   };
+}
+
+// ─── Pitcher quality-of-contact profiles ─────────────────────────────────────
+
+export type SavantPitcherSplitProfile = {
+  teamName: string;
+  pitcherAvgExitVeloAllowed: number;   // mph — lower is better
+  pitcherBarrelAllowedRate: number;    // 0-100 scale
+  pitcherFastballRunValue: number;     // per-100-pitches scale, negative = pitcher wins
+  pitcherBreakingRunValue: number;
+  pitcherOffspeedRunValue: number;
+  sample: number;                      // batted balls
+};
+
+function buildPitcherProfile(abbr: string, stats: TeamStats): SavantPitcherSplitProfile {
+  const { pitchAgg } = stats;
+  const fullName = ABBR_TO_FULL[abbr] ?? abbr;
+  const pitcherAvgExitVeloAllowed = pitchAgg.exitVeloCount >= 10
+    ? Number((pitchAgg.exitVeloSum / pitchAgg.exitVeloCount).toFixed(1))
+    : 88.0;
+  const pitcherBarrelAllowedRate = pitchAgg.battedBallsAllowed >= 10
+    ? Number((pitchAgg.barrelsAllowed / pitchAgg.battedBallsAllowed * 100).toFixed(2))
+    : 7.5;
+  // delta_run_exp is per-pitch in run units; scale × 100 → "per 100 pitches"
+  // negative = pitcher wins (takes runs off the board), positive = pitcher loses value
+  const pitcherFastballRunValue = pitchAgg.fastballRvCount >= 30
+    ? Number(clamp((pitchAgg.fastballRvSum / pitchAgg.fastballRvCount) * 100, -8, 8).toFixed(2))
+    : 0;
+  const pitcherBreakingRunValue = pitchAgg.breakingRvCount >= 20
+    ? Number(clamp((pitchAgg.breakingRvSum / pitchAgg.breakingRvCount) * 100, -8, 8).toFixed(2))
+    : 0;
+  const pitcherOffspeedRunValue = pitchAgg.offspeedRvCount >= 20
+    ? Number(clamp((pitchAgg.offspeedRvSum / pitchAgg.offspeedRvCount) * 100, -8, 8).toFixed(2))
+    : 0;
+  return { teamName: fullName, pitcherAvgExitVeloAllowed, pitcherBarrelAllowedRate, pitcherFastballRunValue, pitcherBreakingRunValue, pitcherOffspeedRunValue, sample: pitchAgg.battedBallsAllowed };
+}
+
+const CACHE_KEY_PITCHER = "mlb:savant-pitcher-splits:v1";
+
+export async function fetchSavantPitcherProfiles(): Promise<Record<string, SavantPitcherSplitProfile> | null> {
+  const cached = await readHotCache<Record<string, SavantPitcherSplitProfile>>(CACHE_KEY_PITCHER);
+  if (cached) return cached;
+
+  const windowMap = await fetchWindow(WINDOW_DAYS).catch(() => null);
+  if (!windowMap) return null;
+
+  const profiles: Record<string, SavantPitcherSplitProfile> = {};
+  for (const [abbr, stats] of windowMap.entries()) {
+    const profile = buildPitcherProfile(abbr, stats);
+    const fullName = ABBR_TO_FULL[abbr] ?? abbr;
+    profiles[normalizeMlbTeam(fullName)] = profile;
+    profiles[normalizeMlbTeam(abbr)] = profile;
+  }
+
+  if (Object.keys(profiles).length >= 15) {
+    await writeHotCache(CACHE_KEY_PITCHER, profiles, CACHE_TTL_WINDOW);
+  }
+  return Object.keys(profiles).length ? profiles : null;
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
