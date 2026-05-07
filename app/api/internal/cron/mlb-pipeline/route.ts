@@ -7,6 +7,7 @@ import { runMlbFeatureMonitor } from "@/services/simulation/mlb-feature-monitor"
 import { runMlbRetrainPipeline } from "@/services/simulation/mlb-retrain-pipeline";
 import { runMlbGameSpineIngestion } from "@/services/mlb/mlb-game-spine";
 import { runMlbBettingWarehouseRefresh } from "@/services/mlb/mlb-betting-warehouse";
+import { buildSpineEloSnapshots } from "@/services/mlb/mlb-spine-elo-builder";
 import { getMlbLineupLock } from "@/services/simulation/mlb-lineup-locks";
 
 export const dynamic = "force-dynamic";
@@ -100,6 +101,13 @@ export async function GET(request: Request) {
     warnings.push(`bettingWarehouse: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // 8. Spine Elo builder — populates retrosheet tables + mlb_team_elo_snapshots from spine game results
+  try {
+    results.spineElo = await buildSpineEloSnapshots();
+  } catch (err) {
+    warnings.push(`spineElo: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   return NextResponse.json({
     ok: true,
     durationMs: Date.now() - started,
@@ -127,12 +135,14 @@ async function runSingleStep(step: string) {
         return NextResponse.json({ ok: true, result: await runMlbRetrainPipeline({ force: true, reason: "manual" }) });
       case "warehouse":
         return NextResponse.json({ ok: true, result: await runMlbBettingWarehouseRefresh() });
+      case "spine-elo":
+        return NextResponse.json({ ok: true, result: await buildSpineEloSnapshots() });
       case "lineup-test": {
         const lock = await getMlbLineupLock("New York Yankees", "Boston Red Sox");
         return NextResponse.json({ ok: true, result: lock });
       }
       default:
-        return NextResponse.json({ ok: false, error: `Unknown step: ${step}`, validSteps: ["game-spine", "umpire", "statcast", "pitch-tracking", "closing-lines", "feature-monitor", "retrain", "warehouse", "lineup-test"] }, { status: 400 });
+        return NextResponse.json({ ok: false, error: `Unknown step: ${step}`, validSteps: ["game-spine", "umpire", "statcast", "pitch-tracking", "closing-lines", "feature-monitor", "retrain", "warehouse", "spine-elo", "lineup-test"] }, { status: 400 });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
