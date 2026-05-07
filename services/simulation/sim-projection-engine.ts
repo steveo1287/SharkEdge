@@ -3,7 +3,8 @@ import { getMlbLineupLock, type MlbLineupLock } from "@/services/simulation/mlb-
 import { getMlbNoVigMarket, type MlbNoVigMarket } from "@/services/simulation/mlb-market-sanity";
 import { getMlbTeamPlayerSummary } from "@/services/simulation/mlb-player-model";
 import { compareMlbPlayerHistory } from "@/services/simulation/mlb-player-history";
-import { compareMlbProfiles, type MlbMatchupComparison } from "@/services/simulation/mlb-team-analytics";
+import { compareMlbProfiles, type MlbMatchupComparison, type StarterOverrides } from "@/services/simulation/mlb-team-analytics";
+import { getMlbGameStarterStats } from "@/services/mlb/mlb-starter-stats";
 import { compareMlbRatings } from "@/services/simulation/mlb-ratings-blend";
 import { governMlbProjection, type MlbGovernorFeatures } from "@/services/simulation/mlb-intelligence-governor";
 import { getCachedMlbCalibrationConformal, applyMlbCalibration, applyMlbConformalDecision } from "@/services/simulation/mlb-calibration-conformal";
@@ -479,7 +480,20 @@ export async function buildSimProjection(input: SimProjectionInput): Promise<Sim
   const matchup = parseMatchup(input.label);
   const base = leagueBaseline(input.leagueKey);
   const seed = hashSeed(`${input.id}:${input.startTime}:${input.leagueKey}:${input.status}`);
-  const mlbComparison = input.leagueKey === "MLB" ? await compareMlbProfiles(matchup.away, matchup.home) : null;
+  // Pre-fetch lineup lock to get confirmed starter player IDs before comparison is built.
+  // getMlbLineupLock() is cached so the second call inside buildMlbIntel() is a free cache hit.
+  let starterOverrides: StarterOverrides | undefined;
+  if (input.leagueKey === "MLB") {
+    const lock = await getMlbLineupLock(matchup.away, matchup.home).catch(() => null);
+    if (lock?.awayStarterId || lock?.homeStarterId) {
+      const starters = await getMlbGameStarterStats(lock.awayStarterId, lock.homeStarterId).catch(() => ({ away: null, home: null }));
+      const o: StarterOverrides = {};
+      if (starters.away?.source === "real") o.away = { starterEraMinus: starters.away.eraMinus, starterXFip: starters.away.fip };
+      if (starters.home?.source === "real") o.home = { starterEraMinus: starters.home.eraMinus, starterXFip: starters.home.fip };
+      if (o.away || o.home) starterOverrides = o;
+    }
+  }
+  const mlbComparison = input.leagueKey === "MLB" ? await compareMlbProfiles(matchup.away, matchup.home, starterOverrides) : null;
   if (mlbComparison) {
     const weather = await getMlbGameWeather(matchup.home, input.startTime).catch(() => null);
     if (weather) mlbComparison.home.weatherRunFactor = weather.weatherRunFactor;

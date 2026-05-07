@@ -22,6 +22,8 @@ export type MlbLineupLock = {
   homeStarterLocked: boolean;
   awayStarterName?: string | null;
   homeStarterName?: string | null;
+  awayStarterId?: number | null;
+  homeStarterId?: number | null;
   awayStarterThrows?: "L" | "R" | "unknown";
   homeStarterThrows?: "L" | "R" | "unknown";
   awayLineupPlayers: string[];
@@ -180,6 +182,8 @@ function syntheticLock(awayTeam: string, homeTeam: string): MlbLineupLock {
     homeStarterLocked: false,
     awayStarterName: null,
     homeStarterName: null,
+    awayStarterId: null,
+    homeStarterId: null,
     awayStarterThrows: "unknown",
     homeStarterThrows: "unknown",
     awayLineupPlayers: [],
@@ -403,6 +407,8 @@ async function fetchOfficialLock(awayTeam: string, homeTeam: string): Promise<Ml
       homeStarterLocked,
       awayStarterName: awayStarter?.fullName ?? null,
       homeStarterName: homeStarter?.fullName ?? null,
+      awayStarterId: typeof awayStarter?.id === "number" ? awayStarter.id : null,
+      homeStarterId: typeof homeStarter?.id === "number" ? homeStarter.id : null,
       awayStarterThrows,
       homeStarterThrows,
       awayLineupPlayers: awayPlayers,
