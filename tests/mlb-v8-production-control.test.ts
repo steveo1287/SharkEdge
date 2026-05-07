@@ -26,7 +26,9 @@ const basePolicy: MlbPremiumPickPolicyResult = {
     profileStatus: "LEARNED",
     profileSampleSize: 600,
     startersConfirmed: true,
-    lineupsConfirmed: true
+    lineupsConfirmed: true,
+    awayRatingsSource: null,
+    homeRatingsSource: null
   }
 };
 

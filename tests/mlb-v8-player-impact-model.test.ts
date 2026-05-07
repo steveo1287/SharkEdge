@@ -128,7 +128,7 @@ assert.ok(impact.reasons.some((reason) => reason.includes("player-impact applied
 const adjusted = applyMlbV8PlayerImpactToProjection(projection, impact);
 assert.equal(adjusted.distribution.avgHome, impact.homeRunsAdjusted);
 assert.equal(adjusted.distribution.homeWinPct, impact.adjustedHomeWinPct);
-assert.equal(adjusted.mlbIntel.playerImpact.modelVersion, "mlb-intel-v8-player-impact");
+assert.equal(adjusted.mlbIntel?.playerImpact?.modelVersion, "mlb-intel-v8-player-impact");
 
 const skipped = calculateMlbV8PlayerImpact({
   projection,

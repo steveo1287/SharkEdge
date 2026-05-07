@@ -415,7 +415,10 @@ export function calculateMlbV8PlayerImpact(args: {
   };
 }
 
-export function applyMlbV8PlayerImpactToProjection<TProjection extends ProjectionLike>(projection: TProjection, impact: MlbV8PlayerImpactResult): TProjection {
+export function applyMlbV8PlayerImpactToProjection<TProjection extends ProjectionLike>(
+  projection: TProjection,
+  impact: MlbV8PlayerImpactResult
+): TProjection & { mlbIntel?: { playerImpact?: MlbV8PlayerImpactResult | null } | null } {
   if (!impact.applied) {
     return {
       ...projection,

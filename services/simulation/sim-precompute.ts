@@ -45,7 +45,7 @@ export async function precomputeActivePropSims(): Promise<PrecomputeMetrics> {
     where: {
       event: {
         startTime: { lte: windowCutoff },
-        status: { in: ["SCHEDULED", "PRE_GAME", "STATUS_SCHEDULED"] }
+        status: { in: ["SCHEDULED", "LIVE"] }
       },
       statKey: { in: PROP_STAT_KEYS }
     },
@@ -90,7 +90,7 @@ export async function precomputeActivePropSims(): Promise<PrecomputeMetrics> {
       const tuning = getLeagueTuning(proj.event.leagueId);
 
       const result = buildPlayerSimV2(
-        { player: proj.player.name, propType: simType as any, line, odds },
+        { player: proj.player.name, propType: simType as any, line, odds, teamTotal: 110, minutes: 34, usageRate: 0.24 },
         tuning
       );
 
