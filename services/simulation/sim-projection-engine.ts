@@ -8,6 +8,7 @@ import { compareMlbRatings } from "@/services/simulation/mlb-ratings-blend";
 import { governMlbProjection, type MlbGovernorFeatures } from "@/services/simulation/mlb-intelligence-governor";
 import { getCachedMlbCalibrationConformal, applyMlbCalibration, applyMlbConformalDecision } from "@/services/simulation/mlb-calibration-conformal";
 import { getMlbUmpireTendency } from "@/services/simulation/mlb-umpire-model";
+import { getMlbGameWeather } from "@/services/mlb/mlb-weather-service";
 import { buildRealitySimIntel, type RealitySimIntel } from "@/services/simulation/reality-sim-engine";
 import { getNbaTeamPlayerProfileSummary } from "@/services/simulation/nba-player-profiles";
 import { simulateNbaPlayerGameProjections, type NbaPlayerStatProjection } from "@/services/simulation/nba-player-stat-sim";
@@ -479,6 +480,10 @@ export async function buildSimProjection(input: SimProjectionInput): Promise<Sim
   const base = leagueBaseline(input.leagueKey);
   const seed = hashSeed(`${input.id}:${input.startTime}:${input.leagueKey}:${input.status}`);
   const mlbComparison = input.leagueKey === "MLB" ? await compareMlbProfiles(matchup.away, matchup.home) : null;
+  if (mlbComparison) {
+    const weather = await getMlbGameWeather(matchup.home, input.startTime).catch(() => null);
+    if (weather) mlbComparison.home.weatherRunFactor = weather.weatherRunFactor;
+  }
   const mlbIntel = mlbComparison ? await buildMlbIntel(matchup, mlbComparison) : null;
   if (mlbIntel) {
     const rulesTotal = clamp(mlbIntel.projectedTotal, 5.4, 14.5);
