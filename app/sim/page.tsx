@@ -5,7 +5,6 @@ import {
   SimMetricTile,
   SimSignalCard,
   SimStatusBadge,
-  SimTableShell,
   SimWorkspaceHeader
 } from "@/components/sim/sim-ui";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -57,6 +56,16 @@ type SimSnapshots = {
   market: SimMarketSnapshot | null;
   status: SimRefreshStatusSnapshot | null;
 };
+
+type GameWorkspace = {
+  key: string;
+  row: SimPriorityRow;
+  rows: SimPriorityRow[];
+  duplicateCount: number;
+  sortScore: number;
+};
+
+type GroupedGames = { label: string; key: string; games: GameWorkspace[] }[];
 
 function formatPct(value: number | null | undefined) {
   return typeof value === "number" ? `${(value * 100).toFixed(1)}%` : "—";
@@ -137,12 +146,6 @@ function nextExpectedRefresh(value: string | null | undefined, intervalMinutes: 
   return new Date(date.getTime() + steps * intervalMs);
 }
 
-function freshnessStatus(value: string | null | undefined, maxAgeMinutes: number) {
-  const age = ageMinutes(value);
-  if (age === null) return "Missing";
-  return age <= maxAgeMinutes ? "Fresh" : "Stale";
-}
-
 function isStale(snapshot: Pick<SimSnapshotEnvelope<Record<string, never>>, "stale"> | null | undefined) {
   return Boolean(snapshot?.stale);
 }
@@ -197,8 +200,6 @@ async function readWarehouseHealth(): Promise<WarehouseHealth[]> {
   );
 }
 
-// ─── Inline primitives ────────────────────────────────────────────────────────
-
 function StatusDot({ ok }: { ok: boolean }) {
   return (
     <span
@@ -241,8 +242,6 @@ function ConfidenceValue({ value }: { value: number | null | undefined }) {
   const color = pct >= 68 ? "text-mint" : pct >= 58 ? "text-amber-300" : "text-slate-400";
   return <span className={cn("tabular-nums font-semibold", color)}>{pct.toFixed(1)}%</span>;
 }
-
-// ─── Status rail (replaces SystemHealthCard + RefreshScheduleCard) ────────────
 
 function SimStatusRail({
   priority,
@@ -307,8 +306,6 @@ function SimStatusRail({
   );
 }
 
-// ─── Stale data notice ────────────────────────────────────────────────────────
-
 function SnapshotNotice({
   priority,
   status
@@ -340,8 +337,6 @@ function SnapshotNotice({
   );
 }
 
-// ─── Workspace cards ──────────────────────────────────────────────────────────
-
 function WorkspaceCard({ config }: { config: WorkspaceConfig }) {
   return (
     <Link href={config.href} className="block h-full">
@@ -362,94 +357,198 @@ function WorkspaceCard({ config }: { config: WorkspaceConfig }) {
   );
 }
 
-// ─── Priority slate table ─────────────────────────────────────────────────────
+function normalizeTeam(value: string | null | undefined) {
+  return (value ?? "unknown").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
 
-type GroupedRows = { label: string; key: string; rows: SimPriorityRow[] }[];
+function gameWorkspaceKey(row: SimPriorityRow) {
+  const away = normalizeTeam(row.matchup.away);
+  const home = normalizeTeam(row.matchup.home);
+  return [row.leagueKey, dateKey(row.startTime), away, home].join("::");
+}
 
-function groupPriorityRows(raw: SimPriorityRow[]): GroupedRows {
-  // Deduplicate by game ID — keep first occurrence (highest tier/edge rank)
-  const seen = new Set<string>();
-  const unique: SimPriorityRow[] = [];
+function rowScore(row: SimPriorityRow) {
+  const tierScore = row.tier === "A" ? 4 : row.tier === "B" ? 3 : row.tier === "C" ? 2 : 1;
+  const edgeScore = Math.abs(row.lean.edge ?? 0) * 100;
+  const confidenceScore = (row.confidence ?? 0) * 10;
+  const marketScore = row.edgeMatched ? 1 : 0;
+  return tierScore * 100 + edgeScore + confidenceScore + marketScore;
+}
+
+function buildGameWorkspaces(raw: SimPriorityRow[]): GameWorkspace[] {
+  const map = new Map<string, GameWorkspace>();
+
   for (const row of raw) {
-    if (!seen.has(row.id)) {
-      seen.add(row.id);
-      unique.push(row);
+    const key = gameWorkspaceKey(row);
+    const score = rowScore(row);
+    const existing = map.get(key);
+
+    if (!existing) {
+      map.set(key, { key, row, rows: [row], duplicateCount: 0, sortScore: score });
+      continue;
+    }
+
+    existing.rows.push(row);
+    existing.duplicateCount = existing.rows.length - 1;
+
+    if (score > existing.sortScore) {
+      existing.row = row;
+      existing.sortScore = score;
     }
   }
 
-  // Group by local calendar date
-  const map = new Map<string, SimPriorityRow[]>();
-  for (const row of unique) {
-    const key = dateKey(row.startTime);
+  return Array.from(map.values()).sort((a, b) => {
+    const aTime = dateFrom(a.row.startTime)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    const bTime = dateFrom(b.row.startTime)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    return aTime - bTime || b.sortScore - a.sortScore;
+  });
+}
+
+function groupGameWorkspaces(raw: SimPriorityRow[]): GroupedGames {
+  const workspaces = buildGameWorkspaces(raw);
+  const map = new Map<string, GameWorkspace[]>();
+
+  for (const game of workspaces) {
+    const key = dateKey(game.row.startTime);
     const existing = map.get(key) ?? [];
-    existing.push(row);
+    existing.push(game);
     map.set(key, existing);
   }
 
-  // Sort groups chronologically, limit to 3 days
   return Array.from(map.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .slice(0, 3)
-    .map(([key, rows]) => ({ label: dateLabel(rows[0]?.startTime), key, rows }));
+    .slice(0, 4)
+    .map(([key, games]) => ({ label: dateLabel(games[0]?.row.startTime), key, games }));
 }
 
-function SlateRow({ row }: { row: SimPriorityRow }) {
+function MiniMetric({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <tr className="group align-middle hover:bg-white/[0.012]">
-      <td className="px-5 py-3">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="inline-flex items-center rounded-sm border border-aqua/25 bg-aqua/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-[0.08em] text-aqua">
-            {row.leagueKey}
-          </span>
-          <SimDecisionBadge tier={row.tier} />
-          <SimStatusBadge status={row.status} />
+    <div className="rounded-xl border border-white/[0.06] bg-white/[0.018] px-3 py-2">
+      <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-600">{label}</div>
+      <div className="mt-1 text-sm text-white">{children}</div>
+    </div>
+  );
+}
+
+function GameWorkspaceCard({ game }: { game: GameWorkspace }) {
+  const row = game.row;
+  const duplicateRows = game.rows.filter((candidate) => candidate.id !== row.id);
+  const hasDuplicateRows = duplicateRows.length > 0;
+
+  return (
+    <article className="panel overflow-hidden p-0 transition-colors hover:border-aqua/20">
+      <div className="border-b border-white/[0.07] px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="inline-flex items-center rounded-sm border border-aqua/25 bg-aqua/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-[0.08em] text-aqua">
+                {row.leagueKey}
+              </span>
+              <SimDecisionBadge tier={row.tier} />
+              <SimStatusBadge status={row.status} />
+              {game.duplicateCount > 0 ? (
+                <span className="rounded-sm border border-amber-400/20 bg-amber-400/[0.07] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-200">
+                  {game.duplicateCount + 1} signals merged
+                </span>
+              ) : null}
+            </div>
+            <h3 className="mt-2 font-display text-xl font-semibold tracking-tight text-white">
+              {row.matchup.away} <span className="font-normal text-slate-600">@</span> {row.matchup.home}
+            </h3>
+            <div className="mt-1 text-[11px] tabular-nums text-slate-500">{formatTime(row.startTime)}</div>
+          </div>
+
+          <Link
+            href={row.href}
+            className="rounded-full border border-aqua/25 bg-aqua/[0.06] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-aqua transition-colors hover:bg-aqua/[0.12]"
+          >
+            Open game hub
+          </Link>
         </div>
-        <div className="mt-1.5 font-semibold leading-snug text-white">
-          {row.matchup.away} <span className="font-normal text-slate-600">@</span> {row.matchup.home}
+      </div>
+
+      <div className="grid gap-3 px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MiniMetric label="Model lean">
+          <div className="font-semibold">{row.lean.team}</div>
+          <div className="mt-0.5 text-[11px] tabular-nums text-slate-500">{formatPct(row.lean.pct)} win</div>
+        </MiniMetric>
+        <MiniMetric label="Edge">
+          <EdgeValue value={row.lean.edge} />
+        </MiniMetric>
+        <MiniMetric label="Confidence">
+          <ConfidenceValue value={row.confidence} />
+        </MiniMetric>
+        <MiniMetric label="Market match">
+          {row.leagueKey === "MLB"
+            ? row.edgeMatched ? <span className="font-semibold text-mint">Matched</span> : <span className="text-slate-500">No line</span>
+            : <span className="text-slate-600">—</span>}
+        </MiniMetric>
+      </div>
+
+      <details className="group border-t border-white/[0.07] px-5 py-3">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 marker:hidden hover:text-aqua">
+          <span>Workspace breakdown</span>
+          <span className="text-slate-700 group-open:hidden">Show</span>
+          <span className="hidden text-slate-700 group-open:inline">Hide</span>
+        </summary>
+        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+          <div className="rounded-xl border border-white/[0.06] bg-black/20 p-4">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-aqua/70">Overview</div>
+            <p className="mt-2 text-xs leading-5 text-slate-400">
+              Single source of truth for this matchup. The visible lean is the strongest ranked signal after merging duplicate game rows.
+            </p>
+          </div>
+          <div className="rounded-xl border border-white/[0.06] bg-black/20 p-4">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-aqua/70">Simulation</div>
+            <p className="mt-2 text-xs leading-5 text-slate-400">
+              Use the game hub for deeper distribution, projected score, market disagreement, and model diagnostics.
+            </p>
+          </div>
+          <div className="rounded-xl border border-white/[0.06] bg-black/20 p-4">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-aqua/70">Merged signals</div>
+            <p className="mt-2 text-xs leading-5 text-slate-400">
+              {game.duplicateCount > 0
+                ? `${game.duplicateCount + 1} rows were collapsed into this game card so the slate does not repeat the same matchup.`
+                : "No duplicate signals found for this matchup."}
+            </p>
+          </div>
         </div>
-      </td>
-      <td className="px-5 py-3">
-        <div className="text-sm font-medium text-white">{row.lean.team}</div>
-        <div className="mt-0.5 text-[11px] tabular-nums text-slate-500">{formatPct(row.lean.pct)} win</div>
-      </td>
-      <td className="px-5 py-3">
-        <EdgeValue value={row.lean.edge} />
-      </td>
-      <td className="px-5 py-3">
-        <ConfidenceValue value={row.confidence} />
-      </td>
-      <td className="px-5 py-3 text-[11px] text-slate-500">
-        {row.leagueKey === "MLB"
-          ? row.edgeMatched ? <span className="text-mint">Matched</span> : <span className="text-slate-600">No line</span>
-          : <span className="text-slate-700">—</span>}
-      </td>
-      <td className="px-5 py-3 text-[11px] tabular-nums text-slate-400">{formatTime(row.startTime)}</td>
-      <td className="px-5 py-3 text-right">
-        <Link
-          href={row.href}
-          className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-600 transition-colors hover:text-aqua group-hover:text-slate-400"
-        >
-          Open →
-        </Link>
-      </td>
-    </tr>
+
+        {hasDuplicateRows ? (
+          <div className="mt-4 overflow-hidden rounded-xl border border-white/[0.06]">
+            <div className="grid grid-cols-4 gap-2 border-b border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+              <span>Tier</span>
+              <span>Lean</span>
+              <span>Edge</span>
+              <span>Confidence</span>
+            </div>
+            {duplicateRows.map((candidate) => (
+              <div key={candidate.id} className="grid grid-cols-4 gap-2 px-3 py-2 text-xs text-slate-400 odd:bg-white/[0.01]">
+                <span>{candidate.tier}</span>
+                <span>{candidate.lean.team}</span>
+                <span><EdgeValue value={candidate.lean.edge} /></span>
+                <span><ConfidenceValue value={candidate.confidence} /></span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </details>
+    </article>
   );
 }
 
 function DateGroupHeader({ label, count }: { label: string; count: number }) {
   return (
-    <tr>
-      <td colSpan={7} className="border-t border-white/[0.08] bg-white/[0.018] px-5 py-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{label}</span>
-          <span className="text-[10px] text-slate-700">{count} game{count !== 1 ? "s" : ""}</span>
-        </div>
-      </td>
-    </tr>
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{label}</span>
+        <span className="text-[10px] text-slate-700">{count} game{count !== 1 ? "s" : ""}</span>
+      </div>
+    </div>
   );
 }
 
-function PriorityTable({ priority }: { priority: SimPrioritySnapshot | null }) {
+function PrioritySlate({ priority }: { priority: SimPrioritySnapshot | null }) {
   if (!priority?.rows.length) {
     return (
       <EmptyState
@@ -460,46 +559,41 @@ function PriorityTable({ priority }: { priority: SimPrioritySnapshot | null }) {
     );
   }
 
-  const groups = groupPriorityRows(priority.rows);
-  const uniqueCount = groups.reduce((n, g) => n + g.rows.length, 0);
+  const groups = groupGameWorkspaces(priority.rows);
+  const uniqueCount = groups.reduce((n, g) => n + g.games.length, 0);
   const rawCount = priority.rows.length;
+  const mergedCount = Math.max(0, rawCount - uniqueCount);
 
   return (
-    <SimTableShell
-      title="Today's Game Slate"
-      description={
-        priority.stale
-          ? "Showing last successful snapshot — live cron has not yet refreshed."
-          : `${uniqueCount} game${uniqueCount !== 1 ? "s" : ""} · ranked by tier then edge${rawCount > uniqueCount ? ` · ${rawCount - uniqueCount} duplicate${rawCount - uniqueCount !== 1 ? "s" : ""} removed` : ""}`
-      }
-      right={
-        <span className="text-[11px] tabular-nums text-slate-600">{formatAge(priority.generatedAt)}</span>
-      }
-    >
-      <table className="min-w-full text-left text-sm">
-        <thead className="border-b border-white/[0.08]">
-          <tr>
-            <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Matchup</th>
-            <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Lean</th>
-            <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Edge</th>
-            <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Conf</th>
-            <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Market</th>
-            <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Time</th>
-            <th className="px-5 py-3" />
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-white/[0.05]">
-          {groups.flatMap((group) => [
-            <DateGroupHeader key={`hdr-${group.key}`} label={group.label} count={group.rows.length} />,
-            ...group.rows.map((row) => <SlateRow key={row.id} row={row} />)
-          ])}
-        </tbody>
-      </table>
-    </SimTableShell>
+    <section className="space-y-4">
+      <div className="panel px-5 py-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-aqua/70">Unified slate</div>
+            <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight text-white">One game card per matchup</h2>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              {priority.stale
+                ? "Showing last successful snapshot — live cron has not yet refreshed."
+                : `${uniqueCount} matchup${uniqueCount !== 1 ? "s" : ""} · ${mergedCount} duplicate signal${mergedCount !== 1 ? "s" : ""} collapsed · ranked inside each game workspace`}
+            </p>
+          </div>
+          <div className="text-[11px] tabular-nums text-slate-600">{formatAge(priority.generatedAt)}</div>
+        </div>
+      </div>
+
+      {groups.map((group) => (
+        <div key={group.key} className="space-y-3">
+          <DateGroupHeader label={group.label} count={group.games.length} />
+          <div className="grid gap-3 2xl:grid-cols-2">
+            {group.games.map((game) => (
+              <GameWorkspaceCard key={game.key} game={game} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function SimHubPage() {
   const [{ hub, priority, market, status, repairedOnRequest, repairWarnings }, warehouse] = await Promise.all([
@@ -509,18 +603,10 @@ export default async function SimHubPage() {
 
   const warehouseReady = warehouse.every((w) => w.ready);
   const playerRows = warehouse.find((w) => w.kind === "player")?.rows ?? 0;
+  const unifiedGames = priority?.rows.length ? buildGameWorkspaces(priority.rows).length : 0;
+  const duplicateSignals = Math.max(0, (priority?.rows.length ?? 0) - unifiedGames);
 
   const workspaces: WorkspaceConfig[] = [
-    {
-      href: "/sim/nba",
-      eyebrow: "NBA Workspace",
-      title: "Player Sims + Sides",
-      description: "Calibrated box scores, prop drilldowns, confidence gates, and side reads in one board.",
-      count: String(hub?.summary.nbaCount ?? priority?.summary.nbaCount ?? "—"),
-      statusLabel: warehouseReady ? "Warehouse ready" : "Warehouse degraded",
-      action: "Open NBA desk",
-      ready: warehouseReady
-    },
     {
       href: "/sim/mlb",
       eyebrow: "MLB Workspace",
@@ -530,6 +616,16 @@ export default async function SimHubPage() {
       statusLabel: market?.stale ? "Market overlay stale" : `${market?.lineCount ?? 0} market lines`,
       action: "Open MLB desk",
       ready: !market?.stale && (market?.lineCount ?? 0) > 0
+    },
+    {
+      href: "/sim/nba",
+      eyebrow: "NBA Workspace",
+      title: "Player Sims + Sides",
+      description: "Calibrated box scores, prop drilldowns, confidence gates, and side reads in one board.",
+      count: String(hub?.summary.nbaCount ?? priority?.summary.nbaCount ?? "—"),
+      statusLabel: warehouseReady ? "Warehouse ready" : "Warehouse degraded",
+      action: "Open NBA desk",
+      ready: warehouseReady
     },
     {
       href: "/sim/players?league=NBA",
@@ -547,8 +643,8 @@ export default async function SimHubPage() {
     <div className="space-y-5">
       <SimWorkspaceHeader
         eyebrow="Simulation Command"
-        title="SharkEdge Edge Desk"
-        description="Real-data MLB + NBA sim engine. Statcast splits, Savant pitcher profiles, live lineups, park factors, and market overlays — consolidated into a live priority queue."
+        title="SharkEdge Sim Hub"
+        description="A consolidated market workspace: one card per matchup, duplicate signals merged, and deeper analysis hidden until the user opens the game."
         actions={[
           { href: "/api/sim/health", label: "Health JSON", tone: "secondary" },
           { href: "/sim/evaluation", label: "Accuracy", tone: "secondary" }
@@ -562,10 +658,10 @@ export default async function SimHubPage() {
             emphasis={hub && !hub.stale ? "strong" : "normal"}
           />
           <SimMetricTile
-            label="Priority queue"
-            value={priority?.rows.length ?? 0}
-            sub={`games · ${formatAge(priority?.generatedAt)}`}
-            emphasis={(priority?.rows.length ?? 0) > 0 ? "strong" : "normal"}
+            label="Unique games"
+            value={unifiedGames}
+            sub={`${duplicateSignals} duplicate signals merged`}
+            emphasis={unifiedGames > 0 ? "strong" : "normal"}
           />
           <SimMetricTile
             label="MLB market"
@@ -599,9 +695,7 @@ export default async function SimHubPage() {
         ))}
       </section>
 
-      <section className="space-y-3">
-        <PriorityTable priority={priority} />
-      </section>
+      <PrioritySlate priority={priority} />
     </div>
   );
 }
