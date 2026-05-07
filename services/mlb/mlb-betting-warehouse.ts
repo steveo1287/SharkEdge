@@ -34,8 +34,10 @@ export async function ensureMlbBettingWarehouseTables() {
   await prisma.$executeRaw`CREATE TABLE IF NOT EXISTS mlb_market_open_close (id TEXT PRIMARY KEY, game_pk INTEGER REFERENCES mlb_games(game_pk) ON DELETE CASCADE, event_id TEXT, market_type TEXT NOT NULL, side TEXT NOT NULL, selection TEXT, sportsbook_name TEXT, open_price DOUBLE PRECISION, close_price DOUBLE PRECISION, current_price DOUBLE PRECISION, open_point DOUBLE PRECISION, close_point DOUBLE PRECISION, current_point DOUBLE PRECISION, first_seen_at TIMESTAMPTZ, last_seen_at TIMESTAMPTZ, source TEXT NOT NULL DEFAULT 'market_line_history', updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`;
   await prisma.$executeRaw`CREATE TABLE IF NOT EXISTS mlb_result_grades (id TEXT PRIMARY KEY, game_pk INTEGER REFERENCES mlb_games(game_pk) ON DELETE CASCADE, market_type TEXT NOT NULL, side TEXT NOT NULL, result TEXT NOT NULL, units DOUBLE PRECISION NOT NULL DEFAULT 0, closing_price DOUBLE PRECISION, closing_point DOUBLE PRECISION, grading_note TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`;
   await prisma.$executeRaw`CREATE TABLE IF NOT EXISTS mlb_team_situations (id TEXT PRIMARY KEY, game_pk INTEGER REFERENCES mlb_games(game_pk) ON DELETE CASCADE, team_id INTEGER, opponent_team_id INTEGER, side TEXT NOT NULL, home_away TEXT NOT NULL, team_name TEXT, opponent_name TEXT, result TEXT, scored INTEGER, allowed INTEGER, total_runs INTEGER, is_favorite BOOLEAN, price_bucket TEXT, total_bucket TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`;
-  await prisma.$executeRaw`CREATE TABLE IF NOT EXISTS mlb_trend_rows (id TEXT PRIMARY KEY, game_pk INTEGER REFERENCES mlb_games(game_pk) ON DELETE CASCADE, team_id INTEGER, event_label TEXT, market_type TEXT NOT NULL, side TEXT NOT NULL, result TEXT NOT NULL, units DOUBLE PRECISION NOT NULL DEFAULT 0, price DOUBLE PRECISION, point DOUBLE PRECISION, trend_key TEXT NOT NULL, qualifiers JSONB NOT NULL DEFAULT '{}'::jsonb, source TEXT NOT NULL DEFAULT 'mlb-betting-warehouse', updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`;
+  await prisma.$executeRaw`CREATE TABLE IF NOT EXISTS mlb_trend_rows (id TEXT PRIMARY KEY, game_pk INTEGER REFERENCES mlb_games(game_pk) ON DELETE CASCADE, team_id INTEGER, team_name TEXT, event_label TEXT, market_type TEXT NOT NULL, side TEXT NOT NULL, result TEXT NOT NULL, units DOUBLE PRECISION NOT NULL DEFAULT 0, price DOUBLE PRECISION, point DOUBLE PRECISION, trend_key TEXT NOT NULL, qualifiers JSONB NOT NULL DEFAULT '{}'::jsonb, source TEXT NOT NULL DEFAULT 'mlb-betting-warehouse', updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`;
+  await prisma.$executeRaw`ALTER TABLE mlb_trend_rows ADD COLUMN IF NOT EXISTS team_name TEXT`;
   await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS mlb_trend_rows_key_idx ON mlb_trend_rows (trend_key, updated_at DESC)`;
+  await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS mlb_trend_rows_team_idx ON mlb_trend_rows (team_id, trend_key)`;
   await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS mlb_market_open_close_game_idx ON mlb_market_open_close (game_pk, market_type, side)`;
 }
 
@@ -181,9 +183,9 @@ async function refreshResultGradesAndTrendRows() {
 
   // 1. Base row (home/away only, no extra qualifier)
   await prisma.$executeRaw`
-    INSERT INTO mlb_trend_rows (id, game_pk, team_id, event_label, market_type, side, result, units, trend_key, qualifiers, updated_at)
+    INSERT INTO mlb_trend_rows (id, game_pk, team_id, team_name, event_label, market_type, side, result, units, trend_key, qualifiers, updated_at)
     SELECT
-      CONCAT('trend:base:', rg.id), rg.game_pk, s.team_id, bg.event_label,
+      CONCAT('trend:base:', rg.id), rg.game_pk, s.team_id, s.team_name, bg.event_label,
       rg.market_type, rg.side, rg.result, rg.units,
       CONCAT('MLB|', rg.market_type, '|', rg.side, '|', s.home_away),
       jsonb_build_object('homeAway', s.home_away, 'scored', s.scored, 'allowed', s.allowed, 'totalRuns', s.total_runs, 'qualifier', 'base'),
@@ -191,14 +193,14 @@ async function refreshResultGradesAndTrendRows() {
     FROM mlb_result_grades rg
     JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
     JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
-    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, updated_at = now()
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, team_name = EXCLUDED.team_name, updated_at = now()
   `;
 
   // 2. Runs scored bucket (scored 5+ vs under 5)
   await prisma.$executeRaw`
-    INSERT INTO mlb_trend_rows (id, game_pk, team_id, event_label, market_type, side, result, units, trend_key, qualifiers, updated_at)
+    INSERT INTO mlb_trend_rows (id, game_pk, team_id, team_name, event_label, market_type, side, result, units, trend_key, qualifiers, updated_at)
     SELECT
-      CONCAT('trend:scored:', rg.id), rg.game_pk, s.team_id, bg.event_label,
+      CONCAT('trend:scored:', rg.id), rg.game_pk, s.team_id, s.team_name, bg.event_label,
       rg.market_type, rg.side, rg.result, rg.units,
       CONCAT('MLB|', rg.market_type, '|', rg.side, '|', s.home_away, '|scored_', CASE WHEN s.scored >= 5 THEN '5_plus' ELSE 'under_5' END),
       jsonb_build_object('homeAway', s.home_away, 'scored', s.scored, 'allowed', s.allowed, 'totalRuns', s.total_runs, 'qualifier', CASE WHEN s.scored >= 5 THEN 'scored_5_plus' ELSE 'scored_under_5' END),
@@ -207,14 +209,14 @@ async function refreshResultGradesAndTrendRows() {
     JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
     JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
     WHERE s.scored IS NOT NULL
-    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, updated_at = now()
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, team_name = EXCLUDED.team_name, updated_at = now()
   `;
 
   // 3. Total runs bucket (8+ vs under 8)
   await prisma.$executeRaw`
-    INSERT INTO mlb_trend_rows (id, game_pk, team_id, event_label, market_type, side, result, units, trend_key, qualifiers, updated_at)
+    INSERT INTO mlb_trend_rows (id, game_pk, team_id, team_name, event_label, market_type, side, result, units, trend_key, qualifiers, updated_at)
     SELECT
-      CONCAT('trend:total:', rg.id), rg.game_pk, s.team_id, bg.event_label,
+      CONCAT('trend:total:', rg.id), rg.game_pk, s.team_id, s.team_name, bg.event_label,
       rg.market_type, rg.side, rg.result, rg.units,
       CONCAT('MLB|', rg.market_type, '|', rg.side, '|', s.home_away, '|total_', CASE WHEN s.total_runs >= 8 THEN '8_plus' ELSE 'under_8' END),
       jsonb_build_object('homeAway', s.home_away, 'scored', s.scored, 'allowed', s.allowed, 'totalRuns', s.total_runs, 'qualifier', CASE WHEN s.total_runs >= 8 THEN 'total_8_plus' ELSE 'total_under_8' END),
@@ -223,14 +225,14 @@ async function refreshResultGradesAndTrendRows() {
     JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
     JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
     WHERE s.total_runs IS NOT NULL
-    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, updated_at = now()
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, team_name = EXCLUDED.team_name, updated_at = now()
   `;
 
   // 4. Runs allowed bucket (allowed 3 or fewer vs 4+)
   await prisma.$executeRaw`
-    INSERT INTO mlb_trend_rows (id, game_pk, team_id, event_label, market_type, side, result, units, trend_key, qualifiers, updated_at)
+    INSERT INTO mlb_trend_rows (id, game_pk, team_id, team_name, event_label, market_type, side, result, units, trend_key, qualifiers, updated_at)
     SELECT
-      CONCAT('trend:allowed:', rg.id), rg.game_pk, s.team_id, bg.event_label,
+      CONCAT('trend:allowed:', rg.id), rg.game_pk, s.team_id, s.team_name, bg.event_label,
       rg.market_type, rg.side, rg.result, rg.units,
       CONCAT('MLB|', rg.market_type, '|', rg.side, '|', s.home_away, '|allowed_', CASE WHEN s.allowed <= 3 THEN '3_or_less' ELSE '4_plus' END),
       jsonb_build_object('homeAway', s.home_away, 'scored', s.scored, 'allowed', s.allowed, 'totalRuns', s.total_runs, 'qualifier', CASE WHEN s.allowed <= 3 THEN 'allowed_3_or_less' ELSE 'allowed_4_plus' END),
@@ -239,14 +241,14 @@ async function refreshResultGradesAndTrendRows() {
     JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
     JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
     WHERE s.allowed IS NOT NULL
-    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, updated_at = now()
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, team_name = EXCLUDED.team_name, updated_at = now()
   `;
 
   // 5. Price bucket (favorite / dog / big_dog)
   await prisma.$executeRaw`
-    INSERT INTO mlb_trend_rows (id, game_pk, team_id, event_label, market_type, side, result, units, trend_key, qualifiers, updated_at)
+    INSERT INTO mlb_trend_rows (id, game_pk, team_id, team_name, event_label, market_type, side, result, units, trend_key, qualifiers, updated_at)
     SELECT
-      CONCAT('trend:price:', rg.id), rg.game_pk, s.team_id, bg.event_label,
+      CONCAT('trend:price:', rg.id), rg.game_pk, s.team_id, s.team_name, bg.event_label,
       rg.market_type, rg.side, rg.result, rg.units,
       CONCAT('MLB|', rg.market_type, '|', rg.side, '|', s.home_away, '|', COALESCE(s.price_bucket, 'unknown')),
       jsonb_build_object('homeAway', s.home_away, 'scored', s.scored, 'allowed', s.allowed, 'totalRuns', s.total_runs, 'priceBucket', s.price_bucket, 'qualifier', s.price_bucket),
@@ -255,7 +257,7 @@ async function refreshResultGradesAndTrendRows() {
     JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
     JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
     WHERE s.price_bucket IS NOT NULL AND s.price_bucket != 'unknown'
-    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, updated_at = now()
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, team_name = EXCLUDED.team_name, updated_at = now()
   `;
 }
 
