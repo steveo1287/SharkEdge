@@ -23,6 +23,11 @@ export type MlbBettingWarehouseHealth = {
 function iso(value: unknown) { if (!value) return null; const parsed = value instanceof Date ? value : new Date(String(value)); return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString(); }
 function n(value: unknown) { const parsed = Number(value ?? 0); return Number.isFinite(parsed) ? parsed : 0; }
 
+async function tableExists(tableName: string) {
+  const rows = await prisma.$queryRaw<Array<{ exists: string | null }>>`SELECT to_regclass(${`public.${tableName}`})::text AS exists`;
+  return Boolean(rows[0]?.exists);
+}
+
 export async function ensureMlbBettingWarehouseTables() {
   await ensureMlbSpineTables();
   await prisma.$executeRaw`CREATE TABLE IF NOT EXISTS mlb_betting_games (game_pk INTEGER PRIMARY KEY REFERENCES mlb_games(game_pk) ON DELETE CASCADE, event_label TEXT NOT NULL, official_date DATE, game_date TIMESTAMPTZ, home_team_id INTEGER, away_team_id INTEGER, home_team_name TEXT, away_team_name TEXT, home_score INTEGER, away_score INTEGER, total_runs INTEGER, winning_team_id INTEGER, losing_team_id INTEGER, is_final BOOLEAN NOT NULL DEFAULT false, home_result TEXT, away_result TEXT, source TEXT NOT NULL DEFAULT 'mlb-spine', updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`;
@@ -50,6 +55,10 @@ async function refreshBettingGames() {
 }
 
 async function refreshMarketOpenClose() {
+  if (!(await tableExists("market_line_history"))) {
+    return;
+  }
+
   // Insert market history rows, resolving game_pk via date + team name matching
   await prisma.$executeRaw`
     INSERT INTO mlb_market_open_close (id, game_pk, event_id, market_type, side, selection, sportsbook_name, open_price, close_price, current_price, open_point, close_point, current_point, first_seen_at, last_seen_at, source, updated_at)

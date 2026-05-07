@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { runMlbSeasonBackfill, runMlbGameSpineIngestion } from "@/services/mlb/mlb-game-spine";
+
 import { runMlbBettingWarehouseRefresh } from "@/services/mlb/mlb-betting-warehouse";
+import { runMlbGameSpineIngestion, runMlbSeasonBackfill } from "@/services/mlb/mlb-game-spine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,14 +27,8 @@ export async function POST(request: Request) {
   const refreshWarehouse = body.refreshWarehouse !== false;
 
   const started = Date.now();
-
-  // 1. Backfill historical seasons
   const backfill = await runMlbSeasonBackfill(seasons);
-
-  // 2. Also catch up rolling recent window
   const rolling = await runMlbGameSpineIngestion().catch((err) => ({ ok: false, error: String(err) }));
-
-  // 3. Optionally refresh warehouse to rebuild trend rows immediately
   const warehouse = refreshWarehouse
     ? await runMlbBettingWarehouseRefresh().catch((err) => ({ ok: false, error: String(err) }))
     : null;
@@ -43,7 +38,7 @@ export async function POST(request: Request) {
     durationMs: Date.now() - started,
     backfill,
     rolling,
-    warehouse,
+    warehouse
   });
 }
 
@@ -54,7 +49,9 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const seasonsParam = url.searchParams.get("seasons");
-  const seasons = seasonsParam ? seasonsParam.split(",").map(Number).filter((n) => n > 2000 && n <= 2030) : undefined;
+  const seasons = seasonsParam
+    ? seasonsParam.split(",").map(Number).filter((n) => n > 2000 && n <= 2030)
+    : undefined;
   const refreshWarehouse = url.searchParams.get("warehouse") !== "false";
 
   const started = Date.now();
@@ -64,5 +61,12 @@ export async function GET(request: Request) {
     ? await runMlbBettingWarehouseRefresh().catch((err) => ({ ok: false, error: String(err) }))
     : null;
 
-  return NextResponse.json({ ok: backfill.ok, durationMs: Date.now() - started, backfill, rolling, warehouse });
+  return NextResponse.json({
+    ok: backfill.ok,
+    durationMs: Date.now() - started,
+    backfill,
+    rolling,
+    warehouse
+  });
 }
+

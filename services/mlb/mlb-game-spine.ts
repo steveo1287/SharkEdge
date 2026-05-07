@@ -82,7 +82,8 @@ export async function runMlbGameSpineIngestion(): Promise<MlbSpineRun> {
     const games = await fetchMlbSchedule();
     let teamsUpserted = 0, gamesUpserted = 0, resultsUpserted = 0, probablePitchersUpserted = 0;
     for (const game of games) { teamsUpserted += await upsertTeam(game.teams?.away); teamsUpserted += await upsertTeam(game.teams?.home); gamesUpserted += await upsertGame(game); resultsUpserted += await upsertResult(game); probablePitchersUpserted += await upsertPitcher(game, "away"); probablePitchersUpserted += await upsertPitcher(game, "home"); }
-    return { ok: true, generatedAt: new Date().toISOString(), sourceNote: "MLB game spine ingested official schedule, teams, results, and probable pitchers.", stats: { providerGames: games.length, teamsUpserted, gamesUpserted, resultsUpserted, probablePitchersUpserted }, samples: games.slice(0, 8).map((game) => ({ gamePk: game.gamePk, eventLabel: eventLabel(game), gameDate: game.gameDate, status: statusLabel(game), score: scoreLabel(game) })) };
+    const sourceNote = "MLB game spine ingested official schedule, teams, results, and probable pitchers.";
+    return { ok: true, generatedAt: new Date().toISOString(), sourceNote, stats: { providerGames: games.length, teamsUpserted, gamesUpserted, resultsUpserted, probablePitchersUpserted }, samples: games.slice(0, 8).map((game) => ({ gamePk: game.gamePk, eventLabel: eventLabel(game), gameDate: game.gameDate, status: statusLabel(game), score: scoreLabel(game) })) };
   } catch (error) {
     return { ok: false, generatedAt: new Date().toISOString(), sourceNote: "MLB game spine ingestion failed.", stats: { providerGames: 0, teamsUpserted: 0, gamesUpserted: 0, resultsUpserted: 0, probablePitchersUpserted: 0 }, samples: [], error: error instanceof Error ? error.message : "Unknown MLB spine error." };
   }
