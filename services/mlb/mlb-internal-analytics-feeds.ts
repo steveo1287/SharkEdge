@@ -186,6 +186,7 @@ export async function buildInternalFangraphsCompatibleFeed() {
     platoonVsLhp: player.platoonVsLhp,
     platoonVsRhp: player.platoonVsRhp,
     fatigueRisk: player.fatigueRisk,
-    leverageIndex: player.leverageIndex
+    leverageIndex: player.leverageIndex,
+    source: player.source
   }));
 }

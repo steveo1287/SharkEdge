@@ -1,5 +1,6 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
 import { getMlbDataApiTeamPlayerProfiles } from "@/services/mlb/mlb-data-api-feed";
+import { ingestFangraphsPlayerFeed } from "@/services/simulation/fangraphs-player-ingestion";
 import { normalizeMlbTeam } from "@/services/simulation/mlb-team-analytics";
 
 export type MlbPlayerProfile = {
@@ -53,7 +54,7 @@ export type MlbTeamPlayerSummary = {
   notes: string[];
 };
 
-const CACHE_KEY = "mlb:player-model:v2";
+const CACHE_KEY = "mlb:player-model:v3";
 const CACHE_TTL_SECONDS = 60 * 60 * 6;
 type RawPlayer = Record<string, unknown>;
 
@@ -70,6 +71,12 @@ function roleFrom(row: RawPlayer, type: MlbPlayerProfile["playerType"], innings:
 function availabilityWeight(status: MlbPlayerProfile["status"]) { if (status === "out") return 1; if (status === "doubtful") return 0.7; if (status === "questionable") return 0.35; if (status === "unknown") return 0.12; return 0; }
 function rowsFromBody(body: any): RawPlayer[] { if (Array.isArray(body)) return body; if (Array.isArray(body?.players)) return body.players; if (Array.isArray(body?.data)) return body.data; if (Array.isArray(body?.profiles)) return body.profiles; return []; }
 function sourceWeight(source: MlbPlayerProfile["source"]) { if (source === "real") return 1; if (source === "estimated") return 0.38; return 0.14; }
+function sourceFrom(value: unknown): MlbPlayerProfile["source"] {
+  const normalized = String(value ?? "").toLowerCase();
+  if (normalized === "estimated") return "estimated";
+  if (normalized === "synthetic") return "synthetic";
+  return "real";
+}
 
 function syntheticPlayers(teamName: string): MlbPlayerProfile[] {
   return Array.from({ length: 16 }, (_, index) => {
@@ -148,14 +155,32 @@ function normalizeRaw(row: RawPlayer): MlbPlayerProfile | null {
     platoonVsRhp: num(row.platoonVsRhp ?? row.vs_rhp, 0),
     fatigueRisk: num(row.fatigueRisk ?? row.fatigue_risk, 0),
     leverageIndex: num(row.leverageIndex ?? row.leverage_index, 1),
-    source: "real"
+    source: sourceFrom(row.source)
   };
 }
 
 async function fetchExternalProfiles() {
   const cached = await readHotCache<Record<string, MlbPlayerProfile[]>>(CACHE_KEY);
   if (cached) return cached;
+  const fangraphsUrl = process.env.FANGRAPHS_PLAYER_FEED_URL?.trim();
   const url = process.env.MLB_PLAYER_ANALYTICS_URL?.trim() || process.env.MLB_PLAYER_STATS_URL?.trim();
+  if (fangraphsUrl) {
+    try {
+      const grouped: Record<string, MlbPlayerProfile[]> = {};
+      for (const row of await ingestFangraphsPlayerFeed(fangraphsUrl)) {
+        const profile = normalizeRaw({ ...row, source: "real" });
+        if (!profile) continue;
+        const key = normalizeMlbTeam(profile.teamName);
+        grouped[key] = [...(grouped[key] ?? []), profile];
+      }
+      if (Object.keys(grouped).length) {
+        await writeHotCache(CACHE_KEY, grouped, CACHE_TTL_SECONDS);
+        return grouped;
+      }
+    } catch {
+      // Fall through to generic configured feeds or MLB Data API-derived estimates.
+    }
+  }
   if (!url) return null;
   try {
     const response = await fetch(url, { cache: "no-store" });
@@ -178,11 +203,13 @@ async function fetchExternalProfiles() {
 }
 
 async function getPlayersForTeam(teamName: string) {
+  const grouped = await fetchExternalProfiles();
+  if (grouped?.[normalizeMlbTeam(teamName)]?.length) return grouped[normalizeMlbTeam(teamName)];
+
   const dataApiProfiles = await getMlbDataApiTeamPlayerProfiles(teamName);
   if (dataApiProfiles?.length) return dataApiProfiles;
 
-  const grouped = await fetchExternalProfiles();
-  return grouped?.[normalizeMlbTeam(teamName)] ?? syntheticPlayers(teamName);
+  return syntheticPlayers(teamName);
 }
 
 function weighted(players: MlbPlayerProfile[], weight: (p: MlbPlayerProfile) => number, selector: (p: MlbPlayerProfile) => number) {

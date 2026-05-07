@@ -1,9 +1,9 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
-import { normalizeMlbTeam } from "@/services/simulation/mlb-team-analytics";
+import { getMlbTeamProfile, normalizeMlbTeam, type MlbTeamProfile } from "@/services/simulation/mlb-team-analytics";
 
 export type MlbRatingsProfile = {
   teamName: string;
-  source: "real" | "synthetic";
+  source: "real" | "estimated" | "synthetic";
   teamOverall: number;
   contactRating: number;
   powerRating: number;
@@ -96,6 +96,31 @@ function syntheticProfile(teamName: string): MlbRatingsProfile {
   };
 }
 
+function ratingFromTeamProfile(profile: MlbTeamProfile): MlbRatingsProfile {
+  const offense = profile.wrcPlus;
+  const contact = 72 + (profile.xwoba - 0.3) * 180 + (100 - profile.kRate) * 0.08;
+  const power = 70 + profile.isoPower * 95 + (profile.wrcPlus - 100) * 0.12;
+  const starter = 82 + (100 - profile.starterEraMinus) * 0.16 + (4.2 - profile.starterXFip) * 3.2;
+  const bullpen = 81 + (100 - profile.bullpenEraMinus) * 0.15 + (4.2 - profile.bullpenXFip) * 2.6 - profile.bullpenFatigue * 4;
+  const defense = 76 + profile.defensiveRunsSaved * 0.45;
+  return {
+    teamName: profile.teamName,
+    source: profile.source === "real" ? "estimated" : "synthetic",
+    teamOverall: num((offense + starter + bullpen + defense) / 4, 78),
+    contactRating: num(contact, 76),
+    powerRating: num(power, 76),
+    speedRating: num(78 + profile.baseRunning * 1.2, 78),
+    defenseRating: num(defense, 78),
+    starterRating: num(starter, 78),
+    bullpenRating: num(bullpen, 78),
+    clutchRating: num(78 + profile.recentForm * 0.8, 78),
+    disciplineRating: num(76 + profile.bbRate * 1.1 - profile.kRate * 0.28, 76),
+    playerStarRating: num(78 + Math.max(0, profile.wrcPlus - 100) * 0.18 + Math.max(0, 100 - profile.starterEraMinus) * 0.12, 78),
+    playerDepthRating: num(77 + (profile.wrcPlus - 100) * 0.08 + Math.max(0, 100 - profile.bullpenEraMinus) * 0.12, 77),
+    injuryRating: num(88 - profile.bullpenFatigue * 5, 88)
+  };
+}
+
 function normalizeRaw(row: RawRating): MlbRatingsProfile | null {
   const teamName = text(row.teamName, row.team, row.team_name, row.name, row.TEAM_NAME);
   if (!teamName) return null;
@@ -149,7 +174,9 @@ async function fetchProfiles() {
 
 export async function getMlbRatingsProfile(teamName: string): Promise<MlbRatingsProfile> {
   const profiles = await fetchProfiles();
-  return profiles?.[normalizeMlbTeam(teamName)] ?? syntheticProfile(teamName);
+  if (profiles?.[normalizeMlbTeam(teamName)]) return profiles[normalizeMlbTeam(teamName)];
+  const teamProfile = await getMlbTeamProfile(teamName).catch(() => null);
+  return teamProfile ? ratingFromTeamProfile(teamProfile) : syntheticProfile(teamName);
 }
 
 function diff(home: number, away: number, scale: number) {
@@ -160,6 +187,8 @@ function ratingSourceWeight(away: MlbRatingsProfile, home: MlbRatingsProfile) {
   // Synthetic/video-game style ratings are useful as display context, but they
   // should not be allowed to masquerade as a premium predictive input.
   if (away.source === "real" && home.source === "real") return 1;
+  if (away.source === "estimated" && home.source === "estimated") return 0.42;
+  if (away.source === "estimated" || home.source === "estimated") return 0.25;
   if (away.source === "real" || home.source === "real") return 0.35;
   return 0.08;
 }
