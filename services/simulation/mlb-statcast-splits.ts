@@ -2,6 +2,7 @@ import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
 import { fetchRawFeedRows, pick } from "@/services/mlb/raw-feed-parser";
 import { normalizeMlbTeam } from "@/services/simulation/mlb-team-analytics";
 import { prisma } from "@/lib/db/prisma";
+import { fetchSavantPitcherProfiles } from "@/services/simulation/mlb-savant-team-feed";
 
 export type MlbStatcastSplit = {
   teamName: string;
@@ -202,13 +203,42 @@ async function getDbStatcastSplits(): Promise<Record<string, MlbStatcastSplit> |
   }
 }
 
+function applyPitcherOverlay(split: MlbStatcastSplit, pitcherProfiles: Awaited<ReturnType<typeof fetchSavantPitcherProfiles>>): MlbStatcastSplit {
+  if (!pitcherProfiles) return split;
+  const p = pitcherProfiles[normalizeMlbTeam(split.teamName)];
+  if (!p || p.sample < 30) return split;
+  const patched = {
+    ...split,
+    pitcherAvgExitVeloAllowed: p.pitcherAvgExitVeloAllowed,
+    pitcherBarrelAllowedRate: p.pitcherBarrelAllowedRate,
+    pitcherFastballRunValue: p.pitcherFastballRunValue,
+    pitcherBreakingRunValue: p.pitcherBreakingRunValue,
+    pitcherOffspeedRunValue: p.pitcherOffspeedRunValue,
+  };
+  return { ...patched, ...derive(patched) };
+}
+
 export async function getMlbStatcastSplit(teamName: string): Promise<MlbStatcastSplit> {
-  const splits = await fetchSplits();
-  if (splits?.[normalizeMlbTeam(teamName)]) return splits[normalizeMlbTeam(teamName)];
+  const [splits, pitcherProfiles] = await Promise.all([
+    fetchSplits(),
+    fetchSavantPitcherProfiles().catch(() => null),
+  ]);
+  const key = normalizeMlbTeam(teamName);
+  if (splits?.[key]) return applyPitcherOverlay(splits[key], pitcherProfiles);
   const dbSplits = await getDbStatcastSplits();
-  return dbSplits?.[normalizeMlbTeam(teamName)] ?? syntheticSplit(teamName);
+  const base = dbSplits?.[key] ?? syntheticSplit(teamName);
+  return applyPitcherOverlay(base, pitcherProfiles);
 }
 
 export async function getAllDbStatcastSplits(): Promise<Record<string, MlbStatcastSplit> | null> {
-  return getDbStatcastSplits();
+  const [dbSplits, pitcherProfiles] = await Promise.all([
+    getDbStatcastSplits(),
+    fetchSavantPitcherProfiles().catch(() => null),
+  ]);
+  if (!dbSplits) return null;
+  const result: Record<string, MlbStatcastSplit> = {};
+  for (const [key, split] of Object.entries(dbSplits)) {
+    result[key] = applyPitcherOverlay(split, pitcherProfiles);
+  }
+  return Object.keys(result).length ? result : null;
 }
