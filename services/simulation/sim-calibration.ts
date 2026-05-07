@@ -49,7 +49,7 @@ const PROFILES: Record<SupportedLeague, CalibrationProfile> = {
   NFL: { neutralShrink: 0.12, marketBlend: 0.2, moneylineTemperature: 1.05, spreadDeltaShrink: 0.86, totalDeltaShrink: 0.84, propProbShrink: 0.14, stdBaseline: 10 },
   NCAAF: { neutralShrink: 0.16, marketBlend: 0.22, moneylineTemperature: 1.12, spreadDeltaShrink: 0.82, totalDeltaShrink: 0.8, propProbShrink: 0.18, stdBaseline: 12 },
   NHL: { neutralShrink: 0.14, marketBlend: 0.18, moneylineTemperature: 1.08, spreadDeltaShrink: 0.88, totalDeltaShrink: 0.86, propProbShrink: 0.14, stdBaseline: 2 },
-  MLB: { neutralShrink: 0.12, marketBlend: 0.16, moneylineTemperature: 1.04, spreadDeltaShrink: 0.9, totalDeltaShrink: 0.88, propProbShrink: 0.14, stdBaseline: 2.5 }
+  MLB: { neutralShrink: 0.22, marketBlend: 0.32, moneylineTemperature: 1.14, spreadDeltaShrink: 0.8, totalDeltaShrink: 0.74, propProbShrink: 0.24, stdBaseline: 2.5 }
 };
 
 let profileOverrides: Partial<Record<string, CalibrationProfile>> = {};

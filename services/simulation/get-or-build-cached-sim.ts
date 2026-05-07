@@ -35,7 +35,7 @@ export async function getOrBuildCachedSim(
     return cached.result;
   }
 
-  const tuning = input.tuning ?? (await getSimTuning());
+  const tuning = input.tuning ?? (await getSimTuning(input.prop?.leagueKey));
   const result = await buildAdaptivePlayerSimV2(
     {
       player: input.playerName,

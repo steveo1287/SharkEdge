@@ -239,8 +239,8 @@ function buildProfile(leagueKey: string, args: {
   const base = getDefaultCalibrationProfile(leagueKey);
   const moneylineSlope = clamp(slopeFromCenteredProbability(args.moneylineRecords), 0.65, 0.98);
   const propSlope = clamp(slopeFromCenteredProbability(args.propRecords), 0.65, 0.98);
-  const spreadSlope = clamp(slopeFromDelta(args.spreadRecords), 0.45, 1);
-  const totalSlope = clamp(slopeFromDelta(args.totalRecords), 0.45, 1);
+  const spreadSlope = clamp(slopeFromDelta(args.spreadRecords), 0.4, 1);
+  const totalSlope = clamp(slopeFromDelta(args.totalRecords), 0.4, 1);
 
   const modelBrier = brierScore(args.moneylineRecords);
   const marketMoneylineRecords = args.moneylineRecords
@@ -254,15 +254,15 @@ function buildProfile(leagueKey: string, args: {
   const highConfidenceWinner = summarizeWinnerAccuracy(args.moneylineRecords, "predicted", 0.2);
 
   const marketBlend = marketBrier !== null
-    ? clamp(base.marketBlend + Math.max(0, modelBrier - marketBrier) * 1.8, 0.05, 0.35)
+    ? clamp(base.marketBlend + Math.max(0, modelBrier - marketBrier) * 1.8, 0.05, 0.45)
     : base.marketBlend;
 
   const profile: CalibrationProfile = {
-    neutralShrink: clamp(1 - moneylineSlope, 0.04, 0.28),
+    neutralShrink: clamp(1 - moneylineSlope, 0.04, 0.35),
     marketBlend,
-    moneylineTemperature: clamp((base.moneylineTemperature ?? 1.08) + Math.max(0, modelBrier - 0.22) * 2.5, 0.85, 1.35),
-    spreadDeltaShrink: clamp(spreadSlope, 0.45, 1),
-    totalDeltaShrink: clamp(totalSlope, 0.45, 1),
+    moneylineTemperature: clamp((base.moneylineTemperature ?? 1.08) + Math.max(0, modelBrier - 0.22) * 2.5, 0.85, 1.40),
+    spreadDeltaShrink: clamp(spreadSlope, 0.4, 1),
+    totalDeltaShrink: clamp(totalSlope, 0.4, 1),
     propProbShrink: clamp(1 - propSlope, 0.05, 0.35),
     stdBaseline: base.stdBaseline
   };

@@ -1,5 +1,5 @@
-import { DEFAULT_TUNING, SimTuningParams } from "./sim-tuning";
+import { getLeagueTuning, SimTuningParams } from "./sim-tuning";
 
-export async function getSimTuning(): Promise<SimTuningParams> {
-  return DEFAULT_TUNING;
+export async function getSimTuning(leagueKey?: string | null): Promise<SimTuningParams> {
+  return getLeagueTuning(leagueKey);
 }
