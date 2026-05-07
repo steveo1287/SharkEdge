@@ -142,6 +142,7 @@ async function refreshScheduleContext() {
         AND bg_prev.game_pk != bg_cur.game_pk
       )
       WHERE bg_cur.game_pk = ts.game_pk
+      GROUP BY bg_cur.official_date
     )
   `;
 
