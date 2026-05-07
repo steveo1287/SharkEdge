@@ -8,6 +8,7 @@ import {
   type MlbEdgeProjection
 } from "@/services/simulation/mlb-edge-detector";
 import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
+import { fetchSavantPitcherProfiles, fetchSavantTeamHistoryProfiles } from "@/services/simulation/mlb-savant-team-feed";
 
 export const SIM_CACHE_VERSION = "v2";
 
@@ -397,6 +398,17 @@ export async function refreshFullSimSnapshots() {
     const result = await preserveLastGoodSnapshot("Scoreboard returned zero NBA/MLB games; preserved last successful sim snapshot instead of writing a blank slate.", { generatedAt, warnings, sourceStatus });
     logTiming("sim-refresh", "total", startedAt);
     return result;
+  }
+
+  // Pre-warm Savant caches so per-game projections hit the hot cache rather than
+  // racing against the 10s Savant fetch timeout inside the 18s projection window.
+  if (games.some((g) => g.leagueKey === "MLB")) {
+    const savantStartedAt = Date.now();
+    await Promise.all([
+      fetchSavantPitcherProfiles().catch(() => null),
+      fetchSavantTeamHistoryProfiles().catch(() => null),
+    ]);
+    logTiming("sim-refresh", "savant cache pre-warm", savantStartedAt);
   }
 
   const rows = await buildRowsFromGames(games, warnings);
