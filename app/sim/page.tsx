@@ -17,6 +17,7 @@ import {
   SIM_CACHE_KEYS,
   type SimHubSnapshot,
   type SimMarketSnapshot,
+  type SimPriorityRow,
   type SimPrioritySnapshot,
   type SimRefreshStatusSnapshot,
   type SimSnapshotEnvelope
@@ -72,11 +73,33 @@ function formatTime(value: string | null | undefined) {
   if (!date) return "TBD";
   return new Intl.DateTimeFormat("en-US", {
     timeZone: DISPLAY_TIME_ZONE,
-    weekday: "short",
     hour: "numeric",
     minute: "2-digit",
     timeZoneName: "short"
   }).format(date);
+}
+
+function dateKey(value: string | null | undefined) {
+  const date = dateFrom(value);
+  if (!date) return "unknown";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: DISPLAY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
+}
+
+function dateLabel(value: string | null | undefined) {
+  const date = dateFrom(value);
+  if (!date) return "Unknown date";
+  const now = new Date();
+  const todayKey = new Intl.DateTimeFormat("en-US", { timeZone: DISPLAY_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  const tomorrowKey = new Intl.DateTimeFormat("en-US", { timeZone: DISPLAY_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now.getTime() + 86_400_000));
+  const dk = dateKey(value);
+  if (dk === todayKey) return "Today";
+  if (dk === tomorrowKey) return "Tomorrow";
+  return new Intl.DateTimeFormat("en-US", { timeZone: DISPLAY_TIME_ZONE, weekday: "long", month: "short", day: "numeric" }).format(date);
 }
 
 function formatShortTime(date: Date | null) {
@@ -341,6 +364,91 @@ function WorkspaceCard({ config }: { config: WorkspaceConfig }) {
 
 // ─── Priority slate table ─────────────────────────────────────────────────────
 
+type GroupedRows = { label: string; key: string; rows: SimPriorityRow[] }[];
+
+function groupPriorityRows(raw: SimPriorityRow[]): GroupedRows {
+  // Deduplicate by game ID — keep first occurrence (highest tier/edge rank)
+  const seen = new Set<string>();
+  const unique: SimPriorityRow[] = [];
+  for (const row of raw) {
+    if (!seen.has(row.id)) {
+      seen.add(row.id);
+      unique.push(row);
+    }
+  }
+
+  // Group by local calendar date
+  const map = new Map<string, SimPriorityRow[]>();
+  for (const row of unique) {
+    const key = dateKey(row.startTime);
+    const existing = map.get(key) ?? [];
+    existing.push(row);
+    map.set(key, existing);
+  }
+
+  // Sort groups chronologically, limit to 3 days
+  return Array.from(map.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(0, 3)
+    .map(([key, rows]) => ({ label: dateLabel(rows[0]?.startTime), key, rows }));
+}
+
+function SlateRow({ row }: { row: SimPriorityRow }) {
+  return (
+    <tr className="group align-middle hover:bg-white/[0.012]">
+      <td className="px-5 py-3">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="inline-flex items-center rounded-sm border border-aqua/25 bg-aqua/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-[0.08em] text-aqua">
+            {row.leagueKey}
+          </span>
+          <SimDecisionBadge tier={row.tier} />
+          <SimStatusBadge status={row.status} />
+        </div>
+        <div className="mt-1.5 font-semibold leading-snug text-white">
+          {row.matchup.away} <span className="font-normal text-slate-600">@</span> {row.matchup.home}
+        </div>
+      </td>
+      <td className="px-5 py-3">
+        <div className="text-sm font-medium text-white">{row.lean.team}</div>
+        <div className="mt-0.5 text-[11px] tabular-nums text-slate-500">{formatPct(row.lean.pct)} win</div>
+      </td>
+      <td className="px-5 py-3">
+        <EdgeValue value={row.lean.edge} />
+      </td>
+      <td className="px-5 py-3">
+        <ConfidenceValue value={row.confidence} />
+      </td>
+      <td className="px-5 py-3 text-[11px] text-slate-500">
+        {row.leagueKey === "MLB"
+          ? row.edgeMatched ? <span className="text-mint">Matched</span> : <span className="text-slate-600">No line</span>
+          : <span className="text-slate-700">—</span>}
+      </td>
+      <td className="px-5 py-3 text-[11px] tabular-nums text-slate-400">{formatTime(row.startTime)}</td>
+      <td className="px-5 py-3 text-right">
+        <Link
+          href={row.href}
+          className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-600 transition-colors hover:text-aqua group-hover:text-slate-400"
+        >
+          Open →
+        </Link>
+      </td>
+    </tr>
+  );
+}
+
+function DateGroupHeader({ label, count }: { label: string; count: number }) {
+  return (
+    <tr>
+      <td colSpan={7} className="border-t border-white/[0.08] bg-white/[0.018] px-5 py-2">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{label}</span>
+          <span className="text-[10px] text-slate-700">{count} game{count !== 1 ? "s" : ""}</span>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 function PriorityTable({ priority }: { priority: SimPrioritySnapshot | null }) {
   if (!priority?.rows.length) {
     return (
@@ -352,77 +460,39 @@ function PriorityTable({ priority }: { priority: SimPrioritySnapshot | null }) {
     );
   }
 
+  const groups = groupPriorityRows(priority.rows);
+  const uniqueCount = groups.reduce((n, g) => n + g.rows.length, 0);
+  const rawCount = priority.rows.length;
+
   return (
     <SimTableShell
       title="Today's Game Slate"
       description={
         priority.stale
-          ? "Showing last successful snapshot — live cron has not refreshed yet."
-          : `${priority.rows.length} game${priority.rows.length === 1 ? "" : "s"} · ranked by sim priority`
+          ? "Showing last successful snapshot — live cron has not yet refreshed."
+          : `${uniqueCount} game${uniqueCount !== 1 ? "s" : ""} · ranked by tier then edge${rawCount > uniqueCount ? ` · ${rawCount - uniqueCount} duplicate${rawCount - uniqueCount !== 1 ? "s" : ""} removed` : ""}`
       }
       right={
-        <span className="text-[11px] tabular-nums text-slate-600">
-          {formatAge(priority.generatedAt)}
-        </span>
+        <span className="text-[11px] tabular-nums text-slate-600">{formatAge(priority.generatedAt)}</span>
       }
     >
       <table className="min-w-full text-left text-sm">
         <thead className="border-b border-white/[0.08]">
           <tr>
-            <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Matchup</th>
-            <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Lean · Win%</th>
-            <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Edge</th>
-            <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Conf</th>
-            <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Market</th>
-            <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Tip-off</th>
-            <th className="px-4 py-3" />
+            <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Matchup</th>
+            <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Lean</th>
+            <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Edge</th>
+            <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Conf</th>
+            <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Market</th>
+            <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Time</th>
+            <th className="px-5 py-3" />
           </tr>
         </thead>
-        <tbody className="divide-y divide-white/[0.06]">
-          {priority.rows.map((row) => (
-            <tr key={row.id} className="group align-middle hover:bg-white/[0.015]">
-              <td className="px-4 py-3">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="inline-flex items-center rounded-sm border border-aqua/25 bg-aqua/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-[0.08em] text-aqua">
-                    {row.leagueKey}
-                  </span>
-                  <SimStatusBadge status={row.status} />
-                  <SimDecisionBadge tier={row.tier} />
-                </div>
-                <div className="mt-2 font-semibold leading-snug text-white">{row.matchup.away}</div>
-                <div className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500">
-                  <span>vs</span>
-                  <span className="text-slate-400">{row.matchup.home}</span>
-                </div>
-              </td>
-              <td className="px-4 py-3">
-                <div className="font-medium text-white">{row.lean.team}</div>
-                <div className="mt-0.5 text-[11px] tabular-nums text-slate-500">{formatPct(row.lean.pct)}</div>
-              </td>
-              <td className="px-4 py-3">
-                <EdgeValue value={row.lean.edge} />
-              </td>
-              <td className="px-4 py-3">
-                <ConfidenceValue value={row.confidence} />
-              </td>
-              <td className="px-4 py-3 text-[11px] text-slate-500">
-                {row.leagueKey === "MLB"
-                  ? row.edgeMatched
-                    ? <span className="text-mint">Matched</span>
-                    : "No line"
-                  : <span className="text-slate-700">n/a</span>}
-              </td>
-              <td className="px-4 py-3 text-[11px] tabular-nums text-slate-400">{formatTime(row.startTime)}</td>
-              <td className="px-4 py-3">
-                <Link
-                  href={row.href}
-                  className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-600 transition-colors hover:text-aqua group-hover:text-slate-400"
-                >
-                  Open →
-                </Link>
-              </td>
-            </tr>
-          ))}
+        <tbody className="divide-y divide-white/[0.05]">
+          {groups.flatMap((group) => [
+            <DateGroupHeader key={`hdr-${group.key}`} label={group.label} count={group.rows.length} />,
+            ...group.rows.map((row) => <SlateRow key={row.id} row={row} />)
+          ])}
         </tbody>
       </table>
     </SimTableShell>
