@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import type { MlbUmpireTendency } from "@/services/simulation/mlb-umpire-model";
+export type { MlbUmpireTendency };
 
 // DB-backed umpire store. Seed data is calibrated from publicly available
 // umpire analytics research (Umpire Scorecards, Baseball Savant, Inside Edge).
