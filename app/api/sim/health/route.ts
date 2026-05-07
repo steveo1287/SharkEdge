@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { buildOfficialNbaLiveFeed } from "@/services/data/nba/official-live-feed";
-import { readNbaWarehouseFeed, type NbaWarehouseKind } from "@/services/data/nba/warehouse-feed";
+import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
+import { readLatestOddsApiSnapshot } from "@/services/odds/the-odds-api-budget-service";
+import { getMlbTeamPlayerSummary } from "@/services/simulation/mlb-player-model";
+import { compareMlbProfiles } from "@/services/simulation/mlb-team-analytics";
+import { compareMlbRatings } from "@/services/simulation/mlb-ratings-blend";
 import {
   readSimCache,
   SIM_CACHE_KEYS,
@@ -14,21 +17,16 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const NBA_KINDS: NbaWarehouseKind[] = ["team", "player", "history", "rating"];
-const REQUIRED_NBA_KINDS: NbaWarehouseKind[] = ["team", "player"];
 const SIM_MAX_AGE_MINUTES = 20;
 const MARKET_MAX_AGE_MINUTES = 10;
+const SAMPLE_AWAY = "New York Yankees";
+const SAMPLE_HOME = "Boston Red Sox";
 
-type NbaFeedHealth = {
-  status: "ready" | "missing";
-  source: "warehouse" | "official-nba-stats-live" | "missing";
-  rows: number;
-  warehouseRows: number;
-  officialFallbackRows: number;
-  filePath: string | null;
-  fallbackEnabled: boolean;
+type DbCounts = {
+  ok: boolean;
+  tables: Record<string, boolean>;
+  counts: Record<string, number | string | null>;
   warnings: string[];
-  officialError: string | null;
 };
 
 function dateFrom(value: string | null | undefined) {
@@ -58,107 +56,166 @@ function statusFromFreshness(item: { fresh: boolean; ageMinutes: number | null }
   return item.fresh ? "fresh" : "stale";
 }
 
-async function nbaFeedStatus(kind: NbaWarehouseKind): Promise<NbaFeedHealth> {
-  const warehouse = await readNbaWarehouseFeed(kind).catch(() => null);
-  const warehouseRows = warehouse?.rows.length ?? 0;
-  if (warehouseRows > 0) {
-    return {
-      status: "ready",
-      source: "warehouse",
-      rows: warehouseRows,
-      warehouseRows,
-      officialFallbackRows: 0,
-      filePath: warehouse?.filePath ?? null,
-      fallbackEnabled: process.env.NBA_DISABLE_OFFICIAL_LIVE_FALLBACK !== "1",
-      warnings: warehouse?.warnings ?? [],
-      officialError: null
-    };
-  }
+function cleanValue(value: unknown) {
+  if (value == null) return null;
+  if (typeof value === "bigint") return Number(value);
+  if (value instanceof Date) return value.toISOString();
+  return value as number | string | null;
+}
 
-  const fallbackEnabled = process.env.NBA_DISABLE_OFFICIAL_LIVE_FALLBACK !== "1";
-  let officialFallbackRows = 0;
-  let officialError: string | null = null;
-  if (fallbackEnabled) {
-    try {
-      officialFallbackRows = (await buildOfficialNbaLiveFeed(kind)).length;
-    } catch (error) {
-      officialError = error instanceof Error ? error.message : "Official NBA live fallback failed.";
-    }
-  }
+async function tableExists(tableName: string) {
+  if (!hasUsableServerDatabaseUrl()) return false;
+  const rows = await prisma.$queryRaw<Array<{ exists: string | null }>>`SELECT to_regclass(${`public.${tableName}`})::text AS exists`;
+  return Boolean(rows[0]?.exists);
+}
 
-  const rows = Math.max(warehouseRows, officialFallbackRows);
+async function latestColumnFor(tableName: string) {
+  const rows = await prisma.$queryRaw<Array<{ column_name: string }>>`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = ${tableName}
+  `;
+  const columns = new Set(rows.map((row) => row.column_name));
+  return ["updated_at", "updatedAt", "generated_at", "generatedAt", "created_at", "createdAt", "game_date", "gameDate"].find((column) => columns.has(column)) ?? null;
+}
+
+async function countTable(tableName: string) {
+  if (!(await tableExists(tableName))) return { exists: false, rows: 0, latest: null };
+  const latestColumn = await latestColumnFor(tableName);
+  const latestSelect = latestColumn ? `, MAX("${latestColumn}") AS latest` : "";
+  const rows = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(`SELECT COUNT(*) AS rows${latestSelect} FROM ${tableName}`);
+  const row = rows[0] ?? {};
   return {
-    status: rows > 0 ? "ready" : "missing",
-    source: warehouseRows > 0 ? "warehouse" : officialFallbackRows > 0 ? "official-nba-stats-live" : "missing",
-    rows,
-    warehouseRows,
-    officialFallbackRows,
-    filePath: warehouse?.filePath ?? null,
-    fallbackEnabled,
-    warnings: warehouse?.warnings ?? [`NBA ${kind} feed unavailable.`],
-    officialError
+    exists: true,
+    rows: Number(cleanValue(row.rows) ?? 0),
+    latest: cleanValue(row.latest)
+  };
+}
+
+async function dbCounts(): Promise<DbCounts> {
+  if (!hasUsableServerDatabaseUrl()) {
+    return { ok: false, tables: {}, counts: {}, warnings: ["DATABASE_URL unavailable."] };
+  }
+
+  const tableNames = [
+    "mlb_games",
+    "mlb_probable_pitchers",
+    "mlb_betting_games",
+    "mlb_market_open_close",
+    "mlb_trend_rows",
+    "market_line_history",
+    "current_market_state",
+    "event_market",
+    "event_market_snapshot",
+    "mlb_v8_player_impact_profiles",
+    "retrosheet_games",
+    "mlb_team_elo_snapshots",
+    "mlb_pitcher_rolling_snapshots"
+  ];
+  const entries = await Promise.all(tableNames.map(async (name) => [name, await countTable(name)] as const));
+  const tables = Object.fromEntries(entries.map(([name, value]) => [name, value.exists]));
+  const counts: Record<string, number | string | null> = {};
+  for (const [name, value] of entries) {
+    counts[`${name}Rows`] = value.rows;
+    counts[`${name}Latest`] = value.latest;
+  }
+  const warnings: string[] = [];
+  if (!tables.market_line_history && !tables.event_market_snapshot && !tables.current_market_state) warnings.push("No durable market-line table is available for MLB market matching.");
+  if (!tables.mlb_v8_player_impact_profiles) warnings.push("MLB v8 player-impact profile table is missing; player-impact weights fall back to defaults.");
+  if (!tables.retrosheet_games) warnings.push("Retrosheet warehouse is missing; historical Elo/pitcher priors are not active.");
+  if (!tables.mlb_team_elo_snapshots || !tables.mlb_pitcher_rolling_snapshots) warnings.push("MLB Elo/pitcher rolling snapshot tables are missing.");
+  return { ok: true, tables, counts, warnings };
+}
+
+async function sourceHealth() {
+  const [awayPlayers, homePlayers, profiles, ratings] = await Promise.all([
+    getMlbTeamPlayerSummary(SAMPLE_AWAY),
+    getMlbTeamPlayerSummary(SAMPLE_HOME),
+    compareMlbProfiles(SAMPLE_AWAY, SAMPLE_HOME),
+    compareMlbRatings(SAMPLE_AWAY, SAMPLE_HOME)
+  ]);
+  const playerSources = [awayPlayers.source, homePlayers.source];
+  const teamProfileSources = [profiles.away.source, profiles.home.source];
+  const ratingSources = [ratings.away.source, ratings.home.source];
+  const warnings: string[] = [];
+  if (!playerSources.every((source) => source === "real")) warnings.push(`Player model is ${playerSources.join("/")}; estimated/synthetic player stats are downweighted.`);
+  if (!teamProfileSources.every((source) => source === "real")) warnings.push(`Team analytics are ${teamProfileSources.join("/")}; configure MLB_TEAM_ANALYTICS_URL or improve the MLB Stats API warehouse.`);
+  if (!ratingSources.every((source) => source === "real")) warnings.push(`Ratings are ${ratingSources.join("/")}; synthetic ratings are display-only/low-weight.`);
+
+  return {
+    ok: playerSources.every((source) => source === "real") && teamProfileSources.every((source) => source === "real"),
+    sampleMatchup: `${SAMPLE_AWAY} @ ${SAMPLE_HOME}`,
+    player: {
+      source: playerSources.join("/"),
+      awayPlayers: awayPlayers.players.length,
+      homePlayers: homePlayers.players.length,
+      notes: [...awayPlayers.notes.slice(0, 1), ...homePlayers.notes.slice(0, 1)]
+    },
+    teamAnalytics: {
+      source: teamProfileSources.join("/"),
+      away: profiles.away.teamName,
+      home: profiles.home.teamName
+    },
+    ratings: {
+      source: ratingSources.join("/"),
+      confidence: ratings.ratingConfidence,
+      note: ratingSources.every((source) => source === "real")
+        ? "Real ratings feed is active."
+        : "Synthetic ratings are heavily downweighted and should not drive attack picks."
+    },
+    warnings
   };
 }
 
 export async function GET() {
   try {
-    const [hub, priority, market, refreshStatus, ...nbaFeeds] = await Promise.all([
+    const [hub, priority, market, refreshStatus, db, sources, oddsSnapshot] = await Promise.all([
       readSimCache<SimHubSnapshot>(SIM_CACHE_KEYS.hub),
       readSimCache<SimPrioritySnapshot>(SIM_CACHE_KEYS.priority),
       readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market),
       readSimCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus),
-      ...NBA_KINDS.map((kind) => nbaFeedStatus(kind))
+      dbCounts(),
+      sourceHealth(),
+      readLatestOddsApiSnapshot().catch(() => null)
     ]);
 
     const simFreshness = freshness(priority?.generatedAt ?? hub?.generatedAt ?? null, SIM_MAX_AGE_MINUTES);
     const marketFreshness = freshness(market?.generatedAt ?? null, MARKET_MAX_AGE_MINUTES);
-    const warehouse = Object.fromEntries(NBA_KINDS.map((kind, index) => [kind, nbaFeeds[index] as NbaFeedHealth]));
-    const requiredNbaDataReady = REQUIRED_NBA_KINDS.every((kind) => (warehouse[kind] as NbaFeedHealth).rows > 0);
-    const allNbaDataReady = NBA_KINDS.every((kind) => (warehouse[kind] as NbaFeedHealth).rows > 0);
-    const simStatus = statusFromFreshness(simFreshness);
-    const marketStatus = statusFromFreshness(marketFreshness);
     const refreshFailed = refreshStatus?.ok === false;
-    const ok = simFreshness.fresh && marketFreshness.fresh && requiredNbaDataReady && !refreshFailed;
+    const mlbPriorityRows = priority?.rows.filter((row) => row.leagueKey === "MLB").length ?? 0;
+    const marketAvailable = (market?.lineCount ?? 0) > 0 || Number(db.counts.market_line_historyRows ?? 0) > 0 || Number(db.counts.current_market_stateRows ?? 0) > 0;
+    const ok = simFreshness.fresh && sources.ok && !refreshFailed && mlbPriorityRows > 0;
 
     return NextResponse.json({
       ok,
       generatedAt: new Date().toISOString(),
+      scope: "MLB_ONLY",
       status: ok ? "ready" : "degraded",
       sim: {
-        status: simStatus,
+        status: statusFromFreshness(simFreshness),
         freshness: simFreshness,
-        hub: hub ? {
-          stale: hub.stale,
-          warnings: hub.warnings,
-          summary: hub.summary
-        } : null,
-        priority: priority ? {
-          stale: priority.stale,
-          warnings: priority.warnings,
-          summary: priority.summary,
-          rows: priority.rows.length
-        } : null
+        mlbPriorityRows,
+        hub: hub ? { stale: hub.stale, warnings: hub.warnings, summary: hub.summary } : null,
+        priority: priority ? { stale: priority.stale, warnings: priority.warnings, summary: priority.summary, rows: priority.rows.length } : null
       },
       market: {
-        status: marketStatus,
+        status: statusFromFreshness(marketFreshness),
         freshness: marketFreshness,
+        available: marketAvailable,
         lineCount: market?.lineCount ?? 0,
         edgeCount: market?.edges.length ?? 0,
         gameCount: market?.gameCount ?? 0,
+        oddsSnapshot: oddsSnapshot ? {
+          generatedAt: oddsSnapshot.meta?.generatedAt ?? null,
+          sports: oddsSnapshot.meta?.sports ?? [],
+          events: oddsSnapshot.events?.length ?? 0,
+          monthlyUsed: oddsSnapshot.meta?.monthlyUsed ?? null,
+          monthlyLimit: oddsSnapshot.meta?.monthlyLimit ?? null
+        } : null,
         warnings: market?.warnings ?? []
       },
-      nbaData: {
-        status: requiredNbaDataReady ? "ready" : "degraded",
-        requiredReady: requiredNbaDataReady,
-        allOptionalFeedsReady: allNbaDataReady,
-        requiredFeeds: REQUIRED_NBA_KINDS,
-        feeds: warehouse
-      },
-      nbaWarehouse: {
-        status: allNbaDataReady ? "ready" : requiredNbaDataReady ? "usable-with-live-fallback" : "degraded",
-        requiredReady: allNbaDataReady,
-        feeds: warehouse
-      },
+      dataSources: sources,
+      warehouse: db,
       refresh: refreshStatus ? {
         status: refreshStatus.running ? "running" : refreshStatus.ok ? "ok" : "failed",
         generatedAt: refreshStatus.generatedAt,
@@ -175,16 +232,15 @@ export async function GET() {
         warnings: []
       },
       nextAction: ok
-        ? "Sim product health is ready."
-        : requiredNbaDataReady
-          ? "NBA real data is usable. Sim cache or market overlay is stale; check cron refresh status."
-          : "NBA team/player rows are not available from warehouse or official live fallback; inspect /api/simulation/nba/data-health."
+        ? "MLB sim stack is usable. Keep improving market-line persistence and real player analytics."
+        : "Fix the degraded MLB-only inputs above before trusting attack picks."
     });
   } catch (error) {
     return NextResponse.json({
       ok: false,
+      scope: "MLB_ONLY",
       status: "error",
-      error: error instanceof Error ? error.message : "Sim health check failed."
+      error: error instanceof Error ? error.message : "MLB sim health check failed."
     }, { status: 500 });
   }
 }

@@ -125,13 +125,13 @@ export function SimDataQualityBadges({
   marketSource,
   calibrationSource
 }: {
-  playerSource?: "real" | "synthetic" | "unknown";
+  playerSource?: "real" | "estimated" | "synthetic" | "unknown";
   marketSource?: "matched" | "missing" | "unknown";
   calibrationSource?: "calibrated" | "pending" | "unknown";
 }) {
   return (
     <div className="flex flex-wrap gap-1.5">
-      {playerSource ? <Badge tone={playerSource === "real" ? "success" : playerSource === "synthetic" ? "premium" : "muted"}>players {playerSource}</Badge> : null}
+      {playerSource ? <Badge tone={playerSource === "real" ? "success" : playerSource === "estimated" ? "muted" : playerSource === "synthetic" ? "premium" : "muted"}>players {playerSource}</Badge> : null}
       {marketSource ? <Badge tone={marketSource === "matched" ? "success" : marketSource === "missing" ? "premium" : "muted"}>lines {marketSource}</Badge> : null}
       {calibrationSource ? <Badge tone={calibrationSource === "calibrated" ? "success" : calibrationSource === "pending" ? "premium" : "muted"}>cal {calibrationSource}</Badge> : null}
     </div>

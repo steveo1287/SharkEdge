@@ -156,21 +156,32 @@ function diff(home: number, away: number, scale: number) {
   return Number(((home - away) * scale).toFixed(2));
 }
 
+function ratingSourceWeight(away: MlbRatingsProfile, home: MlbRatingsProfile) {
+  // Synthetic/video-game style ratings are useful as display context, but they
+  // should not be allowed to masquerade as a premium predictive input.
+  if (away.source === "real" && home.source === "real") return 1;
+  if (away.source === "real" || home.source === "real") return 0.35;
+  return 0.08;
+}
+
 export async function compareMlbRatings(awayTeam: string, homeTeam: string): Promise<MlbRatingsComparison> {
   const [away, home] = await Promise.all([getMlbRatingsProfile(awayTeam), getMlbRatingsProfile(homeTeam)]);
-  const lineupRatingEdge = diff(
+  const sourceWeight = ratingSourceWeight(away, home);
+  const rawLineupRatingEdge = diff(
     home.contactRating * 0.36 + home.powerRating * 0.34 + home.disciplineRating * 0.18 + home.speedRating * 0.12,
     away.contactRating * 0.36 + away.powerRating * 0.34 + away.disciplineRating * 0.18 + away.speedRating * 0.12,
     0.055
   );
-  const pitchingRatingEdge = diff(
+  const rawPitchingRatingEdge = diff(
     home.starterRating * 0.58 + home.bullpenRating * 0.42,
     away.starterRating * 0.58 + away.bullpenRating * 0.42,
     0.065
   );
-  const fieldingRatingEdge = diff(home.defenseRating + home.speedRating * 0.28, away.defenseRating + away.speedRating * 0.28, 0.032);
-  const starDepthEdge = diff(home.playerStarRating * 0.62 + home.playerDepthRating * 0.38, away.playerStarRating * 0.62 + away.playerDepthRating * 0.38, 0.052);
-  const clutchRatingEdge = diff(home.clutchRating + home.injuryRating * 0.22, away.clutchRating + away.injuryRating * 0.22, 0.03);
+  const lineupRatingEdge = Number((rawLineupRatingEdge * sourceWeight).toFixed(2));
+  const pitchingRatingEdge = Number((rawPitchingRatingEdge * sourceWeight).toFixed(2));
+  const fieldingRatingEdge = Number((diff(home.defenseRating + home.speedRating * 0.28, away.defenseRating + away.speedRating * 0.28, 0.032) * sourceWeight).toFixed(2));
+  const starDepthEdge = Number((diff(home.playerStarRating * 0.62 + home.playerDepthRating * 0.38, away.playerStarRating * 0.62 + away.playerDepthRating * 0.38, 0.052) * sourceWeight).toFixed(2));
+  const clutchRatingEdge = Number((diff(home.clutchRating + home.injuryRating * 0.22, away.clutchRating + away.injuryRating * 0.22, 0.03) * sourceWeight).toFixed(2));
   const ratingEdge = Number((
     lineupRatingEdge * 0.28 +
     pitchingRatingEdge * 0.34 +
@@ -178,13 +189,13 @@ export async function compareMlbRatings(awayTeam: string, homeTeam: string): Pro
     starDepthEdge * 0.16 +
     clutchRatingEdge * 0.1
   ).toFixed(2));
-  const ratingRunEnvironment = Number((
+  const ratingRunEnvironment = Number(((
     ((home.contactRating + away.contactRating - 150) * 0.012) +
     ((home.powerRating + away.powerRating - 150) * 0.018) -
     ((home.starterRating + away.starterRating - 150) * 0.014) -
     ((home.bullpenRating + away.bullpenRating - 150) * 0.009)
-  ).toFixed(2));
-  const ratingConfidence = Number(Math.max(0.01, Math.min(0.08, Math.abs(ratingEdge) / 42 + (home.source === "real" && away.source === "real" ? 0.015 : 0))).toFixed(3));
+  ) * sourceWeight).toFixed(2));
+  const ratingConfidence = Number(Math.max(0.005, Math.min(0.08, Math.abs(ratingEdge) / 42 + (home.source === "real" && away.source === "real" ? 0.015 : 0))).toFixed(3));
 
   return {
     away,

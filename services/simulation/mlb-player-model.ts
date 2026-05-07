@@ -31,12 +31,12 @@ export type MlbPlayerProfile = {
   platoonVsRhp: number;
   fatigueRisk: number;
   leverageIndex: number;
-  source: "real" | "synthetic";
+  source: "real" | "estimated" | "synthetic";
 };
 
 export type MlbTeamPlayerSummary = {
   teamName: string;
-  source: "real" | "synthetic";
+  source: "real" | "estimated" | "synthetic";
   players: MlbPlayerProfile[];
   lineupRunCreation: number;
   lineupPower: number;
@@ -69,6 +69,7 @@ function playerTypeFrom(value: unknown, innings: number, pa: number): MlbPlayerP
 function roleFrom(row: RawPlayer, type: MlbPlayerProfile["playerType"], innings: number, pa: number): MlbPlayerProfile["role"] { const v = String(row.role ?? row.position ?? "").toLowerCase(); if (v.includes("ace")) return "ace"; if (v.includes("closer")) return "closer"; if (v.includes("setup")) return "setup"; if (type === "starter" && innings >= 4.5) return "starter"; if (type === "reliever" && num(row.leverageIndex ?? row.leverage_index, 1) >= 1.4) return "setup"; if (type === "hitter" && pa >= 3) return "lineup"; if (pa > 0) return "bench"; return "unknown"; }
 function availabilityWeight(status: MlbPlayerProfile["status"]) { if (status === "out") return 1; if (status === "doubtful") return 0.7; if (status === "questionable") return 0.35; if (status === "unknown") return 0.12; return 0; }
 function rowsFromBody(body: any): RawPlayer[] { if (Array.isArray(body)) return body; if (Array.isArray(body?.players)) return body.players; if (Array.isArray(body?.data)) return body.data; if (Array.isArray(body?.profiles)) return body.profiles; return []; }
+function sourceWeight(source: MlbPlayerProfile["source"]) { if (source === "real") return 1; if (source === "estimated") return 0.38; return 0.14; }
 
 function syntheticPlayers(teamName: string): MlbPlayerProfile[] {
   return Array.from({ length: 16 }, (_, index) => {
@@ -186,14 +187,14 @@ async function getPlayersForTeam(teamName: string) {
 
 function weighted(players: MlbPlayerProfile[], weight: (p: MlbPlayerProfile) => number, selector: (p: MlbPlayerProfile) => number) {
   const active = players.filter((p) => availabilityWeight(p.status) < 1);
-  const totalWeight = active.reduce((sum, p) => sum + Math.max(0, weight(p)), 0);
+  const totalWeight = active.reduce((sum, p) => sum + Math.max(0, weight(p)) * sourceWeight(p.source), 0);
   if (!totalWeight) return 0;
-  return Number((active.reduce((sum, p) => sum + selector(p) * Math.max(0, weight(p)), 0) / totalWeight).toFixed(2));
+  return Number((active.reduce((sum, p) => sum + selector(p) * Math.max(0, weight(p)) * sourceWeight(p.source), 0) / totalWeight).toFixed(2));
 }
 
 export async function getMlbTeamPlayerSummary(teamName: string): Promise<MlbTeamPlayerSummary> {
   const players = await getPlayersForTeam(teamName);
-  const source = players.some((p) => p.source === "real") ? "real" : "synthetic";
+  const source = players.some((p) => p.source === "real") ? "real" : players.some((p) => p.source === "estimated") ? "estimated" : "synthetic";
   const hitters = players.filter((p) => p.playerType === "hitter" || p.playerType === "two-way");
   const pitchers = players.filter((p) => p.playerType === "starter" || p.playerType === "reliever" || p.playerType === "two-way");
   const relievers = players.filter((p) => p.playerType === "reliever");
@@ -223,6 +224,14 @@ export async function getMlbTeamPlayerSummary(teamName: string): Promise<MlbTeam
     offensivePlayerBoost: Number((lineupRunCreation * 0.48 + lineupPower * 0.22 + lineupDiscipline * 0.18 + platoonFlex * 0.16 + speedDefense * 0.08 - availabilityDrag * 0.28).toFixed(2)),
     pitchingPlayerBoost: Number((starterQuality * 0.55 + bullpenLeverage * 0.35 - bullpenFatigue * 0.9 - availabilityDrag * 0.14).toFixed(2)),
     volatilityBoost: Number(Math.max(0.85, Math.min(1.8, 1 + bullpenFatigue / 5 + availabilityDrag / 18 + Math.abs(lineupPower) / 30)).toFixed(2)),
-    notes: [source === "real" ? "Real MLB player analytics feed applied from MLB Data API or configured player feed." : "Synthetic MLB player model applied after MLB Data API/configured feeds returned no data.", `Availability drag ${availabilityDrag}.`, `Bullpen fatigue ${bullpenFatigue}.`]
+    notes: [
+      source === "real"
+        ? "Real MLB player analytics feed applied from a configured stat feed."
+        : source === "estimated"
+          ? "Official MLB roster/probable-player data is present, but advanced player stats are estimated and downweighted."
+          : "Synthetic MLB player model applied after MLB Data API/configured feeds returned no data.",
+      `Availability drag ${availabilityDrag}.`,
+      `Bullpen fatigue ${bullpenFatigue}.`
+    ]
   };
 }

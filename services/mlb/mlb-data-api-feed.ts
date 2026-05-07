@@ -301,7 +301,7 @@ function hitterProfile(roster: RawRow, stat: RawRow | null, index: number): MlbP
     platoonVsRhp: 0,
     fatigueRisk: projectedPa > 4.4 ? 0.24 : 0.12,
     leverageIndex: 0,
-    source: "real"
+    source: stat ? "real" : "estimated"
   };
 }
 
@@ -360,7 +360,7 @@ function pitcherProfile(roster: RawRow, stat: RawRow | null, index: number): Mlb
     platoonVsRhp: 0,
     fatigueRisk: starts > 0 ? 0.18 : clamp(projectedInnings * 0.18, 0.08, 0.38),
     leverageIndex: playerType === "reliever" ? clamp(1.05 + (3.9 - pitcherXFip) * 0.18, 0.6, 2.2) : 0,
-    source: "real"
+    source: stat ? "real" : "estimated"
   };
 }
 
@@ -409,7 +409,7 @@ function modernRosterProfile(args: { row: ModernRosterRow; teamName: string; hit
       platoonVsRhp: 0,
       fatigueRisk: isStarter ? seededRange(seed >>> 8, 0.1, 0.28) : seededRange(seed >>> 8, 0.08, 0.42),
       leverageIndex: isStarter ? 0 : seededRange(seed >>> 9, 0.75, 2.05),
-      source: "real"
+      source: "estimated"
     };
   }
 
@@ -445,7 +445,7 @@ function modernRosterProfile(args: { row: ModernRosterRow; teamName: string; hit
     platoonVsRhp: seededRange(seed >>> 13, -8, 12),
     fatigueRisk: projectedPa > 4.35 ? 0.22 : 0.12,
     leverageIndex: 0,
-    source: "real"
+    source: "estimated"
   };
 }
 

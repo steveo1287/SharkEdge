@@ -94,8 +94,15 @@ function winLean(projection: Projection) {
 
 function dataSourceBadges(row: Row) {
   const source = row.projection.mlbIntel?.dataSource ?? "unknown";
+  const playerMatch = source.match(/player-model:([^+]+)/);
+  const playerSource = playerMatch?.[1] ?? "unknown";
+  const player =
+    playerSource === "real/real" ? ("real" as const) :
+    playerSource.includes("estimated") ? ("estimated" as const) :
+    playerSource.includes("synthetic") ? ("synthetic" as const) :
+    ("unknown" as const);
   return {
-    player: source.includes("player-model:real") || source.includes("real/real") || !source.includes("synthetic") ? ("real" as const) : ("synthetic" as const),
+    player,
     lines: edgeMarket(row.edge) ? ("matched" as const) : ("missing" as const),
     calibration: row.projection.mlbIntel?.calibration?.ece == null ? ("pending" as const) : ("calibrated" as const)
   };
