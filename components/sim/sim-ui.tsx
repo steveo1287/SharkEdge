@@ -43,13 +43,15 @@ export function SimMetricTile({
 }) {
   return (
     <div className={cn(
-      "rounded-2xl border bg-slate-950/50 p-4",
-      emphasis === "strong" ? "border-aqua/25 shadow-[0_0_30px_rgba(34,211,238,0.08)]" : "border-white/10",
-      emphasis === "muted" && "opacity-75"
+      "rounded-xl border bg-black/30 p-4",
+      emphasis === "strong"
+        ? "border-aqua/20 shadow-[0_0_24px_rgba(34,211,238,0.06)]"
+        : "border-white/[0.08]",
+      emphasis === "muted" && "opacity-60"
     )}>
-      <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</div>
-      <div className="mt-2 font-display text-2xl font-semibold leading-none tracking-tight text-white">{value}</div>
-      {sub ? <div className="mt-2 text-xs leading-5 text-slate-400">{sub}</div> : null}
+      <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-slate-600">{label}</div>
+      <div className="mt-2 font-display text-[22px] font-bold leading-none tracking-tight text-white">{value}</div>
+      {sub ? <div className="mt-2 text-[11px] leading-5 text-slate-500">{sub}</div> : null}
     </div>
   );
 }
@@ -68,29 +70,31 @@ export function SimWorkspaceHeader({
   children?: ReactNode;
 }) {
   return (
-    <section className="surface-panel-strong overflow-hidden p-6">
-      <div className="grid gap-6 lg:grid-cols-[1.35fr_0.65fr] lg:items-end">
-        <div>
+    <section className="surface-panel-strong overflow-hidden p-6 pb-7">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
           <div className="section-kicker">{eyebrow}</div>
-          <h1 className="mt-3 max-w-5xl font-display text-4xl font-semibold tracking-tight text-white">{title}</h1>
-          <p className="mt-4 max-w-4xl text-sm leading-7 text-slate-300">{description}</p>
+          <h1 className="mt-2 font-display text-[2.1rem] font-bold leading-none tracking-tight text-white">{title}</h1>
+          <p className="mt-3 max-w-2xl text-[13px] leading-6 text-slate-400">{description}</p>
         </div>
-        <div className="flex flex-wrap gap-2 lg:justify-end">
-          {actions.map((action) => (
-            <Link
-              key={`${action.href}:${action.label}`}
-              href={action.href}
-              className={cn(
-                "rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition-colors",
-                action.tone === "primary"
-                  ? "border-aqua/35 bg-aqua/10 text-aqua hover:bg-aqua/15"
-                  : "border-bone/[0.12] bg-panel text-bone/75 hover:border-bone/20 hover:text-bone"
-              )}
-            >
-              {action.label}
-            </Link>
-          ))}
-        </div>
+        {actions.length > 0 && (
+          <div className="flex flex-wrap items-start gap-2 pt-1">
+            {actions.map((action) => (
+              <Link
+                key={`${action.href}:${action.label}`}
+                href={action.href}
+                className={cn(
+                  "rounded border px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] transition-colors",
+                  action.tone === "primary"
+                    ? "border-aqua/35 bg-aqua/10 text-aqua hover:bg-aqua/15"
+                    : "border-white/[0.10] bg-white/[0.03] text-slate-400 hover:border-white/[0.18] hover:text-slate-200"
+                )}
+              >
+                {action.label}
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
       {children ? <div className="mt-6">{children}</div> : null}
     </section>
@@ -109,13 +113,13 @@ export function SimCardHeader({
   right?: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
-      <div>
-        {eyebrow ? <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{eyebrow}</div> : null}
-        <div className="text-sm font-semibold text-white">{title}</div>
-        {description ? <div className="mt-1 text-xs leading-5 text-slate-500">{description}</div> : null}
+    <div className="flex items-start justify-between gap-4 border-b border-white/[0.08] px-5 py-4">
+      <div className="min-w-0">
+        {eyebrow ? <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-slate-600">{eyebrow}</div> : null}
+        <div className="mt-0.5 font-semibold text-white">{title}</div>
+        {description ? <div className="mt-1 text-[11px] leading-5 text-slate-500">{description}</div> : null}
       </div>
-      {right ? <div className="shrink-0">{right}</div> : null}
+      {right ? <div className="shrink-0 pt-0.5">{right}</div> : null}
     </div>
   );
 }
