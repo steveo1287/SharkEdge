@@ -17,7 +17,7 @@ import {
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 30;
+export const maxDuration = 55;
 
 const DISPLAY_TIME_ZONE = "America/Chicago";
 const ACTIONS = ["bets", "totals", "all", "attack", "play", "lean", "watch", "pass"] as const;
@@ -839,6 +839,42 @@ async function readSnapshots() {
     readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market).catch(() => null),
     readSimCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus).catch(() => null)
   ]);
+
+  const hasRows = (priority?.rows?.length ?? 0) > 0;
+  const hasEdges = (market?.edges?.length ?? 0) > 0;
+
+  // Cold cache — no projections at all. Run full refresh inline so the page
+  // renders with real data instead of an empty shell.
+  if (!hasRows) {
+    try {
+      const { refreshFullSimSnapshots, refreshSimMarketSnapshot } =
+        await import("@/services/simulation/sim-snapshot-service");
+      await Promise.allSettled([refreshFullSimSnapshots(), refreshSimMarketSnapshot()]);
+      const fresh = await Promise.all([
+        readSimCache<SimHubSnapshot>(SIM_CACHE_KEYS.hub).catch(() => null),
+        readSimCache<SimPrioritySnapshot>(SIM_CACHE_KEYS.priority).catch(() => null),
+        readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market).catch(() => null),
+        readSimCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus).catch(() => null)
+      ]);
+      return { hub: fresh[0], priority: fresh[1], market: fresh[2], status: fresh[3] };
+    } catch {
+      // fall through and render whatever we have
+    }
+  }
+
+  // Projections exist but market edges are missing — just re-join odds quickly.
+  if (hasRows && !hasEdges) {
+    try {
+      const { refreshSimMarketSnapshot } =
+        await import("@/services/simulation/sim-snapshot-service");
+      await refreshSimMarketSnapshot();
+      const freshMarket = await readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market).catch(() => null);
+      return { hub, priority, market: freshMarket, status };
+    } catch {
+      // fall through
+    }
+  }
+
   return { hub, priority, market, status };
 }
 
