@@ -16,6 +16,10 @@ export const maxDuration = 30;
 
 const DISPLAY_TIME_ZONE = "America/Chicago";
 
+type PageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
 type GameWorkspace = {
   key: string;
   row: SimPriorityRow;
@@ -24,10 +28,47 @@ type GameWorkspace = {
   sortScore: number;
 };
 
+function readParam(searchParams: Record<string, string | string[] | undefined>, key: string) {
+  const value = searchParams[key];
+  return Array.isArray(value) ? value[0] : value;
+}
+
 function dateFrom(value: string | null | undefined) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function chicagoDateKeyFromDate(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: DISPLAY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value ?? "0000";
+  const month = parts.find((part) => part.type === "month")?.value ?? "00";
+  const day = parts.find((part) => part.type === "day")?.value ?? "00";
+  return `${year}-${month}-${day}`;
+}
+
+function chicagoDateKey(value: string | null | undefined) {
+  const date = dateFrom(value);
+  return date ? chicagoDateKeyFromDate(date) : "unknown";
+}
+
+function relativeChicagoDateKey(offsetDays: number) {
+  return chicagoDateKeyFromDate(new Date(Date.now() + offsetDays * 86_400_000));
+}
+
+function labelForDateKey(key: string) {
+  if (key === "all") return "All dates";
+  if (key === relativeChicagoDateKey(-1)) return "Yesterday";
+  if (key === relativeChicagoDateKey(0)) return "Today";
+  if (key === relativeChicagoDateKey(1)) return "Tomorrow";
+  const [year, month, day] = key.split("-").map(Number);
+  if (!year || !month || !day) return "Unknown date";
+  return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" }).format(new Date(Date.UTC(year, month - 1, day, 12)));
 }
 
 function ageMinutes(value: string | null | undefined) {
@@ -57,7 +98,7 @@ function formatTime(value: string | null | undefined) {
   }).format(date);
 }
 
-function dateKey(value: string | null | undefined) {
+function legacyDateKey(value: string | null | undefined) {
   const date = dateFrom(value);
   if (!date) return "unknown";
   return new Intl.DateTimeFormat("en-US", {
@@ -69,15 +110,8 @@ function dateKey(value: string | null | undefined) {
 }
 
 function dateLabel(value: string | null | undefined) {
-  const date = dateFrom(value);
-  if (!date) return "Unknown date";
-  const now = new Date();
-  const todayKey = new Intl.DateTimeFormat("en-US", { timeZone: DISPLAY_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-  const tomorrowKey = new Intl.DateTimeFormat("en-US", { timeZone: DISPLAY_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now.getTime() + 86_400_000));
-  const key = dateKey(value);
-  if (key === todayKey) return "Today";
-  if (key === tomorrowKey) return "Tomorrow";
-  return new Intl.DateTimeFormat("en-US", { timeZone: DISPLAY_TIME_ZONE, weekday: "long", month: "short", day: "numeric" }).format(date);
+  const key = chicagoDateKey(value);
+  return labelForDateKey(key);
 }
 
 function formatPct(value: number | null | undefined, digits = 1) {
@@ -95,7 +129,7 @@ function normalizeTeam(value: string | null | undefined) {
 }
 
 function gameWorkspaceKey(row: SimPriorityRow) {
-  return [row.leagueKey, dateKey(row.startTime), normalizeTeam(row.matchup.away), normalizeTeam(row.matchup.home)].join("::");
+  return [row.leagueKey, legacyDateKey(row.startTime), normalizeTeam(row.matchup.away), normalizeTeam(row.matchup.home)].join("::");
 }
 
 function tierRank(tier: string | undefined) {
@@ -142,13 +176,21 @@ function buildGameWorkspaces(raw: SimPriorityRow[]): GameWorkspace[] {
 function groupGames(rows: SimPriorityRow[]) {
   const map = new Map<string, GameWorkspace[]>();
   for (const game of buildGameWorkspaces(rows)) {
-    const key = dateKey(game.row.startTime);
+    const key = chicagoDateKey(game.row.startTime);
     map.set(key, [...(map.get(key) ?? []), game]);
   }
   return [...map.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .slice(0, 4)
-    .map(([key, games]) => ({ key, label: dateLabel(games[0]?.row.startTime), games }));
+    .map(([key, games]) => ({ key, label: labelForDateKey(key), games }));
+}
+
+function dateOptions(rows: SimPriorityRow[]) {
+  const keys = new Set<string>();
+  for (const row of rows) {
+    const key = chicagoDateKey(row.startTime);
+    if (key !== "unknown") keys.add(key);
+  }
+  return [...keys].sort();
 }
 
 async function readSnapshots() {
@@ -184,6 +226,57 @@ function ActionLink({ href, children, primary = false }: { href: string; childre
     >
       {children}
     </Link>
+  );
+}
+
+function FilterLink({ href, active, children }: { href: string; active: boolean; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className={`rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+        active ? "border-cyan-300/35 bg-cyan-300/12 text-cyan-100" : "border-white/10 bg-white/[0.03] text-slate-400"
+      }`}
+    >
+      {children}
+    </Link>
+  );
+}
+
+function DateFilter({ selectedDate, options }: { selectedDate: string; options: string[] }) {
+  const today = relativeChicagoDateKey(0);
+  const yesterday = relativeChicagoDateKey(-1);
+  const tomorrow = relativeChicagoDateKey(1);
+
+  return (
+    <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Slate filter</div>
+          <h2 className="mt-1 font-display text-2xl font-semibold text-white">{labelForDateKey(selectedDate)}</h2>
+          <p className="mt-1 text-xs leading-5 text-slate-500">Default view is today. Use All only when you want the full slate history.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <FilterLink href={`/sim?date=${yesterday}`} active={selectedDate === yesterday}>Yesterday</FilterLink>
+          <FilterLink href={`/sim?date=${today}`} active={selectedDate === today}>Today</FilterLink>
+          <FilterLink href={`/sim?date=${tomorrow}`} active={selectedDate === tomorrow}>Tomorrow</FilterLink>
+          <FilterLink href="/sim?date=all" active={selectedDate === "all"}>All</FilterLink>
+        </div>
+      </div>
+
+      <form method="get" className="mt-4 flex flex-wrap items-end gap-3">
+        <label className="grid gap-1 text-xs text-slate-400">
+          <span className="font-semibold uppercase tracking-[0.14em] text-slate-500">Specific date</span>
+          <input
+            type="date"
+            name="date"
+            defaultValue={selectedDate === "all" ? today : selectedDate}
+            className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+          />
+        </label>
+        <button type="submit" className="rounded-xl border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100 hover:bg-cyan-300/15">Apply date</button>
+        {options.length ? <div className="text-xs text-slate-500">Available: {options.map(labelForDateKey).join(" · ")}</div> : null}
+      </form>
+    </section>
   );
 }
 
@@ -231,18 +324,23 @@ function GameCard({ game }: { game: GameWorkspace }) {
   );
 }
 
-export default async function FastSimHubPage() {
+export default async function FastSimHubPage({ searchParams }: PageProps) {
+  const resolvedSearchParams = (await searchParams) ?? {};
+  const requestedDate = readParam(resolvedSearchParams, "date");
+  const selectedDate = requestedDate === "all" ? "all" : requestedDate || relativeChicagoDateKey(0);
   const { hub, priority, market, status } = await readSnapshots();
 
   const rows = priority?.rows ?? [];
-  const uniqueGames = rows.length ? buildGameWorkspaces(rows).length : 0;
-  const duplicateSignals = Math.max(0, rows.length - uniqueGames);
-  const groups = groupGames(rows);
+  const filteredRows = selectedDate === "all" ? rows : rows.filter((row) => chicagoDateKey(row.startTime) === selectedDate);
+  const uniqueGames = filteredRows.length ? buildGameWorkspaces(filteredRows).length : 0;
+  const duplicateSignals = Math.max(0, filteredRows.length - uniqueGames);
+  const groups = groupGames(filteredRows);
+  const availableDates = dateOptions(rows);
   const simAge = status?.lastSuccessAt ?? priority?.generatedAt ?? hub?.generatedAt ?? null;
   const simFresh = (ageMinutes(simAge) ?? 999) <= 20;
   const marketFresh = (ageMinutes(market?.generatedAt) ?? 999) <= 15;
   const refreshRunning = status?.running === true;
-  const degraded = !rows.length || status?.ok === false;
+  const degraded = !filteredRows.length || status?.ok === false;
 
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -252,7 +350,7 @@ export default async function FastSimHubPage() {
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">Simulation Command</div>
             <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">SharkEdge Sim Hub</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Fast cache-first sim board. This route does not run projection rebuilds during page load.
+              Date-filtered, cache-first sim board. Default view is today so the page does not turn into a doomscroll.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -264,12 +362,14 @@ export default async function FastSimHubPage() {
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <Tile label="Sim cache" value={simFresh ? "Fresh" : priority ? "Stale" : "Missing"} note={`Last success ${formatAge(simAge)}`} ok={simFresh && Boolean(rows.length)} />
-          <Tile label="Unique games" value={uniqueGames} note={`${duplicateSignals} duplicate signals merged`} ok={uniqueGames > 0} />
+          <Tile label="Visible games" value={uniqueGames} note={`${duplicateSignals} duplicate signals merged`} ok={uniqueGames > 0} />
           <Tile label="MLB games" value={hub?.summary.mlbCount ?? priority?.summary.mlbCount ?? 0} note={`${market?.lineCount ?? 0} market lines`} ok={marketFresh || Boolean(market?.lineCount)} />
           <Tile label="Market cache" value={marketFresh ? "Fresh" : market ? "Stale" : "Missing"} note={`Generated ${formatAge(market?.generatedAt)}`} ok={marketFresh} />
           <Tile label="Refresh state" value={refreshRunning ? "Running" : status?.ok === false ? "Failed" : "Idle"} note={status?.reason ?? "Background refresh is non-blocking"} ok={!degraded || refreshRunning} />
         </div>
       </section>
+
+      <DateFilter selectedDate={selectedDate} options={availableDates} />
 
       {status?.ok === false ? (
         <section className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.055] p-4 text-sm leading-6 text-amber-100/85">
@@ -278,14 +378,15 @@ export default async function FastSimHubPage() {
         </section>
       ) : null}
 
-      {!rows.length ? (
+      {!filteredRows.length ? (
         <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-6">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">No sim rows loaded</div>
-          <h2 className="mt-2 font-display text-2xl font-semibold text-white">The priority snapshot is empty or missing.</h2>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">No games for {labelForDateKey(selectedDate)}</div>
+          <h2 className="mt-2 font-display text-2xl font-semibold text-white">No sim rows match this date.</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            Hit Refresh Sim. The request returns immediately and queues the rebuild behind the scenes.
+            Pick another date, switch to All, or refresh the sim cache if today’s slate has not been written yet.
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
+            <ActionLink href="/sim?date=all">View all</ActionLink>
             <ActionLink href="/api/sim/refresh?force=1" primary>Queue refresh</ActionLink>
             <ActionLink href="/api/sim/health">Open health JSON</ActionLink>
           </div>
@@ -296,8 +397,8 @@ export default async function FastSimHubPage() {
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Unified slate</div>
-                <h2 className="mt-1 font-display text-2xl font-semibold text-white">One game card per matchup</h2>
-                <p className="mt-1 text-xs leading-5 text-slate-500">{uniqueGames} matchup{uniqueGames !== 1 ? "s" : ""} · {duplicateSignals} duplicate signal{duplicateSignals !== 1 ? "s" : ""} collapsed.</p>
+                <h2 className="mt-1 font-display text-2xl font-semibold text-white">{labelForDateKey(selectedDate)} · {uniqueGames} game{uniqueGames !== 1 ? "s" : ""}</h2>
+                <p className="mt-1 text-xs leading-5 text-slate-500">{duplicateSignals} duplicate signal{duplicateSignals !== 1 ? "s" : ""} collapsed.</p>
               </div>
               <div className="text-xs text-slate-500">Snapshot {formatAge(priority?.generatedAt)}</div>
             </div>
@@ -305,7 +406,7 @@ export default async function FastSimHubPage() {
 
           {groups.map((group) => (
             <div key={group.key} className="grid gap-3">
-              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{group.label} · {group.games.length} game{group.games.length !== 1 ? "s" : ""}</div>
+              {selectedDate === "all" ? <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{group.label} · {group.games.length} game{group.games.length !== 1 ? "s" : ""}</div> : null}
               <div className="grid gap-3 2xl:grid-cols-2">
                 {group.games.map((game) => <GameCard key={game.key} game={game} />)}
               </div>
