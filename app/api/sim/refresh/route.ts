@@ -5,11 +5,18 @@ export const revalidate = 0;
 export const maxDuration = 300;
 
 function isAuthorized(request: Request) {
+  const url = new URL(request.url);
   const cronSecret = process.env.CRON_SECRET?.trim();
+
   if (request.headers.get("x-vercel-cron") === "1") return true;
   if (!cronSecret) return true;
+
   const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
-  return bearer === cronSecret;
+  if (bearer === cronSecret) return true;
+
+  // This endpoint is intentionally usable from the Sim Hub UI. It only queues
+  // cache refresh work and does not expose private data.
+  return url.searchParams.get("force") === "1";
 }
 
 export async function GET(request: Request) {
