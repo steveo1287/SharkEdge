@@ -3,6 +3,7 @@ import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 const ACTIVE_LEAGUE = "MLB";
 const DEFAULT_MODEL_VERSION = "sim-accuracy-snapshot";
 const SNAPSHOT_MARKET = "moneyline";
+const JUICE_PAYOUT = 100 / 110;
 const BUCKETS = [
   { bucket: "40-45", lower: 0.4, upper: 0.45 },
   { bucket: "45-50", lower: 0.45, upper: 0.5 },
@@ -12,7 +13,6 @@ const BUCKETS = [
   { bucket: "65-70", lower: 0.65, upper: 0.7 },
   { bucket: "70+", lower: 0.7, upper: null }
 ];
-const JUICE_PAYOUT = 100 / 110;
 
 type ScorecardFilters = {
   league?: string | null;
@@ -65,14 +65,14 @@ function normalizeWindowDays(value: number | null | undefined) {
   return Math.min(3650, Math.max(1, Math.round(value)));
 }
 
-function n(value: unknown) {
+function numberValue(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "bigint") return Number(value);
   if (typeof value === "string" && Number.isFinite(Number(value))) return Number(value);
   return null;
 }
 
-function r(value: number | null | undefined, digits = 4) {
+function round(value: number | null | undefined, digits = 4) {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return Number(value.toFixed(digits));
 }
@@ -88,63 +88,102 @@ function iso(value: unknown) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function json(value: unknown) {
+function parseJson(value: unknown) {
   if (typeof value === "string") {
     try { return JSON.parse(value); } catch { return value; }
   }
   return value;
 }
 
-function obj(value: unknown): Record<string, unknown> | null {
+function objectValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
 function get(source: unknown, path: string) {
   let current: unknown = source;
   for (const part of path.split(".")) {
-    const record = obj(current);
+    const record = objectValue(current);
     if (!record) return undefined;
     current = record[part];
   }
   return current;
 }
 
-function american(value: unknown) {
-  const odds = n(value);
+function americanOdds(value: unknown) {
+  const odds = numberValue(value);
   if (odds == null || odds === 0) return null;
   if (Math.abs(odds) < 100 || Math.abs(odds) > 10000) return null;
   return Math.round(odds);
 }
 
-const HOME_ODDS = ["homeMoneyline", "homeAmericanOdds", "homeOddsAmerican", "homeOdds", "currentHomeOdds", "bestHomeOddsAmerican", "moneyline.home", "moneyline.homeOdds", "moneyline.homeMoneyline", "markets.moneyline.home", "markets.moneyline.homeOdds", "home.price", "home.odds", "home.americanOdds"];
-const AWAY_ODDS = ["awayMoneyline", "awayAmericanOdds", "awayOddsAmerican", "awayOdds", "currentAwayOdds", "bestAwayOddsAmerican", "moneyline.away", "moneyline.awayOdds", "moneyline.awayMoneyline", "markets.moneyline.away", "markets.moneyline.awayOdds", "away.price", "away.odds", "away.americanOdds"];
+const HOME_ODDS_PATHS = ["homeMoneyline", "homeAmericanOdds", "homeOddsAmerican", "homeOdds", "currentHomeOdds", "bestHomeOddsAmerican", "moneyline.home", "moneyline.homeOdds", "moneyline.homeMoneyline", "markets.moneyline.home", "markets.moneyline.homeOdds", "home.price", "home.odds", "home.americanOdds"];
+const AWAY_ODDS_PATHS = ["awayMoneyline", "awayAmericanOdds", "awayOddsAmerican", "awayOdds", "currentAwayOdds", "bestAwayOddsAmerican", "moneyline.away", "moneyline.awayOdds", "moneyline.awayMoneyline", "markets.moneyline.away", "markets.moneyline.awayOdds", "away.price", "away.odds", "away.americanOdds"];
 
-function findOdds(source: unknown, paths: string[]) {
+function firstOdds(source: unknown, paths: string[]) {
   for (const path of paths) {
-    const value = american(get(source, path));
-    if (value != null) return value;
+    const odds = americanOdds(get(source, path));
+    if (odds != null) return odds;
   }
   return null;
 }
 
+function topSignal(payload: unknown) {
+  return objectValue(get(payload, "topSignal"));
+}
+
+function takeAction(payload: unknown) {
+  const actionPayload = objectValue(get(payload, "topSignal.takeAction"));
+  if (!actionPayload) {
+    return {
+      present: false,
+      action: null as string | null,
+      roiEligible: null as boolean | null,
+      betEligible: null as boolean | null,
+      actionScore: null as number | null,
+      expectedValue: null as number | null,
+      stakeUnits: null as number | null,
+      kellyFraction: null as number | null
+    };
+  }
+
+  const action = String(actionPayload.action ?? "").toUpperCase() || null;
+  const roiEligible = Boolean(actionPayload.roiEligible) || action === "ATTACK" || action === "PLAY";
+  const betEligible = Boolean(actionPayload.betEligible) || action === "ATTACK" || action === "PLAY";
+
+  return {
+    present: true,
+    action,
+    roiEligible,
+    betEligible,
+    actionScore: numberValue(actionPayload.actionScore),
+    expectedValue: numberValue(actionPayload.expectedValue),
+    stakeUnits: numberValue(actionPayload.stakeUnits),
+    kellyFraction: numberValue(actionPayload.kellyFraction)
+  };
+}
+
 function signal(payload: unknown) {
-  const topSignal = obj(get(payload, "topSignal"));
-  const market = String(topSignal?.market ?? "").toLowerCase() || null;
-  const strength = String(topSignal?.strength ?? "").toLowerCase() || null;
-  if (!topSignal) return { side: null as "HOME" | "AWAY" | null, market, strength, excluded: "no top signal" };
-  if (market === "home_ml") return { side: "HOME" as const, market, strength, excluded: null as string | null };
-  if (market === "away_ml") return { side: "AWAY" as const, market, strength, excluded: null as string | null };
-  return { side: null as "HOME" | "AWAY" | null, market, strength, excluded: market ? `non-moneyline signal: ${market}` : "missing moneyline signal" };
+  const signalPayload = topSignal(payload);
+  const action = takeAction(payload);
+  const market = String(signalPayload?.market ?? "").toLowerCase() || null;
+  const strength = String(signalPayload?.strength ?? "").toLowerCase() || null;
+
+  if (!signalPayload) return { side: null as "HOME" | "AWAY" | null, market, strength, excluded: "no top signal", ...action };
+  if (market === "home_ml") return { side: "HOME" as const, market, strength, excluded: null as string | null, ...action };
+  if (market === "away_ml") return { side: "AWAY" as const, market, strength, excluded: null as string | null, ...action };
+  return { side: null as "HOME" | "AWAY" | null, market, strength, excluded: market ? `non-moneyline signal: ${market}` : "missing moneyline signal", ...action };
 }
 
 function selectedOdds(payload: unknown, side: "HOME" | "AWAY" | null) {
   if (!side) return { odds: null as number | null, source: null as string | null };
-  const record = obj(payload);
+  const record = objectValue(payload);
   if (!record) return { odds: null, source: null };
+
   const candidates = [record.market, get(record, "mlbIntel.market"), get(record, "realityIntel.market"), get(record, "nbaIntel.market"), record.topSignal, record.sportsbook ? record : null].filter(Boolean);
-  const paths = side === "HOME" ? HOME_ODDS : AWAY_ODDS;
+  const paths = side === "HOME" ? HOME_ODDS_PATHS : AWAY_ODDS_PATHS;
+
   for (const candidate of candidates) {
-    const odds = findOdds(candidate, paths);
+    const odds = firstOdds(candidate, paths);
     if (odds != null) {
       return {
         odds,
@@ -152,37 +191,24 @@ function selectedOdds(payload: unknown, side: "HOME" | "AWAY" | null) {
       };
     }
   }
+
   return { odds: null, source: null };
 }
 
-function bucketFor(probability: number | null | undefined) {
-  if (typeof probability !== "number" || !Number.isFinite(probability)) return null;
-  return BUCKETS.find((bucket) => probability >= bucket.lower && (bucket.upper == null || probability < bucket.upper))?.bucket ?? null;
-}
-
-function result(row: SnapshotRow, side: "HOME" | "AWAY" | null) {
+function resultBucket(row: SnapshotRow, side: "HOME" | "AWAY" | null) {
   const homeWon = row.home_won;
-  const finalHome = n(row.final_home_score);
-  const finalAway = n(row.final_away_score);
+  const finalHome = numberValue(row.final_home_score);
+  const finalAway = numberValue(row.final_away_score);
   if (!side || !row.graded_at || finalHome == null || finalAway == null || homeWon == null) return "PENDING";
   if (finalHome === finalAway) return "PUSH";
   return (side === "HOME") === homeWon ? "WIN" : "LOSS";
 }
 
-function quality(row: LedgerRow) {
-  if (row.roiExclusionReason) return `EXCLUDED: ${row.roiExclusionReason}`;
-  const flags = obj(row.dataQualityFlags);
-  if (flags?.noBet) return "MONEYLINE: governor no-bet";
-  if (!row.signalStrength) return "MONEYLINE: missing strength";
-  return `MONEYLINE: ${row.signalStrength}`;
-}
-
 function mapRow(row: SnapshotRow) {
-  const predictionJson = json(row.prediction_json);
+  const predictionJson = parseJson(row.prediction_json);
   const sig = signal(predictionJson);
   const odds = selectedOdds(predictionJson, sig.side);
   const predictionTime = iso(row.captured_at) ?? new Date().toISOString();
-  const modelProbability = n(row.model_home_win_pct);
   const modelNoBet = Boolean(row.no_bet) || Boolean(get(predictionJson, "model.noBet")) || Boolean(get(predictionJson, "mlbIntel.governor.noBet"));
 
   return {
@@ -196,31 +222,51 @@ function mapRow(row: SnapshotRow) {
     side: sig.side,
     signalMarket: sig.market,
     signalStrength: sig.strength,
+    takeActionPresent: sig.present,
+    takeActionAction: sig.action,
+    takeActionScore: sig.actionScore,
+    takeActionRoiEligible: sig.roiEligible,
+    takeActionBetEligible: sig.betEligible,
+    takeActionExpectedValue: sig.expectedValue,
+    takeActionStakeUnits: sig.stakeUnits,
+    takeActionKellyFraction: sig.kellyFraction,
     roiExclusionReason: sig.excluded,
     selectedAmericanOdds: odds.odds,
     oddsSource: odds.source,
-    modelProbability,
-    modelSpread: n(row.model_spread),
-    modelTotal: n(row.model_total),
-    marketProbability: n(row.market_home_win_pct),
-    marketSpread: n(row.market_spread),
-    marketTotal: n(row.market_total),
+    modelProbability: numberValue(row.model_home_win_pct),
+    modelSpread: numberValue(row.model_spread),
+    modelTotal: numberValue(row.model_total),
+    marketProbability: numberValue(row.market_home_win_pct),
+    marketSpread: numberValue(row.market_spread),
+    marketTotal: numberValue(row.market_total),
     closingProbability: null,
     closingSpread: null,
     closingTotal: null,
-    finalHomeScore: n(row.final_home_score),
-    finalAwayScore: n(row.final_away_score),
+    finalHomeScore: numberValue(row.final_home_score),
+    finalAwayScore: numberValue(row.final_away_score),
     outcome: row.home_won == null ? null : row.home_won ? 1 : 0,
-    resultBucket: result(row, sig.side),
-    brierScore: n(row.brier),
-    logLoss: n(row.log_loss),
-    spreadError: n(row.spread_error),
-    totalError: n(row.total_error),
+    resultBucket: resultBucket(row, sig.side),
+    brierScore: numberValue(row.brier),
+    logLoss: numberValue(row.log_loss),
+    spreadError: numberValue(row.spread_error),
+    totalError: numberValue(row.total_error),
     clvPct: null,
     dataQualityGrade: row.tier ?? "UNKNOWN",
-    dataQualityFlags: { tier: row.tier, dataSource: row.data_source, noBet: modelNoBet, confidence: n(row.confidence), signalMarket: sig.market, signalStrength: sig.strength, roiExclusionReason: sig.excluded },
+    dataQualityFlags: {
+      tier: row.tier,
+      dataSource: row.data_source,
+      noBet: modelNoBet,
+      confidence: numberValue(row.confidence),
+      signalMarket: sig.market,
+      signalStrength: sig.strength,
+      roiExclusionReason: sig.excluded,
+      takeActionPresent: sig.present,
+      takeActionAction: sig.action,
+      takeActionRoiEligible: sig.roiEligible,
+      takeActionScore: sig.actionScore
+    },
     predictionJson,
-    resultJson: json(row.result_json),
+    resultJson: parseJson(row.result_json),
     settledAt: iso(row.graded_at),
     createdAt: iso(row.created_at) ?? predictionTime,
     updatedAt: iso(row.updated_at) ?? predictionTime
@@ -231,9 +277,21 @@ function graded(rows: LedgerRow[]) {
   return rows.filter((row) => row.outcome != null && row.finalHomeScore != null && row.finalAwayScore != null);
 }
 
-function decisions(rows: LedgerRow[]) {
+function isOfficialBetDecision(row: LedgerRow) {
+  if (!(row.resultBucket === "WIN" || row.resultBucket === "LOSS" || row.resultBucket === "PUSH")) return false;
+  if (row.roiExclusionReason) return false;
+
+  // New captures: official ROI is ATTACK + PLAY only.
+  if (row.takeActionPresent) return row.takeActionRoiEligible === true;
+
+  // Legacy captures before Take Action v2 existed: keep them visible so the
+  // page does not go blank, but quality labels mark them as legacy moneyline.
+  return row.side === "HOME" || row.side === "AWAY";
+}
+
+function officialDecisions(rows: LedgerRow[]) {
   const byGame = new Map<string, LedgerRow>();
-  for (const row of rows.filter((item) => item.resultBucket === "WIN" || item.resultBucket === "LOSS" || item.resultBucket === "PUSH")) {
+  for (const row of rows.filter(isOfficialBetDecision)) {
     const key = `${row.modelVersion}::${row.gameId}`;
     const existing = byGame.get(key);
     if (!existing || new Date(row.predictionTime).getTime() > new Date(existing.predictionTime).getTime()) byGame.set(key, row);
@@ -241,26 +299,34 @@ function decisions(rows: LedgerRow[]) {
   return [...byGame.values()].sort((a, b) => new Date(b.predictionTime).getTime() - new Date(a.predictionTime).getTime());
 }
 
+function payoutForWin(american: number | null | undefined) {
+  if (american == null) return JUICE_PAYOUT;
+  return american > 0 ? american / 100 : 100 / Math.abs(american);
+}
+
 function roi(rows: LedgerRow[]) {
-  const rowsToGrade = decisions(rows).filter((row) => row.resultBucket === "WIN" || row.resultBucket === "LOSS");
+  const rowsToGrade = officialDecisions(rows).filter((row) => row.resultBucket === "WIN" || row.resultBucket === "LOSS");
   if (!rowsToGrade.length) return { unitsNet: null, roi: null, roiMode: "no_settled_picks", actualOddsCount: 0, fallbackOddsCount: 0, avgSelectedAmericanOdds: null };
+
   let net = 0;
   let actualOddsCount = 0;
   let fallbackOddsCount = 0;
   const captured: number[] = [];
+
   for (const row of rowsToGrade) {
     if (row.selectedAmericanOdds != null) { actualOddsCount += 1; captured.push(row.selectedAmericanOdds); }
     else fallbackOddsCount += 1;
-    if (row.resultBucket === "LOSS") net -= 1;
-    else net += row.selectedAmericanOdds == null ? JUICE_PAYOUT : row.selectedAmericanOdds > 0 ? row.selectedAmericanOdds / 100 : 100 / Math.abs(row.selectedAmericanOdds);
+    net += row.resultBucket === "LOSS" ? -1 : payoutForWin(row.selectedAmericanOdds);
   }
-  const unitsNet = r(net, 2);
+
+  const unitsNet = round(net, 2);
   const mode = actualOddsCount > 0 && fallbackOddsCount === 0 ? "actual_captured_odds" : actualOddsCount > 0 ? "mixed_actual_and_fallback" : "fallback_-110";
-  return { unitsNet, roi: r(((unitsNet ?? 0) / rowsToGrade.length) * 100, 2), roiMode: mode, actualOddsCount, fallbackOddsCount, avgSelectedAmericanOdds: r(avg(captured), 0) };
+  return { unitsNet, roi: round(((unitsNet ?? 0) / rowsToGrade.length) * 100, 2), roiMode: mode, actualOddsCount, fallbackOddsCount, avgSelectedAmericanOdds: round(avg(captured), 0) };
 }
 
-function counts(values: string[]) {
-  return values.reduce<Record<string, number>>((acc, value) => { acc[value] = (acc[value] ?? 0) + 1; return acc; }, {});
+function bucketFor(probability: number | null | undefined) {
+  if (typeof probability !== "number" || !Number.isFinite(probability)) return null;
+  return BUCKETS.find((bucket) => probability >= bucket.lower && (bucket.upper == null || probability < bucket.upper))?.bucket ?? null;
 }
 
 function calibrationBuckets(rows: LedgerRow[]) {
@@ -269,17 +335,44 @@ function calibrationBuckets(rows: LedgerRow[]) {
     const bucketRows = settled.filter((row) => bucketFor(row.modelProbability) === bucket.bucket);
     const actual = bucketRows.length ? bucketRows.reduce((sum, row) => sum + Number(row.outcome ?? 0), 0) / bucketRows.length : null;
     const predicted = avg(bucketRows.map((row) => row.modelProbability));
-    return { bucket: bucket.bucket, lower: bucket.lower, upper: bucket.upper, predictionCount: bucketRows.length, avgPredictedProbability: r(predicted, 3), actualHitRate: r(actual, 3), brierScoreAvg: r(avg(bucketRows.map((row) => row.brierScore)), 4), calibrationError: actual == null || predicted == null ? null : r(Math.abs(predicted - actual), 4) };
+    return {
+      bucket: bucket.bucket,
+      lower: bucket.lower,
+      upper: bucket.upper,
+      predictionCount: bucketRows.length,
+      avgPredictedProbability: round(predicted, 3),
+      actualHitRate: round(actual, 3),
+      brierScoreAvg: round(avg(bucketRows.map((row) => row.brierScore)), 4),
+      calibrationError: actual == null || predicted == null ? null : round(Math.abs(predicted - actual), 4)
+    };
   });
 }
 
+function quality(row: LedgerRow) {
+  if (row.roiExclusionReason) return `EXCLUDED: ${row.roiExclusionReason}`;
+  if (row.takeActionPresent) {
+    const action = row.takeActionAction ?? "UNKNOWN";
+    return row.takeActionRoiEligible ? `BET ROI: ${action}` : `TRACKED ONLY: ${action}`;
+  }
+  const flags = objectValue(row.dataQualityFlags);
+  if (flags?.noBet) return "LEGACY MONEYLINE: governor no-bet";
+  if (!row.signalStrength) return "LEGACY MONEYLINE: missing strength";
+  return `LEGACY MONEYLINE: ${row.signalStrength}`;
+}
+
+function counts(values: string[]) {
+  return values.reduce<Record<string, number>>((acc, value) => { acc[value] = (acc[value] ?? 0) + 1; return acc; }, {});
+}
+
 function buildCard(rows: LedgerRow[]) {
-  const pickRows = decisions(rows);
+  const pickRows = officialDecisions(rows);
   const settled = graded(rows);
   const winCount = pickRows.filter((row) => row.resultBucket === "WIN").length;
   const lossCount = pickRows.filter((row) => row.resultBucket === "LOSS").length;
   const pushCount = pickRows.filter((row) => row.resultBucket === "PUSH").length;
   const buckets = calibrationBuckets(rows);
+  const roiStats = roi(rows);
+
   return {
     league: ACTIVE_LEAGUE,
     market: SNAPSHOT_MARKET,
@@ -290,15 +383,15 @@ function buildCard(rows: LedgerRow[]) {
     winCount,
     lossCount,
     pushCount,
-    sampleWarning: pickRows.length < 30 ? "Very small MLB moneyline signal sample. Treat ROI as directional only." : pickRows.length < 100 ? "Small MLB moneyline signal sample. Track before making hard ROI claims." : null,
-    brierScoreAvg: r(avg(settled.map((row) => row.brierScore)), 4),
-    logLossAvg: r(avg(settled.map((row) => row.logLoss)), 4),
-    spreadMae: r(avg(settled.map((row) => row.spreadError)), 2),
-    totalMae: r(avg(settled.map((row) => row.totalError)), 2),
+    sampleWarning: pickRows.length < 30 ? "Very small official bet sample. Treat ROI as directional only." : pickRows.length < 100 ? "Small official bet sample. Track before making hard ROI claims." : null,
+    brierScoreAvg: round(avg(settled.map((row) => row.brierScore)), 4),
+    logLossAvg: round(avg(settled.map((row) => row.logLoss)), 4),
+    spreadMae: round(avg(settled.map((row) => row.spreadError)), 2),
+    totalMae: round(avg(settled.map((row) => row.totalError)), 2),
     clvAvgPct: null,
-    winRate: winCount + lossCount > 0 ? r(winCount / (winCount + lossCount), 3) : null,
-    ...roi(rows),
-    calibrationErrorAvg: r(avg(buckets.map((bucket) => bucket.calibrationError)), 4),
+    winRate: winCount + lossCount > 0 ? round(winCount / (winCount + lossCount), 3) : null,
+    ...roiStats,
+    calibrationErrorAvg: round(avg(buckets.map((bucket) => bucket.calibrationError)), 4),
     dataQualityBreakdown: counts(rows.map(quality)),
     calibrationBuckets: buckets
   };
@@ -324,11 +417,14 @@ function empty(filters: ScorecardFilters, databaseReady: boolean, error?: string
 
 export async function getSimModelScorecard(filters: ScorecardFilters = {}) {
   if (!hasUsableServerDatabaseUrl()) return empty(filters, false, "No usable server database URL is configured.");
+
   const market = normalizeFilter(filters.market);
   const modelVersion = normalizeFilter(filters.modelVersion);
   const windowDays = normalizeWindowDays(filters.windowDays);
   const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
+
   if (market !== "ALL" && market !== SNAPSHOT_MARKET) return empty({ league: ACTIVE_LEAGUE, market, modelVersion, windowDays }, true);
+
   let rows: SnapshotRow[];
   try {
     rows = await prisma.$queryRaw<SnapshotRow[]>`
@@ -350,24 +446,27 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}) {
     console.error("[sim-accuracy] MLB scorecard query failed", error);
     return empty({ league: ACTIVE_LEAGUE, market, modelVersion, windowDays }, false, "Sim accuracy database is unavailable. Verify DATABASE_URL and run the Prisma migration before using the MLB accuracy ledger.");
   }
+
   const predictions = rows.map(mapRow);
   const groups = new Map<string, LedgerRow[]>();
   for (const row of predictions) {
     const key = `${ACTIVE_LEAGUE}::${row.market}::${row.modelVersion}`;
     groups.set(key, [...(groups.get(key) ?? []), row]);
   }
+
   const scorecards = [...groups.values()].map(buildCard).sort((a, b) => b.settledCount - a.settledCount);
   const card = buildCard(predictions);
   const settled = graded(predictions);
+
   return {
     ok: true,
     databaseReady: true,
     generatedAt: new Date().toISOString(),
     sourceTable: "sim_prediction_snapshots",
     filters: { league: ACTIVE_LEAGUE, market, modelVersion, windowDays },
-    totals: { predictionCount: predictions.length, settledCount: card.settledCount, pendingCount: card.pendingCount, winCount: card.winCount, lossCount: card.lossCount, pushCount: card.pushCount, winRate: card.winRate, leagueCount: predictions.length ? 1 : 0, marketCount: predictions.length ? 1 : 0, modelVersionCount: new Set(predictions.map((row) => row.modelVersion)).size, brierScoreAvg: r(avg(settled.map((row) => row.brierScore)), 4), logLossAvg: r(avg(settled.map((row) => row.logLoss)), 4), spreadMae: r(avg(settled.map((row) => row.spreadError)), 2), totalMae: r(avg(settled.map((row) => row.totalError)), 2), clvAvgPct: null, unitsNet: card.unitsNet, roi: card.roi, roiMode: card.roiMode, actualOddsCount: card.actualOddsCount, fallbackOddsCount: card.fallbackOddsCount, avgSelectedAmericanOdds: card.avgSelectedAmericanOdds },
+    totals: { predictionCount: predictions.length, settledCount: card.settledCount, pendingCount: card.pendingCount, winCount: card.winCount, lossCount: card.lossCount, pushCount: card.pushCount, winRate: card.winRate, leagueCount: predictions.length ? 1 : 0, marketCount: predictions.length ? 1 : 0, modelVersionCount: new Set(predictions.map((row) => row.modelVersion)).size, brierScoreAvg: round(avg(settled.map((row) => row.brierScore)), 4), logLossAvg: round(avg(settled.map((row) => row.logLoss)), 4), spreadMae: round(avg(settled.map((row) => row.spreadError)), 2), totalMae: round(avg(settled.map((row) => row.totalError)), 2), clvAvgPct: null, unitsNet: card.unitsNet, roi: card.roi, roiMode: card.roiMode, actualOddsCount: card.actualOddsCount, fallbackOddsCount: card.fallbackOddsCount, avgSelectedAmericanOdds: card.avgSelectedAmericanOdds },
     scorecards,
-    byLeague: { MLB: { predictionCount: predictions.length, settledCount: card.settledCount, winCount: card.winCount, lossCount: card.lossCount, pushCount: card.pushCount, winRate: card.winRate, brierScoreAvg: r(avg(settled.map((row) => row.brierScore)), 4), logLossAvg: r(avg(settled.map((row) => row.logLoss)), 4), spreadMae: r(avg(settled.map((row) => row.spreadError)), 2), totalMae: r(avg(settled.map((row) => row.totalError)), 2), clvAvgPct: null } },
+    byLeague: { MLB: { predictionCount: predictions.length, settledCount: card.settledCount, winCount: card.winCount, lossCount: card.lossCount, pushCount: card.pushCount, winRate: card.winRate, brierScoreAvg: round(avg(settled.map((row) => row.brierScore)), 4), logLossAvg: round(avg(settled.map((row) => row.logLoss)), 4), spreadMae: round(avg(settled.map((row) => row.spreadError)), 2), totalMae: round(avg(settled.map((row) => row.totalError)), 2), clvAvgPct: null } },
     strongestMarkets: scorecards.filter((item) => item.settledCount >= 10).slice(0, 5),
     weakestMarkets: scorecards.filter((item) => item.settledCount >= 10).slice(-5),
     recent: predictions.slice(0, 50)
