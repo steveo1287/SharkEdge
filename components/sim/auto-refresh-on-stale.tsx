@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 
 type SimHealthResponse = {
@@ -10,7 +11,7 @@ type SimHealthResponse = {
 };
 
 const STORAGE_KEY = "sharkedge:last-auto-sim-refresh";
-const THROTTLE_MS = 20 * 60 * 1000;
+const THROTTLE_MS = 5 * 60 * 1000; // 5 min — tight enough to feel live
 
 function shouldRefresh(health: SimHealthResponse) {
   const simStatus = health.sim?.status ?? "missing";
@@ -37,12 +38,11 @@ function recentlyQueued() {
 function markQueued() {
   try {
     window.localStorage.setItem(STORAGE_KEY, String(Date.now()));
-  } catch {
-    // Refresh throttling is best effort only.
-  }
+  } catch {}
 }
 
-export function AutoRefreshOnStale({ enabled = true }: { enabled?: boolean; delayMs?: number }) {
+export function AutoRefreshOnStale({ enabled = true }: { enabled?: boolean }) {
+  const router = useRouter();
   const queued = useRef(false);
 
   useEffect(() => {
@@ -50,27 +50,30 @@ export function AutoRefreshOnStale({ enabled = true }: { enabled?: boolean; dela
     queued.current = true;
 
     async function run() {
-      const healthResponse = await fetch("/api/sim/health", { cache: "no-store" });
-      if (!healthResponse.ok) throw new Error(`health failed: ${healthResponse.status}`);
-      const health = await healthResponse.json() as SimHealthResponse;
+      const healthRes = await fetch("/api/sim/health", { cache: "no-store" });
+      if (!healthRes.ok) throw new Error(`health failed: ${healthRes.status}`);
+      const health = await healthRes.json() as SimHealthResponse;
 
       if (!shouldRefresh(health) || recentlyQueued()) return;
 
       markQueued();
 
-      // Queue the rebuild without blocking the page, showing an overlay, or
-      // forcing a reload. Users can keep scrolling; the next manual refresh or
-      // route visit will pick up the newer snapshot.
-      const refreshResponse = await fetch("/api/sim/refresh?force=1&source=stale-sim-hub", { cache: "no-store" });
-      if (!refreshResponse.ok && refreshResponse.status !== 202) {
-        throw new Error(`refresh failed: ${refreshResponse.status}`);
+      // Wait for the refresh to fully complete, then reload the RSC tree so
+      // users see fresh data without touching anything.
+      const refreshRes = await fetch("/api/sim/refresh?force=1&wait=1&source=stale-sim-hub", {
+        cache: "no-store"
+      });
+      if (!refreshRes.ok && refreshRes.status !== 202) {
+        throw new Error(`refresh failed: ${refreshRes.status}`);
       }
+
+      router.refresh();
     }
 
     run().catch((error) => {
       console.error("[sim-hub] background stale refresh failed", error);
     });
-  }, [enabled]);
+  }, [enabled, router]);
 
   return null;
 }
