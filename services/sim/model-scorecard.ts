@@ -15,6 +15,7 @@ export type ResolvedScorecardFilters = {
 };
 
 export type ResultBucket = "WIN" | "LOSS" | "PUSH" | "PENDING";
+export type RoiMode = "actual_captured_odds" | "mixed_actual_and_fallback" | "fallback_-110" | "no_settled_picks";
 
 export type SimulationPredictionRow = {
   id: string;
@@ -25,6 +26,8 @@ export type SimulationPredictionRow = {
   predictionTime: string;
   eventLabel: string | null;
   side: string | null;
+  selectedAmericanOdds: number | null;
+  oddsSource: string | null;
   modelProbability: number | null;
   modelSpread: number | null;
   modelTotal: number | null;
@@ -82,6 +85,10 @@ export type MarketScorecard = {
   winRate: number | null;
   unitsNet: number | null;
   roi: number | null;
+  roiMode: RoiMode;
+  actualOddsCount: number;
+  fallbackOddsCount: number;
+  avgSelectedAmericanOdds: number | null;
   calibrationErrorAvg: number | null;
   dataQualityBreakdown: Record<string, number>;
   calibrationBuckets: CalibrationBucket[];
@@ -111,6 +118,10 @@ export type SimModelScorecard = {
     clvAvgPct: number | null;
     unitsNet: number | null;
     roi: number | null;
+    roiMode: RoiMode;
+    actualOddsCount: number;
+    fallbackOddsCount: number;
+    avgSelectedAmericanOdds: number | null;
   };
   scorecards: MarketScorecard[];
   byLeague: Record<string, {
@@ -195,6 +206,13 @@ function normalizeNumber(value: unknown) {
   return null;
 }
 
+function normalizeAmericanOdds(value: unknown) {
+  const odds = normalizeNumber(value);
+  if (odds == null || odds === 0) return null;
+  if (Math.abs(odds) < 100 || Math.abs(odds) > 10000) return null;
+  return Math.round(odds);
+}
+
 function round(value: number | null | undefined, digits = 4) {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return Number(value.toFixed(digits));
@@ -218,6 +236,89 @@ function normalizeJson(value: unknown) {
   return value;
 }
 
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function nestedValue(source: unknown, path: string) {
+  const parts = path.split(".");
+  let current: unknown = source;
+  for (const part of parts) {
+    const object = objectRecord(current);
+    if (!object) return undefined;
+    current = object[part];
+  }
+  return current;
+}
+
+function firstAmericanOdds(source: unknown, paths: string[]) {
+  for (const path of paths) {
+    const odds = normalizeAmericanOdds(nestedValue(source, path));
+    if (odds != null) return odds;
+  }
+  return null;
+}
+
+const HOME_ODDS_PATHS = [
+  "homeMoneyline",
+  "homeAmericanOdds",
+  "homeOddsAmerican",
+  "homeOdds",
+  "currentHomeOdds",
+  "bestHomeOddsAmerican",
+  "moneyline.home",
+  "moneyline.homeOdds",
+  "moneyline.homeMoneyline",
+  "markets.moneyline.home",
+  "markets.moneyline.homeOdds",
+  "home.price",
+  "home.odds",
+  "home.americanOdds"
+];
+
+const AWAY_ODDS_PATHS = [
+  "awayMoneyline",
+  "awayAmericanOdds",
+  "awayOddsAmerican",
+  "awayOdds",
+  "currentAwayOdds",
+  "bestAwayOddsAmerican",
+  "moneyline.away",
+  "moneyline.awayOdds",
+  "moneyline.awayMoneyline",
+  "markets.moneyline.away",
+  "markets.moneyline.awayOdds",
+  "away.price",
+  "away.odds",
+  "away.americanOdds"
+];
+
+function selectedOddsFromPredictionJson(predictionJson: unknown, side: "HOME" | "AWAY" | null) {
+  if (!side) return { odds: null, source: null };
+  const payload = objectRecord(predictionJson);
+  if (!payload) return { odds: null, source: null };
+
+  const candidates = [
+    payload.market,
+    nestedValue(payload, "mlbIntel.market"),
+    nestedValue(payload, "realityIntel.market"),
+    nestedValue(payload, "nbaIntel.market"),
+    payload.topSignal,
+    payload.sportsbook ? payload : null
+  ].filter(Boolean);
+
+  const paths = side === "HOME" ? HOME_ODDS_PATHS : AWAY_ODDS_PATHS;
+  for (const candidate of candidates) {
+    const odds = firstAmericanOdds(candidate, paths);
+    if (odds != null) {
+      const source = String(nestedValue(candidate, "sportsbook") ?? nestedValue(candidate, "bookmaker") ?? payload.sportsbook ?? "captured market");
+      return { odds, source };
+    }
+  }
+
+  return { odds: null, source: null };
+}
+
 function resultBucketFor(row: SnapshotRow): ResultBucket {
   const homeWon = row.home_won;
   const finalHomeScore = normalizeNumber(row.final_home_score);
@@ -236,6 +337,9 @@ function mapSnapshotRow(row: SnapshotRow): SimulationPredictionRow {
   const updatedAt = toIso(row.updated_at) ?? createdAt;
   const modelProbability = normalizeNumber(row.model_home_win_pct);
   const homeWon = row.home_won == null ? null : row.home_won ? 1 : 0;
+  const predictionJson = normalizeJson(row.prediction_json);
+  const side = modelProbability == null ? null : modelProbability >= 0.5 ? "HOME" : "AWAY";
+  const selectedOdds = selectedOddsFromPredictionJson(predictionJson, side);
 
   return {
     id: String(row.id),
@@ -245,7 +349,9 @@ function mapSnapshotRow(row: SnapshotRow): SimulationPredictionRow {
     modelVersion: row.model_version ?? DEFAULT_MODEL_VERSION,
     predictionTime,
     eventLabel: row.event_label ?? null,
-    side: (modelProbability ?? 0) >= 0.5 ? "HOME" : "AWAY",
+    side,
+    selectedAmericanOdds: selectedOdds.odds,
+    oddsSource: selectedOdds.source,
     modelProbability,
     modelSpread: normalizeNumber(row.model_spread),
     modelTotal: normalizeNumber(row.model_total),
@@ -266,7 +372,7 @@ function mapSnapshotRow(row: SnapshotRow): SimulationPredictionRow {
     clvPct: null,
     dataQualityGrade: row.tier ?? "UNKNOWN",
     dataQualityFlags: { tier: row.tier, dataSource: row.data_source, noBet: row.no_bet, confidence: normalizeNumber(row.confidence) },
-    predictionJson: normalizeJson(row.prediction_json),
+    predictionJson,
     resultJson: normalizeJson(row.result_json),
     settledAt,
     createdAt,
@@ -307,12 +413,55 @@ function buildCalibrationBuckets(rows: SimulationPredictionRow[]): CalibrationBu
 
 const JUICE_PAYOUT = 100 / 110;
 
-function calculateUnitsRoi(winCount: number, lossCount: number) {
-  const bets = winCount + lossCount;
-  if (!bets) return { unitsNet: null, roi: null };
-  const net = round(winCount * JUICE_PAYOUT - lossCount, 2);
-  const roi = round(((net ?? 0) / bets) * 100, 2);
-  return { unitsNet: net, roi };
+function unitProfitForWin(americanOdds: number | null | undefined) {
+  if (typeof americanOdds !== "number" || !Number.isFinite(americanOdds) || americanOdds === 0) return null;
+  return americanOdds > 0 ? americanOdds / 100 : 100 / Math.abs(americanOdds);
+}
+
+function calculateUnitsRoi(rows: SimulationPredictionRow[]) {
+  const decisions = rows.filter((row) => row.resultBucket === "WIN" || row.resultBucket === "LOSS");
+  const bets = decisions.length;
+  if (!bets) {
+    return { unitsNet: null, roi: null, roiMode: "no_settled_picks" as RoiMode, actualOddsCount: 0, fallbackOddsCount: 0, avgSelectedAmericanOdds: null };
+  }
+
+  let net = 0;
+  let actualOddsCount = 0;
+  let fallbackOddsCount = 0;
+  const capturedOdds: number[] = [];
+
+  for (const row of decisions) {
+    if (row.selectedAmericanOdds != null) {
+      actualOddsCount += 1;
+      capturedOdds.push(row.selectedAmericanOdds);
+    } else {
+      fallbackOddsCount += 1;
+    }
+
+    if (row.resultBucket === "LOSS") {
+      net -= 1;
+      continue;
+    }
+
+    net += unitProfitForWin(row.selectedAmericanOdds) ?? JUICE_PAYOUT;
+  }
+
+  const roiMode: RoiMode = actualOddsCount > 0 && fallbackOddsCount === 0
+    ? "actual_captured_odds"
+    : actualOddsCount > 0
+      ? "mixed_actual_and_fallback"
+      : "fallback_-110";
+
+  const unitsNet = round(net, 2);
+  const roi = round(((unitsNet ?? 0) / bets) * 100, 2);
+  return {
+    unitsNet,
+    roi,
+    roiMode,
+    actualOddsCount,
+    fallbackOddsCount,
+    avgSelectedAmericanOdds: round(avg(capturedOdds), 0)
+  };
 }
 
 function sampleWarning(predictionCount: number, settledCount: number) {
@@ -330,6 +479,7 @@ function buildMarketScorecard(rows: SimulationPredictionRow[]): MarketScorecard 
   const pushCount = settledRows.filter((row) => row.resultBucket === "PUSH").length;
   const calibrationBuckets = buildCalibrationBuckets(rows);
   const calibrationErrorAvg = avg(calibrationBuckets.map((bucket) => bucket.calibrationError));
+  const roiSummary = calculateUnitsRoi(settledRows);
 
   return {
     league: ACTIVE_LEAGUE,
@@ -348,7 +498,7 @@ function buildMarketScorecard(rows: SimulationPredictionRow[]): MarketScorecard 
     totalMae: round(avg(settledRows.map((row) => row.totalError)), 2),
     clvAvgPct: null,
     winRate: winCount + lossCount > 0 ? round(winCount / (winCount + lossCount), 3) : null,
-    ...calculateUnitsRoi(winCount, lossCount),
+    ...roiSummary,
     calibrationErrorAvg: round(calibrationErrorAvg, 4),
     dataQualityBreakdown: countBy(rows.map((row) => row.dataQualityGrade ?? "UNKNOWN")),
     calibrationBuckets
@@ -402,7 +552,11 @@ function emptyScorecard(filters: ScorecardFilters, databaseReady: boolean, error
       totalMae: null,
       clvAvgPct: null,
       unitsNet: null,
-      roi: null
+      roi: null,
+      roiMode: "no_settled_picks",
+      actualOddsCount: 0,
+      fallbackOddsCount: 0,
+      avgSelectedAmericanOdds: null
     },
     scorecards: [],
     byLeague: { [ACTIVE_LEAGUE]: emptyLeagueSummary() },
@@ -472,6 +626,7 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
   const lossCount = settledRows.filter((row) => row.resultBucket === "LOSS").length;
   const pushCount = settledRows.filter((row) => row.resultBucket === "PUSH").length;
   const winRate = winCount + lossCount > 0 ? round(winCount / (winCount + lossCount), 3) : null;
+  const roiSummary = calculateUnitsRoi(settledRows);
   const byLeague = {
     [ACTIVE_LEAGUE]: {
       predictionCount: predictions.length,
@@ -511,7 +666,7 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
       spreadMae: round(avg(settledRows.map((row) => row.spreadError)), 2),
       totalMae: round(avg(settledRows.map((row) => row.totalError)), 2),
       clvAvgPct: null,
-      ...calculateUnitsRoi(winCount, lossCount)
+      ...roiSummary
     },
     scorecards,
     byLeague,
