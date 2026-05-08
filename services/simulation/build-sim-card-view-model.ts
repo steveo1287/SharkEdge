@@ -50,10 +50,6 @@ function num(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function record(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" ? value as Record<string, unknown> : null;
-}
-
 function hasRealMarket(edge: EdgeLike | null | undefined): boolean {
   const m = edge?.market as Record<string, unknown> | null | undefined;
   if (!m) return false;
@@ -148,9 +144,7 @@ function fromEdge(edge: EdgeLike, row: SimPriorityRow | null): SimCardViewModel 
   const lean = edgeLean(edge);
   const projAway = num(edge.projection?.distribution?.avgAway);
   const projHome = num(edge.projection?.distribution?.avgHome);
-  const mlbIntel = record((edge.projection as Record<string, unknown> | undefined)?.mlbIntel);
-  const governor = record(mlbIntel?.governor);
-  const projTotal = num(mlbIntel?.projectedTotal)
+  const projTotal = num((edge.projection as Record<string, unknown> | undefined)?.mlbIntel?.projectedTotal as unknown)
     ?? (projAway != null && projHome != null ? projAway + projHome : null);
   const marketTotal = num((edge.market as Record<string, unknown> | null)?.total as unknown);
 
@@ -172,9 +166,9 @@ function fromEdge(edge: EdgeLike, row: SimPriorityRow | null): SimCardViewModel 
     totalsView,
     projectedAwayRuns: projAway,
     projectedHomeRuns: projHome,
-    projectedTotal: projTotal,
+    projectedTotal,
     marketTotal,
-    confidence: row?.confidence ?? num(governor?.confidence),
+    confidence: row?.confidence ?? num((edge.projection as Record<string, unknown> | undefined)?.mlbIntel?.governor?.confidence as unknown),
     dataStatus: realMarket ? "ready" : "market_missing"
   };
 }
