@@ -9,6 +9,15 @@ type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
+type RoiObject = {
+  roi?: number | null;
+  unitsNet?: number | null;
+  roiMode?: string | null;
+  actualOddsCount?: number | null;
+  fallbackOddsCount?: number | null;
+  avgSelectedAmericanOdds?: number | null;
+};
+
 function readValue(searchParams: Record<string, string | string[] | undefined>, key: string) {
   const value = searchParams[key];
   return Array.isArray(value) ? value[0] : value;
@@ -25,7 +34,7 @@ function pct(value: number | null | undefined, digits = 1) {
   return `${(value * 100).toFixed(digits)}%`;
 }
 
-function pctRaw(value: number | null | undefined, digits = 2) {
+function pctRaw(value: number | null | undefined, digits = 1) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   return `${value > 0 ? "+" : ""}${value.toFixed(digits)}%`;
 }
@@ -42,6 +51,12 @@ function fmtDate(value: string | null | undefined) {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
 }
 
+function fmtAmericanOdds(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  const rounded = Math.round(value);
+  return rounded > 0 ? `+${rounded}` : String(rounded);
+}
+
 function metricTone(value: number | null | undefined, good: number, ok: number) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "border-white/10 bg-white/[0.03]";
   if (value <= good) return "border-emerald-400/25 bg-emerald-400/[0.08]";
@@ -49,10 +64,10 @@ function metricTone(value: number | null | undefined, good: number, ok: number) 
   return "border-red-400/25 bg-red-400/[0.08]";
 }
 
-function clvTone(value: number | null | undefined) {
+function roiTone(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "border-white/10 bg-white/[0.03]";
-  if (value > 0.25) return "border-emerald-400/25 bg-emerald-400/[0.08]";
-  if (value >= -0.25) return "border-amber-300/25 bg-amber-300/[0.08]";
+  if (value > 0) return "border-emerald-400/25 bg-emerald-400/[0.08]";
+  if (value >= -2) return "border-amber-300/25 bg-amber-300/[0.08]";
   return "border-red-400/25 bg-red-400/[0.08]";
 }
 
@@ -70,6 +85,33 @@ function gradeFromMetrics(brier: number | null | undefined, logLoss: number | nu
   return { label: "Needs tuning", note: "Model is missing too often or too confidently." };
 }
 
+function roiModeLabel(mode: string | null | undefined) {
+  switch (mode) {
+    case "actual_captured_odds": return "actual captured odds";
+    case "mixed_actual_and_fallback": return "mixed actual odds + -110 fallback";
+    case "fallback_-110": return "fallback -110 only";
+    case "no_settled_picks": return "needs settled picks";
+    default: return "odds status unknown";
+  }
+}
+
+function roiNote(source: RoiObject) {
+  if (source.roi == null) return "Needs settled picks";
+  const actual = source.actualOddsCount ?? 0;
+  const fallback = source.fallbackOddsCount ?? 0;
+  const roi = `${source.roi > 0 ? "+" : ""}${source.roi.toFixed(1)}%`;
+  const avgOdds = source.avgSelectedAmericanOdds != null ? ` · avg ${fmtAmericanOdds(source.avgSelectedAmericanOdds)}` : "";
+
+  if (source.roiMode === "actual_captured_odds") return `${roi} · actual odds ${actual}/${actual + fallback}${avgOdds}`;
+  if (source.roiMode === "mixed_actual_and_fallback") return `${roi} · ${actual} actual, ${fallback} fallback${avgOdds}`;
+  if (source.roiMode === "fallback_-110") return `${roi} · fallback -110`;
+  return roi;
+}
+
+function unitsText(value: number | null | undefined) {
+  return value != null ? `${value > 0 ? "+" : ""}${value.toFixed(1)}u` : "—";
+}
+
 function Tile({ label, value, note, className = "border-white/10 bg-white/[0.03]" }: { label: string; value: string | number; note: string; className?: string }) {
   return (
     <div className={`rounded-2xl border p-4 ${className}`}>
@@ -83,12 +125,8 @@ function Tile({ label, value, note, className = "border-white/10 bg-white/[0.03]
 function CalibrationBuckets({ buckets }: { buckets: any[] }) {
   return (
     <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Confidence bucket performance</div>
-          <div className="mt-1 text-xs leading-5 text-slate-400">Shows where the MLB model is beating or missing its expected probability.</div>
-        </div>
-      </div>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Confidence bucket performance</div>
+      <div className="mt-1 text-xs leading-5 text-slate-400">Shows where the MLB model is beating or missing its expected probability.</div>
       <div className="mt-4 grid gap-2">
         {buckets.map((bucket) => {
           const actual = typeof bucket.actualHitRate === "number" ? bucket.actualHitRate : null;
@@ -128,7 +166,7 @@ function MarketCard({ card }: { card: any }) {
           <div className="mt-1 text-xs leading-5 text-slate-400">{recordText(card.winCount, card.lossCount, card.pushCount)} · {card.settledCount} settled · {card.pendingCount} pending · {card.predictionCount} total</div>
         </div>
         <div className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-100">
-          {card.sampleWarning ? "Sample warning" : "Tracked"}
+          {card.sampleWarning ? "Sample warning" : roiModeLabel(card.roiMode)}
         </div>
       </div>
 
@@ -139,10 +177,10 @@ function MarketCard({ card }: { card: any }) {
       <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
         <Tile label="Record" value={recordText(card.winCount, card.lossCount, card.pushCount)} note="Wins-losses-pushes" />
         <Tile label="Win rate" value={pct(card.winRate)} note="Pushes excluded" />
-        <Tile label="ROI / Units" value={card.unitsNet != null ? `${card.unitsNet > 0 ? "+" : ""}${card.unitsNet.toFixed(1)}u` : "—"} note={card.roi != null ? `${card.roi > 0 ? "+" : ""}${card.roi.toFixed(1)}% at −110` : "Needs settled picks"} className={card.roi != null ? clvTone(card.roi / 100) : undefined} />
+        <Tile label="ROI / Units" value={unitsText(card.unitsNet)} note={roiNote(card)} className={roiTone(card.roi)} />
+        <Tile label="Odds coverage" value={`${card.actualOddsCount ?? 0}/${(card.actualOddsCount ?? 0) + (card.fallbackOddsCount ?? 0)}`} note={`Actual odds rows · avg ${fmtAmericanOdds(card.avgSelectedAmericanOdds)}`} />
         <Tile label="Brier" value={num(card.brierScoreAvg, 4)} note="Lower is better" className={metricTone(card.brierScoreAvg, 0.2, 0.25)} />
         <Tile label="Log loss" value={num(card.logLossAvg, 4)} note="Overconfidence penalty" className={metricTone(card.logLossAvg, 0.58, 0.7)} />
-        <Tile label="Total MAE" value={num(card.totalMae, 2)} note="Total miss" />
       </div>
     </section>
   );
@@ -156,7 +194,7 @@ function RecentLedger({ rows }: { rows: any[] }) {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Recent MLB ledger rows</div>
-            <div className="mt-1 text-xs leading-5 text-slate-400">Collapsed by default. Shows latest 20 simulation snapshots.</div>
+            <div className="mt-1 text-xs leading-5 text-slate-400">Latest 20 snapshots with captured odds coverage.</div>
           </div>
           <Link href="/api/sim/accuracy" className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-200">JSON</Link>
         </div>
@@ -167,6 +205,7 @@ function RecentLedger({ rows }: { rows: any[] }) {
             <tr>
               <th className="px-3 py-2">Game</th>
               <th className="px-3 py-2">Pick</th>
+              <th className="px-3 py-2 text-right">Odds</th>
               <th className="px-3 py-2 text-right">Model</th>
               <th className="px-3 py-2 text-right">Market</th>
               <th className="px-3 py-2 text-right">Edge</th>
@@ -182,6 +221,7 @@ function RecentLedger({ rows }: { rows: any[] }) {
                 <tr key={row.id} className="border-b border-white/5 last:border-none">
                   <td className="px-3 py-3"><div className="font-semibold text-white">{row.eventLabel ?? row.gameId}</div><div className="mt-1 text-[10px] text-slate-500">{row.modelVersion}</div></td>
                   <td className="px-3 py-3 text-slate-300">{row.side ?? "—"}</td>
+                  <td className="px-3 py-3 text-right font-mono text-emerald-200"><div>{fmtAmericanOdds(row.selectedAmericanOdds)}</div><div className="mt-1 max-w-[120px] truncate text-[10px] text-slate-600">{row.oddsSource ?? "fallback"}</div></td>
                   <td className="px-3 py-3 text-right font-mono text-sky-200">{pct(row.modelProbability)}</td>
                   <td className="px-3 py-3 text-right font-mono text-slate-200">{pct(row.marketProbability)}</td>
                   <td className="px-3 py-3 text-right font-mono text-slate-200">{pct(edge)}</td>
@@ -211,10 +251,6 @@ export default async function SimAccuracyPage({ searchParams }: PageProps) {
   const health = gradeFromMetrics(scorecard.totals.brierScoreAvg, scorecard.totals.logLossAvg);
   const showMarketRankings = scorecard.scorecards.length > 1;
 
-  if (!scorecard.ok) {
-    // fall through and render the full page with an inline warning — don't block on DB failures
-  }
-
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
       <section className="rounded-[1.75rem] border border-cyan-300/15 bg-slate-950/80 p-5 shadow-[0_0_60px_rgba(14,165,233,0.10)]">
@@ -223,7 +259,7 @@ export default async function SimAccuracyPage({ searchParams }: PageProps) {
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">MLB Sim Accuracy</div>
             <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Model scorecard</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              MLB-only accuracy board for graded simulation snapshots. Pending games are excluded from record and win rate. Pushes are tracked separately.
+              MLB-only accuracy board for graded simulation snapshots. ROI now uses captured American odds when present, with an explicit -110 fallback count for older rows without stored odds.
             </p>
             <div className="mt-3 text-xs text-slate-500">Generated {fmtDate(scorecard.generatedAt)} · Window {scorecard.filters.windowDays} days · Market {scorecard.filters.market}</div>
           </div>
@@ -237,10 +273,10 @@ export default async function SimAccuracyPage({ searchParams }: PageProps) {
 
       {!scorecard.databaseReady ? (
         <div className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] px-4 py-3 text-xs leading-5 text-amber-200">
-          <span className="font-semibold">Database unavailable</span> — metrics will populate once DATABASE_URL is set and the Prisma migration has run.{" "}
-          <Link href="/api/sim/accuracy?action=run" className="underline hover:text-amber-100">Initialize ledger</Link>
+          <span className="font-semibold">Database unavailable</span> — metrics will populate once DATABASE_URL is set and the Prisma migration has run. <Link href="/api/sim/accuracy?action=run" className="underline hover:text-amber-100">Initialize ledger</Link>
         </div>
       ) : null}
+
       <form method="get" className="grid gap-3 rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4 md:grid-cols-3">
         <label className="grid gap-1 text-xs text-slate-400">
           <span className="font-semibold uppercase tracking-[0.14em] text-slate-500">Market</span>
@@ -271,9 +307,9 @@ export default async function SimAccuracyPage({ searchParams }: PageProps) {
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
         <Tile label="Record" value={recordText(scorecard.totals.winCount, scorecard.totals.lossCount, scorecard.totals.pushCount)} note="Wins-losses-pushes" />
         <Tile label="Win rate" value={pct(scorecard.totals.winRate)} note="Pushes excluded" />
-        <Tile label="ROI / Units" value={scorecard.totals.unitsNet != null ? `${scorecard.totals.unitsNet > 0 ? "+" : ""}${scorecard.totals.unitsNet.toFixed(1)}u` : "—"} note={scorecard.totals.roi != null ? `${scorecard.totals.roi > 0 ? "+" : ""}${scorecard.totals.roi.toFixed(1)}% at −110` : "Needs settled picks"} className={scorecard.totals.roi != null ? clvTone(scorecard.totals.roi / 100) : undefined} />
+        <Tile label="ROI / Units" value={unitsText(scorecard.totals.unitsNet)} note={roiNote(scorecard.totals)} className={roiTone(scorecard.totals.roi)} />
+        <Tile label="Odds coverage" value={`${scorecard.totals.actualOddsCount ?? 0}/${(scorecard.totals.actualOddsCount ?? 0) + (scorecard.totals.fallbackOddsCount ?? 0)}`} note={`${roiModeLabel(scorecard.totals.roiMode)} · avg ${fmtAmericanOdds(scorecard.totals.avgSelectedAmericanOdds)}`} />
         <Tile label="Brier" value={num(scorecard.totals.brierScoreAvg, 4)} note="Probability calibration" className={metricTone(scorecard.totals.brierScoreAvg, 0.2, 0.25)} />
-        <Tile label="Log loss" value={num(scorecard.totals.logLossAvg, 4)} note="Overconfidence penalty" className={metricTone(scorecard.totals.logLossAvg, 0.58, 0.7)} />
         <Tile label="Sample" value={`${scorecard.totals.settledCount}/${scorecard.totals.predictionCount}`} note={`${scorecard.totals.pendingCount} pending`} />
       </section>
 
@@ -294,7 +330,7 @@ export default async function SimAccuracyPage({ searchParams }: PageProps) {
             )) : <div className="text-slate-500">No MLB quality flags yet.</div>}
           </div>
         </div>
-        <div className={`rounded-[1.5rem] border p-4 ${scorecard.totals.roi != null && scorecard.totals.roi > 0 ? "border-emerald-400/30 bg-emerald-400/[0.07]" : scorecard.totals.roi != null && scorecard.totals.roi < -2 ? "border-red-400/30 bg-red-400/[0.07]" : "border-white/10 bg-slate-950/70"}`}>
+        <div className={`rounded-[1.5rem] border p-4 ${roiTone(scorecard.totals.roi)}`}>
           <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">ROI · 1 unit flat</div>
           <div className={`mt-3 font-display text-4xl font-bold ${scorecard.totals.roi != null && scorecard.totals.roi > 0 ? "text-emerald-300" : scorecard.totals.roi != null && scorecard.totals.roi < 0 ? "text-red-300" : "text-white"}`}>
             {scorecard.totals.roi != null ? `${scorecard.totals.roi > 0 ? "+" : ""}${scorecard.totals.roi.toFixed(1)}%` : "—"}
@@ -303,7 +339,7 @@ export default async function SimAccuracyPage({ searchParams }: PageProps) {
             {scorecard.totals.unitsNet != null ? `${scorecard.totals.unitsNet > 0 ? "+" : ""}${scorecard.totals.unitsNet.toFixed(2)} units net` : "No settled picks yet"}
           </div>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            {scorecard.totals.winCount}W–{scorecard.totals.lossCount}L · standard −110 juice
+            {scorecard.totals.winCount}W–{scorecard.totals.lossCount}L · {roiModeLabel(scorecard.totals.roiMode)} · {(scorecard.totals.actualOddsCount ?? 0)} actual / {(scorecard.totals.fallbackOddsCount ?? 0)} fallback
           </p>
         </div>
       </section>
@@ -315,11 +351,7 @@ export default async function SimAccuracyPage({ searchParams }: PageProps) {
           <div className="rounded-[1.5rem] border border-cyan-300/15 bg-slate-950/80 p-6">
             <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">No MLB records yet</div>
             <p className="mt-2 text-sm leading-6 text-slate-400">
-              The accuracy ledger is empty for this window. Call{" "}
-              <Link href="/api/sim/accuracy?action=capture" className="font-mono text-cyan-100 hover:text-cyan-50">/api/sim/accuracy?action=capture</Link>{" "}
-              before games start to snapshot current model predictions, then{" "}
-              <Link href="/api/sim/accuracy?action=grade" className="font-mono text-cyan-100 hover:text-cyan-50">/api/sim/accuracy?action=grade</Link>{" "}
-              after final scores are in to grade them.
+              The accuracy ledger is empty for this window. Call <Link href="/api/sim/accuracy?action=capture" className="font-mono text-cyan-100 hover:text-cyan-50">/api/sim/accuracy?action=capture</Link> before games start to snapshot current model predictions, then <Link href="/api/sim/accuracy?action=grade" className="font-mono text-cyan-100 hover:text-cyan-50">/api/sim/accuracy?action=grade</Link> after final scores are in to grade them.
             </p>
             <div className="mt-4 flex flex-wrap gap-3">
               <Link href="/api/sim/accuracy?action=capture" className="rounded-xl border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100 hover:bg-cyan-300/15">Capture now</Link>
