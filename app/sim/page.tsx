@@ -14,6 +14,8 @@ import {
   readSimCache,
   refreshFullSimSnapshots,
   SIM_CACHE_KEYS,
+  type CachedSimGameProjection,
+  type SimBoardSnapshot,
   type SimHubSnapshot,
   type SimMarketSnapshot,
   type SimPriorityRow,
@@ -55,7 +57,11 @@ type SimSnapshots = {
   priority: SimPrioritySnapshot | null;
   market: SimMarketSnapshot | null;
   status: SimRefreshStatusSnapshot | null;
+  mlbBoard: SimBoardSnapshot | null;
+  nbaBoard: SimBoardSnapshot | null;
 };
+
+type MarketEdge = NonNullable<SimMarketSnapshot["edges"]>[number];
 
 type GameWorkspace = {
   key: string;
@@ -63,6 +69,8 @@ type GameWorkspace = {
   rows: SimPriorityRow[];
   duplicateCount: number;
   sortScore: number;
+  edge: MarketEdge | null;
+  boardGame: CachedSimGameProjection | null;
 };
 
 type GroupedGames = { label: string; key: string; games: GameWorkspace[] }[];
@@ -158,13 +166,15 @@ function needsEmergencyRepair(snapshot: SimSnapshots) {
 }
 
 async function readSnapshots(): Promise<SimSnapshots> {
-  const [hub, priority, market, status] = await Promise.all([
+  const [hub, priority, market, status, mlbBoard, nbaBoard] = await Promise.all([
     readSimCache<SimHubSnapshot>(SIM_CACHE_KEYS.hub),
     readSimCache<SimPrioritySnapshot>(SIM_CACHE_KEYS.priority),
     readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market),
-    readSimCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus)
+    readSimCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus),
+    readSimCache<SimBoardSnapshot>(SIM_CACHE_KEYS.mlbBoard),
+    readSimCache<SimBoardSnapshot>(SIM_CACHE_KEYS.nbaBoard)
   ]);
-  return { hub, priority, market, status };
+  return { hub, priority, market, status, mlbBoard, nbaBoard };
 }
 
 async function readSnapshotsWithRepair() {
@@ -223,6 +233,17 @@ function StatusPill({ label, ok, sub }: { label: string; ok: boolean; sub?: stri
       </span>
     </div>
   );
+}
+
+function formatOdds(value: number | null | undefined): string {
+  if (value == null) return "—";
+  return value > 0 ? `+${value}` : `${value}`;
+}
+
+function runDelta(value: number | null | undefined): string {
+  if (value == null) return "";
+  const abs = Math.abs(value).toFixed(1);
+  return value > 0 ? `+${abs}` : `-${abs}`;
 }
 
 function EdgeValue({ value }: { value: number | null | undefined }) {
@@ -375,7 +396,11 @@ function rowScore(row: SimPriorityRow) {
   return tierScore * 100 + edgeScore + confidenceScore + marketScore;
 }
 
-function buildGameWorkspaces(raw: SimPriorityRow[]): GameWorkspace[] {
+function buildGameWorkspaces(
+  raw: SimPriorityRow[],
+  edgeByGameId: Map<string, MarketEdge> = new Map(),
+  boardByGameId: Map<string, CachedSimGameProjection> = new Map()
+): GameWorkspace[] {
   const map = new Map<string, GameWorkspace>();
 
   for (const row of raw) {
@@ -384,7 +409,15 @@ function buildGameWorkspaces(raw: SimPriorityRow[]): GameWorkspace[] {
     const existing = map.get(key);
 
     if (!existing) {
-      map.set(key, { key, row, rows: [row], duplicateCount: 0, sortScore: score });
+      map.set(key, {
+        key,
+        row,
+        rows: [row],
+        duplicateCount: 0,
+        sortScore: score,
+        edge: edgeByGameId.get(row.id) ?? null,
+        boardGame: boardByGameId.get(row.id) ?? null
+      });
       continue;
     }
 
@@ -394,6 +427,8 @@ function buildGameWorkspaces(raw: SimPriorityRow[]): GameWorkspace[] {
     if (score > existing.sortScore) {
       existing.row = row;
       existing.sortScore = score;
+      existing.edge = edgeByGameId.get(row.id) ?? existing.edge;
+      existing.boardGame = boardByGameId.get(row.id) ?? existing.boardGame;
     }
   }
 
@@ -404,8 +439,12 @@ function buildGameWorkspaces(raw: SimPriorityRow[]): GameWorkspace[] {
   });
 }
 
-function groupGameWorkspaces(raw: SimPriorityRow[]): GroupedGames {
-  const workspaces = buildGameWorkspaces(raw);
+function groupGameWorkspaces(
+  raw: SimPriorityRow[],
+  edgeByGameId: Map<string, MarketEdge> = new Map(),
+  boardByGameId: Map<string, CachedSimGameProjection> = new Map()
+): GroupedGames {
+  const workspaces = buildGameWorkspaces(raw, edgeByGameId, boardByGameId);
   const map = new Map<string, GameWorkspace[]>();
 
   for (const game of workspaces) {
@@ -432,8 +471,48 @@ function MiniMetric({ label, children }: { label: string; children: React.ReactN
 
 function GameWorkspaceCard({ game }: { game: GameWorkspace }) {
   const row = game.row;
+  const edge = game.edge;
+  const board = game.boardGame;
   const duplicateRows = game.rows.filter((candidate) => candidate.id !== row.id);
   const hasDuplicateRows = duplicateRows.length > 0;
+
+  // Market data
+  const homeML = edge?.market?.homeMoneyline ?? null;
+  const awayML = edge?.market?.awayMoneyline ?? null;
+  const marketTotal = edge?.market?.total ?? null;
+  const totalRunEdge = edge?.edges?.totalRuns ?? null;
+  const mlbProjTotal = (edge?.projection as { mlbIntel?: { projectedTotal?: number } } | undefined)?.mlbIntel?.projectedTotal
+    ?? board?.projection?.mlbIntel?.projectedTotal
+    ?? null;
+  const nbaProjTotal = board?.projection?.nbaIntel?.projectedTotal ?? null;
+  const projTotal = mlbProjTotal ?? nbaProjTotal ?? null;
+
+  const hasMarketML = homeML !== null && awayML !== null;
+  const hasMarketTotal = marketTotal !== null;
+
+  // Which side does sim favor on moneyline
+  const leanIsHome = row.lean.team === row.matchup.home;
+  const otherTeam = leanIsHome ? row.matchup.away : row.matchup.home;
+  const otherPct = Number((1 - row.lean.pct).toFixed(4));
+  const leanMLEdge = leanIsHome ? (edge?.edges?.homeMoneyline ?? null) : (edge?.edges?.awayMoneyline ?? null);
+
+  // Over/under lean
+  const ouLean = totalRunEdge !== null ? (totalRunEdge > 0 ? "OVER" : "UNDER") : null;
+
+  // Best signal label
+  const signal = edge?.signal ?? null;
+  let signalLabel: string | null = null;
+  if (signal) {
+    if (signal.market === "over" && totalRunEdge !== null) signalLabel = `OVER ${runDelta(totalRunEdge)} runs`;
+    else if (signal.market === "under" && totalRunEdge !== null) signalLabel = `UNDER ${runDelta(Math.abs(totalRunEdge))} runs`;
+    else if (signal.market === "home_ml") signalLabel = `HOME ML ${formatPct(edge?.edges?.homeMoneyline)}`;
+    else if (signal.market === "away_ml") signalLabel = `AWAY ML ${formatPct(edge?.edges?.awayMoneyline)}`;
+  }
+
+  // Verdict
+  const verdictText = row.tier === "attack" ? "BET" : row.tier === "watch" ? "WATCH" : "PASS";
+  const verdictColor = row.tier === "attack" ? "text-mint" : row.tier === "watch" ? "text-amber-300" : "text-slate-500";
+  const signalStrength = (signal as { strength?: string } | null)?.strength ?? null;
 
   return (
     <article className="panel overflow-hidden p-0 transition-colors hover:border-aqua/20">
@@ -468,54 +547,91 @@ function GameWorkspaceCard({ game }: { game: GameWorkspace }) {
       </div>
 
       <div className="grid gap-3 px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MiniMetric label="Model lean">
-          <div className="font-semibold">{row.lean.team}</div>
-          <div className="mt-0.5 text-[11px] tabular-nums text-slate-500">{formatPct(row.lean.pct)} win</div>
+        {/* Win % */}
+        <MiniMetric label="Sim Win %">
+          <div className="font-semibold leading-none">{row.lean.team}</div>
+          <div className="mt-1.5 text-lg font-bold tabular-nums leading-none text-white">{formatPct(row.lean.pct)}</div>
+          <div className="mt-1 text-[11px] tabular-nums text-slate-500">{otherTeam} {formatPct(otherPct)}</div>
         </MiniMetric>
-        <MiniMetric label="Edge">
-          <EdgeValue value={row.lean.edge} />
+
+        {/* Moneyline */}
+        <MiniMetric label="Moneyline">
+          {hasMarketML ? (
+            <>
+              <div className="font-semibold tabular-nums leading-none">
+                <span className="text-slate-400">{row.matchup.away}</span>{" "}
+                <span className="text-white">{formatOdds(awayML)}</span>
+              </div>
+              <div className="mt-1.5 font-semibold tabular-nums leading-none">
+                <span className="text-slate-400">{row.matchup.home}</span>{" "}
+                <span className="text-white">{formatOdds(homeML)}</span>
+              </div>
+              {leanMLEdge !== null ? (
+                <div className="mt-1 text-[11px] tabular-nums text-slate-500">
+                  Sim edge: <EdgeValue value={leanMLEdge} />
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <span className="text-slate-500">{row.leagueKey === "NBA" ? "See NBA desk" : "No line"}</span>
+          )}
         </MiniMetric>
-        <MiniMetric label="Confidence">
-          <ConfidenceValue value={row.confidence} />
+
+        {/* Over / Under */}
+        <MiniMetric label="Over / Under">
+          {hasMarketTotal ? (
+            <>
+              <div className="flex items-baseline gap-2">
+                <span className="font-semibold text-white">Line {marketTotal}</span>
+                {ouLean ? (
+                  <span className={cn("text-xs font-bold uppercase tracking-wide", ouLean === "OVER" ? "text-mint" : "text-amber-300")}>
+                    → {ouLean}
+                  </span>
+                ) : null}
+              </div>
+              {projTotal !== null ? (
+                <div className="mt-1 text-[11px] tabular-nums text-slate-500">
+                  Proj {projTotal.toFixed(1)}{totalRunEdge !== null ? ` (${runDelta(totalRunEdge)})` : ""}
+                </div>
+              ) : null}
+            </>
+          ) : projTotal !== null ? (
+            <>
+              <div className="font-semibold text-white">{projTotal.toFixed(1)} proj</div>
+              <div className="mt-1 text-[11px] text-slate-500">no market line</div>
+            </>
+          ) : (
+            <span className="text-slate-500">{row.leagueKey === "NBA" ? "See NBA desk" : "—"}</span>
+          )}
         </MiniMetric>
-        <MiniMetric label="Market match">
-          {row.leagueKey === "MLB"
-            ? row.edgeMatched ? <span className="font-semibold text-mint">Matched</span> : <span className="text-slate-500">No line</span>
-            : <span className="text-slate-600">—</span>}
+
+        {/* Sim Verdict */}
+        <MiniMetric label="Sim Verdict">
+          <div className={cn("text-2xl font-bold tracking-wide leading-none", verdictColor)}>{verdictText}</div>
+          {signalLabel ? (
+            <div className="mt-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-300">{signalLabel}</div>
+          ) : null}
+          {signalStrength && signalStrength !== "thin" ? (
+            <div className={cn("mt-1 text-[10px] font-semibold uppercase tracking-[0.12em]", signalStrength === "strong" ? "text-mint/70" : "text-amber-300/60")}>
+              {signalStrength} signal
+            </div>
+          ) : null}
+          {!signalLabel ? (
+            <div className="mt-1 text-[11px] text-slate-600">
+              {formatPct(row.confidence)} conf · <ConfidenceValue value={row.confidence} />
+            </div>
+          ) : null}
         </MiniMetric>
       </div>
 
-      <details className="group border-t border-white/[0.07] px-5 py-3">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 marker:hidden hover:text-aqua">
-          <span>Workspace breakdown</span>
-          <span className="text-slate-700 group-open:hidden">Show</span>
-          <span className="hidden text-slate-700 group-open:inline">Hide</span>
-        </summary>
-        <div className="mt-4 grid gap-3 lg:grid-cols-3">
-          <div className="rounded-xl border border-white/[0.06] bg-black/20 p-4">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-aqua/70">Overview</div>
-            <p className="mt-2 text-xs leading-5 text-slate-400">
-              Single source of truth for this matchup. The visible lean is the strongest ranked signal after merging duplicate game rows.
-            </p>
-          </div>
-          <div className="rounded-xl border border-white/[0.06] bg-black/20 p-4">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-aqua/70">Simulation</div>
-            <p className="mt-2 text-xs leading-5 text-slate-400">
-              Use the game hub for deeper distribution, projected score, market disagreement, and model diagnostics.
-            </p>
-          </div>
-          <div className="rounded-xl border border-white/[0.06] bg-black/20 p-4">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-aqua/70">Merged signals</div>
-            <p className="mt-2 text-xs leading-5 text-slate-400">
-              {game.duplicateCount > 0
-                ? `${game.duplicateCount + 1} rows were collapsed into this game card so the slate does not repeat the same matchup.`
-                : "No duplicate signals found for this matchup."}
-            </p>
-          </div>
-        </div>
-
-        {hasDuplicateRows ? (
-          <div className="mt-4 overflow-hidden rounded-xl border border-white/[0.06]">
+      {hasDuplicateRows ? (
+        <details className="group border-t border-white/[0.07] px-5 py-3">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 marker:hidden hover:text-aqua">
+            <span>{game.duplicateCount + 1} signals merged</span>
+            <span className="text-slate-700 group-open:hidden">Show</span>
+            <span className="hidden text-slate-700 group-open:inline">Hide</span>
+          </summary>
+          <div className="mt-3 overflow-hidden rounded-xl border border-white/[0.06]">
             <div className="grid grid-cols-4 gap-2 border-b border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600">
               <span>Tier</span>
               <span>Lean</span>
@@ -531,8 +647,8 @@ function GameWorkspaceCard({ game }: { game: GameWorkspace }) {
               </div>
             ))}
           </div>
-        ) : null}
-      </details>
+        </details>
+      ) : null}
     </article>
   );
 }
@@ -548,7 +664,15 @@ function DateGroupHeader({ label, count }: { label: string; count: number }) {
   );
 }
 
-function PrioritySlate({ priority }: { priority: SimPrioritySnapshot | null }) {
+function PrioritySlate({
+  priority,
+  edgeByGameId,
+  boardByGameId
+}: {
+  priority: SimPrioritySnapshot | null;
+  edgeByGameId: Map<string, MarketEdge>;
+  boardByGameId: Map<string, CachedSimGameProjection>;
+}) {
   if (!priority?.rows.length) {
     return (
       <EmptyState
@@ -559,7 +683,7 @@ function PrioritySlate({ priority }: { priority: SimPrioritySnapshot | null }) {
     );
   }
 
-  const groups = groupGameWorkspaces(priority.rows);
+  const groups = groupGameWorkspaces(priority.rows, edgeByGameId, boardByGameId);
   const uniqueCount = groups.reduce((n, g) => n + g.games.length, 0);
   const rawCount = priority.rows.length;
   const mergedCount = Math.max(0, rawCount - uniqueCount);
@@ -596,9 +720,17 @@ function PrioritySlate({ priority }: { priority: SimPrioritySnapshot | null }) {
 }
 
 export default async function SimHubPage() {
-  const [{ hub, priority, market, status, repairedOnRequest, repairWarnings }, warehouse] = await Promise.all([
+  const [{ hub, priority, market, status, mlbBoard, nbaBoard, repairedOnRequest, repairWarnings }, warehouse] = await Promise.all([
     readSnapshotsWithRepair(),
     readWarehouseHealth()
+  ]);
+
+  const edgeByGameId = new Map<string, MarketEdge>(
+    (market?.edges ?? []).map((e) => [e.gameId, e])
+  );
+  const boardByGameId = new Map<string, CachedSimGameProjection>([
+    ...((mlbBoard?.games ?? []) as CachedSimGameProjection[]).map((g) => [g.game.id, g] as [string, CachedSimGameProjection]),
+    ...((nbaBoard?.games ?? []) as CachedSimGameProjection[]).map((g) => [g.game.id, g] as [string, CachedSimGameProjection])
   ]);
 
   const warehouseReady = warehouse.every((w) => w.ready);
@@ -695,7 +827,7 @@ export default async function SimHubPage() {
         ))}
       </section>
 
-      <PrioritySlate priority={priority} />
+      <PrioritySlate priority={priority} edgeByGameId={edgeByGameId} boardByGameId={boardByGameId} />
     </div>
   );
 }
