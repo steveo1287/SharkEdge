@@ -16,11 +16,17 @@ export const revalidate = 0;
 export const maxDuration = 30;
 
 const DISPLAY_TIME_ZONE = "America/Chicago";
-const ACTIONS = ["bets", "all", "attack", "play", "lean", "watch", "pass"] as const;
+const ACTIONS = ["bets", "totals", "all", "attack", "play", "lean", "watch", "pass"] as const;
 
 type ActionFilter = typeof ACTIONS[number];
 type PageProps = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
-type MarketEdge = NonNullable<SimMarketSnapshot>["edges"][number] & { signal?: Record<string, any>; market?: Record<string, any>; sportsbook?: string | null; gameId: string };
+type MarketEdge = NonNullable<SimMarketSnapshot>["edges"][number] & {
+  signal?: Record<string, any>;
+  totalsAction?: Record<string, any> | null;
+  market?: Record<string, any>;
+  sportsbook?: string | null;
+  gameId: string;
+};
 type GameWorkspace = { key: string; row: SimPriorityRow; edge: MarketEdge | null; rows: SimPriorityRow[]; duplicateCount: number; sortScore: number };
 
 function param(searchParams: Record<string, string | string[] | undefined>, key: string) {
@@ -95,6 +101,11 @@ function odds(value: number | null | undefined) {
   return rounded > 0 ? `+${rounded}` : String(rounded);
 }
 
+function runEdge(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)} runs`;
+}
+
 function teamKey(value: string | null | undefined) {
   return (value ?? "unknown").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
@@ -103,13 +114,18 @@ function workspaceKey(row: SimPriorityRow) {
   return [row.leagueKey, chicagoKey(row.startTime), teamKey(row.matchup.away), teamKey(row.matchup.home)].join("::");
 }
 
-function takeAction(edge: MarketEdge | null) {
+function selectedAction(edge: MarketEdge | null, filter: ActionFilter) {
   const signal = edge?.signal ?? null;
+  if (filter === "totals") return (edge?.totalsAction ?? {}) as Record<string, any>;
   return (signal?.takeAction ?? signal ?? {}) as Record<string, any>;
 }
 
-function action(edge: MarketEdge | null, row: SimPriorityRow) {
-  const raw = String(takeAction(edge).action ?? "").toUpperCase();
+function hasTotals(edge: MarketEdge | null) {
+  return Boolean(edge?.totalsAction);
+}
+
+function action(edge: MarketEdge | null, row: SimPriorityRow, filter: ActionFilter = "all") {
+  const raw = String(selectedAction(edge, filter).action ?? "").toUpperCase();
   if (["ATTACK", "PLAY", "LEAN", "WATCH", "PASS"].includes(raw)) return raw as "ATTACK" | "PLAY" | "LEAN" | "WATCH" | "PASS";
   const tier = row.tier?.toLowerCase();
   if (tier === "attack") return "ATTACK";
@@ -136,14 +152,15 @@ function actionClass(value: string) {
 }
 
 function shouldShow(game: GameWorkspace, filter: ActionFilter) {
-  const current = action(game.edge, game.row).toLowerCase();
   if (filter === "all") return true;
+  if (filter === "totals") return hasTotals(game.edge);
+  const current = action(game.edge, game.row).toLowerCase();
   if (filter === "bets") return current === "attack" || current === "play";
   return current === filter;
 }
 
 function href(date: string, actionFilter: ActionFilter) {
-  return `/sim?date=${encodeURIComponent(date)}&action=${actionFilter}`;
+  return `/sim-fast?date=${encodeURIComponent(date)}&action=${actionFilter}`;
 }
 
 function buildEdgeMap(edges: MarketEdge[]) {
@@ -212,16 +229,18 @@ function Tile({ label, value, note, ok = true }: { label: string; value: string 
   return <div className={`rounded-2xl border p-4 ${ok ? "border-white/10 bg-white/[0.03]" : "border-amber-300/20 bg-amber-300/[0.055]"}`}><div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</div><div className="mt-2 font-mono text-2xl font-bold text-white">{value}</div><div className="mt-2 text-xs leading-5 text-slate-400">{note}</div></div>;
 }
 
-function GameCard({ game }: { game: GameWorkspace }) {
+function GameCard({ game, filter }: { game: GameWorkspace; filter: ActionFilter }) {
   const row = game.row;
   const edge = game.edge;
-  const ta = takeAction(edge);
-  const currentAction = action(edge, row);
+  const ta = selectedAction(edge, filter);
+  const currentAction = action(edge, row, filter);
   const expectedValue = typeof ta.expectedValue === "number" ? ta.expectedValue : null;
   const modelEdge = typeof ta.edge === "number" ? ta.edge : row.lean.edge ?? null;
   const stakeUnits = typeof ta.stakeUnits === "number" ? ta.stakeUnits : 0;
   const actionScore = typeof ta.actionScore === "number" ? ta.actionScore : null;
   const americanOdds = typeof ta.americanOdds === "number" ? ta.americanOdds : null;
+  const projectedRunEdge = typeof ta.projectedRunEdge === "number" ? ta.projectedRunEdge : null;
+  const marketLabel = String(ta.market ?? edge?.signal?.market ?? "signal").toUpperCase();
   const reasons = Array.isArray(ta.reasons) ? ta.reasons.slice(0, 3) : [];
   const hardStops = Array.isArray(ta.hardStopReasons) ? ta.hardStopReasons : [];
   const downgrades = Array.isArray(ta.downgradeReasons) ? ta.downgradeReasons.slice(0, 2) : [];
@@ -232,6 +251,7 @@ function GameCard({ game }: { game: GameWorkspace }) {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-md border border-cyan-300/25 bg-cyan-300/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-cyan-100">{row.leagueKey}</span>
+            <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200">{marketLabel}</span>
             <span className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${actionClass(currentAction)}`}>{currentAction}</span>
             {game.duplicateCount > 0 ? <span className="rounded-md border border-amber-300/20 bg-amber-300/[0.07] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-100">{game.duplicateCount + 1} merged</span> : null}
           </div>
@@ -243,7 +263,7 @@ function GameCard({ game }: { game: GameWorkspace }) {
 
       <div className="mt-4 grid gap-3 sm:grid-cols-5">
         <Tile label="EV" value={signedPct(expectedValue)} note="Expected value" ok={expectedValue == null || expectedValue > 0} />
-        <Tile label="Edge" value={signedPct(modelEdge)} note="Model vs market" ok={modelEdge == null || modelEdge > 0} />
+        <Tile label={filter === "totals" ? "Run edge" : "Edge"} value={filter === "totals" ? runEdge(projectedRunEdge) : signedPct(modelEdge)} note={filter === "totals" ? "Projected vs total" : "Model vs market"} ok={modelEdge == null || modelEdge > 0} />
         <Tile label="Odds" value={odds(americanOdds)} note={String(ta.sportsbook ?? edge?.sportsbook ?? "market")} />
         <Tile label="Stake" value={stakeUnits ? `${stakeUnits.toFixed(2)}u` : "0u"} note="Quarter-Kelly cap" ok={currentAction === "ATTACK" || currentAction === "PLAY" ? stakeUnits > 0 : true} />
         <Tile label="Score" value={actionScore ?? "—"} note="Action score" />
@@ -255,6 +275,29 @@ function GameCard({ game }: { game: GameWorkspace }) {
         {hardStops.length ? <div className="mt-1 text-red-200">Hard stop: {hardStops.join(" · ")}</div> : null}
       </div>
     </article>
+  );
+}
+
+function EmptyState({ actionFilter, selectedDate, hasRows, hasMarket, statusReason }: { actionFilter: ActionFilter; selectedDate: string; hasRows: boolean; hasMarket: boolean; statusReason?: string }) {
+  const cacheProblem = !hasRows || !hasMarket;
+  return (
+    <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-6">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">{cacheProblem ? "Snapshot not ready" : `No ${actionFilter.toUpperCase()} cards`}</div>
+      <h2 className="mt-2 font-display text-2xl font-semibold text-white">{cacheProblem ? "Sim or market cache is missing." : "No plays match this filter."}</h2>
+      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+        {cacheProblem
+          ? "This is not a betting verdict. The page does not have a usable priority snapshot and market overlay yet. Refresh the sim, then reload this page."
+          : actionFilter === "totals"
+            ? "Totals exist only when the odds overlay has a market total plus over/under prices. If this is empty after refresh, the odds source is not returning totals for this slate."
+            : "This filter has no cards under the current EV gates."}
+      </p>
+      {statusReason ? <p className="mt-2 text-xs leading-5 text-amber-200">Last refresh: {statusReason}</p> : null}
+      <div className="mt-4 flex flex-wrap gap-3">
+        <Link href={href(selectedDate, "all")} className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">View all</Link>
+        <Link href={href(selectedDate, "totals")} className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">View totals</Link>
+        <Link href="/api/sim/refresh?force=1&wait=1" className="rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100">Refresh now</Link>
+      </div>
+    </section>
   );
 }
 
@@ -274,9 +317,12 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
   const betCount = allGames.filter((game) => shouldShow(game, "bets")).length;
   const attackCount = allGames.filter((game) => action(game.edge, game.row) === "ATTACK").length;
   const playCount = allGames.filter((game) => action(game.edge, game.row) === "PLAY").length;
+  const totalsCount = allGames.filter((game) => hasTotals(game.edge)).length;
   const simAge = status?.lastSuccessAt ?? priority?.generatedAt ?? hub?.generatedAt ?? null;
   const simFresh = (ageMinutes(simAge) ?? 999) <= 20;
   const marketFresh = (ageMinutes(market?.generatedAt) ?? 999) <= 15;
+  const hasRows = rows.length > 0;
+  const hasMarket = Boolean(market?.lineCount && market.lineCount > 0);
   const availableDates = dateOptions(rows);
 
   return (
@@ -286,7 +332,7 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">Simulation Command</div>
             <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">SharkEdge Sim Hub</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Action-aware sim board. ATTACK and PLAY are the only bettable tiers; LEAN and WATCH are tracking only.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Action-aware sim board. ATTACK and PLAY are bettable tiers; Totals shows over/under even when moneyline is the top signal.</p>
           </div>
           <div className="flex flex-wrap gap-3">
             <Link href="/api/sim/refresh?force=1&wait=1" className="rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100">Refresh Sim</Link>
@@ -294,12 +340,13 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
             <Link href="/api/sim/health" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Health JSON</Link>
           </div>
         </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <Tile label="Bets" value={betCount} note={`${attackCount} attack · ${playCount} play`} ok={betCount > 0} />
+          <Tile label="Totals" value={totalsCount} note="Over/under cards" ok={totalsCount > 0} />
           <Tile label="Visible" value={games.length} note={`${allGames.length} games on selected date`} ok={games.length > 0} />
-          <Tile label="Sim cache" value={simFresh ? "Fresh" : priority ? "Stale" : "Missing"} note={`Last success ${age(simAge)}`} ok={simFresh && Boolean(rows.length)} />
-          <Tile label="Market cache" value={marketFresh ? "Fresh" : market ? "Stale" : "Missing"} note={`Generated ${age(market?.generatedAt)}`} ok={marketFresh} />
-          <Tile label="MLB lines" value={market?.lineCount ?? 0} note={`${hub?.summary.mlbCount ?? priority?.summary.mlbCount ?? 0} MLB games`} ok={Boolean(market?.lineCount)} />
+          <Tile label="Sim cache" value={simFresh ? "Fresh" : priority ? "Stale" : "Missing"} note={`Last success ${age(simAge)}`} ok={simFresh && hasRows} />
+          <Tile label="Market cache" value={marketFresh ? "Fresh" : market ? "Stale" : "Missing"} note={`Generated ${age(market?.generatedAt)}`} ok={marketFresh && hasMarket} />
+          <Tile label="MLB lines" value={market?.lineCount ?? 0} note={`${hub?.summary.mlbCount ?? priority?.summary.mlbCount ?? 0} MLB games`} ok={hasMarket} />
         </div>
       </section>
 
@@ -308,7 +355,7 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Filters</div>
             <h2 className="mt-1 font-display text-2xl font-semibold text-white">{dateLabel(selectedDate)} · {actionFilter.toUpperCase()}</h2>
-            <p className="mt-1 text-xs leading-5 text-slate-500">Default is today. Use Bets to show ATTACK + PLAY only.</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">Use Totals to inspect over/under. Use Bets to show ATTACK + PLAY only.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <ButtonLink href={href(relativeKey(-1), actionFilter)} active={selectedDate === relativeKey(-1)}>Yesterday</ButtonLink>
@@ -329,15 +376,10 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
       </section>
 
       {!games.length ? (
-        <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-6">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">No {actionFilter.toUpperCase()} cards</div>
-          <h2 className="mt-2 font-display text-2xl font-semibold text-white">No bettable plays match this filter.</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">If you never see ATTACK or PLAY, either the slate does not meet the EV gates or the market cache needs a fresh refresh. ATTACK needs price-banded EV, edge, quality, and no hard stops.</p>
-          <div className="mt-4 flex flex-wrap gap-3"><Link href={href(selectedDate, "all")} className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">View all</Link><Link href="/api/sim/refresh?force=1&wait=1" className="rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100">Refresh now</Link></div>
-        </section>
+        <EmptyState actionFilter={actionFilter} selectedDate={selectedDate} hasRows={hasRows} hasMarket={hasMarket} statusReason={status?.reason} />
       ) : (
         <section className="grid gap-4">
-          {groups.map((group) => <div key={group.key} className="grid gap-3">{selectedDate === "all" ? <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{group.label} · {group.games.length} game{group.games.length !== 1 ? "s" : ""}</div> : null}<div className="grid gap-3 2xl:grid-cols-2">{group.games.map((game) => <GameCard key={game.key} game={game} />)}</div></div>)}
+          {groups.map((group) => <div key={group.key} className="grid gap-3">{selectedDate === "all" ? <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{group.label} · {group.games.length} game{group.games.length !== 1 ? "s" : ""}</div> : null}<div className="grid gap-3 2xl:grid-cols-2">{group.games.map((game) => <GameCard key={game.key} game={game} filter={actionFilter} />)}</div></div>)}
         </section>
       )}
     </main>
