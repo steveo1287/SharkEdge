@@ -54,20 +54,24 @@ export type SimBoardFeed = {
   };
 };
 
+const DEFAULT_LOOKBACK_HOURS = 6;
+const DEFAULT_LOOKAHEAD_HOURS = 36;
+const MAX_SIM_BOARD_EVENTS = 40;
+const MAX_MARKET_ROWS_PER_EVENT = 12;
+const MAX_SIGNAL_ROWS_PER_EVENT = 5;
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function readWindowHours(envKey: string, fallback: number) {
+function readWindowHours(envKey: string, fallback: number, max: number) {
   const raw = process.env[envKey];
-  if (!raw) {
-    return fallback;
-  }
+  if (!raw) return fallback;
+
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback;
-  }
-  return parsed;
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+
+  return Math.min(parsed, max);
 }
 
 function getConfidenceBand(score: number): SimConfidenceBand {
@@ -109,8 +113,8 @@ function getRecommendation(args: {
 }
 
 export async function getSimBoardFeed(leagueKey?: string): Promise<SimBoardFeed> {
-  const lookbackHours = readWindowHours("SIM_BOARD_LOOKBACK_HOURS", 36);
-  const lookaheadHours = readWindowHours("SIM_BOARD_LOOKAHEAD_HOURS", 72);
+  const lookbackHours = readWindowHours("SIM_BOARD_LOOKBACK_HOURS", DEFAULT_LOOKBACK_HOURS, 24);
+  const lookaheadHours = readWindowHours("SIM_BOARD_LOOKAHEAD_HOURS", DEFAULT_LOOKAHEAD_HOURS, 72);
 
   if (!hasUsableServerDatabaseUrl()) {
     const resolution = getServerDatabaseResolution();
@@ -147,20 +151,28 @@ export async function getSimBoardFeed(leagueKey?: string): Promise<SimBoardFeed>
           lte: new Date(Date.now() + 1000 * 60 * 60 * lookaheadHours)
         }
       },
-      include: {
-        league: true,
-        participants: { include: { competitor: true } },
+      select: {
+        id: true,
+        externalEventId: true,
+        name: true,
+        startTime: true,
+        status: true,
+        league: { select: { key: true } },
+        participants: {
+          select: {
+            role: true,
+            competitor: { select: { name: true } }
+          },
+          orderBy: { sortOrder: "asc" },
+          take: 4
+        },
         currentMarketStates: {
-          include: {
-            selectionCompetitor: true,
-            player: true,
-            bestHomeBook: true,
-            bestAwayBook: true,
-            bestOverBook: true,
-            bestUnderBook: true
-          } as any
+          select: { id: true, marketType: true, side: true, line: true, updatedAt: true },
+          orderBy: { updatedAt: "desc" },
+          take: MAX_MARKET_ROWS_PER_EVENT
         },
         eventProjections: {
+          select: { id: true, modelRunId: true, projectionJson: true },
           orderBy: {
             modelRun: {
               createdAt: "desc"
@@ -170,16 +182,21 @@ export async function getSimBoardFeed(leagueKey?: string): Promise<SimBoardFeed>
         },
         edgeSignals: {
           where: { isActive: true },
-          include: {
-            selectionCompetitor: true,
-            player: true,
-            sportsbook: true
-          } as any,
+          select: {
+            edgeScore: true,
+            evPercent: true,
+            marketType: true,
+            side: true,
+            selectionCompetitor: { select: { name: true } },
+            player: { select: { name: true } },
+            sportsbook: { select: { name: true } }
+          },
           orderBy: [{ edgeScore: "desc" }, { evPercent: "desc" }],
-          take: 5
+          take: MAX_SIGNAL_ROWS_PER_EVENT
         }
       },
-      orderBy: { startTime: "asc" }
+      orderBy: { startTime: "asc" },
+      take: MAX_SIM_BOARD_EVENTS
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -214,9 +231,9 @@ export async function getSimBoardFeed(leagueKey?: string): Promise<SimBoardFeed>
       const topSignals = event.edgeSignals.map((signal) => ({
         edgeScore: signal.edgeScore ?? null,
         evPercent: signal.evPercent ?? null,
-        selectionCompetitor: signal.selectionCompetitor as any,
-        player: signal.player as any,
-        sportsbook: signal.sportsbook as any,
+        selectionCompetitor: signal.selectionCompetitor,
+        player: signal.player,
+        sportsbook: signal.sportsbook,
         marketType: String(signal.marketType),
         side: signal.side
       }));
@@ -264,7 +281,13 @@ export async function getSimBoardFeed(leagueKey?: string): Promise<SimBoardFeed>
           role: participant.role,
           competitor: participant.competitor.name
         })),
-        projection,
+        projection: projection
+          ? {
+              id: projection.id,
+              modelRunId: projection.modelRunId,
+              projectionJson: projection.projectionJson
+            }
+          : null,
         markets: event.currentMarketStates,
         topSignals,
         diagnostics: {
@@ -293,10 +316,10 @@ export async function getSimBoardFeed(leagueKey?: string): Promise<SimBoardFeed>
     },
     events: mappedEvents.map(({ sortScore, ...event }) => event),
     setup: {
-        status: "ready",
-        title: "Simulator ready",
-        detail: null,
-        steps: []
+      status: "ready",
+      title: "Simulator ready",
+      detail: null,
+      steps: []
     }
   };
 }
