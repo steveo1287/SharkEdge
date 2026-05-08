@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
+import { buildMlbEdges } from "@/services/simulation/mlb-take-action-v2";
 
 export const runtime = "nodejs";
 export const maxDuration = 20;
