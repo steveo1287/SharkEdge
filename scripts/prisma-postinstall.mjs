@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 
 const dbUrl = process.env.DATABASE_URL?.trim() || process.env.POSTGRES_PRISMA_URL?.trim() || process.env.POSTGRES_URL?.trim();
+const shouldDeployMigrations = process.env.RUN_PRISMA_MIGRATIONS === "1" || process.env.PRISMA_MIGRATE_DEPLOY === "1";
 const KNOWN_SAFE_FAILED_MIGRATIONS = new Set([
   "20260506040000_trend_perf_indexes"
 ]);
@@ -73,6 +74,11 @@ exitOnFailure(generateResult, generateCommand, generateArgs);
 
 if (!dbUrl) {
   console.log("[prisma-postinstall] DATABASE_URL/POSTGRES_PRISMA_URL/POSTGRES_URL not set; skipping migrate deploy.");
+  process.exit(0);
+}
+
+if (!shouldDeployMigrations) {
+  console.log("[prisma-postinstall] migration deploy skipped. Set RUN_PRISMA_MIGRATIONS=1 or PRISMA_MIGRATE_DEPLOY=1 to run migrations explicitly.");
   process.exit(0);
 }
 
