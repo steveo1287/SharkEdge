@@ -26,6 +26,15 @@ type TotalsGateContext = {
   usableRows: number;
 };
 
+type BaseMarketSignal = {
+  market: string;
+  team: string | null;
+  edge: number;
+  sourceCount: number;
+  marketHold: number | null;
+  warnings: string[];
+};
+
 type SelectedPick = {
   supported: boolean;
   modelProbability: number | null;
@@ -137,7 +146,7 @@ function selected(edge: Edge, market: string | null | undefined): SelectedPick {
   };
 }
 
-function quality(edge: Edge, signal: Pick<Signal, "market" | "sourceCount" | "marketHold" | "edge">) {
+function quality(edge: Edge, signal: BaseMarketSignal) {
   const governor = edge.projection.mlbIntel?.governor;
   const confidence = typeof governor?.confidence === "number" ? governor.confidence : 0.5;
   const volatility = edge.projection.mlbIntel?.volatilityIndex ?? 1.5;
@@ -195,7 +204,7 @@ function strength(action: Tier) {
   return "thin";
 }
 
-function evaluateMarket(edge: Edge, baseSignal: Pick<Signal, "market" | "team" | "edge" | "sourceCount" | "marketHold" | "warnings">, gateContext: TotalsGateContext) {
+function evaluateMarket(edge: Edge, baseSignal: BaseMarketSignal, gateContext: TotalsGateContext) {
   const market = baseSignal.market ?? null;
   const supported = isMoneyline(market) || isTotal(market);
   const totalMarket = isTotal(market);
@@ -235,7 +244,7 @@ function evaluateMarket(edge: Edge, baseSignal: Pick<Signal, "market" | "team" |
   const attackRequirement = attackEvRequirement(pick.americanOdds, market, gateContext.gates);
 
   return {
-    version: "take-action-v2.5-dedicated-totals-surface",
+    version: "take-action-v2.6-market-edge-totals-fallback",
     action,
     actionScore: score,
     betEligible: action === "ATTACK" || action === "PLAY",
@@ -271,7 +280,7 @@ function evaluateMarket(edge: Edge, baseSignal: Pick<Signal, "market" | "team" |
   };
 }
 
-function buildTotalSignal(edge: Edge): Pick<Signal, "market" | "team" | "edge" | "sourceCount" | "marketHold" | "warnings"> | null {
+function buildTotalSignal(edge: Edge): BaseMarketSignal | null {
   const runEdge = typeof edge.edges?.totalRuns === "number" ? edge.edges.totalRuns : null;
   if (runEdge == null || !edge.market?.total) return null;
   return {
@@ -284,16 +293,43 @@ function buildTotalSignal(edge: Edge): Pick<Signal, "market" | "team" | "edge" |
   };
 }
 
+function signalToBase(signal: Signal): BaseMarketSignal {
+  return {
+    market: signal.market,
+    team: signal.team,
+    edge: signal.edge,
+    sourceCount: signal.sourceCount,
+    marketHold: signal.marketHold,
+    warnings: signal.warnings
+  };
+}
+
 function enhance(edge: Edge, gateContext: TotalsGateContext): Edge {
-  if (!edge.signal) return edge;
-  const takeAction = evaluateMarket(edge, edge.signal, gateContext);
   const totalsSignal = buildTotalSignal(edge);
   const totalsAction = totalsSignal ? evaluateMarket(edge, totalsSignal, gateContext) : null;
+  const primarySignal = edge.signal ? signalToBase(edge.signal) : totalsSignal;
+
+  if (!primarySignal) {
+    return { ...edge, totalsAction: null } as Edge & { totalsAction?: unknown };
+  }
+
+  const takeAction = evaluateMarket(edge, primarySignal, gateContext);
+  const sourceSignal = edge.signal ?? {
+    market: primarySignal.market,
+    team: primarySignal.team,
+    edge: primarySignal.edge,
+    rankScore: rankMlbMarketSignal({ market: primarySignal.market, edge: primarySignal.edge }),
+    sourceCount: primarySignal.sourceCount,
+    marketHold: primarySignal.marketHold,
+    warnings: primarySignal.warnings,
+    strength: strength(takeAction.action)
+  };
+
   return {
     ...edge,
     totalsAction,
     signal: {
-      ...edge.signal,
+      ...sourceSignal,
       strength: strength(takeAction.action),
       action: takeAction.action,
       actionScore: takeAction.actionScore,
