@@ -281,12 +281,20 @@ function evaluateMarket(edge: Edge, baseSignal: BaseMarketSignal, gateContext: T
 }
 
 function buildTotalSignal(edge: Edge): BaseMarketSignal | null {
-  const runEdge = typeof edge.edges?.totalRuns === "number" ? edge.edges.totalRuns : null;
-  if (runEdge == null || !edge.market?.total) return null;
+  const marketTotal = typeof edge.market?.total === "number" && Number.isFinite(edge.market.total) ? edge.market.total : null;
+  if (marketTotal == null) return null;
+
+  const rawRunEdge = typeof edge.edges?.totalRuns === "number" && Number.isFinite(edge.edges.totalRuns) ? edge.edges.totalRuns : null;
+  const projTotal = typeof edge.projection.mlbIntel?.projectedTotal === "number" && Number.isFinite(edge.projection.mlbIntel.projectedTotal)
+    ? edge.projection.mlbIntel.projectedTotal
+    : edge.projection.distribution.avgAway + edge.projection.distribution.avgHome;
+  const computedRunEdge = rawRunEdge ?? (Number.isFinite(projTotal) ? Number((projTotal - marketTotal).toFixed(3)) : null);
+
+  if (computedRunEdge == null) return null;
   return {
-    market: runEdge >= 0 ? "over" : "under",
+    market: computedRunEdge >= 0 ? "over" : "under",
     team: null,
-    edge: Math.abs(runEdge),
+    edge: Math.abs(computedRunEdge),
     sourceCount: edge.marketQuality?.totalSourceCount ?? 0,
     marketHold: edge.marketQuality?.totalHold ?? null,
     warnings: edge.marketQuality?.warnings ?? []
