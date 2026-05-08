@@ -26,6 +26,9 @@ export type SimulationPredictionRow = {
   predictionTime: string;
   eventLabel: string | null;
   side: string | null;
+  signalMarket: string | null;
+  signalStrength: string | null;
+  roiExclusionReason: string | null;
   selectedAmericanOdds: number | null;
   oddsSource: string | null;
   modelProbability: number | null;
@@ -147,6 +150,7 @@ const ACTIVE_LEAGUE = "MLB";
 const DEFAULT_LEAGUES = [ACTIVE_LEAGUE];
 const SNAPSHOT_MARKET = "moneyline";
 const DEFAULT_MODEL_VERSION = "sim-accuracy-snapshot";
+const ACTIONABLE_SIGNAL_STRENGTHS = new Set(["strong", "watch"]);
 const BUCKETS = [
   { bucket: "40-45", lower: 0.4, upper: 0.45 },
   { bucket: "45-50", lower: 0.45, upper: 0.5 },
@@ -186,6 +190,13 @@ type SnapshotRow = {
   graded_at: Date | string | null;
   created_at: Date | string;
   updated_at: Date | string;
+};
+
+type SelectedSignal = {
+  side: "HOME" | "AWAY" | null;
+  market: string | null;
+  strength: string | null;
+  exclusionReason: string | null;
 };
 
 function normalizeFilter(value: string | null | undefined) {
@@ -293,6 +304,23 @@ const AWAY_ODDS_PATHS = [
   "away.americanOdds"
 ];
 
+function selectedSignalFromPredictionJson(predictionJson: unknown, noBet: boolean | null | undefined): SelectedSignal {
+  const payload = objectRecord(predictionJson);
+  const topSignal = objectRecord(nestedValue(payload, "topSignal"));
+  const market = String(topSignal?.market ?? "").toLowerCase() || null;
+  const strength = String(topSignal?.strength ?? "").toLowerCase() || null;
+  const modelNoBet = Boolean(noBet) || Boolean(nestedValue(payload, "model.noBet")) || Boolean(nestedValue(payload, "mlbIntel.governor.noBet"));
+
+  const side = market === "home_ml" ? "HOME" : market === "away_ml" ? "AWAY" : null;
+
+  if (!topSignal) return { side: null, market, strength, exclusionReason: "no top signal" };
+  if (!side) return { side: null, market, strength, exclusionReason: market ? `non-moneyline signal: ${market}` : "missing moneyline signal" };
+  if (modelNoBet) return { side, market, strength, exclusionReason: "model marked no-bet" };
+  if (!strength || !ACTIONABLE_SIGNAL_STRENGTHS.has(strength)) return { side, market, strength, exclusionReason: strength ? `non-actionable strength: ${strength}` : "missing signal strength" };
+
+  return { side, market, strength, exclusionReason: null };
+}
+
 function selectedOddsFromPredictionJson(predictionJson: unknown, side: "HOME" | "AWAY" | null) {
   if (!side) return { odds: null, source: null };
   const payload = objectRecord(predictionJson);
@@ -319,15 +347,13 @@ function selectedOddsFromPredictionJson(predictionJson: unknown, side: "HOME" | 
   return { odds: null, source: null };
 }
 
-function resultBucketFor(row: SnapshotRow): ResultBucket {
+function resultBucketFor(row: SnapshotRow, side: "HOME" | "AWAY" | null): ResultBucket {
   const homeWon = row.home_won;
   const finalHomeScore = normalizeNumber(row.final_home_score);
   const finalAwayScore = normalizeNumber(row.final_away_score);
-  const modelProbability = normalizeNumber(row.model_home_win_pct);
-  if (!row.graded_at || finalHomeScore == null || finalAwayScore == null || homeWon == null || modelProbability == null) return "PENDING";
+  if (!side || !row.graded_at || finalHomeScore == null || finalAwayScore == null || homeWon == null) return "PENDING";
   if (finalHomeScore === finalAwayScore) return "PUSH";
-  const pickedHome = modelProbability >= 0.5;
-  return pickedHome === homeWon ? "WIN" : "LOSS";
+  return (side === "HOME") === homeWon ? "WIN" : "LOSS";
 }
 
 function mapSnapshotRow(row: SnapshotRow): SimulationPredictionRow {
@@ -338,8 +364,8 @@ function mapSnapshotRow(row: SnapshotRow): SimulationPredictionRow {
   const modelProbability = normalizeNumber(row.model_home_win_pct);
   const homeWon = row.home_won == null ? null : row.home_won ? 1 : 0;
   const predictionJson = normalizeJson(row.prediction_json);
-  const side = modelProbability == null ? null : modelProbability >= 0.5 ? "HOME" : "AWAY";
-  const selectedOdds = selectedOddsFromPredictionJson(predictionJson, side);
+  const signal = selectedSignalFromPredictionJson(predictionJson, row.no_bet);
+  const selectedOdds = selectedOddsFromPredictionJson(predictionJson, signal.exclusionReason ? null : signal.side);
 
   return {
     id: String(row.id),
@@ -349,7 +375,10 @@ function mapSnapshotRow(row: SnapshotRow): SimulationPredictionRow {
     modelVersion: row.model_version ?? DEFAULT_MODEL_VERSION,
     predictionTime,
     eventLabel: row.event_label ?? null,
-    side,
+    side: signal.exclusionReason ? null : signal.side,
+    signalMarket: signal.market,
+    signalStrength: signal.strength,
+    roiExclusionReason: signal.exclusionReason,
     selectedAmericanOdds: selectedOdds.odds,
     oddsSource: selectedOdds.source,
     modelProbability,
@@ -364,14 +393,22 @@ function mapSnapshotRow(row: SnapshotRow): SimulationPredictionRow {
     finalHomeScore: normalizeNumber(row.final_home_score),
     finalAwayScore: normalizeNumber(row.final_away_score),
     outcome: homeWon,
-    resultBucket: resultBucketFor(row),
+    resultBucket: resultBucketFor(row, signal.exclusionReason ? null : signal.side),
     brierScore: normalizeNumber(row.brier),
     logLoss: normalizeNumber(row.log_loss),
     spreadError: normalizeNumber(row.spread_error),
     totalError: normalizeNumber(row.total_error),
     clvPct: null,
     dataQualityGrade: row.tier ?? "UNKNOWN",
-    dataQualityFlags: { tier: row.tier, dataSource: row.data_source, noBet: row.no_bet, confidence: normalizeNumber(row.confidence) },
+    dataQualityFlags: {
+      tier: row.tier,
+      dataSource: row.data_source,
+      noBet: row.no_bet,
+      confidence: normalizeNumber(row.confidence),
+      signalMarket: signal.market,
+      signalStrength: signal.strength,
+      roiExclusionReason: signal.exclusionReason
+    },
     predictionJson,
     resultJson: normalizeJson(row.result_json),
     settledAt,
@@ -393,9 +430,30 @@ function calibrationBucketFor(probability: number | null | undefined) {
   return BUCKETS.find((bucket) => probability >= bucket.lower && (bucket.upper == null || probability < bucket.upper))?.bucket ?? null;
 }
 
+function gradedPredictionRows(rows: SimulationPredictionRow[]) {
+  return rows.filter((row) => row.outcome != null && row.finalHomeScore != null && row.finalAwayScore != null);
+}
+
+function isBetDecision(row: SimulationPredictionRow) {
+  return row.resultBucket === "WIN" || row.resultBucket === "LOSS" || row.resultBucket === "PUSH";
+}
+
+function latestActionableBetRows(rows: SimulationPredictionRow[]) {
+  const byGame = new Map<string, SimulationPredictionRow>();
+  for (const row of rows.filter(isBetDecision)) {
+    const key = `${row.modelVersion}::${row.gameId}`;
+    const existing = byGame.get(key);
+    if (!existing || new Date(row.predictionTime).getTime() > new Date(existing.predictionTime).getTime()) {
+      byGame.set(key, row);
+    }
+  }
+  return [...byGame.values()].sort((left, right) => new Date(right.predictionTime).getTime() - new Date(left.predictionTime).getTime());
+}
+
 function buildCalibrationBuckets(rows: SimulationPredictionRow[]): CalibrationBucket[] {
+  const gradedRows = gradedPredictionRows(rows);
   return BUCKETS.map((bucket) => {
-    const bucketRows = rows.filter((row) => calibrationBucketFor(row.modelProbability) === bucket.bucket && row.outcome != null && row.resultBucket !== "PUSH");
+    const bucketRows = gradedRows.filter((row) => calibrationBucketFor(row.modelProbability) === bucket.bucket);
     const actualHitRate = bucketRows.length ? bucketRows.reduce((sum, row) => sum + Number(row.outcome ?? 0), 0) / bucketRows.length : null;
     const avgPredictedProbability = avg(bucketRows.map((row) => row.modelProbability));
     return {
@@ -419,7 +477,7 @@ function unitProfitForWin(americanOdds: number | null | undefined) {
 }
 
 function calculateUnitsRoi(rows: SimulationPredictionRow[]) {
-  const decisions = rows.filter((row) => row.resultBucket === "WIN" || row.resultBucket === "LOSS");
+  const decisions = latestActionableBetRows(rows).filter((row) => row.resultBucket === "WIN" || row.resultBucket === "LOSS");
   const bets = decisions.length;
   if (!bets) {
     return { unitsNet: null, roi: null, roiMode: "no_settled_picks" as RoiMode, actualOddsCount: 0, fallbackOddsCount: 0, avgSelectedAmericanOdds: null };
@@ -465,42 +523,43 @@ function calculateUnitsRoi(rows: SimulationPredictionRow[]) {
 }
 
 function sampleWarning(predictionCount: number, settledCount: number) {
-  if (settledCount < 30) return "Very small MLB settled sample. Treat calibration as directional only.";
-  if (settledCount < 100) return "Small MLB settled sample. Track before making hard model claims.";
-  if (predictionCount - settledCount > settledCount) return "Many pending MLB predictions. Latest accuracy may move after grading.";
+  if (settledCount < 30) return "Very small actionable MLB bet sample. Treat ROI as directional only.";
+  if (settledCount < 100) return "Small actionable MLB bet sample. Track before making hard ROI claims.";
+  if (predictionCount - settledCount > settledCount) return "Many MLB snapshots were pass/non-moneyline/thin signals. Record and ROI only grade actionable moneyline bets.";
   return null;
 }
 
 function buildMarketScorecard(rows: SimulationPredictionRow[]): MarketScorecard {
   const first = rows[0];
-  const settledRows = rows.filter((row) => row.resultBucket !== "PENDING");
-  const winCount = settledRows.filter((row) => row.resultBucket === "WIN").length;
-  const lossCount = settledRows.filter((row) => row.resultBucket === "LOSS").length;
-  const pushCount = settledRows.filter((row) => row.resultBucket === "PUSH").length;
+  const calibrationRows = gradedPredictionRows(rows);
+  const betRows = latestActionableBetRows(rows);
+  const winCount = betRows.filter((row) => row.resultBucket === "WIN").length;
+  const lossCount = betRows.filter((row) => row.resultBucket === "LOSS").length;
+  const pushCount = betRows.filter((row) => row.resultBucket === "PUSH").length;
   const calibrationBuckets = buildCalibrationBuckets(rows);
   const calibrationErrorAvg = avg(calibrationBuckets.map((bucket) => bucket.calibrationError));
-  const roiSummary = calculateUnitsRoi(settledRows);
+  const roiSummary = calculateUnitsRoi(rows);
 
   return {
     league: ACTIVE_LEAGUE,
     market: first?.market ?? SNAPSHOT_MARKET,
     modelVersion: first?.modelVersion ?? DEFAULT_MODEL_VERSION,
     predictionCount: rows.length,
-    settledCount: settledRows.length,
-    pendingCount: rows.filter((row) => row.resultBucket === "PENDING").length,
+    settledCount: betRows.length,
+    pendingCount: Math.max(0, rows.length - betRows.length),
     winCount,
     lossCount,
     pushCount,
-    sampleWarning: sampleWarning(rows.length, settledRows.length),
-    brierScoreAvg: round(avg(settledRows.map((row) => row.brierScore)), 4),
-    logLossAvg: round(avg(settledRows.map((row) => row.logLoss)), 4),
-    spreadMae: round(avg(settledRows.map((row) => row.spreadError)), 2),
-    totalMae: round(avg(settledRows.map((row) => row.totalError)), 2),
+    sampleWarning: sampleWarning(rows.length, betRows.length),
+    brierScoreAvg: round(avg(calibrationRows.map((row) => row.brierScore)), 4),
+    logLossAvg: round(avg(calibrationRows.map((row) => row.logLoss)), 4),
+    spreadMae: round(avg(calibrationRows.map((row) => row.spreadError)), 2),
+    totalMae: round(avg(calibrationRows.map((row) => row.totalError)), 2),
     clvAvgPct: null,
     winRate: winCount + lossCount > 0 ? round(winCount / (winCount + lossCount), 3) : null,
     ...roiSummary,
     calibrationErrorAvg: round(calibrationErrorAvg, 4),
-    dataQualityBreakdown: countBy(rows.map((row) => row.dataQualityGrade ?? "UNKNOWN")),
+    dataQualityBreakdown: countBy(rows.map((row) => row.roiExclusionReason ? `EXCLUDED: ${row.roiExclusionReason}` : row.signalStrength ?? row.dataQualityGrade ?? "UNKNOWN")),
     calibrationBuckets
   };
 }
@@ -621,24 +680,25 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
     return leftScore - rightScore || right.settledCount - left.settledCount;
   });
 
-  const settledRows = predictions.filter((row) => row.resultBucket !== "PENDING");
-  const winCount = settledRows.filter((row) => row.resultBucket === "WIN").length;
-  const lossCount = settledRows.filter((row) => row.resultBucket === "LOSS").length;
-  const pushCount = settledRows.filter((row) => row.resultBucket === "PUSH").length;
+  const calibrationRows = gradedPredictionRows(predictions);
+  const betRows = latestActionableBetRows(predictions);
+  const winCount = betRows.filter((row) => row.resultBucket === "WIN").length;
+  const lossCount = betRows.filter((row) => row.resultBucket === "LOSS").length;
+  const pushCount = betRows.filter((row) => row.resultBucket === "PUSH").length;
   const winRate = winCount + lossCount > 0 ? round(winCount / (winCount + lossCount), 3) : null;
-  const roiSummary = calculateUnitsRoi(settledRows);
+  const roiSummary = calculateUnitsRoi(predictions);
   const byLeague = {
     [ACTIVE_LEAGUE]: {
       predictionCount: predictions.length,
-      settledCount: settledRows.length,
+      settledCount: betRows.length,
       winCount,
       lossCount,
       pushCount,
       winRate,
-      brierScoreAvg: round(avg(settledRows.map((row) => row.brierScore)), 4),
-      logLossAvg: round(avg(settledRows.map((row) => row.logLoss)), 4),
-      spreadMae: round(avg(settledRows.map((row) => row.spreadError)), 2),
-      totalMae: round(avg(settledRows.map((row) => row.totalError)), 2),
+      brierScoreAvg: round(avg(calibrationRows.map((row) => row.brierScore)), 4),
+      logLossAvg: round(avg(calibrationRows.map((row) => row.logLoss)), 4),
+      spreadMae: round(avg(calibrationRows.map((row) => row.spreadError)), 2),
+      totalMae: round(avg(calibrationRows.map((row) => row.totalError)), 2),
       clvAvgPct: null
     }
   };
@@ -652,8 +712,8 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
     filters: { league: ACTIVE_LEAGUE, market, modelVersion, windowDays },
     totals: {
       predictionCount: predictions.length,
-      settledCount: settledRows.length,
-      pendingCount: predictions.filter((row) => row.resultBucket === "PENDING").length,
+      settledCount: betRows.length,
+      pendingCount: Math.max(0, predictions.length - betRows.length),
       winCount,
       lossCount,
       pushCount,
@@ -661,10 +721,10 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
       leagueCount: predictions.length ? DEFAULT_LEAGUES.length : 0,
       marketCount: predictions.length ? 1 : 0,
       modelVersionCount: new Set(predictions.map((row) => row.modelVersion)).size,
-      brierScoreAvg: round(avg(settledRows.map((row) => row.brierScore)), 4),
-      logLossAvg: round(avg(settledRows.map((row) => row.logLoss)), 4),
-      spreadMae: round(avg(settledRows.map((row) => row.spreadError)), 2),
-      totalMae: round(avg(settledRows.map((row) => row.totalError)), 2),
+      brierScoreAvg: round(avg(calibrationRows.map((row) => row.brierScore)), 4),
+      logLossAvg: round(avg(calibrationRows.map((row) => row.logLoss)), 4),
+      spreadMae: round(avg(calibrationRows.map((row) => row.spreadError)), 2),
+      totalMae: round(avg(calibrationRows.map((row) => row.totalError)), 2),
       clvAvgPct: null,
       ...roiSummary
     },
