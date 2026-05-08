@@ -344,15 +344,104 @@ function ProbBar({ awayTeam, homeTeam, awayProb, homeProb, awayMkt, homeMkt, bet
   );
 }
 
+// ── Totals probability bar ────────────────────────────────────────────────────
+
+function TotalsBar({ vm, view }: { vm: SimCardViewModel; view: ActionView }) {
+  const overRaw = view.side === "over"
+    ? (view.modelProbability ?? 0.5)
+    : view.modelProbability != null ? 1 - view.modelProbability : 0.5;
+  const underRaw = 1 - overRaw;
+  const total = overRaw + underRaw;
+  const overPct = (overRaw / total) * 100;
+  const underPct = 100 - overPct;
+
+  const overMkt = view.side === "over"
+    ? view.marketProbability
+    : view.marketProbability != null ? 1 - view.marketProbability : null;
+  const underMkt = overMkt != null ? 1 - overMkt : null;
+
+  const favorsOver = overPct >= underPct;
+  const betSide = view.side === "over" || view.side === "under" ? view.side : null;
+  const runEdge = typeof view.projectedRunEdge === "number" && Number.isFinite(view.projectedRunEdge)
+    ? view.projectedRunEdge : null;
+
+  return (
+    <div>
+      <div className="mb-2 flex items-end justify-between">
+        <div>
+          <div className={`text-xs font-semibold leading-tight ${favorsOver ? "text-white" : "text-slate-500"}`}>
+            Over {vm.marketTotal?.toFixed(1) ?? "—"}
+            {betSide === "over" ? <span className="ml-1.5 text-[9px] text-emerald-400">← BET</span> : null}
+          </div>
+          <div className={`mt-0.5 font-mono text-2xl font-bold tabular-nums ${favorsOver ? "text-emerald-300" : "text-slate-500"}`}>
+            {overPct.toFixed(1)}%
+          </div>
+          {overMkt != null ? (
+            <div className="text-[9px] text-slate-700">{(overMkt * 100).toFixed(1)}% market</div>
+          ) : null}
+        </div>
+
+        <div className="px-3 text-center">
+          <div className="text-[9px] font-bold uppercase tracking-[0.22em] text-slate-700">O/U prob</div>
+          {vm.projectedTotal != null ? (
+            <div className="mt-1 text-[10px] text-slate-600">
+              Proj {vm.projectedTotal.toFixed(1)}
+              {runEdge != null ? (
+                <span className={runEdge > 0 ? "text-emerald-500" : "text-amber-500"}>
+                  {" "}{runEdge > 0 ? "+" : ""}{runEdge.toFixed(1)}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="text-right">
+          <div className={`text-xs font-semibold leading-tight ${!favorsOver ? "text-white" : "text-slate-500"}`}>
+            Under {vm.marketTotal?.toFixed(1) ?? "—"}
+            {betSide === "under" ? <span className="ml-1.5 text-[9px] text-amber-400">BET →</span> : null}
+          </div>
+          <div className={`mt-0.5 font-mono text-2xl font-bold tabular-nums ${!favorsOver ? "text-amber-300" : "text-slate-500"}`}>
+            {underPct.toFixed(1)}%
+          </div>
+          {underMkt != null ? (
+            <div className="text-[9px] text-slate-700">{(underMkt * 100).toFixed(1)}% market</div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="flex h-3 overflow-hidden rounded-full bg-slate-800/80">
+        <div
+          style={{ width: `${overPct}%` }}
+          className="bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-500"
+        />
+        <div
+          style={{ width: `${underPct}%` }}
+          className="bg-gradient-to-r from-amber-500 to-amber-400 transition-all duration-500"
+        />
+      </div>
+      <div className="mt-1 flex justify-between text-[8px] font-medium uppercase tracking-[0.18em] text-slate-700">
+        <span>Over</span>
+        <span>Under</span>
+      </div>
+    </div>
+  );
+}
+
 // ── Score prediction ─────────────────────────────────────────────────────────
 
-function ScorePrediction({ vm }: { vm: SimCardViewModel }) {
+function ScorePrediction({ vm, totalsView }: { vm: SimCardViewModel; totalsView?: ActionView | null }) {
   const { projectedAwayRuns: away, projectedHomeRuns: home, projectedTotal, marketTotal } = vm;
   const awayWins = (away ?? 0) > (home ?? 0);
+  const hasTotal = projectedTotal != null && marketTotal != null;
+  const runEdge = totalsView
+    ? (typeof totalsView.projectedRunEdge === "number" && Number.isFinite(totalsView.projectedRunEdge)
+        ? totalsView.projectedRunEdge : null)
+    : hasTotal ? projectedTotal! - marketTotal! : null;
+  const overCall = runEdge != null && runEdge > 0;
 
   return (
     <div className="rounded-xl border border-white/[0.06] bg-black/20 px-4 py-3">
-      <div className="mb-2 text-[9px] font-bold uppercase tracking-[0.2em] text-slate-700">Model score projection</div>
+      <div className="mb-3 text-[9px] font-bold uppercase tracking-[0.2em] text-slate-700">Model score projection</div>
       <div className="flex items-center justify-between">
         <div>
           <div className={`text-[10px] font-semibold ${awayWins ? "text-slate-300" : "text-slate-600"}`}>{vm.awayTeam}</div>
@@ -362,10 +451,9 @@ function ScorePrediction({ vm }: { vm: SimCardViewModel }) {
         </div>
         <div className="text-center">
           <div className="font-mono text-xs text-slate-700">vs</div>
-          {projectedTotal != null ? (
-            <div className="mt-1 text-[9px] text-slate-700">
-              Proj {projectedTotal.toFixed(1)}
-              {marketTotal != null ? ` · Line ${marketTotal.toFixed(1)}` : ""}
+          {home?.toFixed(1) != null && away?.toFixed(1) != null ? (
+            <div className="mt-1 text-[9px] text-slate-600">
+              = {((away ?? 0) + (home ?? 0)).toFixed(1)} runs
             </div>
           ) : null}
         </div>
@@ -376,6 +464,35 @@ function ScorePrediction({ vm }: { vm: SimCardViewModel }) {
           </div>
         </div>
       </div>
+      {hasTotal ? (
+        <div className="mt-3 border-t border-white/[0.05] pt-3">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-600">Sportsbook line</span>
+            <span className="font-mono font-bold text-white">{marketTotal!.toFixed(1)}</span>
+          </div>
+          <div className="mt-1.5 flex h-2 overflow-hidden rounded-full bg-slate-800/80">
+            <div
+              style={{ width: `${Math.min(100, (marketTotal! / ((projectedTotal! * 1.3) || 1)) * 100)}%` }}
+              className="rounded-l-full bg-slate-600"
+            />
+          </div>
+          <div className="mt-1.5 flex items-center justify-between text-xs">
+            <span className="text-slate-600">Model projection</span>
+            <span className={`font-mono font-bold ${overCall ? "text-emerald-400" : "text-amber-400"}`}>
+              {projectedTotal!.toFixed(1)}
+              <span className="ml-2 text-[10px] font-normal">
+                ({overCall ? "+" : ""}{runEdge!.toFixed(1)} · {overCall ? "OVER" : "UNDER"})
+              </span>
+            </span>
+          </div>
+          <div className="mt-1.5 flex h-2 overflow-hidden rounded-full bg-slate-800/80">
+            <div
+              style={{ width: `${Math.min(100, (projectedTotal! / ((projectedTotal! * 1.3) || 1)) * 100)}%` }}
+              className={`rounded-l-full transition-all duration-500 ${overCall ? "bg-emerald-500" : "bg-amber-500"}`}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -439,30 +556,12 @@ function TotalsPanel({ view, vm }: { view: ActionView; vm: SimCardViewModel }) {
 
   return (
     <div className={`rounded-2xl border p-4 ${c.verdict}`}>
-      <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-4 flex items-center justify-between gap-2">
         <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-600">Over / Under</span>
-        <div className="flex items-center gap-1.5">
-          <Badge className={`${c.badge} ${c.badgeText}`}>{direction}</Badge>
-          <VerdictBadge action={view.action} />
-        </div>
+        <VerdictBadge action={view.action} />
       </div>
-      <div className="flex items-baseline gap-2">
-        <span className="font-mono text-2xl font-bold text-white">{vm.marketTotal?.toFixed(1) ?? "—"}</span>
-        <span className="text-xs text-slate-600">line</span>
-        {vm.projectedTotal != null ? (
-          <span className={`text-sm font-semibold tabular-nums ${
-            runEdge != null && runEdge > 0
-              ? "text-emerald-400"
-              : runEdge != null && runEdge < 0
-              ? "text-red-400"
-              : "text-slate-500"
-          }`}>
-            → proj {vm.projectedTotal.toFixed(1)}
-            {runEdge != null ? ` (${runSign}${runEdge.toFixed(1)})` : ""}
-          </span>
-        ) : null}
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <TotalsBar vm={vm} view={view} />
+      <div className="mt-4 grid grid-cols-2 gap-2">
         <DataCell label="EV" value={signedPct(view.ev)} ok={(view.ev ?? -1) >= 0} />
         <DataCell label="Odds" value={fmtOdds(view.odds)} sub={view.sportsbook ?? "market"} />
         <DataCell
@@ -714,7 +813,7 @@ function BettingCard({ vm }: { vm: SimCardViewModel }) {
       {/* Score prediction */}
       {hasScore ? (
         <div className="border-b border-white/[0.04] px-5 py-4">
-          <ScorePrediction vm={vm} />
+          <ScorePrediction vm={vm} totalsView={totals} />
         </div>
       ) : null}
 
