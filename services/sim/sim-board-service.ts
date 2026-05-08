@@ -177,7 +177,7 @@ export async function getSimBoardFeed(leagueKey?: string): Promise<SimBoardFeed>
           take: MAX_MARKET_ROWS_PER_EVENT
         },
         eventProjections: {
-          select: { id: true, modelRunId: true, projectionJson: true },
+          select: { id: true, modelRunId: true },
           orderBy: {
             modelRun: {
               createdAt: "desc"
@@ -289,8 +289,7 @@ export async function getSimBoardFeed(leagueKey?: string): Promise<SimBoardFeed>
         projection: projection
           ? {
               id: projection.id,
-              modelRunId: projection.modelRunId,
-              projectionJson: projection.projectionJson
+              modelRunId: projection.modelRunId
             }
           : null,
         markets: event.currentMarketStates,
