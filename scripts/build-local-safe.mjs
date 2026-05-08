@@ -52,6 +52,27 @@ function cleanTempBuilds(baseDir, currentDirName) {
   }
 }
 
+function runPrismaPostinstall(root) {
+  const scriptPath = path.join(root, "scripts", "prisma-postinstall.mjs");
+  if (!existsSync(scriptPath)) return;
+
+  const databaseUrl = process.env.DATABASE_URL?.trim() || process.env.POSTGRES_PRISMA_URL?.trim() || process.env.POSTGRES_URL?.trim();
+  if (!databaseUrl) {
+    console.log("[build] database URL not configured; skipping Prisma migration deploy.");
+    return;
+  }
+
+  const result = spawnSync(process.execPath, [scriptPath], {
+    cwd: root,
+    stdio: "inherit",
+    env: process.env
+  });
+
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
+
 function runNextBuild(cwd) {
   return spawnSync(process.execPath, [nextBin, "build"], {
     cwd,
@@ -62,6 +83,8 @@ function runNextBuild(cwd) {
     }
   });
 }
+
+runPrismaPostinstall(projectRoot);
 
 const useTempMirror =
   process.platform === "win32" &&
