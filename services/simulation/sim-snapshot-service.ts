@@ -6,7 +6,7 @@ import {
   fetchMlbSportsbookLines,
   type MlbEdgeGame,
   type MlbEdgeProjection
-} from "@/services/simulation/mlb-edge-detector";
+} from "@/services/simulation/mlb-take-action-router";
 import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
 import { fetchSavantPitcherProfiles, fetchSavantTeamHistoryProfiles } from "@/services/simulation/mlb-savant-team-feed";
 
