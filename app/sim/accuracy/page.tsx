@@ -139,9 +139,9 @@ function MarketCard({ card }: { card: any }) {
       <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
         <Tile label="Record" value={recordText(card.winCount, card.lossCount, card.pushCount)} note="Wins-losses-pushes" />
         <Tile label="Win rate" value={pct(card.winRate)} note="Pushes excluded" />
+        <Tile label="ROI / Units" value={card.unitsNet != null ? `${card.unitsNet > 0 ? "+" : ""}${card.unitsNet.toFixed(1)}u` : "—"} note={card.roi != null ? `${card.roi > 0 ? "+" : ""}${card.roi.toFixed(1)}% at −110` : "Needs settled picks"} className={card.roi != null ? clvTone(card.roi / 100) : undefined} />
         <Tile label="Brier" value={num(card.brierScoreAvg, 4)} note="Lower is better" className={metricTone(card.brierScoreAvg, 0.2, 0.25)} />
         <Tile label="Log loss" value={num(card.logLossAvg, 4)} note="Overconfidence penalty" className={metricTone(card.logLossAvg, 0.58, 0.7)} />
-        <Tile label="Spread MAE" value={num(card.spreadMae, 2)} note="Margin miss" />
         <Tile label="Total MAE" value={num(card.totalMae, 2)} note="Total miss" />
       </div>
     </section>
@@ -277,7 +277,7 @@ export default async function SimAccuracyPage({ searchParams }: PageProps) {
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
         <Tile label="Record" value={recordText(scorecard.totals.winCount, scorecard.totals.lossCount, scorecard.totals.pushCount)} note="Wins-losses-pushes" />
         <Tile label="Win rate" value={pct(scorecard.totals.winRate)} note="Pushes excluded" />
-        <Tile label="ROI / Units" value="—" note="Wire odds/stake results next" />
+        <Tile label="ROI / Units" value={scorecard.totals.unitsNet != null ? `${scorecard.totals.unitsNet > 0 ? "+" : ""}${scorecard.totals.unitsNet.toFixed(1)}u` : "—"} note={scorecard.totals.roi != null ? `${scorecard.totals.roi > 0 ? "+" : ""}${scorecard.totals.roi.toFixed(1)}% at −110` : "Needs settled picks"} className={scorecard.totals.roi != null ? clvTone(scorecard.totals.roi / 100) : undefined} />
         <Tile label="Brier" value={num(scorecard.totals.brierScoreAvg, 4)} note="Probability calibration" className={metricTone(scorecard.totals.brierScoreAvg, 0.2, 0.25)} />
         <Tile label="Log loss" value={num(scorecard.totals.logLossAvg, 4)} note="Overconfidence penalty" className={metricTone(scorecard.totals.logLossAvg, 0.58, 0.7)} />
         <Tile label="Sample" value={`${scorecard.totals.settledCount}/${scorecard.totals.predictionCount}`} note={`${scorecard.totals.pendingCount} pending`} />
