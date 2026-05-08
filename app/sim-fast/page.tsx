@@ -21,11 +21,14 @@ const ACTIONS = ["bets", "totals", "all", "attack", "play", "lean", "watch", "pa
 type ActionFilter = typeof ACTIONS[number];
 type PageProps = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
 type MarketEdge = NonNullable<SimMarketSnapshot>["edges"][number] & {
-  signal?: Record<string, any>;
+  signal?: Record<string, any> | null;
   totalsAction?: Record<string, any> | null;
-  market?: Record<string, any>;
+  market?: Record<string, any> | null;
   sportsbook?: string | null;
   gameId: string;
+  startTime?: string | null;
+  status?: string | null;
+  leagueKey?: string | null;
 };
 type GameWorkspace = { key: string; row: SimPriorityRow; edge: MarketEdge | null; rows: SimPriorityRow[]; duplicateCount: number; sortScore: number };
 
@@ -173,9 +176,42 @@ function score(row: SimPriorityRow, edge: MarketEdge | null) {
   return actionRank(action(edge, row)) * 1000 + Math.abs(row.lean.edge ?? 0) * 100 + (row.confidence ?? 0) * 10 + (row.edgeMatched ? 1 : 0);
 }
 
-function buildGames(rows: SimPriorityRow[], edgeMap: Map<string, MarketEdge>): GameWorkspace[] {
+function rowFromEdge(edge: MarketEdge): SimPriorityRow {
+  const home = edge.matchup?.home ?? edge.market?.homeTeam ?? "Home";
+  const away = edge.matchup?.away ?? edge.market?.awayTeam ?? "Away";
+  const homeWinPct = typeof edge.projection?.distribution?.homeWinPct === "number" ? edge.projection.distribution.homeWinPct : 0.5;
+  const awayWinPct = typeof edge.projection?.distribution?.awayWinPct === "number" ? edge.projection.distribution.awayWinPct : 0.5;
+  const lean = homeWinPct >= awayWinPct
+    ? { team: home, pct: homeWinPct, edge: homeWinPct - awayWinPct }
+    : { team: away, pct: awayWinPct, edge: awayWinPct - homeWinPct };
+  return {
+    id: edge.gameId,
+    leagueKey: "MLB" as any,
+    status: edge.status ?? "scheduled",
+    startTime: edge.startTime ?? new Date().toISOString(),
+    matchup: { away, home },
+    lean,
+    tier: String(edge.signal?.takeAction?.action ?? edge.totalsAction?.action ?? "watch").toLowerCase(),
+    confidence: typeof edge.projection?.mlbIntel?.governor?.confidence === "number" ? edge.projection.mlbIntel.governor.confidence : null,
+    homeEdge: typeof edge.projection?.mlbIntel?.homeEdge === "number" ? edge.projection.mlbIntel.homeEdge : null,
+    edgeMatched: Boolean(edge.market),
+    href: `/sim/mlb/${encodeURIComponent(edge.gameId)}`
+  };
+}
+
+function buildGames(rows: SimPriorityRow[], edgeMap: Map<string, MarketEdge>, marketEdges: MarketEdge[] = []): GameWorkspace[] {
   const map = new Map<string, GameWorkspace>();
-  for (const row of rows) {
+  const sourceRows = [...rows];
+  const existingIds = new Set(sourceRows.map((row) => row.id));
+
+  for (const edge of marketEdges) {
+    if (!existingIds.has(edge.gameId)) {
+      sourceRows.push(rowFromEdge(edge));
+      existingIds.add(edge.gameId);
+    }
+  }
+
+  for (const row of sourceRows) {
     const key = workspaceKey(row);
     const edge = edgeMap.get(row.id) ?? null;
     const sortScore = score(row, edge);
@@ -207,8 +243,8 @@ function groupGames(games: GameWorkspace[]) {
   return [...map.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, games]) => ({ key, label: dateLabel(key), games }));
 }
 
-function dateOptions(rows: SimPriorityRow[]) {
-  return [...new Set(rows.map((row) => chicagoKey(row.startTime)).filter((key) => key !== "unknown"))].sort();
+function dateOptions(rows: SimPriorityRow[], edges: MarketEdge[]) {
+  return [...new Set([...rows.map((row) => chicagoKey(row.startTime)), ...edges.map((edge) => chicagoKey(edge.startTime ?? null))].filter((key) => key !== "unknown"))].sort();
 }
 
 async function readSnapshots() {
@@ -309,9 +345,11 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
   const { hub, priority, market, status } = await readSnapshots();
 
   const rows = priority?.rows ?? [];
-  const edgeMap = buildEdgeMap((market?.edges ?? []) as MarketEdge[]);
+  const marketEdges = (market?.edges ?? []) as MarketEdge[];
+  const edgeMap = buildEdgeMap(marketEdges);
   const dateRows = selectedDate === "all" ? rows : rows.filter((row) => chicagoKey(row.startTime) === selectedDate);
-  const allGames = buildGames(dateRows, edgeMap);
+  const dateEdges = selectedDate === "all" ? marketEdges : marketEdges.filter((edge) => chicagoKey(edge.startTime ?? null) === selectedDate);
+  const allGames = buildGames(dateRows, edgeMap, dateEdges);
   const games = allGames.filter((game) => shouldShow(game, actionFilter));
   const groups = groupGames(games);
   const betCount = allGames.filter((game) => shouldShow(game, "bets")).length;
@@ -321,9 +359,9 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
   const simAge = status?.lastSuccessAt ?? priority?.generatedAt ?? hub?.generatedAt ?? null;
   const simFresh = (ageMinutes(simAge) ?? 999) <= 20;
   const marketFresh = (ageMinutes(market?.generatedAt) ?? 999) <= 15;
-  const hasRows = rows.length > 0;
+  const hasRows = rows.length > 0 || marketEdges.length > 0;
   const hasMarket = Boolean(market?.lineCount && market.lineCount > 0);
-  const availableDates = dateOptions(rows);
+  const availableDates = dateOptions(rows, marketEdges);
 
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -344,9 +382,9 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
           <Tile label="Bets" value={betCount} note={`${attackCount} attack · ${playCount} play`} ok={betCount > 0} />
           <Tile label="Totals" value={totalsCount} note="Over/under cards" ok={totalsCount > 0} />
           <Tile label="Visible" value={games.length} note={`${allGames.length} games on selected date`} ok={games.length > 0} />
-          <Tile label="Sim cache" value={simFresh ? "Fresh" : priority ? "Stale" : "Missing"} note={`Last success ${age(simAge)}`} ok={simFresh && hasRows} />
+          <Tile label="Sim cache" value={simFresh ? "Fresh" : priority || marketEdges.length ? "Stale" : "Missing"} note={`Last success ${age(simAge)}`} ok={simFresh && hasRows} />
           <Tile label="Market cache" value={marketFresh ? "Fresh" : market ? "Stale" : "Missing"} note={`Generated ${age(market?.generatedAt)}`} ok={marketFresh && hasMarket} />
-          <Tile label="MLB lines" value={market?.lineCount ?? 0} note={`${hub?.summary.mlbCount ?? priority?.summary.mlbCount ?? 0} MLB games`} ok={hasMarket} />
+          <Tile label="MLB lines" value={market?.lineCount ?? 0} note={`${hub?.summary.mlbCount ?? priority?.summary.mlbCount ?? marketEdges.length} MLB games`} ok={hasMarket} />
         </div>
       </section>
 
