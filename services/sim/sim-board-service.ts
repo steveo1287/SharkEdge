@@ -167,7 +167,12 @@ export async function getSimBoardFeed(leagueKey?: string): Promise<SimBoardFeed>
           take: 4
         },
         currentMarketStates: {
-          select: { id: true, marketType: true, side: true, line: true, updatedAt: true },
+          select: {
+            id: true,
+            marketType: true,
+            consensusLineValue: true,
+            updatedAt: true
+          },
           orderBy: { updatedAt: "desc" },
           take: MAX_MARKET_ROWS_PER_EVENT
         },
