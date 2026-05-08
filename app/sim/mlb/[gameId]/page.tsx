@@ -40,6 +40,26 @@ function plus(value: number | null | undefined, digits = 2) {
   return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
 }
 
+function americanImplied(v: number | null | undefined): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v) || v === 0) return null;
+  return v > 0 ? 100 / (v + 100) : Math.abs(v) / (Math.abs(v) + 100);
+}
+
+function noVigProbs(home: number | null | undefined, away: number | null | undefined) {
+  const h = americanImplied(home);
+  const a = americanImplied(away);
+  if (h == null || a == null) return null;
+  const hold = h + a;
+  if (hold <= 0) return null;
+  return { home: h / hold, away: a / hold };
+}
+
+function fmtOdds(v: number | null | undefined) {
+  if (typeof v !== "number" || !Number.isFinite(v)) return "--";
+  const r = Math.round(v);
+  return r > 0 ? `+${r}` : String(r);
+}
+
 function formatTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "TBD";
@@ -82,6 +102,161 @@ function dedupeNotes(arrays: (string[] | undefined | null)[]): string[] {
     }
   }
   return out;
+}
+
+// ─── Win probability bar ──────────────────────────────────────────────────────
+
+function WinProbSection({ projection, edge }: { projection: ProjectionView; edge?: EdgeResult | null }) {
+  const rawHome = projection.distribution.homeWinPct ?? 0.5;
+  const rawAway = projection.distribution.awayWinPct ?? (1 - rawHome);
+  const total = rawHome + rawAway;
+  const homePct = (rawHome / total) * 100;
+  const awayPct = 100 - homePct;
+  const homeFav = homePct >= awayPct;
+
+  const mkt = edge?.market ? noVigProbs(edge.market.homeMoneyline, edge.market.awayMoneyline) : null;
+  const betSide = edge?.signal?.market === "home_ml" ? "home"
+    : edge?.signal?.market === "away_ml" ? "away"
+    : null;
+
+  const awayRuns = projection.distribution.avgAway;
+  const homeRuns = projection.distribution.avgHome;
+  const projTotal = typeof awayRuns === "number" && typeof homeRuns === "number"
+    ? awayRuns + homeRuns : null;
+  const awayWins = (awayRuns ?? 0) > (homeRuns ?? 0);
+
+  return (
+    <SimSignalCard>
+      {/* Probability bar */}
+      <div className="mb-1 text-[9px] font-bold uppercase tracking-[0.22em] text-slate-600">Win Probability</div>
+      <div className="mt-3 flex items-end justify-between">
+        <div>
+          <div className={cn("text-xs font-semibold leading-tight", !homeFav ? "text-white" : "text-slate-500")}>
+            {projection.matchup.away}
+            {betSide === "away" ? <span className="ml-1.5 text-[9px] text-cyan-400">← BET</span> : null}
+          </div>
+          <div className={cn("mt-0.5 font-mono text-3xl font-bold tabular-nums", !homeFav ? "text-cyan-300" : "text-slate-500")}>
+            {awayPct.toFixed(1)}%
+          </div>
+          {mkt ? <div className="text-[10px] text-slate-600">{(mkt.away * 100).toFixed(1)}% market</div> : null}
+        </div>
+        <div className="px-4 text-center">
+          <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-700">Model</div>
+        </div>
+        <div className="text-right">
+          <div className={cn("text-xs font-semibold leading-tight", homeFav ? "text-white" : "text-slate-500")}>
+            {projection.matchup.home}
+            {betSide === "home" ? <span className="ml-1.5 text-[9px] text-violet-400">BET →</span> : null}
+          </div>
+          <div className={cn("mt-0.5 font-mono text-3xl font-bold tabular-nums", homeFav ? "text-violet-300" : "text-slate-500")}>
+            {homePct.toFixed(1)}%
+          </div>
+          {mkt ? <div className="text-[10px] text-slate-600">{(mkt.home * 100).toFixed(1)}% market</div> : null}
+        </div>
+      </div>
+      <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-slate-800/80">
+        <div style={{ width: `${awayPct}%` }} className="bg-gradient-to-r from-cyan-500 to-cyan-400 transition-all duration-500" />
+        <div style={{ width: `${homePct}%` }} className="bg-gradient-to-r from-violet-500 to-violet-400 transition-all duration-500" />
+      </div>
+      <div className="mt-1 flex justify-between text-[8px] font-medium uppercase tracking-[0.18em] text-slate-700">
+        <span>Away</span>
+        <span>Home</span>
+      </div>
+
+      {/* Score prediction */}
+      {awayRuns != null && homeRuns != null ? (
+        <div className="mt-5 border-t border-white/[0.05] pt-4">
+          <div className="mb-3 text-[9px] font-bold uppercase tracking-[0.22em] text-slate-600">Model Score Projection</div>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className={cn("text-[10px] font-semibold", awayWins ? "text-slate-300" : "text-slate-600")}>{projection.matchup.away}</div>
+              <div className={cn("font-mono text-4xl font-bold tabular-nums", awayWins ? "text-cyan-300" : "text-slate-600")}>{awayRuns.toFixed(1)}</div>
+            </div>
+            <div className="text-center">
+              <div className="font-mono text-sm text-slate-700">vs</div>
+              {projTotal != null ? (
+                <div className="mt-1 text-[10px] text-slate-600">= {projTotal.toFixed(1)} runs</div>
+              ) : null}
+            </div>
+            <div className="text-right">
+              <div className={cn("text-[10px] font-semibold", !awayWins ? "text-slate-300" : "text-slate-600")}>{projection.matchup.home}</div>
+              <div className={cn("font-mono text-4xl font-bold tabular-nums", !awayWins ? "text-violet-300" : "text-slate-600")}>{homeRuns.toFixed(1)}</div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Totals comparison */}
+      {edge?.market?.total != null && projTotal != null ? (
+        <div className="mt-4 border-t border-white/[0.05] pt-4">
+          <div className="mb-2 text-[9px] font-bold uppercase tracking-[0.22em] text-slate-600">Over / Under</div>
+          {(() => {
+            const mktTotal = edge.market!.total as number;
+            const runEdge = projTotal - mktTotal;
+            const favOver = runEdge > 0;
+            const overMktProb = edge.market?.overPrice ? americanImplied(edge.market.overPrice as number) : null;
+            const underMktProb = overMktProb != null ? 1 - overMktProb : null;
+            return (
+              <>
+                <div className="flex items-end justify-between">
+                  <div>
+                    <div className={cn("text-xs font-semibold", favOver ? "text-white" : "text-slate-500")}>
+                      Over {mktTotal.toFixed(1)}
+                    </div>
+                    <div className={cn("font-mono text-2xl font-bold tabular-nums mt-0.5", favOver ? "text-emerald-300" : "text-slate-500")}>
+                      {favOver ? "+" : ""}{runEdge.toFixed(1)}
+                    </div>
+                    {overMktProb ? <div className="text-[10px] text-slate-600">{(overMktProb * 100).toFixed(1)}% market</div> : null}
+                  </div>
+                  <div className="px-4 text-center">
+                    <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-700">Run edge</div>
+                    <div className="mt-1 text-xs text-slate-600">
+                      Line {mktTotal.toFixed(1)} · Proj {projTotal.toFixed(1)}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className={cn("text-xs font-semibold", !favOver ? "text-white" : "text-slate-500")}>
+                      Under {mktTotal.toFixed(1)}
+                    </div>
+                    <div className={cn("font-mono text-2xl font-bold tabular-nums mt-0.5", !favOver ? "text-amber-300" : "text-slate-500")}>
+                      {!favOver ? "" : "-"}{Math.abs(runEdge).toFixed(1)}
+                    </div>
+                    {underMktProb ? <div className="text-[10px] text-slate-600">{(underMktProb * 100).toFixed(1)}% market</div> : null}
+                  </div>
+                </div>
+                <div className="mt-2.5 flex h-3 overflow-hidden rounded-full bg-slate-800/80">
+                  <div style={{ width: `${Math.min(100, Math.max(0, (projTotal / (mktTotal * 1.4)) * 100))}%` }}
+                    className={cn("transition-all duration-500", favOver ? "bg-gradient-to-r from-emerald-600 to-emerald-400" : "bg-gradient-to-r from-amber-600 to-amber-400")} />
+                </div>
+                <div className="mt-1 flex justify-between text-[8px] font-medium uppercase tracking-[0.18em] text-slate-700">
+                  <span>← Under</span>
+                  <span>Over →</span>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      ) : null}
+
+      {/* Moneyline odds row */}
+      {edge?.market && (edge.market.homeMoneyline != null || edge.market.awayMoneyline != null) ? (
+        <div className="mt-4 grid grid-cols-3 gap-2 border-t border-white/[0.05] pt-4">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3 text-center">
+            <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-600">Away ML</div>
+            <div className="mt-1 font-mono text-lg font-bold text-white">{fmtOdds(edge.market.awayMoneyline)}</div>
+          </div>
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3 text-center">
+            <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-600">Total</div>
+            <div className="mt-1 font-mono text-lg font-bold text-white">{edge.market.total?.toFixed(1) ?? "--"}</div>
+          </div>
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3 text-center">
+            <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-600">Home ML</div>
+            <div className="mt-1 font-mono text-lg font-bold text-white">{fmtOdds(edge.market.homeMoneyline)}</div>
+          </div>
+        </div>
+      ) : null}
+    </SimSignalCard>
+  );
 }
 
 // ─── Market panel ─────────────────────────────────────────────────────────────
@@ -444,18 +619,20 @@ export default async function MlbGameDetailPage({ params }: PageProps) {
         </div>
       </SimWorkspaceHeader>
 
-      {/* Key metrics */}
-      <section className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <SimMetricTile label="Lean" value={lean.team} sub={pct(lean.pct)} emphasis="strong" />
-        <SimMetricTile label="Score" value={`${num(projection.distribution.avgAway)} / ${num(projection.distribution.avgHome)}`} sub="Away / Home" />
+      {/* Win probability + score + totals */}
+      <WinProbSection projection={projection} edge={edge} />
+
+      {/* Supporting metrics row */}
+      <section className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
         <SimMetricTile label="Home edge" value={plus(mlbIntel?.homeEdge)} sub="Model signal" />
-        <SimMetricTile label="Total" value={num(mlbIntel?.projectedTotal)} sub="Projected runs" />
+        <SimMetricTile label="Proj total" value={num(mlbIntel?.projectedTotal)} sub="Projected runs" />
         <SimMetricTile
           label="Confidence"
           value={pct(governor?.confidence, 0)}
           sub={governor?.noBet ? "No-bet active" : "Model eligible"}
           emphasis={governor?.noBet ? "muted" : "normal"}
         />
+        <SimMetricTile label="Sportsbook" value={edge?.market?.sportsbook ?? "--"} sub={edge?.signal ? `${edge.signal.market} · ${edge.signal.strength}` : "no signal"} emphasis="muted" />
       </section>
 
       {/* Starters + lineup lock */}
