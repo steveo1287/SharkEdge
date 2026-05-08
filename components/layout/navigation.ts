@@ -19,7 +19,7 @@ export const NAV_ICONS = {
 
 export const MAIN_NAV_ITEMS: NavItem[] = [
   { href: "/", label: "Home", shortLabel: "Home", description: "Daily top plays command center.", icon: NAV_ICONS.home },
-  { href: "/sim", label: "SimHub", shortLabel: "Sims", description: "MLB, NBA, and UFC simulation engine.", icon: NAV_ICONS.sim, badge: "SIM" },
+  { href: "/sim-fast", label: "SimHub", shortLabel: "Sims", description: "MLB, NBA, and UFC simulation engine.", icon: NAV_ICONS.sim, badge: "SIM" },
   { href: "/sharktrends", label: "SharkTrends", shortLabel: "Trends", description: "Trend intelligence and proof gates.", icon: NAV_ICONS.trends, badge: "LIVE" },
   { href: "/sharkfights/ufc", label: "SharkFights", shortLabel: "Fights", description: "UFC fight prediction workspace.", icon: NAV_ICONS.fights, badge: "UFC" },
   { href: "/accuracy", label: "Accuracy", shortLabel: "Accuracy", description: "Model credibility and calibration.", icon: NAV_ICONS.accuracy, badge: "GRADE" },
@@ -28,7 +28,7 @@ export const MAIN_NAV_ITEMS: NavItem[] = [
 
 export function isActivePath(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
-  if (href === "/sim") return pathname === "/sim" || (pathname.startsWith("/sim/") && !pathname.startsWith("/sim/accuracy"));
+  if (href === "/sim-fast") return pathname === "/sim" || pathname === "/sim-fast" || (pathname.startsWith("/sim/") && !pathname.startsWith("/sim/accuracy"));
   if (href === "/accuracy") return pathname.startsWith("/accuracy") || pathname.startsWith("/sim/accuracy");
   const cleanHref = href.split("?")[0] ?? href;
   return pathname === cleanHref || pathname.startsWith(`${cleanHref}/`);
@@ -37,7 +37,7 @@ export function isActivePath(pathname: string, href: string) {
 export function getRouteMeta(pathname: string) {
   const routes = [
     { match: (v: string) => v === "/", eyebrow: "Command Center", title: "Today", subtitle: "Top plays, biggest edges, and model calls." },
-    { match: (v: string) => v === "/sim" || (v.startsWith("/sim/") && !v.startsWith("/sim/accuracy")), eyebrow: "Simulation Engine", title: "SimHub", subtitle: "MLB, NBA, and UFC simulation output." },
+    { match: (v: string) => v === "/sim" || v === "/sim-fast" || (v.startsWith("/sim/") && !v.startsWith("/sim/accuracy")), eyebrow: "Simulation Engine", title: "SimHub", subtitle: "MLB, NBA, and UFC simulation output." },
     { match: (v: string) => v.startsWith("/sharktrends"), eyebrow: "SharkTrends", title: "SharkTrends", subtitle: "Trend intelligence and proof gates." },
     { match: (v: string) => v.startsWith("/sharkfights"), eyebrow: "SharkFights", title: "SharkFights", subtitle: "UFC fight predictions." },
     { match: (v: string) => v.startsWith("/accuracy") || v.startsWith("/sim/accuracy"), eyebrow: "Model Credibility", title: "Accuracy", subtitle: "Model record and calibration." },
