@@ -114,7 +114,15 @@ function selected(edge: Edge, market: string | null | undefined): SelectedPick {
       americanOdds: side.americanOdds,
       expectedValue: side.expectedValue,
       projectedRunEdge: signedRunEdge,
-      totalProbability: totalScore
+      totalProbability: {
+        ok: totalScore.ok,
+        projectedTotal: totalScore.projectedTotal,
+        marketTotal: totalScore.marketTotal,
+        projectedRunEdge: totalScore.projectedRunEdge,
+        over: totalScore.over,
+        under: totalScore.under,
+        warnings: totalScore.warnings
+      }
     };
   }
 
@@ -241,7 +249,7 @@ function enhance(edge: Edge, gateContext: TotalsGateContext): Edge {
       stakeUnits: round(stakeUnits, 2) ?? 0,
       kellyFraction: round(kelly, 4) ?? 0,
       takeAction: {
-        version: "take-action-v2.3-totals-backtest-gated",
+        version: "take-action-v2.4-compact-totals-cache",
         action,
         actionScore: score,
         betEligible: action === "ATTACK" || action === "PLAY",
