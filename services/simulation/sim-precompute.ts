@@ -90,7 +90,15 @@ export async function precomputeActivePropSims(): Promise<PrecomputeMetrics> {
       const tuning = getLeagueTuning(proj.event.leagueId);
 
       const result = buildPlayerSimV2(
-        { player: proj.player.name, propType: simType as any, line, odds },
+        {
+          player: proj.player.name,
+          propType: simType as any,
+          line,
+          odds,
+          teamTotal: 100,
+          minutes: simType === "Strikeouts" || simType === "Outs" ? 0 : 30,
+          usageRate: simType === "Strikeouts" || simType === "Outs" ? 1 : 0.22
+        },
         tuning
       );
 
