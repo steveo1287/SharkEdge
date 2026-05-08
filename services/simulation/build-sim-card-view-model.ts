@@ -144,7 +144,8 @@ function fromEdge(edge: EdgeLike, row: SimPriorityRow | null): SimCardViewModel 
   const lean = edgeLean(edge);
   const projAway = num(edge.projection?.distribution?.avgAway);
   const projHome = num(edge.projection?.distribution?.avgHome);
-  const projTotal = num((edge.projection as Record<string, unknown> | undefined)?.mlbIntel?.projectedTotal as unknown)
+  const mlbIntel = ((edge.projection as Record<string, unknown> | undefined)?.mlbIntel) as Record<string, unknown> | undefined;
+  const projTotal = num(mlbIntel?.projectedTotal as unknown)
     ?? (projAway != null && projHome != null ? projAway + projHome : null);
   const marketTotal = num((edge.market as Record<string, unknown> | null)?.total as unknown);
 
