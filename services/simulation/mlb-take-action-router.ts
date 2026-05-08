@@ -8,6 +8,7 @@ import {
   type MlbEdgeProjection,
   type SportsbookLine
 } from "./mlb-edge-detector";
+import { getCachedMlbTotalsBacktest, getDefaultMlbTotalsCandidate, type MlbTotalsBacktestCandidate } from "./mlb-totals-backtest-engine";
 import { scoreMlbTotalMarket } from "./mlb-total-probability-engine";
 
 export { fetchMlbSportsbookLines, noVigMoneylineProbabilities, rankMlbMarketSignal };
@@ -18,7 +19,12 @@ type Edge = EdgeResult["edges"][number];
 type Signal = NonNullable<Edge["signal"]>;
 
 type Tier = "ATTACK" | "PLAY" | "LEAN" | "WATCH" | "PASS";
-type SupportedMarket = "home_ml" | "away_ml" | "over" | "under";
+
+type TotalsGateContext = {
+  gates: MlbTotalsBacktestCandidate;
+  source: "backtest" | "default";
+  usableRows: number;
+};
 
 type SelectedPick = {
   supported: boolean;
@@ -141,30 +147,37 @@ function quality(edge: Edge, signal: Signal) {
   return clamp(Math.round(score), 0, 100);
 }
 
-function attackEvRequirement(american: number | null | undefined, market: string | null | undefined) {
-  const base = isTotal(market) ? 0.045 : 0.04;
+function attackEvRequirement(american: number | null | undefined, market: string | null | undefined, totalsGates: MlbTotalsBacktestCandidate) {
+  const base = isTotal(market) ? totalsGates.attackEv : 0.04;
   if (typeof american !== "number" || !Number.isFinite(american)) return base;
-  if (american < -220) return 0.055;
+  if (american < -220) return Math.max(base, 0.055);
   if (american < -160) return Math.max(base, 0.0475);
-  if (american >= 250) return 0.055;
+  if (american >= 250) return Math.max(base, 0.055);
   if (american >= 160) return Math.max(base, 0.045);
   return base;
 }
 
-function totalRunEdgeClears(action: Tier, market: string | null | undefined, runEdge: number | null) {
+function totalRunEdgeClears(action: Tier, market: string | null | undefined, runEdge: number | null, totalsGates: MlbTotalsBacktestCandidate) {
   if (!isTotal(market)) return true;
   if (runEdge == null || runEdge <= 0) return false;
-  if (action === "ATTACK") return runEdge >= 1.2;
-  if (action === "PLAY") return runEdge >= 0.85;
-  if (action === "LEAN") return runEdge >= 0.45;
+  if (action === "ATTACK") return runEdge >= totalsGates.attackRunEdge;
+  if (action === "PLAY") return runEdge >= totalsGates.playRunEdge;
+  if (action === "LEAN") return runEdge >= totalsGates.leanRunEdge;
   return true;
 }
 
-function tier(score: number, expectedValue: number | null, edge: number | null, dataQuality: number, hardStops: string[], american: number | null | undefined, market: string | null | undefined, runEdge: number | null): Tier {
+function probabilityEdgeClears(action: Tier, market: string | null | undefined, edge: number | null, totalsGates: MlbTotalsBacktestCandidate) {
+  if (edge == null) return false;
+  if (!isTotal(market)) return Math.abs(edge) >= (action === "ATTACK" ? 0.025 : action === "PLAY" ? 0.015 : 0.0075);
+  if (action === "ATTACK" || action === "PLAY") return edge >= totalsGates.minProbabilityEdge;
+  return edge >= Math.min(0.0075, totalsGates.minProbabilityEdge);
+}
+
+function tier(score: number, expectedValue: number | null, edge: number | null, dataQuality: number, hardStops: string[], american: number | null | undefined, market: string | null | undefined, runEdge: number | null, totalsGates: MlbTotalsBacktestCandidate): Tier {
   if (hardStops.length || expectedValue == null || edge == null || expectedValue <= 0) return "PASS";
-  if (score >= 82 && expectedValue >= attackEvRequirement(american, market) && Math.abs(edge) >= 0.025 && dataQuality >= 70 && totalRunEdgeClears("ATTACK", market, runEdge)) return "ATTACK";
-  if (score >= 66 && expectedValue >= 0.02 && Math.abs(edge) >= 0.015 && dataQuality >= 60 && totalRunEdgeClears("PLAY", market, runEdge)) return "PLAY";
-  if (score >= 48 && expectedValue >= 0.0075 && Math.abs(edge) >= 0.0075 && dataQuality >= 42 && totalRunEdgeClears("LEAN", market, runEdge)) return "LEAN";
+  if (score >= 82 && expectedValue >= attackEvRequirement(american, market, totalsGates) && probabilityEdgeClears("ATTACK", market, edge, totalsGates) && dataQuality >= 70 && totalRunEdgeClears("ATTACK", market, runEdge, totalsGates)) return "ATTACK";
+  if (score >= 66 && expectedValue >= (isTotal(market) ? totalsGates.playEv : 0.02) && probabilityEdgeClears("PLAY", market, edge, totalsGates) && dataQuality >= 60 && totalRunEdgeClears("PLAY", market, runEdge, totalsGates)) return "PLAY";
+  if (score >= 48 && expectedValue >= (isTotal(market) ? totalsGates.leanEv : 0.0075) && probabilityEdgeClears("LEAN", market, edge, totalsGates) && dataQuality >= 42 && totalRunEdgeClears("LEAN", market, runEdge, totalsGates)) return "LEAN";
   return "WATCH";
 }
 
@@ -174,7 +187,7 @@ function strength(action: Tier) {
   return "thin";
 }
 
-function enhance(edge: Edge): Edge {
+function enhance(edge: Edge, gateContext: TotalsGateContext): Edge {
   if (!edge.signal) return edge;
   const signal = edge.signal;
   const market = signal.market ?? null;
@@ -196,7 +209,7 @@ function enhance(edge: Edge): Edge {
   if (edge.projection.mlbIntel?.governor?.noBet) downgradeReasons.push("governor no-bet downgraded, not deleted");
   if ((signal.sourceCount ?? 0) < 2) downgradeReasons.push("thin book consensus");
   if ((signal.marketHold ?? 0) > 0.1) downgradeReasons.push("elevated market hold");
-  if (totalMarket && pick.projectedRunEdge != null && pick.projectedRunEdge < 0.45) downgradeReasons.push("total run edge below lean threshold");
+  if (totalMarket && pick.projectedRunEdge != null && pick.projectedRunEdge < gateContext.gates.leanRunEdge) downgradeReasons.push("total run edge below lean threshold");
 
   const score = Math.round(clamp(
     45 +
@@ -210,10 +223,10 @@ function enhance(edge: Edge): Edge {
     0,
     100
   ));
-  const action = tier(score, expectedValue, modelEdge, dataQuality, hardStopReasons, pick.americanOdds, market, pick.projectedRunEdge);
+  const action = tier(score, expectedValue, modelEdge, dataQuality, hardStopReasons, pick.americanOdds, market, pick.projectedRunEdge, gateContext.gates);
   const kelly = quarterKelly(pick.modelProbability, pick.americanOdds);
   const stakeUnits = action === "ATTACK" ? clamp(kelly, 0.75, 1) : action === "PLAY" ? clamp(kelly, 0.35, 0.75) : 0;
-  const attackRequirement = attackEvRequirement(pick.americanOdds, market);
+  const attackRequirement = attackEvRequirement(pick.americanOdds, market, gateContext.gates);
 
   return {
     ...edge,
@@ -228,7 +241,7 @@ function enhance(edge: Edge): Edge {
       stakeUnits: round(stakeUnits, 2) ?? 0,
       kellyFraction: round(kelly, 4) ?? 0,
       takeAction: {
-        version: "take-action-v2.2-totals",
+        version: "take-action-v2.3-totals-backtest-gated",
         action,
         actionScore: score,
         betEligible: action === "ATTACK" || action === "PLAY",
@@ -242,6 +255,9 @@ function enhance(edge: Edge): Edge {
         attackEvRequirement: round(attackRequirement),
         projectedRunEdge: round(pick.projectedRunEdge, 3),
         totalProbability: pick.totalProbability,
+        totalsGateSource: gateContext.source,
+        totalsGateUsableRows: gateContext.usableRows,
+        totalsGates: gateContext.gates,
         americanOdds: pick.americanOdds,
         sportsbook: edge.sportsbook ?? edge.market?.sportsbook ?? null,
         stakeUnits: round(stakeUnits, 2) ?? 0,
@@ -251,6 +267,7 @@ function enhance(edge: Edge): Edge {
           `Attack EV gate ${round(attackRequirement * 100, 2)}%`,
           modelEdge == null ? "Edge unavailable" : `Probability edge ${round(modelEdge * 100, 2)}%`,
           totalMarket ? `Projected run edge ${round(pick.projectedRunEdge, 3) ?? "—"}` : `Data quality ${dataQuality}/100`,
+          totalMarket ? `Total gates ${gateContext.source} (${gateContext.usableRows} rows)` : "",
           totalMarket ? `Data quality ${dataQuality}/100` : ""
         ].filter(Boolean),
         warnings,
@@ -261,14 +278,24 @@ function enhance(edge: Edge): Edge {
   };
 }
 
-function enhanceResult<T extends { edges: Edge[] }>(result: T): T {
-  return { ...result, edges: result.edges.map(enhance) };
+function enhanceResult<T extends { edges: Edge[] }>(result: T, gateContext: TotalsGateContext): T {
+  return { ...result, edges: result.edges.map((edge) => enhance(edge, gateContext)) };
+}
+
+async function getTotalsGateContext(): Promise<TotalsGateContext> {
+  const cached = await getCachedMlbTotalsBacktest().catch(() => null);
+  if (cached?.ok && cached.usableRows >= 60) {
+    return { gates: cached.best, source: "backtest", usableRows: cached.usableRows };
+  }
+  return { gates: getDefaultMlbTotalsCandidate(), source: "default", usableRows: cached?.usableRows ?? 0 };
 }
 
 export async function buildMlbEdges(...args: Parameters<typeof legacyBuildMlbEdges>) {
-  return enhanceResult(await legacyBuildMlbEdges(...args));
+  const [result, gateContext] = await Promise.all([legacyBuildMlbEdges(...args), getTotalsGateContext()]);
+  return enhanceResult(result, gateContext);
 }
 
 export async function buildMlbEdgesFromProjections(...args: Parameters<typeof legacyBuildMlbEdgesFromProjections>) {
-  return enhanceResult(await legacyBuildMlbEdgesFromProjections(...args));
+  const [result, gateContext] = await Promise.all([legacyBuildMlbEdgesFromProjections(...args), getTotalsGateContext()]);
+  return enhanceResult(result, gateContext);
 }
