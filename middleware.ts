@@ -18,7 +18,6 @@ const REDIRECTS: [string, string][] = [
   ["/players", "/sim"],
   ["/teams", "/sim"],
   ["/performance", "/accuracy"],
-  ["/sim/accuracy", "/accuracy"],
   ["/simhub", "/sim"],
   ["/simhub/nba", "/sim/nba"],
   ["/simhub/mlb", "/sim/mlb"],
@@ -73,7 +72,6 @@ export const config = {
     "/players", "/players/:path*",
     "/teams", "/teams/:path*",
     "/performance", "/performance/:path*",
-    "/sim/accuracy", "/sim/accuracy/:path*",
     "/simhub", "/simhub/:path*"
   ]
 };

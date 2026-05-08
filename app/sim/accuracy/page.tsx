@@ -312,8 +312,19 @@ export default async function SimAccuracyPage({ searchParams }: PageProps) {
 
       <section className="grid gap-4">
         {scorecard.scorecards.length ? scorecard.scorecards.map((card) => <MarketCard key={`${card.league}:${card.market}:${card.modelVersion}`} card={card} />) : (
-          <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-6 text-sm text-slate-400">
-            No MLB simulation predictions are recorded in this window. Call <code className="text-cyan-100">/api/sim/accuracy?action=run</code> before games and after finals to build the ledger.
+          <div className="rounded-[1.5rem] border border-cyan-300/15 bg-slate-950/80 p-6">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">No MLB records yet</div>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              The accuracy ledger is empty for this window. Call{" "}
+              <Link href="/api/sim/accuracy?action=capture" className="font-mono text-cyan-100 hover:text-cyan-50">/api/sim/accuracy?action=capture</Link>{" "}
+              before games start to snapshot current model predictions, then{" "}
+              <Link href="/api/sim/accuracy?action=grade" className="font-mono text-cyan-100 hover:text-cyan-50">/api/sim/accuracy?action=grade</Link>{" "}
+              after final scores are in to grade them.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Link href="/api/sim/accuracy?action=capture" className="rounded-xl border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100 hover:bg-cyan-300/15">Capture now</Link>
+              <Link href="/api/sim/accuracy?action=grade" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300 hover:bg-white/[0.06]">Grade finals</Link>
+            </div>
           </div>
         )}
       </section>
