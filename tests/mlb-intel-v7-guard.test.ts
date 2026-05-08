@@ -36,7 +36,7 @@ assert.equal(guarded.distribution.awayWinPct, guard?.awayWinPct);
 assert.equal(guarded.mlbIntel.governor.source, "mlb-intel-v7-guarded-projection");
 assert.equal(guarded.mlbIntel.governor.confidence, guard?.v7.confidence);
 assert.equal(guarded.mlbIntel.governor.noBet, guard?.v7.noBet);
-assert.equal(guarded.mlbIntel.v7.modelVersion, "mlb-intel-v7");
+assert.equal(guarded.mlbIntel?.v7?.modelVersion, "mlb-intel-v7");
 
 const noMlbIntel = applyMlbIntelV7Guard({ distribution: { homeWinPct: 0.6, awayWinPct: 0.4 } });
 assert.equal(noMlbIntel.distribution.homeWinPct, 0.6);

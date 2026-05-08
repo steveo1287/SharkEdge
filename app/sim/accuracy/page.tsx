@@ -139,9 +139,9 @@ function MarketCard({ card }: { card: any }) {
       <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
         <Tile label="Record" value={recordText(card.winCount, card.lossCount, card.pushCount)} note="Wins-losses-pushes" />
         <Tile label="Win rate" value={pct(card.winRate)} note="Pushes excluded" />
+        <Tile label="ROI / Units" value={card.unitsNet != null ? `${card.unitsNet > 0 ? "+" : ""}${card.unitsNet.toFixed(1)}u` : "—"} note={card.roi != null ? `${card.roi > 0 ? "+" : ""}${card.roi.toFixed(1)}% at −110` : "Needs settled picks"} className={card.roi != null ? clvTone(card.roi / 100) : undefined} />
         <Tile label="Brier" value={num(card.brierScoreAvg, 4)} note="Lower is better" className={metricTone(card.brierScoreAvg, 0.2, 0.25)} />
         <Tile label="Log loss" value={num(card.logLossAvg, 4)} note="Overconfidence penalty" className={metricTone(card.logLossAvg, 0.58, 0.7)} />
-        <Tile label="Spread MAE" value={num(card.spreadMae, 2)} note="Margin miss" />
         <Tile label="Total MAE" value={num(card.totalMae, 2)} note="Total miss" />
       </div>
     </section>
@@ -212,19 +212,7 @@ export default async function SimAccuracyPage({ searchParams }: PageProps) {
   const showMarketRankings = scorecard.scorecards.length > 1;
 
   if (!scorecard.ok) {
-    return (
-      <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="rounded-[1.75rem] border border-red-400/20 bg-slate-950/80 p-5">
-          <div className="text-xs font-semibold uppercase tracking-[0.24em] text-red-200">MLB Sim Accuracy</div>
-          <h1 className="mt-2 font-display text-3xl font-semibold text-white">Calibration ledger is not ready.</h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{scorecard.error ?? "Set DATABASE_URL/POSTGRES_PRISMA_URL, then call /api/sim/accuracy?action=run to initialize and populate the MLB benchmark table."}</p>
-          <div className="mt-4 flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.14em]">
-            <Link href="/sim" className="text-cyan-200 hover:text-cyan-100">Sim Hub</Link>
-            <Link href="/api/sim/accuracy" className="text-cyan-200 hover:text-cyan-100">API JSON</Link>
-          </div>
-        </section>
-      </main>
-    );
+    // fall through and render the full page with an inline warning — don't block on DB failures
   }
 
   return (
@@ -247,6 +235,12 @@ export default async function SimAccuracyPage({ searchParams }: PageProps) {
         </div>
       </section>
 
+      {!scorecard.databaseReady ? (
+        <div className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] px-4 py-3 text-xs leading-5 text-amber-200">
+          <span className="font-semibold">Database unavailable</span> — metrics will populate once DATABASE_URL is set and the Prisma migration has run.{" "}
+          <Link href="/api/sim/accuracy?action=run" className="underline hover:text-amber-100">Initialize ledger</Link>
+        </div>
+      ) : null}
       <form method="get" className="grid gap-3 rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4 md:grid-cols-3">
         <label className="grid gap-1 text-xs text-slate-400">
           <span className="font-semibold uppercase tracking-[0.14em] text-slate-500">Market</span>
@@ -277,7 +271,7 @@ export default async function SimAccuracyPage({ searchParams }: PageProps) {
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
         <Tile label="Record" value={recordText(scorecard.totals.winCount, scorecard.totals.lossCount, scorecard.totals.pushCount)} note="Wins-losses-pushes" />
         <Tile label="Win rate" value={pct(scorecard.totals.winRate)} note="Pushes excluded" />
-        <Tile label="ROI / Units" value="—" note="Wire odds/stake results next" />
+        <Tile label="ROI / Units" value={scorecard.totals.unitsNet != null ? `${scorecard.totals.unitsNet > 0 ? "+" : ""}${scorecard.totals.unitsNet.toFixed(1)}u` : "—"} note={scorecard.totals.roi != null ? `${scorecard.totals.roi > 0 ? "+" : ""}${scorecard.totals.roi.toFixed(1)}% at −110` : "Needs settled picks"} className={scorecard.totals.roi != null ? clvTone(scorecard.totals.roi / 100) : undefined} />
         <Tile label="Brier" value={num(scorecard.totals.brierScoreAvg, 4)} note="Probability calibration" className={metricTone(scorecard.totals.brierScoreAvg, 0.2, 0.25)} />
         <Tile label="Log loss" value={num(scorecard.totals.logLossAvg, 4)} note="Overconfidence penalty" className={metricTone(scorecard.totals.logLossAvg, 0.58, 0.7)} />
         <Tile label="Sample" value={`${scorecard.totals.settledCount}/${scorecard.totals.predictionCount}`} note={`${scorecard.totals.pendingCount} pending`} />
@@ -300,10 +294,17 @@ export default async function SimAccuracyPage({ searchParams }: PageProps) {
             )) : <div className="text-slate-500">No MLB quality flags yet.</div>}
           </div>
         </div>
-        <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">CLV status</div>
-          <div className="mt-3 font-display text-3xl font-semibold text-white">{pctRaw(scorecard.totals.clvAvgPct)}</div>
-          <p className="mt-2 text-sm leading-6 text-slate-400">Close-line value is unavailable until close prices are stored with graded picks.</p>
+        <div className={`rounded-[1.5rem] border p-4 ${scorecard.totals.roi != null && scorecard.totals.roi > 0 ? "border-emerald-400/30 bg-emerald-400/[0.07]" : scorecard.totals.roi != null && scorecard.totals.roi < -2 ? "border-red-400/30 bg-red-400/[0.07]" : "border-white/10 bg-slate-950/70"}`}>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">ROI · 1 unit flat</div>
+          <div className={`mt-3 font-display text-4xl font-bold ${scorecard.totals.roi != null && scorecard.totals.roi > 0 ? "text-emerald-300" : scorecard.totals.roi != null && scorecard.totals.roi < 0 ? "text-red-300" : "text-white"}`}>
+            {scorecard.totals.roi != null ? `${scorecard.totals.roi > 0 ? "+" : ""}${scorecard.totals.roi.toFixed(1)}%` : "—"}
+          </div>
+          <div className="mt-2 font-mono text-sm text-slate-300">
+            {scorecard.totals.unitsNet != null ? `${scorecard.totals.unitsNet > 0 ? "+" : ""}${scorecard.totals.unitsNet.toFixed(2)} units net` : "No settled picks yet"}
+          </div>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            {scorecard.totals.winCount}W–{scorecard.totals.lossCount}L · standard −110 juice
+          </p>
         </div>
       </section>
 

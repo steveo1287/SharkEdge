@@ -80,6 +80,8 @@ export type MarketScorecard = {
   totalMae: number | null;
   clvAvgPct: number | null;
   winRate: number | null;
+  unitsNet: number | null;
+  roi: number | null;
   calibrationErrorAvg: number | null;
   dataQualityBreakdown: Record<string, number>;
   calibrationBuckets: CalibrationBucket[];
@@ -107,6 +109,8 @@ export type SimModelScorecard = {
     spreadMae: number | null;
     totalMae: number | null;
     clvAvgPct: number | null;
+    unitsNet: number | null;
+    roi: number | null;
   };
   scorecards: MarketScorecard[];
   byLeague: Record<string, {
@@ -301,6 +305,16 @@ function buildCalibrationBuckets(rows: SimulationPredictionRow[]): CalibrationBu
   });
 }
 
+const JUICE_PAYOUT = 100 / 110;
+
+function calculateUnitsRoi(winCount: number, lossCount: number) {
+  const bets = winCount + lossCount;
+  if (!bets) return { unitsNet: null, roi: null };
+  const net = round(winCount * JUICE_PAYOUT - lossCount, 2);
+  const roi = round(((net ?? 0) / bets) * 100, 2);
+  return { unitsNet: net, roi };
+}
+
 function sampleWarning(predictionCount: number, settledCount: number) {
   if (settledCount < 30) return "Very small MLB settled sample. Treat calibration as directional only.";
   if (settledCount < 100) return "Small MLB settled sample. Track before making hard model claims.";
@@ -334,6 +348,7 @@ function buildMarketScorecard(rows: SimulationPredictionRow[]): MarketScorecard 
     totalMae: round(avg(settledRows.map((row) => row.totalError)), 2),
     clvAvgPct: null,
     winRate: winCount + lossCount > 0 ? round(winCount / (winCount + lossCount), 3) : null,
+    ...calculateUnitsRoi(winCount, lossCount),
     calibrationErrorAvg: round(calibrationErrorAvg, 4),
     dataQualityBreakdown: countBy(rows.map((row) => row.dataQualityGrade ?? "UNKNOWN")),
     calibrationBuckets
@@ -385,7 +400,9 @@ function emptyScorecard(filters: ScorecardFilters, databaseReady: boolean, error
       logLossAvg: null,
       spreadMae: null,
       totalMae: null,
-      clvAvgPct: null
+      clvAvgPct: null,
+      unitsNet: null,
+      roi: null
     },
     scorecards: [],
     byLeague: { [ACTIVE_LEAGUE]: emptyLeagueSummary() },
@@ -493,7 +510,8 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}): Prom
       logLossAvg: round(avg(settledRows.map((row) => row.logLoss)), 4),
       spreadMae: round(avg(settledRows.map((row) => row.spreadError)), 2),
       totalMae: round(avg(settledRows.map((row) => row.totalError)), 2),
-      clvAvgPct: null
+      clvAvgPct: null,
+      ...calculateUnitsRoi(winCount, lossCount)
     },
     scorecards,
     byLeague,

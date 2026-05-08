@@ -58,7 +58,9 @@ export function buildMlbIntelV7Guard(projection: ProjectionLike): MlbIntelV7Guar
   };
 }
 
-export function applyMlbIntelV7Guard<TProjection extends ProjectionLike>(projection: TProjection): TProjection {
+export function applyMlbIntelV7Guard<TProjection extends ProjectionLike>(
+  projection: TProjection
+): TProjection & { mlbIntel?: { governor?: { source?: string | null } | null; v7?: MlbIntelV7ProbabilityResult | null } | null } {
   const guard = buildMlbIntelV7Guard(projection);
   if (!guard || !projection.mlbIntel?.governor) return projection;
 
