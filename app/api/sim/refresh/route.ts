@@ -60,7 +60,7 @@ export async function GET(request: Request) {
 
   if (wait) {
     const result = await runRefresh();
-    return NextResponse.json({ ok: result.ok, queued: false, startedAt, ...result }, { status: result.ok ? 200 : 207 });
+    return NextResponse.json({ ...result, queued: false, startedAt }, { status: result.ok ? 200 : 207 });
   }
 
   after(async () => {
