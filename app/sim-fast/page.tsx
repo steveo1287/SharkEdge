@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import {
   readSimCache,
@@ -20,6 +21,7 @@ const ACTIONS = ["bets", "totals", "all", "attack", "play", "lean", "watch", "pa
 
 type ActionFilter = typeof ACTIONS[number];
 type PageProps = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
+type DisplayAction = Record<string, any>;
 type MarketEdge = NonNullable<SimMarketSnapshot>["edges"][number] & {
   signal?: Record<string, any> | null;
   totalsAction?: Record<string, any> | null;
@@ -129,6 +131,10 @@ function actionRank(action: string) {
   return 2;
 }
 
+function asDisplayAction(edge: MarketEdge | null, filter: ActionFilter): DisplayAction {
+  return buildDisplayAction(edge, filter) as DisplayAction;
+}
+
 function rowFromEdge(edge: MarketEdge): SimPriorityRow {
   const home = edge.matchup?.home ?? edge.market?.homeTeam ?? "Home";
   const away = edge.matchup?.away ?? edge.market?.awayTeam ?? "Away";
@@ -154,17 +160,12 @@ function buildCards(rows: SimPriorityRow[], edges: MarketEdge[]) {
   const edgeMap = new Map(edges.map((edge) => [edge.gameId, edge]));
   const cards = new Map<string, Card>();
 
-  for (const row of rows) {
-    cards.set(row.id, { id: row.id, row, edge: edgeMap.get(row.id) ?? null });
-  }
-
-  for (const edge of edges) {
-    if (!cards.has(edge.gameId)) cards.set(edge.gameId, { id: edge.gameId, row: rowFromEdge(edge), edge });
-  }
+  for (const row of rows) cards.set(row.id, { id: row.id, row, edge: edgeMap.get(row.id) ?? null });
+  for (const edge of edges) if (!cards.has(edge.gameId)) cards.set(edge.gameId, { id: edge.gameId, row: rowFromEdge(edge), edge });
 
   return [...cards.values()].sort((left, right) => {
-    const leftAction = String(buildDisplayAction(left.edge, "all").action ?? "WATCH").toUpperCase();
-    const rightAction = String(buildDisplayAction(right.edge, "all").action ?? "WATCH").toUpperCase();
+    const leftAction = String(asDisplayAction(left.edge, "all").action ?? "WATCH").toUpperCase();
+    const rightAction = String(asDisplayAction(right.edge, "all").action ?? "WATCH").toUpperCase();
     const leftTime = dateFrom(left.row.startTime)?.getTime() ?? 0;
     const rightTime = dateFrom(right.row.startTime)?.getTime() ?? 0;
     return actionRank(rightAction) - actionRank(leftAction) || leftTime - rightTime;
@@ -180,7 +181,7 @@ function hasCardTotals(card: Card) {
 }
 
 function cardAction(card: Card, filter: ActionFilter) {
-  return String(buildDisplayAction(card.edge, filter).action ?? card.row.tier ?? "WATCH").toUpperCase();
+  return String(asDisplayAction(card.edge, filter).action ?? card.row.tier ?? "WATCH").toUpperCase();
 }
 
 function shouldShow(card: Card, filter: ActionFilter) {
@@ -205,7 +206,7 @@ async function readSnapshots() {
   return { hub, priority, market, status };
 }
 
-function ButtonLink({ href, active = false, children }: { href: string; active?: boolean; children: React.ReactNode }) {
+function ButtonLink({ href, active = false, children }: { href: string; active?: boolean; children: ReactNode }) {
   return <Link href={href} className={`rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${active ? "border-cyan-300/35 bg-cyan-300/12 text-cyan-100" : "border-white/10 bg-white/[0.03] text-slate-400"}`}>{children}</Link>;
 }
 
@@ -214,7 +215,7 @@ function Tile({ label, value, note, ok = true }: { label: string; value: string 
 }
 
 function GameCard({ card, filter }: { card: Card; filter: ActionFilter }) {
-  const actionPayload = buildDisplayAction(card.edge, filter);
+  const actionPayload = asDisplayAction(card.edge, filter);
   const action = String(actionPayload.action ?? card.row.tier ?? "WATCH").toUpperCase();
   const market = String(actionPayload.market ?? card.edge?.signal?.market ?? (filter === "totals" ? "total" : "signal")).toUpperCase();
   const expectedValue = typeof actionPayload.expectedValue === "number" ? actionPayload.expectedValue : null;
