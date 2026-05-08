@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "postinstall": "prisma generate",
+    "postinstall": "node scripts/prisma-postinstall.mjs",
     "dev:core": "next dev",
     "dev": "node scripts/boot-live-guard.mjs dev",
     "dev:turbopack:core": "next dev --turbopack",
