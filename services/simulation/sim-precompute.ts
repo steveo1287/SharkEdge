@@ -45,7 +45,7 @@ export async function precomputeActivePropSims(): Promise<PrecomputeMetrics> {
     where: {
       event: {
         startTime: { lte: windowCutoff },
-        status: { in: ["SCHEDULED", "PRE_GAME", "STATUS_SCHEDULED"] }
+        status: { in: ["SCHEDULED"] }
       },
       statKey: { in: PROP_STAT_KEYS }
     },
