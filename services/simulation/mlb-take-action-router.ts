@@ -75,10 +75,19 @@ function quality(edge: Edge, signal: Signal) {
   return clamp(Math.round(score), 0, 100);
 }
 
-function tier(score: number, expectedValue: number | null, edge: number | null, dataQuality: number, hardStops: string[]): Tier {
+function attackEvRequirement(american: number | null | undefined) {
+  if (typeof american !== "number" || !Number.isFinite(american)) return 0.04;
+  if (american < -220) return 0.055;
+  if (american < -160) return 0.0475;
+  if (american >= 250) return 0.055;
+  if (american >= 160) return 0.045;
+  return 0.04;
+}
+
+function tier(score: number, expectedValue: number | null, edge: number | null, dataQuality: number, hardStops: string[], american: number | null | undefined): Tier {
   if (hardStops.length || expectedValue == null || edge == null || expectedValue <= 0) return "PASS";
-  if (score >= 82 && expectedValue >= 0.035 && Math.abs(edge) >= 0.025 && dataQuality >= 70) return "ATTACK";
-  if (score >= 66 && expectedValue >= 0.02 && Math.abs(edge) >= 0.015 && dataQuality >= 58) return "PLAY";
+  if (score >= 82 && expectedValue >= attackEvRequirement(american) && Math.abs(edge) >= 0.025 && dataQuality >= 70) return "ATTACK";
+  if (score >= 66 && expectedValue >= 0.02 && Math.abs(edge) >= 0.015 && dataQuality >= 60) return "PLAY";
   if (score >= 48 && expectedValue >= 0.0075 && Math.abs(edge) >= 0.0075 && dataQuality >= 42) return "LEAN";
   return "WATCH";
 }
@@ -116,13 +125,15 @@ function enhance(edge: Edge): Edge {
     (modelEdge == null ? 0 : clamp(Math.abs(modelEdge) * 700, 0, 28)) +
     clamp((dataQuality - 45) * 0.55, -12, 22) -
     (pick.americanOdds != null && pick.americanOdds < -220 ? 10 : 0) -
+    (pick.americanOdds != null && pick.americanOdds >= 250 ? 8 : 0) -
     Math.min(20, downgradeReasons.length * 6),
     0,
     100
   ));
-  const action = tier(score, expectedValue, modelEdge, dataQuality, hardStopReasons);
+  const action = tier(score, expectedValue, modelEdge, dataQuality, hardStopReasons, pick.americanOdds);
   const kelly = quarterKelly(pick.modelProbability, pick.americanOdds);
   const stakeUnits = action === "ATTACK" ? clamp(kelly, 0.75, 1) : action === "PLAY" ? clamp(kelly, 0.35, 0.75) : 0;
+  const attackRequirement = attackEvRequirement(pick.americanOdds);
 
   return {
     ...edge,
@@ -137,7 +148,7 @@ function enhance(edge: Edge): Edge {
       stakeUnits: round(stakeUnits, 2) ?? 0,
       kellyFraction: round(kelly, 4) ?? 0,
       takeAction: {
-        version: "take-action-v2",
+        version: "take-action-v2.1",
         action,
         actionScore: score,
         betEligible: action === "ATTACK" || action === "PLAY",
@@ -148,12 +159,14 @@ function enhance(edge: Edge): Edge {
         marketProbability: round(pick.marketProbability),
         edge: round(modelEdge),
         expectedValue: round(expectedValue),
+        attackEvRequirement: round(attackRequirement),
         americanOdds: pick.americanOdds,
         sportsbook: edge.sportsbook ?? edge.market?.sportsbook ?? null,
         stakeUnits: round(stakeUnits, 2) ?? 0,
         kellyFraction: round(kelly, 4) ?? 0,
         reasons: [
           expectedValue == null ? "EV unavailable" : `EV ${round(expectedValue * 100, 2)}%`,
+          `Attack EV gate ${round(attackRequirement * 100, 2)}%`,
           modelEdge == null ? "Edge unavailable" : `Edge ${round(modelEdge * 100, 2)}%`,
           `Data quality ${dataQuality}/100`
         ],
