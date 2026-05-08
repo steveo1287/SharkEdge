@@ -115,6 +115,7 @@ function actionClass(value: string) {
   if (value === "PLAY") return "border-cyan-300/35 bg-cyan-300/10 text-cyan-100";
   if (value === "LEAN") return "border-sky-300/25 bg-sky-300/8 text-sky-100";
   if (value === "WATCH") return "border-amber-300/25 bg-amber-300/8 text-amber-100";
+  if (value === "NO MARKET") return "border-amber-300/25 bg-amber-300/8 text-amber-100";
   return "border-white/10 bg-white/[0.03] text-slate-300";
 }
 
@@ -133,6 +134,11 @@ function actionRank(action: string) {
 
 function asDisplayAction(edge: MarketEdge | null, filter: ActionFilter): DisplayAction {
   return buildDisplayAction(edge, filter) as DisplayAction;
+}
+
+function hasRealMarket(edge: MarketEdge | null) {
+  if (!edge?.market) return false;
+  return edge.market.homeMoneyline != null || edge.market.awayMoneyline != null || edge.market.total != null || edge.market.overPrice != null || edge.market.underPrice != null;
 }
 
 function rowFromEdge(edge: MarketEdge): SimPriorityRow {
@@ -181,6 +187,7 @@ function hasCardTotals(card: Card) {
 }
 
 function cardAction(card: Card, filter: ActionFilter) {
+  if (!hasRealMarket(card.edge)) return "NO MARKET";
   return String(asDisplayAction(card.edge, filter).action ?? card.row.tier ?? "WATCH").toUpperCase();
 }
 
@@ -214,7 +221,59 @@ function Tile({ label, value, note, ok = true }: { label: string; value: string 
   return <div className={`rounded-2xl border p-4 ${ok ? "border-white/10 bg-white/[0.03]" : "border-amber-300/20 bg-amber-300/[0.055]"}`}><div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</div><div className="mt-2 font-mono text-2xl font-bold text-white">{value}</div><div className="mt-2 text-xs leading-5 text-slate-400">{note}</div></div>;
 }
 
+function ProviderPanel({ marketLineCount, marketEdges, totalsCount, statusReason, hasMarket }: { marketLineCount: number; marketEdges: number; totalsCount: number; statusReason?: string; hasMarket: boolean }) {
+  if (hasMarket) return null;
+  return (
+    <section className="rounded-[1.5rem] border border-amber-300/20 bg-amber-300/[0.055] p-5">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-200">Odds feed unavailable</div>
+      <h2 className="mt-2 font-display text-2xl font-semibold text-white">Projection-only slate loaded.</h2>
+      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">No betting recommendations can be generated until sportsbook lines are joined. The page will not label projection rows as real bets.</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <Tile label="Lines" value={marketLineCount} note="Sportsbook rows" ok={false} />
+        <Tile label="Edges" value={marketEdges} note="Market edge rows" ok={marketEdges > 0} />
+        <Tile label="Totals" value={totalsCount} note="Priced total cards" ok={totalsCount > 0} />
+      </div>
+      {statusReason ? <p className="mt-3 text-xs leading-5 text-amber-100">Last refresh: {statusReason}</p> : null}
+      <div className="mt-4 flex flex-wrap gap-3">
+        <Link href="/api/sim/refresh?force=1&wait=1" className="rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100">Refresh Sim</Link>
+        <Link href="/api/odds/health" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-200">Odds Health</Link>
+        <Link href="/api/sim/debug" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-200">Debug JSON</Link>
+      </div>
+    </section>
+  );
+}
+
+function ProjectionCard({ card }: { card: Card }) {
+  const projectedAway = typeof card.edge?.projection?.distribution?.avgAway === "number" ? card.edge.projection.distribution.avgAway : null;
+  const projectedHome = typeof card.edge?.projection?.distribution?.avgHome === "number" ? card.edge.projection.distribution.avgHome : null;
+  const projectedTotal = projectedAway != null && projectedHome != null ? projectedAway + projectedHome : typeof card.edge?.projection?.mlbIntel?.projectedTotal === "number" ? card.edge.projection.mlbIntel.projectedTotal : null;
+  return (
+    <article className="rounded-[1.35rem] border border-white/10 bg-slate-950/70 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-md border border-cyan-300/25 bg-cyan-300/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-cyan-100">MLB</span>
+            <span className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${actionClass("NO MARKET")}`}>NO MARKET</span>
+          </div>
+          <h3 className="mt-3 font-display text-xl font-semibold text-white">{card.row.matchup.away} <span className="text-slate-600">@</span> {card.row.matchup.home}</h3>
+          <div className="mt-1 text-xs text-slate-500">{time(card.edge?.startTime ?? card.row.startTime)} · {card.edge?.status ?? card.row.status}</div>
+        </div>
+        <Link href={card.row.href} className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Open</Link>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-4">
+        <Tile label="Lean" value={card.row.lean.team} note={`${pct(card.row.lean.pct)} projected side`} />
+        <Tile label="Projected" value={projectedAway != null && projectedHome != null ? `${projectedAway.toFixed(1)}-${projectedHome.toFixed(1)}` : "—"} note="Away-home sim runs" />
+        <Tile label="Total" value={projectedTotal != null ? projectedTotal.toFixed(1) : "—"} note="Projected runs" />
+        <Tile label="Confidence" value={pct(card.row.confidence)} note="Projection only" ok={false} />
+      </div>
+      <div className="mt-3 rounded-xl border border-amber-300/15 bg-amber-300/[0.055] px-3 py-2 text-xs leading-5 text-amber-100">Sportsbook market was not joined. No EV, odds, stake, or betting action is available for this card.</div>
+    </article>
+  );
+}
+
 function GameCard({ card, filter }: { card: Card; filter: ActionFilter }) {
+  if (!hasRealMarket(card.edge)) return <ProjectionCard card={card} />;
+
   const actionPayload = asDisplayAction(card.edge, filter);
   const action = String(actionPayload.action ?? card.row.tier ?? "WATCH").toUpperCase();
   const market = String(actionPayload.market ?? card.edge?.signal?.market ?? (filter === "totals" ? "total" : "signal")).toUpperCase();
@@ -277,43 +336,46 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
   const attackCount = dateCards.filter((card) => cardAction(card, "all") === "ATTACK").length;
   const playCount = dateCards.filter((card) => cardAction(card, "all") === "PLAY").length;
   const totalsCount = dateCards.filter(hasCardTotals).length;
+  const realMarketCards = dateCards.filter((card) => hasRealMarket(card.edge)).length;
   const simAge = status?.lastSuccessAt ?? priority?.generatedAt ?? hub?.generatedAt ?? null;
   const simFresh = (ageMinutes(simAge) ?? 999) <= 20;
   const marketFresh = (ageMinutes(market?.generatedAt) ?? 999) <= 15;
   const hasRows = rows.length > 0 || marketEdges.length > 0;
-  const hasMarket = Boolean(market?.lineCount && market.lineCount > 0);
+  const hasMarket = Boolean(market?.lineCount && market.lineCount > 0 && realMarketCards > 0);
 
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
       <section className="rounded-[1.75rem] border border-cyan-300/15 bg-slate-950/80 p-5 shadow-[0_0_60px_rgba(14,165,233,0.10)]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">Simulation Command</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">MLB Simulation Hub</div>
             <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">SharkEdge Sim Hub</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Cache-inspection sim board. Cards render from market edges first and use display fallbacks when action payloads are stale.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Best bets, totals, and projection-only slate status. Betting cards require live sportsbook odds.</p>
           </div>
           <div className="flex flex-wrap gap-3">
             <Link href="/api/sim/refresh?force=1&wait=1" className="rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100">Refresh Sim</Link>
-            <Link href="/api/sim/debug" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Debug JSON</Link>
-            <Link href="/sim/accuracy" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Accuracy</Link>
+            <Link href="/api/odds/health" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Odds Health</Link>
+            <Link href="/api/sim/debug" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Debug</Link>
           </div>
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <Tile label="Bets" value={betCount} note={`${attackCount} attack · ${playCount} play`} ok={betCount > 0} />
-          <Tile label="Totals" value={totalsCount} note="Over/under cards" ok={totalsCount > 0} />
-          <Tile label="Visible" value={cards.length} note={`${dateCards.length} cards on selected date`} ok={cards.length > 0} />
+          <Tile label="Bets" value={hasMarket ? betCount : 0} note={hasMarket ? `${attackCount} attack · ${playCount} play` : "Odds required"} ok={hasMarket && betCount > 0} />
+          <Tile label="Totals" value={hasMarket ? totalsCount : 0} note="Over/under cards" ok={hasMarket && totalsCount > 0} />
+          <Tile label="Slate" value={dateCards.length} note={hasMarket ? `${realMarketCards} market joined` : "Projection-only"} ok={dateCards.length > 0} />
           <Tile label="Sim cache" value={simFresh ? "Fresh" : priority || marketEdges.length ? "Stale" : "Missing"} note={`Last success ${age(simAge)}`} ok={simFresh && hasRows} />
           <Tile label="Market cache" value={marketFresh ? "Fresh" : market ? "Stale" : "Missing"} note={`Generated ${age(market?.generatedAt)}`} ok={marketFresh && hasMarket} />
           <Tile label="MLB lines" value={market?.lineCount ?? 0} note={`${hub?.summary.mlbCount ?? priority?.summary.mlbCount ?? marketEdges.length} MLB games`} ok={hasMarket} />
         </div>
       </section>
 
+      <ProviderPanel marketLineCount={market?.lineCount ?? 0} marketEdges={marketEdges.length} totalsCount={totalsCount} statusReason={status?.reason} hasMarket={hasMarket} />
+
       <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Filters</div>
             <h2 className="mt-1 font-display text-2xl font-semibold text-white">{dateLabel(selectedDate)} · {actionFilter.toUpperCase()}</h2>
-            <p className="mt-1 text-xs leading-5 text-slate-500">Use Totals for over/under. Use Debug JSON if cards still miss market fields.</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">Best Bets shows ATTACK + PLAY. Totals only appears when priced over/under data is joined.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <ButtonLink href={href(relativeKey(-1), actionFilter)} active={selectedDate === relativeKey(-1)}>Yesterday</ButtonLink>
@@ -341,7 +403,7 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
           <div className="mt-4 flex flex-wrap gap-3">
             <Link href={href(selectedDate, "all")} className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">View all</Link>
             <Link href="/api/sim/refresh?force=1&wait=1" className="rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100">Refresh now</Link>
-            <Link href="/api/sim/debug" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Debug JSON</Link>
+            <Link href="/api/odds/health" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Odds Health</Link>
           </div>
         </section>
       ) : (
