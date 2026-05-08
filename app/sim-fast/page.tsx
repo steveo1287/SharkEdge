@@ -1,5 +1,4 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
 
 import {
   readSimCache,
@@ -10,6 +9,7 @@ import {
   type SimPrioritySnapshot,
   type SimRefreshStatusSnapshot
 } from "@/services/simulation/sim-snapshot-service";
+import { buildDisplayAction, edgeHasTotalMarket } from "@/services/simulation/sim-card-display-fallback";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -28,9 +28,8 @@ type MarketEdge = NonNullable<SimMarketSnapshot>["edges"][number] & {
   gameId: string;
   startTime?: string | null;
   status?: string | null;
-  leagueKey?: string | null;
 };
-type GameWorkspace = { key: string; row: SimPriorityRow; edge: MarketEdge | null; rows: SimPriorityRow[]; duplicateCount: number; sortScore: number };
+type Card = { id: string; row: SimPriorityRow; edge: MarketEdge | null };
 
 function param(searchParams: Record<string, string | string[] | undefined>, key: string) {
   const value = searchParams[key];
@@ -109,43 +108,6 @@ function runEdge(value: number | null | undefined) {
   return `${value > 0 ? "+" : ""}${value.toFixed(2)} runs`;
 }
 
-function teamKey(value: string | null | undefined) {
-  return (value ?? "unknown").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-}
-
-function workspaceKey(row: SimPriorityRow) {
-  return [row.leagueKey, chicagoKey(row.startTime), teamKey(row.matchup.away), teamKey(row.matchup.home)].join("::");
-}
-
-function selectedAction(edge: MarketEdge | null, filter: ActionFilter) {
-  const signal = edge?.signal ?? null;
-  if (filter === "totals") return (edge?.totalsAction ?? {}) as Record<string, any>;
-  return (signal?.takeAction ?? signal ?? {}) as Record<string, any>;
-}
-
-function hasTotals(edge: MarketEdge | null) {
-  return Boolean(edge?.totalsAction);
-}
-
-function action(edge: MarketEdge | null, row: SimPriorityRow, filter: ActionFilter = "all") {
-  const raw = String(selectedAction(edge, filter).action ?? "").toUpperCase();
-  if (["ATTACK", "PLAY", "LEAN", "WATCH", "PASS"].includes(raw)) return raw as "ATTACK" | "PLAY" | "LEAN" | "WATCH" | "PASS";
-  const tier = row.tier?.toLowerCase();
-  if (tier === "attack") return "ATTACK";
-  if (tier === "watch") return "WATCH";
-  if (tier === "pass") return "PASS";
-  return "WATCH";
-}
-
-function actionRank(value: string) {
-  if (value === "ATTACK") return 6;
-  if (value === "PLAY") return 5;
-  if (value === "LEAN") return 4;
-  if (value === "WATCH") return 3;
-  if (value === "PASS") return 1;
-  return 2;
-}
-
 function actionClass(value: string) {
   if (value === "ATTACK") return "border-emerald-300/35 bg-emerald-300/10 text-emerald-100";
   if (value === "PLAY") return "border-cyan-300/35 bg-cyan-300/10 text-cyan-100";
@@ -154,26 +116,17 @@ function actionClass(value: string) {
   return "border-white/10 bg-white/[0.03] text-slate-300";
 }
 
-function shouldShow(game: GameWorkspace, filter: ActionFilter) {
-  if (filter === "all") return true;
-  if (filter === "totals") return hasTotals(game.edge);
-  const current = action(game.edge, game.row).toLowerCase();
-  if (filter === "bets") return current === "attack" || current === "play";
-  return current === filter;
+function isBetAction(action: string) {
+  return action === "ATTACK" || action === "PLAY";
 }
 
-function href(date: string, actionFilter: ActionFilter) {
-  return `/sim-fast?date=${encodeURIComponent(date)}&action=${actionFilter}`;
-}
-
-function buildEdgeMap(edges: MarketEdge[]) {
-  const map = new Map<string, MarketEdge>();
-  for (const edge of edges) map.set(edge.gameId, edge);
-  return map;
-}
-
-function score(row: SimPriorityRow, edge: MarketEdge | null) {
-  return actionRank(action(edge, row)) * 1000 + Math.abs(row.lean.edge ?? 0) * 100 + (row.confidence ?? 0) * 10 + (row.edgeMatched ? 1 : 0);
+function actionRank(action: string) {
+  if (action === "ATTACK") return 6;
+  if (action === "PLAY") return 5;
+  if (action === "LEAN") return 4;
+  if (action === "WATCH") return 3;
+  if (action === "PASS") return 1;
+  return 2;
 }
 
 function rowFromEdge(edge: MarketEdge): SimPriorityRow {
@@ -181,9 +134,7 @@ function rowFromEdge(edge: MarketEdge): SimPriorityRow {
   const away = edge.matchup?.away ?? edge.market?.awayTeam ?? "Away";
   const homeWinPct = typeof edge.projection?.distribution?.homeWinPct === "number" ? edge.projection.distribution.homeWinPct : 0.5;
   const awayWinPct = typeof edge.projection?.distribution?.awayWinPct === "number" ? edge.projection.distribution.awayWinPct : 0.5;
-  const lean = homeWinPct >= awayWinPct
-    ? { team: home, pct: homeWinPct, edge: homeWinPct - awayWinPct }
-    : { team: away, pct: awayWinPct, edge: awayWinPct - homeWinPct };
+  const lean = homeWinPct >= awayWinPct ? { team: home, pct: homeWinPct, edge: homeWinPct - awayWinPct } : { team: away, pct: awayWinPct, edge: awayWinPct - homeWinPct };
   return {
     id: edge.gameId,
     leagueKey: "MLB" as any,
@@ -199,52 +150,49 @@ function rowFromEdge(edge: MarketEdge): SimPriorityRow {
   };
 }
 
-function buildGames(rows: SimPriorityRow[], edgeMap: Map<string, MarketEdge>, marketEdges: MarketEdge[] = []): GameWorkspace[] {
-  const map = new Map<string, GameWorkspace>();
-  const sourceRows = [...rows];
-  const existingIds = new Set(sourceRows.map((row) => row.id));
+function buildCards(rows: SimPriorityRow[], edges: MarketEdge[]) {
+  const edgeMap = new Map(edges.map((edge) => [edge.gameId, edge]));
+  const cards = new Map<string, Card>();
 
-  for (const edge of marketEdges) {
-    if (!existingIds.has(edge.gameId)) {
-      sourceRows.push(rowFromEdge(edge));
-      existingIds.add(edge.gameId);
-    }
+  for (const row of rows) {
+    cards.set(row.id, { id: row.id, row, edge: edgeMap.get(row.id) ?? null });
   }
 
-  for (const row of sourceRows) {
-    const key = workspaceKey(row);
-    const edge = edgeMap.get(row.id) ?? null;
-    const sortScore = score(row, edge);
-    const existing = map.get(key);
-    if (!existing) {
-      map.set(key, { key, row, edge, rows: [row], duplicateCount: 0, sortScore });
-      continue;
-    }
-    existing.rows.push(row);
-    existing.duplicateCount = existing.rows.length - 1;
-    if (sortScore > existing.sortScore) {
-      existing.row = row;
-      existing.edge = edge;
-      existing.sortScore = sortScore;
-    }
+  for (const edge of edges) {
+    if (!cards.has(edge.gameId)) cards.set(edge.gameId, { id: edge.gameId, row: rowFromEdge(edge), edge });
   }
-  return [...map.values()].sort((left, right) => {
-    const timeDiff = (dateFrom(left.row.startTime)?.getTime() ?? 0) - (dateFrom(right.row.startTime)?.getTime() ?? 0);
-    return right.sortScore - left.sortScore || timeDiff;
+
+  return [...cards.values()].sort((left, right) => {
+    const leftAction = String(buildDisplayAction(left.edge, "all").action ?? "WATCH").toUpperCase();
+    const rightAction = String(buildDisplayAction(right.edge, "all").action ?? "WATCH").toUpperCase();
+    const leftTime = dateFrom(left.row.startTime)?.getTime() ?? 0;
+    const rightTime = dateFrom(right.row.startTime)?.getTime() ?? 0;
+    return actionRank(rightAction) - actionRank(leftAction) || leftTime - rightTime;
   });
 }
 
-function groupGames(games: GameWorkspace[]) {
-  const map = new Map<string, GameWorkspace[]>();
-  for (const game of games) {
-    const key = chicagoKey(game.row.startTime);
-    map.set(key, [...(map.get(key) ?? []), game]);
-  }
-  return [...map.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, games]) => ({ key, label: dateLabel(key), games }));
+function cardDate(card: Card) {
+  return chicagoKey(card.edge?.startTime ?? card.row.startTime);
 }
 
-function dateOptions(rows: SimPriorityRow[], edges: MarketEdge[]) {
-  return [...new Set([...rows.map((row) => chicagoKey(row.startTime)), ...edges.map((edge) => chicagoKey(edge.startTime ?? null))].filter((key) => key !== "unknown"))].sort();
+function hasCardTotals(card: Card) {
+  return edgeHasTotalMarket(card.edge);
+}
+
+function cardAction(card: Card, filter: ActionFilter) {
+  return String(buildDisplayAction(card.edge, filter).action ?? card.row.tier ?? "WATCH").toUpperCase();
+}
+
+function shouldShow(card: Card, filter: ActionFilter) {
+  if (filter === "all") return true;
+  if (filter === "totals") return hasCardTotals(card);
+  const action = cardAction(card, filter);
+  if (filter === "bets") return isBetAction(action);
+  return action.toLowerCase() === filter;
+}
+
+function href(date: string, actionFilter: ActionFilter) {
+  return `/sim-fast?date=${encodeURIComponent(date)}&action=${actionFilter}`;
 }
 
 async function readSnapshots() {
@@ -257,7 +205,7 @@ async function readSnapshots() {
   return { hub, priority, market, status };
 }
 
-function ButtonLink({ href, active = false, children }: { href: string; active?: boolean; children: ReactNode }) {
+function ButtonLink({ href, active = false, children }: { href: string; active?: boolean; children: React.ReactNode }) {
   return <Link href={href} className={`rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${active ? "border-cyan-300/35 bg-cyan-300/12 text-cyan-100" : "border-white/10 bg-white/[0.03] text-slate-400"}`}>{children}</Link>;
 }
 
@@ -265,75 +213,48 @@ function Tile({ label, value, note, ok = true }: { label: string; value: string 
   return <div className={`rounded-2xl border p-4 ${ok ? "border-white/10 bg-white/[0.03]" : "border-amber-300/20 bg-amber-300/[0.055]"}`}><div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</div><div className="mt-2 font-mono text-2xl font-bold text-white">{value}</div><div className="mt-2 text-xs leading-5 text-slate-400">{note}</div></div>;
 }
 
-function GameCard({ game, filter }: { game: GameWorkspace; filter: ActionFilter }) {
-  const row = game.row;
-  const edge = game.edge;
-  const ta = selectedAction(edge, filter);
-  const currentAction = action(edge, row, filter);
-  const expectedValue = typeof ta.expectedValue === "number" ? ta.expectedValue : null;
-  const modelEdge = typeof ta.edge === "number" ? ta.edge : row.lean.edge ?? null;
-  const stakeUnits = typeof ta.stakeUnits === "number" ? ta.stakeUnits : 0;
-  const actionScore = typeof ta.actionScore === "number" ? ta.actionScore : null;
-  const americanOdds = typeof ta.americanOdds === "number" ? ta.americanOdds : null;
-  const projectedRunEdge = typeof ta.projectedRunEdge === "number" ? ta.projectedRunEdge : null;
-  const marketLabel = String(ta.market ?? edge?.signal?.market ?? "signal").toUpperCase();
-  const reasons = Array.isArray(ta.reasons) ? ta.reasons.slice(0, 3) : [];
-  const hardStops = Array.isArray(ta.hardStopReasons) ? ta.hardStopReasons : [];
-  const downgrades = Array.isArray(ta.downgradeReasons) ? ta.downgradeReasons.slice(0, 2) : [];
+function GameCard({ card, filter }: { card: Card; filter: ActionFilter }) {
+  const actionPayload = buildDisplayAction(card.edge, filter);
+  const action = String(actionPayload.action ?? card.row.tier ?? "WATCH").toUpperCase();
+  const market = String(actionPayload.market ?? card.edge?.signal?.market ?? (filter === "totals" ? "total" : "signal")).toUpperCase();
+  const expectedValue = typeof actionPayload.expectedValue === "number" ? actionPayload.expectedValue : null;
+  const probabilityEdge = typeof actionPayload.edge === "number" ? actionPayload.edge : null;
+  const projectedRunEdge = typeof actionPayload.projectedRunEdge === "number" ? actionPayload.projectedRunEdge : null;
+  const americanOdds = typeof actionPayload.americanOdds === "number" ? actionPayload.americanOdds : null;
+  const actionScore = typeof actionPayload.actionScore === "number" ? actionPayload.actionScore : null;
+  const stakeUnits = typeof actionPayload.stakeUnits === "number" ? actionPayload.stakeUnits : 0;
+  const reasons = Array.isArray(actionPayload.reasons) ? actionPayload.reasons.slice(0, 4) : [];
+  const hardStops = Array.isArray(actionPayload.hardStopReasons) ? actionPayload.hardStopReasons.filter(Boolean) : [];
+  const isTotalCard = filter === "totals" || market === "OVER" || market === "UNDER";
 
   return (
     <article className="rounded-[1.35rem] border border-white/10 bg-slate-950/70 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-md border border-cyan-300/25 bg-cyan-300/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-cyan-100">{row.leagueKey}</span>
-            <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200">{marketLabel}</span>
-            <span className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${actionClass(currentAction)}`}>{currentAction}</span>
-            {game.duplicateCount > 0 ? <span className="rounded-md border border-amber-300/20 bg-amber-300/[0.07] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-100">{game.duplicateCount + 1} merged</span> : null}
+            <span className="rounded-md border border-cyan-300/25 bg-cyan-300/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-cyan-100">{card.row.leagueKey}</span>
+            <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200">{market}</span>
+            <span className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${actionClass(action)}`}>{action}</span>
           </div>
-          <h3 className="mt-3 font-display text-xl font-semibold text-white">{row.matchup.away} <span className="text-slate-600">@</span> {row.matchup.home}</h3>
-          <div className="mt-1 text-xs text-slate-500">{time(row.startTime)} · {row.status}</div>
+          <h3 className="mt-3 font-display text-xl font-semibold text-white">{card.row.matchup.away} <span className="text-slate-600">@</span> {card.row.matchup.home}</h3>
+          <div className="mt-1 text-xs text-slate-500">{time(card.edge?.startTime ?? card.row.startTime)} · {card.edge?.status ?? card.row.status}</div>
         </div>
-        <Link href={row.href} className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Open</Link>
+        <Link href={card.row.href} className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Open</Link>
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-5">
         <Tile label="EV" value={signedPct(expectedValue)} note="Expected value" ok={expectedValue == null || expectedValue > 0} />
-        <Tile label={filter === "totals" ? "Run edge" : "Edge"} value={filter === "totals" ? runEdge(projectedRunEdge) : signedPct(modelEdge)} note={filter === "totals" ? "Projected vs total" : "Model vs market"} ok={modelEdge == null || modelEdge > 0} />
-        <Tile label="Odds" value={odds(americanOdds)} note={String(ta.sportsbook ?? edge?.sportsbook ?? "market")} />
-        <Tile label="Stake" value={stakeUnits ? `${stakeUnits.toFixed(2)}u` : "0u"} note="Quarter-Kelly cap" ok={currentAction === "ATTACK" || currentAction === "PLAY" ? stakeUnits > 0 : true} />
+        <Tile label={isTotalCard ? "Run edge" : "Edge"} value={isTotalCard ? runEdge(projectedRunEdge) : signedPct(probabilityEdge)} note={isTotalCard ? "Projected vs total" : "Model vs market"} ok={probabilityEdge == null || probabilityEdge > 0} />
+        <Tile label="Odds" value={odds(americanOdds)} note={String(actionPayload.sportsbook ?? card.edge?.sportsbook ?? "market")} />
+        <Tile label="Stake" value={stakeUnits ? `${stakeUnits.toFixed(2)}u` : "0u"} note="Sizing" ok={isBetAction(action) ? stakeUnits > 0 : true} />
         <Tile label="Score" value={actionScore ?? "—"} note="Action score" />
       </div>
 
       <div className="mt-3 rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-xs leading-5 text-slate-400">
-        {reasons.length ? reasons.join(" · ") : `Lean ${row.lean.team} ${pct(row.lean.pct)} · confidence ${pct(row.confidence)}`}
-        {downgrades.length ? <div className="mt-1 text-amber-200">Downgrade: {downgrades.join(" · ")}</div> : null}
+        {reasons.length ? reasons.join(" · ") : `Lean ${card.row.lean.team} ${pct(card.row.lean.pct)} · confidence ${pct(card.row.confidence)}`}
         {hardStops.length ? <div className="mt-1 text-red-200">Hard stop: {hardStops.join(" · ")}</div> : null}
       </div>
     </article>
-  );
-}
-
-function EmptyState({ actionFilter, selectedDate, hasRows, hasMarket, statusReason }: { actionFilter: ActionFilter; selectedDate: string; hasRows: boolean; hasMarket: boolean; statusReason?: string }) {
-  const cacheProblem = !hasRows || !hasMarket;
-  return (
-    <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-6">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">{cacheProblem ? "Snapshot not ready" : `No ${actionFilter.toUpperCase()} cards`}</div>
-      <h2 className="mt-2 font-display text-2xl font-semibold text-white">{cacheProblem ? "Sim or market cache is missing." : "No plays match this filter."}</h2>
-      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-        {cacheProblem
-          ? "This is not a betting verdict. The page does not have a usable priority snapshot and market overlay yet. Refresh the sim, then reload this page."
-          : actionFilter === "totals"
-            ? "Totals exist only when the odds overlay has a market total plus over/under prices. If this is empty after refresh, the odds source is not returning totals for this slate."
-            : "This filter has no cards under the current EV gates."}
-      </p>
-      {statusReason ? <p className="mt-2 text-xs leading-5 text-amber-200">Last refresh: {statusReason}</p> : null}
-      <div className="mt-4 flex flex-wrap gap-3">
-        <Link href={href(selectedDate, "all")} className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">View all</Link>
-        <Link href={href(selectedDate, "totals")} className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">View totals</Link>
-        <Link href="/api/sim/refresh?force=1&wait=1" className="rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100">Refresh now</Link>
-      </div>
-    </section>
   );
 }
 
@@ -346,22 +267,20 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
 
   const rows = priority?.rows ?? [];
   const marketEdges = (market?.edges ?? []) as MarketEdge[];
-  const edgeMap = buildEdgeMap(marketEdges);
-  const dateRows = selectedDate === "all" ? rows : rows.filter((row) => chicagoKey(row.startTime) === selectedDate);
-  const dateEdges = selectedDate === "all" ? marketEdges : marketEdges.filter((edge) => chicagoKey(edge.startTime ?? null) === selectedDate);
-  const allGames = buildGames(dateRows, edgeMap, dateEdges);
-  const games = allGames.filter((game) => shouldShow(game, actionFilter));
-  const groups = groupGames(games);
-  const betCount = allGames.filter((game) => shouldShow(game, "bets")).length;
-  const attackCount = allGames.filter((game) => action(game.edge, game.row) === "ATTACK").length;
-  const playCount = allGames.filter((game) => action(game.edge, game.row) === "PLAY").length;
-  const totalsCount = allGames.filter((game) => hasTotals(game.edge)).length;
+  const allCards = buildCards(rows, marketEdges);
+  const dateCards = selectedDate === "all" ? allCards : allCards.filter((card) => cardDate(card) === selectedDate);
+  const cards = dateCards.filter((card) => shouldShow(card, actionFilter));
+  const availableDates = [...new Set(allCards.map(cardDate).filter((key) => key !== "unknown"))].sort();
+
+  const betCount = dateCards.filter((card) => shouldShow(card, "bets")).length;
+  const attackCount = dateCards.filter((card) => cardAction(card, "all") === "ATTACK").length;
+  const playCount = dateCards.filter((card) => cardAction(card, "all") === "PLAY").length;
+  const totalsCount = dateCards.filter(hasCardTotals).length;
   const simAge = status?.lastSuccessAt ?? priority?.generatedAt ?? hub?.generatedAt ?? null;
   const simFresh = (ageMinutes(simAge) ?? 999) <= 20;
   const marketFresh = (ageMinutes(market?.generatedAt) ?? 999) <= 15;
   const hasRows = rows.length > 0 || marketEdges.length > 0;
   const hasMarket = Boolean(market?.lineCount && market.lineCount > 0);
-  const availableDates = dateOptions(rows, marketEdges);
 
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -370,18 +289,18 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">Simulation Command</div>
             <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">SharkEdge Sim Hub</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Action-aware sim board. ATTACK and PLAY are bettable tiers; Totals shows over/under even when moneyline is the top signal.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Cache-inspection sim board. Cards render from market edges first and use display fallbacks when action payloads are stale.</p>
           </div>
           <div className="flex flex-wrap gap-3">
             <Link href="/api/sim/refresh?force=1&wait=1" className="rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100">Refresh Sim</Link>
+            <Link href="/api/sim/debug" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Debug JSON</Link>
             <Link href="/sim/accuracy" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Accuracy</Link>
-            <Link href="/api/sim/health" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Health JSON</Link>
           </div>
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <Tile label="Bets" value={betCount} note={`${attackCount} attack · ${playCount} play`} ok={betCount > 0} />
           <Tile label="Totals" value={totalsCount} note="Over/under cards" ok={totalsCount > 0} />
-          <Tile label="Visible" value={games.length} note={`${allGames.length} games on selected date`} ok={games.length > 0} />
+          <Tile label="Visible" value={cards.length} note={`${dateCards.length} cards on selected date`} ok={cards.length > 0} />
           <Tile label="Sim cache" value={simFresh ? "Fresh" : priority || marketEdges.length ? "Stale" : "Missing"} note={`Last success ${age(simAge)}`} ok={simFresh && hasRows} />
           <Tile label="Market cache" value={marketFresh ? "Fresh" : market ? "Stale" : "Missing"} note={`Generated ${age(market?.generatedAt)}`} ok={marketFresh && hasMarket} />
           <Tile label="MLB lines" value={market?.lineCount ?? 0} note={`${hub?.summary.mlbCount ?? priority?.summary.mlbCount ?? marketEdges.length} MLB games`} ok={hasMarket} />
@@ -393,7 +312,7 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Filters</div>
             <h2 className="mt-1 font-display text-2xl font-semibold text-white">{dateLabel(selectedDate)} · {actionFilter.toUpperCase()}</h2>
-            <p className="mt-1 text-xs leading-5 text-slate-500">Use Totals to inspect over/under. Use Bets to show ATTACK + PLAY only.</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">Use Totals for over/under. Use Debug JSON if cards still miss market fields.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <ButtonLink href={href(relativeKey(-1), actionFilter)} active={selectedDate === relativeKey(-1)}>Yesterday</ButtonLink>
@@ -413,11 +332,20 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
         </form>
       </section>
 
-      {!games.length ? (
-        <EmptyState actionFilter={actionFilter} selectedDate={selectedDate} hasRows={hasRows} hasMarket={hasMarket} statusReason={status?.reason} />
+      {!cards.length ? (
+        <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-6">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">No cards</div>
+          <h2 className="mt-2 font-display text-2xl font-semibold text-white">No cached cards match this filter.</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Rows: {rows.length}. Market edges: {marketEdges.length}. Lines: {market?.lineCount ?? 0}. Totals: {totalsCount}. Last refresh: {status?.reason ?? "no error recorded"}.</p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Link href={href(selectedDate, "all")} className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">View all</Link>
+            <Link href="/api/sim/refresh?force=1&wait=1" className="rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100">Refresh now</Link>
+            <Link href="/api/sim/debug" className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">Debug JSON</Link>
+          </div>
+        </section>
       ) : (
-        <section className="grid gap-4">
-          {groups.map((group) => <div key={group.key} className="grid gap-3">{selectedDate === "all" ? <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{group.label} · {group.games.length} game{group.games.length !== 1 ? "s" : ""}</div> : null}<div className="grid gap-3 2xl:grid-cols-2">{group.games.map((game) => <GameCard key={game.key} game={game} filter={actionFilter} />)}</div></div>)}
+        <section className="grid gap-3 2xl:grid-cols-2">
+          {cards.map((card) => <GameCard key={card.id} card={card} filter={actionFilter} />)}
         </section>
       )}
     </main>
