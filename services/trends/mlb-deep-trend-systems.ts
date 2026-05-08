@@ -32,6 +32,10 @@ function stabilityRank(value: PublishedMlbTrendCard["stabilityLabel"]) {
   return 0;
 }
 
+function numeric(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? value : -1;
+}
+
 function getProfitUnits(price: number) {
   return price > 0 ? price / 100 : 100 / Math.abs(price);
 }
@@ -44,6 +48,12 @@ function getFlatProfitUnits(result: Exclude<MlbTrendResult, "skip">, price: numb
 }
 
 function getRecommendedBet(definition: MlbTrendDefinition, row: MlbTrendHistoricalRow) {
+  const subjectName =
+    definition.subject?.type === "team"
+      ? (row.homeTeamName === definition.subject.teamName ? row.homeTeamName : row.awayTeamName === definition.subject.teamName ? row.awayTeamName : definition.subject.teamName ?? "Team")
+      : "Team";
+  const opponentName = row.homeTeamName === subjectName ? row.awayTeamName : row.homeTeamName;
+
   switch (definition.betSide) {
     case "over":
       return `Over ${row.closingTotal ?? "TBD"}`;
@@ -57,6 +67,14 @@ function getRecommendedBet(definition: MlbTrendDefinition, row: MlbTrendHistoric
       return `${row.homeTeamName} ${row.closingRunlineHome ?? "RL"}`;
     case "away_runline":
       return `${row.awayTeamName} ${row.closingRunlineAway ?? "RL"}`;
+    case "subject_ml":
+      return `${subjectName} ML`;
+    case "opponent_ml":
+      return `${opponentName} ML`;
+    case "subject_runline":
+      return `${subjectName} ${row.homeTeamName === subjectName ? row.closingRunlineHome ?? "RL" : row.closingRunlineAway ?? "RL"}`;
+    case "opponent_runline":
+      return `${opponentName} ${row.homeTeamName === subjectName ? row.closingRunlineAway ?? "RL" : row.closingRunlineHome ?? "RL"}`;
     default:
       return definition.title;
   }
@@ -173,6 +191,16 @@ function buildCard(definition: MlbTrendDefinition, summary: MlbTrendEvaluationSu
     roi: summary.roi,
     confidenceLabel: summary.confidenceLabel,
     stabilityLabel: summary.stabilityLabel,
+    signalScore: summary.signalScore,
+    stabilityScore: summary.stabilityScore,
+    fragilityScore: summary.fragilityScore,
+    overfitRisk: summary.overfitRisk,
+    seasonConcentration: summary.seasonConcentration,
+    neighborBandScore: summary.neighborBandScore,
+    neighborBandCount: summary.neighborBandCount,
+    holdoutScore: summary.holdoutScore,
+    holdoutSeasons: summary.holdoutSeasons,
+    holdoutPassRate: summary.holdoutPassRate,
     warnings: summary.warnings,
     todayMatches,
     conditions: conditionLabels(definition),
@@ -196,9 +224,21 @@ export async function buildDeepMlbTrendSystems(): Promise<PublishedMlbTrendFeed>
   const cards = getDeepMlbTrendDefinitions()
     .map((definition) => buildCard(definition, buildMlbTrendSummary(
       definition,
-      historical.rows.filter((row) => matchesMlbTrendConditions(definition, row)).map((row) => resolveMlbTrendResult(definition, row))
+      historical.rows.filter((row) => matchesMlbTrendConditions(definition, row)).map((row) => resolveMlbTrendResult(definition, row)),
+      historical.rows.filter((row) => matchesMlbTrendConditions(definition, row)),
+      historical.rows
     ), historical.rows, board.rows))
     .sort((left, right) => {
+      const signalDelta = numeric(right.signalScore) - numeric(left.signalScore);
+      if (signalDelta !== 0) return signalDelta;
+      const robustnessDelta = numeric(right.neighborBandScore) - numeric(left.neighborBandScore);
+      if (robustnessDelta !== 0) return robustnessDelta;
+      const holdoutDelta = numeric(right.holdoutScore) - numeric(left.holdoutScore);
+      if (holdoutDelta !== 0) return holdoutDelta;
+      const fragilityDelta = numeric(left.fragilityScore) - numeric(right.fragilityScore);
+      if (fragilityDelta !== 0) return fragilityDelta;
+      const overfitDelta = numeric(left.overfitRisk) - numeric(right.overfitRisk);
+      if (overfitDelta !== 0) return overfitDelta;
       const confidenceDelta = confidenceRank(right.confidenceLabel) - confidenceRank(left.confidenceLabel);
       if (confidenceDelta !== 0) return confidenceDelta;
       const stabilityDelta = stabilityRank(right.stabilityLabel) - stabilityRank(left.stabilityLabel);
