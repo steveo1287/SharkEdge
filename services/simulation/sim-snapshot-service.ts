@@ -31,6 +31,8 @@ const FULL_SIM_RETENTION_SECONDS = 36 * 60 * 60;
 const MARKET_RETENTION_SECONDS = 6 * 60 * 60;
 const MAX_PRIORITY_ROWS = 80;
 
+type ActionAwareSignal = { takeAction?: { action?: unknown } };
+
 export type SimGame = {
   id: string;
   label: string;
@@ -316,6 +318,7 @@ function buildPriorityRows(rows: CachedSimGameProjection[], edges: SimMarketSnap
     .map((row) => {
       const lean = winLean(row.projection);
       const edge = edgeByGame.get(row.game.id);
+      const actionTier = (edge?.signal as ActionAwareSignal | null | undefined)?.takeAction?.action;
       return {
         id: row.game.id,
         leagueKey: row.game.leagueKey,
@@ -323,7 +326,7 @@ function buildPriorityRows(rows: CachedSimGameProjection[], edges: SimMarketSnap
         startTime: row.game.startTime,
         matchup: row.projection.matchup,
         lean,
-        tier: edge?.signal?.takeAction?.action?.toString().toLowerCase() ?? decisionTier(row),
+        tier: actionTier?.toString().toLowerCase() ?? decisionTier(row),
         confidence: confidence(row.projection),
         homeEdge: row.projection.mlbIntel?.homeEdge ?? null,
         edgeMatched: Boolean(edge?.market),
