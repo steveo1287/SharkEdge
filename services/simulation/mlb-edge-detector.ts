@@ -341,8 +341,6 @@ export async function fetchMlbSportsbookLines(options: { allowRefresh?: boolean 
     return lines;
   }
 
-  // Self-healing path: if the MLB sim page has games but no usable lines, run one guarded MLB pull.
-  // The budget service still enforces active hours, min interval, daily limit, and monthly reserve.
   await runOddsApiSnapshotPull({ mode: "regular", sportsCsv: "baseball_mlb" }).catch(() => null);
   const [refreshedPersisted, refreshedSnapshot] = await Promise.all([fetchPersistedBoardLines(), fetchSnapshotLines()]);
   const refreshed = [...refreshedPersisted, ...refreshedSnapshot];
@@ -503,6 +501,9 @@ export async function buildMlbEdgesFromProjections(options: BuildMlbEdgesFromPro
     const best = candidates.sort((a, b) => b.rankScore - a.rankScore)[0] ?? null;
     edges.push({
       gameId: game.id,
+      startTime: game.startTime,
+      status: game.status,
+      leagueKey: game.leagueKey,
       matchup: projection.matchup,
       sportsbook: line?.sportsbook ?? "unknown",
       projection,
