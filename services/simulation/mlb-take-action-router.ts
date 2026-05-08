@@ -137,7 +137,7 @@ function selected(edge: Edge, market: string | null | undefined): SelectedPick {
   };
 }
 
-function quality(edge: Edge, signal: Signal) {
+function quality(edge: Edge, signal: Pick<Signal, "market" | "sourceCount" | "marketHold" | "edge">) {
   const governor = edge.projection.mlbIntel?.governor;
   const confidence = typeof governor?.confidence === "number" ? governor.confidence : 0.5;
   const volatility = edge.projection.mlbIntel?.volatilityIndex ?? 1.5;
@@ -195,19 +195,17 @@ function strength(action: Tier) {
   return "thin";
 }
 
-function enhance(edge: Edge, gateContext: TotalsGateContext): Edge {
-  if (!edge.signal) return edge;
-  const signal = edge.signal;
-  const market = signal.market ?? null;
+function evaluateMarket(edge: Edge, baseSignal: Pick<Signal, "market" | "team" | "edge" | "sourceCount" | "marketHold" | "warnings">, gateContext: TotalsGateContext) {
+  const market = baseSignal.market ?? null;
   const supported = isMoneyline(market) || isTotal(market);
   const totalMarket = isTotal(market);
   const pick = selected(edge, market);
   const expectedValue = pick.expectedValue ?? ev(pick.modelProbability, pick.americanOdds);
   const modelEdge = supported && pick.modelProbability != null && pick.marketProbability != null ? pick.modelProbability - pick.marketProbability : null;
-  const dataQuality = quality(edge, signal);
+  const dataQuality = quality(edge, baseSignal);
   const hardStopReasons: string[] = [];
   const downgradeReasons: string[] = [];
-  const warnings = [...(signal.warnings ?? []), ...(edge.marketQuality?.warnings ?? [])].filter(Boolean);
+  const warnings = [...(baseSignal.warnings ?? []), ...(edge.marketQuality?.warnings ?? [])].filter(Boolean);
 
   if (!supported) hardStopReasons.push(`unsupported market: ${market ?? "unknown"}`);
   if (pick.americanOdds == null) hardStopReasons.push("missing actual odds");
@@ -215,8 +213,8 @@ function enhance(edge: Edge, gateContext: TotalsGateContext): Edge {
   if (pick.marketProbability == null) hardStopReasons.push("missing no-vig market probability");
   if (totalMarket && pick.projectedRunEdge == null) hardStopReasons.push("missing projected total run edge");
   if (edge.projection.mlbIntel?.governor?.noBet) downgradeReasons.push("governor no-bet downgraded, not deleted");
-  if ((signal.sourceCount ?? 0) < 2) downgradeReasons.push("thin book consensus");
-  if ((signal.marketHold ?? 0) > 0.1) downgradeReasons.push("elevated market hold");
+  if ((baseSignal.sourceCount ?? 0) < 2) downgradeReasons.push("thin book consensus");
+  if ((baseSignal.marketHold ?? 0) > 0.1) downgradeReasons.push("elevated market hold");
   if (totalMarket && pick.projectedRunEdge != null && pick.projectedRunEdge < gateContext.gates.leanRunEdge) downgradeReasons.push("total run edge below lean threshold");
 
   const score = Math.round(clamp(
@@ -237,53 +235,76 @@ function enhance(edge: Edge, gateContext: TotalsGateContext): Edge {
   const attackRequirement = attackEvRequirement(pick.americanOdds, market, gateContext.gates);
 
   return {
-    ...edge,
-    signal: {
-      ...signal,
-      strength: strength(action),
-      action,
-      actionScore: score,
-      betEligible: action === "ATTACK" || action === "PLAY",
-      roiEligible: action === "ATTACK" || action === "PLAY",
-      expectedValue: round(expectedValue),
-      stakeUnits: round(stakeUnits, 2) ?? 0,
-      kellyFraction: round(kelly, 4) ?? 0,
-      takeAction: {
-        version: "take-action-v2.4-compact-totals-cache",
-        action,
-        actionScore: score,
-        betEligible: action === "ATTACK" || action === "PLAY",
-        roiEligible: action === "ATTACK" || action === "PLAY",
-        market,
-        side: market,
-        modelProbability: round(pick.modelProbability),
-        marketProbability: round(pick.marketProbability),
-        edge: round(modelEdge),
-        expectedValue: round(expectedValue),
-        attackEvRequirement: round(attackRequirement),
-        projectedRunEdge: round(pick.projectedRunEdge, 3),
-        totalProbability: pick.totalProbability,
-        totalsGateSource: gateContext.source,
-        totalsGateUsableRows: gateContext.usableRows,
-        totalsGates: gateContext.gates,
-        americanOdds: pick.americanOdds,
-        sportsbook: edge.sportsbook ?? edge.market?.sportsbook ?? null,
-        stakeUnits: round(stakeUnits, 2) ?? 0,
-        kellyFraction: round(kelly, 4) ?? 0,
-        reasons: [
-          expectedValue == null ? "EV unavailable" : `EV ${round(expectedValue * 100, 2)}%`,
-          `Attack EV gate ${round(attackRequirement * 100, 2)}%`,
-          modelEdge == null ? "Edge unavailable" : `Probability edge ${round(modelEdge * 100, 2)}%`,
-          totalMarket ? `Projected run edge ${round(pick.projectedRunEdge, 3) ?? "—"}` : `Data quality ${dataQuality}/100`,
-          totalMarket ? `Total gates ${gateContext.source} (${gateContext.usableRows} rows)` : "",
-          totalMarket ? `Data quality ${dataQuality}/100` : ""
-        ].filter(Boolean),
-        warnings,
-        downgradeReasons,
-        hardStopReasons
-      }
-    } as Signal & { takeAction: unknown }
+    version: "take-action-v2.5-dedicated-totals-surface",
+    action,
+    actionScore: score,
+    betEligible: action === "ATTACK" || action === "PLAY",
+    roiEligible: action === "ATTACK" || action === "PLAY",
+    market,
+    side: market,
+    team: baseSignal.team ?? null,
+    modelProbability: round(pick.modelProbability),
+    marketProbability: round(pick.marketProbability),
+    edge: round(modelEdge),
+    expectedValue: round(expectedValue),
+    attackEvRequirement: round(attackRequirement),
+    projectedRunEdge: round(pick.projectedRunEdge, 3),
+    totalProbability: pick.totalProbability,
+    totalsGateSource: gateContext.source,
+    totalsGateUsableRows: gateContext.usableRows,
+    totalsGates: gateContext.gates,
+    americanOdds: pick.americanOdds,
+    sportsbook: edge.sportsbook ?? edge.market?.sportsbook ?? null,
+    stakeUnits: round(stakeUnits, 2) ?? 0,
+    kellyFraction: round(kelly, 4) ?? 0,
+    reasons: [
+      expectedValue == null ? "EV unavailable" : `EV ${round(expectedValue * 100, 2)}%`,
+      `Attack EV gate ${round(attackRequirement * 100, 2)}%`,
+      modelEdge == null ? "Edge unavailable" : `Probability edge ${round(modelEdge * 100, 2)}%`,
+      totalMarket ? `Projected run edge ${round(pick.projectedRunEdge, 3) ?? "—"}` : `Data quality ${dataQuality}/100`,
+      totalMarket ? `Total gates ${gateContext.source} (${gateContext.usableRows} rows)` : "",
+      totalMarket ? `Data quality ${dataQuality}/100` : ""
+    ].filter(Boolean),
+    warnings,
+    downgradeReasons,
+    hardStopReasons
   };
+}
+
+function buildTotalSignal(edge: Edge): Pick<Signal, "market" | "team" | "edge" | "sourceCount" | "marketHold" | "warnings"> | null {
+  const runEdge = typeof edge.edges?.totalRuns === "number" ? edge.edges.totalRuns : null;
+  if (runEdge == null || !edge.market?.total) return null;
+  return {
+    market: runEdge >= 0 ? "over" : "under",
+    team: null,
+    edge: Math.abs(runEdge),
+    sourceCount: edge.marketQuality?.totalSourceCount ?? 0,
+    marketHold: edge.marketQuality?.totalHold ?? null,
+    warnings: edge.marketQuality?.warnings ?? []
+  };
+}
+
+function enhance(edge: Edge, gateContext: TotalsGateContext): Edge {
+  if (!edge.signal) return edge;
+  const takeAction = evaluateMarket(edge, edge.signal, gateContext);
+  const totalsSignal = buildTotalSignal(edge);
+  const totalsAction = totalsSignal ? evaluateMarket(edge, totalsSignal, gateContext) : null;
+  return {
+    ...edge,
+    totalsAction,
+    signal: {
+      ...edge.signal,
+      strength: strength(takeAction.action),
+      action: takeAction.action,
+      actionScore: takeAction.actionScore,
+      betEligible: takeAction.betEligible,
+      roiEligible: takeAction.roiEligible,
+      expectedValue: takeAction.expectedValue,
+      stakeUnits: takeAction.stakeUnits,
+      kellyFraction: takeAction.kellyFraction,
+      takeAction
+    } as Signal & { takeAction: unknown }
+  } as Edge & { totalsAction?: unknown };
 }
 
 function enhanceResult<T extends { edges: Edge[] }>(result: T, gateContext: TotalsGateContext): T {
