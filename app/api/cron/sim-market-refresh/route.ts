@@ -1,4 +1,4 @@
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -19,10 +19,21 @@ export async function GET(request: Request) {
 
   const startedAt = Date.now();
   console.info("[sim-market-refresh] started");
-  after(async () => {
-    const { refreshSimMarketSnapshot } = await import("@/services/simulation/sim-snapshot-service");
-    const result = await refreshSimMarketSnapshot();
-    console.info(`[sim-market-refresh] completed ${Date.now() - startedAt}ms ok=${result.ok}`);
-  });
-  return NextResponse.json({ ok: true, queued: true, startedAt: new Date(startedAt).toISOString() }, { status: 202 });
+
+  const { refreshSimMarketSnapshot } = await import("@/services/simulation/sim-snapshot-service");
+  const result = await refreshSimMarketSnapshot().catch((error) => ({
+    ok: false,
+    warnings: [error instanceof Error ? error.message : "unknown market refresh error"]
+  }));
+
+  const elapsedMs = Date.now() - startedAt;
+  console.info(`[sim-market-refresh] completed ${elapsedMs}ms ok=${result.ok}`);
+
+  return NextResponse.json({
+    ok: Boolean(result.ok),
+    queued: false,
+    startedAt: new Date(startedAt).toISOString(),
+    elapsedMs,
+    result
+  }, { status: result.ok ? 200 : 207 });
 }
