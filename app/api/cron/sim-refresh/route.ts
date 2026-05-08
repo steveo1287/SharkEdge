@@ -1,4 +1,4 @@
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -19,17 +19,34 @@ export async function GET(request: Request) {
 
   const startedAt = Date.now();
   console.info("[sim-refresh] started");
-  after(async () => {
-    const { refreshFullSimSnapshots } = await import("@/services/simulation/sim-snapshot-service");
-    const { refreshMainMlbSimSnapshot } = await import("@/services/simulation/main-sim-snapshot-service");
-    const result = await refreshFullSimSnapshots();
-    const mainMlb = await refreshMainMlbSimSnapshot().catch((error) => ({
-      ok: false,
-      gameCount: 0,
-      rowCount: 0,
-      warnings: [error instanceof Error ? error.message : "unknown main MLB brain refresh error"]
-    }));
-    console.info(`[sim-refresh] completed ${Date.now() - startedAt}ms ok=${result.ok} mainMlb=${mainMlb.ok} rows=${mainMlb.rowCount}`);
-  });
-  return NextResponse.json({ ok: true, queued: true, mainBrain: "mlb-intel-v8-player-impact+mlb-intel-v7-calibration", startedAt: new Date(startedAt).toISOString() }, { status: 202 });
+
+  const { refreshFullSimSnapshots } = await import("@/services/simulation/sim-snapshot-service");
+  const { refreshMainMlbSimSnapshot } = await import("@/services/simulation/main-sim-snapshot-service");
+
+  const result = await refreshFullSimSnapshots().catch((error) => ({
+    ok: false,
+    skippedSnapshotWrites: false,
+    warnings: [error instanceof Error ? error.message : "unknown full sim refresh error"]
+  }));
+
+  const mainMlb = await refreshMainMlbSimSnapshot().catch((error) => ({
+    ok: false,
+    gameCount: 0,
+    rowCount: 0,
+    warnings: [error instanceof Error ? error.message : "unknown main MLB brain refresh error"]
+  }));
+
+  const elapsedMs = Date.now() - startedAt;
+  const ok = Boolean(result.ok && mainMlb.ok);
+  console.info(`[sim-refresh] completed ${elapsedMs}ms ok=${ok} mainMlb=${mainMlb.ok} rows=${mainMlb.rowCount}`);
+
+  return NextResponse.json({
+    ok,
+    queued: false,
+    mainBrain: "mlb-intel-v8-player-impact+mlb-intel-v7-calibration",
+    startedAt: new Date(startedAt).toISOString(),
+    elapsedMs,
+    result,
+    mainMlb
+  }, { status: ok ? 200 : 207 });
 }
