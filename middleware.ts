@@ -45,7 +45,17 @@ function applyRedirect(request: NextRequest, from: string, to: string) {
   return NextResponse.redirect(url, 308);
 }
 
+function rewriteFrozenSimHub(request: NextRequest) {
+  if (request.nextUrl.pathname !== "/sim") return null;
+  const url = request.nextUrl.clone();
+  url.pathname = "/sim-fast";
+  return NextResponse.rewrite(url);
+}
+
 export function middleware(request: NextRequest) {
+  const simHubRewrite = rewriteFrozenSimHub(request);
+  if (simHubRewrite) return simHubRewrite;
+
   for (const [from, to] of REDIRECTS) {
     const response = applyRedirect(request, from, to);
     if (response) return response;
@@ -55,6 +65,7 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/sim",
     "/trends", "/trends/:path*",
     "/board", "/board/:path*",
     "/props", "/props/:path*",
