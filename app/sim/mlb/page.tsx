@@ -16,6 +16,7 @@ import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { getCachedMlbCalibrationConformal } from "@/services/simulation/mlb-calibration-conformal";
 import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
 import { getCachedMlbMlModel } from "@/services/simulation/mlb-ml-training-engine";
+import { getSimModelScorecard } from "@/services/sim/model-scorecard";
 import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
 import {
   readSimCache,
@@ -252,10 +253,11 @@ async function loadMlbRows() {
 }
 
 export default async function MlbSimPage() {
-  const [{ rows, source }, mlModel, calibration] = await Promise.all([
+  const [{ rows, source }, mlModel, calibration, scorecard] = await Promise.all([
     loadMlbRows(),
     getCachedMlbMlModel(),
-    getCachedMlbCalibrationConformal()
+    getCachedMlbCalibrationConformal(),
+    getSimModelScorecard({ league: "MLB", windowDays: 90 }).catch(() => null)
   ]);
 
   const attack = rows.filter((row) => decisionTier(row) === "attack").length;
@@ -277,8 +279,13 @@ export default async function MlbSimPage() {
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
           <SimMetricTile label="Games" value={String(rows.length)} sub={`MLB slate · ${source}`} emphasis={rows.length ? "strong" : "normal"} />
           <SimMetricTile label="Attack" value={String(attack)} sub="Governor cleared" emphasis="strong" />
-          <SimMetricTile label="Watch" value={String(watch)} sub="Conditional" />
-          <SimMetricTile label="Pass" value={String(pass)} sub="Filtered" emphasis="muted" />
+          <SimMetricTile label="Watch" value={String(watch)} sub={`Pass ${pass} · filtered`} />
+          <SimMetricTile
+            label="Model ROI"
+            value={scorecard?.totals.roi != null ? `${scorecard.totals.roi > 0 ? "+" : ""}${scorecard.totals.roi.toFixed(1)}%` : "—"}
+            sub={scorecard?.totals.unitsNet != null ? `${scorecard.totals.unitsNet > 0 ? "+" : ""}${scorecard.totals.unitsNet.toFixed(1)}u · ${scorecard.totals.winCount}W–${scorecard.totals.lossCount}L` : "No settled picks"}
+            emphasis={scorecard?.totals.roi != null && scorecard.totals.roi > 0 ? "strong" : "normal"}
+          />
           <SimMetricTile label="Lines" value={`${lineCount}/${rows.length}`} sub="Matched markets" />
           <SimMetricTile label="Data" value={`${realPlayerGames}/${rows.length}`} sub={`ML rows ${mlModel?.rows ?? 0}${calibration?.ok ? ` · ECE ${calibration.ece.toFixed(3)}` : ""}`} />
         </div>

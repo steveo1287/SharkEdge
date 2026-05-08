@@ -300,10 +300,17 @@ export default async function SimAccuracyPage({ searchParams }: PageProps) {
             )) : <div className="text-slate-500">No MLB quality flags yet.</div>}
           </div>
         </div>
-        <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">CLV status</div>
-          <div className="mt-3 font-display text-3xl font-semibold text-white">{pctRaw(scorecard.totals.clvAvgPct)}</div>
-          <p className="mt-2 text-sm leading-6 text-slate-400">Close-line value is unavailable until close prices are stored with graded picks.</p>
+        <div className={`rounded-[1.5rem] border p-4 ${scorecard.totals.roi != null && scorecard.totals.roi > 0 ? "border-emerald-400/30 bg-emerald-400/[0.07]" : scorecard.totals.roi != null && scorecard.totals.roi < -2 ? "border-red-400/30 bg-red-400/[0.07]" : "border-white/10 bg-slate-950/70"}`}>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">ROI · 1 unit flat</div>
+          <div className={`mt-3 font-display text-4xl font-bold ${scorecard.totals.roi != null && scorecard.totals.roi > 0 ? "text-emerald-300" : scorecard.totals.roi != null && scorecard.totals.roi < 0 ? "text-red-300" : "text-white"}`}>
+            {scorecard.totals.roi != null ? `${scorecard.totals.roi > 0 ? "+" : ""}${scorecard.totals.roi.toFixed(1)}%` : "—"}
+          </div>
+          <div className="mt-2 font-mono text-sm text-slate-300">
+            {scorecard.totals.unitsNet != null ? `${scorecard.totals.unitsNet > 0 ? "+" : ""}${scorecard.totals.unitsNet.toFixed(2)} units net` : "No settled picks yet"}
+          </div>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            {scorecard.totals.winCount}W–{scorecard.totals.lossCount}L · standard −110 juice
+          </p>
         </div>
       </section>
 
