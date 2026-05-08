@@ -32,6 +32,10 @@ function stabilityRank(value: PublishedMlbTrendCard["stabilityLabel"]) {
   return 0;
 }
 
+function numeric(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? value : -1;
+}
+
 function buildFeedWarnings(args: {
   historicalWarnings: string[];
   boardWarnings: string[];
@@ -82,6 +86,7 @@ export class DefaultPublishedMlbTrendFeedService implements PublishedMlbTrendFee
           family: definition.family,
           title: definition.title,
           description: definition.description,
+          subject: definition.subject ? { ...definition.subject } : undefined,
           betSide: definition.betSide,
           whyThisMatters: definition.whyThisMatters,
           cautionNote: definition.cautionNote,
@@ -94,11 +99,36 @@ export class DefaultPublishedMlbTrendFeedService implements PublishedMlbTrendFee
           roi: summary.roi,
           confidenceLabel: summary.confidenceLabel,
           stabilityLabel: summary.stabilityLabel,
+          signalScore: summary.signalScore,
+          stabilityScore: summary.stabilityScore,
+          fragilityScore: summary.fragilityScore,
+          overfitRisk: summary.overfitRisk,
+          seasonConcentration: summary.seasonConcentration,
+          neighborBandScore: summary.neighborBandScore,
+          neighborBandCount: summary.neighborBandCount,
+          holdoutScore: summary.holdoutScore,
+          holdoutSeasons: summary.holdoutSeasons,
+          holdoutPassRate: summary.holdoutPassRate,
           warnings: summary.warnings,
           todayMatches
         } satisfies PublishedMlbTrendCard;
       })
       .sort((left, right) => {
+        const signalDelta = numeric(right.signalScore) - numeric(left.signalScore);
+        if (signalDelta !== 0) return signalDelta;
+
+        const robustnessDelta = numeric(right.neighborBandScore) - numeric(left.neighborBandScore);
+        if (robustnessDelta !== 0) return robustnessDelta;
+
+        const holdoutDelta = numeric(right.holdoutScore) - numeric(left.holdoutScore);
+        if (holdoutDelta !== 0) return holdoutDelta;
+
+        const fragilityDelta = numeric(left.fragilityScore) - numeric(right.fragilityScore);
+        if (fragilityDelta !== 0) return fragilityDelta;
+
+        const overfitDelta = numeric(left.overfitRisk) - numeric(right.overfitRisk);
+        if (overfitDelta !== 0) return overfitDelta;
+
         const confidenceDelta = confidenceRank(right.confidenceLabel) - confidenceRank(left.confidenceLabel);
         if (confidenceDelta !== 0) return confidenceDelta;
 
