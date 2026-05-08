@@ -26,7 +26,7 @@ const FULL_SIM_TTL_SECONDS = 75 * 60;
 const MARKET_TTL_SECONDS = 15 * 60;
 const NBA_PROJECTION_TIMEOUT_MS = 8_000;
 const MLB_PROJECTION_TIMEOUT_MS = 18_000;
-const MARKET_OVERLAY_TIMEOUT_MS = 12_000;
+const MARKET_OVERLAY_TIMEOUT_MS = 18_000;
 const FULL_SIM_RETENTION_SECONDS = 36 * 60 * 60;
 const MARKET_RETENTION_SECONDS = 6 * 60 * 60;
 const MAX_PRIORITY_ROWS = 80;
@@ -323,7 +323,7 @@ function buildPriorityRows(rows: CachedSimGameProjection[], edges: SimMarketSnap
         startTime: row.game.startTime,
         matchup: row.projection.matchup,
         lean,
-        tier: decisionTier(row),
+        tier: edge?.signal?.takeAction?.action?.toString().toLowerCase() ?? decisionTier(row),
         confidence: confidence(row.projection),
         homeEdge: row.projection.mlbIntel?.homeEdge ?? null,
         edgeMatched: Boolean(edge?.market),
@@ -400,8 +400,6 @@ export async function refreshFullSimSnapshots() {
     return result;
   }
 
-  // Pre-warm Savant caches so per-game projections hit the hot cache rather than
-  // racing against the 10s Savant fetch timeout inside the 18s projection window.
   if (games.some((g) => g.leagueKey === "MLB")) {
     const savantStartedAt = Date.now();
     await Promise.all([
@@ -427,15 +425,16 @@ export async function refreshFullSimSnapshots() {
   let lineCount = 0;
   try {
     const edgeData = mlbRows.length
-      ? await Promise.race([buildMlbEdgesFromProjections({ games: mlbRows.map((row) => row.game as MlbEdgeGame), projectionsByGameId, allowLineRefresh: false }), timeoutAfter(MARKET_OVERLAY_TIMEOUT_MS, "MLB edge/market overlay")])
+      ? await Promise.race([buildMlbEdgesFromProjections({ games: mlbRows.map((row) => row.game as MlbEdgeGame), projectionsByGameId, allowLineRefresh: true }), timeoutAfter(MARKET_OVERLAY_TIMEOUT_MS, "MLB edge/market overlay")])
       : { ok: true, lineCount: 0, gameCount: 0, edges: [] as SimMarketSnapshot["edges"] };
     marketEdges = edgeData.edges;
     lineCount = edgeData.lineCount;
-    sourceStatus.market = { ok: true, lineCount, edgeCount: marketEdges.length, inline: true };
+    sourceStatus.market = { ok: lineCount > 0, lineCount, edgeCount: marketEdges.length, inline: true, allowLineRefresh: true };
+    if (mlbRows.length && lineCount <= 0) warnings.push("MLB market overlay returned zero sportsbook lines after guarded refresh.");
   } catch (error) {
     const reason = error instanceof Error ? error.message : "unknown market overlay error";
     warnings.push(`MLB market overlay failed: ${reason}`);
-    sourceStatus.market = { ok: false, reason, inline: true };
+    sourceStatus.market = { ok: false, reason, inline: true, allowLineRefresh: true };
   }
   logTiming("sim-refresh", "MLB edge/market overlay", marketStartedAt);
 
@@ -503,31 +502,33 @@ export async function refreshSimMarketSnapshot() {
     if (!mlbBoard?.games?.length) throw new Error("missing MLB base projection snapshot");
 
     const lineStartedAt = Date.now();
-    const lines = await fetchMlbSportsbookLines({ allowRefresh: false });
+    const lines = await fetchMlbSportsbookLines({ allowRefresh: true });
     logTiming("sim-market-refresh", "fetchLines", lineStartedAt);
 
     const projectionsByGameId = new Map<string, MlbEdgeProjection>(mlbBoard.games.map((row) => [row.game.id, asMlbProjection(row.projection)]));
     const edgeStartedAt = Date.now();
     const edgeData = await Promise.race([
-      buildMlbEdgesFromProjections({ games: mlbBoard.games.map((row) => row.game as MlbEdgeGame), projectionsByGameId, lines, allowLineRefresh: false }),
+      buildMlbEdgesFromProjections({ games: mlbBoard.games.map((row) => row.game as MlbEdgeGame), projectionsByGameId, lines, allowLineRefresh: true }),
       timeoutAfter(MARKET_OVERLAY_TIMEOUT_MS, "sim-market-refresh overlay")
     ]);
     logTiming("sim-market-refresh", "MLB edge/market overlay", edgeStartedAt);
+
+    if (edgeData.lineCount <= 0) warnings.push("MLB sportsbook line pull returned zero lines. Verify ODDS_API_KEY and active-hours/budget guard.");
 
     const payload: SimMarketSnapshot = {
       generatedAt,
       expiresAt: expires,
       stale: false,
       warnings,
-      sourceStatus: { ...sourceStatus, mlbBoard: { ok: true, gameCount: mlbBoard.games.length } },
+      sourceStatus: { ...sourceStatus, mlbBoard: { ok: true, gameCount: mlbBoard.games.length }, market: { ok: edgeData.lineCount > 0, lineCount: edgeData.lineCount, allowLineRefresh: true } },
       edges: edgeData.edges,
       lineCount: edgeData.lineCount,
       gameCount: edgeData.gameCount
     };
     await writeSimCache(SIM_CACHE_KEYS.market, payload, MARKET_RETENTION_SECONDS);
-    await writeRefreshStatus({ ok: true, running: false, lastSuccessAt: generatedAt, lastFailureAt: null, warnings, sourceStatus: payload.sourceStatus });
+    await writeRefreshStatus({ ok: warnings.length === 0, running: false, lastSuccessAt: generatedAt, lastFailureAt: warnings.length ? generatedAt : null, reason: warnings[0], warnings, sourceStatus: payload.sourceStatus });
     logTiming("sim-market-refresh", "total", startedAt);
-    return { ok: true, warnings, lineCount: payload.lineCount, gameCount: payload.gameCount };
+    return { ok: edgeData.lineCount > 0, warnings, lineCount: payload.lineCount, gameCount: payload.gameCount };
   } catch (error) {
     const reason = error instanceof Error ? error.message : "unknown market refresh error";
     console.error("[sim-market-refresh] failed", error);
