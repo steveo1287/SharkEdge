@@ -48,7 +48,7 @@ function applyRedirect(request: NextRequest, from: string, to: string) {
 function rewriteFrozenSimHub(request: NextRequest) {
   if (request.nextUrl.pathname !== "/sim") return null;
   const url = request.nextUrl.clone();
-  url.pathname = "/sim-fast";
+  url.pathname = "/sim-safe";
   return NextResponse.rewrite(url);
 }
 
