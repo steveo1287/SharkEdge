@@ -16,8 +16,10 @@ export const maxDuration = 15;
 const DISPLAY_TIME_ZONE = "America/Chicago";
 const INITIAL_CARD_LIMIT = 8;
 
+type SearchParams = Record<string, string | string[] | undefined>;
+
 type PageProps = {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+  searchParams?: Promise<SearchParams>;
 };
 
 type SafeCard = {
@@ -239,8 +241,9 @@ function EmptyState() {
 }
 
 export default async function SimSafePage({ searchParams }: PageProps) {
-  const sp = await (searchParams ?? Promise.resolve({}));
-  const limitParam = Array.isArray(sp.limit) ? sp.limit[0] : sp.limit;
+  const sp: SearchParams = searchParams ? await searchParams : {};
+  const limitValue = sp["limit"];
+  const limitParam = Array.isArray(limitValue) ? limitValue[0] : limitValue;
   const limit = Math.max(4, Math.min(24, Number(limitParam) || INITIAL_CARD_LIMIT));
 
   const [hub, priority, status] = await Promise.all([
