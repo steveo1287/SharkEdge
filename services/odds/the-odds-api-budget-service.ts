@@ -203,7 +203,14 @@ async function fetchSportOdds(sport: string, apiKey: string): Promise<SportFetch
   const bookmakers = process.env.ODDS_API_BOOKMAKERS?.trim();
   if (bookmakers) url.searchParams.set("bookmakers", bookmakers);
 
-  const response = await fetch(url.toString(), { cache: "no-store" });
+  const controller = new AbortController();
+  const abort = setTimeout(() => controller.abort(), 15_000);
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), { cache: "no-store", signal: controller.signal });
+  } finally {
+    clearTimeout(abort);
+  }
   const requestCost = parseHeaderNumber(response.headers, "x-requests-last");
   const monthlyUsed = parseHeaderNumber(response.headers, "x-requests-used");
 

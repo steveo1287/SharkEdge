@@ -297,13 +297,16 @@ async function fetchExternalLines() {
   const startedAt = Date.now();
   const url = process.env.MLB_SPORTSBOOK_LINES_URL?.trim() || process.env.ODDS_MARKET_URL?.trim();
   if (!url) return [] as SportsbookLine[];
+  const controller = new AbortController();
+  const abort = setTimeout(() => controller.abort(), 8_000);
   try {
-    const res = await fetch(url, { cache: "no-store" });
+    const res = await fetch(url, { cache: "no-store", signal: controller.signal });
     if (!res.ok) return [];
     return parseMarketRows(await res.json());
   } catch {
     return [];
   } finally {
+    clearTimeout(abort);
     logTiming("fetchLines.external", startedAt);
   }
 }
