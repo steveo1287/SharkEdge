@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { ensureInternalApiAccess } from "@/lib/utils/internal-api";
 import { getSimModelScorecard } from "@/services/sim/model-scorecard";
 import { getMlbIntelV7AccuracyProof } from "@/services/simulation/mlb-intel-v7-accuracy-adapter";
 import {
@@ -73,6 +74,11 @@ export async function GET(req: Request) {
   const limit = parseLimit(searchParams.get("limit"));
   const filters = scorecardFilters(searchParams);
 
+  if (action === "capture" || action === "grade") {
+    const unauthorized = ensureInternalApiAccess(req);
+    if (unauthorized) return unauthorized;
+  }
+
   if (action === "capture") {
     const result = await captureCurrentSimPredictionSnapshots();
     return NextResponse.json(result, { status: result.ok ? 200 : 503 });
@@ -117,6 +123,11 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const action = parseAction(typeof body.action === "string" ? body.action : "run");
+
+  if (action === "capture" || action === "grade") {
+    const unauthorized = ensureInternalApiAccess(req);
+    if (unauthorized) return unauthorized;
+  }
 
   if (action === "capture") {
     const result = await captureCurrentSimPredictionSnapshots();

@@ -397,6 +397,154 @@ function buildCard(rows: LedgerRow[]) {
   };
 }
 
+function totalsResultBucket(row: SnapshotRow, side: "OVER" | "UNDER" | null) {
+  const finalHome = numberValue(row.final_home_score);
+  const finalAway = numberValue(row.final_away_score);
+  const marketTotal = numberValue(row.market_total);
+  if (!side || !row.graded_at || finalHome == null || finalAway == null || marketTotal == null) return "PENDING";
+  const actualTotal = finalHome + finalAway;
+  if (actualTotal === marketTotal) return "PUSH";
+  if (side === "OVER") return actualTotal > marketTotal ? "WIN" : "LOSS";
+  return actualTotal < marketTotal ? "WIN" : "LOSS";
+}
+
+function totalsSignal(payload: unknown) {
+  const signalPayload = topSignal(payload);
+  const action = takeAction(payload);
+  const market = String(signalPayload?.market ?? "").toLowerCase() || null;
+  const strength = String(signalPayload?.strength ?? "").toLowerCase() || null;
+
+  if (!signalPayload) return { side: null as "OVER" | "UNDER" | null, market, strength, excluded: "no top signal", ...action };
+  if (market === "over") return { side: "OVER" as const, market, strength, excluded: null as string | null, ...action };
+  if (market === "under") return { side: "UNDER" as const, market, strength, excluded: null as string | null, ...action };
+  return { side: null as "OVER" | "UNDER" | null, market, strength, excluded: market ? `non-totals signal: ${market}` : "missing totals signal", ...action };
+}
+
+function selectedTotalsOdds(payload: unknown, side: "OVER" | "UNDER" | null) {
+  if (!side) return { odds: null as number | null, source: null as string | null };
+  const overPath = "topSignal.takeAction.totalProbability.over.americanOdds";
+  const underPath = "topSignal.takeAction.totalProbability.under.americanOdds";
+  const taOdds = americanOdds(get(payload, side === "OVER" ? overPath : underPath));
+  if (taOdds != null) return { odds: taOdds, source: "takeAction" };
+  return { odds: null, source: null };
+}
+
+function mapRowTotals(row: SnapshotRow) {
+  const predictionJson = parseJson(row.prediction_json);
+  const sig = totalsSignal(predictionJson);
+  const odds = selectedTotalsOdds(predictionJson, sig.side);
+  const predictionTime = iso(row.captured_at) ?? new Date().toISOString();
+  const modelNoBet = Boolean(row.no_bet) || Boolean(get(predictionJson, "model.noBet")) || Boolean(get(predictionJson, "mlbIntel.governor.noBet"));
+
+  return {
+    id: String(row.id),
+    gameId: String(row.game_id),
+    league: ACTIVE_LEAGUE,
+    market: "totals" as const,
+    modelVersion: row.model_version ?? DEFAULT_MODEL_VERSION,
+    predictionTime,
+    eventLabel: row.event_label ?? null,
+    side: sig.side,
+    signalMarket: sig.market,
+    signalStrength: sig.strength,
+    takeActionPresent: sig.present,
+    takeActionAction: sig.action,
+    takeActionScore: sig.actionScore,
+    takeActionRoiEligible: sig.roiEligible,
+    takeActionBetEligible: sig.betEligible,
+    takeActionExpectedValue: sig.expectedValue,
+    takeActionStakeUnits: sig.stakeUnits,
+    takeActionKellyFraction: sig.kellyFraction,
+    roiExclusionReason: sig.excluded,
+    selectedAmericanOdds: odds.odds,
+    oddsSource: odds.source,
+    modelTotal: numberValue(row.model_total),
+    marketTotal: numberValue(row.market_total),
+    finalHomeScore: numberValue(row.final_home_score),
+    finalAwayScore: numberValue(row.final_away_score),
+    resultBucket: totalsResultBucket(row, sig.side),
+    totalError: numberValue(row.total_error),
+    dataQualityFlags: {
+      tier: row.tier,
+      dataSource: row.data_source,
+      noBet: modelNoBet,
+      signalMarket: sig.market,
+      signalStrength: sig.strength,
+      roiExclusionReason: sig.excluded,
+      takeActionPresent: sig.present,
+      takeActionAction: sig.action,
+      takeActionRoiEligible: sig.roiEligible,
+      takeActionScore: sig.actionScore
+    },
+    settledAt: iso(row.graded_at),
+    createdAt: iso(row.created_at) ?? predictionTime,
+    updatedAt: iso(row.updated_at) ?? predictionTime
+  };
+}
+
+type TotalsLedgerRow = ReturnType<typeof mapRowTotals>;
+
+function isTotalsOfficialDecision(row: TotalsLedgerRow) {
+  if (!(row.resultBucket === "WIN" || row.resultBucket === "LOSS" || row.resultBucket === "PUSH")) return false;
+  if (row.roiExclusionReason) return false;
+  if (row.takeActionPresent) return row.takeActionRoiEligible === true;
+  return row.side === "OVER" || row.side === "UNDER";
+}
+
+function officialTotalsDecisions(rows: TotalsLedgerRow[]) {
+  const byGame = new Map<string, TotalsLedgerRow>();
+  for (const row of rows.filter(isTotalsOfficialDecision)) {
+    const key = `${row.modelVersion}::${row.gameId}`;
+    const existing = byGame.get(key);
+    if (!existing || new Date(row.predictionTime).getTime() > new Date(existing.predictionTime).getTime()) byGame.set(key, row);
+  }
+  return [...byGame.values()].sort((a, b) => new Date(b.predictionTime).getTime() - new Date(a.predictionTime).getTime());
+}
+
+function roiTotals(rows: TotalsLedgerRow[]) {
+  const rowsToGrade = officialTotalsDecisions(rows).filter((row) => row.resultBucket === "WIN" || row.resultBucket === "LOSS");
+  if (!rowsToGrade.length) return { unitsNet: null, roi: null, roiMode: "no_settled_picks", actualOddsCount: 0, fallbackOddsCount: 0, avgSelectedAmericanOdds: null };
+
+  let net = 0;
+  let actualOddsCount = 0;
+  let fallbackOddsCount = 0;
+  const captured: number[] = [];
+
+  for (const row of rowsToGrade) {
+    if (row.selectedAmericanOdds != null) { actualOddsCount += 1; captured.push(row.selectedAmericanOdds); }
+    else fallbackOddsCount += 1;
+    net += row.resultBucket === "LOSS" ? -1 : payoutForWin(row.selectedAmericanOdds);
+  }
+
+  const unitsNet = round(net, 2);
+  const mode = actualOddsCount > 0 && fallbackOddsCount === 0 ? "actual_captured_odds" : actualOddsCount > 0 ? "mixed_actual_and_fallback" : "fallback_-110";
+  return { unitsNet, roi: round(((unitsNet ?? 0) / rowsToGrade.length) * 100, 2), roiMode: mode, actualOddsCount, fallbackOddsCount, avgSelectedAmericanOdds: round(avg(captured), 0) };
+}
+
+function buildTotalsCard(rows: TotalsLedgerRow[]) {
+  const pickRows = officialTotalsDecisions(rows);
+  const winCount = pickRows.filter((row) => row.resultBucket === "WIN").length;
+  const lossCount = pickRows.filter((row) => row.resultBucket === "LOSS").length;
+  const pushCount = pickRows.filter((row) => row.resultBucket === "PUSH").length;
+  const roiStats = roiTotals(rows);
+
+  return {
+    league: ACTIVE_LEAGUE,
+    market: "totals" as const,
+    modelVersion: rows[0]?.modelVersion ?? DEFAULT_MODEL_VERSION,
+    predictionCount: rows.length,
+    settledCount: pickRows.length,
+    pendingCount: Math.max(0, rows.length - pickRows.length),
+    winCount,
+    lossCount,
+    pushCount,
+    sampleWarning: pickRows.length < 30 ? "Very small totals sample. Treat ROI as directional only." : pickRows.length < 100 ? "Small totals sample." : null,
+    totalMae: round(avg(rows.map((row) => row.totalError)), 2),
+    winRate: winCount + lossCount > 0 ? round(winCount / (winCount + lossCount), 3) : null,
+    ...roiStats
+  };
+}
+
 function empty(filters: ScorecardFilters, databaseReady: boolean, error?: string) {
   const windowDays = normalizeWindowDays(filters.windowDays);
   return {
@@ -411,6 +559,8 @@ function empty(filters: ScorecardFilters, databaseReady: boolean, error?: string
     strongestMarkets: [],
     weakestMarkets: [],
     recent: [],
+    totalsScorecard: null as ReturnType<typeof buildTotalsCard> | null,
+    recentTotals: [] as TotalsLedgerRow[],
     error
   };
 }
@@ -448,6 +598,7 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}) {
   }
 
   const predictions = rows.map(mapRow);
+  const totalsPredictions = rows.map(mapRowTotals);
   const groups = new Map<string, LedgerRow[]>();
   for (const row of predictions) {
     const key = `${ACTIVE_LEAGUE}::${row.market}::${row.modelVersion}`;
@@ -469,6 +620,8 @@ export async function getSimModelScorecard(filters: ScorecardFilters = {}) {
     byLeague: { MLB: { predictionCount: predictions.length, settledCount: card.settledCount, winCount: card.winCount, lossCount: card.lossCount, pushCount: card.pushCount, winRate: card.winRate, brierScoreAvg: round(avg(settled.map((row) => row.brierScore)), 4), logLossAvg: round(avg(settled.map((row) => row.logLoss)), 4), spreadMae: round(avg(settled.map((row) => row.spreadError)), 2), totalMae: round(avg(settled.map((row) => row.totalError)), 2), clvAvgPct: null } },
     strongestMarkets: scorecards.filter((item) => item.settledCount >= 10).slice(0, 5),
     weakestMarkets: scorecards.filter((item) => item.settledCount >= 10).slice(-5),
-    recent: predictions.slice(0, 50)
+    recent: predictions.slice(0, 50),
+    totalsScorecard: buildTotalsCard(totalsPredictions),
+    recentTotals: totalsPredictions.slice(0, 50)
   };
 }

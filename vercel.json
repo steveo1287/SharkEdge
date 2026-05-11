@@ -85,6 +85,18 @@
     {
       "path": "/api/trends/systems/cycle?inactive=true&limit=500",
       "schedule": "22,52 * * * *"
+    },
+    {
+      "path": "/api/sim/accuracy?action=capture",
+      "schedule": "*/30 13-23 * * *"
+    },
+    {
+      "path": "/api/sim/accuracy?action=capture",
+      "schedule": "*/30 0-6 * * *"
+    },
+    {
+      "path": "/api/sim/accuracy?action=grade",
+      "schedule": "5 * * * *"
     }
   ]
 }
