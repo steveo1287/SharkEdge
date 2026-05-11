@@ -1,4 +1,3 @@
-"use server";
 import { after } from "next/server";
 import Link from "next/link";
 import type { ReactNode } from "react";
