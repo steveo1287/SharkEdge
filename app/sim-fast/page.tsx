@@ -1,4 +1,3 @@
-import { after } from "next/server";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -15,11 +14,9 @@ import {
   type SimCardViewModel,
   type ActionView
 } from "@/services/simulation/build-sim-card-view-model";
-import { AutoReload } from "@/app/sim-fast/auto-reload";
-
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 15;
+export const maxDuration = 35;
 
 const DISPLAY_TIME_ZONE = "America/Chicago";
 const ACTIONS = ["bets", "totals", "all", "attack", "play", "lean", "watch", "pass"] as const;
@@ -836,18 +833,40 @@ function GameCard({ vm }: { vm: SimCardViewModel }) {
 
 // ── Snapshot loading ──────────────────────────────────────────────────────────
 
-// Read-only from Redis — never triggers inline refresh.
-// The /api/cron/sim-refresh cron (every 10 min) keeps the cache warm.
-// Attempting inline refresh on page load risks hitting the Vercel function
-// timeout (55s) mid-stream, which causes the RSC error boundary to fire.
-async function readSnapshots() {
-  const [hub, priority, market, status] = await Promise.all([
+async function readAll() {
+  return Promise.all([
     readSimCache<SimHubSnapshot>(SIM_CACHE_KEYS.hub).catch(() => null),
     readSimCache<SimPrioritySnapshot>(SIM_CACHE_KEYS.priority).catch(() => null),
     readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market).catch(() => null),
     readSimCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus).catch(() => null)
   ]);
-  return { hub, priority, market, status };
+}
+
+// ── Snapshot loading ──────────────────────────────────────────────────────────
+
+async function readSnapshots() {
+  const [hub, priority, market, status] = await readAll();
+
+  // Warm cache — fast path, just return what's there.
+  if ((priority?.rows?.length ?? 0) > 0) {
+    return { hub, priority, market, status };
+  }
+
+  // Cold cache: run projections inline with a 25s cap (well under the 35s
+  // maxDuration). On success the page renders with real data on the first load.
+  // On timeout the page renders the loading state and after() finishes the job.
+  try {
+    const { refreshFullSimSnapshots } = await import("@/services/simulation/sim-snapshot-service");
+    await Promise.race([
+      refreshFullSimSnapshots(),
+      new Promise<void>((resolve) => setTimeout(resolve, 25_000))
+    ]);
+  } catch {
+    // best-effort
+  }
+
+  const [fHub, fPriority, fMarket, fStatus] = await readAll();
+  return { hub: fHub, priority: fPriority, market: fMarket, status: fStatus };
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -865,21 +884,8 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
 
   const rows = priority?.rows ?? [];
   const marketEdges = (market?.edges ?? []) as NonNullable<SimMarketSnapshot["edges"]>;
-
-  // Cache is empty — cron hasn't run yet (first deploy) or Redis was flushed.
-  // Fire the full refresh in the background (after the response is sent) so
-  // the auto-reload lands on a populated page without blocking this request.
+  // If still empty after inline refresh attempt, show the loading state.
   const cacheEmpty = rows.length === 0 && !hub && !priority;
-  if (cacheEmpty) {
-    after(async () => {
-      try {
-        const { refreshFullSimSnapshots } = await import("@/services/simulation/sim-snapshot-service");
-        await refreshFullSimSnapshots();
-      } catch {
-        // best-effort — next cron run will catch it
-      }
-    });
-  }
 
   let allModels: SimCardViewModel[] = [];
   try {
@@ -1080,14 +1086,14 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
           <div className="text-[9px] font-bold uppercase tracking-[0.26em] text-cyan-400/60">Building sim data</div>
           <h2 className="mt-2 text-2xl font-bold text-white">Loading projections…</h2>
           <p className="mt-2 text-sm leading-6 text-slate-500">
-            The simulation pipeline is running. Auto-reloading in <AutoReload delayMs={18_000} />.
+            The simulation pipeline is running in the background. Reload in ~30 seconds to see results.
           </p>
           <div className="mt-5 flex flex-wrap justify-center gap-3">
             <Link
               href="/sim-fast"
               className="rounded-xl border border-cyan-400/22 bg-cyan-400/8 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-300"
             >
-              ↺ Reload now
+              ↺ Reload
             </Link>
           </div>
         </section>
