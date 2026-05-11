@@ -94,9 +94,9 @@ function mapActionPayload(raw: Record<string, unknown>, fallbackSportsbook: stri
     actionScore: num(raw.actionScore),
     stakeUnits: num(raw.stakeUnits) ?? 0,
     sportsbook: String(raw.sportsbook ?? fallbackSportsbook ?? "market") || null,
-    reasons: Array.isArray(raw.reasons) ? (raw.reasons as string[]).filter(Boolean).slice(0, 4) : [],
-    warnings: Array.isArray(raw.warnings) ? (raw.warnings as string[]).filter(Boolean) : [],
-    hardStops: Array.isArray(raw.hardStopReasons) ? (raw.hardStopReasons as string[]).filter(Boolean) : []
+    reasons: Array.isArray(raw.reasons) ? (raw.reasons as unknown[]).filter(Boolean).map(String).slice(0, 4) : [],
+    warnings: Array.isArray(raw.warnings) ? (raw.warnings as unknown[]).filter(Boolean).map(String) : [],
+    hardStops: Array.isArray(raw.hardStopReasons) ? (raw.hardStopReasons as unknown[]).filter(Boolean).map(String) : []
   };
 }
 
@@ -164,7 +164,7 @@ function fromEdge(edge: EdgeLike, row: SimPriorityRow | null): SimCardViewModel 
     status: (edge as Record<string, unknown>).status as string | null ?? row?.status ?? null,
     awayTeam: String(away),
     homeTeam: String(home),
-    lean: row?.lean ?? lean,
+    lean: safeLean(row?.lean ?? lean, String(home)),
     href: row?.href ?? `/sim/mlb/${encodeURIComponent(edge.gameId)}`,
     mode: realMarket ? "betting" : "projection_only",
     hasTotals: edgeHasTotalMarket(edge as Parameters<typeof edgeHasTotalMarket>[0]),
@@ -179,9 +179,16 @@ function fromEdge(edge: EdgeLike, row: SimPriorityRow | null): SimCardViewModel 
   };
 }
 
+function safeLean(raw: { team: string; pct: number; edge: number } | null | undefined, fallbackTeam: string): { team: string; pct: number; edge: number } {
+  if (!raw) return { team: fallbackTeam, pct: 0.5, edge: 0 };
+  const pct = typeof raw.pct === "number" && Number.isFinite(raw.pct) ? raw.pct : 0.5;
+  const edge = typeof raw.edge === "number" && Number.isFinite(raw.edge) ? raw.edge : 0;
+  return { team: raw.team ?? fallbackTeam, pct, edge };
+}
+
 function fromRow(row: SimPriorityRow): SimCardViewModel {
   const matchup = row.matchup ?? { away: "Away", home: "Home" };
-  const lean = row.lean ?? { team: matchup.home, pct: 0.5, edge: 0 };
+  const lean = safeLean(row.lean, matchup.home);
   return {
     gameId: row.id,
     leagueKey: row.leagueKey ?? "MLB",
@@ -212,13 +219,21 @@ export function buildSimCardViewModels(
   const models = new Map<string, SimCardViewModel>();
 
   for (const edge of edges) {
-    const row = rowMap.get(edge.gameId) ?? null;
-    models.set(edge.gameId, fromEdge(edge, row));
+    try {
+      const row = rowMap.get(edge.gameId) ?? null;
+      models.set(edge.gameId, fromEdge(edge, row));
+    } catch (err) {
+      console.error("[buildSimCardViewModels] skipping bad edge", edge.gameId, err instanceof Error ? err.message : err);
+    }
   }
 
   for (const row of rows) {
     if (!models.has(row.id)) {
-      models.set(row.id, fromRow(row));
+      try {
+        models.set(row.id, fromRow(row));
+      } catch (err) {
+        console.error("[buildSimCardViewModels] skipping bad row", row.id, err instanceof Error ? err.message : err);
+      }
     }
   }
 
