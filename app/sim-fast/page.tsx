@@ -15,8 +15,6 @@ import {
   type SimCardViewModel,
   type ActionView
 } from "@/services/simulation/build-sim-card-view-model";
-import { AutoReload } from "@/app/sim-fast/auto-reload";
-
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 15;
@@ -1080,14 +1078,14 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
           <div className="text-[9px] font-bold uppercase tracking-[0.26em] text-cyan-400/60">Building sim data</div>
           <h2 className="mt-2 text-2xl font-bold text-white">Loading projections…</h2>
           <p className="mt-2 text-sm leading-6 text-slate-500">
-            The simulation pipeline is running. Auto-reloading in <AutoReload delayMs={18_000} />.
+            The simulation pipeline is running in the background. Reload in ~30 seconds to see results.
           </p>
           <div className="mt-5 flex flex-wrap justify-center gap-3">
             <Link
               href="/sim-fast"
               className="rounded-xl border border-cyan-400/22 bg-cyan-400/8 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-300"
             >
-              ↺ Reload now
+              ↺ Reload
             </Link>
           </div>
         </section>
