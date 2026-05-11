@@ -478,11 +478,13 @@ function ScorePrediction({ vm, totalsView }: { vm: SimCardViewModel; totalsView?
           </div>
           <div className="mt-1.5 flex items-center justify-between text-xs">
             <span className="text-slate-600">Model projection</span>
-            <span className={`font-mono font-bold ${overCall ? "text-emerald-400" : "text-amber-400"}`}>
+            <span className={`font-mono font-bold ${runEdge != null && runEdge > 0 ? "text-emerald-400" : "text-amber-400"}`}>
               {projectedTotal!.toFixed(1)}
-              <span className="ml-2 text-[10px] font-normal">
-                ({overCall ? "+" : ""}{runEdge!.toFixed(1)} · {overCall ? "OVER" : "UNDER"})
-              </span>
+              {runEdge != null ? (
+                <span className="ml-2 text-[10px] font-normal">
+                  ({runEdge > 0 ? "+" : ""}{runEdge.toFixed(1)} · {runEdge > 0 ? "OVER" : "UNDER"})
+                </span>
+              ) : null}
             </span>
           </div>
           <div className="mt-1.5 flex h-2 overflow-hidden rounded-full bg-slate-800/80">
@@ -862,16 +864,20 @@ async function readSnapshots() {
     }
   }
 
-  // Projections exist but market edges are missing — just re-join odds quickly.
+  // Projections exist but market edges are missing — re-join odds with a hard
+  // 40s cap so we never approach the 55s Vercel function limit.
   if (hasRows && !hasEdges) {
     try {
       const { refreshSimMarketSnapshot } =
         await import("@/services/simulation/sim-snapshot-service");
-      await refreshSimMarketSnapshot();
+      await Promise.race([
+        refreshSimMarketSnapshot(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("market refresh timeout")), 40_000))
+      ]);
       const freshMarket = await readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market).catch(() => null);
       return { hub, priority, market: freshMarket, status };
     } catch {
-      // fall through
+      // fall through and render with stale/no market data
     }
   }
 
