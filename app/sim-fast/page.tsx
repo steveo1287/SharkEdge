@@ -847,9 +847,9 @@ async function readSnapshots() {
   // renders with real data instead of an empty shell.
   if (!hasRows) {
     try {
-      const { refreshFullSimSnapshots, refreshSimMarketSnapshot } =
+      const { refreshFullSimSnapshots } =
         await import("@/services/simulation/sim-snapshot-service");
-      await Promise.allSettled([refreshFullSimSnapshots(), refreshSimMarketSnapshot()]);
+      await refreshFullSimSnapshots();
       const fresh = await Promise.all([
         readSimCache<SimHubSnapshot>(SIM_CACHE_KEYS.hub).catch(() => null),
         readSimCache<SimPrioritySnapshot>(SIM_CACHE_KEYS.priority).catch(() => null),
