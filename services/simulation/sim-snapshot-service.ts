@@ -242,7 +242,7 @@ async function writeSimCache<T>(key: string, value: T, ttlSeconds: number) {
 }
 
 function flatten(sections: BoardSportSectionView[]): SimGame[] {
-  return sections.flatMap((section) => section.scoreboard.map((game) => ({ ...game, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel })));
+  return sections.flatMap((section) => (section.scoreboard ?? []).map((game) => ({ ...game, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel })));
 }
 
 async function buildProjectionWithTimeout(game: SimGame) {
@@ -267,7 +267,7 @@ function compactProjection(projection: FullProjection): CachedSimProjection {
         reasons: projection.nbaIntel.reasons,
         projectedTotal: projection.nbaIntel.projectedTotal,
         volatilityIndex: projection.nbaIntel.volatilityIndex,
-        playerStatProjectionCount: projection.nbaIntel.playerStatProjections.length
+        playerStatProjectionCount: projection.nbaIntel.playerStatProjections?.length ?? 0
       }
       : null,
     realityIntel: projection.realityIntel,
@@ -296,9 +296,11 @@ function tierRank(tier: string | undefined) {
 }
 
 function winLean(projection: CachedSimProjection) {
-  const home = projection.distribution.homeWinPct;
-  const away = projection.distribution.awayWinPct;
-  return home >= away ? { team: projection.matchup.home, pct: home, edge: home - away } : { team: projection.matchup.away, pct: away, edge: away - home };
+  const home = projection.distribution?.homeWinPct ?? 0.5;
+  const away = projection.distribution?.awayWinPct ?? (1 - home);
+  const matchupHome = projection.matchup?.home ?? "Home";
+  const matchupAway = projection.matchup?.away ?? "Away";
+  return home >= away ? { team: matchupHome, pct: home, edge: home - away } : { team: matchupAway, pct: away, edge: away - home };
 }
 
 function confidence(projection: CachedSimProjection) {

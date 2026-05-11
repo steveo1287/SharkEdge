@@ -180,15 +180,17 @@ function fromEdge(edge: EdgeLike, row: SimPriorityRow | null): SimCardViewModel 
 }
 
 function fromRow(row: SimPriorityRow): SimCardViewModel {
+  const matchup = row.matchup ?? { away: "Away", home: "Home" };
+  const lean = row.lean ?? { team: matchup.home, pct: 0.5, edge: 0 };
   return {
     gameId: row.id,
-    leagueKey: row.leagueKey,
+    leagueKey: row.leagueKey ?? "MLB",
     startTime: row.startTime,
     status: row.status,
-    awayTeam: row.matchup.away,
-    homeTeam: row.matchup.home,
-    lean: row.lean,
-    href: row.href,
+    awayTeam: matchup.away,
+    homeTeam: matchup.home,
+    lean,
+    href: row.href ?? `/sim/mlb/${encodeURIComponent(row.id)}`,
     mode: "projection_only",
     hasTotals: false,
     primaryAction: NO_MARKET_ACTION,
