@@ -899,7 +899,12 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
 
   const rows = priority?.rows ?? [];
   const marketEdges = (market?.edges ?? []) as NonNullable<SimMarketSnapshot["edges"]>;
-  const allModels = buildSimCardViewModels(rows, marketEdges);
+  let allModels: SimCardViewModel[] = [];
+  try {
+    allModels = buildSimCardViewModels(rows, marketEdges);
+  } catch (err) {
+    console.error("[sim-fast] buildSimCardViewModels failed:", err instanceof Error ? err.message : err);
+  }
 
   const availableDates = [
     ...new Set(allModels.map((vm) => chicagoKey(vm.startTime)).filter((k) => k !== "unknown"))
