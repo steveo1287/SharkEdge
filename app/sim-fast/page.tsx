@@ -1,3 +1,5 @@
+"use server";
+import { after } from "next/server";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -14,6 +16,7 @@ import {
   type SimCardViewModel,
   type ActionView
 } from "@/services/simulation/build-sim-card-view-model";
+import { AutoReload } from "@/app/sim-fast/auto-reload";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -865,8 +868,19 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
   const marketEdges = (market?.edges ?? []) as NonNullable<SimMarketSnapshot["edges"]>;
 
   // Cache is empty — cron hasn't run yet (first deploy) or Redis was flushed.
-  // Render a warm-up state instead of an empty page with no explanation.
+  // Fire the full refresh in the background (after the response is sent) so
+  // the auto-reload lands on a populated page without blocking this request.
   const cacheEmpty = rows.length === 0 && !hub && !priority;
+  if (cacheEmpty) {
+    after(async () => {
+      try {
+        const { refreshFullSimSnapshots } = await import("@/services/simulation/sim-snapshot-service");
+        await refreshFullSimSnapshots();
+      } catch {
+        // best-effort — next cron run will catch it
+      }
+    });
+  }
 
   let allModels: SimCardViewModel[] = [];
   try {
@@ -1064,17 +1078,17 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
       {/* ── Cards ── */}
       {cacheEmpty ? (
         <section className="rounded-[1.5rem] border border-cyan-400/12 bg-slate-950/70 p-8 text-center">
-          <div className="text-[9px] font-bold uppercase tracking-[0.26em] text-cyan-400/60">Warming up</div>
-          <h2 className="mt-2 text-2xl font-bold text-white">Sim data is loading</h2>
+          <div className="text-[9px] font-bold uppercase tracking-[0.26em] text-cyan-400/60">Building sim data</div>
+          <h2 className="mt-2 text-2xl font-bold text-white">Loading projections…</h2>
           <p className="mt-2 text-sm leading-6 text-slate-500">
-            The simulation cache is empty — the background refresh cron runs every 10 minutes and will populate it shortly. Trigger a manual refresh to load data now.
+            The simulation pipeline is running. Auto-reloading in <AutoReload delayMs={18_000} />.
           </p>
           <div className="mt-5 flex flex-wrap justify-center gap-3">
             <Link
-              href="/api/sim/refresh?force=1&wait=1"
+              href="/sim-fast"
               className="rounded-xl border border-cyan-400/22 bg-cyan-400/8 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-300"
             >
-              ↺ Refresh now
+              ↺ Reload now
             </Link>
           </div>
         </section>
