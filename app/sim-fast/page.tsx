@@ -17,7 +17,7 @@ import {
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 55;
+export const maxDuration = 15;
 
 const DISPLAY_TIME_ZONE = "America/Chicago";
 const ACTIONS = ["bets", "totals", "all", "attack", "play", "lean", "watch", "pass"] as const;
@@ -834,6 +834,10 @@ function GameCard({ vm }: { vm: SimCardViewModel }) {
 
 // ── Snapshot loading ──────────────────────────────────────────────────────────
 
+// Read-only from Redis — never triggers inline refresh.
+// The /api/cron/sim-refresh cron (every 10 min) keeps the cache warm.
+// Attempting inline refresh on page load risks hitting the Vercel function
+// timeout (55s) mid-stream, which causes the RSC error boundary to fire.
 async function readSnapshots() {
   const [hub, priority, market, status] = await Promise.all([
     readSimCache<SimHubSnapshot>(SIM_CACHE_KEYS.hub).catch(() => null),
@@ -841,46 +845,6 @@ async function readSnapshots() {
     readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market).catch(() => null),
     readSimCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus).catch(() => null)
   ]);
-
-  const hasRows = (priority?.rows?.length ?? 0) > 0;
-  const hasEdges = (market?.edges?.length ?? 0) > 0;
-
-  // Cold cache — no projections at all. Run full refresh inline so the page
-  // renders with real data instead of an empty shell.
-  if (!hasRows) {
-    try {
-      const { refreshFullSimSnapshots } =
-        await import("@/services/simulation/sim-snapshot-service");
-      await refreshFullSimSnapshots();
-      const fresh = await Promise.all([
-        readSimCache<SimHubSnapshot>(SIM_CACHE_KEYS.hub).catch(() => null),
-        readSimCache<SimPrioritySnapshot>(SIM_CACHE_KEYS.priority).catch(() => null),
-        readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market).catch(() => null),
-        readSimCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus).catch(() => null)
-      ]);
-      return { hub: fresh[0], priority: fresh[1], market: fresh[2], status: fresh[3] };
-    } catch {
-      // fall through and render whatever we have
-    }
-  }
-
-  // Projections exist but market edges are missing — re-join odds with a hard
-  // 40s cap so we never approach the 55s Vercel function limit.
-  if (hasRows && !hasEdges) {
-    try {
-      const { refreshSimMarketSnapshot } =
-        await import("@/services/simulation/sim-snapshot-service");
-      await Promise.race([
-        refreshSimMarketSnapshot(),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("market refresh timeout")), 40_000))
-      ]);
-      const freshMarket = await readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market).catch(() => null);
-      return { hub, priority, market: freshMarket, status };
-    } catch {
-      // fall through and render with stale/no market data
-    }
-  }
-
   return { hub, priority, market, status };
 }
 
@@ -899,6 +863,11 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
 
   const rows = priority?.rows ?? [];
   const marketEdges = (market?.edges ?? []) as NonNullable<SimMarketSnapshot["edges"]>;
+
+  // Cache is empty — cron hasn't run yet (first deploy) or Redis was flushed.
+  // Render a warm-up state instead of an empty page with no explanation.
+  const cacheEmpty = rows.length === 0 && !hub && !priority;
+
   let allModels: SimCardViewModel[] = [];
   try {
     allModels = buildSimCardViewModels(rows, marketEdges);
@@ -1093,7 +1062,23 @@ export default async function FastSimHubPage({ searchParams }: PageProps) {
       </section>
 
       {/* ── Cards ── */}
-      {cards.length === 0 ? (
+      {cacheEmpty ? (
+        <section className="rounded-[1.5rem] border border-cyan-400/12 bg-slate-950/70 p-8 text-center">
+          <div className="text-[9px] font-bold uppercase tracking-[0.26em] text-cyan-400/60">Warming up</div>
+          <h2 className="mt-2 text-2xl font-bold text-white">Sim data is loading</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            The simulation cache is empty — the background refresh cron runs every 10 minutes and will populate it shortly. Trigger a manual refresh to load data now.
+          </p>
+          <div className="mt-5 flex flex-wrap justify-center gap-3">
+            <Link
+              href="/api/sim/refresh?force=1&wait=1"
+              className="rounded-xl border border-cyan-400/22 bg-cyan-400/8 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-300"
+            >
+              ↺ Refresh now
+            </Link>
+          </div>
+        </section>
+      ) : cards.length === 0 ? (
         <section className="rounded-[1.5rem] border border-white/[0.07] bg-slate-950/70 p-8 text-center">
           <div className="text-[9px] font-bold uppercase tracking-[0.26em] text-slate-700">No results</div>
           <h2 className="mt-2 text-2xl font-bold text-white">No cards match this filter</h2>
