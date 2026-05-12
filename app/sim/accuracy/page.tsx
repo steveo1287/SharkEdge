@@ -1,1 +1,1 @@
-export { default, dynamic, revalidate } from "../accuracy-v2/page";
+export { default, revalidate } from "../accuracy-v2/page";
