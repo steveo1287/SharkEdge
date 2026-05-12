@@ -7,8 +7,8 @@
       "schedule": "0 16,20,0,4 * * *"
     },
     {
-      "path": "/api/cron/odds-api-io/mlb?eventLimit=15",
-      "schedule": "*/30 * * * *"
+      "path": "/api/cron/odds-api-io/mlb?eventLimit=10",
+      "schedule": "0 16,23 * * *"
     },
     {
       "path": "/api/internal/cron/mlb-intel-v7-ledger?limit=60",
