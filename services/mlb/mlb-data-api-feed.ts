@@ -17,7 +17,16 @@ type MlbDataApiDebugPayload = {
 };
 
 type ModernRosterRow = {
-  person?: { id?: number; fullName?: string; batSide?: { code?: string }; pitchHand?: { code?: string } };
+  person?: {
+    id?: number;
+    fullName?: string;
+    batSide?: { code?: string };
+    pitchHand?: { code?: string };
+    stats?: Array<{
+      group?: { displayName?: string };
+      splits?: Array<{ stat?: RawRow }>;
+    }>;
+  };
   position?: { abbreviation?: string; code?: string; type?: string; name?: string };
   status?: { code?: string; description?: string };
 };
@@ -217,7 +226,8 @@ async function fetchLegacyStat(endpoint: "proj_pecota_batting" | "proj_pecota_pi
 }
 
 async function fetchModernRoster(teamId: string, rosterType: "active" | "40Man" = "active") {
-  const url = `${statsApiBaseUrl()}/teams/${teamId}/roster?rosterType=${encodeURIComponent(rosterType)}&season=${encodeURIComponent(season())}`;
+  const hydrate = "person(stats(type=season,season=" + season() + ",group=[hitting,pitching]))";
+  const url = `${statsApiBaseUrl()}/teams/${teamId}/roster?rosterType=${encodeURIComponent(rosterType)}&season=${encodeURIComponent(season())}&hydrate=${encodeURIComponent(hydrate)}`;
   const body = (await fetchJson(url)) as ModernRosterResponse;
   return Array.isArray(body.roster) ? body.roster : [];
 }
@@ -364,6 +374,16 @@ function pitcherProfile(roster: RawRow, stat: RawRow | null, index: number): Mlb
   };
 }
 
+function modernSeasonStat(row: ModernRosterRow, group: "hitting" | "pitching") {
+  const stats = row.person?.stats ?? [];
+  for (const entry of stats) {
+    if (String(entry.group?.displayName ?? "").toLowerCase() !== group) continue;
+    const stat = entry.splits?.[0]?.stat;
+    if (stat && Object.keys(stat).length) return stat;
+  }
+  return null;
+}
+
 function modernRosterProfile(args: { row: ModernRosterRow; teamName: string; hitterIndex: number; pitcherIndex: number }): MlbPlayerProfile | null {
   const playerName = text(args.row.person?.fullName);
   if (!playerName) return null;
@@ -375,6 +395,57 @@ function modernRosterProfile(args: { row: ModernRosterRow; teamName: string; hit
   const status = statusFromModern(args.row);
 
   if (isPitcher) {
+    const stat = modernSeasonStat(args.row, "pitching");
+    if (stat) {
+      const starts = num(stat.gamesStarted, 0);
+      const games = Math.max(1, num(stat.gamesPlayed, 45));
+      const innings = parseIp(stat.inningsPitched);
+      const projectedInnings = starts > 0 ? clamp(innings / Math.max(1, starts), 3.8, 6.6) : clamp(innings / games, 0.2, 1.4);
+      const so = num(stat.strikeOuts, 0);
+      const bb = num(stat.baseOnBalls, 0);
+      const hr = num(stat.homeRuns, 0);
+      const era = num(stat.era, 4.2);
+      const whip = num(stat.whip, 1.28);
+      const batters = Math.max(1, num(stat.battersFaced, innings * 4.25));
+      const kRate = clamp((so / batters) * 100, 8, 39);
+      const bbRate = clamp((bb / batters) * 100, 2, 18);
+      const hr9 = innings > 0 ? (hr * 9) / innings : 1.1;
+      const pitcherXFip = clamp(3.15 + hr9 * 0.42 + bbRate * 0.055 - kRate * 0.045, 2.4, 6.2);
+      const pitcherEraMinus = clamp((era / 4.25) * 100, 48, 155);
+      const playerType: MlbPlayerProfile["playerType"] = starts > 0 || projectedInnings >= 3.5 ? "starter" : "reliever";
+      return {
+        playerName,
+        teamName: args.teamName,
+        role: roleFrom({ position_txt: "P", starter_sw: starts > 0 ? "Y" : "N" }, playerType, projectedInnings, 0),
+        playerType,
+        bats,
+        throws,
+        status,
+        projectedPa: 0,
+        projectedInnings: Number(projectedInnings.toFixed(2)),
+        lineupSpot: 0,
+        wrcPlus: 100,
+        xwoba: 0.315,
+        isoPower: 0.16,
+        kRate: 22,
+        bbRate: 8,
+        hardHitRate: 40,
+        barrelRate: 8,
+        stolenBaseValue: 0,
+        defenseValue: 0,
+        pitcherEraMinus: Number(pitcherEraMinus.toFixed(2)),
+        pitcherXFip: Number(pitcherXFip.toFixed(2)),
+        pitcherKRate: Number(kRate.toFixed(2)),
+        pitcherBbRate: Number(bbRate.toFixed(2)),
+        groundBallRate: num(stat.groundOutsToAirouts, 1) > 0 ? clamp(40 + num(stat.groundOutsToAirouts, 1) * 3, 30, 58) : 43,
+        platoonVsLhp: 0,
+        platoonVsRhp: 0,
+        fatigueRisk: starts > 0 ? 0.18 : clamp(projectedInnings * 0.18, 0.08, 0.38),
+        leverageIndex: playerType === "reliever" ? clamp(1.05 + (3.9 - pitcherXFip) * 0.18, 0.6, 2.2) : 0,
+        source: "real"
+      };
+    }
+
     const isStarter = args.pitcherIndex <= 5;
     const projectedInnings = isStarter ? seededRange(seed >>> 1, 4.4, 6.2) : seededRange(seed >>> 2, 0.25, 1.15);
     const pitcherXFip = isStarter ? seededRange(seed >>> 3, 3.25, 4.85) : seededRange(seed >>> 3, 3.05, 5.05);
@@ -410,6 +481,59 @@ function modernRosterProfile(args: { row: ModernRosterRow; teamName: string; hit
       fatigueRisk: isStarter ? seededRange(seed >>> 8, 0.1, 0.28) : seededRange(seed >>> 8, 0.08, 0.42),
       leverageIndex: isStarter ? 0 : seededRange(seed >>> 9, 0.75, 2.05),
       source: "estimated"
+    };
+  }
+
+  const stat = modernSeasonStat(args.row, "hitting");
+  if (stat) {
+    const games = Math.max(1, num(stat.gamesPlayed, 120));
+    const pa = num(stat.plateAppearances, num(stat.atBats, 420) + num(stat.baseOnBalls, 45));
+    const projectedPa = clamp(pa / games, args.hitterIndex <= 9 ? 3.1 : 0.8, 4.8);
+    const hr = num(stat.homeRuns, 0);
+    const so = num(stat.strikeOuts, 0);
+    const bb = num(stat.baseOnBalls, 0);
+    const sb = num(stat.stolenBases, 0);
+    const ops = num(stat.ops, 0.72);
+    const obp = num(stat.obp, 0.318);
+    const slg = num(stat.slg, 0.402);
+    const avg = num(stat.avg, 0.245);
+    const iso = clamp(slg - avg, 0.045, 0.34);
+    const kRate = clamp((so / Math.max(1, pa)) * 100, 8, 38);
+    const bbRate = clamp((bb / Math.max(1, pa)) * 100, 2, 18);
+    const wrcPlus = clamp(65 + (ops - 0.66) * 210 + (obp - 0.31) * 90 + (iso - 0.15) * 95, 55, 165);
+    const xwoba = clamp(0.27 + (ops - 0.66) * 0.115 + (obp - 0.31) * 0.24, 0.245, 0.43);
+    const hardHitRate = clamp(31 + iso * 82 + (hr / Math.max(1, games)) * 18, 25, 60);
+    const barrelRate = clamp(3.4 + iso * 38 + (hr / Math.max(1, games)) * 6, 1, 22);
+    return {
+      playerName,
+      teamName: args.teamName,
+      role: projectedPa >= 3 ? "lineup" : "bench",
+      playerType: "hitter",
+      bats,
+      throws,
+      status,
+      projectedPa: Number(projectedPa.toFixed(2)),
+      projectedInnings: 0,
+      lineupSpot: args.hitterIndex <= 9 ? args.hitterIndex : 0,
+      wrcPlus: Number(wrcPlus.toFixed(2)),
+      xwoba: Number(xwoba.toFixed(3)),
+      isoPower: Number(iso.toFixed(3)),
+      kRate: Number(kRate.toFixed(2)),
+      bbRate: Number(bbRate.toFixed(2)),
+      hardHitRate: Number(hardHitRate.toFixed(2)),
+      barrelRate: Number(barrelRate.toFixed(2)),
+      stolenBaseValue: clamp((sb / Math.max(1, games)) * 12, -1, 5),
+      defenseValue: 0,
+      pitcherEraMinus: 100,
+      pitcherXFip: 4.2,
+      pitcherKRate: 22,
+      pitcherBbRate: 8,
+      groundBallRate: 43,
+      platoonVsLhp: 0,
+      platoonVsRhp: 0,
+      fatigueRisk: projectedPa > 4.4 ? 0.24 : 0.12,
+      leverageIndex: 0,
+      source: "real"
     };
   }
 
@@ -494,11 +618,16 @@ async function fetchModernProfiles(teamId: string, teamName: string): Promise<Ml
 export async function getMlbDataApiTeamPlayerProfiles(teamName: string): Promise<MlbPlayerProfile[] | null> {
   const teamId = teamIdFor(teamName);
   if (!teamId) return null;
-  const cacheKey = `mlb:data-api:team-player-profiles:${season()}:${teamId}:v3`;
+  const cacheKey = `mlb:data-api:team-player-profiles:${season()}:${teamId}:v4`;
   const cached = await readHotCache<MlbPlayerProfile[]>(cacheKey);
   if (cached?.length) return cached;
 
-  const profiles = (await fetchLegacyProfiles(teamId)) ?? (await fetchModernProfiles(teamId, teamName));
+  const [legacyProfiles, modernProfiles] = await Promise.all([
+    fetchLegacyProfiles(teamId),
+    fetchModernProfiles(teamId, teamName)
+  ]);
+  const realCount = (profiles: MlbPlayerProfile[] | null | undefined) => profiles?.filter((profile) => profile.source === "real").length ?? 0;
+  const profiles = realCount(modernProfiles) > realCount(legacyProfiles) ? modernProfiles : legacyProfiles ?? modernProfiles;
   if (!profiles?.length) return null;
   await writeHotCache(cacheKey, profiles, CACHE_TTL_SECONDS);
   return profiles;

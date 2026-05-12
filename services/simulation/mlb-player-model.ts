@@ -168,7 +168,7 @@ async function fetchExternalProfiles() {
     try {
       const grouped: Record<string, MlbPlayerProfile[]> = {};
       for (const row of await ingestFangraphsPlayerFeed(fangraphsUrl)) {
-        const profile = normalizeRaw({ ...row, source: "real" });
+        const profile = normalizeRaw({ ...row, source: row.source ?? "real" });
         if (!profile) continue;
         const key = normalizeMlbTeam(profile.teamName);
         grouped[key] = [...(grouped[key] ?? []), profile];

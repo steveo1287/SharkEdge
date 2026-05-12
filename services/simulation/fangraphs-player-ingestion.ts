@@ -47,13 +47,37 @@ function fangraphsToPlayerRow(row: Record<string, unknown>) {
     platoonVsLhp: n(pick(row, "wRC+ vs L", "vs_lhp", "platoonVsLhp")) ?? undefined,
     platoonVsRhp: n(pick(row, "wRC+ vs R", "vs_rhp", "platoonVsRhp")) ?? undefined,
     fatigueRisk: n(pick(row, "Fatigue", "fatigueRisk")) ?? 0,
-    leverageIndex: n(pick(row, "pLI", "gmLI", "leverageIndex")) ?? undefined
+    leverageIndex: n(pick(row, "pLI", "gmLI", "leverageIndex")) ?? undefined,
+    source: pick(row, "source", "Source")
   };
+}
+
+function shouldAttachInternalAuth(url: string) {
+  try {
+    const parsed = new URL(url);
+    const vercelHost = process.env.VERCEL_URL?.trim();
+    const appHost = process.env.NEXT_PUBLIC_SITE_URL?.trim() || process.env.SHARKEDGE_PUBLIC_URL?.trim();
+    const allowedHosts = new Set(
+      [vercelHost, appHost ? new URL(appHost).host : null, "sharkedge.vercel.app"]
+        .filter((host): host is string => Boolean(host))
+        .map((host) => host.replace(/^https?:\/\//, "").replace(/\/$/, ""))
+    );
+    return parsed.pathname.startsWith("/api/internal/") && allowedHosts.has(parsed.host);
+  } catch {
+    return false;
+  }
 }
 
 async function fetchTextOrJson(url: string) {
   if (url.startsWith("file://")) return readFile(fileURLToPath(url), "utf8");
-  const response = await fetch(url, { cache: "no-store", headers: { "user-agent": "SharkEdge/1.0" } });
+  const headers: Record<string, string> = { "user-agent": "SharkEdge/1.0" };
+  if (shouldAttachInternalAuth(url)) {
+    const apiKey = process.env.INTERNAL_API_KEY?.trim();
+    const cronSecret = process.env.CRON_SECRET?.trim();
+    if (apiKey) headers["x-api-key"] = apiKey;
+    else if (cronSecret) headers.authorization = `Bearer ${cronSecret}`;
+  }
+  const response = await fetch(url, { cache: "no-store", headers });
   if (!response.ok) throw new Error(`FanGraphs player upstream failed: ${response.status}`);
   const contentType = response.headers.get("content-type") ?? "";
   const text = await response.text();

@@ -27,6 +27,7 @@ export type MlbPlayerAnalyticsRow = {
   platoonVsRhp: number;
   fatigueRisk: number;
   leverageIndex: number;
+  source?: "real" | "estimated" | "synthetic";
 };
 
 type RawPlayer = Record<string, unknown>;
@@ -123,7 +124,14 @@ export function normalizeMlbPlayerRow(row: RawPlayer): MlbPlayerAnalyticsRow | n
     platoonVsLhp: num(row.platoonVsLhp ?? row.vs_lhp ?? row.wrc_plus_vs_lhp, 0),
     platoonVsRhp: num(row.platoonVsRhp ?? row.vs_rhp ?? row.wrc_plus_vs_rhp, 0),
     fatigueRisk: num(row.fatigueRisk ?? row.fatigue_risk, 0),
-    leverageIndex: num(row.leverageIndex ?? row.leverage_index, playerType === "reliever" ? 1.1 : 1)
+    leverageIndex: num(row.leverageIndex ?? row.leverage_index, playerType === "reliever" ? 1.1 : 1),
+    source: String(row.source ?? "").toLowerCase() === "estimated"
+      ? "estimated"
+      : String(row.source ?? "").toLowerCase() === "synthetic"
+        ? "synthetic"
+        : String(row.source ?? "").toLowerCase() === "real"
+          ? "real"
+          : undefined
   };
 }
 
