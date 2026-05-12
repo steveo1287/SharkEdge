@@ -9,10 +9,8 @@ import {
 } from "@/components/sim/sim-ui";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils/cn";
-import { readNbaWarehouseFeed, type NbaWarehouseKind } from "@/services/data/nba/warehouse-feed";
 import {
   readSimCache,
-  refreshFullSimSnapshots,
   SIM_CACHE_KEYS,
   type CachedSimGameProjection,
   type SimBoardSnapshot,
@@ -26,12 +24,11 @@ import {
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 300;
+export const maxDuration = 30;
 
 const DISPLAY_TIME_ZONE = "America/Chicago";
 const SIM_REFRESH_INTERVAL_MINUTES = 10;
 const SIM_MARKET_REFRESH_INTERVAL_MINUTES = 5;
-const NBA_WAREHOUSE_KINDS: NbaWarehouseKind[] = ["team", "player", "history", "rating"];
 
 type WorkspaceConfig = {
   href: string;
@@ -44,13 +41,6 @@ type WorkspaceConfig = {
   ready: boolean;
 };
 
-type WarehouseHealth = {
-  kind: NbaWarehouseKind;
-  rows: number;
-  ready: boolean;
-  filePath: string | null;
-  warning: string | null;
-};
 
 type SimSnapshots = {
   hub: SimHubSnapshot | null;
@@ -58,7 +48,6 @@ type SimSnapshots = {
   market: SimMarketSnapshot | null;
   status: SimRefreshStatusSnapshot | null;
   mlbBoard: SimBoardSnapshot | null;
-  nbaBoard: SimBoardSnapshot | null;
 };
 
 type MarketEdge = NonNullable<SimMarketSnapshot["edges"]>[number];
@@ -158,58 +147,34 @@ function isStale(snapshot: Pick<SimSnapshotEnvelope<Record<string, never>>, "sta
   return Boolean(snapshot?.stale);
 }
 
-function needsEmergencyRepair(snapshot: SimSnapshots) {
-  const priorityRows = snapshot.priority?.rows?.length ?? 0;
-  const hubCount = snapshot.hub?.summary?.priorityCount ?? 0;
-  const refreshRunning = snapshot.status?.running === true;
-  return !refreshRunning && (priorityRows === 0 || hubCount === 0);
+function mlbOnlyPriority(priority: SimPrioritySnapshot | null): SimPrioritySnapshot | null {
+  if (!priority) return null;
+  const rows = priority.rows.filter((row) => row.leagueKey === "MLB");
+  return {
+    ...priority,
+    rows,
+    summary: {
+      ...priority.summary,
+      rowCount: rows.length,
+      gameCount: rows.length,
+      nbaCount: 0,
+      mlbCount: rows.length
+    }
+  };
 }
 
 async function readSnapshots(): Promise<SimSnapshots> {
-  const [hub, priority, market, status, mlbBoard, nbaBoard] = await Promise.all([
+  // Cache boundary: SimHub must never rebuild projections during a user request.
+  // Heavy refresh work belongs to cron and the explicit /api/sim/refresh repair endpoint.
+  const [hub, priority, market, status, mlbBoard] = await Promise.all([
     readSimCache<SimHubSnapshot>(SIM_CACHE_KEYS.hub),
     readSimCache<SimPrioritySnapshot>(SIM_CACHE_KEYS.priority),
     readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market),
     readSimCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus),
-    readSimCache<SimBoardSnapshot>(SIM_CACHE_KEYS.mlbBoard),
-    readSimCache<SimBoardSnapshot>(SIM_CACHE_KEYS.nbaBoard)
+    readSimCache<SimBoardSnapshot>(SIM_CACHE_KEYS.mlbBoard)
   ]);
-  return { hub, priority, market, status, mlbBoard, nbaBoard };
+  return { hub, priority: mlbOnlyPriority(priority), market, status, mlbBoard };
 }
-
-async function readSnapshotsWithRepair() {
-  const first = await readSnapshots();
-  if (!needsEmergencyRepair(first)) return { ...first, repairedOnRequest: false, repairWarnings: [] as string[] };
-
-  const repair = await refreshFullSimSnapshots().catch((error) => ({
-    ok: false,
-    skippedSnapshotWrites: false,
-    warnings: [error instanceof Error ? error.message : "Sim hub emergency repair failed."]
-  }));
-  const second = await readSnapshots();
-  return {
-    ...second,
-    repairedOnRequest: true,
-    repairWarnings: repair.warnings ?? []
-  };
-}
-
-async function readWarehouseHealth(): Promise<WarehouseHealth[]> {
-  return Promise.all(
-    NBA_WAREHOUSE_KINDS.map(async (kind) => {
-      const feed = await readNbaWarehouseFeed(kind).catch(() => null);
-      const rows = feed?.rows.length ?? 0;
-      return {
-        kind,
-        rows,
-        ready: rows > 0,
-        filePath: feed?.filePath ?? null,
-        warning: feed?.warnings?.[0] ?? null
-      };
-    })
-  );
-}
-
 function StatusDot({ ok }: { ok: boolean }) {
   return (
     <span
@@ -267,28 +232,21 @@ function ConfidenceValue({ value }: { value: number | null | undefined }) {
 function SimStatusRail({
   priority,
   market,
-  status,
-  warehouse,
-  repairedOnRequest,
-  repairWarnings
+  status
 }: {
   priority: SimPrioritySnapshot | null;
   market: SimMarketSnapshot | null;
   status: SimRefreshStatusSnapshot | null;
-  warehouse: WarehouseHealth[];
-  repairedOnRequest: boolean;
-  repairWarnings: string[];
 }) {
   const simGeneratedAt = status?.lastSuccessAt ?? priority?.generatedAt ?? status?.generatedAt ?? null;
   const marketGeneratedAt = market?.generatedAt ?? null;
   const nextSim = nextExpectedRefresh(simGeneratedAt, SIM_REFRESH_INTERVAL_MINUTES);
   const nextMarket = nextExpectedRefresh(marketGeneratedAt, SIM_MARKET_REFRESH_INTERVAL_MINUTES);
-  const warehouseReady = warehouse.every((w) => w.ready);
   const simOk = (ageMinutes(simGeneratedAt) ?? 999) <= 20;
   const marketOk = (ageMinutes(marketGeneratedAt) ?? 999) <= 10;
   const refreshOk = status?.ok !== false;
   const hasRows = (priority?.rows.length ?? 0) > 0;
-  const allGood = simOk && marketOk && warehouseReady && refreshOk && hasRows;
+  const allGood = simOk && marketOk && refreshOk && hasRows;
 
   return (
     <div className={cn("panel px-5 py-4", allGood ? "border-mint/[0.12]" : "border-amber-400/20")}>
@@ -304,29 +262,22 @@ function SimStatusRail({
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <StatusPill label="Sim" ok={simOk} sub={formatAge(simGeneratedAt)} />
             <StatusPill label="Market" ok={marketOk} sub={formatAge(marketGeneratedAt)} />
-            <StatusPill label="Warehouse" ok={warehouseReady} sub={warehouseReady ? "ready" : "degraded"} />
+            <StatusPill label="MLB slate" ok={hasRows} sub={`${priority?.rows.length ?? 0} rows`} />
             <StatusPill label="Cron" ok={refreshOk} sub={status?.running ? "running" : refreshOk ? "ok" : "failed"} />
           </div>
         </div>
         <div className="text-[11px] tabular-nums text-slate-600">
-          Next sim {formatShortTime(nextSim)} · market {formatShortTime(nextMarket)}
+          Next sim {formatShortTime(nextSim)} - market {formatShortTime(nextMarket)}
         </div>
       </div>
-      {repairedOnRequest ? (
-        <div className="mt-3 rounded-lg border border-aqua/15 bg-aqua/[0.04] px-3 py-2 text-xs text-slate-300">
-          Cache was blank — ran one guarded server-side rebuild.
-          {repairWarnings.length ? ` Notes: ${repairWarnings.slice(0, 2).join(" · ")}` : " Fresh snapshots written."}
-        </div>
-      ) : null}
-      {!warehouseReady ? (
+      {!hasRows ? (
         <div className="mt-3 rounded-lg border border-amber-400/15 bg-amber-500/[0.04] px-3 py-2 text-xs text-amber-200/80">
-          NBA warehouse degraded — missing: {warehouse.filter((w) => !w.ready).map((w) => w.kind).join(", ")}. Run the NBA warehouse refresh.
+          No cached MLB priority snapshot is available. The hub is intentionally read-only, so use the scheduled refresh or `/api/sim/refresh` to rebuild instead of blocking this page request.
         </div>
       ) : null}
     </div>
   );
 }
-
 function SnapshotNotice({
   priority,
   status
@@ -678,7 +629,7 @@ function PrioritySlate({
       <EmptyState
         eyebrow="Sim cache"
         title="No games in the priority queue"
-        description="The page attempted one emergency rebuild. If this stays blank, the upstream scoreboard is returning zero games or every projection is failing. Check /api/sim/health and the sim-refresh logs."
+        description="No cached MLB sim snapshot has been generated yet. SimHub no longer rebuilds projections during page load; run the sim refresh job and check /api/sim/health."
       />
     );
   }
@@ -720,21 +671,15 @@ function PrioritySlate({
 }
 
 export default async function SimHubPage() {
-  const [{ hub, priority, market, status, mlbBoard, nbaBoard, repairedOnRequest, repairWarnings }, warehouse] = await Promise.all([
-    readSnapshotsWithRepair(),
-    readWarehouseHealth()
-  ]);
+  const { hub, priority, market, status, mlbBoard } = await readSnapshots();
 
   const edgeByGameId = new Map<string, MarketEdge>(
     (market?.edges ?? []).map((e) => [e.gameId, e])
   );
   const boardByGameId = new Map<string, CachedSimGameProjection>([
     ...((mlbBoard?.games ?? []) as CachedSimGameProjection[]).map((g) => [g.game.id, g] as [string, CachedSimGameProjection]),
-    ...((nbaBoard?.games ?? []) as CachedSimGameProjection[]).map((g) => [g.game.id, g] as [string, CachedSimGameProjection])
   ]);
 
-  const warehouseReady = warehouse.every((w) => w.ready);
-  const playerRows = warehouse.find((w) => w.kind === "player")?.rows ?? 0;
   const unifiedGames = priority?.rows.length ? buildGameWorkspaces(priority.rows).length : 0;
   const duplicateSignals = Math.max(0, (priority?.rows.length ?? 0) - unifiedGames);
 
@@ -744,33 +689,32 @@ export default async function SimHubPage() {
       eyebrow: "MLB Workspace",
       title: "Sides + Totals Edge Desk",
       description: "Moneyline edge, totals, Statcast splits, Savant pitcher profiles, and live market matching.",
-      count: String(hub?.summary.mlbCount ?? priority?.summary.mlbCount ?? "—"),
+      count: String(hub?.summary.mlbCount ?? priority?.summary.mlbCount ?? "-"),
       statusLabel: market?.stale ? "Market overlay stale" : `${market?.lineCount ?? 0} market lines`,
       action: "Open MLB desk",
       ready: !market?.stale && (market?.lineCount ?? 0) > 0
     },
     {
-      href: "/sim/nba",
-      eyebrow: "NBA Workspace",
-      title: "Player Sims + Sides",
-      description: "Calibrated box scores, prop drilldowns, confidence gates, and side reads in one board.",
-      count: String(hub?.summary.nbaCount ?? priority?.summary.nbaCount ?? "—"),
-      statusLabel: warehouseReady ? "Warehouse ready" : "Warehouse degraded",
-      action: "Open NBA desk",
-      ready: warehouseReady
+      href: "/sharktrends",
+      eyebrow: "MLB Trends",
+      title: "Trend Warehouse",
+      description: "Historical betting rows, closing-line movement, system matches, and trend validation.",
+      count: String(market?.edges.length ?? "-"),
+      statusLabel: "Market-linked systems",
+      action: "Open trends",
+      ready: (market?.edges.length ?? 0) > 0
     },
     {
-      href: "/sim/players?league=NBA",
-      eyebrow: "NBA Drilldown",
-      title: "Projected Player Box Scores",
-      description: "Points, boards, assists, threes, PRA, floor and ceiling — exact projections for prop building.",
-      count: playerRows ? String(playerRows) : "—",
-      statusLabel: "Warehouse player feed",
-      action: "Open player board",
-      ready: playerRows > 0
+      href: "/sim/accuracy",
+      eyebrow: "Model Proof",
+      title: "Accuracy Lab",
+      description: "Brier, log loss, closing-line value, settlement, and promotion-gate evidence for MLB picks.",
+      count: String(priority?.rows.length ?? "-"),
+      statusLabel: "MLB validation",
+      action: "Open accuracy",
+      ready: (priority?.rows.length ?? 0) > 0
     }
   ];
-
   return (
     <div className="space-y-5">
       <SimWorkspaceHeader
@@ -802,10 +746,10 @@ export default async function SimHubPage() {
             emphasis={market && !market.stale ? "strong" : "normal"}
           />
           <SimMetricTile
-            label="NBA warehouse"
-            value={warehouseReady ? "Ready" : "Degraded"}
-            sub={warehouse.map((w) => `${w.kind}:${w.rows}`).join(" · ")}
-            emphasis={warehouseReady ? "strong" : "normal"}
+            label="MLB rows"
+            value={priority?.rows.length ?? 0}
+            sub="NBA/UFC excluded from hub"
+            emphasis={(priority?.rows.length ?? 0) > 0 ? "strong" : "normal"}
           />
         </div>
       </SimWorkspaceHeader>
@@ -814,9 +758,6 @@ export default async function SimHubPage() {
         priority={priority}
         market={market}
         status={status}
-        warehouse={warehouse}
-        repairedOnRequest={repairedOnRequest}
-        repairWarnings={repairWarnings}
       />
 
       <SnapshotNotice priority={priority} status={status} />

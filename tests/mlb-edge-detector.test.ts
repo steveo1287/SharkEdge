@@ -55,8 +55,8 @@ assert.ok(consensus);
 assert.equal(consensus!.moneylineSourceCount, 2);
 assert.equal(consensus!.totalSourceCount, 3);
 assert.equal(consensus!.total, 8.5);
-assert.ok(consensus!.warnings.some((warning) => warning.includes("Rejected high-hold moneyline")));
-assert.ok(consensus!.warnings.some((warning) => warning.includes("Rejected high-hold total")));
+assert.ok(consensus!.warnings.some((warning: string) => warning.includes("Rejected high-hold moneyline")));
+assert.ok(consensus!.warnings.some((warning: string) => warning.includes("Rejected high-hold total")));
 assert.ok(consensus!.homeNoVigProbability && consensus!.homeNoVigProbability > 0.57 && consensus!.homeNoVigProbability < 0.59);
 
 const thinConsensus = buildMlbConsensusLine([
@@ -74,8 +74,8 @@ const thinConsensus = buildMlbConsensusLine([
 ], { home: "Home", away: "Away" });
 assert.ok(thinConsensus);
 assert.equal(thinConsensus!.moneylineSourceCount, 1);
-assert.ok(thinConsensus!.warnings.some((warning) => warning.includes("Moneyline consensus thin")));
-assert.ok(thinConsensus!.warnings.some((warning) => warning.includes("Total consensus thin")));
+assert.ok(thinConsensus!.warnings.some((warning: string) => warning.includes("Moneyline consensus thin")));
+assert.ok(thinConsensus!.warnings.some((warning: string) => warning.includes("Total consensus thin")));
 
 // A 6% no-vig moneyline edge should outrank a 1-run total edge after unit normalization.
 assert.ok(rankMlbMarketSignal({ market: "home_ml", edge: 0.06 }) > rankMlbMarketSignal({ market: "over", edge: 1.0 }));

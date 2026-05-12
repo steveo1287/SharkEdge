@@ -186,6 +186,44 @@ async function sourceHealth() {
   };
 }
 
+function message(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function degradedDbCounts(error: unknown): DbCounts {
+  return {
+    ok: false,
+    tables: {},
+    counts: {},
+    warnings: [`Database health check failed: ${message(error, "unknown database error")}`]
+  };
+}
+
+function degradedSourceHealth(error: unknown) {
+  const warning = `Source health check failed: ${message(error, "unknown source error")}`;
+  return {
+    ok: false,
+    sampleMatchup: `${SAMPLE_AWAY} @ ${SAMPLE_HOME}`,
+    player: {
+      source: "unknown/unknown",
+      awayPlayers: 0,
+      homePlayers: 0,
+      notes: [warning]
+    },
+    teamAnalytics: {
+      source: "unknown/unknown",
+      away: SAMPLE_AWAY,
+      home: SAMPLE_HOME
+    },
+    ratings: {
+      source: "unknown/unknown",
+      confidence: 0,
+      note: "Ratings health unavailable."
+    },
+    warnings: [warning]
+  };
+}
+
 export async function GET() {
   try {
     const [hub, priority, market, refreshStatus, db, sources, oddsSnapshot] = await Promise.all([
@@ -193,8 +231,8 @@ export async function GET() {
       readSimCache<SimPrioritySnapshot>(SIM_CACHE_KEYS.priority),
       readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market),
       readSimCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus),
-      dbCounts(),
-      sourceHealth(),
+      dbCounts().catch(degradedDbCounts),
+      sourceHealth().catch(degradedSourceHealth),
       readLatestOddsApiSnapshot().catch(() => null)
     ]);
 
