@@ -363,7 +363,7 @@ async function fetchMarketLineHistoryLines() {
         SELECT DISTINCT ON (mlh.event_id, mlh.sportsbook_name, mlh.market_type, mlh.side, COALESCE(mlh.selection, ''))
           mlh.event_id,
           e.name AS event_name,
-          e.start_time,
+          e."startTime" AS start_time,
           mlh.market_type,
           mlh.side,
           mlh.selection,
@@ -372,10 +372,10 @@ async function fetchMarketLineHistoryLines() {
           mlh.point
         FROM market_line_history mlh
         JOIN events e ON e.id = mlh.event_id
-        JOIN leagues l ON l.id = e.league_id
+        JOIN leagues l ON l.id = e."leagueId"
         WHERE l.key = 'MLB'
-          AND e.start_time >= now() - interval '1 day'
-          AND e.start_time <= now() + interval '4 days'
+          AND e."startTime" >= now() - interval '1 day'
+          AND e."startTime" <= now() + interval '4 days'
           AND mlh.captured_at >= now() - interval '10 days'
           AND mlh.market_type IN ('moneyline', 'total')
           AND mlh.price IS NOT NULL

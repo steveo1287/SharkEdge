@@ -37,7 +37,7 @@ export class OddsApiIoError extends Error {
 }
 
 function apiKeyFromEnv() {
-  return process.env.ODDS_API_IO_KEY ?? process.env.ODDS_API_KEY ?? "";
+  return process.env.ODDS_API_IO_KEY ?? process.env.ODDSAPI_IO_KEY ?? "";
 }
 
 function cleanParams(params: Record<string, string | number | undefined>) {
