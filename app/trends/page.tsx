@@ -1,14 +1,8 @@
-import { TrendsDashboardV3 } from "@/components/trends/trends-dashboard-v3";
-import type { LeagueKey, TrendFilters, TrendMode } from "@/lib/types/domain";
-import { trendFiltersSchema } from "@/lib/validation/filters";
-import { getFastCachedTrendDashboard, getTrendDashboardCacheHealth } from "@/services/trends/dashboard-cache";
+import Link from "next/link";
+
 import { readTrendRefreshStatus } from "@/services/trends/refresh-status";
-import { inspectTrendSystemGradeQueue } from "@/services/trends/trend-system-grader";
 import { readTrendSystemCycleStatus } from "@/services/trends/trend-system-cycle-status";
-import { runTrendSystemBacktests } from "@/services/trends/trend-system-ledger";
-import { buildTrendSystemRun } from "@/services/trends/trend-system-engine";
 import { buildTrendsCenterSnapshot, type TrendsCenterSnapshot } from "@/services/trends/trends-center";
-import { buildTrendSignals } from "@/services/trends/trends-engine";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -17,176 +11,286 @@ type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-type SignalSummary = {
-  source: string;
-  cacheStale: boolean;
-  cacheHits: { nba: boolean; mlb: boolean; market: boolean };
-  totalVisible: number;
-  totalRaw: number;
-  hidden: number;
-  gamesCovered: number;
-  pricedSignals: number;
-  actionable: number;
-  watchlist: number;
-};
+type Snapshot = TrendsCenterSnapshot;
+type LaneKey = keyof Snapshot["placementLanes"];
+type PromotionRow = Snapshot["allPromotionRows"][number];
+type MatchupRow = Snapshot["matchupsByLeague"][number]["matchups"][number];
+type TrendRow = MatchupRow["trends"][number];
 
-type SystemLedgerSummary = {
-  source: string;
-  systems: number;
-  activeSystems: number;
-  activeMatches: number;
-  savedLedgerBacked: number;
-  eventMarketBacked: number;
-  seededFallback: number;
-  totalSavedRows: number;
-  totalSavedGradedRows: number;
-  totalOpenRows: number;
-  totalEventMarketRows: number;
-  totalEventMarketGradedRows: number;
-};
+const LANES: Array<{ key: LaneKey; label: string; note: string }> = [
+  { key: "promote", label: "Promote", note: "Best verified and active systems first." },
+  { key: "watch", label: "Watch", note: "Live or promising, but still needs proof or price." },
+  { key: "verified-idle", label: "Verified idle", note: "Proven systems waiting for a current match." },
+  { key: "bench", label: "Bench", note: "Blocked, weak, or research-only systems." }
+];
 
-type GradeQueueSummary = Awaited<ReturnType<typeof inspectTrendSystemGradeQueue>> | null;
-type CycleStatus = Awaited<ReturnType<typeof readTrendSystemCycleStatus>>;
-type RefreshStatus = Awaited<ReturnType<typeof readTrendRefreshStatus>>;
-type TrendsCenterSummary = TrendsCenterSnapshot | null;
-
-function readValue(searchParams: Record<string, string | string[] | undefined>, key: string) {
-  const value = searchParams[key];
+function one(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function normalizeSavedTrendId(value: string | null | undefined) {
-  const id = value?.trim();
-  if (!id) return null;
-  const bad = new Set(["null", "undefined", "none", "trend", "trends", "saved", "savedtrend"]);
-  if (bad.has(id.toLowerCase())) return null;
-  if (id.length < 6) return null;
-  return id;
+function clampLane(value: string | undefined): LaneKey {
+  return LANES.some((lane) => lane.key === value) ? value as LaneKey : "promote";
 }
 
-function readSavedTrendId(searchParams: Record<string, string | string[] | undefined>) {
-  return normalizeSavedTrendId(readValue(searchParams, "savedTrendId") ?? readValue(searchParams, "savedId") ?? null);
+function n(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-function buildFilters(searchParams: Record<string, string | string[] | undefined>) {
-  try {
-    return trendFiltersSchema.parse({
-      sport: readValue(searchParams, "sport"),
-      league: readValue(searchParams, "league"),
-      market: readValue(searchParams, "market"),
-      sportsbook: readValue(searchParams, "sportsbook"),
-      side: readValue(searchParams, "side"),
-      subject: readValue(searchParams, "subject"),
-      team: readValue(searchParams, "team"),
-      player: readValue(searchParams, "player"),
-      fighter: readValue(searchParams, "fighter"),
-      opponent: readValue(searchParams, "opponent"),
-      window: readValue(searchParams, "window"),
-      sample: readValue(searchParams, "sample")
-    });
-  } catch {
-    return trendFiltersSchema.parse({}) as TrendFilters;
-  }
+function pct(value: unknown) {
+  return `${n(value).toFixed(1)}%`;
 }
 
-function readMode(value: string | undefined): TrendMode {
-  return value === "power" ? "power" : "simple";
+function signedPct(value: unknown) {
+  const v = n(value);
+  return `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
 }
 
-function ageLabel(seconds: number | null) {
-  if (seconds === null) return "not warmed";
-  if (seconds < 60) return `${seconds}s old`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m old`;
-  const hours = Math.floor(minutes / 60);
-  const remainder = minutes % 60;
-  return remainder ? `${hours}h ${remainder}m old` : `${hours}h old`;
+function units(value: unknown) {
+  const v = n(value);
+  return `${v > 0 ? "+" : ""}${v.toFixed(1)}u`;
 }
 
-function formatStatusTime(value: string | null | undefined) {
-  if (!value) return "never";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "unknown";
-  return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-}
-
-function formatStatusDateTime(value: string | null | undefined) {
+function time(value: string | null | undefined) {
   if (!value) return "never";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "unknown";
   return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-function distributionText(record: Record<string, number> | undefined, limit = 5) {
-  const entries = Object.entries(record ?? {}).sort((left, right) => right[1] - left[1]).slice(0, limit);
-  return entries.length ? entries.map(([key, value]) => `${key} ${value}`).join(" · ") : "none";
+function actionTone(action: string | undefined) {
+  const value = String(action ?? "").toUpperCase();
+  if (value.includes("ACTION")) return "border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-100";
+  if (value.includes("WATCH") || value.includes("WAIT")) return "border-amber-300/25 bg-amber-300/[0.08] text-amber-100";
+  if (value.includes("PASS") || value.includes("BLOCK")) return "border-red-300/20 bg-red-400/[0.07] text-red-100";
+  return "border-sky-300/20 bg-sky-300/[0.07] text-sky-100";
 }
 
-async function getSignalSummary(filters: TrendFilters): Promise<SignalSummary | null> {
-  try {
-    const league = filters.league === "ALL" ? "ALL" : filters.league as LeagueKey;
-    const payload = await buildTrendSignals({ league, includeHidden: false, includeResearch: false });
-    const signals = payload.signals;
-    const gameIds = new Set(signals.map((signal) => signal.gameId).filter(Boolean));
-    const priced = signals.filter((signal) => signal.marketQuality.currentOddsAmerican != null || signal.currentOddsAmerican != null);
-    const actionable = signals.filter((signal) => signal.quality.actionability === "ACTIONABLE");
-    const watchlist = signals.filter((signal) => signal.quality.actionability === "WATCHLIST");
-    return {
-      source: payload.counts.source,
-      cacheStale: Boolean(payload.counts.cacheStale),
-      cacheHits: payload.counts.cacheHits,
-      totalVisible: signals.length,
-      totalRaw: payload.counts.totalRaw,
-      hidden: payload.counts.hiddenQuality,
-      gamesCovered: gameIds.size,
-      pricedSignals: priced.length,
-      actionable: actionable.length,
-      watchlist: watchlist.length
-    };
-  } catch {
-    return null;
-  }
+function tileTone(kind: "good" | "warn" | "bad" | "neutral") {
+  if (kind === "good") return "border-emerald-300/20 bg-emerald-400/[0.07]";
+  if (kind === "warn") return "border-amber-300/25 bg-amber-300/[0.07]";
+  if (kind === "bad") return "border-red-300/20 bg-red-400/[0.07]";
+  return "border-white/10 bg-slate-950/60";
 }
 
-async function getSystemLedgerSummary(filters: TrendFilters): Promise<SystemLedgerSummary | null> {
-  try {
-    const league = filters.league === "ALL" ? "ALL" : filters.league as LeagueKey;
-    const run = await buildTrendSystemRun({ league, includeInactive: true });
-    const backtests = await runTrendSystemBacktests(run.systems, { preferSaved: true });
-    const source = backtests.summary.savedLedgerBacked
-      ? "saved-ledger"
-      : backtests.summary.eventMarketBacked
-        ? "event-market-backtest"
-        : "seeded-fallback";
-
-    return {
-      source,
-      systems: backtests.summary.systems,
-      activeSystems: run.summary.activeSystems,
-      activeMatches: run.summary.activeMatches,
-      savedLedgerBacked: backtests.summary.savedLedgerBacked,
-      eventMarketBacked: backtests.summary.eventMarketBacked,
-      seededFallback: backtests.summary.seededFallback,
-      totalSavedRows: backtests.summary.totalSavedRows,
-      totalSavedGradedRows: backtests.summary.totalSavedGradedRows,
-      totalOpenRows: backtests.summary.totalOpenRows,
-      totalEventMarketRows: backtests.summary.totalEventMarketRows,
-      totalEventMarketGradedRows: backtests.summary.totalEventMarketGradedRows
-    };
-  } catch {
-    return null;
-  }
+function MetricTile({ label, value, note, tone = "neutral" }: { label: string; value: string | number; note: string; tone?: "good" | "warn" | "bad" | "neutral" }) {
+  return (
+    <div className={`rounded-2xl border p-4 ${tileTone(tone)}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div className="mt-2 font-display text-3xl font-semibold tracking-tight text-white">{value}</div>
+      <div className="mt-2 text-xs leading-5 text-slate-400">{note}</div>
+    </div>
+  );
 }
 
-async function getGradeQueueSummary(): Promise<GradeQueueSummary> {
-  try {
-    return await inspectTrendSystemGradeQueue({ limit: 500 });
-  } catch {
-    return null;
-  }
+function StatusStrip({ snapshot, refreshStatus, cycleStatus }: { snapshot: Snapshot; refreshStatus: Awaited<ReturnType<typeof readTrendRefreshStatus>>; cycleStatus: Awaited<ReturnType<typeof readTrendSystemCycleStatus>> }) {
+  const cycleRunning = Boolean(cycleStatus?.running);
+  const refreshRunning = Boolean(refreshStatus?.running || refreshStatus?.queued);
+  const ready = snapshot.counts.publishedActive > 0 || snapshot.counts.visiblePromotionRows > 0;
+  const tone = ready ? "border-emerald-300/20 bg-emerald-400/[0.06] text-emerald-100" : "border-amber-300/25 bg-amber-300/[0.07] text-amber-100";
+  return (
+    <section className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${tone}`}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <span className="font-semibold uppercase tracking-[0.18em]">Trends Center status</span>
+          <span className="ml-2 text-slate-300">generated {time(snapshot.generatedAt)} · {snapshot.counts.publishedActive} active systems · {snapshot.counts.matchupTiles} matchup tiles · {snapshot.counts.visiblePromotionRows}/{snapshot.counts.allPromotionRows} ranked systems visible</span>
+          <div className="mt-1 text-slate-300">
+            Cycle {cycleRunning ? "running" : cycleStatus?.ok ? "ok" : "idle"} · refresh {refreshRunning ? "running" : refreshStatus?.ok ? "ok" : "idle"} · last cycle success {time(cycleStatus?.lastSuccessAt)}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-3 font-semibold uppercase tracking-[0.14em]">
+          <Link href="/api/trends/center" className="text-sky-200 hover:text-sky-100">Center JSON</Link>
+          <Link href="/api/trends/systems/cycle?inactive=true&limit=500" className="text-sky-200 hover:text-sky-100">Run cycle</Link>
+          <Link href="/sharktrends/mlb-warehouse" className="text-sky-200 hover:text-sky-100">Warehouse</Link>
+        </div>
+      </div>
+    </section>
+  );
 }
 
-async function getTrendsCenterSummary(): Promise<TrendsCenterSummary> {
+function Hero({ snapshot }: { snapshot: Snapshot }) {
+  return (
+    <section className="relative overflow-hidden rounded-[2rem] border border-sky-300/15 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.20),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.96),rgba(2,6,23,0.92))] p-6 shadow-[0_0_80px_rgba(14,165,233,0.12)]">
+      <div className="absolute right-0 top-0 h-56 w-56 rounded-full bg-emerald-300/10 blur-3xl" />
+      <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-300">Trends Center App</div>
+          <h1 className="mt-3 max-w-4xl font-display text-4xl font-semibold tracking-tight text-white md:text-6xl">A command desk for systems that are live, proven, and worth attention.</h1>
+          <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-300">The old Trends page buried signal under dashboard noise. This view starts with promotion lanes, matchup tiles, blockers, proof packets, and the exact next action.</p>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-slate-300 lg:w-80">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Next move</div>
+          <div className="mt-2 leading-6 text-white">{snapshot.nextAction}</div>
+        </div>
+      </div>
+      <div className="relative mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MetricTile label="Actionable systems" value={snapshot.counts.actionableSystems} tone={snapshot.counts.actionableSystems ? "good" : "warn"} note={`${snapshot.counts.promotableSystems} promotable · ${snapshot.counts.watchSystems} watch · ${snapshot.counts.benchSystems} bench.`} />
+        <MetricTile label="Current matchups" value={snapshot.counts.matchupTiles} tone={snapshot.counts.matchupTiles ? "good" : "warn"} note={`${snapshot.counts.matchupTrendLinks} trend links attached across ${snapshot.counts.leagueMatchupGroups} leagues.`} />
+        <MetricTile label="Verified published" value={`${snapshot.coverage.publishedVerifiedPct}%`} tone={snapshot.counts.verifiedPublished ? "good" : "warn"} note={`${snapshot.counts.verifiedPublished}/${snapshot.counts.publishedTotal} systems have proof packets.`} />
+        <MetricTile label="Blocked systems" value={snapshot.counts.blockedSystems} tone={snapshot.counts.blockedSystems ? "warn" : "good"} note={`${snapshot.coverage.blockedPct}% blocked · ${snapshot.counts.stale} stale saved rows · ${snapshot.counts.neverRun} never run.`} />
+      </div>
+    </section>
+  );
+}
+
+function LaneNav({ snapshot, activeLane }: { snapshot: Snapshot; activeLane: LaneKey }) {
+  return (
+    <section className="grid gap-3 md:grid-cols-4">
+      {LANES.map((lane) => {
+        const rows = snapshot.placementLanes[lane.key] ?? [];
+        const active = lane.key === activeLane;
+        return (
+          <Link key={lane.key} href={`/trends?lane=${lane.key}`} className={`rounded-2xl border p-4 transition ${active ? "border-sky-300/40 bg-sky-300/[0.10]" : "border-white/10 bg-slate-950/55 hover:border-sky-300/25"}`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{lane.label}</div>
+              <div className="rounded-full border border-white/10 px-2 py-1 text-xs text-white">{rows.length}</div>
+            </div>
+            <div className="mt-2 text-xs leading-5 text-slate-400">{lane.note}</div>
+          </Link>
+        );
+      })}
+    </section>
+  );
+}
+
+function ProofLine({ row }: { row: Pick<PromotionRow | TrendRow, "proof" | "verified" | "blockers"> }) {
+  return (
+    <div className="mt-3 grid gap-2 text-[11px] leading-5 text-slate-400 sm:grid-cols-3">
+      <div className="rounded-xl border border-white/10 bg-black/20 p-2"><span className="text-slate-500">Record</span><div className="font-semibold text-white">{row.proof.record}</div></div>
+      <div className="rounded-xl border border-white/10 bg-black/20 p-2"><span className="text-slate-500">ROI</span><div className={n(row.proof.roiPct) > 0 ? "font-semibold text-emerald-300" : "font-semibold text-slate-300"}>{signedPct(row.proof.roiPct)} · {units(row.proof.profitUnits)}</div></div>
+      <div className="rounded-xl border border-white/10 bg-black/20 p-2"><span className="text-slate-500">Proof</span><div className={row.verified ? "font-semibold text-emerald-300" : "font-semibold text-amber-200"}>{row.verified ? "Verified" : row.blockers.length ? "Blocked" : "Provisional"}</div></div>
+    </div>
+  );
+}
+
+function SystemCard({ row }: { row: PromotionRow }) {
+  return (
+    <Link href={row.href} className="block rounded-2xl border border-white/10 bg-slate-950/60 p-4 transition hover:border-sky-300/35 hover:bg-slate-900/70">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">#{row.rank}</span>
+            <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${actionTone(row.actionState)}`}>{row.actionLabel}</span>
+            <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{row.league} · {row.market}</span>
+          </div>
+          <h3 className="mt-3 text-lg font-semibold leading-tight text-white">{row.name}</h3>
+          <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-400">{row.reason}</p>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">SharkScore</div>
+          <div className="font-display text-3xl font-semibold text-white">{row.sharkScore}</div>
+        </div>
+      </div>
+      <ProofLine row={row} />
+      {row.blockers.length ? <div className="mt-3 rounded-xl border border-amber-300/15 bg-amber-300/[0.05] p-2 text-xs leading-5 text-amber-100/80">Blockers: {row.blockers.slice(0, 3).join(" · ")}</div> : null}
+    </Link>
+  );
+}
+
+function MatchupTrend({ trend }: { trend: TrendRow }) {
+  return (
+    <Link href={trend.href} className="block rounded-xl border border-white/10 bg-black/25 p-3 hover:border-sky-300/25">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold text-white">{trend.name}</div>
+        <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${actionTone(trend.actionState)}`}>{trend.actionLabel}</span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-400">
+        <span>{trend.market}</span>
+        <span>{trend.side}</span>
+        <span>edge {signedPct(trend.edgePct)}</span>
+        <span>price {trend.price ?? "n/a"}</span>
+        <span>score {trend.sharkScore}</span>
+      </div>
+    </Link>
+  );
+}
+
+function MatchupCard({ matchup }: { matchup: MatchupRow }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{matchup.league} · {time(matchup.startTime)}</div>
+          <Link href={matchup.href} className="mt-2 block text-lg font-semibold leading-tight text-white hover:text-sky-100">{matchup.eventLabel}</Link>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-right">
+          <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Top score</div>
+          <div className="font-display text-2xl font-semibold text-white">{matchup.topScore}</div>
+        </div>
+      </div>
+      <div className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-4">
+        <div>{matchup.trendCount} trends</div>
+        <div>{matchup.actionableTrends} actionable</div>
+        <div>{matchup.verifiedTrends} verified</div>
+        <div>{matchup.blockedTrends} blocked</div>
+      </div>
+      <div className="mt-4 space-y-2">
+        {matchup.trends.slice(0, 3).map((trend) => <MatchupTrend key={trend.id} trend={trend} />)}
+      </div>
+    </div>
+  );
+}
+
+function CommandQueue({ snapshot }: { snapshot: Snapshot }) {
+  return (
+    <section className="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">Command queue</div>
+          <h2 className="mt-2 font-display text-2xl font-semibold text-white">Fix these before promotion</h2>
+        </div>
+        <Link href="/api/trends/systems/grade?inspect=true&limit=500" className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Grade queue</Link>
+      </div>
+      <div className="mt-4 space-y-2">
+        {snapshot.commandQueue.length ? snapshot.commandQueue.map((item) => (
+          <Link key={`${item.reason}-${item.id}`} href={item.href} className="block rounded-xl border border-amber-300/15 bg-amber-300/[0.05] p-3 hover:border-amber-200/35">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-semibold text-white">{item.name}</div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-200">{item.reason}</div>
+            </div>
+            <div className="mt-1 text-xs leading-5 text-slate-400">{item.note}</div>
+          </Link>
+        )) : <div className="rounded-xl border border-emerald-300/15 bg-emerald-300/[0.05] p-3 text-xs leading-5 text-emerald-100/80">No command blockers. Sort the promotion lane by score, proof, ROI, and current market quality.</div>}
+      </div>
+    </section>
+  );
+}
+
+function DistributionPanel({ snapshot }: { snapshot: Snapshot }) {
+  const marketEntries = Object.entries(snapshot.distribution.byMarket ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const blockerEntries = Object.entries(snapshot.distribution.byBlocker ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  return (
+    <section className="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+      <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">System map</div>
+      <h2 className="mt-2 font-display text-2xl font-semibold text-white">What the inventory is made of</h2>
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Markets</div>
+          <div className="mt-2 space-y-2">{marketEntries.map(([key, value]) => <div key={key} className="flex justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs"><span className="text-slate-300">{key}</span><span className="text-white">{value}</span></div>)}</div>
+        </div>
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Blockers</div>
+          <div className="mt-2 space-y-2">{blockerEntries.length ? blockerEntries.map(([key, value]) => <div key={key} className="flex justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs"><span className="text-slate-300">{key}</span><span className="text-white">{value}</span></div>) : <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-500">No blocker distribution.</div>}</div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function EmptyCenter() {
+  return (
+    <div className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.06] p-6">
+      <div className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-200">Trends Center unavailable</div>
+      <h1 className="mt-2 font-display text-3xl font-semibold text-white">No snapshot could be generated.</h1>
+      <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">The page stayed up instead of crashing. Check database connectivity, trend system generation, or the cycle route.</p>
+      <div className="mt-4 flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.14em]">
+        <Link href="/api/trends/center" className="text-sky-200 hover:text-sky-100">Center JSON</Link>
+        <Link href="/api/trends/systems/cycle-status" className="text-sky-200 hover:text-sky-100">Cycle status</Link>
+      </div>
+    </div>
+  );
+}
+
+async function getSnapshot() {
   try {
     return await buildTrendsCenterSnapshot();
   } catch {
@@ -194,292 +298,61 @@ async function getTrendsCenterSummary(): Promise<TrendsCenterSummary> {
   }
 }
 
-function cycleText(cycleStatus: CycleStatus) {
-  if (!cycleStatus) return "no cycle status yet";
-  const state = cycleStatus.running ? "running" : cycleStatus.ok ? "ok" : "failed";
-  return `${state} · last success ${formatStatusTime(cycleStatus.lastSuccessAt)} · captured ${cycleStatus.summary.capturedMatches} · closing ${cycleStatus.summary.closingLinesUpdated} · graded ${cycleStatus.summary.gradedMatches} · snapshots ${cycleStatus.summary.snapshotsWritten} · saved ${cycleStatus.summary.totalSavedGradedRows}/${cycleStatus.summary.totalSavedRows} graded · open ${cycleStatus.summary.totalOpenRows} · fallback ${cycleStatus.summary.seededFallback}`;
-}
-
-function bucketValue(queue: GradeQueueSummary, key: string) {
-  const buckets = queue && "buckets" in queue && queue.buckets ? queue.buckets as Record<string, number> : {};
-  return buckets[key] ?? 0;
-}
-
-function queueNextAction(queue: GradeQueueSummary) {
-  if (!queue || !("ok" in queue) || !queue.ok) return "Grade queue unavailable. Check database connectivity.";
-  if (bucketValue(queue, "gradeable")) return "Rows are gradeable now. Run the grade endpoint or full cycle.";
-  if (bucketValue(queue, "missing-event-result")) return "Rows are blocked by missing final EventResult. Backfill final results first.";
-  if (bucketValue(queue, "unmapped-pick")) return "Rows have final results but pick/team mapping needs repair.";
-  if (bucketValue(queue, "missing-total-or-line")) return "Rows need final total or captured line data before grading.";
-  return queue.nextAction ?? "No grade blockers reported.";
-}
-
-function CacheStatusStrip({
-  status,
-  modeDefaultCards,
-  exactCards,
-  age,
-  refreshStatus,
-  cacheVersion,
-  signalSummary,
-  systemSummary,
-  cycleStatus
-}: {
-  status: string;
-  modeDefaultCards: number;
-  exactCards: number;
-  age: number | null;
-  refreshStatus: RefreshStatus;
-  cacheVersion: string;
-  signalSummary: SignalSummary | null;
-  systemSummary: SystemLedgerSummary | null;
-  cycleStatus: CycleStatus;
-}) {
-  const ready = status === "exact" || status === "mode-default";
-  const running = Boolean(refreshStatus?.running || refreshStatus?.queued || cycleStatus?.running);
-  const hasSignals = Boolean(signalSummary?.totalVisible);
-  const hasActionable = Boolean(signalSummary?.actionable);
-  const cycleHealthy = Boolean(cycleStatus?.ok || cycleStatus?.running);
-  const tone = hasActionable || cycleStatus?.summary.gradedMatches
-    ? "border-emerald-400/25 bg-emerald-400/7 text-emerald-100"
-    : hasSignals || cycleHealthy
-      ? "border-sky-300/25 bg-sky-400/7 text-sky-100"
-      : ready
-        ? "border-amber-300/20 bg-amber-400/5 text-amber-100"
-        : running
-          ? "border-sky-300/20 bg-sky-400/5 text-sky-100"
-          : "border-amber-300/20 bg-amber-400/5 text-amber-100";
-  const refreshText = running
-    ? refreshStatus?.queued ? "refresh queued" : cycleStatus?.running ? "cycle running" : "refresh running"
-    : refreshStatus?.ok ? `last good ${formatStatusTime(refreshStatus.lastSuccessAt)}` : refreshStatus?.reason ?? "refresh not started";
-  const signalText = signalSummary
-    ? `${signalSummary.source}${signalSummary.cacheStale ? " stale" : ""} · ${signalSummary.gamesCovered} games · ${signalSummary.totalVisible} signals · ${signalSummary.pricedSignals} priced · ${signalSummary.actionable} actionable · ${signalSummary.watchlist} watchlist · hidden ${signalSummary.hidden}`
-    : "signal summary unavailable";
-  const cacheHitText = signalSummary
-    ? `NBA ${signalSummary.cacheHits.nba ? "hit" : "miss"} · MLB ${signalSummary.cacheHits.mlb ? "hit" : "miss"} · market ${signalSummary.cacheHits.market ? "hit" : "miss"}`
-    : "";
-  const systemText = systemSummary
-    ? `${systemSummary.source} · ${systemSummary.systems} systems · ${systemSummary.activeSystems} active · ${systemSummary.activeMatches} matches · saved ${systemSummary.totalSavedGradedRows}/${systemSummary.totalSavedRows} graded · open ${systemSummary.totalOpenRows} · EventMarket ${systemSummary.totalEventMarketGradedRows}/${systemSummary.totalEventMarketRows} graded · fallback ${systemSummary.seededFallback}`
-    : "system ledger unavailable";
-  return (
-    <div className={`mb-4 rounded-2xl border px-4 py-3 text-xs leading-5 ${tone}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <span className="font-semibold uppercase tracking-[0.18em]">Trend cache</span>
-          <span className="ml-2 text-slate-300">{status} · {cacheVersion} · exact {exactCards} cards · default {modeDefaultCards} cards · {ageLabel(age)} · {refreshText}</span>
-          <div className="mt-1 text-slate-300"><span className="font-semibold uppercase tracking-[0.14em]">Signals</span><span className="ml-2">{signalText}</span>{cacheHitText ? <span className="ml-2 text-slate-500">({cacheHitText})</span> : null}</div>
-          <div className="mt-1 text-slate-300"><span className="font-semibold uppercase tracking-[0.14em]">Systems</span><span className="ml-2">{systemText}</span></div>
-          <div className="mt-1 text-slate-300"><span className="font-semibold uppercase tracking-[0.14em]">Cycle</span><span className="ml-2">{cycleText(cycleStatus)}</span></div>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <a href="/api/trends/center" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Center JSON</a>
-          <a href="/api/trends/cache-health?signals=true" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Health JSON</a>
-          <a href="/api/trends/signal-health" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Signal Health</a>
-          <a href="/api/trends/systems?ledger=true&inactive=true" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Systems JSON</a>
-          <a href="/api/trends/systems/grade?inspect=true&limit=500" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Grade Queue</a>
-          <a href="/api/trends/systems/cycle-status" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Cycle Status</a>
-          <a href="/api/trends/systems/cycle?inactive=true&limit=500" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Run Cycle</a>
-          <a href="/api/trends/refresh-cache" className="font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Queue refresh</a>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TruthTile({ label, value, note, tone = "neutral" }: { label: string; value: string | number; note: string; tone?: "good" | "warn" | "bad" | "neutral" }) {
-  const toneClass = tone === "good" ? "border-emerald-400/20 bg-emerald-400/7" : tone === "warn" ? "border-amber-300/25 bg-amber-300/7" : tone === "bad" ? "border-red-400/20 bg-red-400/7" : "border-white/10 bg-slate-950/60";
-  return (
-    <div className={`rounded-2xl border p-4 ${toneClass}`}>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</div>
-      <div className="mt-2 font-display text-2xl font-semibold text-white">{value}</div>
-      <div className="mt-2 text-xs leading-5 text-slate-400">{note}</div>
-    </div>
-  );
-}
-
-function TrendsCenterPanel({
-  snapshot,
-  signalSummary,
-  systemSummary,
-  gradeQueue
-}: {
-  snapshot: TrendsCenterSummary;
-  signalSummary: SignalSummary | null;
-  systemSummary: SystemLedgerSummary | null;
-  gradeQueue: GradeQueueSummary;
-}) {
-  const active = snapshot?.counts.active ?? 0;
-  const stale = snapshot?.counts.stale ?? 0;
-  const neverRun = snapshot?.counts.neverRun ?? 0;
-  const archived = snapshot?.counts.archived ?? 0;
-  const power = snapshot?.counts.power ?? 0;
-  const simple = snapshot?.counts.simple ?? 0;
-  const runCoveragePct = snapshot?.coverage.runCoveragePct ?? 0;
-  const freshnessRiskPct = snapshot?.coverage.freshnessRiskPct ?? 0;
-  const verifiedSystems = (systemSummary?.savedLedgerBacked ?? 0) + (systemSummary?.eventMarketBacked ?? 0);
-  const actionable = signalSummary?.actionable ?? 0;
-  const gradeable = bucketValue(gradeQueue, "gradeable");
-  const commandQueue = snapshot?.commandQueue ?? [];
-  const newestRuns = snapshot?.newestRuns ?? [];
-  const commandTone = !snapshot ? "bad" : commandQueue.length || stale || neverRun ? "warn" : active ? "good" : "neutral";
-
-  return (
-    <section className="mb-5 rounded-[1.5rem] border border-sky-300/15 bg-slate-950/65 p-4 shadow-[0_0_40px_rgba(14,165,233,0.08)]">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">Trends Center</div>
-          <h2 className="mt-2 font-display text-2xl font-semibold text-white">Saved-system command center</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Inventory, freshness, proof gates, and command queue for the systems that should become the main Trends Center product layer.</p>
-        </div>
-        <div className="flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.14em]">
-          <a href="/api/trends/center" className="text-sky-200 hover:text-sky-100">Center JSON</a>
-          <a href="/api/trends/saved" className="text-sky-200 hover:text-sky-100">Saved JSON</a>
-          <a href="/api/trends/discover" className="text-sky-200 hover:text-sky-100">Discover</a>
-          <a href="/api/trends/systems/cycle?inactive=true&limit=500" className="text-sky-200 hover:text-sky-100">Run cycle</a>
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <TruthTile label="Active saved systems" value={active} tone={active ? "good" : "warn"} note={`${power} power · ${simple} simple · ${archived} archived. Active systems are eligible for Trends Center promotion.`} />
-        <TruthTile label="Run coverage" value={`${runCoveragePct}%`} tone={runCoveragePct >= 80 ? "good" : active ? "warn" : "neutral"} note={`${snapshot?.counts.recent ?? 0} ran inside ${snapshot?.thresholds.recentRunHours ?? 24}h. ${neverRun} have never been run.`} />
-        <TruthTile label="Freshness risk" value={`${freshnessRiskPct}%`} tone={freshnessRiskPct ? "warn" : active ? "good" : "neutral"} note={`${stale} stale or never-run systems. These should not get premium placement until refreshed.`} />
-        <TruthTile label="Command queue" value={commandQueue.length} tone={commandTone} note={`${verifiedSystems} verified systems · ${actionable} actionable signals · ${gradeable} gradeable rows waiting.`} />
-      </div>
-
-      <div className="mt-4 grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Command queue</div>
-          {commandQueue.length ? (
-            <div className="mt-3 space-y-2">
-              {commandQueue.map((item) => (
-                <a key={`${item.reason}-${item.id}`} href={item.href} className="block rounded-xl border border-amber-300/15 bg-amber-300/[0.04] p-3 hover:border-amber-200/30">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-sm font-semibold text-white">{item.name}</div>
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-200">{item.reason}</div>
-                  </div>
-                  <div className="mt-1 text-xs leading-5 text-slate-400">{item.note}</div>
-                </a>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-3 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] p-3 text-xs leading-5 text-emerald-100/80">No saved-system command blockers. Use proof grade, ROI, and current signal quality for promotion order.</div>
-          )}
-          <div className="mt-3 text-xs leading-5 text-slate-500">Next action: {snapshot?.nextAction ?? "Snapshot unavailable. Check /api/trends/center."}</div>
-        </div>
-
-        <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Distribution</div>
-          <div className="mt-3 space-y-2 text-xs leading-5 text-slate-400">
-            <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Sports</span><span className="ml-2">{distributionText(snapshot?.distribution.bySport)}</span></div>
-            <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Leagues</span><span className="ml-2">{distributionText(snapshot?.distribution.byLeague)}</span></div>
-            <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Markets</span><span className="ml-2">{distributionText(snapshot?.distribution.byMarket)}</span></div>
-            <div><span className="font-semibold uppercase tracking-[0.14em] text-slate-300">Modes</span><span className="ml-2">{distributionText(snapshot?.distribution.byMode)}</span></div>
-          </div>
-          <div className="mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Newest runs</div>
-          <div className="mt-3 space-y-2">
-            {newestRuns.length ? newestRuns.slice(0, 5).map((row) => (
-              <a key={row.id} href={row.href} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs hover:border-sky-300/25">
-                <span className="min-w-0 truncate text-slate-200">{row.name}</span>
-                <span className="shrink-0 text-slate-500">{row.league} · {row.market} · {formatStatusDateTime(row.lastRunAt)}</span>
-              </a>
-            )) : <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-500">No saved trend runs yet.</div>}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function LedgerTruthPanel({
-  signalSummary,
-  systemSummary,
-  cycleStatus,
-  gradeQueue
-}: {
-  signalSummary: SignalSummary | null;
-  systemSummary: SystemLedgerSummary | null;
-  cycleStatus: CycleStatus;
-  gradeQueue: GradeQueueSummary;
-}) {
-  const verifiedSystems = (systemSummary?.savedLedgerBacked ?? 0) + (systemSummary?.eventMarketBacked ?? 0);
-  const seeded = systemSummary?.seededFallback ?? 0;
-  const savedRows = systemSummary?.totalSavedRows ?? cycleStatus?.summary.totalSavedRows ?? 0;
-  const savedGraded = systemSummary?.totalSavedGradedRows ?? cycleStatus?.summary.totalSavedGradedRows ?? 0;
-  const openRows = systemSummary?.totalOpenRows ?? cycleStatus?.summary.totalOpenRows ?? 0;
-  const eventMarketRows = systemSummary?.totalEventMarketRows ?? 0;
-  const eventMarketGraded = systemSummary?.totalEventMarketGradedRows ?? 0;
-  const pricedSignals = signalSummary?.pricedSignals ?? 0;
-  const signalCount = signalSummary?.totalVisible ?? 0;
-  const liveGames = signalSummary?.gamesCovered ?? 0;
-  const gradeable = bucketValue(gradeQueue, "gradeable");
-  const missingResults = bucketValue(gradeQueue, "missing-event-result");
-  const unmapped = bucketValue(gradeQueue, "unmapped-pick");
-  const missingLine = bucketValue(gradeQueue, "missing-total-or-line");
-  const proofTone = verifiedSystems > 0 ? "good" : savedRows > 0 || eventMarketRows > 0 ? "warn" : "bad";
-
-  return (
-    <section className="mb-5 rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-4">
-      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">Ledger truth</div>
-          <h2 className="mt-2 font-display text-2xl font-semibold text-white">What is proven vs. what is still starter data</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">This separates verified history, open rows, seeded starter systems, live current-game signals, and the exact reason open rows are not graded yet.</p>
-        </div>
-        <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Source: {systemSummary?.source ?? "unavailable"}</div>
-      </div>
-
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <TruthTile label="Verified systems" value={verifiedSystems} tone={proofTone} note={`${systemSummary?.savedLedgerBacked ?? 0} saved-ledger backed · ${systemSummary?.eventMarketBacked ?? 0} EventMarket backed. These can support real record/ROI claims.`} />
-        <TruthTile label="Saved ledger" value={`${savedGraded}/${savedRows}`} tone={savedRows && savedGraded === 0 ? "warn" : savedGraded ? "good" : "neutral"} note={`${openRows} open rows still need grading. Open rows are excluded from ROI until settled.`} />
-        <TruthTile label="Seeded starter systems" value={seeded} tone={seeded ? "warn" : "good"} note={seeded ? "These are useful starter systems, not verified database-backed performance claims yet." : "All visible systems have ledger/backtest provenance."} />
-        <TruthTile label="Live signal coverage" value={`${pricedSignals}/${signalCount}`} tone={pricedSignals ? "good" : signalCount ? "warn" : "bad"} note={`${liveGames} current games covered. Priced signals can move toward actionable; unpriced signals stay watchlist/context.`} />
-      </div>
-
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <TruthTile label="Historical backtest rows" value={`${eventMarketGraded}/${eventMarketRows}`} tone={eventMarketGraded ? "good" : eventMarketRows ? "warn" : "neutral"} note="EventMarket/EventResult rows can upgrade seeded systems into database-backed trend cards when sample size clears the floor." />
-        <TruthTile label="Cycle grading" value={cycleStatus ? `${cycleStatus.summary.gradedMatches}` : "N/A"} tone={cycleStatus?.summary.gradedMatches ? "good" : cycleStatus?.summary.totalOpenRows ? "warn" : "neutral"} note={cycleStatus ? `${cycleStatus.summary.capturedMatches} captured · ${cycleStatus.summary.closingLinesUpdated} closing-line updates · ${cycleStatus.summary.totalOpenRows} open.` : "No cycle snapshot available yet."} />
-        <TruthTile label="Next credibility gate" value={savedGraded || eventMarketGraded ? "prove ROI" : "grade rows"} tone={savedGraded || eventMarketGraded ? "good" : "warn"} note={savedGraded || eventMarketGraded ? "Now sort and badge cards by verified/provisional status." : "Run capture/closing/grade until open saved rows become settled rows."} />
-      </div>
-
-      <div className="mt-4 grid gap-3 md:grid-cols-4">
-        <TruthTile label="Gradeable now" value={gradeable} tone={gradeable ? "good" : "neutral"} note="Open rows with EventResult data that should be able to settle now." />
-        <TruthTile label="Missing results" value={missingResults} tone={missingResults ? "warn" : "good"} note="Rows waiting on final EventResult. This is the main blocker when games are not settled into wins/losses." />
-        <TruthTile label="Mapping blockers" value={unmapped} tone={unmapped ? "warn" : "good"} note="Rows where the pick side cannot be mapped cleanly to a participant/winner." />
-        <TruthTile label="Line blockers" value={missingLine} tone={missingLine ? "warn" : "good"} note="Total rows missing final score total or captured line. These need data repair before grading." />
-      </div>
-
-      <div className="mt-4 rounded-2xl border border-sky-300/15 bg-sky-300/[0.04] p-3 text-xs leading-5 text-sky-100/80">
-        <span className="font-semibold uppercase tracking-[0.14em] text-sky-200">Grade queue next:</span> {queueNextAction(gradeQueue)} <a href="/api/trends/systems/grade?inspect=true&limit=500" className="ml-2 font-semibold text-sky-200 hover:text-sky-100">Inspect JSON</a>
-      </div>
-    </section>
-  );
-}
-
 export default async function TrendsPage({ searchParams }: PageProps) {
-  const resolved = (await searchParams) ?? {};
-  const filters = buildFilters(resolved);
-  const aiQuery = readValue(resolved, "q")?.trim() ?? "";
-  const savedTrendId = readSavedTrendId(resolved);
-  const mode = readMode(readValue(resolved, "mode"));
-  const options = { mode, aiQuery, savedTrendId };
-
-  const [{ payload }, health, refreshStatus, signalSummary, systemSummary, cycleStatus, gradeQueue, trendsCenter] = await Promise.all([
-    getFastCachedTrendDashboard(filters, options),
-    getTrendDashboardCacheHealth(filters, options),
-    readTrendRefreshStatus(),
-    getSignalSummary(filters),
-    getSystemLedgerSummary(filters),
-    readTrendSystemCycleStatus(),
-    getGradeQueueSummary(),
-    getTrendsCenterSummary()
+  const params = (await searchParams) ?? {};
+  const lane = clampLane(one(params.lane));
+  const [snapshot, refreshStatus, cycleStatus] = await Promise.all([
+    getSnapshot(),
+    readTrendRefreshStatus().catch(() => null),
+    readTrendSystemCycleStatus().catch(() => null)
   ]);
 
+  if (!snapshot) return <EmptyCenter />;
+
+  const laneRows = snapshot.placementLanes[lane] ?? [];
+  const matchupRows = snapshot.matchupsByLeague.flatMap((group) => group.matchups).slice(0, 8);
+
   return (
-    <>
-      <CacheStatusStrip status={health.effectiveStatus} exactCards={health.exact.cards} modeDefaultCards={health.modeDefault.cards} age={health.exact.ageSeconds ?? health.modeDefault.ageSeconds} refreshStatus={refreshStatus} cacheVersion={health.cacheVersion} signalSummary={signalSummary} systemSummary={systemSummary} cycleStatus={cycleStatus} />
-      <TrendsCenterPanel snapshot={trendsCenter} signalSummary={signalSummary} systemSummary={systemSummary} gradeQueue={gradeQueue} />
-      <LedgerTruthPanel signalSummary={signalSummary} systemSummary={systemSummary} cycleStatus={cycleStatus} gradeQueue={gradeQueue} />
-      <TrendsDashboardV3 data={payload} />
-    </>
+    <div className="space-y-6">
+      <StatusStrip snapshot={snapshot} refreshStatus={refreshStatus} cycleStatus={cycleStatus} />
+      <Hero snapshot={snapshot} />
+      <LaneNav snapshot={snapshot} activeLane={lane} />
+
+      <section className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">{LANES.find((item) => item.key === lane)?.label} lane</div>
+              <h2 className="mt-2 font-display text-3xl font-semibold text-white">Ranked system cards</h2>
+            </div>
+            <Link href="/sharktrends" className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Open MLB trend board</Link>
+          </div>
+          {laneRows.length ? laneRows.slice(0, 12).map((row) => <SystemCard key={row.id} row={row} />) : <div className="rounded-2xl border border-white/10 bg-slate-950/55 p-6 text-sm text-slate-400">No systems in this lane yet.</div>}
+        </div>
+        <div className="space-y-4">
+          <CommandQueue snapshot={snapshot} />
+          <DistributionPanel snapshot={snapshot} />
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">Current matchup rail</div>
+            <h2 className="mt-2 font-display text-3xl font-semibold text-white">Games with attached trend systems</h2>
+          </div>
+          <Link href="/sharktrends/command-board-v2" className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Game-first command board</Link>
+        </div>
+        {matchupRows.length ? <div className="grid gap-4 lg:grid-cols-2">{matchupRows.map((matchup) => <MatchupCard key={matchup.id} matchup={matchup} />)}</div> : <div className="rounded-2xl border border-white/10 bg-slate-950/55 p-6 text-sm text-slate-400">No current trend matchups. Run sim refresh, market refresh, and trend cycle.</div>}
+      </section>
+
+      <section className="flex flex-wrap gap-3 border-t border-white/10 pt-5 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+        <Link href="/sharktrends/verification" className="hover:text-sky-200">Verification</Link>
+        <Link href="/sharktrends/market-intelligence" className="hover:text-sky-200">Market intelligence</Link>
+        <Link href="/sharktrends/provider-trigger" className="hover:text-sky-200">Provider trigger</Link>
+        <Link href="/sharktrends/proof-terminal" className="hover:text-sky-200">Proof terminal</Link>
+        <Link href="/api/trends/systems/cycle?inactive=true&limit=500" className="hover:text-sky-200">Run cycle</Link>
+      </section>
+    </div>
   );
 }
