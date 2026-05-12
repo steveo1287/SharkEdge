@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   buildMlbConsensusLine,
+  isPlausibleMlbGameTotal,
   noVigMoneylineProbabilities,
   rankMlbMarketSignal
 } from "@/services/simulation/mlb-edge-detector";
@@ -14,6 +15,9 @@ assert.equal(Number(noVig!.hold.toFixed(4)), 0.0348);
 
 assert.equal(noVigMoneylineProbabilities(-150, null), null);
 assert.equal(noVigMoneylineProbabilities(0, 120), null);
+assert.equal(isPlausibleMlbGameTotal(8.5), true);
+assert.equal(isPlausibleMlbGameTotal(0.5), false);
+assert.equal(isPlausibleMlbGameTotal(3.5), false);
 
 const consensus = buildMlbConsensusLine([
   {
@@ -48,6 +52,17 @@ const consensus = buildMlbConsensusLine([
     overPrice: -500,
     underPrice: -500,
     sportsbook: "Bad Hold Book"
+  },
+  {
+    gameId: "g1",
+    awayTeam: "Away",
+    homeTeam: "Home",
+    homeMoneyline: null,
+    awayMoneyline: null,
+    total: 0.5,
+    overPrice: 390,
+    underPrice: 900,
+    sportsbook: "Derivative Total Masquerading As Game Total"
   }
 ], { home: "Home", away: "Away" });
 
@@ -55,8 +70,10 @@ assert.ok(consensus);
 assert.equal(consensus!.moneylineSourceCount, 2);
 assert.equal(consensus!.totalSourceCount, 3);
 assert.equal(consensus!.total, 8.5);
+assert.notEqual(consensus!.overPrice, 390);
 assert.ok(consensus!.warnings.some((warning: string) => warning.includes("Rejected high-hold moneyline")));
 assert.ok(consensus!.warnings.some((warning: string) => warning.includes("Rejected high-hold total")));
+assert.ok(consensus!.warnings.some((warning: string) => warning.includes("Rejected implausible MLB full-game totals")));
 assert.ok(consensus!.homeNoVigProbability && consensus!.homeNoVigProbability > 0.57 && consensus!.homeNoVigProbability < 0.59);
 
 const thinConsensus = buildMlbConsensusLine([
@@ -76,6 +93,25 @@ assert.ok(thinConsensus);
 assert.equal(thinConsensus!.moneylineSourceCount, 1);
 assert.ok(thinConsensus!.warnings.some((warning: string) => warning.includes("Moneyline consensus thin")));
 assert.ok(thinConsensus!.warnings.some((warning: string) => warning.includes("Total consensus thin")));
+
+const badTotalConsensus = buildMlbConsensusLine([
+  {
+    gameId: "g3",
+    awayTeam: "Away",
+    homeTeam: "Home",
+    homeMoneyline: -130,
+    awayMoneyline: 115,
+    total: 1.5,
+    overPrice: -110,
+    underPrice: -110,
+    sportsbook: "Runline Shaped Total"
+  }
+], { home: "Home", away: "Away" });
+assert.ok(badTotalConsensus);
+assert.equal(badTotalConsensus!.total, null);
+assert.equal(badTotalConsensus!.overPrice, null);
+assert.equal(badTotalConsensus!.underPrice, null);
+assert.equal(badTotalConsensus!.totalSourceCount, 0);
 
 // A 6% no-vig moneyline edge should outrank a 1-run total edge after unit normalization.
 assert.ok(rankMlbMarketSignal({ market: "home_ml", edge: 0.06 }) > rankMlbMarketSignal({ market: "over", edge: 1.0 }));

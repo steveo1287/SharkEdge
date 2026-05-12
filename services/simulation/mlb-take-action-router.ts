@@ -3,6 +3,7 @@ import {
   buildMlbEdgesFromProjections as legacyBuildMlbEdgesFromProjections,
   buildMlbConsensusLine,
   fetchMlbSportsbookLines,
+  isPlausibleMlbGameTotal,
   noVigMoneylineProbabilities,
   rankMlbMarketSignal,
   type MlbEdgeGame,
@@ -12,7 +13,7 @@ import {
 import { getCachedMlbTotalsBacktest, getDefaultMlbTotalsCandidate, type MlbTotalsBacktestCandidate } from "./mlb-totals-backtest-engine";
 import { scoreMlbTotalMarket } from "./mlb-total-probability-engine";
 
-export { buildMlbConsensusLine, fetchMlbSportsbookLines, noVigMoneylineProbabilities, rankMlbMarketSignal };
+export { buildMlbConsensusLine, fetchMlbSportsbookLines, isPlausibleMlbGameTotal, noVigMoneylineProbabilities, rankMlbMarketSignal };
 export type { MlbEdgeGame, MlbEdgeProjection, SportsbookLine };
 
 type EdgeResult = Awaited<ReturnType<typeof legacyBuildMlbEdges>>;
