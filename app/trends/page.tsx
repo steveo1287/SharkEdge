@@ -16,6 +16,8 @@ type LaneKey = keyof Snapshot["placementLanes"];
 type PromotionRow = Snapshot["allPromotionRows"][number];
 type MatchupRow = Snapshot["matchupsByLeague"][number]["matchups"][number];
 type TrendRow = MatchupRow["trends"][number];
+type OperatorAlert = Snapshot["operatorAlerts"][number];
+type LeagueBoardRow = Snapshot["leagueCommandBoard"][number];
 
 const LANES: Array<{ key: LaneKey; label: string; note: string }> = [
   { key: "promote", label: "Promote", note: "Best verified and active systems first." },
@@ -65,6 +67,20 @@ function actionTone(action: string | undefined) {
   return "border-sky-300/20 bg-sky-300/[0.07] text-sky-100";
 }
 
+function alertTone(severity: OperatorAlert["severity"]) {
+  if (severity === "good") return "border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-100";
+  if (severity === "bad") return "border-red-300/25 bg-red-400/[0.08] text-red-100";
+  if (severity === "warn") return "border-amber-300/25 bg-amber-300/[0.08] text-amber-100";
+  return "border-sky-300/20 bg-sky-300/[0.07] text-sky-100";
+}
+
+function statusTone(status: string) {
+  if (status === "ACTIONABLE") return "border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-100";
+  if (status === "PROOF_READY") return "border-sky-300/25 bg-sky-400/[0.08] text-sky-100";
+  if (status === "WATCH") return "border-amber-300/25 bg-amber-300/[0.08] text-amber-100";
+  return "border-white/10 bg-white/[0.04] text-slate-300";
+}
+
 function tileTone(kind: "good" | "warn" | "bad" | "neutral") {
   if (kind === "good") return "border-emerald-300/20 bg-emerald-400/[0.07]";
   if (kind === "warn") return "border-amber-300/25 bg-amber-300/[0.07]";
@@ -92,9 +108,9 @@ function StatusStrip({ snapshot, refreshStatus, cycleStatus }: { snapshot: Snaps
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <span className="font-semibold uppercase tracking-[0.18em]">Trends Center status</span>
-          <span className="ml-2 text-slate-300">generated {time(snapshot.generatedAt)} · {snapshot.counts.publishedActive} active systems · {snapshot.counts.matchupTiles} matchup tiles · {snapshot.counts.visiblePromotionRows}/{snapshot.counts.allPromotionRows} ranked systems visible</span>
+          <span className="ml-2 text-slate-300">generated {time(snapshot.generatedAt)} / {snapshot.counts.publishedActive} active systems / {snapshot.counts.matchupTiles} matchup tiles / {snapshot.counts.visiblePromotionRows}/{snapshot.counts.allPromotionRows} ranked systems visible</span>
           <div className="mt-1 text-slate-300">
-            Cycle {cycleRunning ? "running" : cycleStatus?.ok ? "ok" : "idle"} · refresh {refreshRunning ? "running" : refreshStatus?.ok ? "ok" : "idle"} · last cycle success {time(cycleStatus?.lastSuccessAt)}
+            Cycle {cycleRunning ? "running" : cycleStatus?.ok ? "ok" : "idle"} / refresh {refreshRunning ? "running" : refreshStatus?.ok ? "ok" : "idle"} / last cycle success {time(cycleStatus?.lastSuccessAt)}
           </div>
         </div>
         <div className="flex flex-wrap gap-3 font-semibold uppercase tracking-[0.14em]">
@@ -123,11 +139,34 @@ function Hero({ snapshot }: { snapshot: Snapshot }) {
         </div>
       </div>
       <div className="relative mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricTile label="Actionable systems" value={snapshot.counts.actionableSystems} tone={snapshot.counts.actionableSystems ? "good" : "warn"} note={`${snapshot.counts.promotableSystems} promotable · ${snapshot.counts.watchSystems} watch · ${snapshot.counts.benchSystems} bench.`} />
+        <MetricTile label="Actionable systems" value={snapshot.counts.actionableSystems} tone={snapshot.counts.actionableSystems ? "good" : "warn"} note={`${snapshot.counts.promotableSystems} promotable / ${snapshot.counts.watchSystems} watch / ${snapshot.counts.benchSystems} bench.`} />
         <MetricTile label="Current matchups" value={snapshot.counts.matchupTiles} tone={snapshot.counts.matchupTiles ? "good" : "warn"} note={`${snapshot.counts.matchupTrendLinks} trend links attached across ${snapshot.counts.leagueMatchupGroups} leagues.`} />
         <MetricTile label="Verified published" value={`${snapshot.coverage.publishedVerifiedPct}%`} tone={snapshot.counts.verifiedPublished ? "good" : "warn"} note={`${snapshot.counts.verifiedPublished}/${snapshot.counts.publishedTotal} systems have proof packets.`} />
-        <MetricTile label="Blocked systems" value={snapshot.counts.blockedSystems} tone={snapshot.counts.blockedSystems ? "warn" : "good"} note={`${snapshot.coverage.blockedPct}% blocked · ${snapshot.counts.stale} stale saved rows · ${snapshot.counts.neverRun} never run.`} />
+        <MetricTile label="Blocked systems" value={snapshot.counts.blockedSystems} tone={snapshot.counts.blockedSystems ? "warn" : "good"} note={`${snapshot.coverage.blockedPct}% blocked / ${snapshot.counts.stale} stale saved rows / ${snapshot.counts.neverRun} never run.`} />
       </div>
+    </section>
+  );
+}
+
+function OperatorAlerts({ snapshot }: { snapshot: Snapshot }) {
+  if (!snapshot.operatorAlerts.length) {
+    return (
+      <section className="rounded-2xl border border-emerald-300/20 bg-emerald-400/[0.06] p-4 text-sm leading-6 text-emerald-100/90">
+        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-200">Operator alerts</div>
+        <div className="mt-2 font-semibold text-white">No major trend-center blockers are active.</div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="grid gap-3 lg:grid-cols-3">
+      {snapshot.operatorAlerts.map((alert) => (
+        <Link key={alert.id} href={alert.href} className={`rounded-2xl border p-4 transition hover:brightness-110 ${alertTone(alert.severity)}`}>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-80">{alert.severity}</div>
+          <div className="mt-2 text-base font-semibold text-white">{alert.title}</div>
+          <p className="mt-2 text-xs leading-5 text-slate-300">{alert.detail}</p>
+        </Link>
+      ))}
     </section>
   );
 }
@@ -145,6 +184,10 @@ function LaneNav({ snapshot, activeLane }: { snapshot: Snapshot; activeLane: Lan
               <div className="rounded-full border border-white/10 px-2 py-1 text-xs text-white">{rows.length}</div>
             </div>
             <div className="mt-2 text-xs leading-5 text-slate-400">{lane.note}</div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+              <div className="rounded-xl border border-white/10 bg-black/20 px-2 py-1">Top {snapshot.laneStats[lane.key].topScore}</div>
+              <div className="rounded-xl border border-white/10 bg-black/20 px-2 py-1">Avg {snapshot.laneStats[lane.key].averageScore}</div>
+            </div>
           </Link>
         );
       })}
@@ -156,7 +199,7 @@ function ProofLine({ row }: { row: Pick<PromotionRow | TrendRow, "proof" | "veri
   return (
     <div className="mt-3 grid gap-2 text-[11px] leading-5 text-slate-400 sm:grid-cols-3">
       <div className="rounded-xl border border-white/10 bg-black/20 p-2"><span className="text-slate-500">Record</span><div className="font-semibold text-white">{row.proof.record}</div></div>
-      <div className="rounded-xl border border-white/10 bg-black/20 p-2"><span className="text-slate-500">ROI</span><div className={n(row.proof.roiPct) > 0 ? "font-semibold text-emerald-300" : "font-semibold text-slate-300"}>{signedPct(row.proof.roiPct)} · {units(row.proof.profitUnits)}</div></div>
+      <div className="rounded-xl border border-white/10 bg-black/20 p-2"><span className="text-slate-500">ROI</span><div className={n(row.proof.roiPct) > 0 ? "font-semibold text-emerald-300" : "font-semibold text-slate-300"}>{signedPct(row.proof.roiPct)} / {units(row.proof.profitUnits)}</div></div>
       <div className="rounded-xl border border-white/10 bg-black/20 p-2"><span className="text-slate-500">Proof</span><div className={row.verified ? "font-semibold text-emerald-300" : "font-semibold text-amber-200"}>{row.verified ? "Verified" : row.blockers.length ? "Blocked" : "Provisional"}</div></div>
     </div>
   );
@@ -170,7 +213,8 @@ function SystemCard({ row }: { row: PromotionRow }) {
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">#{row.rank}</span>
             <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${actionTone(row.actionState)}`}>{row.actionLabel}</span>
-            <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{row.league} · {row.market}</span>
+            <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{row.league} / {row.market}</span>
+            <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Grade {row.proof.grade}</span>
           </div>
           <h3 className="mt-3 text-lg font-semibold leading-tight text-white">{row.name}</h3>
           <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-400">{row.reason}</p>
@@ -181,7 +225,15 @@ function SystemCard({ row }: { row: PromotionRow }) {
         </div>
       </div>
       <ProofLine row={row} />
-      {row.blockers.length ? <div className="mt-3 rounded-xl border border-amber-300/15 bg-amber-300/[0.05] p-2 text-xs leading-5 text-amber-100/80">Blockers: {row.blockers.slice(0, 3).join(" · ")}</div> : null}
+      <div className="mt-3 grid gap-2 text-[11px] leading-5 text-slate-400 sm:grid-cols-4">
+        <div className="rounded-xl border border-white/10 bg-black/20 p-2"><span className="text-slate-500">Sample</span><div className="font-semibold text-white">{row.proof.sampleSize}</div></div>
+        <div className="rounded-xl border border-white/10 bg-black/20 p-2"><span className="text-slate-500">Win rate</span><div className="font-semibold text-white">{pct(row.proof.winRatePct)}</div></div>
+        <div className="rounded-xl border border-white/10 bg-black/20 p-2"><span className="text-slate-500">CLV</span><div className={n(row.proof.clvPct) >= 0 ? "font-semibold text-emerald-300" : "font-semibold text-red-200"}>{signedPct(row.proof.clvPct)}</div></div>
+        <div className="rounded-xl border border-white/10 bg-black/20 p-2"><span className="text-slate-500">Live</span><div className="font-semibold text-white">{row.activeMatches}</div></div>
+      </div>
+      <div className="mt-3 text-xs leading-5 text-slate-400">{row.actionReason}</div>
+      {row.proof.rules.length ? <div className="mt-3 flex flex-wrap gap-2">{row.proof.rules.slice(0, 4).map((rule) => <span key={`${row.id}-${rule.key}`} className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-1 text-[10px] text-slate-400">{rule.text}</span>)}</div> : null}
+      {row.blockers.length ? <div className="mt-3 rounded-xl border border-amber-300/15 bg-amber-300/[0.05] p-2 text-xs leading-5 text-amber-100/80">Blockers: {row.blockers.slice(0, 3).join(" / ")}</div> : null}
     </Link>
   );
 }
@@ -209,7 +261,7 @@ function MatchupCard({ matchup }: { matchup: MatchupRow }) {
     <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{matchup.league} · {time(matchup.startTime)}</div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{matchup.league} / {time(matchup.startTime)}</div>
           <Link href={matchup.href} className="mt-2 block text-lg font-semibold leading-tight text-white hover:text-sky-100">{matchup.eventLabel}</Link>
         </div>
         <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-right">
@@ -223,10 +275,47 @@ function MatchupCard({ matchup }: { matchup: MatchupRow }) {
         <div>{matchup.verifiedTrends} verified</div>
         <div>{matchup.blockedTrends} blocked</div>
       </div>
+      <div className="mt-3 grid gap-2 text-[11px] leading-5 text-slate-400 sm:grid-cols-2">
+        <div className="rounded-xl border border-white/10 bg-black/20 p-2">Best ROI <span className="font-semibold text-white">{matchup.bestRoiPct == null ? "TBD" : signedPct(matchup.bestRoiPct)}</span></div>
+        <div className="rounded-xl border border-white/10 bg-black/20 p-2">Best units <span className="font-semibold text-white">{matchup.bestProfitUnits == null ? "TBD" : units(matchup.bestProfitUnits)}</span></div>
+      </div>
       <div className="mt-4 space-y-2">
         {matchup.trends.slice(0, 3).map((trend) => <MatchupTrend key={trend.id} trend={trend} />)}
       </div>
     </div>
+  );
+}
+
+function LeagueCommandBoard({ rows }: { rows: LeagueBoardRow[] }) {
+  return (
+    <section className="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">League command board</div>
+          <h2 className="mt-2 font-display text-2xl font-semibold text-white">Where trends are actually live</h2>
+        </div>
+        <Link href="/api/trends/center" className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Inspect JSON</Link>
+      </div>
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {rows.length ? rows.slice(0, 8).map((row) => (
+          <Link key={row.league} href={row.topMatchupHref} className="rounded-2xl border border-white/10 bg-black/20 p-4 transition hover:border-sky-300/30">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold text-white">{row.league}</div>
+                <div className="mt-1 line-clamp-1 text-xs text-slate-400">{row.topMatchupLabel}</div>
+              </div>
+              <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${statusTone(row.status)}`}>{row.status}</span>
+            </div>
+            <div className="mt-3 grid grid-cols-4 gap-2 text-[11px] text-slate-400">
+              <div className="rounded-xl border border-white/10 bg-slate-950/70 p-2">Games <span className="block font-semibold text-white">{row.matchupCount}</span></div>
+              <div className="rounded-xl border border-white/10 bg-slate-950/70 p-2">Trends <span className="block font-semibold text-white">{row.trendCount}</span></div>
+              <div className="rounded-xl border border-white/10 bg-slate-950/70 p-2">Active <span className="block font-semibold text-white">{row.actionableTrendCount}</span></div>
+              <div className="rounded-xl border border-white/10 bg-slate-950/70 p-2">Score <span className="block font-semibold text-white">{row.topScore}</span></div>
+            </div>
+          </Link>
+        )) : <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-slate-400">No league trend rows yet.</div>}
+      </div>
+    </section>
   );
 }
 
@@ -316,6 +405,7 @@ export default async function TrendsPage({ searchParams }: PageProps) {
     <div className="space-y-6">
       <StatusStrip snapshot={snapshot} refreshStatus={refreshStatus} cycleStatus={cycleStatus} />
       <Hero snapshot={snapshot} />
+      <OperatorAlerts snapshot={snapshot} />
       <LaneNav snapshot={snapshot} activeLane={lane} />
 
       <section className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
@@ -345,6 +435,8 @@ export default async function TrendsPage({ searchParams }: PageProps) {
         </div>
         {matchupRows.length ? <div className="grid gap-4 lg:grid-cols-2">{matchupRows.map((matchup) => <MatchupCard key={matchup.id} matchup={matchup} />)}</div> : <div className="rounded-2xl border border-white/10 bg-slate-950/55 p-6 text-sm text-slate-400">No current trend matchups. Run sim refresh, market refresh, and trend cycle.</div>}
       </section>
+
+      <LeagueCommandBoard rows={snapshot.leagueCommandBoard} />
 
       <section className="flex flex-wrap gap-3 border-t border-white/10 pt-5 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
         <Link href="/sharktrends/verification" className="hover:text-sky-200">Verification</Link>

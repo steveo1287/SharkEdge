@@ -23,6 +23,19 @@ function countBy<T extends string>(items: T[]) {
   }, {});
 }
 
+function topEntries(record: Record<string, number>, limit = 3) {
+  return Object.entries(record)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, limit)
+    .map(([key, count]) => ({ key, count }));
+}
+
+function average(values: number[]) {
+  const valid = values.filter((value) => Number.isFinite(value));
+  if (!valid.length) return 0;
+  return Math.round(valid.reduce((sum, value) => sum + value, 0) / valid.length);
+}
+
 function clamp(value: number, min = 0, max = 100) {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, value));
@@ -145,7 +158,7 @@ function proofPacket(system: PublishedTrendSystem) {
     seasons: system.metrics.seasons,
     rules: systemRules(system),
     filters: system.filters,
-    summary: `${formatRecord(system)} · ${signedNumber(system.metrics.profitUnits)}u · ${system.metrics.roiPct}% ROI · ${system.metrics.winRatePct}% hit rate · ${signedPct(system.metrics.clvPct)} CLV`
+    summary: `${formatRecord(system)} / ${signedNumber(system.metrics.profitUnits)}u / ${system.metrics.roiPct}% ROI / ${system.metrics.winRatePct}% hit rate / ${signedPct(system.metrics.clvPct)} CLV`
   };
 }
 
@@ -321,7 +334,7 @@ function promotionReason(system: PublishedTrendSystem) {
   parts.push(`${systemActionability(system).toLowerCase() || "unknown"} action gate`);
   parts.push(proof.summary);
   if (blockers.length) parts.push(`Blockers: ${blockers.join(", ")}`);
-  return parts.join(" · ");
+  return parts.join(" / ");
 }
 
 function buildPromotionRows(systems: PublishedTrendSystem[]) {
@@ -481,6 +494,133 @@ function placementLanes(rows: ReturnType<typeof buildPromotionRows>) {
   };
 }
 
+function laneStats(lanes: ReturnType<typeof placementLanes>) {
+  return Object.fromEntries(
+    Object.entries(lanes).map(([lane, rows]) => {
+      const blockerCounts = countBy(rows.flatMap((row) => row.blockers));
+      return [
+        lane,
+        {
+          count: rows.length,
+          topScore: rows[0]?.score ?? 0,
+          averageScore: average(rows.map((row) => row.score)),
+          verified: rows.filter((row) => row.verified).length,
+          actionable: rows.filter((row) => row.actionState === "ACTIONABLE").length,
+          blocked: rows.filter((row) => row.blockers.length > 0).length,
+          topBlockers: topEntries(blockerCounts, 3)
+        }
+      ];
+    })
+  ) as Record<PlacementTier, {
+    count: number;
+    topScore: number;
+    averageScore: number;
+    verified: number;
+    actionable: number;
+    blocked: number;
+    topBlockers: Array<{ key: string; count: number }>;
+  }>;
+}
+
+function leagueCommandBoard(matchupsByLeague: ReturnType<typeof buildMatchupsByLeague>) {
+  return matchupsByLeague
+    .map((league) => {
+      const topMatchup = league.matchups[0] ?? null;
+      const status = league.actionableTrendCount > 0
+        ? "ACTIONABLE"
+        : league.verifiedTrendCount > 0
+          ? "PROOF_READY"
+          : league.trendCount > 0
+            ? "WATCH"
+            : "EMPTY";
+      return {
+        league: league.league,
+        status,
+        matchupCount: league.matchupCount,
+        trendCount: league.trendCount,
+        activeTrendCount: league.activeTrendCount,
+        verifiedTrendCount: league.verifiedTrendCount,
+        actionableTrendCount: league.actionableTrendCount,
+        averageTopScore: average(league.matchups.map((matchup) => matchup.topScore)),
+        topScore: topMatchup?.topScore ?? 0,
+        topMatchupLabel: topMatchup?.eventLabel ?? "No current matchup",
+        topMatchupHref: topMatchup?.href ?? "/trends"
+      };
+    })
+    .sort((left, right) => right.actionableTrendCount - left.actionableTrendCount || right.topScore - left.topScore || left.league.localeCompare(right.league));
+}
+
+function operatorAlerts(args: {
+  totalMatchups: number;
+  promotableSystems: number;
+  watchSystems: number;
+  blockedSystems: number;
+  freshnessRiskPct: number;
+  publishedSystems: number;
+  verifiedPublished: number;
+  actionableSystems: number;
+}) {
+  const alerts: Array<{
+    id: string;
+    severity: "good" | "warn" | "bad" | "info";
+    title: string;
+    detail: string;
+    href: string;
+  }> = [];
+
+  if (args.totalMatchups === 0) {
+    alerts.push({
+      id: "no-current-matchups",
+      severity: "bad",
+      title: "No current trend matchups",
+      detail: "The trends engine has systems, but nothing is attached to the live slate yet. Refresh market/sim data, then run the trend cycle.",
+      href: "/api/trends/systems/cycle?inactive=true&limit=500"
+    });
+  }
+
+  if (args.actionableSystems > 0) {
+    alerts.push({
+      id: "actionable-ready",
+      severity: "good",
+      title: `${args.actionableSystems} actionable system${args.actionableSystems === 1 ? "" : "s"}`,
+      detail: "These have proof, current qualifiers, price support, and positive current edge. They belong at the top of the workflow.",
+      href: "/trends?lane=promote"
+    });
+  }
+
+  if (args.freshnessRiskPct >= 35) {
+    alerts.push({
+      id: "freshness-risk",
+      severity: "warn",
+      title: `${args.freshnessRiskPct}% saved-row freshness risk`,
+      detail: "A large share of saved trend rows are stale or never run. Refresh before trusting older cards.",
+      href: "/api/trends/systems/cycle?inactive=true&limit=500"
+    });
+  }
+
+  if (args.publishedSystems > 0 && args.verifiedPublished / args.publishedSystems < 0.5) {
+    alerts.push({
+      id: "proof-gap",
+      severity: "warn",
+      title: "Verification coverage is thin",
+      detail: "Less than half of published systems have verified proof packets. Keep provisional systems in Watch or Bench.",
+      href: "/sharktrends/verification"
+    });
+  }
+
+  if (args.blockedSystems > args.promotableSystems + args.watchSystems) {
+    alerts.push({
+      id: "blocker-pressure",
+      severity: "warn",
+      title: "Blockers dominate inventory",
+      detail: "More systems are blocked than ready/watchlisted. The command queue should drive the next cleanup pass.",
+      href: "/trends?lane=bench"
+    });
+  }
+
+  return alerts.slice(0, 5);
+}
+
 export type TrendsCenterSnapshot = Awaited<ReturnType<typeof buildTrendsCenterSnapshot>>;
 
 export async function buildTrendsCenterSnapshot() {
@@ -526,6 +666,18 @@ export async function buildTrendsCenterSnapshot() {
 
   const runCoveragePct = savedActive.length ? Math.round((recent.length / savedActive.length) * 100) : 0;
   const freshnessRiskPct = savedActive.length ? Math.round((stale.length / savedActive.length) * 100) : 0;
+  const laneSummary = laneStats(lanes);
+  const leagueBoard = leagueCommandBoard(matchupsByLeague);
+  const alerts = operatorAlerts({
+    totalMatchups,
+    promotableSystems: promotableSystems.length,
+    watchSystems: watchSystems.length,
+    blockedSystems: blockedSystems.length,
+    freshnessRiskPct,
+    publishedSystems: publishedSystems.length,
+    verifiedPublished: verifiedPublished.length,
+    actionableSystems: actionableSystems.length
+  });
 
   const commandQueue = [
     ...neverRun.slice(0, 5).map((row) => ({
@@ -624,6 +776,9 @@ export async function buildTrendsCenterSnapshot() {
       savedByLeague: countBy(savedActive.map((row) => row.filters.league)),
       savedByMarket: countBy(savedActive.map((row) => row.filters.market))
     },
+    laneStats: laneSummary,
+    leagueCommandBoard: leagueBoard,
+    operatorAlerts: alerts,
     newestRuns: sortByNewestRun(savedActive).slice(0, 8).map((row) => ({
       id: row.id,
       name: row.name,
