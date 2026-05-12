@@ -12,6 +12,16 @@ const MIN_STRONG_SAMPLE = 60;
 
 type TeamSide = "home" | "away";
 type AngleAction = "ACTIONABLE" | "WATCH" | "CONTEXT" | "BLOCKED";
+type FallbackTrendMatch = {
+  gameId: string;
+  league: string;
+  eventLabel: string;
+  startTime?: string | null;
+  status?: string | null;
+  side?: string | null;
+  market?: string | null;
+  price?: number | null;
+};
 
 export type MlbTeamGameTrendAngle = {
   id: string;
@@ -101,6 +111,66 @@ function normalizeId(value: string | null | undefined) {
   return String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
+function splitEventLabel(value: string | null | undefined) {
+  const label = String(value ?? "");
+  const parts = label.includes(" @ ") ? label.split(" @ ") : label.includes(" at ") ? label.split(" at ") : [];
+  if (parts.length !== 2) return null;
+  const away = parts[0]?.trim();
+  const home = parts[1]?.trim();
+  return away && home ? { away, home } : null;
+}
+
+function mergeFallbackRows(rows: MlbTrendBoardRow[], matches: FallbackTrendMatch[] = []) {
+  if (rows.length || !matches.length) return rows;
+  const map = new Map<string, MlbTrendBoardRow>();
+
+  for (const match of matches) {
+    if (String(match.league).toUpperCase() !== "MLB") continue;
+    const teams = splitEventLabel(match.eventLabel);
+    if (!teams) continue;
+    const existing = map.get(match.gameId) ?? {
+      gameId: match.gameId,
+      externalGameId: null,
+      startsAt: match.startTime ?? null,
+      league: "MLB" as const,
+      homeTeamId: normalizeId(teams.home),
+      awayTeamId: normalizeId(teams.away),
+      homeTeamName: teams.home,
+      awayTeamName: teams.away,
+      matchup: `${teams.away} @ ${teams.home}`,
+      currentMoneylineHome: null,
+      currentMoneylineAway: null,
+      currentRunlineHome: null,
+      currentRunlineAway: null,
+      currentRunlinePriceHome: null,
+      currentRunlinePriceAway: null,
+      currentTotal: null,
+      currentTotalOverPrice: null,
+      currentTotalUnderPrice: null,
+      startingPitcherHome: null,
+      startingPitcherAway: null,
+      startingPitcherHandHome: null,
+      startingPitcherHandAway: null,
+      status: match.status ?? null,
+      source: "trend-active-match-fallback"
+    };
+
+    const market = String(match.market ?? "").toLowerCase();
+    const side = String(match.side ?? "").toUpperCase();
+    if (market === "moneyline" && typeof match.price === "number") {
+      if (side === "HOME") existing.currentMoneylineHome = match.price;
+      if (side === "AWAY") existing.currentMoneylineAway = match.price;
+    }
+    if (market === "total") {
+      if (side === "OVER") existing.currentTotalOverPrice = match.price ?? null;
+      if (side === "UNDER") existing.currentTotalUnderPrice = match.price ?? null;
+    }
+    map.set(match.gameId, existing);
+  }
+
+  return [...map.values()];
+}
+
 function moneylineBand(price: number | null | undefined) {
   if (typeof price !== "number" || !Number.isFinite(price)) return null;
   const spread = Math.max(20, Math.round(Math.abs(price) * 0.18));
@@ -133,7 +203,7 @@ function teamDefinition(args: {
   if (!teamId || !teamName) return null;
 
   const conditions: MlbTrendDefinition["conditions"] = [
-    { field: "subject_team_id", op: "eq", value: teamId },
+    { field: "subject_team_name", op: "eq", value: teamName },
     { field: isHome ? "subject_is_home" : "subject_is_away", op: "eq", value: true }
   ];
 
@@ -390,14 +460,25 @@ export function buildMlbTeamGameTrendMatrixFromRows(args: {
 }
 
 export async function buildMlbTeamGameTrendMatrix(): Promise<MlbTeamGameTrendMatrix> {
+  return buildMlbTeamGameTrendMatrixWithFallback();
+}
+
+export async function buildMlbTeamGameTrendMatrixWithFallback(args: {
+  fallbackMatches?: FallbackTrendMatch[];
+} = {}): Promise<MlbTeamGameTrendMatrix> {
   const [historical, board] = await Promise.all([
     loadNormalizedMlbHistoricalTrendRows(),
     loadNormalizedMlbBoardTrendRows()
   ]);
+  const boardRows = mergeFallbackRows(board.rows, args.fallbackMatches);
 
   return buildMlbTeamGameTrendMatrixFromRows({
     historicalRows: historical.rows,
-    boardRows: board.rows,
-    warnings: [...historical.warnings, ...board.warnings]
+    boardRows,
+    warnings: [
+      ...historical.warnings,
+      ...board.warnings,
+      board.rows.length === 0 && boardRows.length > 0 ? "Current MLB board rows were empty; built game shells from active published trend matches without inventing missing markets." : null
+    ].filter((warning): warning is string => Boolean(warning))
   });
 }

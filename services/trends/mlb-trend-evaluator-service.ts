@@ -87,8 +87,12 @@ function resolveHistoricalFieldValue(
       return row.awayTeamId ?? null;
     case "subject_team_id":
       return subject.subjectIsHome ? row.homeTeamId ?? null : subject.subjectIsAway ? row.awayTeamId ?? null : null;
+    case "subject_team_name":
+      return subject.subjectIsHome ? row.homeTeamName ?? null : subject.subjectIsAway ? row.awayTeamName ?? null : null;
     case "opponent_team_id":
       return subject.subjectIsHome ? row.awayTeamId ?? null : subject.subjectIsAway ? row.homeTeamId ?? null : null;
+    case "opponent_team_name":
+      return subject.subjectIsHome ? row.awayTeamName ?? null : subject.subjectIsAway ? row.homeTeamName ?? null : null;
     case "subject_is_home":
       return subject.subjectIsHome;
     case "subject_is_away":

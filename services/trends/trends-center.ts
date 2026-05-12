@@ -1,5 +1,5 @@
 import { buildSavedTrendHref, listSavedTrendRows } from "@/services/trends/saved-systems";
-import { buildMlbTeamGameTrendMatrix } from "@/services/trends/mlb-team-game-trend-matrix";
+import { buildMlbTeamGameTrendMatrixWithFallback } from "@/services/trends/mlb-team-game-trend-matrix";
 import { buildTrendSystemRun } from "@/services/trends/trend-system-engine";
 
 const STALE_RUN_HOURS = 24;
@@ -626,14 +626,19 @@ export type TrendsCenterSnapshot = Awaited<ReturnType<typeof buildTrendsCenterSn
 
 export async function buildTrendsCenterSnapshot() {
   const now = Date.now();
-  const [savedRows, publishedRun, deepMatrixResult] = await Promise.allSettled([
+  const [savedRows, publishedRun] = await Promise.allSettled([
     listSavedTrendRows(),
-    buildTrendSystemRun({ includeInactive: true }),
-    buildMlbTeamGameTrendMatrix()
+    buildTrendSystemRun({ includeInactive: true })
   ]);
 
   if (savedRows.status !== "fulfilled") throw savedRows.reason;
   if (publishedRun.status !== "fulfilled") throw publishedRun.reason;
+
+  const deepMatrixResult = await Promise.allSettled([
+    buildMlbTeamGameTrendMatrixWithFallback({
+      fallbackMatches: publishedRun.value.systems.flatMap((system) => system.activeMatches)
+    })
+  ]).then((results) => results[0]!);
 
   const deepTrendMatrix = deepMatrixResult.status === "fulfilled"
     ? deepMatrixResult.value

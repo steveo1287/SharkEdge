@@ -40,6 +40,7 @@ function compareCondition(
 }
 
 function resolveBoardFieldValue(
+  definition: MlbTrendDefinition,
   row: MlbTrendBoardRow,
   field: MlbTrendCondition["field"]
 ): string | number | boolean | null {
@@ -66,6 +67,10 @@ function resolveBoardFieldValue(
       return row.startingPitcherHandHome ?? null;
     case "starting_pitcher_hand_away":
       return row.startingPitcherHandAway ?? null;
+    case "subject_team_name":
+      return definition.subject?.type === "team" ? definition.subject.teamName ?? null : null;
+    case "opponent_team_name":
+      return null;
     default:
       return null;
   }
@@ -73,7 +78,7 @@ function resolveBoardFieldValue(
 
 function matchesBoardConditions(definition: MlbTrendDefinition, row: MlbTrendBoardRow) {
   return definition.conditions.every((condition) =>
-    compareCondition(resolveBoardFieldValue(row, condition.field), condition)
+    compareCondition(resolveBoardFieldValue(definition, row, condition.field), condition)
   );
 }
 
