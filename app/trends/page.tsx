@@ -159,14 +159,20 @@ function OperatorAlerts({ snapshot }: { snapshot: Snapshot }) {
   }
 
   return (
-    <section className="grid gap-3 lg:grid-cols-3">
-      {snapshot.operatorAlerts.map((alert) => (
-        <Link key={alert.id} href={alert.href} className={`rounded-2xl border p-4 transition hover:brightness-110 ${alertTone(alert.severity)}`}>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-80">{alert.severity}</div>
-          <div className="mt-2 text-base font-semibold text-white">{alert.title}</div>
-          <p className="mt-2 text-xs leading-5 text-slate-300">{alert.detail}</p>
-        </Link>
-      ))}
+    <section className="space-y-3">
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">Operator alerts</div>
+        <h2 className="mt-2 font-display text-2xl font-semibold text-white">What needs attention before trust</h2>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-3">
+        {snapshot.operatorAlerts.map((alert) => (
+          <Link key={alert.id} href={alert.href} className={`rounded-2xl border p-4 transition hover:brightness-110 ${alertTone(alert.severity)}`}>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-80">{alert.severity}</div>
+            <div className="mt-2 text-base font-semibold text-white">{alert.title}</div>
+            <p className="mt-2 text-xs leading-5 text-slate-300">{alert.detail}</p>
+          </Link>
+        ))}
+      </div>
     </section>
   );
 }
