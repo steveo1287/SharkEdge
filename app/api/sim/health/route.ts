@@ -250,7 +250,7 @@ export async function GET() {
       readSimCache<SimPrioritySnapshot>(SIM_CACHE_KEYS.priority),
       readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market),
       readSimCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus),
-      withTimeout(dbCounts(), 3_500, "Database health check").catch(degradedDbCounts),
+      withTimeout(dbCounts(), 12_000, "Database health check").catch(degradedDbCounts),
       withTimeout(sourceHealth(), 3_500, "Source health check").catch(degradedSourceHealth),
       withTimeout(readLatestOddsApiSnapshot(), 1_500, "Odds snapshot health check").catch(() => null)
     ]);

@@ -3,6 +3,7 @@ import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 import { readLatestOddsApiSnapshot, runOddsApiSnapshotPull } from "@/services/odds/the-odds-api-budget-service";
 import { normalizeTeamKey } from "@/lib/utils/team-normalization";
+import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 
 export type SportsbookLine = {
   gameId?: string;
@@ -65,6 +66,18 @@ type MarketSignal = {
   sourceCount: number;
   marketHold: number | null;
   warnings: string[];
+};
+
+type MarketLineHistoryRow = {
+  event_id: string;
+  event_name: string;
+  start_time: Date | string;
+  market_type: string;
+  side: string | null;
+  selection: string | null;
+  sportsbook_name: string | null;
+  price: number | null;
+  point: number | null;
 };
 
 const MAX_MONEYLINE_HOLD = 0.12;
@@ -238,6 +251,11 @@ function namesForEvent(event: PersistedBoardFeed["events"][number]) {
   return { away: away ?? fallbackAway ?? "Away", home: home ?? fallbackHome ?? "Home" };
 }
 
+function namesFromEventName(eventName: string) {
+  const [away, home] = String(eventName ?? "").split(/\s+@\s+|\s+at\s+/i).map((value) => value.trim());
+  return { away: away || "Away", home: home || "Home" };
+}
+
 function lineFromPersistedEvent(event: PersistedBoardFeed["events"][number]): SportsbookLine | null {
   const markets = event.markets ?? [];
   if (!markets.length) return null;
@@ -335,10 +353,85 @@ async function fetchSnapshotLines() {
   }
 }
 
+async function fetchMarketLineHistoryLines() {
+  const startedAt = Date.now();
+  if (!hasUsableServerDatabaseUrl()) return [] as SportsbookLine[];
+
+  try {
+    const rows = await prisma.$queryRaw<MarketLineHistoryRow[]>`
+      WITH latest AS (
+        SELECT DISTINCT ON (mlh.event_id, mlh.sportsbook_name, mlh.market_type, mlh.side, COALESCE(mlh.selection, ''))
+          mlh.event_id,
+          e.name AS event_name,
+          e.start_time,
+          mlh.market_type,
+          mlh.side,
+          mlh.selection,
+          mlh.sportsbook_name,
+          mlh.price,
+          mlh.point
+        FROM market_line_history mlh
+        JOIN events e ON e.id = mlh.event_id
+        JOIN leagues l ON l.id = e.league_id
+        WHERE l.key = 'MLB'
+          AND e.start_time >= now() - interval '1 day'
+          AND e.start_time <= now() + interval '4 days'
+          AND mlh.captured_at >= now() - interval '10 days'
+          AND mlh.market_type IN ('moneyline', 'total')
+          AND mlh.price IS NOT NULL
+        ORDER BY mlh.event_id, mlh.sportsbook_name, mlh.market_type, mlh.side, COALESCE(mlh.selection, ''), mlh.captured_at DESC
+      )
+      SELECT *
+      FROM latest
+      ORDER BY start_time ASC
+      LIMIT 800
+    `;
+
+    const grouped = new Map<string, SportsbookLine>();
+    for (const row of rows) {
+      const names = namesFromEventName(row.event_name);
+      const book = row.sportsbook_name ?? "market_line_history";
+      const key = `${row.event_id}:${book}`;
+      const line = grouped.get(key) ?? {
+        gameId: row.event_id,
+        awayTeam: names.away,
+        homeTeam: names.home,
+        homeMoneyline: null,
+        awayMoneyline: null,
+        total: null,
+        overPrice: null,
+        underPrice: null,
+        sportsbook: book
+      };
+      const side = String(row.side ?? row.selection ?? "").toLowerCase();
+      const selection = String(row.selection ?? "").toLowerCase();
+      if (row.market_type === "moneyline") {
+        if (side.includes("home") || looseTeamMatch(selection, names.home)) line.homeMoneyline = validNumber(row.price);
+        if (side.includes("away") || looseTeamMatch(selection, names.away)) line.awayMoneyline = validNumber(row.price);
+      }
+      if (row.market_type === "total") {
+        line.total = validNumber(row.point) ?? line.total;
+        if (side.includes("over") || selection.includes("over")) line.overPrice = validNumber(row.price);
+        if (side.includes("under") || selection.includes("under")) line.underPrice = validNumber(row.price);
+      }
+      grouped.set(key, line);
+    }
+
+    return [...grouped.values()].filter((line) => line.homeMoneyline !== null || line.awayMoneyline !== null || line.total !== null);
+  } catch (error) {
+    console.warn("[sim-market-refresh] market_line_history fallback failed", {
+      reason: error instanceof Error ? error.message : "unknown error"
+    });
+    return [] as SportsbookLine[];
+  } finally {
+    logTiming("fetchLines.marketLineHistory", startedAt);
+  }
+}
+
 export async function fetchMlbSportsbookLines(options: { allowRefresh?: boolean } = {}) {
   const startedAt = Date.now();
-  const [persisted, external, snapshot] = await Promise.all([fetchPersistedBoardLines(), fetchExternalLines(), fetchSnapshotLines()]);
-  const lines = [...persisted, ...external, ...snapshot];
+  const [persisted, external, snapshot, history] = await Promise.all([fetchPersistedBoardLines(), fetchExternalLines(), fetchSnapshotLines(), fetchMarketLineHistoryLines()]);
+  const lines = [...persisted, ...external, ...snapshot, ...history];
   if (lines.length > 0 || options.allowRefresh === false) {
     logTiming("fetchLines.total", startedAt);
     return lines;
