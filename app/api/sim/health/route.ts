@@ -119,14 +119,25 @@ async function dbCounts(): Promise<DbCounts> {
     "mlb_team_elo_snapshots",
     "mlb_pitcher_rolling_snapshots"
   ];
-  const entries = await Promise.all(tableNames.map(async (name) => [name, await countTable(name)] as const));
+  // Keep this serial. The health endpoint runs alongside refresh jobs on a small
+  // Railway Postgres plan, so concurrent metadata/count probes can exhaust the
+  // connection pool and make a healthy sim snapshot look broken.
+  const entries: Array<readonly [string, Awaited<ReturnType<typeof countTable>>]> = [];
+  const warnings: string[] = [];
+  for (const name of tableNames) {
+    try {
+      entries.push([name, await countTable(name)] as const);
+    } catch (error) {
+      entries.push([name, { exists: false, rows: 0, latest: null }] as const);
+      warnings.push(`Unable to inspect ${name}: ${message(error, "unknown database error")}`);
+    }
+  }
   const tables = Object.fromEntries(entries.map(([name, value]) => [name, value.exists]));
   const counts: Record<string, number | string | null> = {};
   for (const [name, value] of entries) {
     counts[`${name}Rows`] = value.rows;
     counts[`${name}Latest`] = value.latest;
   }
-  const warnings: string[] = [];
   if (!tables.market_line_history && !tables.event_market_snapshot && !tables.current_market_state) warnings.push("No durable market-line table is available for MLB market matching.");
   if (!tables.mlb_v8_player_impact_profiles) warnings.push("MLB v8 player-impact profile table is missing; player-impact weights fall back to defaults.");
   if (!tables.retrosheet_games) warnings.push("Retrosheet warehouse is missing; historical Elo/pitcher priors are not active.");
