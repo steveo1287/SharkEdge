@@ -90,7 +90,10 @@ function iso(value: unknown) {
 
 function parseJson(value: unknown) {
   if (typeof value === "string") {
-    try { return JSON.parse(value); } catch { return value; }
+    try { return JSON.parse(value); } catch (err) {
+      console.error("[parseJson] failed to parse JSON", err instanceof Error ? err.message : err);
+      return value;
+    }
   }
   return value;
 }
@@ -300,7 +303,7 @@ function officialDecisions(rows: LedgerRow[]) {
 }
 
 function payoutForWin(american: number | null | undefined) {
-  if (american == null) return JUICE_PAYOUT;
+  if (american == null || american === 0) return JUICE_PAYOUT;
   return american > 0 ? american / 100 : 100 / Math.abs(american);
 }
 

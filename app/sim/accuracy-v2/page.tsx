@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { getSimModelScorecard } from "@/services/sim/mlb-moneyline-scorecard";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const revalidate = 3600;
 
 type PageProps = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
 
