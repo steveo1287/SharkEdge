@@ -125,5 +125,5 @@ export class OddsApiIoClient {
 
 export function defaultOddsApiIoBookmakers() {
   // The backup plan allows two selected bookmakers; use US MLB books after selection is configured.
-  return process.env.ODDS_API_IO_BOOKMAKERS ?? "DraftKings,FanDuel";
+  return process.env.ODDS_API_IO_BOOKMAKERS ?? "FanDuel,DraftKings";
 }
