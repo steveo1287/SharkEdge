@@ -1,6 +1,6 @@
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import { defaultOddsApiIoBookmakers, OddsApiIoClient } from "@/services/data-providers/odds-api-io/client";
-import { normalizeOddsApiIoEvents, normalizeOddsApiIoOdds, type OddsApiIoNormalizedEvent, type OddsApiIoNormalizedOddsRow } from "@/services/data-providers/odds-api-io/normalizer";
+import { filterOddsApiIoMainBoardRows, normalizeOddsApiIoEvents, normalizeOddsApiIoOdds, type OddsApiIoNormalizedEvent, type OddsApiIoNormalizedOddsRow } from "@/services/data-providers/odds-api-io/normalizer";
 
 const LEAGUE_API_SLUG: Record<string, string> = {
   MLB: "usa-mlb",
@@ -311,7 +311,7 @@ export async function ingestOddsApiIo(options: OddsApiIoIngestionOptions): Promi
   const events = normalizeOddsApiIoEvents(eventsResponse.data, { league: canonical, sport: options.sport })
     .map((event) => ({ ...event, league: canonicalLeague(canonical, options.sport) }))
     .slice(0, options.eventLimit ?? 20);
-  const oddsRows: OddsApiIoNormalizedOddsRow[] = [];
+  const rawOddsRows: OddsApiIoNormalizedOddsRow[] = [];
   const eventIdMap = new Map<string, string>();
 
   await Promise.all(events.map(async (event) => {
@@ -329,16 +329,18 @@ export async function ingestOddsApiIo(options: OddsApiIoIngestionOptions): Promi
       for (const event of group) {
         const payload = payloads.get(event.sourceEventId);
         if (!payload) continue;
-        oddsRows.push(...normalizeOddsApiIoOdds(payload, { sourceEventId: event.sourceEventId, league: event.league, sport: event.sport }));
+        rawOddsRows.push(...normalizeOddsApiIoOdds(payload, { sourceEventId: event.sourceEventId, league: event.league, sport: event.sport }));
       }
     } catch {
       for (const event of group) {
         const oddsResponse = await client.getEventOdds(event.sourceEventId, bookmakers);
         providerMeta.push({ url: oddsResponse.meta.url, status: oddsResponse.meta.status, remaining: oddsResponse.meta.rateLimit.remaining });
-        oddsRows.push(...normalizeOddsApiIoOdds(oddsResponse.data, { sourceEventId: event.sourceEventId, league: event.league, sport: event.sport }));
+        rawOddsRows.push(...normalizeOddsApiIoOdds(oddsResponse.data, { sourceEventId: event.sourceEventId, league: event.league, sport: event.sport }));
       }
     }
   }
+
+  const oddsRows = filterOddsApiIoMainBoardRows(rawOddsRows);
 
   let booksUpserted = 0;
   let snapshotsWritten = 0;

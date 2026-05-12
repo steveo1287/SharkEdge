@@ -49,8 +49,8 @@ const consensus = buildMlbConsensusLine([
     homeMoneyline: -900,
     awayMoneyline: 100,
     total: 12.5,
-    overPrice: -150,
-    underPrice: -150,
+    overPrice: -120,
+    underPrice: 100,
     sportsbook: "Bad Hold Book"
   },
   {
@@ -72,7 +72,6 @@ assert.equal(consensus!.totalSourceCount, 3);
 assert.equal(consensus!.total, 8.5);
 assert.notEqual(consensus!.overPrice, 390);
 assert.ok(consensus!.warnings.some((warning: string) => warning.includes("Rejected high-hold moneyline")));
-assert.ok(consensus!.warnings.some((warning: string) => warning.includes("Rejected high-hold total")));
 assert.ok(consensus!.warnings.some((warning: string) => warning.includes("Rejected implausible or alternate MLB full-game totals")));
 assert.ok(consensus!.homeNoVigProbability && consensus!.homeNoVigProbability > 0.57 && consensus!.homeNoVigProbability < 0.59);
 

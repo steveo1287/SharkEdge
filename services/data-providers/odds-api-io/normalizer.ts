@@ -48,6 +48,18 @@ function normalizePrice(value: unknown): number | null {
   return Math.round(parsed);
 }
 
+function americanImplied(american: number | null | undefined) {
+  if (typeof american !== "number" || !Number.isFinite(american) || american === 0) return null;
+  return american > 0 ? 100 / (american + 100) : Math.abs(american) / (Math.abs(american) + 100);
+}
+
+function noVigHold(left: number | null | undefined, right: number | null | undefined) {
+  const leftProb = americanImplied(left);
+  const rightProb = americanImplied(right);
+  if (leftProb == null || rightProb == null) return null;
+  return leftProb + rightProb - 1;
+}
+
 function date(value: unknown): string | null {
   if (!value) return null;
   const parsed = new Date(String(value));
@@ -257,4 +269,54 @@ export function normalizeOddsApiIoOdds(data: unknown, context: { sourceEventId: 
       capturedAt
     }];
   });
+}
+
+function isPriceInMainTotalRange(price: number | null) {
+  return typeof price === "number" && Number.isFinite(price) && Math.abs(price) <= 180;
+}
+
+function isPlausibleMlbTotal(point: number | null) {
+  return typeof point === "number" && Number.isFinite(point) && point >= 5 && point <= 15.5;
+}
+
+function groupKey(row: OddsApiIoNormalizedOddsRow) {
+  return [row.eventId, row.sportsbookName ?? "book", row.marketType, row.point ?? "np"].join("|");
+}
+
+export function filterOddsApiIoMainBoardRows(rows: OddsApiIoNormalizedOddsRow[]) {
+  const keep: OddsApiIoNormalizedOddsRow[] = [];
+  const totalGroups = new Map<string, OddsApiIoNormalizedOddsRow[]>();
+
+  for (const row of rows) {
+    if (row.marketType === "moneyline" && (row.side === "home" || row.side === "away") && typeof row.price === "number") {
+      keep.push(row);
+      continue;
+    }
+    if (row.marketType === "total" && (row.side === "over" || row.side === "under")) {
+      const group = totalGroups.get(groupKey(row)) ?? [];
+      group.push(row);
+      totalGroups.set(groupKey(row), group);
+    }
+  }
+
+  for (const group of totalGroups.values()) {
+    const over = group.find((row) => row.side === "over") ?? null;
+    const under = group.find((row) => row.side === "under") ?? null;
+    const hold = noVigHold(over?.price ?? null, under?.price ?? null);
+    if (
+      over &&
+      under &&
+      isPlausibleMlbTotal(over.point) &&
+      over.point === under.point &&
+      isPriceInMainTotalRange(over.price) &&
+      isPriceInMainTotalRange(under.price) &&
+      hold !== null &&
+      hold >= -0.03 &&
+      hold <= 0.12
+    ) {
+      keep.push(over, under);
+    }
+  }
+
+  return keep;
 }

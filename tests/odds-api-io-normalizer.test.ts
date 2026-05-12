@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { normalizeOddsApiIoOdds } from "@/services/data-providers/odds-api-io/normalizer";
+import { filterOddsApiIoMainBoardRows, normalizeOddsApiIoOdds } from "@/services/data-providers/odds-api-io/normalizer";
 
 const base = { sourceEventId: "63302141", league: "MLB", sport: "baseball", capturedAt: "2026-05-12T16:00:00.000Z" };
 
@@ -46,5 +46,31 @@ const generic = normalizeOddsApiIoOdds({
 assert.equal(generic.length, 1);
 assert.equal(generic[0].sportsbookName, "Bet365");
 assert.equal(generic[0].price, 140);
+
+const ladder = normalizeOddsApiIoOdds({
+  id: 63302144,
+  bookmakers: {
+    FanDuel: {
+      moneyline: { odds: { home: -135, away: 115 } },
+      totals: {
+        name: "Over/Under",
+        odds: [
+          { hdp: 8.5, over: -108, under: -112 },
+          { hdp: 12.5, over: 390, under: -526 },
+          { hdp: 6.5, over: 158, under: 180 }
+        ]
+      },
+      spreads: { name: "Run Line", odds: [{ hdp: -1.5, home: 168, away: -204 }] }
+    }
+  }
+}, { ...base, sourceEventId: "63302144" });
+
+const mainBoard = filterOddsApiIoMainBoardRows(ladder);
+assert.equal(mainBoard.length, 4);
+assert.equal(mainBoard.filter((row) => row.marketType === "moneyline").length, 2);
+assert.equal(mainBoard.filter((row) => row.marketType === "total").length, 2);
+assert.equal(mainBoard.find((row) => row.marketType === "total")?.point, 8.5);
+assert.equal(mainBoard.some((row) => row.point === 12.5), false);
+assert.equal(mainBoard.some((row) => row.point === 6.5), false);
 
 console.log("odds-api-io-normalizer tests passed");

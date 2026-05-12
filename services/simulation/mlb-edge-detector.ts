@@ -148,7 +148,8 @@ function hasMainTotalPricing(line: Pick<SportsbookLine, "overPrice" | "underPric
   if (over === null && under === null) return true;
   if (over === null || under === null) return false;
   if (Math.abs(over) > MAX_MAIN_TOTAL_PRICE_MAGNITUDE || Math.abs(under) > MAX_MAIN_TOTAL_PRICE_MAGNITUDE) return false;
-  return true;
+  const noVig = noVigTotalProbabilities(over, under);
+  return Boolean(noVig && noVig.hold >= -0.03 && noVig.hold <= MAX_TOTAL_HOLD);
 }
 
 function validNumber(value: unknown) {
