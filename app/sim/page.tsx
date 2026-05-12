@@ -695,9 +695,9 @@ export default async function SimHubPage() {
       ready: !market?.stale && (market?.lineCount ?? 0) > 0
     },
     {
-      href: "/sharktrends",
+      href: "/trends",
       eyebrow: "MLB Trends",
-      title: "Trend Warehouse",
+      title: "Trends Center",
       description: "Historical betting rows, closing-line movement, system matches, and trend validation.",
       count: String(market?.edges.length ?? "-"),
       statusLabel: "Market-linked systems",

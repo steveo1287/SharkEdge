@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 const REDIRECTS: [string, string][] = [
-  ["/trends", "/sharktrends"],
   ["/board", "/"],
   ["/props", "/sim"],
   ["/leagues", "/sim"],
@@ -66,7 +65,6 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     "/sim",
-    "/trends", "/trends/:path*",
     "/board", "/board/:path*",
     "/props", "/props/:path*",
     "/leagues", "/leagues/:path*",
