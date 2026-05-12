@@ -61,13 +61,13 @@ export class OddsApiIoClient {
     return Boolean(this.apiKey);
   }
 
-  private async get(path: string, params: Record<string, string | number | undefined> = {}) {
+  private async request(method: "GET" | "PUT", path: string, params: Record<string, string | number | undefined> = {}) {
     if (!this.apiKey) throw new Error("ODDS_API_IO_KEY is not configured.");
     const url = new URL(`${this.baseUrl}${path}`);
     const search = cleanParams({ apiKey: this.apiKey, ...params });
     url.search = search.toString();
 
-    const response = await fetch(url.toString(), { cache: "no-store" });
+    const response = await fetch(url.toString(), { cache: "no-store", method });
     const meta: OddsApiIoRequestMeta = {
       url: `${url.origin}${url.pathname}`,
       status: response.status,
@@ -86,6 +86,14 @@ export class OddsApiIoClient {
     return { data, meta };
   }
 
+  private async get(path: string, params: Record<string, string | number | undefined> = {}) {
+    return this.request("GET", path, params);
+  }
+
+  private async put(path: string, params: Record<string, string | number | undefined> = {}) {
+    return this.request("PUT", path, params);
+  }
+
   async getEvents(params: OddsApiIoEventsParams) {
     return this.get("/events", params);
   }
@@ -101,9 +109,21 @@ export class OddsApiIoClient {
   async getOddsMovements(params: { eventId: string | number; bookmaker: string; market?: string; hdp?: string }) {
     return this.get("/odds/movements", { eventId: params.eventId, bookmaker: params.bookmaker, market: params.market, hdp: params.hdp });
   }
+
+  async getSelectedBookmakers() {
+    return this.get("/bookmakers/selected");
+  }
+
+  async clearSelectedBookmakers() {
+    return this.put("/bookmakers/selected/clear");
+  }
+
+  async selectBookmakers(bookmakers: string) {
+    return this.put("/bookmakers/selected/select", { bookmakers });
+  }
 }
 
 export function defaultOddsApiIoBookmakers() {
-  // The current backup plan allows two selected bookmakers; these are confirmed allowed.
-  return process.env.ODDS_API_IO_BOOKMAKERS ?? "Bet365,Unibet";
+  // The backup plan allows two selected bookmakers; use US MLB books after selection is configured.
+  return process.env.ODDS_API_IO_BOOKMAKERS ?? "DraftKings,FanDuel";
 }
