@@ -17,6 +17,7 @@ function tokenFromRequest(request: Request) {
 
 function isAuthorized(request: Request) {
   const expected = process.env.CRON_SECRET ?? process.env.ODDS_API_IO_INGEST_SECRET ?? process.env.INGEST_SECRET;
+  if (request.headers.get("x-vercel-cron") === "1") return true;
   if (!expected) return false;
   return tokenFromRequest(request) === expected;
 }
