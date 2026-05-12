@@ -89,6 +89,7 @@ const STRONG_TOTAL_RUN_EDGE = 1.35;
 const WATCH_TOTAL_RUN_EDGE = 0.65;
 const MIN_PLAUSIBLE_MLB_GAME_TOTAL = 5;
 const MAX_PLAUSIBLE_MLB_GAME_TOTAL = 15.5;
+const MAX_MAIN_TOTAL_PRICE_MAGNITUDE = 180;
 
 function round(value: number, digits = 4) {
   return Number(value.toFixed(digits));
@@ -139,6 +140,15 @@ function noVigTotalProbabilities(overOdds: number | null | undefined, underOdds:
   const total = over + under;
   if (!Number.isFinite(total) || total <= 0) return null;
   return { over: round(over / total), under: round(under / total), hold: round(total - 1) };
+}
+
+function hasMainTotalPricing(line: Pick<SportsbookLine, "overPrice" | "underPrice">) {
+  const over = validNumber(line.overPrice);
+  const under = validNumber(line.underPrice);
+  if (over === null && under === null) return true;
+  if (over === null || under === null) return false;
+  if (Math.abs(over) > MAX_MAIN_TOTAL_PRICE_MAGNITUDE || Math.abs(under) > MAX_MAIN_TOTAL_PRICE_MAGNITUDE) return false;
+  return true;
 }
 
 function validNumber(value: unknown) {
@@ -471,8 +481,8 @@ function findLinesForGame(lines: SportsbookLine[], game: { id: string }, matchup
 
 export function buildMlbConsensusLine(lines: SportsbookLine[], matchup: { home: string; away: string }): MlbConsensusLine | null {
   if (!lines.length) return null;
-  const totalEligibleLines = lines.filter((line) => isPlausibleMlbGameTotal(line.total));
-  const rejectedTotalLines = lines.filter((line) => line.total != null && !isPlausibleMlbGameTotal(line.total));
+  const totalEligibleLines = lines.filter((line) => isPlausibleMlbGameTotal(line.total) && hasMainTotalPricing(line));
+  const rejectedTotalLines = lines.filter((line) => line.total != null && (!isPlausibleMlbGameTotal(line.total) || !hasMainTotalPricing(line)));
 
   const moneylineMarkets = lines
     .map((line) => ({ line, noVig: noVigMoneylineProbabilities(line.homeMoneyline, line.awayMoneyline) }))
@@ -497,7 +507,7 @@ export function buildMlbConsensusLine(lines: SportsbookLine[], matchup: { home: 
   if (totalMarkets.length < totalEligibleLines.filter((line) => line.overPrice != null && line.underPrice != null).length) warnings.push("Rejected high-hold total books from consensus.");
   if (rejectedTotalLines.length > 0) {
     const values = [...new Set(rejectedTotalLines.map((line) => line.total).filter((value) => value != null).map(String))].slice(0, 4).join(", ");
-    warnings.push(`Rejected implausible MLB full-game totals (${values || "unknown"}).`);
+    warnings.push(`Rejected implausible or alternate MLB full-game totals (${values || "unknown"}).`);
   }
 
   const homeMoneyline = bestNumeric(lines.map((line) => line.homeMoneyline));
