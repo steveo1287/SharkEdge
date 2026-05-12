@@ -12,6 +12,8 @@ const STATUS_API_MAP: Record<string, string> = {
   upcoming: "pending",
 };
 
+const INTERNAL_EVENT_MATCH_WINDOW_HOURS = 6;
+
 function toApiLeagueSlug(league?: string): string | undefined {
   if (!league) return undefined;
   return LEAGUE_API_SLUG[league.toUpperCase()] ?? league.toLowerCase();
@@ -90,10 +92,12 @@ function eventTokens(eventLabel: string) {
   return normalizeText(eventLabel).split(" ").filter((token) => token.length >= 3 && !["the", "and", "at", "vs"].includes(token));
 }
 
+type InternalEventCandidate = { id: string; name: string; startTime: Date };
+
 async function findEventCandidates(event: OddsApiIoNormalizedEvent, min: Date, max: Date, strictLeague: boolean) {
   if (strictLeague) {
-    return prisma.$queryRaw<Array<{ id: string; name: string }>>`
-      SELECT e.id, e.name
+    return prisma.$queryRaw<InternalEventCandidate[]>`
+      SELECT e.id, e.name, e."startTime"
       FROM events e
       JOIN leagues l ON l.id = e."leagueId"
       WHERE l.key = ${event.league}
@@ -102,8 +106,8 @@ async function findEventCandidates(event: OddsApiIoNormalizedEvent, min: Date, m
       LIMIT 50
     `;
   }
-  return prisma.$queryRaw<Array<{ id: string; name: string }>>`
-    SELECT e.id, e.name
+  return prisma.$queryRaw<InternalEventCandidate[]>`
+    SELECT e.id, e.name, e."startTime"
     FROM events e
     JOIN leagues l ON l.id = e."leagueId"
     WHERE e."startTime" >= ${min}
@@ -117,9 +121,9 @@ async function resolveInternalEventId(event: OddsApiIoNormalizedEvent) {
   try {
     const start = new Date(event.startTime);
     const min = new Date(start);
-    min.setUTCHours(min.getUTCHours() - 24);
+    min.setUTCHours(min.getUTCHours() - INTERNAL_EVENT_MATCH_WINDOW_HOURS);
     const max = new Date(start);
-    max.setUTCHours(max.getUTCHours() + 24);
+    max.setUTCHours(max.getUTCHours() + INTERNAL_EVENT_MATCH_WINDOW_HOURS);
     const tokens = eventTokens(event.eventLabel);
 
     for (const strictLeague of [true, false]) {
@@ -127,8 +131,9 @@ async function resolveInternalEventId(event: OddsApiIoNormalizedEvent) {
       const scored = rows.map((row) => {
         const name = normalizeText(row.name);
         const score = tokens.reduce((total, token) => total + (name.includes(token) ? 1 : 0), 0);
-        return { ...row, score };
-      }).sort((left, right) => right.score - left.score);
+        const timeDeltaMs = Math.abs(new Date(row.startTime).getTime() - start.getTime());
+        return { ...row, score, timeDeltaMs };
+      }).sort((left, right) => right.score - left.score || left.timeDeltaMs - right.timeDeltaMs);
       if (scored[0]?.score) return scored[0].id;
     }
 
@@ -341,15 +346,20 @@ export async function ingestOddsApiIo(options: OddsApiIoIngestionOptions): Promi
   }
 
   const oddsRows = filterOddsApiIoMainBoardRows(rawOddsRows);
+  const writableOddsRows = oddsRows.filter((row) => eventIdMap.has(row.eventId));
 
   let booksUpserted = 0;
   let snapshotsWritten = 0;
   let lineRowsWritten = 0;
-  let skippedOddsRows = 0;
+  let skippedOddsRows = oddsRows.length - writableOddsRows.length;
 
   if (!dryRun) {
-    for (const row of oddsRows) {
-      const eventId = eventIdMap.get(row.eventId) ?? row.eventId;
+    for (const row of writableOddsRows) {
+      const eventId = eventIdMap.get(row.eventId);
+      if (!eventId) {
+        skippedOddsRows += 1;
+        continue;
+      }
       if (row.sportsbookName && await upsertBook(row)) booksUpserted += 1;
       if (row.price == null || row.marketType === "unknown" || row.side === "unknown") {
         skippedOddsRows += 1;
@@ -373,12 +383,12 @@ export async function ingestOddsApiIo(options: OddsApiIoIngestionOptions): Promi
     stats: {
       providerEvents: events.length,
       matchedInternalEvents: eventIdMap.size,
-      oddsRows: oddsRows.length,
+      oddsRows: writableOddsRows.length,
       booksUpserted,
       snapshotsWritten,
       lineRowsWritten,
       skippedOddsRows
     },
-    samples: { events: events.slice(0, 8), oddsRows: oddsRows.slice(0, 12) }
+    samples: { events: events.slice(0, 8), oddsRows: writableOddsRows.slice(0, 12) }
   };
 }
