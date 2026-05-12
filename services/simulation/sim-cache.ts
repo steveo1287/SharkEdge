@@ -1,5 +1,5 @@
-import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
 import type { LeagueKey } from "@/lib/types/domain";
+import { readSnapshotCache, writeSnapshotCache } from "@/services/simulation/sim-snapshot-cache-store";
 import type { PlayerSimV2Output } from "./player-sim-v2";
 
 export const SIM_CACHE_VERSION = "v2";
@@ -177,7 +177,7 @@ function timeoutAfter<T>(ms: number, fallback: T): Promise<T> {
 export async function readSimCache<T extends { expiresAt?: string; stale?: boolean }>(key: string) {
   const startedAt = Date.now();
   const value = await Promise.race([
-    readHotCache<T>(key).then(markSnapshotState).catch(() => null),
+    readSnapshotCache<T>(key).then(markSnapshotState).catch(() => null),
     timeoutAfter<null>(SIM_CACHE_READ_TIMEOUT_MS, null)
   ]);
   console.info(`[sim-cache] read ${key} ${value ? "hit" : "miss"}${value?.stale ? " stale" : ""} ${Date.now() - startedAt}ms`);
@@ -186,7 +186,7 @@ export async function readSimCache<T extends { expiresAt?: string; stale?: boole
 
 export async function writeSimCache<T>(key: string, value: T, ttlSeconds: number) {
   const startedAt = Date.now();
-  await writeHotCache(key, value, ttlSeconds);
+  await writeSnapshotCache(key, value, ttlSeconds);
   console.info(`[sim-cache] write ${key} ttl=${ttlSeconds}s ${Date.now() - startedAt}ms`);
 }
 

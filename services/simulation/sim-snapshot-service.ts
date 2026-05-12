@@ -1,6 +1,6 @@
-import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
 import type { BoardSportSectionView, LeagueKey } from "@/lib/types/domain";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
+import { readSnapshotCache, writeSnapshotCache } from "@/services/simulation/sim-snapshot-cache-store";
 import {
   buildMlbEdgesFromProjections,
   fetchMlbSportsbookLines,
@@ -228,7 +228,7 @@ export function markSnapshotState<T extends { expiresAt?: string; stale?: boolea
 
 export async function readSimCache<T extends { expiresAt?: string; stale?: boolean }>(key: string) {
   const startedAt = Date.now();
-  const value = markSnapshotState(await readHotCache<T>(key));
+  const value = markSnapshotState(await readSnapshotCache<T>(key));
   console.info(`[sim-cache] read ${key} ${value ? "hit" : "miss"}${value?.stale ? " stale" : ""}`);
   logTiming("sim-cache", `read ${key}`, startedAt);
   return value;
@@ -236,7 +236,7 @@ export async function readSimCache<T extends { expiresAt?: string; stale?: boole
 
 async function writeSimCache<T>(key: string, value: T, ttlSeconds: number) {
   const startedAt = Date.now();
-  await writeHotCache(key, value, ttlSeconds);
+  await writeSnapshotCache(key, value, ttlSeconds);
   console.info(`[sim-cache] write ${key} ttl=${ttlSeconds}s`);
   logTiming("sim-cache", `write ${key}`, startedAt);
 }
@@ -339,7 +339,7 @@ function buildPriorityRows(rows: CachedSimGameProjection[], edges: SimMarketSnap
 
 async function writeRefreshStatus(status: Omit<SimRefreshStatusSnapshot, "generatedAt" | "expiresAt" | "stale">) {
   const generatedAt = new Date().toISOString();
-  const previous = await readHotCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus);
+  const previous = await readSnapshotCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus);
   await writeSimCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus, {
     generatedAt,
     expiresAt: expiresAt(FULL_SIM_TTL_SECONDS),
