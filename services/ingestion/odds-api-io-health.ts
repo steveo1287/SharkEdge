@@ -187,7 +187,7 @@ export async function buildOddsApiIoHealth(limit = 25): Promise<OddsApiIoHealthP
   const lineRowsAvailable = marketCoverage.tables.lineHistory > 0;
   const marketMovementAvailable = lineRowsAvailable;
 
-  if (!process.env.ODDS_API_IO_KEY && !process.env.ODDS_API_KEY) blockers.push("Provider API key is not configured.");
+  if (!process.env.ODDS_API_IO_KEY && !process.env.ODDSAPI_IO_KEY) blockers.push("Provider API key is not configured.");
   if (!process.env.CRON_SECRET && !process.env.ODDS_API_IO_INGEST_SECRET && !process.env.INGEST_SECRET) blockers.push("Write/cron secret is not configured.");
   if (!runs.length) blockers.push("No Odds-API.io ingestion runs have been logged.");
   if (!oddsRowsAvailable) blockers.push("No market_odds_snapshots rows are available.");
@@ -197,7 +197,7 @@ export async function buildOddsApiIoHealth(limit = 25): Promise<OddsApiIoHealthP
     generatedAt: new Date().toISOString(),
     sourceNote: "Odds-API.io health tracks ingestion runs, write counts, rate-limit hints, and market-row coverage. Run logging is self-healing and does not require build-time migrations.",
     configured: {
-      apiKey: Boolean(process.env.ODDS_API_IO_KEY ?? process.env.ODDS_API_KEY),
+      apiKey: Boolean(process.env.ODDS_API_IO_KEY ?? process.env.ODDSAPI_IO_KEY),
       writeSecret: Boolean(process.env.CRON_SECRET ?? process.env.ODDS_API_IO_INGEST_SECRET ?? process.env.INGEST_SECRET)
     },
     stats: {

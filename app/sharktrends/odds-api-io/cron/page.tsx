@@ -25,7 +25,7 @@ function latestMlbTime(coverage: Awaited<ReturnType<typeof buildMarketDataSource
 
 export default async function OddsApiIoCronPage() {
   const source = await buildMarketDataSourceSummary();
-  const keySet = Boolean(process.env.ODDS_API_IO_KEY ?? process.env.ODDS_API_KEY);
+  const keySet = Boolean(process.env.ODDS_API_IO_KEY ?? process.env.ODDSAPI_IO_KEY);
   const secretSet = Boolean(process.env.CRON_SECRET ?? process.env.ODDS_API_IO_INGEST_SECRET ?? process.env.INGEST_SECRET);
   const mlb = source.coverage.find((row) => row.league === "MLB");
 
@@ -47,7 +47,7 @@ export default async function OddsApiIoCronPage() {
       </section>
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Metric label="Provider key" value={keySet ? "set" : "missing"} note="ODDS_API_IO_KEY or ODDS_API_KEY." />
+        <Metric label="Provider key" value={keySet ? "set" : "missing"} note="ODDS_API_IO_KEY or ODDSAPI_IO_KEY." />
         <Metric label="Cron secret" value={secretSet ? "set" : "missing"} note="CRON_SECRET or ingest secret." />
         <Metric label="MLB odds rows" value={mlb?.oddsRows ?? 0} note="Rows in market_odds_snapshots for MLB." />
         <Metric label="Latest MLB odds" value={latestMlbTime(source.coverage)} note="Most recent captured odds row." />

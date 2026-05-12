@@ -17,7 +17,7 @@ function Metric({ label, value, note }: { label: string; value: string | number;
 
 export default async function OddsApiIoProviderPage() {
   const marketSource = await buildMarketDataSourceSummary();
-  const configured = Boolean(process.env.ODDS_API_IO_KEY ?? process.env.ODDS_API_KEY);
+  const configured = Boolean(process.env.ODDS_API_IO_KEY ?? process.env.ODDSAPI_IO_KEY);
   const writeProtected = Boolean(process.env.CRON_SECRET ?? process.env.ODDS_API_IO_INGEST_SECRET ?? process.env.INGEST_SECRET);
   const dryRunHref = "/api/admin/ingest/odds-api-io?sport=baseball&league=MLB&status=upcoming&eventLimit=5&dryRun=true";
 

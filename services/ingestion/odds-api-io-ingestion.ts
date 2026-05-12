@@ -95,19 +95,19 @@ async function findEventCandidates(event: OddsApiIoNormalizedEvent, min: Date, m
     return prisma.$queryRaw<Array<{ id: string; name: string }>>`
       SELECT e.id, e.name
       FROM events e
-      JOIN leagues l ON l.id = e.league_id
+      JOIN leagues l ON l.id = e."leagueId"
       WHERE l.key = ${event.league}
-        AND e.start_time >= ${min}
-        AND e.start_time <= ${max}
+        AND e."startTime" >= ${min}
+        AND e."startTime" <= ${max}
       LIMIT 50
     `;
   }
   return prisma.$queryRaw<Array<{ id: string; name: string }>>`
     SELECT e.id, e.name
     FROM events e
-    JOIN leagues l ON l.id = e.league_id
-    WHERE e.start_time >= ${min}
-      AND e.start_time <= ${max}
+    JOIN leagues l ON l.id = e."leagueId"
+    WHERE e."startTime" >= ${min}
+      AND e."startTime" <= ${max}
     LIMIT 100
   `;
 }
@@ -243,6 +243,34 @@ async function writeLineHistory(row: OddsApiIoNormalizedOddsRow, eventId: string
   `;
 }
 
+function chunk<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
+}
+
+function oddsPayloadsByEventId(data: unknown, events: OddsApiIoNormalizedEvent[]) {
+  const byId = new Map<string, unknown>();
+  const fallback = new Map(events.map((event) => [String(event.sourceEventId), event]));
+  const rows = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray((data as Record<string, unknown>).data) ? (data as Record<string, unknown>).data as unknown[] : [data];
+
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const obj = row as Record<string, unknown>;
+    const id = String(obj.id ?? obj.eventId ?? obj.event_id ?? "").trim();
+    if (id) byId.set(id, obj);
+  }
+
+  if (byId.size === 1 && events.length === 1 && !byId.has(events[0].sourceEventId)) {
+    return new Map([[events[0].sourceEventId, rows[0]]]);
+  }
+
+  for (const event of fallback.values()) {
+    if (!byId.has(event.sourceEventId) && rows.length === 1 && events.length === 1) byId.set(event.sourceEventId, rows[0]);
+  }
+  return byId;
+}
+
 export async function ingestOddsApiIo(options: OddsApiIoIngestionOptions): Promise<OddsApiIoIngestionResult> {
   const dryRun = options.dryRun ?? true;
   const client = new OddsApiIoClient();
@@ -285,12 +313,30 @@ export async function ingestOddsApiIo(options: OddsApiIoIngestionOptions): Promi
   const oddsRows: OddsApiIoNormalizedOddsRow[] = [];
   const eventIdMap = new Map<string, string>();
 
-  for (const event of events) {
+  await Promise.all(events.map(async (event) => {
     const internalEventId = await resolveInternalEventId(event);
     if (internalEventId) eventIdMap.set(event.sourceEventId, internalEventId);
-    const oddsResponse = await client.getEventOdds(event.sourceEventId, bookmakers);
-    providerMeta.push({ url: oddsResponse.meta.url, status: oddsResponse.meta.status, remaining: oddsResponse.meta.rateLimit.remaining });
-    oddsRows.push(...normalizeOddsApiIoOdds(oddsResponse.data, { sourceEventId: event.sourceEventId, league: event.league, sport: event.sport }));
+  }));
+
+  for (const group of chunk(events, 10)) {
+    try {
+      const oddsResponse = group.length > 1
+        ? await client.getMultiOdds(group.map((event) => event.sourceEventId), bookmakers)
+        : await client.getEventOdds(group[0].sourceEventId, bookmakers);
+      providerMeta.push({ url: oddsResponse.meta.url, status: oddsResponse.meta.status, remaining: oddsResponse.meta.rateLimit.remaining });
+      const payloads = oddsPayloadsByEventId(oddsResponse.data, group);
+      for (const event of group) {
+        const payload = payloads.get(event.sourceEventId);
+        if (!payload) continue;
+        oddsRows.push(...normalizeOddsApiIoOdds(payload, { sourceEventId: event.sourceEventId, league: event.league, sport: event.sport }));
+      }
+    } catch {
+      for (const event of group) {
+        const oddsResponse = await client.getEventOdds(event.sourceEventId, bookmakers);
+        providerMeta.push({ url: oddsResponse.meta.url, status: oddsResponse.meta.status, remaining: oddsResponse.meta.rateLimit.remaining });
+        oddsRows.push(...normalizeOddsApiIoOdds(oddsResponse.data, { sourceEventId: event.sourceEventId, league: event.league, sport: event.sport }));
+      }
+    }
   }
 
   let booksUpserted = 0;

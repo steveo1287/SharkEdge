@@ -30,10 +30,22 @@ function text(value: unknown) {
 function num(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
+    const cleaned = value.replace(/^\+/, "").trim();
+    const parsed = Number(cleaned);
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function normalizePrice(value: unknown): number | null {
+  const parsed = num(value);
+  if (parsed == null || parsed <= 0) return parsed;
+  // Odds-API.io examples expose decimal odds. SharkEdge market math expects American odds.
+  if (parsed > 1 && parsed < 50) {
+    const american = parsed >= 2 ? (parsed - 1) * 100 : -100 / (parsed - 1);
+    return Math.round(american);
+  }
+  return Math.round(parsed);
 }
 
 function date(value: unknown): string | null {
@@ -95,6 +107,7 @@ export function normalizeOddsApiIoEvents(data: unknown, fallback: { league: stri
 function inferMarket(key: string) {
   const lower = key.toLowerCase();
   if (lower.includes("money") || lower === "ml" || lower.includes("h2h")) return "moneyline";
+  if (lower === "1x2" || lower.includes("home_away")) return "moneyline";
   if (lower.includes("spread") || lower.includes("handicap") || lower.includes("hdp")) return "spread";
   if (lower.includes("total") || lower.includes("over") || lower.includes("under")) return "total";
   return lower.replace(/[^a-z0-9]+/g, "_") || "unknown";
@@ -116,11 +129,17 @@ function looksLikeOutcome(value: unknown): value is Record<string, unknown> {
   return row.price !== undefined || row.odds !== undefined || row.american !== undefined || row.name !== undefined || row.selection !== undefined;
 }
 
-function collectOutcomes(node: unknown, path: string[] = []): Array<{ path: string[]; outcome: Record<string, unknown> }> {
+function collectOutcomes(node: unknown, path: string[] = [], inherited: Record<string, unknown> = {}): Array<{ path: string[]; outcome: Record<string, unknown> }> {
   if (!node || typeof node !== "object") return [];
-  if (looksLikeOutcome(node)) return [{ path, outcome: node }];
-  if (Array.isArray(node)) return node.flatMap((item: unknown, index: number) => collectOutcomes(item, [...path, String(index)]));
-  return Object.entries(node as Record<string, unknown>).flatMap(([key, value]: [string, unknown]) => collectOutcomes(value, [...path, key]));
+  if (looksLikeOutcome(node)) return [{ path, outcome: { ...inherited, ...(node as Record<string, unknown>) } }];
+  if (Array.isArray(node)) return node.flatMap((item: unknown, index: number) => collectOutcomes(item, [...path, String(index)], inherited));
+  const row = node as Record<string, unknown>;
+  const nextInherited = {
+    ...inherited,
+    ...(row.bookmaker || row.bookmakerName || row.sportsbook ? { bookmaker: row.bookmaker ?? row.bookmakerName ?? row.sportsbook } : {}),
+    ...(row.market || row.marketType || row.key ? { market: row.market ?? row.marketType ?? row.key } : {})
+  };
+  return Object.entries(row).flatMap(([key, value]: [string, unknown]) => collectOutcomes(value, [...path, key], nextInherited));
 }
 
 function bookmakerName(path: string[], row: Record<string, unknown>) {
@@ -128,6 +147,21 @@ function bookmakerName(path: string[], row: Record<string, unknown>) {
 }
 
 const OUTCOME_SIDE_KEYS = ["home", "away", "over", "under", "draw"] as const;
+
+function arrayFromMarketNode(node: unknown): Array<{ key: string | null; value: unknown }> {
+  if (Array.isArray(node)) return node.map((value, index) => ({ key: String(index), value }));
+  if (!node || typeof node !== "object") return [];
+  return Object.entries(node as Record<string, unknown>).map(([key, value]) => {
+    if (value && typeof value === "object" && !Array.isArray(value)) return { key, value: { key, ...(value as Record<string, unknown>) } };
+    return { key, value };
+  });
+}
+
+function oddsArray(odds: unknown): Record<string, unknown>[] {
+  if (Array.isArray(odds)) return odds.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object"));
+  if (odds && typeof odds === "object") return [odds as Record<string, unknown>];
+  return [];
+}
 
 function normalizeBookmakersOdds(
   event: Record<string, unknown>,
@@ -138,23 +172,21 @@ function normalizeBookmakersOdds(
   let idx = 0;
 
   for (const [bkName, markets] of Object.entries(bookmakers)) {
-    if (!Array.isArray(markets)) continue;
-    for (const market of markets) {
+    for (const marketEntry of arrayFromMarketNode(markets)) {
+      const market = marketEntry.value;
       if (!market || typeof market !== "object") continue;
       const m = market as Record<string, unknown>;
-      const marketType = inferMarket(text(m.name ?? ""));
-      const odds = m.odds;
-      if (!Array.isArray(odds)) continue;
-      for (const outcome of odds) {
-        if (!outcome || typeof outcome !== "object") continue;
-        const o = outcome as Record<string, unknown>;
+      const marketType = inferMarket(text(m.name ?? m.market ?? m.marketName ?? m.key ?? marketEntry.key ?? ""));
+      for (const o of oddsArray(m.odds ?? m.outcomes ?? m.prices ?? m)) {
         const hdp = num(o.hdp);
         const label = o.label ? text(o.label) : null;
         for (const sideKey of OUTCOME_SIDE_KEYS) {
-          const price = num(o[sideKey]);
+          const price = normalizePrice(o[sideKey]);
           if (price == null) continue;
           const selection = label ?? sideKey;
-          const side = inferSide(selection, marketType);
+          const side = sideKey === "home" || sideKey === "away" || sideKey === "over" || sideKey === "under" || sideKey === "draw"
+            ? sideKey
+            : inferSide(selection, marketType);
           const sourceSnapshotId = idSafe(`${context.sourceEventId}:${bkName}:${marketType}:${side}:${selection}:${hdp ?? "np"}:${idx}`);
           idx++;
           rows.push({
@@ -190,7 +222,7 @@ export function normalizeOddsApiIoOdds(data: unknown, context: { sourceEventId: 
 
   const outcomes = collectOutcomes(data);
   return outcomes.flatMap(({ path, outcome }: { path: string[]; outcome: Record<string, unknown> }, index: number): OddsApiIoNormalizedOddsRow[] => {
-    const price = num(outcome.price ?? outcome.odds ?? outcome.american ?? outcome.value);
+    const price = normalizePrice(outcome.price ?? outcome.odds ?? outcome.american ?? outcome.value);
     if (price == null) return [];
     const marketType = inferMarket(text(outcome.market ?? outcome.marketType ?? outcome.key ?? path.find((item: string) => /money|h2h|spread|handicap|total|over|under/i.test(item)) ?? "unknown"));
     const selection = text(outcome.name ?? outcome.selection ?? outcome.team ?? outcome.label ?? outcome.side) || null;
