@@ -13,6 +13,7 @@ const STATUS_API_MAP: Record<string, string> = {
 };
 
 const INTERNAL_EVENT_MATCH_WINDOW_HOURS = 6;
+const INTERNAL_EVENT_START_GRACE_MINUTES = 15;
 
 function toApiLeagueSlug(league?: string): string | undefined {
   if (!league) return undefined;
@@ -120,10 +121,12 @@ async function resolveInternalEventId(event: OddsApiIoNormalizedEvent) {
   if (!event.startTime) return null;
   try {
     const start = new Date(event.startTime);
-    const min = new Date(start);
+    let min = new Date(start);
     min.setUTCHours(min.getUTCHours() - INTERNAL_EVENT_MATCH_WINDOW_HOURS);
     const max = new Date(start);
     max.setUTCHours(max.getUTCHours() + INTERNAL_EVENT_MATCH_WINDOW_HOURS);
+    const earliestPregameStart = new Date(Date.now() - INTERNAL_EVENT_START_GRACE_MINUTES * 60_000);
+    if (min < earliestPregameStart) min = earliestPregameStart;
     const tokens = eventTokens(event.eventLabel);
 
     for (const strictLeague of [true, false]) {
