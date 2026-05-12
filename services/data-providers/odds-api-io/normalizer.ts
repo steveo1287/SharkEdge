@@ -71,6 +71,18 @@ function teamName(event: Record<string, unknown>, keys: string[]) {
   return "";
 }
 
+function objectText(value: unknown, keys: string[]) {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (value && typeof value === "object") {
+    const row = value as Record<string, unknown>;
+    for (const key of keys) {
+      const candidate = row[key];
+      if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+    }
+  }
+  return "";
+}
+
 function rowsFromUnknown(data: unknown): unknown[] {
   if (Array.isArray(data)) return data;
   if (!data || typeof data !== "object") return [];
@@ -95,7 +107,7 @@ export function normalizeOddsApiIoEvents(data: unknown, fallback: { league: stri
     return [{
       sourceEventId,
       league: (leagueStr ?? text(event.leagueKey ?? fallback.league)).toUpperCase(),
-      sport: text(event.sport ?? fallback.sport) || null,
+      sport: objectText(event.sport, ["slug", "name", "key"]) || text(fallback.sport) || null,
       eventLabel,
       startTime: date(event.startTime ?? event.start_time ?? event.commence_time ?? event.date),
       status: text(event.status ?? event.state) || null,

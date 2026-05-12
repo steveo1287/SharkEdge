@@ -303,13 +303,14 @@ export async function ingestOddsApiIo(options: OddsApiIoIngestionOptions): Promi
 
   const window = dateWindow(options.from, options.to);
   const canonical = canonicalLeague(options.league, options.sport);
-  const eventsResponse = await client.getEvents({ sport: options.sport, league: toApiLeagueSlug(options.league), status: toApiStatus(options.status ?? "upcoming"), from: window.from, to: window.to, bookmaker: options.bookmaker });
+  const bookmakers = options.bookmakers ?? defaultOddsApiIoBookmakers();
+  const primaryBookmaker = options.bookmaker ?? bookmakers.split(",").map((book) => book.trim()).find(Boolean);
+  const eventsResponse = await client.getEvents({ sport: options.sport, league: toApiLeagueSlug(options.league), status: toApiStatus(options.status ?? "upcoming"), from: window.from, to: window.to, bookmaker: primaryBookmaker });
   providerMeta.push({ url: eventsResponse.meta.url, status: eventsResponse.meta.status, remaining: eventsResponse.meta.rateLimit.remaining });
 
   const events = normalizeOddsApiIoEvents(eventsResponse.data, { league: canonical, sport: options.sport })
     .map((event) => ({ ...event, league: canonicalLeague(canonical, options.sport) }))
     .slice(0, options.eventLimit ?? 20);
-  const bookmakers = options.bookmakers ?? defaultOddsApiIoBookmakers();
   const oddsRows: OddsApiIoNormalizedOddsRow[] = [];
   const eventIdMap = new Map<string, string>();
 
