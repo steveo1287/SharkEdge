@@ -1,4 +1,5 @@
 import { buildSavedTrendHref, listSavedTrendRows } from "@/services/trends/saved-systems";
+import { buildMlbTeamGameTrendMatrix } from "@/services/trends/mlb-team-game-trend-matrix";
 import { buildTrendSystemRun } from "@/services/trends/trend-system-engine";
 
 const STALE_RUN_HOURS = 24;
@@ -625,13 +626,37 @@ export type TrendsCenterSnapshot = Awaited<ReturnType<typeof buildTrendsCenterSn
 
 export async function buildTrendsCenterSnapshot() {
   const now = Date.now();
-  const [savedRows, publishedRun] = await Promise.all([
+  const [savedRows, publishedRun, deepMatrixResult] = await Promise.allSettled([
     listSavedTrendRows(),
-    buildTrendSystemRun({ includeInactive: true })
+    buildTrendSystemRun({ includeInactive: true }),
+    buildMlbTeamGameTrendMatrix()
   ]);
 
-  const savedActive = savedRows.filter((row) => !row.archivedAt);
-  const savedArchived = savedRows.filter((row) => row.archivedAt);
+  if (savedRows.status !== "fulfilled") throw savedRows.reason;
+  if (publishedRun.status !== "fulfilled") throw publishedRun.reason;
+
+  const deepTrendMatrix = deepMatrixResult.status === "fulfilled"
+    ? deepMatrixResult.value
+    : {
+        generatedAt: new Date(now).toISOString(),
+        source: "mlb_team_game_trend_matrix" as const,
+        historicalRows: 0,
+        boardRows: 0,
+        warnings: [deepMatrixResult.reason instanceof Error ? deepMatrixResult.reason.message : "Failed to build MLB team/game trend matrix."],
+        games: [],
+        teamDepthBoard: [],
+        summary: {
+          games: 0,
+          teams: 0,
+          angles: 0,
+          actionable: 0,
+          watch: 0,
+          blocked: 0
+        }
+      };
+
+  const savedActive = savedRows.value.filter((row) => !row.archivedAt);
+  const savedArchived = savedRows.value.filter((row) => row.archivedAt);
   const neverRun = savedActive.filter((row) => !row.lastRunAt);
   const stale = savedActive.filter((row) => {
     const age = hoursSince(row.lastRunAt, now);
@@ -644,7 +669,7 @@ export async function buildTrendsCenterSnapshot() {
   const power = savedActive.filter((row) => row.mode === "power");
   const simple = savedActive.filter((row) => row.mode === "simple");
 
-  const publishedSystems = publishedRun.systems;
+  const publishedSystems = publishedRun.value.systems;
   const publishedActive = publishedSystems.filter((system) => system.activeMatches.length > 0);
   const publishedInactive = publishedSystems.filter((system) => system.activeMatches.length === 0);
   const publishedActionable = publishedSystems.filter((system) => systemActionability(system).includes("ACTIVE") || systemActionability(system).includes("REVIEW"));
@@ -729,7 +754,7 @@ export async function buildTrendsCenterSnapshot() {
       neverRun: neverRun.length,
       stale: stale.length,
       recent: recent.length,
-      savedTotal: savedRows.length,
+      savedTotal: savedRows.value.length,
       savedActive: savedActive.length,
       publishedTotal: publishedSystems.length,
       publishedActive: publishedActive.length,
@@ -749,7 +774,10 @@ export async function buildTrendsCenterSnapshot() {
       leagueMatchupGroups: matchupsByLeague.length,
       matchupTiles: totalMatchups,
       matchupTrendLinks: totalMatchupTrends,
-      activeMatches: publishedRun.summary.activeMatches
+      activeMatches: publishedRun.value.summary.activeMatches,
+      deepMatrixGames: deepTrendMatrix.summary.games,
+      deepMatrixAngles: deepTrendMatrix.summary.angles,
+      deepMatrixActionable: deepTrendMatrix.summary.actionable
     },
     coverage: {
       runCoveragePct,
@@ -762,10 +790,10 @@ export async function buildTrendsCenterSnapshot() {
     },
     distribution: {
       bySport: countBy(publishedSystems.map((system) => system.sport)),
-      byLeague: publishedRun.summary.byLeague,
+      byLeague: publishedRun.value.summary.byLeague,
       byMarket: countBy(publishedSystems.map((system) => system.market)),
       byMode: countBy(savedActive.map((row) => row.mode)),
-      byCategory: publishedRun.summary.byCategory,
+      byCategory: publishedRun.value.summary.byCategory,
       byPromotionTier: countBy(allPromotionRows.map((system) => system.tier)),
       byActionState: countBy(allPromotionRows.map((system) => system.actionState)),
       byBlocker: countBy(allPromotionRows.flatMap((system) => system.blockers)),
@@ -776,6 +804,7 @@ export async function buildTrendsCenterSnapshot() {
       savedByLeague: countBy(savedActive.map((row) => row.filters.league)),
       savedByMarket: countBy(savedActive.map((row) => row.filters.market))
     },
+    deepTrendMatrix,
     laneStats: laneSummary,
     leagueCommandBoard: leagueBoard,
     operatorAlerts: alerts,

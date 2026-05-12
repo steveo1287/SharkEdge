@@ -18,6 +18,8 @@ type MatchupRow = Snapshot["matchupsByLeague"][number]["matchups"][number];
 type TrendRow = MatchupRow["trends"][number];
 type OperatorAlert = Snapshot["operatorAlerts"][number];
 type LeagueBoardRow = Snapshot["leagueCommandBoard"][number];
+type DeepMatrixGame = Snapshot["deepTrendMatrix"]["games"][number];
+type DeepMatrixAngle = DeepMatrixGame["topAngles"][number];
 
 const LANES: Array<{ key: LaneKey; label: string; note: string }> = [
   { key: "promote", label: "Promote", note: "Best verified and active systems first." },
@@ -81,6 +83,13 @@ function statusTone(status: string) {
   return "border-white/10 bg-white/[0.04] text-slate-300";
 }
 
+function angleTone(action: DeepMatrixAngle["action"]) {
+  if (action === "ACTIONABLE") return "border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-100";
+  if (action === "WATCH") return "border-sky-300/25 bg-sky-400/[0.08] text-sky-100";
+  if (action === "CONTEXT") return "border-amber-300/25 bg-amber-300/[0.08] text-amber-100";
+  return "border-red-300/20 bg-red-400/[0.07] text-red-100";
+}
+
 function tileTone(kind: "good" | "warn" | "bad" | "neutral") {
   if (kind === "good") return "border-emerald-300/20 bg-emerald-400/[0.07]";
   if (kind === "warn") return "border-amber-300/25 bg-amber-300/[0.07]";
@@ -142,7 +151,7 @@ function Hero({ snapshot }: { snapshot: Snapshot }) {
         <MetricTile label="Actionable systems" value={snapshot.counts.actionableSystems} tone={snapshot.counts.actionableSystems ? "good" : "warn"} note={`${snapshot.counts.promotableSystems} promotable / ${snapshot.counts.watchSystems} watch / ${snapshot.counts.benchSystems} bench.`} />
         <MetricTile label="Current matchups" value={snapshot.counts.matchupTiles} tone={snapshot.counts.matchupTiles ? "good" : "warn"} note={`${snapshot.counts.matchupTrendLinks} trend links attached across ${snapshot.counts.leagueMatchupGroups} leagues.`} />
         <MetricTile label="Verified published" value={`${snapshot.coverage.publishedVerifiedPct}%`} tone={snapshot.counts.verifiedPublished ? "good" : "warn"} note={`${snapshot.counts.verifiedPublished}/${snapshot.counts.publishedTotal} systems have proof packets.`} />
-        <MetricTile label="Blocked systems" value={snapshot.counts.blockedSystems} tone={snapshot.counts.blockedSystems ? "warn" : "good"} note={`${snapshot.coverage.blockedPct}% blocked / ${snapshot.counts.stale} stale saved rows / ${snapshot.counts.neverRun} never run.`} />
+        <MetricTile label="Deep matrix" value={snapshot.counts.deepMatrixAngles} tone={snapshot.counts.deepMatrixAngles ? "good" : "warn"} note={`${snapshot.counts.deepMatrixGames} games / ${snapshot.counts.deepMatrixActionable} actionable team-game angles.`} />
       </div>
     </section>
   );
@@ -325,6 +334,83 @@ function LeagueCommandBoard({ rows }: { rows: LeagueBoardRow[] }) {
   );
 }
 
+function DeepAngle({ angle }: { angle: DeepMatrixAngle }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-white">{angle.betLabel}</div>
+          <div className="mt-1 text-[11px] text-slate-500">{angle.market} / sample {angle.sampleSize} / signal {angle.signalScore.toFixed(1)}</div>
+        </div>
+        <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${angleTone(angle.action)}`}>{angle.action}</span>
+      </div>
+      <div className="mt-2 grid gap-2 text-[11px] text-slate-400 sm:grid-cols-4">
+        <div className="rounded-lg border border-white/10 bg-slate-950/60 p-2">Record <span className="block font-semibold text-white">{angle.record}</span></div>
+        <div className="rounded-lg border border-white/10 bg-slate-950/60 p-2">Hit <span className="block font-semibold text-white">{angle.hitRate == null ? "TBD" : pct(angle.hitRate)}</span></div>
+        <div className="rounded-lg border border-white/10 bg-slate-950/60 p-2">ROI <span className={n(angle.roi) > 0 ? "block font-semibold text-emerald-300" : "block font-semibold text-slate-300"}>{angle.roi == null ? "TBD" : signedPct(angle.roi)}</span></div>
+        <div className="rounded-lg border border-white/10 bg-slate-950/60 p-2">CLV/Risk <span className="block font-semibold text-white">{angle.overfitRisk.toFixed(0)}</span></div>
+      </div>
+      <div className="mt-2 text-xs leading-5 text-slate-400">{angle.reasons.slice(0, 2).join(" / ")}</div>
+      {angle.blockers.length ? <div className="mt-2 text-[11px] text-amber-200">Blockers: {angle.blockers.slice(0, 3).join(" / ")}</div> : null}
+    </div>
+  );
+}
+
+function DeepGameMatrix({ snapshot }: { snapshot: Snapshot }) {
+  const matrix = snapshot.deepTrendMatrix;
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">Deep TrendsCenter matrix</div>
+          <h2 className="mt-2 font-display text-3xl font-semibold text-white">Every current MLB game, every team angle</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Built from real current board rows plus historical graded MLB rows. Thin samples and missing prices are blocked instead of promoted.</p>
+        </div>
+        <Link href="/api/trends/center" className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-200 hover:text-sky-100">Matrix JSON</Link>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-4">
+        <MetricTile label="Matrix games" value={matrix.summary.games} note={`${matrix.boardRows} current board rows used.`} tone={matrix.summary.games ? "good" : "warn"} />
+        <MetricTile label="Team angles" value={matrix.summary.angles} note={`${matrix.summary.teams} teams profiled across ML, runline, and total.`} tone={matrix.summary.angles ? "good" : "warn"} />
+        <MetricTile label="Actionable" value={matrix.summary.actionable} note={`${matrix.summary.watch} watchlist angles after proof gates.`} tone={matrix.summary.actionable ? "good" : "neutral"} />
+        <MetricTile label="History rows" value={matrix.historicalRows} note={`${matrix.summary.blocked} blocked angles due to data/price/sample gaps.`} tone={matrix.historicalRows ? "good" : "warn"} />
+      </div>
+
+      {matrix.games.length ? (
+        <div className="grid gap-4 xl:grid-cols-2">
+          {matrix.games.slice(0, 10).map((game) => (
+            <div key={game.gameId} className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{time(game.startsAt)} / {game.source ?? "current-board"}</div>
+                  <div className="mt-2 text-lg font-semibold text-white">{game.matchup}</div>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-right">
+                  <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Depth</div>
+                  <div className="font-display text-2xl font-semibold text-white">{game.depthScore}</div>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-4">
+                <div>{game.trendCount} angles</div>
+                <div>{game.actionableCount} actionable</div>
+                <div>{game.watchCount} watch</div>
+                <div>{game.blockedCount} blocked</div>
+              </div>
+              <div className="mt-4 space-y-2">
+                {game.topAngles.slice(0, 4).map((angle) => <DeepAngle key={angle.id} angle={angle} />)}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.06] p-5 text-sm leading-6 text-amber-100/90">
+          No deep matrix rows yet. The current board or historical MLB warehouse did not return enough rows to build team/game trend cards.
+        </div>
+      )}
+    </section>
+  );
+}
+
 function CommandQueue({ snapshot }: { snapshot: Snapshot }) {
   return (
     <section className="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
@@ -412,6 +498,7 @@ export default async function TrendsPage({ searchParams }: PageProps) {
       <StatusStrip snapshot={snapshot} refreshStatus={refreshStatus} cycleStatus={cycleStatus} />
       <Hero snapshot={snapshot} />
       <OperatorAlerts snapshot={snapshot} />
+      <DeepGameMatrix snapshot={snapshot} />
       <LaneNav snapshot={snapshot} activeLane={lane} />
 
       <section className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
