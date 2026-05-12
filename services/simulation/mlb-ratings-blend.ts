@@ -175,11 +175,11 @@ async function getSpineEloProfile(teamName: string): Promise<MlbRatingsProfile |
     // Resolve the integer team ID stored in mlb_betting_games using the normalized name.
     const idRows = await prisma.$queryRaw<{ team_id: number }[]>`
       SELECT home_team_id AS team_id FROM mlb_betting_games
-      WHERE LOWER(REGEXP_REPLACE(home_team_name, '[^a-z0-9]', '', 'g')) = ${normalizedName}
+      WHERE REGEXP_REPLACE(LOWER(home_team_name), '[^a-z0-9]', '', 'g') = ${normalizedName}
         AND home_team_id IS NOT NULL
       UNION
       SELECT away_team_id FROM mlb_betting_games
-      WHERE LOWER(REGEXP_REPLACE(away_team_name, '[^a-z0-9]', '', 'g')) = ${normalizedName}
+      WHERE REGEXP_REPLACE(LOWER(away_team_name), '[^a-z0-9]', '', 'g') = ${normalizedName}
         AND away_team_id IS NOT NULL
       LIMIT 1
     `;

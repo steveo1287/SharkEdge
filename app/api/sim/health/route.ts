@@ -148,12 +148,13 @@ async function sourceHealth() {
   if (!playerSources.every((source) => source === "real")) warnings.push(`Player model is ${playerSources.join("/")}; estimated/synthetic player stats are downweighted.`);
   if (!teamProfileSources.every((source) => source === "real")) warnings.push(`Team analytics are ${teamProfileSources.join("/")}; configure MLB_TEAM_ANALYTICS_URL or improve the MLB Stats API warehouse.`);
   if (!ratingSources.every((source) => source === "real")) warnings.push(`Ratings are ${ratingSources.join("/")}; synthetic ratings are display-only/low-weight.`);
+  const ratingsWarehouseReady = ratingSources.every((source) => source === "real");
 
   const analyticsEnvVars = {
     FANGRAPHS_PLAYER_FEED_URL: !!process.env.FANGRAPHS_PLAYER_FEED_URL?.trim(),
     MLB_TEAM_ANALYTICS_URL: !!process.env.MLB_TEAM_ANALYTICS_URL?.trim(),
     MLB_STATCAST_SPLITS_URL: !!process.env.MLB_STATCAST_SPLITS_URL?.trim(),
-    MLB_TEAM_RATINGS_URL: !!process.env.MLB_TEAM_RATINGS_URL?.trim()
+    MLB_TEAM_RATINGS_URL: !!process.env.MLB_TEAM_RATINGS_URL?.trim() || ratingsWarehouseReady
   };
   const missingFeeds = Object.entries(analyticsEnvVars)
     .filter(([, configured]) => !configured)
@@ -181,7 +182,7 @@ async function sourceHealth() {
       source: ratingSources.join("/"),
       confidence: ratings.ratingConfidence,
       note: ratingSources.every((source) => source === "real")
-        ? "Real ratings feed is active."
+        ? "Real ratings source is active from feed or MLB spine Elo warehouse."
         : "Synthetic ratings are heavily downweighted and should not drive attack picks."
     },
     analyticsFeeds: {
