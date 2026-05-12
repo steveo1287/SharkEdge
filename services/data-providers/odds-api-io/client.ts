@@ -104,5 +104,6 @@ export class OddsApiIoClient {
 }
 
 export function defaultOddsApiIoBookmakers() {
-  return process.env.ODDS_API_IO_BOOKMAKERS ?? "DraftKings,FanDuel,BetMGM,Caesars,Bet365,Unibet";
+  // The current backup plan allows two selected bookmakers; these are confirmed allowed.
+  return process.env.ODDS_API_IO_BOOKMAKERS ?? "Bet365,Unibet";
 }
