@@ -12,7 +12,7 @@ import {
   type SimMarketSnapshot,
   type SimPrioritySnapshot,
   type SimRefreshStatusSnapshot
-} from "@/services/simulation/sim-snapshot-service";
+} from "@/services/simulation/sim-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +54,13 @@ function freshness(value: string | null | undefined, maxAgeMinutes: number) {
 function statusFromFreshness(item: { fresh: boolean; ageMinutes: number | null }) {
   if (item.ageMinutes === null) return "missing";
   return item.fresh ? "fresh" : "stale";
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms))
+  ]);
 }
 
 function cleanValue(value: unknown) {
@@ -231,9 +238,9 @@ export async function GET() {
       readSimCache<SimPrioritySnapshot>(SIM_CACHE_KEYS.priority),
       readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market),
       readSimCache<SimRefreshStatusSnapshot>(SIM_CACHE_KEYS.refreshStatus),
-      dbCounts().catch(degradedDbCounts),
-      sourceHealth().catch(degradedSourceHealth),
-      readLatestOddsApiSnapshot().catch(() => null)
+      withTimeout(dbCounts(), 3_500, "Database health check").catch(degradedDbCounts),
+      withTimeout(sourceHealth(), 3_500, "Source health check").catch(degradedSourceHealth),
+      withTimeout(readLatestOddsApiSnapshot(), 1_500, "Odds snapshot health check").catch(() => null)
     ]);
 
     const simFreshness = freshness(priority?.generatedAt ?? hub?.generatedAt ?? null, SIM_MAX_AGE_MINUTES);

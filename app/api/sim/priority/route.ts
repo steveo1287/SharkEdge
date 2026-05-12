@@ -5,7 +5,7 @@ import {
   SIM_CACHE_KEYS,
   type SimPrioritySnapshot,
   type SimRefreshStatusSnapshot
-} from "@/services/simulation/sim-snapshot-service";
+} from "@/services/simulation/sim-cache";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;

@@ -20,7 +20,7 @@ import {
   type SimPrioritySnapshot,
   type SimRefreshStatusSnapshot,
   type SimSnapshotEnvelope
-} from "@/services/simulation/sim-snapshot-service";
+} from "@/services/simulation/sim-cache";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -65,7 +65,7 @@ type GameWorkspace = {
 type GroupedGames = { label: string; key: string; games: GameWorkspace[] }[];
 
 function formatPct(value: number | null | undefined) {
-  return typeof value === "number" ? `${(value * 100).toFixed(1)}%` : "—";
+  return typeof value === "number" ? `${(value * 100).toFixed(1)}%` : "-";
 }
 
 function dateFrom(value: string | null | undefined) {
@@ -109,7 +109,7 @@ function dateLabel(value: string | null | undefined) {
 }
 
 function formatShortTime(date: Date | null) {
-  if (!date) return "—";
+  if (!date) return "-";
   return new Intl.DateTimeFormat("en-US", {
     timeZone: DISPLAY_TIME_ZONE,
     hour: "numeric",
@@ -201,7 +201,7 @@ function StatusPill({ label, ok, sub }: { label: string; ok: boolean; sub?: stri
 }
 
 function formatOdds(value: number | null | undefined): string {
-  if (value == null) return "—";
+  if (value == null) return "-";
   return value > 0 ? `+${value}` : `${value}`;
 }
 
@@ -212,7 +212,7 @@ function runDelta(value: number | null | undefined): string {
 }
 
 function EdgeValue({ value }: { value: number | null | undefined }) {
-  if (value == null) return <span className="text-slate-600">—</span>;
+  if (value == null) return <span className="text-slate-600">-</span>;
   const pct = value * 100;
   const color = pct > 1.5 ? "text-mint" : pct < -1.5 ? "text-crimson" : "text-slate-400";
   return (
@@ -223,7 +223,7 @@ function EdgeValue({ value }: { value: number | null | undefined }) {
 }
 
 function ConfidenceValue({ value }: { value: number | null | undefined }) {
-  if (value == null) return <span className="text-slate-600">—</span>;
+  if (value == null) return <span className="text-slate-600">-</span>;
   const pct = value * 100;
   const color = pct >= 68 ? "text-mint" : pct >= 58 ? "text-amber-300" : "text-slate-400";
   return <span className={cn("tabular-nums font-semibold", color)}>{pct.toFixed(1)}%</span>;
@@ -322,7 +322,7 @@ function WorkspaceCard({ config }: { config: WorkspaceConfig }) {
         <p className="mt-2 flex-1 text-xs leading-5 text-slate-500">{config.description}</p>
         <div className="mt-5 flex items-center justify-between border-t border-white/[0.07] pt-4">
           <span className="text-[10px] text-slate-600">{config.statusLabel}</span>
-          <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-aqua/75 transition-colors group-hover:text-aqua">{config.action} →</span>
+          <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-aqua/75 transition-colors group-hover:text-aqua">{config.action} {"->"}</span>
         </div>
       </div>
     </Link>
@@ -536,7 +536,7 @@ function GameWorkspaceCard({ game }: { game: GameWorkspace }) {
                 <span className="font-semibold text-white">Line {marketTotal}</span>
                 {ouLean ? (
                   <span className={cn("text-xs font-bold uppercase tracking-wide", ouLean === "OVER" ? "text-mint" : "text-amber-300")}>
-                    → {ouLean}
+                    {"->"} {ouLean}
                   </span>
                 ) : null}
               </div>
@@ -552,7 +552,7 @@ function GameWorkspaceCard({ game }: { game: GameWorkspace }) {
               <div className="mt-1 text-[11px] text-slate-500">no market line</div>
             </>
           ) : (
-            <span className="text-slate-500">{row.leagueKey === "NBA" ? "See NBA desk" : "—"}</span>
+            <span className="text-slate-500">{row.leagueKey === "NBA" ? "See NBA desk" : "-"}</span>
           )}
         </MiniMetric>
 
@@ -569,7 +569,7 @@ function GameWorkspaceCard({ game }: { game: GameWorkspace }) {
           ) : null}
           {!signalLabel ? (
             <div className="mt-1 text-[11px] text-slate-600">
-              {formatPct(row.confidence)} conf · <ConfidenceValue value={row.confidence} />
+              {formatPct(row.confidence)} conf - <ConfidenceValue value={row.confidence} />
             </div>
           ) : null}
         </MiniMetric>
@@ -648,8 +648,8 @@ function PrioritySlate({
             <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight text-white">One game card per matchup</h2>
             <p className="mt-1 text-xs leading-5 text-slate-500">
               {priority.stale
-                ? "Showing last successful snapshot — live cron has not yet refreshed."
-                : `${uniqueCount} matchup${uniqueCount !== 1 ? "s" : ""} · ${mergedCount} duplicate signal${mergedCount !== 1 ? "s" : ""} collapsed · ranked inside each game workspace`}
+                ? "Showing last successful snapshot - live cron has not yet refreshed."
+                : `${uniqueCount} matchup${uniqueCount !== 1 ? "s" : ""} - ${mergedCount} duplicate signal${mergedCount !== 1 ? "s" : ""} collapsed - ranked inside each game workspace`}
             </p>
           </div>
           <div className="text-[11px] tabular-nums text-slate-600">{formatAge(priority.generatedAt)}</div>
@@ -742,7 +742,7 @@ export default async function SimHubPage() {
           <SimMetricTile
             label="MLB market"
             value={market ? (market.stale ? "Stale" : "Fresh") : "Missing"}
-            sub={`5-min overlay · ${formatAge(market?.generatedAt)}`}
+            sub={`5-min overlay - ${formatAge(market?.generatedAt)}`}
             emphasis={market && !market.stale ? "strong" : "normal"}
           />
           <SimMetricTile
