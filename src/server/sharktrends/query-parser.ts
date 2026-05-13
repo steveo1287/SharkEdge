@@ -114,7 +114,11 @@ export function parseSharkTrendQuery(input: string): SharkTrendParsedQuery {
   if (totalRange) filters.totalMax = Number(totalRange[1]);
 
   if (!filters.marketType) filters.marketType = filters.side === "OVER" || filters.side === "UNDER" ? "total" : "moneyline";
-  if (/travel/.test(text)) unresolved.push("travel spot requires built travel context");
+  if (/home to road|home-to-road|travel(?:ing)? next|travel next|road trip after home/.test(text)) filters.travelSpot = "home_to_road";
+  else if (/road to home|road-to-home|returning home/.test(text)) filters.travelSpot = "road_to_home";
+  else if (/road trip/.test(text)) filters.travelSpot = "road_trip";
+  else if (/home stand|homestand/.test(text)) filters.travelSpot = "home_stand";
+  else if (/travel/.test(text)) unresolved.push("travel spot wording was ambiguous; use home-to-road, road-to-home, road trip, or homestand");
   if (/bullpen/.test(text)) unresolved.push("bullpen stress requires Retrosheet pitcher context enrichment");
   if (/coach|manager/.test(text)) unresolved.push("manager/coach style is not currently stored in MLB context");
 

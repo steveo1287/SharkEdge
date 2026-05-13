@@ -25,6 +25,10 @@ const base: WarehouseRow = {
   away_name: "St. Louis Cardinals",
   home_abbr: "CHC",
   away_abbr: "STL",
+  home_metadata_json: { division: "NL Central" },
+  away_metadata_json: { division: "NL Central" },
+  home_external_ids: { retrosheetTeamId: "CHN" },
+  away_external_ids: { retrosheetTeamId: "SLN" },
   home_score: "5",
   away_score: "3",
   winner_competitor_id: "cubs",
@@ -36,13 +40,35 @@ const base: WarehouseRow = {
   opening_odds: -150,
   closing_line: null,
   closing_odds: -170,
-  snapshot_count: 2
+  snapshot_count: 2,
+  home_days_rest: null,
+  away_days_rest: null,
+  home_opponent_days_rest: null,
+  away_opponent_days_rest: null,
+  home_is_back_to_back: null,
+  away_is_back_to_back: null,
+  home_previous_event_id: null,
+  away_previous_event_id: null,
+  retrosheet_game_id: "CHN202406010",
+  retrosheet_park_id: "CHI11",
+  home_retrosheet_team_id: "CHN",
+  away_retrosheet_team_id: "SLN",
+  home_pregame_elo: 1512,
+  away_pregame_elo: 1494,
+  home_starter_pitcher_id: "pitcher-home",
+  away_starter_pitcher_id: "pitcher-away",
+  home_starter_rolling_game_score: 57.2,
+  away_starter_rolling_game_score: 49.8
 };
 
 const [moneyline] = buildMlbContextRowsFromWarehouse([base]);
 assert.equal(moneyline.wonGame, true);
 assert.equal(moneyline.isFavorite, true);
 assert.equal(moneyline.moneylineBucket, "favorite -165 to -180");
+assert.equal(moneyline.divisionGame, true);
+assert.equal(moneyline.parkId, "CHI11");
+assert.equal(moneyline.starterRollingGameScore, 57.2);
+assert.equal(moneyline.eloDiff, 18);
 assert.ok(moneyline.dataQualityScore >= 70);
 
 const [total] = buildMlbContextRowsFromWarehouse([{ ...base, market_type: "total", side: "OVER", selection: "Over", line: 7.5, closing_line: 7.5, odds_american: -110, closing_odds: -110 }]);
@@ -51,4 +77,15 @@ assert.equal(total.totalBucket, "7.5-8");
 
 const [spread] = buildMlbContextRowsFromWarehouse([{ ...base, market_type: "spread", side: "HOME", line: -1.5, closing_line: -1.5 }]);
 assert.equal(spread.coverResult, "WIN");
+
+const [first, second] = buildMlbContextRowsFromWarehouse([
+  { ...base, event_id: "evt0", event_market_id: "mkt0", start_time: new Date("2024-05-31T18:00:00Z"), home_score: "2", away_score: "1" },
+  { ...base, event_id: "evt1", event_market_id: "mkt1", start_time: new Date("2024-06-01T18:00:00Z"), home_score: "5", away_score: "3" }
+]);
+assert.equal(first.lastGameRunsScored, null);
+assert.equal(second.daysRest, 0);
+assert.equal(second.isBackToBack, true);
+assert.equal(second.travelSpot, "home_stand");
+assert.equal(second.lastGameRunsScored, 2);
+assert.equal(second.lastTwoRunsScored, null);
 console.log("sharktrends-mlb-context-builder tests passed");

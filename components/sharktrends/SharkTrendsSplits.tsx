@@ -28,6 +28,10 @@ export function SharkTrendsSplits({ splits }: { splits?: any }) {
       <MiniTable title="By season" bucket={splits.bySeason} />
       <MiniTable title="Home / away" bucket={splits.byHomeAway} />
       <MiniTable title="Favorite / dog" bucket={splits.byFavoriteUnderdog} />
+      <MiniTable title="Rest bucket" bucket={splits.byRestBucket} />
+      <MiniTable title="Travel spot" bucket={splits.byTravelSpot} />
+      <MiniTable title="Starter form" bucket={splits.byStarterForm} />
+      <MiniTable title="Odds bucket" bucket={splits.byOddsBucket} />
       <MiniTable title="By source" bucket={splits.bySourceKey} />
     </section>
   );

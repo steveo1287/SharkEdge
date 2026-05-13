@@ -15,6 +15,11 @@
               <th className="px-3 py-2">Close</th>
               <th className="px-3 py-2">Result</th>
               <th className="px-3 py-2">Score</th>
+              <th className="px-3 py-2">Rest</th>
+              <th className="px-3 py-2">Travel</th>
+              <th className="px-3 py-2">Form</th>
+              <th className="px-3 py-2">Starter</th>
+              <th className="px-3 py-2">Elo</th>
               <th className="px-3 py-2">Source</th>
               <th className="px-3 py-2">Q</th>
             </tr>
@@ -30,6 +35,11 @@
                 <td className="px-3 py-2">{row.closingOddsAmerican ?? row.closingLine ?? "--"}</td>
                 <td className="px-3 py-2">{row.result}</td>
                 <td className="px-3 py-2">{row.teamScore ?? "--"}-{row.opponentScore ?? "--"}</td>
+                <td className="px-3 py-2">{row.daysRest ?? "--"}</td>
+                <td className="px-3 py-2">{row.travelSpot ?? "--"}</td>
+                <td className="px-3 py-2">{row.lastGameRunsScored ?? "--"} / {row.lastTwoRunsScored ?? "--"}</td>
+                <td className="px-3 py-2">{row.starterRollingGameScore == null ? "--" : Number(row.starterRollingGameScore).toFixed(1)}</td>
+                <td className="px-3 py-2">{row.eloDiff == null ? "--" : Number(row.eloDiff).toFixed(0)}</td>
                 <td className="px-3 py-2">{row.sourceKey}</td>
                 <td className="px-3 py-2">{row.dataQualityScore}</td>
               </tr>

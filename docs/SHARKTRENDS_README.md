@@ -81,6 +81,18 @@ Optional filters:
 npm run sharktrends:mlb-context -- --seasons=2024,2025 --markets=moneyline,total --limit=5000
 ```
 
+The context builder now pipes in every reliable historical value it can find without inventing missing data:
+
+- Opening and closing pregame odds snapshots.
+- Official score/result grading.
+- Previous game date, rest days, back-to-back flags, and home/road travel spot.
+- Last-game, last-two-game, and last-three-game runs scored where prior games exist.
+- Retrosheet park ID when a Retrosheet game match exists.
+- Pregame team Elo and Elo differential when Retrosheet feature snapshots exist.
+- Starter pitcher ID and rolling game score when Retrosheet pitching snapshots exist.
+
+If one of those inputs is missing, SharkTrends leaves the field null, adds warnings where appropriate, and keeps the backtest honest.
+
 ## Coverage audit
 
 API:
@@ -194,7 +206,7 @@ Warnings are part of the product, not noise. SharkTrends should never bury data 
 ## Future roadmap
 
 - Add richer weather import and park wind classification.
-- Add travel and night-game-to-day-game schedule derivations.
 - Add bullpen stress from Retrosheet pitching appearances.
+- Add night-game-to-day-game schedule derivations.
 - Add scheduled context rebuild after historical imports.
 - Add alerts for saved systems when live qualifiers appear.

@@ -15,6 +15,12 @@ type ApiState = { loading: boolean; error: string | null; backtest: any; qualifi
 
 const DEFAULT_QUERY = "home favorites -140 to -180 since 2018";
 
+function numberOrUndefined(value: string) {
+  if (!value.trim()) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 export function SharkTrendsSearch({ templates }: { templates: SharkTrendTemplate[] }) {
   const [input, setInput] = useState(DEFAULT_QUERY);
   const [filters, setFilters] = useState<SharkTrendFilter>({ league: "MLB", marketType: "moneyline", side: "FAVORITE", homeAway: "HOME", favoriteMinAbsPrice: 140, favoriteMaxAbsPrice: 180, minDataQualityScore: 60 });
@@ -84,6 +90,30 @@ export function SharkTrendsSearch({ templates }: { templates: SharkTrendTemplate
           <button onClick={() => run({ filters })} disabled={state.loading} className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200 hover:bg-emerald-400/20 disabled:opacity-60">
             Run Structured Filters
           </button>
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-4 xl:grid-cols-6">
+          <select className="rounded-xl border border-slate-700 bg-black/30 px-3 py-2 text-sm text-white" value={filters.homeAway ?? "ALL"} onChange={(e) => setFilters({ ...filters, homeAway: e.target.value as any })}>
+            <option value="ALL">Home/Away: All</option>
+            <option value="HOME">Home only</option>
+            <option value="AWAY">Road only</option>
+          </select>
+          <input className="rounded-xl border border-slate-700 bg-black/30 px-3 py-2 text-sm text-white" placeholder="Favorite min abs" value={filters.favoriteMinAbsPrice ?? ""} onChange={(e) => setFilters({ ...filters, favoriteMinAbsPrice: numberOrUndefined(e.target.value) })} />
+          <input className="rounded-xl border border-slate-700 bg-black/30 px-3 py-2 text-sm text-white" placeholder="Favorite max abs" value={filters.favoriteMaxAbsPrice ?? ""} onChange={(e) => setFilters({ ...filters, favoriteMaxAbsPrice: numberOrUndefined(e.target.value) })} />
+          <input className="rounded-xl border border-slate-700 bg-black/30 px-3 py-2 text-sm text-white" placeholder="Total max" value={filters.totalMax ?? ""} onChange={(e) => setFilters({ ...filters, totalMax: numberOrUndefined(e.target.value) })} />
+          <input className="rounded-xl border border-slate-700 bg-black/30 px-3 py-2 text-sm text-white" placeholder="Days rest max" value={filters.daysRestMax ?? ""} onChange={(e) => setFilters({ ...filters, daysRestMax: numberOrUndefined(e.target.value) })} />
+          <select className="rounded-xl border border-slate-700 bg-black/30 px-3 py-2 text-sm text-white" value={filters.travelSpot ?? ""} onChange={(e) => setFilters({ ...filters, travelSpot: (e.target.value || undefined) as any })}>
+            <option value="">Any travel spot</option>
+            <option value="home_stand">Home stand</option>
+            <option value="road_trip">Road trip</option>
+            <option value="home_to_road">Home to road</option>
+            <option value="road_to_home">Road to home</option>
+          </select>
+          <input className="rounded-xl border border-slate-700 bg-black/30 px-3 py-2 text-sm text-white" placeholder="Venue / park" value={filters.venue ?? ""} onChange={(e) => setFilters({ ...filters, venue: e.target.value || undefined })} />
+          <input className="rounded-xl border border-slate-700 bg-black/30 px-3 py-2 text-sm text-white" placeholder="Last game runs max" value={filters.previousRunsScoredMax ?? ""} onChange={(e) => setFilters({ ...filters, previousRunsScoredMax: numberOrUndefined(e.target.value) })} />
+          <input className="rounded-xl border border-slate-700 bg-black/30 px-3 py-2 text-sm text-white" placeholder="Last 2 runs max" value={filters.lastTwoRunsScoredMax ?? ""} onChange={(e) => setFilters({ ...filters, lastTwoRunsScoredMax: numberOrUndefined(e.target.value) })} />
+          <input className="rounded-xl border border-slate-700 bg-black/30 px-3 py-2 text-sm text-white" placeholder="Starter GS min" value={filters.starterRollingGameScoreMin ?? ""} onChange={(e) => setFilters({ ...filters, starterRollingGameScoreMin: numberOrUndefined(e.target.value) })} />
+          <input className="rounded-xl border border-slate-700 bg-black/30 px-3 py-2 text-sm text-white" placeholder="Elo diff min" value={filters.eloDiffMin ?? ""} onChange={(e) => setFilters({ ...filters, eloDiffMin: numberOrUndefined(e.target.value) })} />
+          <input className="rounded-xl border border-slate-700 bg-black/30 px-3 py-2 text-sm text-white" placeholder="Min quality" value={filters.minDataQualityScore ?? ""} onChange={(e) => setFilters({ ...filters, minDataQualityScore: numberOrUndefined(e.target.value) })} />
         </div>
       </section>
 

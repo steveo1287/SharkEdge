@@ -63,6 +63,22 @@ export const SHARKTREND_TEMPLATES: SharkTrendTemplate[] = [
     warning: "Requires rest/travel context to be built."
   },
   {
+    id: "mlb-home-to-road-travel",
+    title: "Home-to-road travel spot",
+    description: "Teams leaving a homestand for a road game, with historical moneyline grading.",
+    filters: { league: "MLB", marketType: "moneyline", travelSpot: "home_to_road", minDataQualityScore: 65 },
+    category: "Schedule",
+    requiresFields: ["previous game date", "home/away sequence", "pregame moneyline", "official result"]
+  },
+  {
+    id: "mlb-road-trip-fatigue",
+    title: "Road trip continuation",
+    description: "Teams staying on the road after a previous road game.",
+    filters: { league: "MLB", marketType: "moneyline", travelSpot: "road_trip", daysRestMax: 1, minDataQualityScore: 65 },
+    category: "Schedule",
+    requiresFields: ["previous game date", "home/away sequence", "days rest", "pregame moneyline"]
+  },
+  {
     id: "mlb-pitcher-form",
     title: "Starting pitcher rolling form",
     description: "Teams backed by starters with strong rolling game score.",

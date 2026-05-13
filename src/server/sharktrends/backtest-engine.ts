@@ -86,13 +86,17 @@ export function rawContextToRow(row: RawContextRow): SharkTrendContextRow {
     divisionGame: b(row.division_game),
     isDayGame: b(row.is_day_game),
     isNightGame: b(row.is_night_game),
+    previousGameDate: toDateString(row.previous_game_date),
     daysRest: n(row.days_rest),
     opponentDaysRest: n(row.opponent_days_rest),
     isBackToBack: b(row.is_back_to_back),
+    travelSpot: s(row.travel_spot),
     lastGameRunsScored: n(row.last_game_runs_scored),
     lastGameRunsAllowed: n(row.last_game_runs_allowed),
     lastTwoRunsScored: n(row.last_two_runs_scored),
     lastThreeRunsScored: n(row.last_three_runs_scored),
+    starterPitcherId: s(row.starter_pitcher_id),
+    starterPitcherName: s(row.starter_pitcher_name),
     starterRollingGameScore: n(row.starter_rolling_game_score),
     teamPregameElo: n(row.team_pregame_elo),
     opponentPregameElo: n(row.opponent_pregame_elo),
@@ -147,6 +151,7 @@ export function rowMatchesFilter(row: SharkTrendContextRow, filters: SharkTrendF
   if (filters.nightGame !== undefined && row.isNightGame !== filters.nightGame) return false;
   if (!inRange(row.daysRest, filters.daysRestMin, filters.daysRestMax)) return false;
   if (!inRange(row.opponentDaysRest, filters.opponentDaysRestMin, filters.opponentDaysRestMax)) return false;
+  if (filters.travelSpot && row.travelSpot !== filters.travelSpot) return false;
   if (filters.previousRunsScoredMax !== undefined && !inRange(row.lastGameRunsScored, undefined, filters.previousRunsScoredMax)) return false;
   if (filters.previousRunsAllowedMin !== undefined && !inRange(row.lastGameRunsAllowed, filters.previousRunsAllowedMin, undefined)) return false;
   if (filters.lastTwoRunsScoredMax !== undefined && !inRange(row.lastTwoRunsScored, undefined, filters.lastTwoRunsScoredMax)) return false;
@@ -215,6 +220,14 @@ function oddsBucket(row: SharkTrendContextRow) {
   return row.moneylineBucket ?? row.favoritePriceBucket ?? row.spreadBucket ?? row.totalBucket ?? "Unbucketed";
 }
 
+function restBucket(value: number | null | undefined) {
+  if (value === null || value === undefined) return "Unknown";
+  if (value <= 0) return "0 days";
+  if (value === 1) return "1 day";
+  if (value === 2) return "2 days";
+  return "3+ days";
+}
+
 export function summarizeBacktestRows(rows: SharkTrendContextRow[], filters: SharkTrendFilter, includeMatches = false, limit = 100) {
   let wins = 0;
   let losses = 0;
@@ -235,6 +248,9 @@ export function summarizeBacktestRows(rows: SharkTrendContextRow[], filters: Sha
     byFavoriteUnderdog: {} as SplitBucket,
     byOddsBucket: {} as SplitBucket,
     byTotalBucket: {} as SplitBucket,
+    byRestBucket: {} as SplitBucket,
+    byTravelSpot: {} as SplitBucket,
+    byStarterForm: {} as SplitBucket,
     bySportsbook: {} as SplitBucket,
     bySourceKey: {} as SplitBucket
   };
@@ -271,6 +287,9 @@ export function summarizeBacktestRows(rows: SharkTrendContextRow[], filters: Sha
       addSplit(splits.byFavoriteUnderdog, row.isFavorite ? "Favorite" : row.isUnderdog ? "Underdog" : "Pick", grade, rowUnits);
       addSplit(splits.byOddsBucket, oddsBucket(row), grade, rowUnits);
       addSplit(splits.byTotalBucket, row.totalBucket ?? "N/A", grade, rowUnits);
+      addSplit(splits.byRestBucket, restBucket(row.daysRest), grade, rowUnits);
+      addSplit(splits.byTravelSpot, row.travelSpot ?? "Unknown", grade, rowUnits);
+      addSplit(splits.byStarterForm, row.starterRollingGameScore == null ? "Unknown" : row.starterRollingGameScore >= 58 ? "Hot starter" : row.starterRollingGameScore <= 45 ? "Cold starter" : "Neutral starter", grade, rowUnits);
       addSplit(splits.bySportsbook, row.sportsbookName ?? row.sportsbookKey ?? "Unknown", grade, rowUnits);
       addSplit(splits.bySourceKey, row.sourceKey, grade, rowUnits);
     }
@@ -291,6 +310,14 @@ export function summarizeBacktestRows(rows: SharkTrendContextRow[], filters: Sha
         result: grade,
         teamScore: row.teamScore,
         opponentScore: row.opponentScore,
+        daysRest: row.daysRest,
+        opponentDaysRest: row.opponentDaysRest,
+        travelSpot: row.travelSpot,
+        lastGameRunsScored: row.lastGameRunsScored,
+        lastGameRunsAllowed: row.lastGameRunsAllowed,
+        lastTwoRunsScored: row.lastTwoRunsScored,
+        starterRollingGameScore: row.starterRollingGameScore,
+        eloDiff: row.eloDiff,
         sportsbookName: row.sportsbookName,
         sourceKey: row.sourceKey,
         dataQualityScore: row.dataQualityScore,
@@ -359,6 +386,7 @@ function buildWhere(filters: SharkTrendFilter) {
   if (filters.nightGame !== undefined) clauses.push(`is_night_game = ${filters.nightGame ? "true" : "false"}`);
   if (filters.windOut !== undefined) clauses.push(`wind_out = ${filters.windOut ? "true" : "false"}`);
   if (filters.windIn !== undefined) clauses.push(`wind_in = ${filters.windIn ? "true" : "false"}`);
+  if (filters.travelSpot) clauses.push(`travel_spot = ${sqlString(filters.travelSpot)}`);
   if (filters.venue) clauses.push(`LOWER(COALESCE(venue, '')) LIKE ${sqlString(`%${filters.venue.toLowerCase()}%`)}`);
   if (filters.sportsbookKey) clauses.push(`sportsbook_key = ${sqlString(filters.sportsbookKey)}`);
   if (filters.sourceKeys?.length) clauses.push(`source_key IN (${filters.sourceKeys.map(sqlString).join(",")})`);

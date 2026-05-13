@@ -52,6 +52,7 @@ Added `MlbGameContext`, mapped to `mlb_game_context`, as a derived MLB trend con
 - Natural-language trend parsing was not deterministic for the MLB examples requested here.
 - Saved systems existed, but SharkTrends needed a product-specific wrapper that saves structured filters and last result snapshots.
 - Live qualifiers needed to explicitly distinguish matched conditions from missing/unavailable conditions.
+- The first context pass did not expose enough historical values for TrendsCenter-style schedule/form angles, so the builder now derives rest, travel spot, recent runs, Retrosheet park, pregame Elo, and starter rolling form when those inputs exist.
 
 ## Proposed and implemented file plan
 
@@ -103,3 +104,4 @@ Added `MlbGameContext`, mapped to `mlb_game_context`, as a derived MLB trend con
 - Historical backtests read from pregame/historical derived context only.
 - Missing context fields create warnings or suppress qualifiers instead of creating fake matches.
 - Positive ROI is displayed as historical context, not a pick guarantee.
+- Derived form values only look at prior games by start time, never future games.

@@ -16,5 +16,6 @@ assert.equal(roadDog.filters.side, "UNDERDOG");
 assert.equal(roadDog.filters.previousRunsScoredMax, 2);
 
 const unresolved = parseSharkTrendQuery("teams with 3 bullpen innings yesterday and travel next day");
-assert.ok(unresolved.unresolved.length >= 2);
+assert.equal(unresolved.filters.travelSpot, "home_to_road");
+assert.ok(unresolved.unresolved.some((value) => value.includes("bullpen")));
 console.log("sharktrends-query-parser tests passed");

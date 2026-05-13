@@ -33,6 +33,7 @@ export type SharkTrendFilter = {
   daysRestMax?: number;
   opponentDaysRestMin?: number;
   opponentDaysRestMax?: number;
+  travelSpot?: "home_stand" | "road_trip" | "home_to_road" | "road_to_home";
   previousRunsScoredMax?: number;
   previousRunsAllowedMin?: number;
   lastTwoRunsScoredMax?: number;
@@ -104,13 +105,17 @@ export type SharkTrendContextRow = {
   divisionGame?: boolean | null;
   isDayGame?: boolean | null;
   isNightGame?: boolean | null;
+  previousGameDate?: string | Date | null;
   daysRest?: number | null;
   opponentDaysRest?: number | null;
   isBackToBack?: boolean | null;
+  travelSpot?: string | null;
   lastGameRunsScored?: number | null;
   lastGameRunsAllowed?: number | null;
   lastTwoRunsScored?: number | null;
   lastThreeRunsScored?: number | null;
+  starterPitcherId?: string | null;
+  starterPitcherName?: string | null;
   starterRollingGameScore?: number | null;
   teamPregameElo?: number | null;
   opponentPregameElo?: number | null;
@@ -148,6 +153,7 @@ export const sharkTrendFilterZodSchema = z.object({
   daysRestMax: z.number().optional(),
   opponentDaysRestMin: z.number().optional(),
   opponentDaysRestMax: z.number().optional(),
+  travelSpot: z.enum(["home_stand", "road_trip", "home_to_road", "road_to_home"]).optional(),
   previousRunsScoredMax: z.number().optional(),
   previousRunsAllowedMin: z.number().optional(),
   lastTwoRunsScoredMax: z.number().optional(),
