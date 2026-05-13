@@ -3,8 +3,10 @@
 import { useState } from "react";
 
 import type { SharkTrendTemplate } from "@/src/server/sharktrends/catalog";
+import type { SharkTrendDiscoveryFeed } from "@/src/server/sharktrends/discovery-miner";
 import type { SharkTrendFilter } from "@/src/server/sharktrends/types";
 
+import { SharkTrendsDiscoveryRail } from "./SharkTrendsDiscoveryRail";
 import { SharkTrendsMatchesTable } from "./SharkTrendsMatchesTable";
 import { SharkTrendsProofStack } from "./SharkTrendsProofStack";
 import { SharkTrendsQualifiers } from "./SharkTrendsQualifiers";
@@ -22,7 +24,7 @@ function numberOrUndefined(value: string) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-export function SharkTrendsSearch({ templates }: { templates: SharkTrendTemplate[] }) {
+export function SharkTrendsSearch({ templates, discovery }: { templates: SharkTrendTemplate[]; discovery?: SharkTrendDiscoveryFeed | null }) {
   const [input, setInput] = useState(DEFAULT_QUERY);
   const [filters, setFilters] = useState<SharkTrendFilter>({ league: "MLB", marketType: "moneyline", side: "FAVORITE", homeAway: "HOME", favoriteMinAbsPrice: 140, favoriteMaxAbsPrice: 180, minDataQualityScore: 60 });
   const [state, setState] = useState<ApiState>({ loading: false, error: null, backtest: null, qualifiers: null });
@@ -125,6 +127,8 @@ export function SharkTrendsSearch({ templates }: { templates: SharkTrendTemplate
       <SharkTrendsSplits splits={state.backtest?.splits} />
       <SharkTrendsQualifiers qualifiers={state.qualifiers?.qualifiers ?? []} warnings={state.qualifiers?.warnings ?? []} />
       <SharkTrendsMatchesTable matches={state.backtest?.matches ?? []} />
+
+      <SharkTrendsDiscoveryRail feed={discovery} onRun={run} />
 
       <section className="rounded-3xl border border-slate-800 bg-slate-950/80 p-5">
         <div className="mb-4 flex items-center justify-between">

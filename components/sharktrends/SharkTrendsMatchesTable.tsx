@@ -17,6 +17,7 @@
               <th className="px-3 py-2">Score</th>
               <th className="px-3 py-2">Rest</th>
               <th className="px-3 py-2">Travel</th>
+              <th className="px-3 py-2">Series</th>
               <th className="px-3 py-2">Form</th>
               <th className="px-3 py-2">Starter</th>
               <th className="px-3 py-2">Elo</th>
@@ -37,6 +38,7 @@
                 <td className="px-3 py-2">{row.teamScore ?? "--"}-{row.opponentScore ?? "--"}</td>
                 <td className="px-3 py-2">{row.daysRest ?? "--"}</td>
                 <td className="px-3 py-2">{row.travelSpot ?? "--"}</td>
+                <td className="px-3 py-2">{row.gameNumber ? `G${row.gameNumber}` : "--"}{row.interleagueGame ? " / IL" : ""}</td>
                 <td className="px-3 py-2">{row.lastGameRunsScored ?? "--"} / {row.lastTwoRunsScored ?? "--"}</td>
                 <td className="px-3 py-2">{row.starterRollingGameScore == null ? "--" : Number(row.starterRollingGameScore).toFixed(1)}</td>
                 <td className="px-3 py-2">{row.eloDiff == null ? "--" : Number(row.eloDiff).toFixed(0)}</td>

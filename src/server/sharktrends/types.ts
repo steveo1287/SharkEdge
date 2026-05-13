@@ -27,6 +27,8 @@ export type SharkTrendFilter = {
   spreadMin?: number;
   spreadMax?: number;
   divisionGame?: boolean;
+  interleagueGame?: boolean;
+  gameNumber?: number;
   dayGame?: boolean;
   nightGame?: boolean;
   daysRestMin?: number;
@@ -103,6 +105,8 @@ export type SharkTrendContextRow = {
   venue?: string | null;
   parkId?: string | null;
   divisionGame?: boolean | null;
+  interleagueGame?: boolean | null;
+  gameNumber?: number | null;
   isDayGame?: boolean | null;
   isNightGame?: boolean | null;
   previousGameDate?: string | Date | null;
@@ -147,6 +151,8 @@ export const sharkTrendFilterZodSchema = z.object({
   spreadMin: z.number().optional(),
   spreadMax: z.number().optional(),
   divisionGame: z.boolean().optional(),
+  interleagueGame: z.boolean().optional(),
+  gameNumber: z.number().int().min(1).max(10).optional(),
   dayGame: z.boolean().optional(),
   nightGame: z.boolean().optional(),
   daysRestMin: z.number().optional(),

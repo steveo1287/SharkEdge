@@ -42,7 +42,33 @@ function toDateString(value: unknown) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function stringFromRecord(value: unknown, key: string) {
+  const item = record(value)?.[key];
+  return typeof item === "string" && item.trim() ? item.trim() : null;
+}
+
+function leagueFamily(value: string | null) {
+  const normalized = String(value ?? "").toLowerCase();
+  if (/\bal\b|american/.test(normalized)) return "AL";
+  if (/\bnl\b|national/.test(normalized)) return "NL";
+  return null;
+}
+
+function deriveInterleague(rawContextJson: unknown) {
+  const teamDivision = stringFromRecord(rawContextJson, "teamDivision");
+  const opponentDivision = stringFromRecord(rawContextJson, "opponentDivision");
+  const teamLeague = stringFromRecord(rawContextJson, "teamLeague") ?? leagueFamily(teamDivision);
+  const opponentLeague = stringFromRecord(rawContextJson, "opponentLeague") ?? leagueFamily(opponentDivision);
+  if (!teamLeague || !opponentLeague) return null;
+  return teamLeague !== opponentLeague;
+}
+
 export function rawContextToRow(row: RawContextRow): SharkTrendContextRow {
+  const rawContextJson = row.raw_context_json;
   return {
     id: s(row.id) ?? undefined,
     eventId: s(row.event_id) ?? "",
@@ -85,6 +111,8 @@ export function rawContextToRow(row: RawContextRow): SharkTrendContextRow {
     venue: s(row.venue),
     parkId: s(row.park_id),
     divisionGame: b(row.division_game),
+    interleagueGame: b(row.interleague_game) ?? deriveInterleague(rawContextJson),
+    gameNumber: n(row.game_number),
     isDayGame: b(row.is_day_game),
     isNightGame: b(row.is_night_game),
     previousGameDate: toDateString(row.previous_game_date),
@@ -109,7 +137,7 @@ export function rawContextToRow(row: RawContextRow): SharkTrendContextRow {
     windIn: b(row.wind_in),
     dataQualityScore: n(row.data_quality_score) ?? 0,
     dataWarnings: row.data_warnings,
-    rawContextJson: row.raw_context_json
+    rawContextJson
   };
 }
 
@@ -148,6 +176,8 @@ export function rowMatchesFilter(row: SharkTrendContextRow, filters: SharkTrendF
   if (!inRange(line, filters.totalMin, filters.totalMax)) return false;
   if (row.marketType === "spread" && !inRange(line, filters.spreadMin, filters.spreadMax)) return false;
   if (filters.divisionGame !== undefined && row.divisionGame !== filters.divisionGame) return false;
+  if (filters.interleagueGame !== undefined && row.interleagueGame !== filters.interleagueGame) return false;
+  if (filters.gameNumber !== undefined && row.gameNumber !== filters.gameNumber) return false;
   if (filters.dayGame !== undefined && row.isDayGame !== filters.dayGame) return false;
   if (filters.nightGame !== undefined && row.isNightGame !== filters.nightGame) return false;
   if (!inRange(row.daysRest, filters.daysRestMin, filters.daysRestMax)) return false;
@@ -317,6 +347,8 @@ export function summarizeBacktestRows(rows: SharkTrendContextRow[], filters: Sha
         lastGameRunsScored: row.lastGameRunsScored,
         lastGameRunsAllowed: row.lastGameRunsAllowed,
         lastTwoRunsScored: row.lastTwoRunsScored,
+        gameNumber: row.gameNumber,
+        interleagueGame: row.interleagueGame,
         starterRollingGameScore: row.starterRollingGameScore,
         eloDiff: row.eloDiff,
         sportsbookName: row.sportsbookName,
@@ -400,10 +432,11 @@ function buildWhere(filters: SharkTrendFilter) {
 export async function fetchBacktestRows(filters: SharkTrendFilter, limit = 5000) {
   const parsed = sharkTrendFilterZodSchema.parse(filters);
   const rows = await prisma.$queryRawUnsafe<RawContextRow[]>(`
-    SELECT *
-    FROM mlb_game_context
+    SELECT c.*, e."gameNumber" AS game_number
+    FROM mlb_game_context c
+    LEFT JOIN events e ON e.id = c.event_id
     WHERE ${buildWhere(parsed)}
-    ORDER BY start_time DESC
+    ORDER BY c.start_time DESC
     LIMIT ${Math.max(1, Math.min(10000, Math.floor(limit)))}
   `);
   return rows.map(rawContextToRow).filter((row) => rowMatchesFilter(row, parsed));

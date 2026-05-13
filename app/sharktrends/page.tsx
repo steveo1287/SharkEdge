@@ -7,6 +7,7 @@ import { SharkTrendsWarningBanner } from "@/components/sharktrends/SharkTrendsWa
 import { prisma } from "@/lib/db/prisma";
 import { getSharkTrendCatalog } from "@/src/server/sharktrends/catalog";
 import { getMlbHistoricalOddsCoverage, type MlbHistoricalOddsCoverage } from "@/src/server/sharktrends/coverage";
+import { getSharkTrendDiscovery, type SharkTrendDiscoveryFeed } from "@/src/server/sharktrends/discovery-miner";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -34,10 +35,22 @@ function emptyCoverage(): MlbHistoricalOddsCoverage {
   };
 }
 
+function emptyDiscovery(): SharkTrendDiscoveryFeed {
+  return {
+    generatedAt: new Date().toISOString(),
+    cards: [],
+    dataGaps: ["Discovery miner could not load MLB context rows."],
+    scannedRows: 0,
+    candidateCount: 0,
+    warnings: ["Discovery miner unavailable."]
+  };
+}
+
 export default async function SharkTrendsPage() {
-  const [coverage, catalog] = await Promise.all([
+  const [coverage, catalog, discovery] = await Promise.all([
     getMlbHistoricalOddsCoverage(prisma).catch(() => emptyCoverage()),
-    Promise.resolve(getSharkTrendCatalog())
+    Promise.resolve(getSharkTrendCatalog()),
+    getSharkTrendDiscovery({ limit: 24 }).catch(() => emptyDiscovery())
   ]);
 
   return (
@@ -66,7 +79,7 @@ export default async function SharkTrendsPage() {
 
         <SharkTrendsCoverageCard coverage={coverage} />
         <SharkTrendsWarningBanner warnings={coverage.warnings} />
-        <SharkTrendsSearch templates={catalog.templates} />
+        <SharkTrendsSearch templates={catalog.templates} discovery={discovery} />
         <SharkTrendsSavedSystems />
       </div>
     </main>

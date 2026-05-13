@@ -20,6 +20,8 @@ function row(overrides: Partial<SharkTrendContextRow>): SharkTrendContextRow {
     closingOddsAmerican: -160,
     wonGame: true,
     isFavorite: true,
+    gameNumber: 2,
+    interleagueGame: true,
     dataQualityScore: 80,
     ...overrides
   };
@@ -40,4 +42,6 @@ assert.equal(summary.result.pushes, 1);
 assert.equal(summary.matches.length, 3);
 assert.match(summary.proof.headline, /MLB/);
 assert.equal(rowMatchesFilter(row({}), { league: "MLB", team: "Cubs", marketType: "moneyline", side: "FAVORITE" }), true);
+assert.equal(rowMatchesFilter(row({}), { league: "MLB", gameNumber: 2, interleagueGame: true }), true);
+assert.equal(rowMatchesFilter(row({ gameNumber: 1 }), { league: "MLB", gameNumber: 2 }), false);
 console.log("sharktrends-backtest-engine tests passed");

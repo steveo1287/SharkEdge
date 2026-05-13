@@ -92,6 +92,9 @@ export function parseSharkTrendQuery(input: string): SharkTrendParsedQuery {
   if (/\bhome\b|at wrigley|wrigley/.test(text)) filters.homeAway = "HOME";
   if (/\broad\b|away/.test(text)) filters.homeAway = "AWAY";
   if (/division/.test(text)) filters.divisionGame = true;
+  if (/interleague|inter-league/.test(text)) filters.interleagueGame = true;
+  const gameNumber = text.match(/\b(?:gm|game)\s*#?\s*(\d)\b|series game\s*(\d)\b/);
+  if (gameNumber) filters.gameNumber = Number(gameNumber[1] ?? gameNumber[2]);
   if (/day game|\bday\b/.test(text)) filters.dayGame = true;
   if (/night game|\bnight\b/.test(text)) filters.nightGame = true;
   if (/wrigley/.test(text)) filters.venue = "Wrigley";

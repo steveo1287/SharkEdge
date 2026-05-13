@@ -86,13 +86,15 @@ function liveRowToContext(row: UpcomingRow): SharkTrendContextRow {
 
 function requiredMissing(row: SharkTrendContextRow, filters: SharkTrendFilter) {
   const missing: string[] = [];
-  if (filters.windOut !== undefined && row.windOut === null) missing.push("wind direction");
-  if (filters.windIn !== undefined && row.windIn === null) missing.push("wind direction");
-  if ((filters.windMphMin !== undefined || filters.windMphMax !== undefined) && row.windMph === null) missing.push("wind speed");
-  if ((filters.daysRestMin !== undefined || filters.daysRestMax !== undefined) && row.daysRest === null) missing.push("days rest");
-  if ((filters.previousRunsScoredMax !== undefined || filters.previousRunsAllowedMin !== undefined) && row.lastGameRunsScored === null) missing.push("previous game scoring");
-  if ((filters.starterRollingGameScoreMin !== undefined || filters.starterRollingGameScoreMax !== undefined) && row.starterRollingGameScore === null) missing.push("starter rolling game score");
-  if ((filters.eloDiffMin !== undefined || filters.eloDiffMax !== undefined) && row.eloDiff === null) missing.push("Elo differential");
+  if (filters.windOut !== undefined && row.windOut == null) missing.push("wind direction");
+  if (filters.windIn !== undefined && row.windIn == null) missing.push("wind direction");
+  if ((filters.windMphMin !== undefined || filters.windMphMax !== undefined) && row.windMph == null) missing.push("wind speed");
+  if ((filters.daysRestMin !== undefined || filters.daysRestMax !== undefined) && row.daysRest == null) missing.push("days rest");
+  if (filters.gameNumber !== undefined && row.gameNumber == null) missing.push("series game number");
+  if (filters.interleagueGame !== undefined && row.interleagueGame == null) missing.push("interleague flag");
+  if ((filters.previousRunsScoredMax !== undefined || filters.previousRunsAllowedMin !== undefined) && row.lastGameRunsScored == null) missing.push("previous game scoring");
+  if ((filters.starterRollingGameScoreMin !== undefined || filters.starterRollingGameScoreMax !== undefined) && row.starterRollingGameScore == null) missing.push("starter rolling game score");
+  if ((filters.eloDiffMin !== undefined || filters.eloDiffMax !== undefined) && row.eloDiff == null) missing.push("Elo differential");
   return missing;
 }
 

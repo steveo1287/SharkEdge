@@ -88,6 +88,8 @@ export function describeSharkTrendFilters(filters: SharkTrendFilter) {
     if (label) conditions.push(`spread ${label}`);
   }
   if (filters.divisionGame === true) conditions.push("division game");
+  if (filters.interleagueGame === true) conditions.push("interleague game");
+  if (filters.gameNumber !== undefined) conditions.push(`series game ${filters.gameNumber}`);
   if (filters.dayGame === true) conditions.push("day game");
   if (filters.nightGame === true) conditions.push("night game");
   if (filters.daysRestMin !== undefined || filters.daysRestMax !== undefined) {

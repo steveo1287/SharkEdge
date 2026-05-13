@@ -25,4 +25,10 @@ assert.equal(deepContext.filters.homeAway, "HOME");
 assert.equal(deepContext.filters.eloDiffMin, 25);
 assert.equal(deepContext.filters.starterRollingGameScoreMin, 58);
 assert.equal(deepContext.filters.previousRunsAllowedMin, 8);
+
+const seriesContext = parseSharkTrendQuery("gm 2 interleague matchup unders with total under 8.5");
+assert.equal(seriesContext.filters.gameNumber, 2);
+assert.equal(seriesContext.filters.interleagueGame, true);
+assert.equal(seriesContext.filters.side, "UNDER");
+assert.equal(seriesContext.filters.totalMax, 8.5);
 console.log("sharktrends-query-parser tests passed");

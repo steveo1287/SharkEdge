@@ -178,6 +178,10 @@ function divisionFrom(row: WarehouseRow, isHome: boolean) {
   return metadataString(isHome ? row.home_metadata_json : row.away_metadata_json, ["division", "divisionName", "mlbDivision"]);
 }
 
+function leagueFrom(row: WarehouseRow, isHome: boolean) {
+  return metadataString(isHome ? row.home_metadata_json : row.away_metadata_json, ["league", "leagueName", "mlbLeague"]);
+}
+
 function travelSpot(previous: TeamGameHistory | null, currentIsHome: boolean) {
   if (!previous) return null;
   if (previous.isHome && currentIsHome) return "home_stand";
@@ -276,6 +280,8 @@ export function buildMlbContextRowsFromWarehouse(rows: WarehouseRow[]): SharkTre
     const result = grade(row, teamId, isHome, side, closingLine);
     const teamDivision = divisionFrom(row, isHome);
     const opponentDivision = divisionFrom(row, !isHome);
+    const teamLeague = leagueFrom(row, isHome);
+    const opponentLeague = leagueFrom(row, !isHome);
     const teamPregameElo = isHome ? num(row.home_pregame_elo) : num(row.away_pregame_elo);
     const opponentPregameElo = isHome ? num(row.away_pregame_elo) : num(row.home_pregame_elo);
     const starterPitcherId = isHome ? row.home_starter_pitcher_id : row.away_starter_pitcher_id;
@@ -342,6 +348,8 @@ export function buildMlbContextRowsFromWarehouse(rows: WarehouseRow[]): SharkTre
         awayRetrosheetTeamId: row.away_retrosheet_team_id,
         teamDivision,
         opponentDivision,
+        teamLeague,
+        opponentLeague,
         previousEventId: isHome ? row.home_previous_event_id : row.away_previous_event_id
       }
     };
