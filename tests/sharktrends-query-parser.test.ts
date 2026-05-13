@@ -18,4 +18,11 @@ assert.equal(roadDog.filters.previousRunsScoredMax, 2);
 const unresolved = parseSharkTrendQuery("teams with 3 bullpen innings yesterday and travel next day");
 assert.equal(unresolved.filters.travelSpot, "home_to_road");
 assert.ok(unresolved.unresolved.some((value) => value.includes("bullpen")));
+
+const deepContext = parseSharkTrendQuery("home favorites with Elo edge 25+ and starter game score 58+ after allowing 8+");
+assert.equal(deepContext.filters.side, "FAVORITE");
+assert.equal(deepContext.filters.homeAway, "HOME");
+assert.equal(deepContext.filters.eloDiffMin, 25);
+assert.equal(deepContext.filters.starterRollingGameScoreMin, 58);
+assert.equal(deepContext.filters.previousRunsAllowedMin, 8);
 console.log("sharktrends-query-parser tests passed");

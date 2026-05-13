@@ -101,8 +101,12 @@ export function parseSharkTrendQuery(input: string): SharkTrendParsedQuery {
   if (wind) filters.windMphMin = Number(wind[1]);
   const runsMax = text.match(/(?:scoring|score|scored)\s+(\d+)\s+or fewer/);
   if (runsMax) filters.previousRunsScoredMax = Number(runsMax[1]);
+  const allowedMin = text.match(/(?:allowing|allowed)\s+(\d+)\+?/);
+  if (allowedMin) filters.previousRunsAllowedMin = Number(allowedMin[1]);
   const lastTwo = text.match(/back-to-back|two straight|last two/);
   if (lastTwo && filters.previousRunsScoredMax !== undefined) filters.lastTwoRunsScoredMax = filters.previousRunsScoredMax * 2;
+  const lastThreeRuns = text.match(/last three[^0-9]*(\d+)\s+or fewer|three straight[^0-9]*(\d+)\s+or fewer/);
+  if (lastThreeRuns) filters.lastThreeRunsScoredMax = Number(lastThreeRuns[1] ?? lastThreeRuns[2]);
   const rest = text.match(/(\d+)\s*days? rest|on\s*(\d+)\s*days? rest/);
   if (rest) {
     const value = Number(rest[1] ?? rest[2]);
@@ -112,6 +116,12 @@ export function parseSharkTrendQuery(input: string): SharkTrendParsedQuery {
   Object.assign(filters, parsePriceRange(text));
   const totalRange = text.match(/total\s*(?:under|below|<=?)\s*(\d+(?:\.5)?)/);
   if (totalRange) filters.totalMax = Number(totalRange[1]);
+  const starterGsMin = text.match(/starter(?: rolling)?(?: game score| gs)?[^0-9]*(\d{2,3})\+|game score[^0-9]*(\d{2,3})\+/);
+  if (starterGsMin) filters.starterRollingGameScoreMin = Number(starterGsMin[1] ?? starterGsMin[2]);
+  const starterGsMax = text.match(/cold starter|starter(?: rolling)?(?: game score| gs)?\s*(?:under|below|<=?)\s*(\d{2,3})/);
+  if (starterGsMax) filters.starterRollingGameScoreMax = starterGsMax[1] ? Number(starterGsMax[1]) : 45;
+  const eloMin = text.match(/elo(?: diff| edge)?[^0-9]*(\d{1,3})\+/);
+  if (eloMin) filters.eloDiffMin = Number(eloMin[1]);
 
   if (!filters.marketType) filters.marketType = filters.side === "OVER" || filters.side === "UNDER" ? "total" : "moneyline";
   if (/home to road|home-to-road|travel(?:ing)? next|travel next|road trip after home/.test(text)) filters.travelSpot = "home_to_road";

@@ -2,6 +2,7 @@
 
 import { getMlbHistoricalOddsCoverage } from "./coverage";
 import { summarizeBacktestQuality } from "./data-quality";
+import { buildSharkTrendProof } from "./proof";
 import { parseSharkTrendQuery } from "./query-parser";
 import { sharkTrendFilterZodSchema, type SharkTrendContextRow, type SharkTrendFilter } from "./types";
 
@@ -329,32 +330,34 @@ export function summarizeBacktestRows(rows: SharkTrendContextRow[], filters: Sha
   const quality = summarizeBacktestQuality(rows);
   const warningFlags = quality.warnings;
   const sampleSize = graded;
+  const result = {
+    sampleSize,
+    wins,
+    losses,
+    pushes,
+    voids,
+    winRate: sampleSize ? wins / sampleSize : 0,
+    winRateExPushes: wins + losses ? wins / (wins + losses) : 0,
+    pushRate: sampleSize ? pushes / sampleSize : 0,
+    roiFlatStake: sampleSize ? units / sampleSize : 0,
+    unitsFlatStake: units,
+    avgOddsAmerican: sampleSize ? oddsSum / sampleSize : null,
+    avgClosingOddsAmerican: sampleSize ? closingOddsSum / sampleSize : null,
+    avgLine: sampleSize ? lineSum / sampleSize : null,
+    avgClosingLine: sampleSize ? closingLineSum / sampleSize : null,
+    clvAverage: clvCount ? clvSum / clvCount : null,
+    confidenceGrade: confidenceGrade(sampleSize, quality.dataQualityScore, warningFlags),
+    dataQualityScore: quality.dataQualityScore,
+    warningFlags
+  };
 
   return {
     ok: true as const,
     query: { filters, explanation: "Structured MLB SharkTrends backtest." },
-    result: {
-      sampleSize,
-      wins,
-      losses,
-      pushes,
-      voids,
-      winRate: sampleSize ? wins / sampleSize : 0,
-      winRateExPushes: wins + losses ? wins / (wins + losses) : 0,
-      pushRate: sampleSize ? pushes / sampleSize : 0,
-      roiFlatStake: sampleSize ? units / sampleSize : 0,
-      unitsFlatStake: units,
-      avgOddsAmerican: sampleSize ? oddsSum / sampleSize : null,
-      avgClosingOddsAmerican: sampleSize ? closingOddsSum / sampleSize : null,
-      avgLine: sampleSize ? lineSum / sampleSize : null,
-      avgClosingLine: sampleSize ? closingLineSum / sampleSize : null,
-      clvAverage: clvCount ? clvSum / clvCount : null,
-      confidenceGrade: confidenceGrade(sampleSize, quality.dataQualityScore, warningFlags),
-      dataQualityScore: quality.dataQualityScore,
-      warningFlags
-    },
+    result,
     splits,
     matches,
+    proof: buildSharkTrendProof({ filters, result, splits, warnings: warningFlags }),
     warnings: warningFlags
   };
 }
@@ -413,18 +416,21 @@ export async function runSharkTrendBacktest(args: SharkTrendBacktestArgs) {
     fetchBacktestRows(filters, args.limit ?? 5000)
   ]);
   const summary = summarizeBacktestRows(rows, filters, Boolean(args.includeMatches), args.limit ?? 100);
+  const coverageSummary = {
+    minDate: coverage.minEventStartTime,
+    maxDate: coverage.maxEventStartTime,
+    seasonsAvailable: coverage.seasonsAvailable,
+    sourceKeys: coverage.sourceKeys,
+    marketCount: coverage.marketCount,
+    snapshotCount: coverage.snapshotCount
+  };
+  const warnings = [...coverage.warnings, ...summary.warnings];
   return {
     ...summary,
     query: { filters, explanation: args.explanation ?? summary.query.explanation },
-    coverage: {
-      minDate: coverage.minEventStartTime,
-      maxDate: coverage.maxEventStartTime,
-      seasonsAvailable: coverage.seasonsAvailable,
-      sourceKeys: coverage.sourceKeys,
-      marketCount: coverage.marketCount,
-      snapshotCount: coverage.snapshotCount
-    },
-    warnings: [...coverage.warnings, ...summary.warnings]
+    coverage: coverageSummary,
+    proof: buildSharkTrendProof({ filters, result: summary.result, splits: summary.splits, warnings, coverage: coverageSummary }),
+    warnings
   };
 }
 

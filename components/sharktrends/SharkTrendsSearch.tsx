@@ -6,6 +6,7 @@ import type { SharkTrendTemplate } from "@/src/server/sharktrends/catalog";
 import type { SharkTrendFilter } from "@/src/server/sharktrends/types";
 
 import { SharkTrendsMatchesTable } from "./SharkTrendsMatchesTable";
+import { SharkTrendsProofStack } from "./SharkTrendsProofStack";
 import { SharkTrendsQualifiers } from "./SharkTrendsQualifiers";
 import { SharkTrendsResultSummary } from "./SharkTrendsResultSummary";
 import { SharkTrendsSplits } from "./SharkTrendsSplits";
@@ -119,6 +120,7 @@ export function SharkTrendsSearch({ templates }: { templates: SharkTrendTemplate
 
       {state.error && <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 p-4 text-rose-100">{state.error}</div>}
       <SharkTrendsWarningBanner warnings={state.backtest?.warnings} />
+      <SharkTrendsProofStack proof={state.backtest?.proof} />
       <SharkTrendsResultSummary result={state.backtest?.result} />
       <SharkTrendsSplits splits={state.backtest?.splits} />
       <SharkTrendsQualifiers qualifiers={state.qualifiers?.qualifiers ?? []} warnings={state.qualifiers?.warnings ?? []} />

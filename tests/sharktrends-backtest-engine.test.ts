@@ -38,5 +38,6 @@ assert.equal(summary.result.wins, 1);
 assert.equal(summary.result.losses, 1);
 assert.equal(summary.result.pushes, 1);
 assert.equal(summary.matches.length, 3);
+assert.match(summary.proof.headline, /MLB/);
 assert.equal(rowMatchesFilter(row({}), { league: "MLB", team: "Cubs", marketType: "moneyline", side: "FAVORITE" }), true);
 console.log("sharktrends-backtest-engine tests passed");
