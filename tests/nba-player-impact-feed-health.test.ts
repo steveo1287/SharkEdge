@@ -25,7 +25,7 @@ function snapshot(args: { teams?: number; playersPerTeam?: number; lastUpdatedAt
   }
   return {
     teams,
-    lastUpdatedAt: args.lastUpdatedAt ?? "2026-05-03T17:30:00.000Z"
+    lastUpdatedAt: args.lastUpdatedAt === undefined ? "2026-05-03T17:30:00.000Z" : args.lastUpdatedAt
   };
 }
 

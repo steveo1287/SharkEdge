@@ -118,7 +118,7 @@ function normalizeMarketType(marketType?: string | null, market?: string | null)
 }
 
 function isCurrentGameSource(input: TrendQualityInput) {
-  return Boolean(input.activeMatchCount || input.todayMatchCount || input.source === "sim-engine" || input.source === "market-edge");
+  return Boolean(input.activeMatchCount || input.todayMatchCount || input.source === "sim-engine");
 }
 
 export function americanToImpliedProbability(oddsAmerican: number | null | undefined) {

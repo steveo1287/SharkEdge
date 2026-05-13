@@ -730,6 +730,86 @@ model MlbPitcherRollingSnapshot {
   @@map("mlb_pitcher_rolling_snapshots")
 }
 
+model MlbGameContext {
+  id                         String   @id @default(cuid())
+  eventId                    String
+  eventMarketId              String?
+  sourceKey                  String
+  sportsbookKey              String?
+  sportsbookName             String?
+  season                     Int
+  gameDate                   DateTime
+  startTime                  DateTime
+  teamCompetitorId           String
+  opponentCompetitorId       String?
+  teamName                   String
+  opponentName               String?
+  teamAbbr                   String?
+  opponentAbbr               String?
+  isHome                     Boolean
+  side                       String
+  marketType                 String
+  line                       Float?
+  openingLine                Float?
+  closingLine                Float?
+  oddsAmerican               Int?
+  openingOddsAmerican        Int?
+  closingOddsAmerican        Int?
+  impliedProbability         Float?
+  isFavorite                 Boolean?
+  isUnderdog                 Boolean?
+  favoritePriceBucket        String?
+  moneylineBucket            String?
+  spreadBucket               String?
+  totalBucket                String?
+  teamScore                  Int?
+  opponentScore              Int?
+  wonGame                    Boolean?
+  coverResult                String?
+  ouResult                   String?
+  totalRuns                  Int?
+  margin                     Int?
+  venue                      String?
+  parkId                     String?
+  divisionGame               Boolean?
+  isDayGame                  Boolean?
+  isNightGame                Boolean?
+  previousGameDate           DateTime?
+  daysRest                   Float?
+  opponentDaysRest           Float?
+  isBackToBack               Boolean?
+  travelSpot                 String?
+  lastGameRunsScored         Int?
+  lastGameRunsAllowed        Int?
+  lastTwoRunsScored          Int?
+  lastThreeRunsScored        Int?
+  starterPitcherId           String?
+  starterPitcherName         String?
+  starterRollingGameScore    Float?
+  teamPregameElo             Float?
+  opponentPregameElo         Float?
+  eloDiff                    Float?
+  weatherTempF               Float?
+  windMph                    Float?
+  windDirection              String?
+  windOut                    Boolean?
+  windIn                     Boolean?
+  dataQualityScore           Int      @default(0)
+  dataWarnings               Json?
+  rawContextJson             Json?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@unique([eventId, eventMarketId, teamCompetitorId, marketType, side])
+  @@index([season, gameDate])
+  @@index([teamName, season])
+  @@index([marketType, season])
+  @@index([sourceKey, season])
+  @@index([isHome, marketType])
+  @@index([isFavorite, marketType])
+  @@map("mlb_game_context")
+}
+
 model Injury {
   id           String       @id @default(cuid())
   leagueId     String?
