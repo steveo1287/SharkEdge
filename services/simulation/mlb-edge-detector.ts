@@ -480,6 +480,14 @@ function findLinesForGame(lines: SportsbookLine[], game: { id: string }, matchup
   return lines.filter((line) => lineMatchesGame(line, game, matchup));
 }
 
+function isPregameMarketEligible(game: Pick<MlbEdgeGame, "startTime" | "status">) {
+  const status = String(game.status ?? "").toUpperCase();
+  if (status === "LIVE" || status === "FINAL") return false;
+  const start = Date.parse(game.startTime);
+  if (!Number.isFinite(start)) return false;
+  return start >= Date.now() - 15 * 60_000;
+}
+
 export function buildMlbConsensusLine(lines: SportsbookLine[], matchup: { home: string; away: string }): MlbConsensusLine | null {
   if (!lines.length) return null;
   const totalEligibleLines = lines.filter((line) => isPlausibleMlbGameTotal(line.total) && hasMainTotalPricing(line));
@@ -614,7 +622,7 @@ export async function buildMlbEdgesFromProjections(options: BuildMlbEdgesFromPro
   for (const game of options.games) {
     const projection = options.projectionsByGameId.get(game.id);
     if (!projection) continue;
-    const matchedLines = findLinesForGame(lines, game, projection.matchup);
+    const matchedLines = isPregameMarketEligible(game) ? findLinesForGame(lines, game, projection.matchup) : [];
     const line = buildMlbConsensusLine(matchedLines, projection.matchup);
     const homeMarketProb = line?.homeNoVigProbability ?? americanToProbability(line?.homeMoneyline ?? null);
     const awayMarketProb = line?.awayNoVigProbability ?? americanToProbability(line?.awayMoneyline ?? null);
