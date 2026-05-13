@@ -65,7 +65,7 @@ const recentStats = Array.from({ length: 12 }, (_, index) => ({
 
 const healthyPointsCalibration: NbaPropCalibrationBucket = {
   statKey: "points",
-  bucket: "0.68-0.74",
+  bucket: "0.80-1.00",
   count: 90,
   avgPredictedOver: 0.52,
   actualOverRate: 0.51,
