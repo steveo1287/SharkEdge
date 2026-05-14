@@ -388,6 +388,17 @@ function normalizeNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "bigint") return Number(value);
   if (typeof value === "string" && Number.isFinite(Number(value))) return Number(value);
+  if (value && typeof value === "object") {
+    const maybeDecimal = value as { toNumber?: () => number; toString?: () => string };
+    if (typeof maybeDecimal.toNumber === "function") {
+      const numeric = maybeDecimal.toNumber();
+      if (Number.isFinite(numeric)) return numeric;
+    }
+    if (typeof maybeDecimal.toString === "function") {
+      const numeric = Number(maybeDecimal.toString());
+      if (Number.isFinite(numeric)) return numeric;
+    }
+  }
   return null;
 }
 function winPct(wins: number, losses: number) { const decisions = wins + losses; return decisions <= 0 ? null : wins / decisions; }

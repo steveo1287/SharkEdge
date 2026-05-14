@@ -33,6 +33,23 @@ function validRows(rows: any[]): TrainingRow[] { return rows.filter((row) => typ
 function binIndex(probability: number, binCount: number) { return Math.min(binCount - 1, Math.max(0, Math.floor(probability * binCount))); }
 function featureMap(row: TrainingRow): Record<string, number> { return Object.fromEntries(FEATURES.map((feature) => [feature, row[feature]])); }
 
+function dbNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && Number.isFinite(Number(value))) return Number(value);
+  if (value && typeof value === "object") {
+    const maybeDecimal = value as { toNumber?: () => number; toString?: () => string };
+    if (typeof maybeDecimal.toNumber === "function") {
+      const numeric = maybeDecimal.toNumber();
+      if (Number.isFinite(numeric)) return numeric;
+    }
+    if (typeof maybeDecimal.toString === "function") {
+      const numeric = Number(maybeDecimal.toString());
+      if (Number.isFinite(numeric)) return numeric;
+    }
+  }
+  return null;
+}
+
 function validProbability(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) && value > 0 && value < 1;
 }
@@ -144,11 +161,11 @@ export async function trainMlbCalibrationFromPredictionSnapshots(limit = 2500, o
   }
 
   const rows = await prisma.$queryRaw<Array<{
-    modelHomeWinPct: number;
-    finalHomeScore: number | null;
-    finalAwayScore: number | null;
-    modelTotal: number | null;
-    finalTotal: number | null;
+    modelHomeWinPct: unknown;
+    finalHomeScore: unknown;
+    finalAwayScore: unknown;
+    modelTotal: unknown;
+    finalTotal: unknown;
   }>>`
     SELECT model_home_win_pct AS "modelHomeWinPct", final_home_score AS "finalHomeScore", final_away_score AS "finalAwayScore", model_total AS "modelTotal", final_total AS "finalTotal"
     FROM sim_prediction_snapshots
@@ -163,12 +180,24 @@ export async function trainMlbCalibrationFromPredictionSnapshots(limit = 2500, o
 
   const model = fitMlbCalibrationFromScoredRows({
     rows: rows
-      .filter((row) => typeof row.finalHomeScore === "number" && typeof row.finalAwayScore === "number" && row.finalHomeScore !== row.finalAwayScore)
       .map((row) => ({
-        probability: row.modelHomeWinPct,
-        actual: row.finalHomeScore! > row.finalAwayScore! ? 1 : 0,
-        projectedTotal: row.modelTotal,
-        actualTotal: row.finalTotal
+        probability: dbNumber(row.modelHomeWinPct),
+        finalHomeScore: dbNumber(row.finalHomeScore),
+        finalAwayScore: dbNumber(row.finalAwayScore),
+        projectedTotal: dbNumber(row.modelTotal),
+        actualTotal: dbNumber(row.finalTotal)
+      }))
+      .filter((row): row is { probability: number; finalHomeScore: number; finalAwayScore: number; projectedTotal: number | null; actualTotal: number | null } =>
+        row.probability !== null &&
+        row.finalHomeScore !== null &&
+        row.finalAwayScore !== null &&
+        row.finalHomeScore !== row.finalAwayScore
+      )
+      .map((row) => ({
+        probability: row.probability,
+        actual: row.finalHomeScore > row.finalAwayScore ? 1 : 0,
+        projectedTotal: row.projectedTotal,
+        actualTotal: row.actualTotal
       })),
     source: "sim_prediction_snapshots",
     warning: rows.length < 300 ? "Calibration trained from graded MLB sim snapshots with a small sample. Corrections stay capped until more finals land." : null
