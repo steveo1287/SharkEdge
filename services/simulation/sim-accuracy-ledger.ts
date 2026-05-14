@@ -391,11 +391,11 @@ function normalizeNumber(value: unknown) {
   return null;
 }
 function winPct(wins: number, losses: number) { const decisions = wins + losses; return decisions <= 0 ? null : wins / decisions; }
-function pickResult(row: { model_home_win_pct: number; home_won: boolean | null; final_home_score: number | null; final_away_score: number | null }) {
-  if (row.home_won == null || row.final_home_score == null || row.final_away_score == null) return "pending" as const;
+function pickResult(row: { model_home_win_pct: number; final_home_score: number | null; final_away_score: number | null }) {
+  if (row.final_home_score == null || row.final_away_score == null) return "pending" as const;
   if (row.final_home_score === row.final_away_score) return "push" as const;
   const pickedHome = row.model_home_win_pct >= 0.5;
-  return pickedHome === row.home_won ? "win" as const : "loss" as const;
+  return pickedHome === (row.final_home_score > row.final_away_score) ? "win" as const : "loss" as const;
 }
 
 export async function getSimAccuracySummary(limit = 20): Promise<SimAccuracySummary> {
@@ -412,8 +412,8 @@ export async function getSimAccuracySummary(limit = 20): Promise<SimAccuracySumm
         UNION ALL SELECT 'allTime'::text AS window_key, 'All time'::text AS label, NULL::timestamptz AS starts_at, 3 AS sort_order
       )
       SELECT windows.window_key, windows.label, COUNT(s.id)::bigint AS snapshots, COUNT(s.graded_at)::bigint AS graded,
-        SUM(CASE WHEN s.graded_at IS NOT NULL AND s.final_home_score <> s.final_away_score AND ((s.model_home_win_pct >= 0.5 AND s.home_won = TRUE) OR (s.model_home_win_pct < 0.5 AND s.home_won = FALSE)) THEN 1 ELSE 0 END)::bigint AS wins,
-        SUM(CASE WHEN s.graded_at IS NOT NULL AND s.final_home_score <> s.final_away_score AND NOT ((s.model_home_win_pct >= 0.5 AND s.home_won = TRUE) OR (s.model_home_win_pct < 0.5 AND s.home_won = FALSE)) THEN 1 ELSE 0 END)::bigint AS losses,
+        SUM(CASE WHEN s.graded_at IS NOT NULL AND s.final_home_score <> s.final_away_score AND ((s.model_home_win_pct >= 0.5 AND s.final_home_score > s.final_away_score) OR (s.model_home_win_pct < 0.5 AND s.final_home_score < s.final_away_score)) THEN 1 ELSE 0 END)::bigint AS wins,
+        SUM(CASE WHEN s.graded_at IS NOT NULL AND s.final_home_score <> s.final_away_score AND NOT ((s.model_home_win_pct >= 0.5 AND s.final_home_score > s.final_away_score) OR (s.model_home_win_pct < 0.5 AND s.final_home_score < s.final_away_score)) THEN 1 ELSE 0 END)::bigint AS losses,
         SUM(CASE WHEN s.graded_at IS NOT NULL AND s.final_home_score = s.final_away_score THEN 1 ELSE 0 END)::bigint AS pushes,
         AVG(s.brier) AS brier, AVG(s.log_loss) AS log_loss, AVG(s.spread_error) AS spread_mae, AVG(s.total_error) AS total_mae, AVG(s.confidence) AS avg_confidence
       FROM windows
@@ -423,8 +423,8 @@ export async function getSimAccuracySummary(limit = 20): Promise<SimAccuracySumm
     `;
     const leagueRows = await prisma.$queryRaw<Array<{ league: string; snapshots: bigint; graded: bigint; wins: bigint; losses: bigint; pushes: bigint; brier: number | null; log_loss: number | null; spread_mae: number | null; total_mae: number | null; avg_confidence: number | null }>>`
       SELECT league, COUNT(*)::bigint AS snapshots, COUNT(graded_at)::bigint AS graded,
-        SUM(CASE WHEN graded_at IS NOT NULL AND final_home_score <> final_away_score AND ((model_home_win_pct >= 0.5 AND home_won = TRUE) OR (model_home_win_pct < 0.5 AND home_won = FALSE)) THEN 1 ELSE 0 END)::bigint AS wins,
-        SUM(CASE WHEN graded_at IS NOT NULL AND final_home_score <> final_away_score AND NOT ((model_home_win_pct >= 0.5 AND home_won = TRUE) OR (model_home_win_pct < 0.5 AND home_won = FALSE)) THEN 1 ELSE 0 END)::bigint AS losses,
+        SUM(CASE WHEN graded_at IS NOT NULL AND final_home_score <> final_away_score AND ((model_home_win_pct >= 0.5 AND final_home_score > final_away_score) OR (model_home_win_pct < 0.5 AND final_home_score < final_away_score)) THEN 1 ELSE 0 END)::bigint AS wins,
+        SUM(CASE WHEN graded_at IS NOT NULL AND final_home_score <> final_away_score AND NOT ((model_home_win_pct >= 0.5 AND final_home_score > final_away_score) OR (model_home_win_pct < 0.5 AND final_home_score < final_away_score)) THEN 1 ELSE 0 END)::bigint AS losses,
         SUM(CASE WHEN graded_at IS NOT NULL AND final_home_score = final_away_score THEN 1 ELSE 0 END)::bigint AS pushes,
         AVG(brier) AS brier, AVG(log_loss) AS log_loss, AVG(spread_error) AS spread_mae, AVG(total_error) AS total_mae, AVG(confidence) AS avg_confidence
       FROM sim_prediction_snapshots
@@ -433,7 +433,7 @@ export async function getSimAccuracySummary(limit = 20): Promise<SimAccuracySumm
     `;
     const bucketRows = await prisma.$queryRaw<Array<{ league: string; calibration_bucket: string; count: bigint; avg_predicted: number; actual_rate: number; brier: number }>>`
       SELECT league, calibration_bucket, COUNT(*)::bigint AS count, AVG(model_home_win_pct) AS avg_predicted,
-        AVG(CASE WHEN home_won THEN 1.0 ELSE 0.0 END) AS actual_rate, AVG(brier) AS brier
+        AVG(CASE WHEN final_home_score > final_away_score THEN 1.0 WHEN final_home_score < final_away_score THEN 0.0 ELSE NULL END) AS actual_rate, AVG(brier) AS brier
       FROM sim_prediction_snapshots
       WHERE graded_at IS NOT NULL
       GROUP BY league, calibration_bucket

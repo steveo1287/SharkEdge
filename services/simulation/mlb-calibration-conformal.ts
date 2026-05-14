@@ -145,15 +145,17 @@ export async function trainMlbCalibrationFromPredictionSnapshots(limit = 2500, o
 
   const rows = await prisma.$queryRaw<Array<{
     modelHomeWinPct: number;
-    homeWon: boolean | null;
+    finalHomeScore: number | null;
+    finalAwayScore: number | null;
     modelTotal: number | null;
     finalTotal: number | null;
   }>>`
-    SELECT model_home_win_pct AS "modelHomeWinPct", home_won AS "homeWon", model_total AS "modelTotal", final_total AS "finalTotal"
+    SELECT model_home_win_pct AS "modelHomeWinPct", final_home_score AS "finalHomeScore", final_away_score AS "finalAwayScore", model_total AS "modelTotal", final_total AS "finalTotal"
     FROM sim_prediction_snapshots
     WHERE league = 'MLB'
       AND graded_at IS NOT NULL
-      AND home_won IS NOT NULL
+      AND final_home_score IS NOT NULL
+      AND final_away_score IS NOT NULL
       AND model_home_win_pct IS NOT NULL
     ORDER BY captured_at DESC
     LIMIT ${Math.max(30, Math.min(10000, Math.round(limit)))};
@@ -161,10 +163,10 @@ export async function trainMlbCalibrationFromPredictionSnapshots(limit = 2500, o
 
   const model = fitMlbCalibrationFromScoredRows({
     rows: rows
-      .filter((row) => row.homeWon !== null)
+      .filter((row) => typeof row.finalHomeScore === "number" && typeof row.finalAwayScore === "number" && row.finalHomeScore !== row.finalAwayScore)
       .map((row) => ({
         probability: row.modelHomeWinPct,
-        actual: row.homeWon ? 1 : 0,
+        actual: row.finalHomeScore! > row.finalAwayScore! ? 1 : 0,
         projectedTotal: row.modelTotal,
         actualTotal: row.finalTotal
       })),
