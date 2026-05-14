@@ -2,6 +2,7 @@ import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import type { LeagueKey } from "@/lib/types/domain";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
+import { trainBestAvailableMlbCalibrationConformal } from "@/services/simulation/mlb-calibration-conformal";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 
 type SupportedAccuracyLeague = Extract<LeagueKey, "NBA" | "MLB">;
@@ -126,6 +127,18 @@ function bucketFor(probability: number) {
   return `${lower}-${lower + 10}%`;
 }
 
+function defaultAccuracyLeagues(): SupportedAccuracyLeague[] {
+  const configured = process.env.SIM_ACCURACY_LEAGUES?.split(",")
+    .map((value) => value.trim().toUpperCase())
+    .filter((value): value is SupportedAccuracyLeague => value === "MLB" || value === "NBA");
+  return configured?.length ? configured : ["MLB"];
+}
+
+function numericScore(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) return Number(value);
+  return null;
+}
 
 function richMlbIntel(projection: Projection): RichMlbIntel | null { return projection.mlbIntel ? projection.mlbIntel as RichMlbIntel : null; }
 function richRealityIntel(projection: Projection, league: LeagueKey): RichRealityIntel | null { return league === "NBA" && projection.realityIntel ? projection.realityIntel as RichRealityIntel : null; }
@@ -269,7 +282,7 @@ async function fetchSimGames(leagues: SupportedAccuracyLeague[]) {
     : []) as SimGame[];
 }
 
-export async function captureCurrentSimPredictionSnapshots(leagues: SupportedAccuracyLeague[] = ["NBA", "MLB"]) {
+export async function captureCurrentSimPredictionSnapshots(leagues: SupportedAccuracyLeague[] = defaultAccuracyLeagues()) {
   const databaseReady = hasUsableServerDatabaseUrl();
   if (!databaseReady) return { ok: false, databaseReady, captured: 0, skipped: 0, error: "No usable server database URL is configured." };
   const [games, edgeData] = await Promise.all([
@@ -299,7 +312,43 @@ async function finalScoreMap(leagues: SupportedAccuracyLeague[]) {
   return map;
 }
 
-export async function gradeFinalSimPredictionSnapshots(leagues: SupportedAccuracyLeague[] = ["NBA", "MLB"]) {
+async function databaseFinalScoreMap(leagues: SupportedAccuracyLeague[], gameIds: string[]) {
+  if (!gameIds.length) return new Map<string, ScoreResult>();
+  const events = await prisma.event.findMany({
+    where: {
+      leagueId: { in: leagues },
+      OR: [
+        { id: { in: gameIds } },
+        { externalEventId: { in: gameIds } }
+      ],
+      eventResult: { isNot: null }
+    },
+    include: {
+      participants: true,
+      eventResult: true
+    }
+  });
+  const map = new Map<string, ScoreResult>();
+  for (const event of events) {
+    const home = event.participants.find((participant) => participant.role === "HOME");
+    const away = event.participants.find((participant) => participant.role === "AWAY");
+    const homeScore = numericScore(home?.score);
+    const awayScore = numericScore(away?.score);
+    if (homeScore === null || awayScore === null) continue;
+    const result = {
+      homeScore,
+      awayScore,
+      finalTotal: homeScore + awayScore,
+      finalMargin: homeScore - awayScore,
+      homeWon: homeScore > awayScore
+    };
+    map.set(`${event.leagueId}:${event.id}`, result);
+    if (event.externalEventId) map.set(`${event.leagueId}:${event.externalEventId}`, result);
+  }
+  return map;
+}
+
+export async function gradeFinalSimPredictionSnapshots(leagues: SupportedAccuracyLeague[] = defaultAccuracyLeagues()) {
   const databaseReady = hasUsableServerDatabaseUrl();
   if (!databaseReady) return { ok: false, databaseReady, graded: 0, availableFinals: 0, error: "No usable server database URL is configured." };
   const finals = await finalScoreMap(leagues);
@@ -311,7 +360,10 @@ export async function gradeFinalSimPredictionSnapshots(leagues: SupportedAccurac
     ORDER BY captured_at ASC
     LIMIT 500;
   `;
-  for (const row of rows) {
+  const scopedRows = rows.filter((row) => leagues.includes(row.league as SupportedAccuracyLeague));
+  const databaseFinals = await databaseFinalScoreMap(leagues, scopedRows.map((row) => row.game_id));
+  for (const [key, value] of databaseFinals.entries()) finals.set(key, value);
+  for (const row of scopedRows) {
     const result = finals.get(`${row.league}:${row.game_id}`);
     if (!result) continue;
     const outcome = result.homeWon ? 1 : 0;
@@ -417,8 +469,15 @@ export async function getSimAccuracySummary(limit = 20): Promise<SimAccuracySumm
 }
 
 export async function runSimAccuracyLedgerJob() {
-  const capture = await captureCurrentSimPredictionSnapshots();
-  const grade = await gradeFinalSimPredictionSnapshots();
+  const leagues = defaultAccuracyLeagues();
+  const capture = await captureCurrentSimPredictionSnapshots(leagues);
+  const grade = await gradeFinalSimPredictionSnapshots(leagues);
+  const mlbCalibration = leagues.includes("MLB")
+    ? await trainBestAvailableMlbCalibrationConformal().catch((error) => ({
+        ok: false,
+        error: error instanceof Error ? error.message : "MLB calibration training failed."
+      }))
+    : { ok: true, skipped: true };
   const summary = await getSimAccuracySummary(12);
-  return { ok: capture.ok && grade.ok && summary.ok, capture, grade, summary };
+  return { ok: capture.ok && grade.ok && summary.ok, capture, grade, mlbCalibration, summary };
 }

@@ -1,4 +1,5 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
+import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import { buildMlbTrainingDataset } from "@/services/simulation/mlb-training-dataset-builder";
 import { getCachedMlbMlModel, scoreMlbMlModel } from "@/services/simulation/mlb-ml-training-engine";
 
@@ -8,10 +9,12 @@ const FEATURES = ["teamEdge", "playerEdge", "statcastEdge", "weatherEdge", "pitc
 
 type FeatureName = typeof FEATURES[number];
 type TrainingRow = Record<FeatureName, number> & { homeScore: number; awayScore: number; closingTotal?: number | null; marketTotal?: number | null };
+type ScoredCalibrationRow = { probability: number; actual: 0 | 1; projectedTotal?: number | null; actualTotal?: number | null };
 
 type CalibrationBin = { min: number; max: number; count: number; avgPredicted: number; observedRate: number; correction: number };
 export type MlbCalibrationModel = {
   ok: boolean;
+  source?: "training_dataset" | "sim_prediction_snapshots";
   trainedAt: string;
   rows: number;
   ece: number;
@@ -30,6 +33,10 @@ function validRows(rows: any[]): TrainingRow[] { return rows.filter((row) => typ
 function binIndex(probability: number, binCount: number) { return Math.min(binCount - 1, Math.max(0, Math.floor(probability * binCount))); }
 function featureMap(row: TrainingRow): Record<string, number> { return Object.fromEntries(FEATURES.map((feature) => [feature, row[feature]])); }
 
+function validProbability(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 && value < 1;
+}
+
 function calibrationCorrectionCap(model: MlbCalibrationModel, bin: CalibrationBin | null) {
   if (!bin || bin.count < 8) return 0;
   if (model.rows >= 1000 && bin.count >= 80 && model.ece <= 0.055) return 0.045;
@@ -37,28 +44,49 @@ function calibrationCorrectionCap(model: MlbCalibrationModel, bin: CalibrationBi
   return 0.022;
 }
 
-export async function trainMlbCalibrationConformal(limit = 1000): Promise<MlbCalibrationModel> {
-  const ml = await getCachedMlbMlModel();
-  const dataset = await buildMlbTrainingDataset(limit, 240);
-  const rows = validRows(dataset.games ?? []);
-  if (!ml?.ok || rows.length < 30) {
-    const model: MlbCalibrationModel = { ok: false, trainedAt: new Date().toISOString(), rows: rows.length, ece: 0, bins: [], sideConformalThreshold: 0, totalResidualP50: 0, totalResidualP80: 0, totalResidualP90: 0, warning: "Need a trained ML model and at least 30 joined training rows before calibration/conformal uncertainty can be trusted." };
-    await writeHotCache(CALIBRATION_KEY, model, TTL_SECONDS);
-    return model;
+export function fitMlbCalibrationFromScoredRows(args: {
+  rows: ScoredCalibrationRow[];
+  source: NonNullable<MlbCalibrationModel["source"]>;
+  warning?: string | null;
+  trainedAt?: string;
+}): MlbCalibrationModel {
+  const rows = args.rows.filter((row) => validProbability(row.probability) && (row.actual === 0 || row.actual === 1));
+  if (rows.length < 30) {
+    return {
+      ok: false,
+      source: args.source,
+      trainedAt: args.trainedAt ?? new Date().toISOString(),
+      rows: rows.length,
+      ece: 0,
+      bins: [],
+      sideConformalThreshold: 0,
+      totalResidualP50: 0,
+      totalResidualP80: 0,
+      totalResidualP90: 0,
+      warning: args.warning ?? "Need at least 30 graded MLB rows before calibration/conformal uncertainty can be trusted."
+    };
   }
+
   const binCount = 10;
-  const rawBins = Array.from({ length: binCount }, (_, index) => ({ min: index / binCount, max: (index + 1) / binCount, preds: [] as number[], actuals: [] as number[] }));
+  const rawBins = Array.from({ length: binCount }, (_, index) => ({
+    min: index / binCount,
+    max: (index + 1) / binCount,
+    preds: [] as number[],
+    actuals: [] as number[]
+  }));
   const sideScores: number[] = [];
   const totalResiduals: number[] = [];
+
   for (const row of rows) {
-    const scored = scoreMlbMlModel(ml, featureMap(row));
-    const p = scored.homeWinProbability;
-    const actual = row.homeScore > row.awayScore ? 1 : 0;
+    const p = clamp(row.probability, 0.001, 0.999);
     rawBins[binIndex(p, binCount)].preds.push(p);
-    rawBins[binIndex(p, binCount)].actuals.push(actual);
-    sideScores.push(actual === 1 ? 1 - p : p);
-    totalResiduals.push(Math.abs((row.homeScore + row.awayScore) - scored.projectedTotal));
+    rawBins[binIndex(p, binCount)].actuals.push(row.actual);
+    sideScores.push(row.actual === 1 ? 1 - p : p);
+    if (typeof row.projectedTotal === "number" && Number.isFinite(row.projectedTotal) && typeof row.actualTotal === "number" && Number.isFinite(row.actualTotal)) {
+      totalResiduals.push(Math.abs(row.actualTotal - row.projectedTotal));
+    }
   }
+
   const bins = rawBins.map((bin) => {
     const count = bin.preds.length;
     const avgPredicted = count ? bin.preds.reduce((sum, value) => sum + value, 0) / count : (bin.min + bin.max) / 2;
@@ -66,9 +94,94 @@ export async function trainMlbCalibrationConformal(limit = 1000): Promise<MlbCal
     return { min: round(bin.min, 2), max: round(bin.max, 2), count, avgPredicted: round(avgPredicted), observedRate: round(observedRate), correction: round(observedRate - avgPredicted) };
   });
   const ece = bins.reduce((sum, bin) => sum + (bin.count / rows.length) * Math.abs(bin.observedRate - bin.avgPredicted), 0);
-  const model: MlbCalibrationModel = { ok: true, trainedAt: new Date().toISOString(), rows: rows.length, ece: round(ece), bins, sideConformalThreshold: round(quantile(sideScores, 0.8)), totalResidualP50: round(quantile(totalResiduals, 0.5), 3), totalResidualP80: round(quantile(totalResiduals, 0.8), 3), totalResidualP90: round(quantile(totalResiduals, 0.9), 3), warning: rows.length < 300 ? "Calibration trained on small sample. Treat no-bet gates as conservative." : null };
+  return {
+    ok: true,
+    source: args.source,
+    trainedAt: args.trainedAt ?? new Date().toISOString(),
+    rows: rows.length,
+    ece: round(ece),
+    bins,
+    sideConformalThreshold: round(quantile(sideScores, 0.8)),
+    totalResidualP50: round(quantile(totalResiduals, 0.5), 3),
+    totalResidualP80: round(quantile(totalResiduals, 0.8), 3),
+    totalResidualP90: round(quantile(totalResiduals, 0.9), 3),
+    warning: args.warning ?? (rows.length < 300 ? "Calibration trained on small MLB sample. Treat no-bet gates as conservative." : null)
+  };
+}
+
+export async function trainMlbCalibrationConformal(limit = 1000): Promise<MlbCalibrationModel> {
+  const ml = await getCachedMlbMlModel();
+  const dataset = await buildMlbTrainingDataset(limit, 240);
+  const rows = validRows(dataset.games ?? []);
+  if (!ml?.ok || rows.length < 30) {
+    const model: MlbCalibrationModel = { ok: false, source: "training_dataset", trainedAt: new Date().toISOString(), rows: rows.length, ece: 0, bins: [], sideConformalThreshold: 0, totalResidualP50: 0, totalResidualP80: 0, totalResidualP90: 0, warning: "Need a trained ML model and at least 30 joined training rows before calibration/conformal uncertainty can be trusted." };
+    await writeHotCache(CALIBRATION_KEY, model, TTL_SECONDS);
+    return model;
+  }
+  const scoredRows = rows.map((row): ScoredCalibrationRow => {
+    const scored = scoreMlbMlModel(ml, featureMap(row));
+    return {
+      probability: scored.homeWinProbability,
+      actual: row.homeScore > row.awayScore ? 1 : 0,
+      projectedTotal: scored.projectedTotal,
+      actualTotal: row.homeScore + row.awayScore
+    };
+  });
+  const model = fitMlbCalibrationFromScoredRows({
+    rows: scoredRows,
+    source: "training_dataset",
+    warning: rows.length < 300 ? "Calibration trained on small joined feature sample. Treat no-bet gates as conservative." : null
+  });
   await writeHotCache(CALIBRATION_KEY, model, TTL_SECONDS);
   return model;
+}
+
+export async function trainMlbCalibrationFromPredictionSnapshots(limit = 2500, options: { writeOnFailure?: boolean } = {}): Promise<MlbCalibrationModel> {
+  if (!hasUsableServerDatabaseUrl()) {
+    const model: MlbCalibrationModel = { ok: false, source: "sim_prediction_snapshots", trainedAt: new Date().toISOString(), rows: 0, ece: 0, bins: [], sideConformalThreshold: 0, totalResidualP50: 0, totalResidualP80: 0, totalResidualP90: 0, warning: "No usable server database URL is configured for MLB snapshot calibration." };
+    if (options.writeOnFailure) await writeHotCache(CALIBRATION_KEY, model, TTL_SECONDS);
+    return model;
+  }
+
+  const rows = await prisma.$queryRaw<Array<{
+    modelHomeWinPct: number;
+    homeWon: boolean | null;
+    modelTotal: number | null;
+    finalTotal: number | null;
+  }>>`
+    SELECT model_home_win_pct AS "modelHomeWinPct", home_won AS "homeWon", model_total AS "modelTotal", final_total AS "finalTotal"
+    FROM sim_prediction_snapshots
+    WHERE league = 'MLB'
+      AND graded_at IS NOT NULL
+      AND home_won IS NOT NULL
+      AND model_home_win_pct IS NOT NULL
+    ORDER BY captured_at DESC
+    LIMIT ${Math.max(30, Math.min(10000, Math.round(limit)))};
+  `;
+
+  const model = fitMlbCalibrationFromScoredRows({
+    rows: rows
+      .filter((row) => row.homeWon !== null)
+      .map((row) => ({
+        probability: row.modelHomeWinPct,
+        actual: row.homeWon ? 1 : 0,
+        projectedTotal: row.modelTotal,
+        actualTotal: row.finalTotal
+      })),
+    source: "sim_prediction_snapshots",
+    warning: rows.length < 300 ? "Calibration trained from graded MLB sim snapshots with a small sample. Corrections stay capped until more finals land." : null
+  });
+
+  if (model.ok || options.writeOnFailure) {
+    await writeHotCache(CALIBRATION_KEY, model, TTL_SECONDS);
+  }
+  return model;
+}
+
+export async function trainBestAvailableMlbCalibrationConformal(limit = 2500): Promise<MlbCalibrationModel> {
+  const snapshotModel = await trainMlbCalibrationFromPredictionSnapshots(limit);
+  if (snapshotModel.ok) return snapshotModel;
+  return trainMlbCalibrationConformal(Math.min(limit, 1000));
 }
 
 export async function getCachedMlbCalibrationConformal() { return readHotCache<MlbCalibrationModel>(CALIBRATION_KEY); }
