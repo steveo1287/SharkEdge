@@ -4,7 +4,7 @@ import { UfcPipelineStatusPanel } from "@/components/ufc/pipeline-status-panel";
 import { SharkFightsHeader } from "@/components/ufc/sharkfights-ufc";
 import type { UfcCardSummary } from "@/services/ufc/card-feed";
 import { getUfcCards } from "@/services/ufc/card-feed";
-import { getUfcPipelineStatus } from "@/services/ufc/pipeline-status";
+import { getUfcPipelineStatus, type UfcPipelineStatus } from "@/services/ufc/pipeline-status";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -15,6 +15,11 @@ type ReadinessTone = "ready" | "warn" | "cold";
 function pct(value: number, total: number) {
   if (!total) return "0%";
   return `${Math.round((value / total) * 100)}%`;
+}
+
+function pctValue(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return `${Math.round(value)}%`;
 }
 
 function dateLabel(value: string | null | undefined) {
@@ -54,11 +59,12 @@ function toneClasses(tone: ReadinessTone) {
   return "border-white/10 bg-white/[0.04] text-slate-300";
 }
 
-function pill(tone: "aqua" | "green" | "amber" | "slate" = "slate") {
+function pill(tone: "aqua" | "green" | "amber" | "red" | "slate" = "slate") {
   const tones = {
     aqua: "border-aqua/25 bg-aqua/10 text-aqua",
     green: "border-emerald-300/25 bg-emerald-300/10 text-emerald-200",
     amber: "border-amber-300/25 bg-amber-300/10 text-amber-200",
+    red: "border-rose-300/25 bg-rose-300/10 text-rose-200",
     slate: "border-white/10 bg-white/[0.04] text-slate-300"
   };
   return `rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${tones[tone]}`;
@@ -115,6 +121,70 @@ function ProductRail({ cards }: { cards: UfcCardSummary[] }) {
         <LabMetric label="Fights" value={fightCount} sub={`${pendingCount} pending simulation`} tone={fightCount ? tone : "cold"} />
         <LabMetric label="Sim coverage" value={pct(simulatedFightCount, fightCount)} sub={`${simulatedFightCount}/${fightCount} fights simulated`} tone={tone} />
         <LabMetric label="Shadow review" value={resolvedShadowCount} sub={`Last sim: ${dateLabel(lastSim)}`} tone={resolvedShadowCount ? "ready" : tone} />
+      </div>
+    </section>
+  );
+}
+
+function trustScore(status: UfcPipelineStatus) {
+  if (!status.ok) return 0;
+  const fightTotal = status.upcomingFightCount;
+  const featurePct = fightTotal ? (status.featureReadyFightCount / fightTotal) * 100 : 0;
+  const simPct = fightTotal ? (status.simulatedFightCount / fightTotal) * 100 : 0;
+  let score = 20;
+  if (status.upcomingEventCount > 0) score += 15;
+  if (fightTotal > 0) score += 15;
+  score += Math.min(25, Math.round(featurePct * 0.25));
+  score += Math.min(25, Math.round(simPct * 0.25));
+  if (status.missingFeaturePairCount > 0) score -= Math.min(15, status.missingFeaturePairCount * 2);
+  return Math.max(0, Math.min(100, score));
+}
+
+function gateTone(score: number, status: UfcPipelineStatus): ReadinessTone {
+  if (!status.ok || score < 45) return "cold";
+  if (score < 80 || status.pendingSimCount > 0 || status.missingFeaturePairCount > 0) return "warn";
+  return "ready";
+}
+
+function GateRow({ label, detail, pass }: { label: string; detail: string; pass: boolean }) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+      <div>
+        <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{label}</div>
+        <p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p>
+      </div>
+      <span className={pill(pass ? "green" : "amber")}>{pass ? "pass" : "watch"}</span>
+    </div>
+  );
+}
+
+function TrustGate({ status }: { status: UfcPipelineStatus }) {
+  const score = trustScore(status);
+  const tone = gateTone(score, status);
+  const featurePct = status.upcomingFightCount ? (status.featureReadyFightCount / status.upcomingFightCount) * 100 : 0;
+  const simPct = status.upcomingFightCount ? (status.simulatedFightCount / status.upcomingFightCount) * 100 : 0;
+  const trustLabel = tone === "ready" ? "actionable lab" : tone === "warn" ? "partial trust" : "not ready";
+
+  return (
+    <section className={`rounded-[1.35rem] border p-4 shadow-[0_24px_90px_rgba(0,0,0,0.24)] ${toneClasses(tone)}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">Fight Lab trust gate</div>
+          <h2 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">{trustLabel}</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 opacity-80">
+            This panel decides whether the UFC board should be treated as a real decision surface or only a pipeline/debug view. A+ product behavior means showing the user when the model is not ready.
+          </p>
+        </div>
+        <div className="rounded-[1.15rem] border border-white/10 bg-black/25 px-4 py-3 text-right">
+          <div className="text-[9px] font-black uppercase tracking-[0.16em] opacity-70">Trust score</div>
+          <div className="font-display text-4xl font-black tracking-[-0.06em] text-white">{score}</div>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+        <GateRow label="Schema health" detail={status.ok ? "Database query and UFC tables are responding." : status.errors[0] ?? "Pipeline status query failed."} pass={status.ok} />
+        <GateRow label="Card inventory" detail={`${status.upcomingEventCount} upcoming events and ${status.upcomingFightCount} upcoming fights loaded.`} pass={status.upcomingEventCount > 0 && status.upcomingFightCount > 0} />
+        <GateRow label="Feature coverage" detail={`${pctValue(featurePct)} of upcoming fights have both fighter feature snapshots.`} pass={featurePct >= 80} />
+        <GateRow label="Simulation coverage" detail={`${pctValue(simPct)} of upcoming fights have cached SharkSim predictions.`} pass={simPct >= 80 && status.pendingSimCount === 0} />
       </div>
     </section>
   );
@@ -195,6 +265,7 @@ export default async function UfcFightLabPage() {
           subtitle="The SharkEdge fight-sim workspace: style matchups, method probabilities, fight-path reasoning, source audits, and pipeline readiness in one UFC lane."
         />
         <ProductRail cards={cards} />
+        <TrustGate status={status} />
         <UfcPipelineStatusPanel status={status} />
         <ProductChecklist />
         <UfcLabCardGrid cards={cards} />
