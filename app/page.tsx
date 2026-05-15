@@ -110,6 +110,16 @@ function QuickAction({ href, label, title, body }: { href: string; label: string
   );
 }
 
+function ProofCard({ label, title, body }: { label: string; title: string; body: string }) {
+  return (
+    <div className="rounded-[1.15rem] border border-white/10 bg-black/20 p-3">
+      <div className="text-[9px] font-black uppercase tracking-[0.16em] text-aqua">{label}</div>
+      <div className="mt-1 font-display text-lg font-black tracking-tight text-white">{title}</div>
+      <p className="mt-1 text-xs leading-5 text-slate-500">{body}</p>
+    </div>
+  );
+}
+
 function TopPlayCard({ signal, rank }: { signal: HomeSignal; rank: number }) {
   const risks = Array.isArray(signal.whatCouldKillIt) ? signal.whatCouldKillIt.slice(0, 2) : [];
   const confidence = signal.edgeScore?.score ?? signal.confidence;
@@ -189,13 +199,18 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_360px]">
           <div className="rounded-[1.75rem] border border-aqua/25 bg-[radial-gradient(circle_at_top_left,rgba(0,210,255,0.20),transparent_18rem),linear-gradient(135deg,rgba(5,18,32,0.98),rgba(2,7,13,0.98))] p-5 shadow-[0_28px_100px_rgba(0,0,0,0.36)]">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div><div className="text-[10px] font-black uppercase tracking-[0.24em] text-aqua">Simulator-first command center</div><h1 className="mt-3 max-w-3xl font-display text-4xl font-black leading-[0.95] tracking-[-0.06em] text-white sm:text-6xl">Sim the game. Show the proof. Cut the noise.</h1><p className="mt-4 max-w-3xl text-sm leading-7 text-slate-400">SharkEdge is now focused on MLB simulation, UFC fight modeling, odds-aware calibration, and honest model history. Premium trend mining is paused until we have the right data foundation.</p></div>
+              <div><div className="text-[10px] font-black uppercase tracking-[0.24em] text-aqua">Simulator-first command center</div><h1 className="mt-3 max-w-3xl font-display text-4xl font-black leading-[0.95] tracking-[-0.06em] text-white sm:text-6xl">Sim the game. Show the proof. Cut the noise.</h1><p className="mt-4 max-w-3xl text-sm leading-7 text-slate-400">SharkEdge is focused on MLB simulation, UFC fight modeling, odds-aware calibration, and honest model history. Every recommendation should explain the edge, the danger flags, and why a pass is acceptable.</p></div>
               <Pill label={selectedDateLabel} />
+            </div>
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              <ProofCard label="Trust" title="No blind picks" body="Cards need model output, market context, data freshness, and a visible reason path before they deserve attention." />
+              <ProofCard label="Proof" title="Accuracy first" body="Settled records and calibration matter more than a crowded board of unverified edges." />
+              <ProofCard label="Discipline" title="Pass is allowed" body="Low-quality lines, stale inputs, or thin books should surface as warnings instead of forced action." />
             </div>
             <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <QuickAction href="/baseball" label="MLB" title="MLB Sim Lab" body="Sides, totals, pitcher factors, bullpen fatigue, and calibration history." />
               <QuickAction href="/sim/mlb" label="Slate" title="MLB Detail Sims" body="Drill into each matchup with factor stacks, market sanity, and no-bet gates." />
-              <QuickAction href="/sharkfights/ufc" label="UFC" title="SharkFights" body="Fight card, path to victory, finish probability, and danger flags." />
+              <QuickAction href="/sim/ufc" label="UFC" title="UFC Fight Lab" body="Fight card, path to victory, finish probability, method lane, and danger flags." />
               <QuickAction href="/accuracy" label="Proof" title="Sim Accuracy" body="Records, model versions, calibration, and honest empty states." />
             </div>
           </div>
@@ -217,7 +232,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="grid gap-4"><SectionHeader eyebrow="Live slate" title="Upcoming verified games" href="/sim" /><div className="grid gap-2 md:grid-cols-2">{slate.length ? slate.map((game, index) => <SlateCard key={game.id ?? index} game={game} />) : <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.035] p-6 text-sm leading-6 text-slate-400">No verified slate rows returned for this filter.</div>}</div></div>
-          <aside className="grid gap-3"><SectionHeader eyebrow="Clean routes" title="Where each thing lives" /><QuickAction href="/baseball" label="MLB" title="MLB Sim Lab" body="The main baseball product surface: projections, factors, totals, and calibration." /><QuickAction href="/sharkfights/ufc" label="UFC" title="Fight Simulator" body="Low-volume, high-depth fight modeling without hammering the database." /><QuickAction href="/sharktrends" label="Paused" title="SharkTrends Lab" body="Trend mining is preserved for later, but no longer drives the product or background spend." /></aside>
+          <aside className="grid gap-3"><SectionHeader eyebrow="Clean routes" title="Where each thing lives" /><QuickAction href="/baseball" label="MLB" title="MLB Sim Lab" body="The main baseball product surface: projections, factors, totals, and calibration." /><QuickAction href="/sim/ufc" label="UFC" title="UFC Fight Lab" body="Low-volume, high-depth fight modeling with method paths, danger flags, and source audit." /><QuickAction href="/sharktrends" label="Paused" title="SharkTrends Lab" body="Trend mining is preserved for later, but no longer drives the product or background spend." /></aside>
         </section>
 
         <section className="rounded-[1.35rem] border border-white/10 bg-white/[0.035] p-4 text-xs leading-6 text-slate-500"><span className="font-black uppercase tracking-[0.16em] text-slate-300">Data note:</span> {home.deskSourceNote}</section>
