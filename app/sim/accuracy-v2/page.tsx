@@ -5,6 +5,8 @@ export const revalidate = 3600;
 
 type PageProps = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
 
+type MaturityTone = "ready" | "partial" | "blocked";
+
 function v(params: Record<string, string | string[] | undefined>, key: string) {
   const value = params[key];
   return Array.isArray(value) ? value[0] : value;
@@ -62,6 +64,29 @@ function mode(value: string | null | undefined) {
   return "no settled signals";
 }
 
+function maturityTone(sample: number, actualOdds: number, brier: number | null | undefined): MaturityTone {
+  if (sample >= 100 && actualOdds >= 80 && typeof brier === "number") return "ready";
+  if (sample >= 25) return "partial";
+  return "blocked";
+}
+
+function toneClasses(tone: MaturityTone) {
+  if (tone === "ready") return "border-emerald-300/25 bg-emerald-300/10 text-emerald-100";
+  if (tone === "partial") return "border-amber-300/25 bg-amber-300/10 text-amber-100";
+  return "border-rose-300/25 bg-rose-300/10 text-rose-100";
+}
+
+function pill(tone: "cyan" | "green" | "amber" | "red" | "slate" = "slate") {
+  const tones = {
+    cyan: "border-cyan-300/25 bg-cyan-300/10 text-cyan-200",
+    green: "border-emerald-300/25 bg-emerald-300/10 text-emerald-200",
+    amber: "border-amber-300/25 bg-amber-300/10 text-amber-200",
+    red: "border-rose-300/25 bg-rose-300/10 text-rose-200",
+    slate: "border-white/10 bg-white/[0.04] text-slate-300"
+  };
+  return `rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${tones[tone]}`;
+}
+
 function Tile({ label, value, note }: { label: string; value: string; note: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
@@ -69,6 +94,70 @@ function Tile({ label, value, note }: { label: string; value: string; note: stri
       <div className="mt-2 font-mono text-2xl font-bold text-white">{value}</div>
       <div className="mt-2 text-xs leading-5 text-slate-400">{note}</div>
     </div>
+  );
+}
+
+function MaturityMetric({ label, value, sub, pass }: { label: string; value: string | number; sub: string; pass: boolean }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-[9px] font-black uppercase tracking-[0.16em] opacity-70">{label}</div>
+        <span className={pill(pass ? "green" : "amber")}>{pass ? "pass" : "watch"}</span>
+      </div>
+      <div className="mt-2 font-display text-2xl font-black tracking-[-0.05em] text-white">{value}</div>
+      <p className="mt-1 text-[11px] leading-4 opacity-75">{sub}</p>
+    </div>
+  );
+}
+
+function SportMaturityCard({ sport, title, tone, body, href }: { sport: string; title: string; tone: MaturityTone; body: string; href: string }) {
+  const label = tone === "ready" ? "proof-ready" : tone === "partial" ? "building proof" : "shadow only";
+  return (
+    <Link href={href} className={`rounded-[1.15rem] border p-4 transition hover:-translate-y-0.5 ${toneClasses(tone)}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">{sport}</div>
+        <span className={pill(tone === "ready" ? "green" : tone === "partial" ? "amber" : "red")}>{label}</span>
+      </div>
+      <h3 className="mt-3 font-display text-xl font-black tracking-[-0.04em] text-white">{title}</h3>
+      <p className="mt-2 text-xs leading-5 opacity-80">{body}</p>
+    </Link>
+  );
+}
+
+function AccuracyMaturityGate({ totals }: { totals: any }) {
+  const sample = Number(totals?.settledCount ?? 0);
+  const predictionCount = Number(totals?.predictionCount ?? 0);
+  const actualOdds = Number(totals?.actualOddsCount ?? 0);
+  const fallbackOdds = Number(totals?.fallbackOddsCount ?? 0);
+  const brier = typeof totals?.brierScoreAvg === "number" ? totals.brierScoreAvg : null;
+  const tone = maturityTone(sample, actualOdds, brier);
+  const label = tone === "ready" ? "Accuracy proof is usable" : tone === "partial" ? "Accuracy proof is building" : "Accuracy proof is thin";
+  const note = tone === "ready"
+    ? "MLB has enough settled rows and actual odds coverage to use this ledger as a public proof layer."
+    : tone === "partial"
+      ? "MLB has some settled proof, but it still needs larger samples, better actual-odds coverage, CLV, and calibration buckets before calling it elite."
+      : "The accuracy layer is not yet strong enough to sell as proof. Keep official plays selective and keep building settled rows.";
+
+  return (
+    <section className={`rounded-[1.5rem] border p-4 shadow-[0_24px_90px_rgba(0,0,0,0.24)] ${toneClasses(tone)}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.22em] opacity-80">Accuracy maturity gate</div>
+          <h2 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">{label}</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 opacity-80">{note}</p>
+        </div>
+        <div className="rounded-[1.15rem] border border-white/10 bg-black/25 px-4 py-3 text-right">
+          <div className="text-[9px] font-black uppercase tracking-[0.16em] opacity-70">Settled rows</div>
+          <div className="font-display text-4xl font-black tracking-[-0.06em] text-white">{sample}</div>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+        <MaturityMetric label="Sample" value={`${sample}/${predictionCount}`} sub="Settled rows over captured predictions." pass={sample >= 100} />
+        <MaturityMetric label="Actual odds" value={`${actualOdds}/${actualOdds + fallbackOdds}`} sub="Proof is weaker when fallback odds drive ROI." pass={actualOdds >= Math.max(20, sample * 0.8)} />
+        <MaturityMetric label="Brier" value={num(brier, 4)} sub="Probability calibration, not just wins and losses." pass={typeof brier === "number"} />
+        <MaturityMetric label="Missing A+" value="CLV" sub="Closing-line value and bucket calibration are still the next proof upgrades." pass={false} />
+      </div>
+    </section>
   );
 }
 
@@ -84,19 +173,40 @@ export default async function AccuracyV2Page({ searchParams }: PageProps) {
       <section className="rounded-[1.75rem] border border-cyan-300/15 bg-slate-950/80 p-5 shadow-[0_0_60px_rgba(14,165,233,0.10)]">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">MLB Sim Accuracy</div>
-            <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Moneyline signal scorecard</h1>
+            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">Accuracy Command Center</div>
+            <h1 className="mt-2 font-display text-3xl font-semibold text-white md:text-4xl">Prove the model before promoting the pick</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Record and unit return now use top MLB moneyline signals only, deduped to the latest capture per game/model. Governor no-bet rows are counted as a quality flag instead of removing every signal.
+              SharkEdge only becomes top-rated if the proof layer is visible. This page separates proven MLB ledger data from MMA shadow work and calls out the missing A+ metrics before we overclaim.
             </p>
             <div className="mt-3 text-xs text-slate-500">Window {card.filters.windowDays} days · generated {when(card.generatedAt)}</div>
           </div>
           <div className="flex flex-wrap gap-3 text-xs font-semibold uppercase tracking-[0.14em]">
             <Link href="/sim" className="text-cyan-200 hover:text-cyan-100">Sim Hub</Link>
+            <Link href="/baseball/readiness" className="text-cyan-200 hover:text-cyan-100">MLB Readiness</Link>
+            <Link href="/sim/ufc" className="text-cyan-200 hover:text-cyan-100">MMA Lab</Link>
             <Link href="/api/sim/accuracy?action=run" className="text-cyan-200 hover:text-cyan-100">Run ledger</Link>
             <Link href="/api/sim/accuracy" className="text-cyan-200 hover:text-cyan-100">API JSON</Link>
           </div>
         </div>
+      </section>
+
+      <AccuracyMaturityGate totals={card.totals} />
+
+      <section className="grid gap-3 md:grid-cols-2">
+        <SportMaturityCard
+          sport="MLB"
+          title="MLB ledger is the active proof lane"
+          tone={maturityTone(Number(card.totals?.settledCount ?? 0), Number(card.totals?.actualOddsCount ?? 0), card.totals?.brierScoreAvg)}
+          body="Moneyline and totals proof exists today. It tracks record, units, odds coverage, Brier, log loss, sample, and recent ledger rows. Next upgrades are CLV, calibration buckets, and postgame autopsy."
+          href="/baseball/readiness"
+        />
+        <SportMaturityCard
+          sport="MMA"
+          title="MMA stays shadow until settled proof exists"
+          tone="blocked"
+          body="Fight Lab has readiness, source audit, card gates, and fight gates. It still needs a dedicated settled fight ledger before MMA picks should be sold as proven."
+          href="/sim/ufc"
+        />
       </section>
 
       <form method="get" className="grid gap-3 rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4 md:grid-cols-3">
