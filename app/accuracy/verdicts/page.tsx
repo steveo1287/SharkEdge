@@ -129,6 +129,7 @@ export default async function OfficialVerdictsPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Link href="/accuracy/autopsy" className={pill("amber")}>Autopsy</Link>
               <Link href="/accuracy" className={pill("cyan")}>Proof center</Link>
               <Link href="/sim" className={pill("slate")}>SimHub</Link>
               <Link href="/baseball/readiness" className={pill("slate")}>MLB readiness</Link>
@@ -154,10 +155,23 @@ export default async function OfficialVerdictsPage() {
           />
         </section>
 
+        <section className="rounded-[1.5rem] border border-amber-300/15 bg-amber-300/[0.05] p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-200">Feedback loop</div>
+              <h2 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">Every miss needs a reason.</h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-amber-100/75">
+                Verdicts decide what gets promoted. Autopsy explains what went wrong after settlement: model miss, data miss, market miss, or a play that should have stayed as a pass.
+              </p>
+            </div>
+            <Link href="/accuracy/autopsy" className={pill("amber")}>Open autopsy loop</Link>
+          </div>
+        </section>
+
         <section className="grid gap-3 md:grid-cols-3">
           <RuleCard title="PLAY is scarce" body="PLAY requires strong score, no hard stops, real market context, and sport-specific thresholds. Most model output should be LEAN, WATCH, PASS, or DATA_NOT_READY." />
           <RuleCard title="Pass saves users" body="PASS and DATA_NOT_READY are not failures. They protect the record from stale odds, weak confidence, missing markets, and unsupported edges." />
-          <RuleCard title="Proof comes next" body="Official verdicts should become the filter for future accuracy pages: track results separately for official PLAYs, leans, watches, and passes." />
+          <RuleCard title="Autopsy closes the loop" body="The next proof layer studies misses and should-have-passed rows so the promotion gate gets stricter over time." />
         </section>
       </div>
     </main>
