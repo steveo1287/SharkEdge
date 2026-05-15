@@ -256,6 +256,7 @@ async function fetchFromMlbTrendRows(options: Required<HistoricalTrendSourceOpti
     WHERE bg.game_date >= ${options.start}
       AND bg.game_date <= ${options.end}
       AND lower(tr.result) IN ('win', 'loss', 'push', 'void')
+      AND tr.price IS NOT NULL
     ORDER BY bg.game_date DESC, tr.id ASC
     LIMIT ${options.limit}
   `;

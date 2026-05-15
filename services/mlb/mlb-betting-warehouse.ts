@@ -177,7 +177,12 @@ async function refreshResultGradesAndTrendRows() {
     SELECT
       CONCAT(bg.game_pk, ':moneyline:home'), bg.game_pk, 'moneyline', 'home',
       bg.home_result,
-      CASE WHEN bg.home_result = 'win' THEN 1 WHEN bg.home_result = 'loss' THEN -1 ELSE 0 END,
+      CASE
+        WHEN bg.home_result = 'win' AND moc.close_price > 0 THEN moc.close_price / 100.0
+        WHEN bg.home_result = 'win' AND moc.close_price < 0 THEN 100.0 / ABS(moc.close_price)
+        WHEN bg.home_result = 'loss' AND moc.close_price IS NOT NULL THEN -1
+        ELSE 0
+      END,
       moc.close_price, 'MLB spine moneyline grade.', now()
     FROM mlb_betting_games bg
     LEFT JOIN LATERAL (SELECT close_price FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'moneyline' AND x.side = 'home' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc ON TRUE
@@ -188,7 +193,12 @@ async function refreshResultGradesAndTrendRows() {
     SELECT
       CONCAT(bg.game_pk, ':moneyline:away'), bg.game_pk, 'moneyline', 'away',
       bg.away_result,
-      CASE WHEN bg.away_result = 'win' THEN 1 WHEN bg.away_result = 'loss' THEN -1 ELSE 0 END,
+      CASE
+        WHEN bg.away_result = 'win' AND moc.close_price > 0 THEN moc.close_price / 100.0
+        WHEN bg.away_result = 'win' AND moc.close_price < 0 THEN 100.0 / ABS(moc.close_price)
+        WHEN bg.away_result = 'loss' AND moc.close_price IS NOT NULL THEN -1
+        ELSE 0
+      END,
       moc.close_price, 'MLB spine moneyline grade.', now()
     FROM mlb_betting_games bg
     LEFT JOIN LATERAL (SELECT close_price FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'moneyline' AND x.side = 'away' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc ON TRUE
@@ -201,7 +211,7 @@ async function refreshResultGradesAndTrendRows() {
   // Falls back to deriving away spread as -(home spread) if no away row exists
 
   await prisma.$executeRaw`
-    INSERT INTO mlb_result_grades (id, game_pk, market_type, side, result, units, closing_point, grading_note, updated_at)
+    INSERT INTO mlb_result_grades (id, game_pk, market_type, side, result, units, closing_price, closing_point, grading_note, updated_at)
     SELECT
       CONCAT(bg.game_pk, ':spread:home'), bg.game_pk, 'spread', 'home',
       CASE
@@ -212,17 +222,19 @@ async function refreshResultGradesAndTrendRows() {
       END,
       CASE
         WHEN moc.close_point IS NULL OR bg.home_score IS NULL THEN 0
-        WHEN (bg.home_score - bg.away_score)::float + moc.close_point > 0 THEN 1
+        WHEN (bg.home_score - bg.away_score)::float + moc.close_point > 0 AND moc.close_price > 0 THEN moc.close_price / 100.0
+        WHEN (bg.home_score - bg.away_score)::float + moc.close_point > 0 AND moc.close_price < 0 THEN 100.0 / ABS(moc.close_price)
         WHEN (bg.home_score - bg.away_score)::float + moc.close_point = 0 THEN 0
-        ELSE -1
+        WHEN moc.close_price IS NOT NULL THEN -1
+        ELSE 0
       END,
-      moc.close_point, 'MLB run line grade (home).', now()
+      moc.close_price, moc.close_point, 'MLB run line grade (home).', now()
     FROM mlb_betting_games bg
-    LEFT JOIN LATERAL (SELECT close_point FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'spread' AND x.side = 'home' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc ON TRUE
+    LEFT JOIN LATERAL (SELECT close_price, close_point FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'spread' AND x.side = 'home' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc ON TRUE
     WHERE bg.is_final = true
   `;
   await prisma.$executeRaw`
-    INSERT INTO mlb_result_grades (id, game_pk, market_type, side, result, units, closing_point, grading_note, updated_at)
+    INSERT INTO mlb_result_grades (id, game_pk, market_type, side, result, units, closing_price, closing_point, grading_note, updated_at)
     SELECT
       CONCAT(bg.game_pk, ':spread:away'), bg.game_pk, 'spread', 'away',
       CASE
@@ -233,14 +245,16 @@ async function refreshResultGradesAndTrendRows() {
       END,
       CASE
         WHEN COALESCE(moc_away.close_point, -moc_home.close_point) IS NULL OR bg.away_score IS NULL THEN 0
-        WHEN (bg.away_score - bg.home_score)::float + COALESCE(moc_away.close_point, -moc_home.close_point) > 0 THEN 1
+        WHEN (bg.away_score - bg.home_score)::float + COALESCE(moc_away.close_point, -moc_home.close_point) > 0 AND COALESCE(moc_away.close_price, moc_home.close_price) > 0 THEN COALESCE(moc_away.close_price, moc_home.close_price) / 100.0
+        WHEN (bg.away_score - bg.home_score)::float + COALESCE(moc_away.close_point, -moc_home.close_point) > 0 AND COALESCE(moc_away.close_price, moc_home.close_price) < 0 THEN 100.0 / ABS(COALESCE(moc_away.close_price, moc_home.close_price))
         WHEN (bg.away_score - bg.home_score)::float + COALESCE(moc_away.close_point, -moc_home.close_point) = 0 THEN 0
-        ELSE -1
+        WHEN COALESCE(moc_away.close_price, moc_home.close_price) IS NOT NULL THEN -1
+        ELSE 0
       END,
-      COALESCE(moc_away.close_point, -moc_home.close_point), 'MLB run line grade (away).', now()
+      COALESCE(moc_away.close_price, moc_home.close_price), COALESCE(moc_away.close_point, -moc_home.close_point), 'MLB run line grade (away).', now()
     FROM mlb_betting_games bg
-    LEFT JOIN LATERAL (SELECT close_point FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'spread' AND x.side = 'home' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc_home ON TRUE
-    LEFT JOIN LATERAL (SELECT close_point FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'spread' AND x.side = 'away' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc_away ON TRUE
+    LEFT JOIN LATERAL (SELECT close_price, close_point FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'spread' AND x.side = 'home' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc_home ON TRUE
+    LEFT JOIN LATERAL (SELECT close_price, close_point FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'spread' AND x.side = 'away' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc_away ON TRUE
     WHERE bg.is_final = true
   `;
 
@@ -286,7 +300,7 @@ async function refreshResultGradesAndTrendRows() {
     FROM mlb_result_grades rg
     JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
     JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
-    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, team_name = EXCLUDED.team_name, updated_at = now()
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, price = EXCLUDED.price, point = EXCLUDED.point, team_name = EXCLUDED.team_name, updated_at = now()
   `;
 
   // 2. Runs scored bucket (scored 5+ vs under 5)
@@ -302,7 +316,7 @@ async function refreshResultGradesAndTrendRows() {
     JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
     JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
     WHERE s.scored IS NOT NULL
-    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, team_name = EXCLUDED.team_name, updated_at = now()
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, price = EXCLUDED.price, point = EXCLUDED.point, team_name = EXCLUDED.team_name, updated_at = now()
   `;
 
   // 3. Game total bucket (8+ vs under 8)
@@ -318,7 +332,7 @@ async function refreshResultGradesAndTrendRows() {
     JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
     JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
     WHERE s.total_runs IS NOT NULL
-    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, team_name = EXCLUDED.team_name, updated_at = now()
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, price = EXCLUDED.price, point = EXCLUDED.point, team_name = EXCLUDED.team_name, updated_at = now()
   `;
 
   // 4. Runs allowed bucket (3 or fewer vs 4+)
@@ -334,7 +348,7 @@ async function refreshResultGradesAndTrendRows() {
     JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
     JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
     WHERE s.allowed IS NOT NULL
-    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, team_name = EXCLUDED.team_name, updated_at = now()
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, price = EXCLUDED.price, point = EXCLUDED.point, team_name = EXCLUDED.team_name, updated_at = now()
   `;
 
   // 5. Price bucket (big_favorite / favorite / slight_favorite / pick / dog / big_dog)
@@ -350,7 +364,7 @@ async function refreshResultGradesAndTrendRows() {
     JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
     JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
     WHERE s.price_bucket IS NOT NULL AND s.price_bucket != 'unknown'
-    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, team_name = EXCLUDED.team_name, updated_at = now()
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, price = EXCLUDED.price, point = EXCLUDED.point, team_name = EXCLUDED.team_name, updated_at = now()
   `;
 
   // 6. Rest days bucket (b2b / 1-day / fresh)
@@ -368,7 +382,7 @@ async function refreshResultGradesAndTrendRows() {
     JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
     JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
     WHERE s.rest_days IS NOT NULL
-    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, team_name = EXCLUDED.team_name, updated_at = now()
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, price = EXCLUDED.price, point = EXCLUDED.point, team_name = EXCLUDED.team_name, updated_at = now()
   `;
 
   // 7. Series position (opener / middle / getaway)
@@ -386,7 +400,7 @@ async function refreshResultGradesAndTrendRows() {
     JOIN mlb_betting_games bg ON bg.game_pk = rg.game_pk
     JOIN mlb_team_situations s ON s.game_pk = rg.game_pk AND s.side = rg.side
     WHERE s.series_position IS NOT NULL
-    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, team_name = EXCLUDED.team_name, updated_at = now()
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, price = EXCLUDED.price, point = EXCLUDED.point, team_name = EXCLUDED.team_name, updated_at = now()
   `;
 
   // ── O/U trend rows (game-level, generated directly — not via result_grades) ─
@@ -405,9 +419,11 @@ async function refreshResultGradesAndTrendRows() {
       END,
       CASE
         WHEN moc.close_point IS NULL OR bg.total_runs IS NULL THEN 0
-        WHEN bg.total_runs > moc.close_point THEN 1
+        WHEN bg.total_runs > moc.close_point AND moc.close_price > 0 THEN moc.close_price / 100.0
+        WHEN bg.total_runs > moc.close_point AND moc.close_price < 0 THEN 100.0 / ABS(moc.close_price)
         WHEN bg.total_runs = moc.close_point THEN 0
-        ELSE -1
+        WHEN moc.close_price IS NOT NULL THEN -1
+        ELSE 0
       END,
       moc.close_price, moc.close_point,
       'MLB|total|over|home',
@@ -416,7 +432,7 @@ async function refreshResultGradesAndTrendRows() {
     FROM mlb_betting_games bg
     LEFT JOIN LATERAL (SELECT close_price, close_point FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'total' AND x.side = 'over' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc ON TRUE
     WHERE bg.is_final = true
-    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, updated_at = now()
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, price = EXCLUDED.price, point = EXCLUDED.point, updated_at = now()
   `;
   await prisma.$executeRaw`
     INSERT INTO mlb_trend_rows (id, game_pk, team_id, team_name, event_label, market_type, side, result, units, price, point, trend_key, qualifiers, updated_at)
@@ -431,9 +447,11 @@ async function refreshResultGradesAndTrendRows() {
       END,
       CASE
         WHEN moc.close_point IS NULL OR bg.total_runs IS NULL THEN 0
-        WHEN bg.total_runs > moc.close_point THEN 1
+        WHEN bg.total_runs > moc.close_point AND moc.close_price > 0 THEN moc.close_price / 100.0
+        WHEN bg.total_runs > moc.close_point AND moc.close_price < 0 THEN 100.0 / ABS(moc.close_price)
         WHEN bg.total_runs = moc.close_point THEN 0
-        ELSE -1
+        WHEN moc.close_price IS NOT NULL THEN -1
+        ELSE 0
       END,
       moc.close_price, moc.close_point,
       'MLB|total|over|away',
@@ -442,7 +460,7 @@ async function refreshResultGradesAndTrendRows() {
     FROM mlb_betting_games bg
     LEFT JOIN LATERAL (SELECT close_price, close_point FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'total' AND x.side = 'over' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc ON TRUE
     WHERE bg.is_final = true
-    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, updated_at = now()
+    ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, price = EXCLUDED.price, point = EXCLUDED.point, updated_at = now()
   `;
 }
 

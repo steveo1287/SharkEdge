@@ -209,6 +209,7 @@ export async function getMlbLeagueTrends(minSample = 20): Promise<MlbTrendRecord
         COUNT(*)                                    AS total,
         SUM(units)                                  AS total_units
       FROM mlb_trend_rows
+      WHERE price IS NOT NULL
       GROUP BY trend_key, market_type, side
       HAVING COUNT(*) FILTER (WHERE result IN ('win','loss','push')) >= ${minSample}
       ORDER BY SUM(units) DESC
@@ -226,13 +227,15 @@ export async function getMlbLeagueTrends(minSample = 20): Promise<MlbTrendRecord
         COUNT(*) AS total,
         SUM(units) AS total_units
       FROM mlb_trend_rows
-      WHERE trend_key NOT LIKE '%|%|%|%|%'
+      WHERE price IS NOT NULL
+        AND trend_key NOT LIKE '%|%|%|%|%'
       GROUP BY trend_key, market_type, side
     `,
     prisma.$queryRaw<StreakRow[]>`
       SELECT DISTINCT ON (trend_key, game_pk) trend_key, result, game_pk
       FROM mlb_trend_rows
       WHERE result IN ('win','loss')
+        AND price IS NOT NULL
       ORDER BY trend_key, game_pk DESC
       LIMIT 5000
     `,
@@ -270,6 +273,7 @@ export async function getMlbTeamProfile(teamName: string): Promise<MlbTeamProfil
         SUM(t.units)                                  AS total_units
       FROM mlb_trend_rows t
       WHERE lower(t.team_name) LIKE ${pattern}
+        AND t.price IS NOT NULL
       GROUP BY t.team_id, t.team_name, t.trend_key, t.market_type, t.side
       HAVING COUNT(*) FILTER (WHERE t.result IN ('win','loss','push')) >= 5
       ORDER BY t.team_id, SUM(t.units) DESC
@@ -278,6 +282,7 @@ export async function getMlbTeamProfile(teamName: string): Promise<MlbTeamProfil
       SELECT trend_key, result, game_pk
       FROM mlb_trend_rows
       WHERE result IN ('win','loss')
+        AND price IS NOT NULL
         AND lower(team_name) LIKE ${pattern}
       ORDER BY trend_key, game_pk DESC
       LIMIT 1000
@@ -380,6 +385,7 @@ async function getTeamTrendsById(teamIds: number[]): Promise<Map<number, MlbTren
             SUM(t.units)                                  AS total_units
           FROM mlb_trend_rows t
           WHERE t.team_id = ${teamId}
+            AND t.price IS NOT NULL
           GROUP BY t.team_id, t.team_name, t.trend_key, t.market_type, t.side, t.qualifiers->>'homeAway'
           HAVING COUNT(*) FILTER (WHERE t.result IN ('win','loss','push')) >= 5
           ORDER BY SUM(t.units) DESC
@@ -388,6 +394,7 @@ async function getTeamTrendsById(teamIds: number[]): Promise<Map<number, MlbTren
           SELECT trend_key, result, game_pk
           FROM mlb_trend_rows
           WHERE result IN ('win','loss') AND team_id = ${teamId}
+            AND price IS NOT NULL
           ORDER BY trend_key, game_pk DESC
           LIMIT 500
         `,
@@ -479,12 +486,13 @@ export async function getMlbTeamNames(): Promise<string[]> {
 
 // ── Browser summary (row counts + last refresh) ───────────────────────────────
 
-type SummaryRow = { total_rows: bigint; final_rows: bigint; team_count: bigint; last_updated: Date | null };
+type SummaryRow = { total_rows: bigint; priced_rows: bigint; final_rows: bigint; team_count: bigint; last_updated: Date | null };
 
 export async function getMlbTrendBrowserSummary() {
   const rows = await prisma.$queryRaw<SummaryRow[]>`
     SELECT
       COUNT(*)                                             AS total_rows,
+      COUNT(*) FILTER (WHERE price IS NOT NULL)            AS priced_rows,
       COUNT(*) FILTER (WHERE result IN ('win','loss'))     AS final_rows,
       COUNT(DISTINCT team_id)                              AS team_count,
       MAX(updated_at)                                      AS last_updated
@@ -494,6 +502,7 @@ export async function getMlbTrendBrowserSummary() {
   const row = rows[0];
   return {
     totalRows: Number(row?.total_rows ?? 0),
+    pricedRows: Number(row?.priced_rows ?? 0),
     finalRows: Number(row?.final_rows ?? 0),
     teamCount: Number(row?.team_count ?? 0),
     lastUpdated: row?.last_updated ? new Date(row.last_updated).toISOString() : null,
