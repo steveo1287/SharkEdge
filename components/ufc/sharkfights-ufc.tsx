@@ -50,13 +50,13 @@ function CardShell({ children, className = "" }: { children: ReactNode; classNam
 export function SharkFightsHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <header className="rounded-[1.5rem] border border-aqua/20 bg-[radial-gradient(circle_at_top_left,rgba(0,210,255,0.18),transparent_18rem),linear-gradient(135deg,rgba(5,18,32,0.98),rgba(2,7,13,0.98))] p-5 shadow-[0_28px_100px_rgba(0,0,0,0.36)]">
-      <div className="text-[10px] font-black uppercase tracking-[0.22em] text-aqua">SharkFights</div>
+      <div className="text-[10px] font-black uppercase tracking-[0.22em] text-aqua">SharkEdge Fight Lab</div>
       <h1 className="mt-2 font-display text-4xl font-black tracking-[-0.07em] text-white sm:text-5xl">{title}</h1>
       <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">{subtitle}</p>
       <div className="mt-4 flex flex-wrap gap-2">
-        <Link href="/sharkfights/ufc" className={pill("aqua")}>UFC Fight IQ</Link>
+        <Link href="/sim/ufc" className={pill("aqua")}>UFC Fight Lab</Link>
+        <Link href="/sim" className={pill("slate")}>Sim Hub</Link>
         <Link href="/accuracy" className={pill("slate")}>Fight Accuracy</Link>
-        <Link href="/" className={pill("slate")}>Command Desk</Link>
       </div>
     </header>
   );
@@ -68,26 +68,33 @@ export function UfcCardGrid({ cards }: { cards: UfcCardSummary[] }) {
   }
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      {cards.map((card) => (
-        <Link key={card.eventId} href={`/sharkfights/ufc/cards/${card.eventId}`} className="rounded-[1.25rem] border border-white/10 bg-[#06101b]/80 p-4 transition hover:border-aqua/35 hover:bg-aqua/[0.045]">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">{dateLabel(card.eventDate)}</div>
-              <div className="mt-1 font-display text-2xl font-black tracking-[-0.04em] text-white">{card.eventLabel}</div>
+      {cards.map((card) => {
+        const complete = card.fightCount > 0 && card.simulatedFightCount >= card.fightCount;
+        const partial = card.simulatedFightCount > 0 && !complete;
+        return (
+          <Link key={card.eventId} href={`/sim/ufc/cards/${card.eventId}`} className="rounded-[1.25rem] border border-white/10 bg-[#06101b]/80 p-4 transition hover:border-aqua/35 hover:bg-aqua/[0.045]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">{dateLabel(card.eventDate)}</div>
+                <div className="mt-1 font-display text-2xl font-black tracking-[-0.04em] text-white">{card.eventLabel}</div>
+              </div>
+              <span className={pill(complete ? "green" : partial ? "amber" : card.providerStatus === "event-linked" ? "aqua" : card.providerStatus === "legacy-date" ? "amber" : "slate")}>
+                {complete ? "sim ready" : partial ? "partial" : card.providerStatus}
+              </span>
             </div>
-            <span className={pill(card.providerStatus === "event-linked" ? "green" : card.providerStatus === "legacy-date" ? "amber" : "slate")}>{card.providerStatus}</span>
-          </div>
-          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-            <MiniStat label="Fights" value={card.fightCount} />
-            <MiniStat label="Sims" value={card.simulatedFightCount} />
-            <MiniStat label="Quality" value={card.dataQualityGrade ?? "Pending"} />
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <span className={pill("slate")}>{card.shadowPendingCount} pending</span>
-            <span className={pill("slate")}>{card.shadowResolvedCount} resolved</span>
-          </div>
-        </Link>
-      ))}
+            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+              <MiniStat label="Fights" value={card.fightCount} />
+              <MiniStat label="Sims" value={card.simulatedFightCount} />
+              <MiniStat label="Quality" value={card.dataQualityGrade ?? "Pending"} />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className={pill("slate")}>{card.shadowPendingCount} pending</span>
+              <span className={pill("slate")}>{card.shadowResolvedCount} resolved</span>
+              <span className={pill(partial || complete ? "aqua" : "slate")}>{pct(card.fightCount ? card.simulatedFightCount / card.fightCount : null)} coverage</span>
+            </div>
+          </Link>
+        );
+      })}
     </div>
   );
 }
@@ -119,7 +126,7 @@ export function UfcFightList({ card, selectedFightId }: { card: UfcCardDetail; s
         const selected = fight.fightId === selectedFightId;
         const pending = !fight.hasPrediction;
         return (
-          <Link key={fight.fightId} href={`/sharkfights/ufc/cards/${card.eventId}?fightId=${fight.fightId}`} className={`rounded-[1.2rem] border p-4 transition ${selected ? "border-aqua/45 bg-aqua/[0.07]" : "border-white/10 bg-[#06101b]/78 hover:border-aqua/35 hover:bg-aqua/[0.04]"}`}>
+          <Link key={fight.fightId} href={`/sim/ufc/cards/${card.eventId}?fightId=${fight.fightId}`} className={`rounded-[1.2rem] border p-4 transition ${selected ? "border-aqua/45 bg-aqua/[0.07]" : "border-white/10 bg-[#06101b]/78 hover:border-aqua/35 hover:bg-aqua/[0.04]"}`}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">{timeLabel(fight.fightDate)} · {fight.scheduledRounds} rounds{fight.cardSection ? ` · ${fight.cardSection}` : ""}</div>
@@ -155,7 +162,7 @@ export function UfcFightIqPanel({ fight }: { fight: UfcFightIqDetail | null }) {
           <h2 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">{pickName}</h2>
           <p className="mt-1 text-sm text-slate-400">{pending ? "Upcoming matchup loaded. Run feature build + SharkSim to generate probabilities." : `Our projected winner · ${pickProb}`}</p>
         </div>
-        <Link href={`/sharkfights/ufc/fights/${fight.fightId}`} className={pill("aqua")}>Full</Link>
+        <Link href={`/sim/ufc/fights/${fight.fightId}`} className={pill("aqua")}>Full</Link>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2">
         <MiniStat label="Confidence" value={fight.confidenceGrade ?? (pending ? "Pending" : "--")} />
