@@ -7,15 +7,15 @@ import { cn } from "@/lib/utils/cn";
 
 const NAV_ITEMS = [
   { href: "/", label: "Home" },
-  { href: "/sim-fast", label: "Sims" },
+  { href: "/sim", label: "Sims" },
   { href: "/baseball", label: "MLB" },
-  { href: "/sim/ufc", label: "Fights" },
+  { href: "/sim/ufc", label: "UFC" },
   { href: "/accuracy", label: "Accuracy" }
 ] as const;
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
-  if (href === "/sim-fast") return pathname === "/sim" || pathname === "/sim-fast" || (pathname.startsWith("/sim/") && !pathname.startsWith("/sim/accuracy") && !pathname.startsWith("/sim/ufc"));
+  if (href === "/sim") return pathname === "/sim" || pathname === "/sim-fast" || (pathname.startsWith("/sim/") && !pathname.startsWith("/sim/accuracy") && !pathname.startsWith("/sim/ufc"));
   if (href === "/sim/ufc") return pathname.startsWith("/sim/ufc") || pathname.startsWith("/sharkfights/ufc");
   if (href === "/baseball") return pathname === "/baseball" || pathname.startsWith("/sim/mlb");
   if (href === "/accuracy") return pathname.startsWith("/accuracy") || pathname.startsWith("/sim/accuracy");
