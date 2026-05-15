@@ -9,6 +9,8 @@ export type UfcSettledLedgerRow = {
   eventLabel: string;
   eventDate: string | null;
   fightDate: string | null;
+  fighterAId: string | null;
+  fighterBId: string | null;
   fighterAName: string | null;
   fighterBName: string | null;
   pickName: string | null;
@@ -27,6 +29,8 @@ export type UfcSettledLedgerRow = {
   marketOddsBOpen: number | null;
   marketOddsAClose: number | null;
   marketOddsBClose: number | null;
+  pickOpenOddsAmerican: number | null;
+  pickCloseOddsAmerican: number | null;
   brier: number | null;
   shouldHavePassed: boolean;
   passReason: string | null;
@@ -136,6 +140,20 @@ function pickProbability(row: ShadowLedgerRaw) {
   return Math.max(row.fighter_a_win_probability, row.fighter_b_win_probability);
 }
 
+function pickOpenOdds(row: ShadowLedgerRaw) {
+  if (!row.pick_fighter_id) return null;
+  if (row.pick_fighter_id === row.fighter_a_id) return row.market_odds_a_open;
+  if (row.pick_fighter_id === row.fighter_b_id) return row.market_odds_b_open;
+  return null;
+}
+
+function pickCloseOdds(row: ShadowLedgerRaw) {
+  if (!row.pick_fighter_id) return null;
+  if (row.pick_fighter_id === row.fighter_a_id) return row.market_odds_a_close;
+  if (row.pick_fighter_id === row.fighter_b_id) return row.market_odds_b_close;
+  return null;
+}
+
 function brier(row: ShadowLedgerRaw) {
   if (!row.actual_winner_fighter_id || !row.fighter_a_id) return null;
   const actualA = row.actual_winner_fighter_id === row.fighter_a_id ? 1 : 0;
@@ -168,6 +186,8 @@ function mapRow(row: ShadowLedgerRaw): UfcSettledLedgerRow {
     eventLabel: row.event_name ?? row.event_label ?? "UFC Fight",
     eventDate: toIso(row.event_date),
     fightDate: toIso(row.fight_date),
+    fighterAId: row.fighter_a_id,
+    fighterBId: row.fighter_b_id,
     fighterAName: row.fighter_a_name,
     fighterBName: row.fighter_b_name,
     pickName: row.pick_name,
@@ -186,6 +206,8 @@ function mapRow(row: ShadowLedgerRaw): UfcSettledLedgerRow {
     marketOddsBOpen: row.market_odds_b_open,
     marketOddsAClose: row.market_odds_a_close,
     marketOddsBClose: row.market_odds_b_close,
+    pickOpenOddsAmerican: pickOpenOdds(row),
+    pickCloseOddsAmerican: pickCloseOdds(row),
     brier: brier(row),
     shouldHavePassed: shouldHavePassed(row),
     passReason: passReason(row)
