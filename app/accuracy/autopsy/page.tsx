@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { getDataControlTowerReport, type DataTowerStatus } from "@/services/ops/data-control-tower";
 import { getSimModelScorecard } from "@/services/sim/mlb-moneyline-scorecard";
 import { getUfcSettledLedger, type UfcSettledLedgerRow } from "@/services/ufc/settled-ledger";
 
@@ -39,6 +40,7 @@ type AutopsyRow = {
   shouldHavePassed: boolean;
   reason: string;
   severity: number;
+  dataLocked: boolean;
 };
 
 function pct(value: number | null | undefined, digits = 1) {
@@ -70,6 +72,13 @@ function pill(tone: "cyan" | "green" | "amber" | "red" | "slate" = "slate") {
   return `rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${tones[tone]}`;
 }
 
+function dataTone(status: DataTowerStatus) {
+  if (status === "ELITE") return "green" as const;
+  if (status === "USABLE") return "cyan" as const;
+  if (status === "WEAK") return "amber" as const;
+  return "red" as const;
+}
+
 function missTone(type: AutopsyRow["missType"]) {
   if (type === "discipline") return "amber" as const;
   if (type === "data") return "red" as const;
@@ -88,16 +97,22 @@ function classifyMlb(row: MlbRecentRow): AutopsyRow {
   const shouldHavePassed = Boolean(row.roiExclusionReason) || missingActualOdds || (typeof probability === "number" && probability < 0.56);
   let missType: AutopsyRow["missType"] = "model";
   let reason = "Model-side miss: the selected side did not win despite model support.";
+  let dataLocked = false;
 
   if (isPending) {
     missType = "pending";
     reason = "Pending row: not eligible for final autopsy yet.";
-  } else if (shouldHavePassed) {
-    missType = "discipline";
-    reason = row.roiExclusionReason ?? (missingActualOdds ? "Odds source was fallback or missing; this should not be treated as official proof." : "Model probability was below official-play threshold.");
   } else if (missingActualOdds) {
     missType = "data";
-    reason = "Odds source was missing or fallback, weakening ROI proof.";
+    dataLocked = true;
+    reason = "Odds source was missing or fallback, so this is a data failure before it is a model failure.";
+  } else if (row.dataQualityGrade === "D") {
+    missType = "data";
+    dataLocked = true;
+    reason = "Data quality grade was D, so this row should not be treated as a clean model miss.";
+  } else if (row.roiExclusionReason || (typeof probability === "number" && probability < 0.56)) {
+    missType = "discipline";
+    reason = row.roiExclusionReason ?? "Model probability was below official-play threshold.";
   } else if (typeof marketProbability === "number" && typeof probability === "number" && Math.abs(probability - marketProbability) < 0.025) {
     missType = "market";
     reason = "Market and model were too close; edge was probably too thin for official promotion.";
@@ -117,22 +132,31 @@ function classifyMlb(row: MlbRecentRow): AutopsyRow {
     missType,
     shouldHavePassed,
     reason,
-    severity: isLoss ? (shouldHavePassed ? 90 : 70) : isPending ? 20 : 30
+    severity: isLoss ? (dataLocked ? 96 : shouldHavePassed ? 90 : 70) : isPending ? 20 : 30,
+    dataLocked
   };
 }
 
 function classifyMma(row: UfcSettledLedgerRow): AutopsyRow {
   const pending = row.resultCorrect == null;
-  const shouldHavePassed = row.shouldHavePassed || row.dataQualityGrade === "D" || row.confidenceGrade === "LOW" || (typeof row.pickProbability === "number" && row.pickProbability < 0.56);
+  const missingOdds = !row.pickOpenOddsAmerican && !row.pickCloseOddsAmerican;
+  const dataQualityFail = row.dataQualityGrade === "D";
+  const shouldHavePassed = row.shouldHavePassed || dataQualityFail || row.confidenceGrade === "LOW" || missingOdds || (typeof row.pickProbability === "number" && row.pickProbability < 0.56);
   let missType: AutopsyRow["missType"] = pending ? "pending" : row.resultCorrect ? "market" : "model";
   let reason = pending ? "Pending fight: not eligible for final autopsy yet." : row.resultCorrect ? "Resolved win; useful for calibration but not a miss." : "Fight-side model miss: selected fighter did not win.";
+  let dataLocked = false;
 
-  if (!pending && shouldHavePassed) {
+  if (!pending && missingOdds) {
+    missType = "data";
+    dataLocked = true;
+    reason = "Winner-market odds were missing, so this is a data failure before it is a model failure.";
+  } else if (!pending && dataQualityFail) {
+    missType = "data";
+    dataLocked = true;
+    reason = "Data quality grade was D, so this row should not be treated as a clean model miss.";
+  } else if (!pending && shouldHavePassed) {
     missType = "discipline";
     reason = row.passReason ?? "Current pass discipline would avoid this fight.";
-  } else if (!pending && (!row.pickOpenOddsAmerican && !row.pickCloseOddsAmerican)) {
-    missType = "data";
-    reason = "Winner-market odds were missing, so the row should not be promoted as official proof.";
   } else if (!pending && row.resultCorrect === false && typeof row.closingLineValuePct === "number" && row.closingLineValuePct < 0) {
     missType = "market";
     reason = "Market moved against the pick; negative CLV suggests the edge was not strong enough.";
@@ -152,8 +176,25 @@ function classifyMma(row: UfcSettledLedgerRow): AutopsyRow {
     missType,
     shouldHavePassed,
     reason,
-    severity: pending ? 20 : row.resultCorrect ? 25 : shouldHavePassed ? 95 : 75
+    severity: pending ? 20 : row.resultCorrect ? 25 : dataLocked ? 96 : shouldHavePassed ? 95 : 75,
+    dataLocked
   };
+}
+
+function applyGlobalDataLock(rows: AutopsyRow[], officialPromotionAllowed: boolean, blockers: string[]) {
+  if (officialPromotionAllowed) return rows;
+  const reason = blockers[0] ? `Data Control Tower blocked autopsy classification: ${blockers[0]}` : "Data Control Tower blocked autopsy classification.";
+  return rows.map((row) => {
+    if (row.missType === "pending") return row;
+    return {
+      ...row,
+      missType: "data" as const,
+      shouldHavePassed: true,
+      reason,
+      severity: Math.max(row.severity, 96),
+      dataLocked: true
+    };
+  });
 }
 
 function StatTile({ label, value, sub }: { label: string; value: string | number; sub: string }) {
@@ -174,6 +215,7 @@ function AutopsyCard({ row }: { row: AutopsyRow }) {
           <div className="flex flex-wrap gap-2">
             <span className={pill(row.sport === "MLB" ? "cyan" : "green")}>{row.sport}</span>
             <span className={pill(missTone(row.missType))}>{row.missType}</span>
+            {row.dataLocked ? <span className={pill("red")}>data lock</span> : null}
             {row.shouldHavePassed ? <span className={pill("amber")}>should pass</span> : null}
           </div>
           <h2 className="mt-3 font-display text-2xl font-black tracking-[-0.05em] text-white">{row.eventLabel}</h2>
@@ -196,22 +238,24 @@ function AutopsyCard({ row }: { row: AutopsyRow }) {
 }
 
 export default async function AccuracyAutopsyPage() {
-  const [mlbScorecard, mmaLedger] = await Promise.all([
+  const [mlbScorecard, mmaLedger, dataTower] = await Promise.all([
     getSimModelScorecard({ league: "MLB", market: "ALL", modelVersion: "ALL", windowDays: 365 }).catch(() => null),
-    getUfcSettledLedger({ limit: 150 })
+    getUfcSettledLedger({ limit: 150 }),
+    getDataControlTowerReport()
   ]);
 
   const mlbRows = ((mlbScorecard?.recent ?? []) as MlbRecentRow[])
-    .filter((row) => String(row.resultBucket ?? "").toUpperCase().includes("LOSS") || row.roiExclusionReason || row.oddsSource === "fallback" || row.oddsSource === "fallback_-110")
+    .filter((row) => String(row.resultBucket ?? "").toUpperCase().includes("LOSS") || row.roiExclusionReason || row.oddsSource === "fallback" || row.oddsSource === "fallback_-110" || row.dataQualityGrade === "D")
     .slice(0, 30)
     .map(classifyMlb);
   const mmaRows = mmaLedger.rows
-    .filter((row) => row.resultCorrect === false || row.shouldHavePassed || row.resultCorrect == null)
+    .filter((row) => row.resultCorrect === false || row.shouldHavePassed || row.resultCorrect == null || row.dataQualityGrade === "D" || (!row.pickOpenOddsAmerican && !row.pickCloseOddsAmerican))
     .slice(0, 30)
     .map(classifyMma);
-  const rows = [...mlbRows, ...mmaRows].sort((a, b) => b.severity - a.severity).slice(0, 40);
+  const rows = applyGlobalDataLock([...mlbRows, ...mmaRows], dataTower.officialPromotionAllowed, dataTower.blockers).sort((a, b) => b.severity - a.severity).slice(0, 40);
   const shouldPassCount = rows.filter((row) => row.shouldHavePassed).length;
   const dataCount = rows.filter((row) => row.missType === "data").length;
+  const dataLockedCount = rows.filter((row) => row.dataLocked).length;
   const disciplineCount = rows.filter((row) => row.missType === "discipline").length;
   const modelCount = rows.filter((row) => row.missType === "model").length;
 
@@ -224,10 +268,11 @@ export default async function AccuracyAutopsyPage() {
               <div className="text-[10px] font-black uppercase tracking-[0.28em] text-cyan-300/75">Postgame autopsy</div>
               <h1 className="mt-2 font-display text-4xl font-black tracking-[-0.07em] text-white sm:text-5xl">Every miss needs a reason.</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-                This is the weakest missing layer in the product: a feedback loop that explains losses, bad data rows, thin-market rows, and picks that current discipline would now pass on.
+                Autopsy now checks the Data Control Tower first, so bad/fallback data is labeled as data failure instead of being miscounted as a model failure.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Link href="/accuracy/data" className={pill(dataTone(dataTower.status))}>Data {dataTower.status}</Link>
               <Link href="/accuracy" className={pill("cyan")}>Proof center</Link>
               <Link href="/accuracy/verdicts" className={pill("slate")}>Verdicts</Link>
               <Link href="/accuracy/mlb" className={pill("slate")}>MLB proof</Link>
@@ -236,8 +281,21 @@ export default async function AccuracyAutopsyPage() {
           </div>
         </section>
 
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <section className={`rounded-[1.35rem] border p-4 ${dataTower.officialPromotionAllowed ? "border-emerald-300/15 bg-emerald-300/[0.05]" : "border-rose-300/15 bg-rose-300/[0.05]"}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300">Data autopsy status</div>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                {dataTower.officialPromotionAllowed ? "Data tower allows normal autopsy classification." : "Data tower blocks clean autopsy classification. Non-pending rows are treated as data-locked until blockers clear."}
+              </p>
+            </div>
+            <Link href="/accuracy/data" className={pill(dataTone(dataTower.status))}>Open data tower</Link>
+          </div>
+        </section>
+
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <StatTile label="Rows" value={rows.length} sub="Highest-severity recent autopsies" />
+          <StatTile label="Data locked" value={dataLockedCount} sub="Not clean model evidence" />
           <StatTile label="Should pass" value={shouldPassCount} sub="Rows current discipline would avoid" />
           <StatTile label="Data misses" value={dataCount} sub="Missing/fallback odds or weak inputs" />
           <StatTile label="Discipline" value={disciplineCount} sub="Promotion gate should block these" />
