@@ -67,28 +67,45 @@ function verdictTone(verdict: OfficialVerdict) {
   return "slate" as const;
 }
 
+function mlbPickLabel(model: SimCardViewModel) {
+  const action = model.primaryAction;
+  if (action.side === "home") return `${model.homeTeam} ML`;
+  if (action.side === "away") return `${model.awayTeam} ML`;
+  if (action.side === "over") return "Over";
+  if (action.side === "under") return "Under";
+  return action.marketType === "projection_only" ? "Projection only" : action.action;
+}
+
+function confidenceGrade(confidence: number | null | undefined) {
+  if (typeof confidence !== "number" || !Number.isFinite(confidence)) return "MEDIUM";
+  if (confidence >= 0.7) return "HIGH";
+  if (confidence < 0.5) return "LOW";
+  return "MEDIUM";
+}
+
 function mlbGateRow(model: SimCardViewModel, actualOddsCoveragePct: number | null): GateRow {
   const verdict = gradeMlbOfficialVerdict(model);
   const action = model.primaryAction;
+  const probability = action.modelProbability ?? model.lean.pct ?? null;
   const gate = applyPromotionGateV2({
     sport: "MLB",
     verdict,
-    probability: typeof model.winProbability === "number" ? model.winProbability : null,
-    hasMarketOdds: model.dataStatus === "ready" && action.action !== "NO_MARKET",
+    probability,
+    hasMarketOdds: model.dataStatus === "ready" && action.action !== "NO_MARKET" && action.odds != null,
     hasClosingLineValue: false,
     dataQualityGrade: model.dataStatus === "ready" ? "B" : "D",
-    confidenceGrade: typeof model.confidence === "number" && model.confidence >= 70 ? "HIGH" : typeof model.confidence === "number" && model.confidence < 50 ? "LOW" : "MEDIUM",
+    confidenceGrade: confidenceGrade(model.confidence),
     calibrationBucketStatus: "unknown",
     calibrationBucketSample: null,
     settledProofSample: null,
     actualOddsCoveragePct
   });
   return {
-    id: model.id,
+    id: model.gameId,
     sport: "MLB",
-    eventLabel: model.title,
-    pickLabel: action.label,
-    probability: typeof model.winProbability === "number" ? model.winProbability : null,
+    eventLabel: `${model.awayTeam} @ ${model.homeTeam}`,
+    pickLabel: mlbPickLabel(model),
+    probability,
     baseVerdict: verdict.verdict,
     finalVerdict: gate.finalVerdict,
     gate
