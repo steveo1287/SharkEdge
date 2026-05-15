@@ -226,6 +226,41 @@ async function fetchFromEventsAndOdds(options: Required<HistoricalTrendSourceOpt
   return rows;
 }
 
+async function fetchFromMlbTrendRows(options: Required<HistoricalTrendSourceOptions> & { start: Date; end: Date }) {
+  if (options.league !== "ALL" && options.league !== "MLB") return [];
+
+  const rows = await prisma.$queryRaw<RawHistoricalRow[]>`
+    SELECT
+      tr.id,
+      tr.game_pk AS event_id,
+      bg.game_date,
+      'MLB' AS league,
+      tr.market_type AS market,
+      tr.side,
+      bg.event_label AS matchup,
+      tr.team_name AS team,
+      CASE
+        WHEN tr.team_id = bg.home_team_id THEN bg.away_team_name
+        WHEN tr.team_id = bg.away_team_id THEN bg.home_team_name
+        ELSE NULL
+      END AS opponent,
+      tr.price,
+      tr.price AS closing_price,
+      tr.result,
+      tr.units,
+      COALESCE(tr.qualifiers->>'homeAway', NULL) AS venue,
+      tr.qualifiers AS metadata_json,
+      ARRAY[tr.trend_key] AS tags
+    FROM mlb_trend_rows tr
+    JOIN mlb_betting_games bg ON bg.game_pk = tr.game_pk
+    WHERE bg.game_date >= ${options.start}
+      AND bg.game_date <= ${options.end}
+    ORDER BY bg.game_date DESC, tr.id ASC
+    LIMIT ${options.limit}
+  `;
+  return rows;
+}
+
 export async function loadHistoricalTrendRows(options: HistoricalTrendSourceOptions = {}): Promise<HistoricalTrendSourceResult> {
   const { start, end } = dateRange(options);
   const resolved = {
@@ -247,6 +282,7 @@ export async function loadHistoricalTrendRows(options: HistoricalTrendSourceOpti
   }
 
   const sourceAttempts: Array<() => Promise<RawHistoricalRow[]>> = [
+    () => fetchFromMlbTrendRows(resolved),
     () => fetchFromTrendSystemResults(resolved),
     () => fetchFromEventsAndOdds(resolved)
   ];
