@@ -150,6 +150,7 @@ function featureFromWarehouse(args: {
   const opponentStrength = num(stats, ["opponentAdjustedStrength", "opponentStrength"], args.strength?.opponent_strength_score ?? (args.rating?.pre_fight_rating ? clamp((args.rating.pre_fight_rating - 1200) / 6) : null));
   const daysSinceLastFight = num(stats, ["daysSinceLastFight", "layoffDays"], null);
   const shortNotice = bool(payload, ["shortNotice", "short_notice"], bool(profile, ["shortNotice", "short_notice"], false));
+  const stanceText = args.fighter.stance ?? (String(profile.stance ?? payload.stance ?? "").trim() || null);
 
   return {
     proFights: proFights || null,
@@ -171,8 +172,8 @@ function featureFromWarehouse(args: {
       age: num(profile, ["age"], num(payload, ["age"], null)),
       heightInches: args.fighter.height_inches ?? num(profile, ["heightInches", "height_inches"], null),
       reachInches: args.fighter.reach_inches ?? num(profile, ["reachInches", "reach_inches"], null),
-      stance: args.fighter.stance ?? String(profile.stance ?? payload.stance ?? "") || null,
-      weightClass: args.fight.event_label ? num(profile, ["weightClass"], null) : null,
+      stance: stanceText,
+      weightClass: String(profile.weightClass ?? payload.weightClass ?? "").trim() || null,
       daysSinceLastFight,
       shortNotice,
       sigStrikeAccuracyPct: num(stats, ["sigStrikeAccuracyPct", "strikeAccuracyPct"], null),
