@@ -11,16 +11,12 @@ import {
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { formatLongDate } from "@/lib/formatters/date";
-import type { BoardSportSectionView, LeagueKey } from "@/lib/types/domain";
-import { buildBoardSportSections } from "@/services/events/live-score-service";
+import type { LeagueKey } from "@/lib/types/domain";
 import { getCachedMlbCalibrationConformal } from "@/services/simulation/mlb-calibration-conformal";
-import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
 import { getCachedMlbMlModel } from "@/services/simulation/mlb-ml-training-engine";
 import { getSimModelScorecard } from "@/services/sim/model-scorecard";
-import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
 import {
   readSimCache,
-  refreshFullSimSnapshots,
   SIM_CACHE_KEYS,
   type CachedSimProjection,
   type SimBoardSnapshot,
@@ -29,23 +25,14 @@ import {
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 300;
+export const maxDuration = 20;
 
 type SimGame = { id: string; label: string; startTime: string; status: string; leagueKey: LeagueKey; leagueLabel: string };
-type LiveProjection = Awaited<ReturnType<typeof buildSimProjection>>;
-type Projection = LiveProjection | CachedSimProjection;
-type LiveEdgeResult = Awaited<ReturnType<typeof buildMlbEdges>>["edges"][number];
-type CacheEdgeResult = SimMarketSnapshot["edges"][number];
-type EdgeResult = LiveEdgeResult | CacheEdgeResult;
+type Projection = CachedSimProjection;
+type EdgeResult = SimMarketSnapshot["edges"][number];
 type Row = { game: SimGame; projection: Projection; edge?: EdgeResult | null };
 
 type DecisionTier = "attack" | "watch" | "thin" | "pass";
-
-function flatten(sections: BoardSportSectionView[]): SimGame[] {
-  return sections.flatMap((section) =>
-    section.leagueKey === "MLB" ? section.scoreboard.map((game) => ({ ...game, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel })) : []
-  );
-}
 
 function formatTime(value: string) { return formatLongDate(value); }
 function pct(value: number | null | undefined, digits = 1) { if (typeof value !== "number" || !Number.isFinite(value)) return "--"; return `${(value * 100).toFixed(digits)}%`; }
@@ -229,27 +216,13 @@ async function readCachedRows() {
   };
 }
 
-async function buildLiveRows() {
-  const [sections, edgeData] = await Promise.all([
-    buildBoardSportSections({ selectedLeague: "MLB", gamesByLeague: {}, maxScoreboardGames: null }),
-    buildMlbEdges().catch(() => ({ edges: [] as LiveEdgeResult[] }))
-  ]);
-
-  const games = flatten(sections);
-  const edgeByGame = new Map((edgeData.edges ?? []).map((edge) => [edge.gameId, edge]));
-  const rows: Row[] = await Promise.all(games.map(async (game) => ({ game, projection: await buildSimProjection(game), edge: edgeByGame.get(game.id) ?? null })));
-  return rows;
-}
-
 async function loadMlbRows() {
+  // Cache boundary: the MLB sim page is read-only. Cron/manual refresh owns
+  // projection and edge rebuilds so a page view cannot burn provider/database time.
   const cached = await readCachedRows();
   if (cached.rows.length) return cached;
 
-  await refreshFullSimSnapshots().catch(() => null);
-  const rebuilt = await readCachedRows();
-  if (rebuilt.rows.length) return { ...rebuilt, source: "repaired-cache" as const };
-
-  return { rows: await buildLiveRows(), source: "live-fallback" as const };
+  return { rows: [] as Row[], source: "missing-cache" as const };
 }
 
 export default async function MlbSimPage() {
@@ -273,7 +246,7 @@ export default async function MlbSimPage() {
       <SimWorkspaceHeader
         eyebrow="MLB Command Desk"
         title="Kill the spreadsheet. Surface the side, total, pitcher context, market match, and data quality first."
-        description="MLB now reads the cached sim board first, repairs blank cache states once, then falls back to the live scoreboard. ESPN empty slates can fall through to the official MLB schedule provider."
+        description="MLB reads the warmed sim cache only. Slow providers and projection rebuilds run in cron/manual refresh jobs so this page stays fast and predictable."
         actions={[{ href: "/sim", label: "Sim Hub" }, { href: "/board#MLB", label: "MLB Board", tone: "primary" }, { href: "/mlb-edge", label: "Edge Lab" }]}
       >
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">

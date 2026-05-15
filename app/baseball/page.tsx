@@ -107,6 +107,10 @@ function statusTone(status: string): "success" | "neutral" | "danger" | "muted" 
   return "muted";
 }
 
+function isActionableStatus(status: string) {
+  return !["FINAL", "POSTPONED", "CANCELED"].includes(status.toUpperCase());
+}
+
 function decision(row: MlbGameRow) {
   const action = String((row.edge?.signal as { takeAction?: { action?: unknown }; action?: unknown } | null)?.takeAction?.action ?? row.edge?.signal?.action ?? "").toUpperCase();
   if (action === "ATTACK" || action === "PLAY") return { label: action, tone: "success" as const, className: "border-emerald-300/30 bg-emerald-400/10 text-emerald-200" };
@@ -250,13 +254,14 @@ function StatusStrip({ snapshots, rows }: { snapshots: BaseballSnapshots; rows: 
   const marketFresh = (ageMinutes(snapshots.market?.generatedAt) ?? 999) <= 20;
   const refreshOk = snapshots.status?.ok !== false;
   const marketMatched = rows.filter((row) => row.edge?.market).length;
+  const activeRows = rows.filter((row) => isActionableStatus(row.cached.game.status)).length;
   const projectedTotals = rows.map((row) => projectedTotal(row.cached)).filter((value): value is number => value !== null);
   const avgTotal = projectedTotals.length ? projectedTotals.reduce((sum, value) => sum + value, 0) / projectedTotals.length : null;
   const lowTotals = rows.filter((row) => (projectedTotal(row.cached) ?? 99) < LOW_TOTAL_WARNING_LINE).length;
 
   return (
     <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-      <Tile label="MLB games" value={rows.length} sub="Cached slate rows" tone={rows.length ? "good" : "bad"} />
+      <Tile label="Active games" value={`${activeRows}/${rows.length}`} sub="Pregame/live cached rows" tone={activeRows ? "good" : rows.length ? "warn" : "bad"} />
       <Tile label="Markets matched" value={`${marketMatched}/${rows.length || 0}`} sub={`${snapshots.market?.lineCount ?? 0} line rows`} tone={marketMatched ? "good" : "warn"} />
       <Tile label="Avg total" value={avgTotal === null ? "-" : avgTotal.toFixed(1)} sub={lowTotals ? `${lowTotals} low-total flags` : "Projected run environment"} tone={lowTotals ? "warn" : "good"} />
       <Tile label="Sim cache" value={simFresh ? "Fresh" : snapshots.mlbBoard ? "Stale" : "Missing"} sub={formatAge(snapshots.mlbBoard?.generatedAt)} tone={simFresh ? "good" : "warn"} />
@@ -395,6 +400,8 @@ function GameCard({ row }: { row: MlbGameRow }) {
 export default async function BaseballPage() {
   const snapshots = await readSnapshots();
   const rows = mergeRows(snapshots);
+  const activeRows = rows.filter((row) => isActionableStatus(row.cached.game.status));
+  const displayRows = activeRows.length ? activeRows : rows;
 
   return (
     <div className="space-y-6">
@@ -416,21 +423,31 @@ export default async function BaseballPage() {
       </section>
 
       <StatusStrip snapshots={snapshots} rows={rows} />
-      <DataQualityPanel rows={rows} snapshots={snapshots} />
+      <DataQualityPanel rows={displayRows} snapshots={snapshots} />
 
       <section className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-300">Today / upcoming MLB slate</div>
-            <h2 className="mt-1 font-display text-3xl font-semibold text-white">Every game gets a sim card</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-400">Cards show the whole decision chain: projected score, total sanity, market line, model edge, no-bet blockers, and the factor stack.</p>
+            <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-300">{activeRows.length ? "Today / upcoming MLB slate" : "Latest cached MLB slate"}</div>
+            <h2 className="mt-1 font-display text-3xl font-semibold text-white">{activeRows.length ? "Every active game gets a sim card" : "No active MLB rows right now"}</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              {activeRows.length
+                ? "Cards show the whole decision chain: projected score, total sanity, market line, model edge, no-bet blockers, and the factor stack."
+                : "The cache currently contains completed games only, so this cockpit is showing the latest settled slate for audit instead of pretending there are actionable picks."}
+            </p>
           </div>
           <div className="text-xs text-slate-500">Generated {formatAge(snapshots.mlbBoard?.generatedAt)}</div>
         </div>
 
-        {rows.length ? (
+        {!activeRows.length && rows.length ? (
+          <div className="rounded-2xl border border-amber-300/20 bg-amber-400/[0.05] p-4 text-sm leading-6 text-amber-100/80">
+            MLB snapshot is populated, but every cached row is FINAL/closed. Wait for the next scheduled refresh window or run the sim refresh before trusting this page for live betting decisions.
+          </div>
+        ) : null}
+
+        {displayRows.length ? (
           <div className="grid gap-4">
-            {rows.map((row) => <GameCard key={row.cached.game.id} row={row} />)}
+            {displayRows.map((row) => <GameCard key={row.cached.game.id} row={row} />)}
           </div>
         ) : (
           <EmptyState

@@ -142,6 +142,15 @@ async function dbCounts(): Promise<DbCounts> {
   if (!tables.mlb_v8_player_impact_profiles) warnings.push("MLB v8 player-impact profile table is missing; player-impact weights fall back to defaults.");
   if (!tables.retrosheet_games) warnings.push("Retrosheet warehouse is missing; historical Elo/pitcher priors are not active.");
   if (!tables.mlb_team_elo_snapshots || !tables.mlb_pitcher_rolling_snapshots) warnings.push("MLB Elo/pitcher rolling snapshot tables are missing.");
+  if (tables.mlb_team_elo_snapshots && Number(counts.mlb_team_elo_snapshotsRows ?? 0) <= 0) {
+    warnings.push("MLB team Elo snapshot table has 0 rows; Elo priors are inactive.");
+  }
+  if (tables.mlb_pitcher_rolling_snapshots && Number(counts.mlb_pitcher_rolling_snapshotsRows ?? 0) <= 0) {
+    warnings.push("MLB pitcher rolling snapshot table has 0 rows; starter rolling game-score priors are inactive.");
+  }
+  if (tables.mlb_trend_rows && Number(counts.mlb_trend_rowsRows ?? 0) <= 0) {
+    warnings.push("MLB trend rows table has 0 rows; SharkTrends historical trend inventory is not populated.");
+  }
   return { ok: true, tables, counts, warnings };
 }
 
@@ -159,6 +168,7 @@ async function sourceHealth() {
   if (!playerSources.every((source) => source === "real")) warnings.push(`Player model is ${playerSources.join("/")}; estimated/synthetic player stats are downweighted.`);
   if (!teamProfileSources.every((source) => source === "real")) warnings.push(`Team analytics are ${teamProfileSources.join("/")}; configure MLB_TEAM_ANALYTICS_URL or improve the MLB Stats API warehouse.`);
   if (!ratingSources.every((source) => source === "real")) warnings.push(`Ratings are ${ratingSources.join("/")}; synthetic ratings are display-only/low-weight.`);
+  if (ratings.ratingConfidence < 0.2) warnings.push(`Ratings confidence is low (${(ratings.ratingConfidence * 100).toFixed(1)}%); Elo/rating priors should stay low-weight until coverage improves.`);
   const ratingsWarehouseReady = ratingSources.every((source) => source === "real");
 
   const analyticsEnvVars = {

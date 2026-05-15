@@ -1,7 +1,4 @@
 import type { LeagueKey } from "@/lib/types/domain";
-import { buildBoardSportSections } from "@/services/events/live-score-service";
-import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
-import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
 import {
   readSimCache,
   SIM_CACHE_KEYS,
@@ -231,55 +228,11 @@ async function loadCachedRows(league: LeagueKey | "ALL") {
 }
 
 async function buildLiveBoardSignals(league: LeagueKey | "ALL") {
-  const [sections, edgeData] = await Promise.all([
-    buildBoardSportSections({ selectedLeague: league, gamesByLeague: {}, maxScoreboardGames: null }),
-    league === "ALL" || league === "MLB" ? buildMlbEdges().catch(() => ({ edges: [] as any[] })) : Promise.resolve({ edges: [] as any[] })
-  ]);
-  const edgeMap = new Map<string, any>((edgeData.edges ?? []).map((edge: any) => [edge.gameId, edge]));
-  const games = sections.flatMap((section) => section.scoreboard.map((game) => ({ ...game, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel })));
-  const rows: TrendSignalDraft[] = [];
-  for (const game of games) {
-    const projection = await buildSimProjection(game);
-    const edge = edgeMap.get(game.id);
-    const home = projection.distribution.homeWinPct;
-    const away = projection.distribution.awayWinPct;
-    const fav = home >= away ? { team: projection.matchup.home, pct: home } : { team: projection.matchup.away, pct: away };
-    const mlbIntel = projection.mlbIntel;
-    const nbaIntel = projection.nbaIntel;
-    const confidence = clampConfidence(mlbIntel?.governor?.confidence ?? nbaIntel?.confidence ?? projection.realityIntel?.confidence ?? fav.pct);
-    const risk = riskFrom(mlbIntel?.volatilityIndex ?? nbaIntel?.volatilityIndex ?? projection.realityIntel?.volatilityIndex, mlbIntel?.governor?.noBet ?? nbaIntel?.noBet ?? false);
-    const marketEdge = moneylineEdgeForTeam(edge, fav.team, projection.matchup);
-    const currentOddsAmerican = moneylineOddsForTeam(edge, fav.team, projection.matchup);
-    const nbaPolicyNotes = nbaIntel?.noBet
-      ? (nbaIntel.reasons ?? []).slice(0, 4).map((reason) => `NBA guard: ${reason}`)
-      : [];
-    rows.push({
-      id: `${game.leagueKey}-${game.id}-model-lean`,
-      league: game.leagueKey,
-      gameId: game.id,
-      startTime: game.startTime,
-      status: game.status,
-      matchup: projection.matchup,
-      title: `${fav.team} model lean`,
-      angle: `${projection.matchup.away} @ ${projection.matchup.home}: model probability favors ${fav.team} at ${(fav.pct * 100).toFixed(1)}%.`,
-      category: "Moneyline",
-      grade: gradeFrom(confidence, marketEdge, risk),
-      confidence,
-      hitRate: null,
-      sample: null,
-      edge: marketEdge,
-      market: fav.team === projection.matchup.home ? "home_ml" : "away_ml",
-      risk,
-      source: currentOddsAmerican != null ? "market-edge" : "sim-engine",
-      actionHref: actionHref(game.leagueKey, game.id),
-      notes: [projection.read, edge?.signal ? `Best market signal: ${edge.signal.market} ${edge.signal.strength}.` : "No matched sportsbook market yet.", ...nbaPolicyNotes],
-      currentOddsAmerican,
-      fairProbability: fav.pct,
-      marketBreadth: moneylineMarketBreadth(edge),
-      sportsbook: edge?.sportsbook ?? null
-    });
-  }
-  return rows;
+  // Cache boundary: trends should not rebuild the live board or MLB edge engine
+  // from a user request. If warmed snapshots are missing, return no live signals
+  // and let the UI/API surface the coverage warning instead of burning workers.
+  void league;
+  return [] as TrendSignalDraft[];
 }
 
 export async function buildTrendSignals(args: { league?: "ALL" | LeagueKey; includeResearch?: boolean; includeHidden?: boolean } = {}) {
@@ -297,7 +250,7 @@ export async function buildTrendSignals(args: { league?: "ALL" | LeagueKey; incl
     ok: true,
     league,
     generatedAt: new Date().toISOString(),
-    counts: { ...counts, live: liveSignals.length, research: research.length, source: cached.rows.length ? "sim-cache" : "live-board", cacheStale: cached.stale, cacheHits: cached.cacheHits },
+    counts: { ...counts, live: liveSignals.length, research: research.length, source: cached.rows.length ? "sim-cache" : "sim-cache-miss", cacheStale: cached.stale, cacheHits: cached.cacheHits },
     signals
   };
 }
