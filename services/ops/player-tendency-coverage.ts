@@ -36,6 +36,37 @@ export type PlayerTendencyCoverageReport = {
 
 type JsonRecord = Record<string, unknown>;
 
+type MlbPitcherRatingRow = {
+  pitcher_id: string;
+  pitcher_name: string;
+  team: string;
+  role_tier: string | null;
+  xera_quality: number | null;
+  fip_quality: number | null;
+  k_bb: number | null;
+  hr_risk: number | null;
+  groundball_rate: number | null;
+  platoon_split: number | null;
+  stamina: number | null;
+  recent_workload: number | null;
+  arsenal_quality: number | null;
+  overall: number | null;
+  metrics_json: unknown;
+  snapshot_at: Date | string | null;
+};
+
+type MlbLineupSnapshotRow = {
+  game_id: string;
+  team: string;
+  confirmed: boolean | null;
+  starting_pitcher_id: string | null;
+  starting_pitcher_name: string | null;
+  batting_order_json: unknown;
+  available_relievers_json: unknown;
+  unavailable_relievers_json: unknown;
+  captured_at: Date | string | null;
+};
+
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
 }
@@ -60,8 +91,10 @@ function statusFromScore(score: number): TendencyCoverageStatus {
 }
 
 function metric(key: string, label: string, count: number, total: number): TendencyCoverageMetric {
-  const value = pct(count, total);
-  return { key, label, count, total, pct: value, status: statusFromPct(value) };
+  const safeTotal = Math.max(0, total);
+  const safeCount = Math.max(0, Math.min(count, safeTotal));
+  const value = pct(safeCount, safeTotal);
+  return { key, label, count: safeCount, total: safeTotal, pct: value, status: statusFromPct(value) };
 }
 
 function hasAny(record: JsonRecord, keys: string[]) {
@@ -114,6 +147,83 @@ function recordHasKeys(record: JsonRecord, keys: string[]) {
   return keys.some((key) => Object.prototype.hasOwnProperty.call(record, key) && record[key] !== null && record[key] !== "");
 }
 
+function hasNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function jsonArrayLength(value: unknown) {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+async function safeMlbPitcherRatings() {
+  try {
+    return await prisma.$queryRaw<MlbPitcherRatingRow[]>`
+      SELECT DISTINCT ON (pitcher_id)
+        pitcher_id, pitcher_name, team, role_tier, xera_quality, fip_quality, k_bb, hr_risk,
+        groundball_rate, platoon_split, stamina, recent_workload, arsenal_quality, overall, metrics_json, snapshot_at
+      FROM mlb_pitcher_ratings
+      ORDER BY pitcher_id, snapshot_at DESC
+      LIMIT 2500;
+    `;
+  } catch {
+    return [];
+  }
+}
+
+async function safeMlbLineupSnapshots() {
+  try {
+    return await prisma.$queryRaw<MlbLineupSnapshotRow[]>`
+      SELECT DISTINCT ON (game_id, team)
+        game_id, team, confirmed, starting_pitcher_id, starting_pitcher_name,
+        batting_order_json, available_relievers_json, unavailable_relievers_json, captured_at
+      FROM mlb_lineup_snapshots
+      ORDER BY game_id, team, captured_at DESC
+      LIMIT 2500;
+    `;
+  } catch {
+    return [];
+  }
+}
+
+function pitcherStatLike(row: JsonRecord) {
+  return hasAny(row, ["pitcherOuts", "outsPitched", "inningsPitched", "pitchingStrikeouts", "pitchesThrown", "gameScore", "era", "fip", "xera", "xERA"])
+    || Object.keys(nestedRecord(row, ["statcast", "pitching"])).length > 0;
+}
+
+function pitcherRatingHasArsenal(row: MlbPitcherRatingRow) {
+  const metrics = asRecord(row.metrics_json);
+  const raw = asRecord(metrics.raw);
+  return hasNumber(row.arsenal_quality)
+    || Object.keys(nestedRecord(raw, ["statcast", "pitching", "pitchMix"])).length > 0
+    || hasAny(raw, ["arsenalQuality", "pitchQuality"]);
+}
+
+function pitcherRatingHasContext(row: MlbPitcherRatingRow) {
+  return hasNumber(row.xera_quality)
+    || hasNumber(row.fip_quality)
+    || hasNumber(row.k_bb)
+    || hasNumber(row.groundball_rate)
+    || hasNumber(row.stamina)
+    || hasNumber(row.recent_workload)
+    || hasNumber(row.overall);
+}
+
+function lineupHasStarter(row: MlbLineupSnapshotRow) {
+  return Boolean(row.starting_pitcher_id || row.starting_pitcher_name);
+}
+
+function lineupHasPitchingFallback(row: MlbLineupSnapshotRow, pitcherTeams: Set<string>) {
+  return lineupHasStarter(row) || pitcherTeams.has(row.team);
+}
+
+function lineupHasBullpen(row: MlbLineupSnapshotRow) {
+  return jsonArrayLength(row.available_relievers_json) > 0 || jsonArrayLength(row.unavailable_relievers_json) > 0;
+}
+
+function lineupHasBullpenFallback(row: MlbLineupSnapshotRow, pitcherTeams: Set<string>) {
+  return lineupHasBullpen(row) || pitcherTeams.has(row.team);
+}
+
 function buildLane(sport: TendencyCoverageSport, label: string, metrics: TendencyCoverageMetric[], sample: Record<string, string | number | null>): TendencyCoverageLane {
   const weighted = average(metrics.map((item) => item.pct)) ?? 0;
   const score = Math.round(weighted * 100);
@@ -153,7 +263,7 @@ async function buildMlbLane(): Promise<TendencyCoverageLane> {
     return buildLane("MLB", "MLB roster/player tendencies", [], { playerCount: 0, latestPlayerStatAt: null });
   }
 
-  const [players, playerStats, teamStats] = await Promise.all([
+  const [players, playerStats, teamStats, pitcherRatings, lineupSnapshots] = await Promise.all([
     prisma.player.findMany({
       where: { leagueId: league.id },
       select: { id: true, name: true, position: true, status: true, externalIds: true, updatedAt: true },
@@ -170,14 +280,29 @@ async function buildMlbLane(): Promise<TendencyCoverageLane> {
       select: { statsJson: true, updatedAt: true },
       orderBy: { updatedAt: "desc" },
       take: 1500
-    })
+    }),
+    safeMlbPitcherRatings(),
+    safeMlbLineupSnapshots()
   ]);
 
   const playerTotal = Math.max(1, players.length);
   const statTotal = Math.max(1, playerStats.length);
   const teamTotal = Math.max(1, teamStats.length);
+  const lineupTotal = Math.max(1, lineupSnapshots.length || teamStats.length);
   const statRecords = playerStats.map((row) => asRecord(row.statsJson));
+  const pitcherStatRecords = statRecords.filter(pitcherStatLike);
+  const pitcherProfileTotal = Math.max(1, pitcherRatings.length || pitcherStatRecords.length);
   const teamRecords = teamStats.map((row) => asRecord(row.statsJson));
+  const pitcherTeams = new Set(pitcherRatings.map((row) => row.team).filter(Boolean));
+
+  const rawPitchMixCount = boolCount(pitcherStatRecords, (row) => Object.keys(nestedRecord(row, ["statcast", "pitching", "pitchMix"])).length > 0);
+  const runtimePitchMixCount = boolCount(pitcherRatings, pitcherRatingHasArsenal);
+  const rawPitcherContextCount = boolCount(pitcherStatRecords, (row) => hasAny(row, ["pitcherOuts", "outsPitched", "pitchingStrikeouts", "pitchesThrown", "gameScore", "era", "fip", "xera", "xERA"]));
+  const runtimePitcherContextCount = boolCount(pitcherRatings, pitcherRatingHasContext);
+  const rawProbableCount = boolCount(teamRecords, (row) => hasAny(row, ["probablePitcherId", "probablePitcherName", "starterPitcherId", "starterPitcherName"]));
+  const runtimeProbableCount = boolCount(lineupSnapshots, (row) => lineupHasPitchingFallback(row, pitcherTeams));
+  const rawBullpenCount = boolCount(teamRecords, (row) => hasAny(row, ["bullpenInningsLast3", "bullpenPitchesLast3", "highLeveragePitchesLast3", "closerAvailable"]));
+  const runtimeBullpenCount = boolCount(lineupSnapshots, (row) => lineupHasBullpenFallback(row, pitcherTeams));
 
   const metrics = [
     metric("mlb_roster_identity", "Roster players with external IDs", boolCount(players, (player) => Object.keys(asRecord(player.externalIds)).length > 0), playerTotal),
@@ -187,19 +312,24 @@ async function buildMlbLane(): Promise<TendencyCoverageLane> {
     metric("mlb_statcast_profiles", "Player rows with Statcast profiles", boolCount(statRecords, (row) => Object.keys(asRecord(row.statcast)).length > 0), statTotal),
     metric("mlb_xwoba", "Player rows with xwOBA", boolCount(statRecords, (row) => hasNested(row, ["statcast", "xwoba"])), statTotal),
     metric("mlb_hard_hit", "Player rows with hard-hit rate", boolCount(statRecords, (row) => hasNested(row, ["statcast", "hardHitRate"])), statTotal),
-    metric("mlb_pitch_mix", "Pitcher rows with pitch mix", boolCount(statRecords, (row) => Object.keys(nestedRecord(row, ["statcast", "pitching", "pitchMix"])).length > 0), statTotal),
-    metric("mlb_pitcher_context", "Player rows with pitcher context", boolCount(statRecords, (row) => hasAny(row, ["pitcherOuts", "outsPitched", "pitchingStrikeouts", "pitchesThrown", "gameScore"])), statTotal),
+    metric("mlb_pitch_mix", "Pitcher rows with pitch/arsenal profile", Math.max(rawPitchMixCount, runtimePitchMixCount), pitcherProfileTotal),
+    metric("mlb_pitcher_context", "Pitcher rows with model context", Math.max(rawPitcherContextCount, runtimePitcherContextCount), pitcherProfileTotal),
     metric("mlb_plate_discipline", "Rows with plate-discipline tendency", boolCount(statRecords, (row) => hasNested(row, ["statcast", "chaseRate"]) || hasNested(row, ["statcast", "contactRate"]) || hasAny(row, ["strikeoutRate", "walkRate"])), statTotal),
-    metric("mlb_probable_pitchers", "Team rows with probable starters", boolCount(teamRecords, (row) => hasAny(row, ["probablePitcherId", "probablePitcherName", "starterPitcherId", "starterPitcherName"])), teamTotal),
-    metric("mlb_bullpen_usage", "Team rows with bullpen usage", boolCount(teamRecords, (row) => hasAny(row, ["bullpenInningsLast3", "bullpenPitchesLast3", "highLeveragePitchesLast3", "closerAvailable"])), teamTotal)
+    metric("mlb_probable_pitchers", "Games/teams with starter context", Math.max(rawProbableCount, runtimeProbableCount), lineupSnapshots.length ? lineupTotal : teamTotal),
+    metric("mlb_bullpen_usage", "Games/teams with bullpen context", Math.max(rawBullpenCount, runtimeBullpenCount), lineupSnapshots.length ? lineupTotal : teamTotal)
   ];
 
   return buildLane("MLB", "MLB roster/player tendencies", metrics, {
     playerCount: players.length,
     playerStatRows: playerStats.length,
+    pitcherStatRows: pitcherStatRecords.length,
     teamStatRows: teamStats.length,
+    pitcherRatingRows: pitcherRatings.length,
+    lineupSnapshotRows: lineupSnapshots.length,
     latestPlayerStatAt: latestIso(playerStats.map((row) => row.updatedAt)),
-    latestTeamStatAt: latestIso(teamStats.map((row) => row.updatedAt))
+    latestTeamStatAt: latestIso(teamStats.map((row) => row.updatedAt)),
+    latestPitcherRatingAt: latestIso(pitcherRatings.map((row) => row.snapshot_at)),
+    latestLineupSnapshotAt: latestIso(lineupSnapshots.map((row) => row.captured_at))
   });
 }
 
