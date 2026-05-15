@@ -1,6 +1,5 @@
-import { CompetitorType, SportCode } from "@prisma/client";
-
 import { prisma } from "@/lib/db/prisma";
+import { buildUfcModelFeaturesFromWarehouse } from "@/services/ufc/fighter-feature-auto-builder";
 
 export type TendencyCoverageStatus = "ELITE" | "USABLE" | "THIN" | "MISSING";
 export type TendencyCoverageSport = "MLB" | "MMA";
@@ -19,6 +18,8 @@ export type TendencyCoverageLane = {
   label: string;
   score: number;
   status: TendencyCoverageStatus;
+  includedInScore: boolean;
+  scoringReason: string;
   metrics: TendencyCoverageMetric[];
   warnings: string[];
   nextActions: string[];
@@ -65,6 +66,46 @@ type MlbLineupSnapshotRow = {
   available_relievers_json: unknown;
   unavailable_relievers_json: unknown;
   captured_at: Date | string | null;
+};
+
+type UfcModelFeatureRow = {
+  fight_id: string;
+  fight_date: Date | string | null;
+  fighter_id: string;
+  opponent_fighter_id: string | null;
+  snapshot_at: Date | string | null;
+  model_version: string;
+  pro_fights: number | null;
+  ufc_fights: number | null;
+  rounds_fought: number | null;
+  sig_strikes_landed_per_min: number | null;
+  sig_strikes_absorbed_per_min: number | null;
+  striking_differential: number | null;
+  takedowns_per_15: number | null;
+  takedown_defense_pct: number | null;
+  submission_attempts_per_15: number | null;
+  control_time_pct: number | null;
+  opponent_adjusted_strength: number | null;
+  cold_start_active: boolean | null;
+  feature_json: unknown;
+  updated_at: Date | string | null;
+};
+
+type UfcFighterRow = {
+  id: string;
+  full_name: string;
+  external_key: string | null;
+  stance: string | null;
+  height_inches: number | null;
+  reach_inches: number | null;
+  combat_base: string | null;
+  payload_json: unknown;
+  updated_at: Date | string | null;
+};
+
+type UfcFightCountRow = {
+  active_fights: number | bigint | string | null;
+  latest_fight_date: Date | string | null;
 };
 
 function asRecord(value: unknown): JsonRecord {
@@ -155,6 +196,29 @@ function jsonArrayLength(value: unknown) {
   return Array.isArray(value) ? value.length : 0;
 }
 
+function toNumber(value: unknown) {
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && Number.isFinite(Number(value))) return Number(value);
+  return 0;
+}
+
+function featureRecord(row: UfcModelFeatureRow) {
+  return asRecord(row.feature_json);
+}
+
+function featureRawPayload(row: UfcModelFeatureRow) {
+  return asRecord(featureRecord(row).rawPayload);
+}
+
+function featureRawStats(row: UfcModelFeatureRow) {
+  return asRecord(featureRawPayload(row).stats);
+}
+
+function fighterPayloadStats(row: UfcFighterRow | undefined) {
+  return asRecord(asRecord(row?.payload_json).stats);
+}
+
 async function safeMlbPitcherRatings() {
   try {
     return await prisma.$queryRaw<MlbPitcherRatingRow[]>`
@@ -182,6 +246,60 @@ async function safeMlbLineupSnapshots() {
     `;
   } catch {
     return [];
+  }
+}
+
+async function safeUfcModelFeatures() {
+  try {
+    return await prisma.$queryRaw<UfcModelFeatureRow[]>`
+      SELECT DISTINCT ON (fight_id, fighter_id, model_version)
+        fight_id, fight_date, fighter_id, opponent_fighter_id, snapshot_at, model_version,
+        pro_fights, ufc_fights, rounds_fought, sig_strikes_landed_per_min, sig_strikes_absorbed_per_min,
+        striking_differential, takedowns_per_15, takedown_defense_pct, submission_attempts_per_15,
+        control_time_pct, opponent_adjusted_strength, cold_start_active, feature_json, updated_at
+      FROM ufc_model_features
+      ORDER BY fight_id, fighter_id, model_version, updated_at DESC
+      LIMIT 5000;
+    `;
+  } catch {
+    return [];
+  }
+}
+
+async function safeUfcFighters() {
+  try {
+    return await prisma.$queryRaw<UfcFighterRow[]>`
+      SELECT id, full_name, external_key, stance, height_inches, reach_inches, combat_base, payload_json, updated_at
+      FROM ufc_fighters
+      ORDER BY updated_at DESC
+      LIMIT 5000;
+    `;
+  } catch {
+    return [];
+  }
+}
+
+async function safeActiveUfcFightSummary() {
+  try {
+    const rows = await prisma.$queryRaw<UfcFightCountRow[]>`
+      SELECT COUNT(*) AS active_fights, MAX(fight_date) AS latest_fight_date
+      FROM ufc_fights
+      WHERE fight_date >= now() - interval '3 days'
+        AND status NOT IN ('CANCELED', 'VOID');
+    `;
+    return { activeFights: toNumber(rows[0]?.active_fights), latestFightDate: latestIso([rows[0]?.latest_fight_date]) };
+  } catch {
+    return { activeFights: 0, latestFightDate: null };
+  }
+}
+
+async function maybeBuildUfcFeatures(activeFights: number, featureRows: number) {
+  if (activeFights <= 0 || featureRows >= activeFights * 2) return { attempted: false, features: featureRows, error: null as string | null };
+  try {
+    const result = await buildUfcModelFeaturesFromWarehouse({ limit: Math.min(200, Math.max(50, activeFights * 2)), modelVersion: "ufc-fight-iq-v1" });
+    return { attempted: true, features: Number(result.features ?? featureRows), error: result.ok ? null : result.error ?? "UFC feature auto-build failed" };
+  } catch (error) {
+    return { attempted: true, features: featureRows, error: error instanceof Error ? error.message : "UFC feature auto-build failed" };
   }
 }
 
@@ -224,7 +342,77 @@ function lineupHasBullpenFallback(row: MlbLineupSnapshotRow, pitcherTeams: Set<s
   return lineupHasBullpen(row) || pitcherTeams.has(row.team);
 }
 
-function buildLane(sport: TendencyCoverageSport, label: string, metrics: TendencyCoverageMetric[], sample: Record<string, string | number | null>): TendencyCoverageLane {
+function ufcHasIdentity(row: UfcModelFeatureRow, fighter: UfcFighterRow | undefined) {
+  return Boolean(row.fighter_id && (fighter?.full_name || featureRecord(row).fighterName));
+}
+
+function ufcHasBio(row: UfcModelFeatureRow, fighter: UfcFighterRow | undefined) {
+  const feature = featureRecord(row);
+  return hasAny(feature, ["age", "heightInches", "reachInches", "stance", "weightClass"])
+    || Boolean(fighter?.height_inches || fighter?.reach_inches || fighter?.stance || fighter?.combat_base);
+}
+
+function ufcHasReachStance(row: UfcModelFeatureRow, fighter: UfcFighterRow | undefined) {
+  const feature = featureRecord(row);
+  return Boolean((feature.reachInches || fighter?.reach_inches) && (feature.stance || fighter?.stance));
+}
+
+function ufcHasHistory(row: UfcModelFeatureRow) {
+  return hasNumber(row.pro_fights) || hasNumber(row.ufc_fights) || hasNumber(row.rounds_fought) || hasAny(featureRawStats(row), ["proFights", "ufcFights", "roundsFought", "record", "recentFights"]);
+}
+
+function ufcHasOpponentStrength(row: UfcModelFeatureRow) {
+  return hasNumber(row.opponent_adjusted_strength) || hasAny(featureRawStats(row), ["opponentStrength", "opponentAdjustedStrength", "strengthOfSchedule"]);
+}
+
+function ufcHasStriking(row: UfcModelFeatureRow, fighter: UfcFighterRow | undefined) {
+  const feature = featureRecord(row);
+  const rawStats = featureRawStats(row);
+  const fighterStats = fighterPayloadStats(fighter);
+  return hasNumber(row.sig_strikes_landed_per_min)
+    || hasNumber(row.sig_strikes_absorbed_per_min)
+    || hasNumber(row.striking_differential)
+    || hasAny(feature, ["sigStrikeAccuracyPct", "sigStrikeDefensePct", "knockdownsPer15"])
+    || hasAny(rawStats, ["slpm", "sapm", "sigStrikesLandedPerMin", "sigStrikesAbsorbedPerMin", "sigStrikeAccuracyPct", "sigStrikeDefensePct", "knockdowns"])
+    || hasAny(fighterStats, ["slpm", "sapm", "sigStrikesLandedPerMin", "sigStrikesAbsorbedPerMin", "sigStrikeAccuracyPct", "sigStrikeDefensePct", "knockdowns"]);
+}
+
+function ufcHasGrappling(row: UfcModelFeatureRow, fighter: UfcFighterRow | undefined) {
+  const feature = featureRecord(row);
+  const rawStats = featureRawStats(row);
+  const fighterStats = fighterPayloadStats(fighter);
+  return hasNumber(row.takedowns_per_15)
+    || hasNumber(row.takedown_defense_pct)
+    || hasNumber(row.submission_attempts_per_15)
+    || hasNumber(row.control_time_pct)
+    || hasAny(feature, ["takedownAccuracyPct"])
+    || hasAny(rawStats, ["tdAvg", "takedownsPer15", "tdDefense", "submissionAverage", "submissionAttemptsPer15", "controlTimePct"])
+    || hasAny(fighterStats, ["tdAvg", "takedownsPer15", "tdDefense", "submissionAverage", "submissionAttemptsPer15", "controlTimePct"]);
+}
+
+function ufcHasFinishProfile(row: UfcModelFeatureRow, fighter: UfcFighterRow | undefined) {
+  const feature = featureRecord(row);
+  const rawStats = featureRawStats(row);
+  const fighterStats = fighterPayloadStats(fighter);
+  return hasAny(feature, ["finishRate", "lateRoundPerformance"])
+    || hasAny(rawStats, ["finishRate", "finish_rate", "koWins", "submissionWins", "decisionRate", "methodSplits"])
+    || hasAny(fighterStats, ["finishRate", "finish_rate", "koWins", "submissionWins", "decisionRate", "methodSplits"]);
+}
+
+function ufcHasLayoff(row: UfcModelFeatureRow) {
+  const feature = featureRecord(row);
+  const raw = featureRawPayload(row);
+  return hasAny(feature, ["daysSinceLastFight", "shortNotice"])
+    || hasAny(raw, ["lastFightDate", "layoffDays", "daysSinceLastFight", "shortNotice", "campChange", "weightMiss"]);
+}
+
+function buildLane(
+  sport: TendencyCoverageSport,
+  label: string,
+  metrics: TendencyCoverageMetric[],
+  sample: Record<string, string | number | null>,
+  options: { includedInScore?: boolean; scoringReason?: string } = {}
+): TendencyCoverageLane {
   const weighted = average(metrics.map((item) => item.pct)) ?? 0;
   const score = Math.round(weighted * 100);
   const status = statusFromScore(score);
@@ -242,7 +430,7 @@ function buildLane(sport: TendencyCoverageSport, label: string, metrics: Tendenc
       }
       if (item.key.includes("striking")) return "Wire UFC striking tendencies: SLpM, SApM, accuracy, defense, knockdowns, distance/clinch/ground split.";
       if (item.key.includes("grappling")) return "Wire UFC grappling tendencies: takedown average, takedown defense, submission rate, control time, reversals, get-up ability.";
-      if (item.key.includes("history")) return "Wire fight history and opponent-strength context: recent form, layoff, level of competition, finish/decision mix, short-notice flags.";
+      if (item.key.includes("history") || item.key.includes("opponent")) return "Wire fight history and opponent-strength context: recent form, layoff, level of competition, finish/decision mix, short-notice flags.";
       return "Improve MMA fighter profile identity, bio, and style/tendency coverage before official fight confidence.";
     });
   return {
@@ -250,6 +438,8 @@ function buildLane(sport: TendencyCoverageSport, label: string, metrics: Tendenc
     label,
     score,
     status,
+    includedInScore: options.includedInScore ?? true,
+    scoringReason: options.scoringReason ?? "Active modeled lane.",
     metrics,
     warnings: Array.from(new Set(warnings)).slice(0, 10),
     nextActions: Array.from(new Set(nextActions)).slice(0, 8),
@@ -260,7 +450,7 @@ function buildLane(sport: TendencyCoverageSport, label: string, metrics: Tendenc
 async function buildMlbLane(): Promise<TendencyCoverageLane> {
   const league = await prisma.league.findUnique({ where: { key: "MLB" } });
   if (!league) {
-    return buildLane("MLB", "MLB roster/player tendencies", [], { playerCount: 0, latestPlayerStatAt: null });
+    return buildLane("MLB", "MLB roster/player tendencies", [], { playerCount: 0, latestPlayerStatAt: null }, { includedInScore: false, scoringReason: "MLB league row is missing." });
   }
 
   const [players, playerStats, teamStats, pitcherRatings, lineupSnapshots] = await Promise.all([
@@ -330,43 +520,62 @@ async function buildMlbLane(): Promise<TendencyCoverageLane> {
     latestTeamStatAt: latestIso(teamStats.map((row) => row.updatedAt)),
     latestPitcherRatingAt: latestIso(pitcherRatings.map((row) => row.snapshot_at)),
     latestLineupSnapshotAt: latestIso(lineupSnapshots.map((row) => row.captured_at))
-  });
+  }, { includedInScore: true, scoringReason: "MLB is an active SimHub product lane." });
 }
 
 async function buildMmaLane(): Promise<TendencyCoverageLane> {
-  const fighters = await prisma.competitor.findMany({
-    where: { sport: { code: SportCode.MMA }, type: CompetitorType.FIGHTER },
-    select: { id: true, name: true, externalIds: true, metadataJson: true, updatedAt: true },
-    take: 2500
-  });
+  const active = await safeActiveUfcFightSummary();
+  let [fighters, features] = await Promise.all([safeUfcFighters(), safeUfcModelFeatures()]);
+  const autoBuild = await maybeBuildUfcFeatures(active.activeFights, features.length);
+  if (autoBuild.attempted && autoBuild.features !== features.length) {
+    features = await safeUfcModelFeatures();
+    fighters = await safeUfcFighters();
+  }
 
-  const total = Math.max(1, fighters.length);
-  const records = fighters.map((fighter) => asRecord(fighter.metadataJson));
+  const includedInScore = active.activeFights > 0 || features.length > 0;
+  const fighterMap = new Map(fighters.map((fighter) => [fighter.id, fighter]));
+  const total = Math.max(1, features.length || fighters.length || active.activeFights * 2);
+  const featureRows = features.length;
   const metrics = [
-    metric("mma_fighter_identity", "Fighters with external IDs", boolCount(fighters, (fighter) => Object.keys(asRecord(fighter.externalIds)).length > 0), total),
-    metric("mma_bio_profiles", "Fighters with bio profile", boolCount(records, (row) => recordHasKeys(row, ["age", "height", "reach", "stance", "weightClass", "camp"])), total),
-    metric("mma_reach_stance", "Fighters with reach/stance", boolCount(records, (row) => hasAny(row, ["reach", "reachInches"]) && hasAny(row, ["stance", "fightingStance"])), total),
-    metric("mma_fight_history", "Fighters with fight history", boolCount(records, (row) => recordHasKeys(row, ["record", "wins", "losses", "recentFights", "opponents", "fightHistory"])), total),
-    metric("mma_opponent_strength", "Fighters with opponent-strength context", boolCount(records, (row) => recordHasKeys(row, ["opponentStrength", "strengthOfSchedule", "qualityWins", "rankedWins"])), total),
-    metric("mma_striking_tendencies", "Fighters with striking tendencies", boolCount(records, (row) => recordHasKeys(row, ["slpm", "sigStrikesLandedPerMinute", "sapm", "sigStrikeAccuracy", "sigStrikeDefense", "knockdowns"])), total),
-    metric("mma_grappling_tendencies", "Fighters with grappling tendencies", boolCount(records, (row) => recordHasKeys(row, ["tdAvg", "takedownAverage", "tdDefense", "submissionAverage", "controlTime", "reversals"])), total),
-    metric("mma_finish_profile", "Fighters with finish/decision profile", boolCount(records, (row) => recordHasKeys(row, ["finishRate", "koWins", "submissionWins", "decisionRate", "methodSplits"])), total),
-    metric("mma_layoff_short_notice", "Fighters with layoff/short-notice flags", boolCount(records, (row) => recordHasKeys(row, ["lastFightDate", "layoffDays", "shortNotice", "campChange", "weightMiss"])), total)
+    metric("mma_fighter_identity", "Fighters with model identity", boolCount(features, (row) => ufcHasIdentity(row, fighterMap.get(row.fighter_id))), total),
+    metric("mma_bio_profiles", "Fighters with bio profile", boolCount(features, (row) => ufcHasBio(row, fighterMap.get(row.fighter_id))), total),
+    metric("mma_reach_stance", "Fighters with reach/stance", boolCount(features, (row) => ufcHasReachStance(row, fighterMap.get(row.fighter_id))), total),
+    metric("mma_fight_history", "Fighters with fight history", boolCount(features, ufcHasHistory), total),
+    metric("mma_opponent_strength", "Fighters with opponent-strength context", boolCount(features, ufcHasOpponentStrength), total),
+    metric("mma_striking_tendencies", "Fighters with striking tendencies", boolCount(features, (row) => ufcHasStriking(row, fighterMap.get(row.fighter_id))), total),
+    metric("mma_grappling_tendencies", "Fighters with grappling tendencies", boolCount(features, (row) => ufcHasGrappling(row, fighterMap.get(row.fighter_id))), total),
+    metric("mma_finish_profile", "Fighters with finish/decision profile", boolCount(features, (row) => ufcHasFinishProfile(row, fighterMap.get(row.fighter_id))), total),
+    metric("mma_layoff_short_notice", "Fighters with layoff/short-notice flags", boolCount(features, ufcHasLayoff), total)
   ];
 
   return buildLane("MMA", "MMA fighter profiles/tendencies", metrics, {
+    activeFights: active.activeFights,
     fighterCount: fighters.length,
-    latestFighterUpdatedAt: latestIso(fighters.map((fighter) => fighter.updatedAt))
+    featureRows,
+    autoBuildAttempted: autoBuild.attempted ? 1 : 0,
+    autoBuildFeatures: autoBuild.features,
+    autoBuildError: autoBuild.error,
+    latestFightDate: active.latestFightDate,
+    latestFeatureUpdatedAt: latestIso(features.map((row) => row.updated_at)),
+    latestFighterUpdatedAt: latestIso(fighters.map((fighter) => fighter.updated_at))
+  }, {
+    includedInScore,
+    scoringReason: includedInScore
+      ? "MMA has active UFC warehouse/model feature rows and is counted in product readiness."
+      : "MMA is not counted until UFC warehouse/model feature rows are loaded for active fight cards."
   });
 }
 
 export async function getPlayerTendencyCoverageReport(): Promise<PlayerTendencyCoverageReport> {
   const [mlbLane, mmaLane] = await Promise.all([buildMlbLane(), buildMmaLane()]);
   const lanes = [mlbLane, mmaLane];
-  const score = Math.round(average(lanes.map((lane) => lane.score)) ?? 0);
+  const scoredLanes = lanes.filter((lane) => lane.includedInScore);
+  const score = Math.round(average(scoredLanes.map((lane) => lane.score)) ?? 0);
   const status = statusFromScore(score);
-  const blockers = lanes.flatMap((lane) => lane.status === "MISSING" ? [`${lane.sport}: ${lane.label} is missing.`] : []);
-  const nextActions = lanes.flatMap((lane) => lane.nextActions).slice(0, 12);
+  const blockers = scoredLanes.flatMap((lane) => lane.status === "MISSING" ? [`${lane.sport}: ${lane.label} is missing.`] : []);
+  const nextActions = lanes
+    .flatMap((lane) => lane.includedInScore || lane.sport === "MLB" ? lane.nextActions : ["Load UFC warehouse fighters/fights and run /api/sim/ufc/features/auto-build before counting MMA fighter tendency readiness."])
+    .slice(0, 12);
 
   return {
     generatedAt: new Date().toISOString(),
