@@ -11,6 +11,16 @@ function pctRaw(value: number | null | undefined) {
   return `${Math.round(value)}%`;
 }
 
+function odds(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return value > 0 ? `+${Math.round(value)}` : String(Math.round(value));
+}
+
+function edgePct(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
 function pill(tone: "aqua" | "green" | "amber" | "red" | "slate" = "slate") {
   const tones = {
     aqua: "border-aqua/25 bg-aqua/10 text-aqua",
@@ -29,6 +39,51 @@ function SimMetric({ label, value, sub }: { label: string; value: string | numbe
       <div className="mt-1 font-display text-2xl font-black tracking-[-0.04em] text-white">{value}</div>
       {sub ? <div className="mt-1 text-[11px] leading-4 text-slate-500">{sub}</div> : null}
     </div>
+  );
+}
+
+function FightPathSnapshot({ fight }: { fight: UfcFightIqDetail }) {
+  const prediction = fight.prediction;
+  const pending = !prediction?.hasPrediction;
+  const pickName = pending ? "Sim pending" : prediction?.pickName ?? "Pending";
+  const fair = odds(prediction?.fairOddsAmerican);
+  const book = odds(prediction?.sportsbookOddsAmerican);
+  const edge = edgePct(prediction?.edgePct);
+  const methodRows = [
+    ["KO/TKO", fight.methodProbabilities?.KO_TKO],
+    ["Submission", fight.methodProbabilities?.SUBMISSION],
+    ["Decision", fight.methodProbabilities?.DECISION]
+  ] as const;
+  const topMethod = methodRows
+    .filter((entry): entry is readonly [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]))
+    .sort((a, b) => b[1] - a[1])[0] ?? null;
+  const marketReady = typeof prediction?.sportsbookOddsAmerican === "number";
+
+  return (
+    <section className="rounded-[1.2rem] border border-aqua/15 bg-[radial-gradient(circle_at_top_left,rgba(0,210,255,0.11),transparent_14rem),rgba(255,255,255,0.035)] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">Decision snapshot</div>
+          <h3 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">{pickName}</h3>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-400">
+            {pending
+              ? "This fight is loaded but still needs model output. Feature hydration and SharkSim must complete before edge or method paths are trusted."
+              : fight.pathSummary[0] ?? "Model output is available, but no stored path summary was returned for this fight."}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span className={pill(pending ? "amber" : "aqua")}>{pending ? "pending" : "sim ready"}</span>
+          <span className={pill(marketReady ? "green" : "slate")}>{marketReady ? "market joined" : "no book line"}</span>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <SimMetric label="Pick" value={pickName} sub={prediction ? `${pct(prediction.fighterAWinProbability)} / ${pct(prediction.fighterBWinProbability)}` : "no prediction"} />
+        <SimMetric label="Market edge" value={edge} sub={`fair ${fair} · book ${book}`} />
+        <SimMetric label="Likely path" value={topMethod?.[0] ?? "--"} sub={topMethod ? pct(topMethod[1]) : "method pending"} />
+        <SimMetric label="Data / confidence" value={fight.dataQualityGrade ?? "--"} sub={fight.confidenceGrade ?? "confidence pending"} />
+      </div>
+    </section>
   );
 }
 
@@ -68,18 +123,21 @@ export function SharkFightDetailRibbon({ fight }: { fight: UfcFightIqDetail | nu
   const skillWeight = fight.activeEnsembleWeights?.weights?.skillMarkov;
   const exchangeWeight = fight.activeEnsembleWeights?.weights?.exchangeMonteCarlo;
   return (
-    <section className="rounded-[1.2rem] border border-white/10 bg-white/[0.04] p-3">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className={pill(surface.engineAgreement === "agreement" ? "green" : surface.engineAgreement === "disagreement" ? "amber" : "slate")}>engine {surface.engineAgreement}</span>
-        <span className={pill(surface.dataCompletenessPct >= 80 ? "green" : surface.dataCompletenessPct >= 60 ? "amber" : "red")}>{pctRaw(surface.dataCompletenessPct)} data complete</span>
-        <span className={pill("aqua")}>weights: {source}</span>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <SimMetric label="Pick probability" value={pct(surface.pickProbability)} sub={surface.pickSide ? `fighter ${surface.pickSide}` : "pending pick"} />
-        <SimMetric label="Method lane" value={surface.methodLean ?? "--"} sub={pct(surface.methodLeanProbability)} />
-        <SimMetric label="Top round lane" value={surface.topRoundOutcome ?? "--"} sub={pct(surface.topRoundProbability)} />
-        <SimMetric label="Weight split" value={`${pct(skillWeight)} / ${pct(exchangeWeight)}`} sub="Markov / Exchange Monte Carlo" />
-      </div>
-    </section>
+    <div className="grid gap-3">
+      <FightPathSnapshot fight={fight} />
+      <section className="rounded-[1.2rem] border border-white/10 bg-white/[0.04] p-3">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className={pill(surface.engineAgreement === "agreement" ? "green" : surface.engineAgreement === "disagreement" ? "amber" : "slate")}>engine {surface.engineAgreement}</span>
+          <span className={pill(surface.dataCompletenessPct >= 80 ? "green" : surface.dataCompletenessPct >= 60 ? "amber" : "red")}>{pctRaw(surface.dataCompletenessPct)} data complete</span>
+          <span className={pill("aqua")}>weights: {source}</span>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <SimMetric label="Pick probability" value={pct(surface.pickProbability)} sub={surface.pickSide ? `fighter ${surface.pickSide}` : "pending pick"} />
+          <SimMetric label="Method lane" value={surface.methodLean ?? "--"} sub={pct(surface.methodLeanProbability)} />
+          <SimMetric label="Top round lane" value={surface.topRoundOutcome ?? "--"} sub={pct(surface.topRoundProbability)} />
+          <SimMetric label="Weight split" value={`${pct(skillWeight)} / ${pct(exchangeWeight)}`} sub="Markov / Exchange Monte Carlo" />
+        </div>
+      </section>
+    </div>
   );
 }
