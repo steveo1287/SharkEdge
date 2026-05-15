@@ -1,4 +1,5 @@
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
+import { getProfileFeatureSignalReport, type MlbProfileFeatureSignal } from "@/services/simulation/profile-feature-signals";
 import { ensureMlbRosterIntelligenceTables } from "@/services/simulation/mlb-roster-intelligence";
 import {
   DEFAULT_MLB_V8_PLAYER_IMPACT_PROFILE,
@@ -79,10 +80,12 @@ export type MlbV8PlayerImpactResult = {
   modelVersion: "mlb-intel-v8-player-impact";
   applied: boolean;
   confidence: number;
+  confidenceBeforeProfileCap: number;
   profileStatus: MlbV8PlayerImpactProfile["status"];
   profileSampleSize: number;
   profileTrainedAt: string | null;
   profileMetrics: Record<string, unknown>;
+  profileFeatureSignal: MlbProfileFeatureSignal | null;
   awayRunsBase: number;
   homeRunsBase: number;
   awayRunsAdjusted: number;
@@ -332,8 +335,10 @@ export function calculateMlbV8PlayerImpact(args: {
   projection: ProjectionLike;
   context: MlbV8PlayerImpactContext;
   profile?: MlbV8PlayerImpactProfile;
+  profileFeatureSignal?: MlbProfileFeatureSignal | null;
 }): MlbV8PlayerImpactResult {
   const profile = args.profile ?? DEFAULT_MLB_V8_PLAYER_IMPACT_PROFILE;
+  const profileFeatureSignal = args.profileFeatureSignal ?? null;
   const weights = profile.weights;
   const baseAway = safeNumber(args.projection.distribution.avgAway, 4.3);
   const baseHome = safeNumber(args.projection.distribution.avgHome, 4.5);
@@ -344,10 +349,12 @@ export function calculateMlbV8PlayerImpact(args: {
       modelVersion: "mlb-intel-v8-player-impact",
       applied: false,
       confidence: 0,
+      confidenceBeforeProfileCap: 0,
       profileStatus: profile.status,
       profileSampleSize: profile.sampleSize,
       profileTrainedAt: profile.trainedAt,
       profileMetrics: profile.metrics,
+      profileFeatureSignal,
       awayRunsBase: round(baseAway, 2),
       homeRunsBase: round(baseHome, 2),
       awayRunsAdjusted: round(baseAway, 2),
@@ -380,17 +387,20 @@ export function calculateMlbV8PlayerImpact(args: {
   const adjustedAwayRuns = clamp(baseAway + awayDelta, 1.5, 9.5);
   const adjustedHomeRuns = clamp(baseHome + homeDelta, 1.5, 9.5);
   const dataPieces = [args.context.away.hitters.length >= 9, args.context.home.hitters.length >= 9, Boolean(awayStarter), Boolean(homeStarter), Boolean(args.context.away.lineup), Boolean(args.context.home.lineup)].filter(Boolean).length;
-  const confidence = clamp(dataPieces / 6, 0.2, 0.85);
+  const confidenceBeforeProfileCap = clamp(dataPieces / 6, 0.2, 0.85);
+  const confidence = clamp(Math.min(confidenceBeforeProfileCap, profileFeatureSignal?.confidenceCap ?? 0.85), 0.2, 0.85);
   const adjustedHomeWinPct = blendProbability(rawHomeWinPct, adjustedAwayRuns, adjustedHomeRuns, confidence, weights);
 
   return {
     modelVersion: "mlb-intel-v8-player-impact",
     applied: true,
     confidence: round(confidence, 3),
+    confidenceBeforeProfileCap: round(confidenceBeforeProfileCap, 3),
     profileStatus: profile.status,
     profileSampleSize: profile.sampleSize,
     profileTrainedAt: profile.trainedAt,
     profileMetrics: profile.metrics,
+    profileFeatureSignal,
     awayRunsBase: round(baseAway, 2),
     homeRunsBase: round(baseHome, 2),
     awayRunsAdjusted: round(adjustedAwayRuns, 2),
@@ -407,7 +417,8 @@ export function calculateMlbV8PlayerImpact(args: {
     awayRunDelta: round(awayDelta, 3),
     homeRunDelta: round(homeDelta, 3),
     reasons: [
-      `MLB v8 player-impact applied with ${(confidence * 100).toFixed(1)}% data confidence using ${profile.status} profile (${profile.sampleSize} samples).`,
+      `MLB v8 player-impact applied with ${(confidence * 100).toFixed(1)}% capped data confidence using ${profile.status} profile (${profile.sampleSize} samples).`,
+      profileFeatureSignal ? `Profile feature signal ${profileFeatureSignal.status} (${profileFeatureSignal.score}/100) capped confidence at ${(profileFeatureSignal.confidenceCap * 100).toFixed(1)}%.` : "Profile feature signal unavailable; default confidence cap used.",
       `Away offense ${awayOffense.toFixed(1)} vs home starter ${homeStarterScore.toFixed(1)} and bullpen ${homePen.toFixed(1)} moved away runs ${awayDelta >= 0 ? "+" : ""}${awayDelta.toFixed(2)}.`,
       `Home offense ${homeOffense.toFixed(1)} vs away starter ${awayStarterScore.toFixed(1)} and bullpen ${awayPen.toFixed(1)} moved home runs ${homeDelta >= 0 ? "+" : ""}${homeDelta.toFixed(2)}.`,
       `Run-derived probability was blended with raw home probability ${rawHomeWinPct.toFixed(3)} to produce ${adjustedHomeWinPct.toFixed(3)} before v7 market calibration.`
@@ -451,10 +462,11 @@ export async function applyMlbV8PlayerImpactModel<TProjection extends Projection
   homeTeam: string;
   projection: TProjection;
 }) {
-  const [context, profile] = await Promise.all([
+  const [context, profile, featureSignalReport] = await Promise.all([
     buildMlbV8PlayerImpactContext({ gameId: args.gameId, awayTeam: args.awayTeam, homeTeam: args.homeTeam }),
-    getActiveMlbV8PlayerImpactProfile()
+    getActiveMlbV8PlayerImpactProfile(),
+    getProfileFeatureSignalReport().catch(() => null)
   ]);
-  const impact = calculateMlbV8PlayerImpact({ projection: args.projection, context, profile });
+  const impact = calculateMlbV8PlayerImpact({ projection: args.projection, context, profile, profileFeatureSignal: featureSignalReport?.mlb ?? null });
   return applyMlbV8PlayerImpactToProjection(args.projection, impact);
 }
