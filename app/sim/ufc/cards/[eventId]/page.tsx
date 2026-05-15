@@ -1,24 +1,54 @@
-import { redirect } from "next/navigation";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+
+import { SharkFightCardCockpit, SharkFightDetailRibbon } from "@/components/ufc/sharkfight-sim-surface";
+import { SharkFightsHeader, UfcFightIqPanel, UfcFightList } from "@/components/ufc/sharkfights-ufc";
+import { UfcSourceAuditPanel } from "@/components/ufc/source-audit-panel";
+import { UfcSourceConsensusPanel } from "@/components/ufc/source-consensus-panel";
+import { getUfcCardDetail, getUfcFightIqDetail } from "@/services/ufc/card-feed";
+import { getUfcSourceAuditForEvent } from "@/services/ufc/source-audit";
+import { buildUfcCardSourceConsensus } from "@/services/ufc/source-consensus";
+
+export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ eventId: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export const dynamic = "force-dynamic";
-
-function toQueryString(params: Record<string, string | string[] | undefined>) {
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (typeof value === "string") search.set(key, value);
-    else if (Array.isArray(value)) value.forEach((entry) => search.append(key, entry));
-  }
-  const query = search.toString();
-  return query ? `?${query}` : "";
-}
-
-export default async function UfcFightLabCardAlias({ params, searchParams }: PageProps) {
+export default async function UfcFightLabCardPage({ params, searchParams }: PageProps) {
   const { eventId } = await params;
-  const query = toQueryString((await searchParams) ?? {});
-  redirect(`/sharkfights/ufc/cards/${encodeURIComponent(eventId)}${query}`);
+  const query = (await searchParams) ?? {};
+  const fightId = typeof query.fightId === "string" ? query.fightId : null;
+  const [card, audit] = await Promise.all([getUfcCardDetail(eventId), getUfcSourceAuditForEvent(eventId)]);
+  if (!card) notFound();
+  const consensus = buildUfcCardSourceConsensus(audit);
+  const selectedFightId = fightId ?? card.fights[0]?.fightId ?? null;
+  const selectedFight = selectedFightId ? await getUfcFightIqDetail(selectedFightId) : null;
+
+  return (
+    <main className="min-h-screen bg-[#02060b] px-3 py-4 text-white sm:px-5">
+      <div className="mx-auto grid max-w-7xl gap-4">
+        <SharkFightsHeader title={card.eventLabel} subtitle="UFC Fight Lab card detail: fight-by-fight SharkSim picks, cached ensemble output, source confidence, matchup consensus, method lanes, and danger flags." />
+        <div className="flex flex-wrap gap-2">
+          <Link href="/sim/ufc" className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-300">Back to UFC Lab</Link>
+          <Link href="/sim" className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-300">Sim hub</Link>
+          <span className="rounded-full border border-aqua/25 bg-aqua/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-aqua">{card.fightCount} fights</span>
+          <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-300">{card.simulatedFightCount} simulated</span>
+          <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-300">{audit.sourceNames.length} providers</span>
+          <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-amber-200">consensus {consensus.overallGrade}</span>
+        </div>
+        <SharkFightCardCockpit card={card} />
+        <UfcSourceConsensusPanel consensus={consensus} />
+        <UfcSourceAuditPanel audit={audit} />
+        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_430px]">
+          <div className="grid gap-3">
+            <SharkFightDetailRibbon fight={selectedFight} />
+            <UfcFightList card={card} selectedFightId={selectedFightId} />
+          </div>
+          <UfcFightIqPanel fight={selectedFight} />
+        </section>
+      </div>
+    </main>
+  );
 }
