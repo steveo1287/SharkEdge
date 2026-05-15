@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { gradeMmaLedgerVerdict, type OfficialVerdict } from "@/services/decision/official-verdict";
+import { getDataControlTowerReport, type DataTowerStatus } from "@/services/ops/data-control-tower";
 import { getSimModelScorecard } from "@/services/sim/mlb-moneyline-scorecard";
 import { getUfcSettledLedger, type UfcSettledLedgerRow } from "@/services/ufc/settled-ledger";
 
@@ -47,6 +48,7 @@ type OfficialResultRow = {
   marketProbability: number | null;
   oddsLabel: string;
   reason: string;
+  dataLocked?: boolean;
 };
 
 type VerdictStats = {
@@ -221,6 +223,20 @@ function normalizeMma(row: UfcSettledLedgerRow): OfficialResultRow {
   };
 }
 
+function applyDataTowerLock(rows: OfficialResultRow[], officialPromotionAllowed: boolean, blockers: string[]) {
+  if (officialPromotionAllowed) return rows;
+  const reason = blockers[0] ? `Data Control Tower blocked official promotion: ${blockers[0]}` : "Data Control Tower blocked official promotion.";
+  return rows.map((row) => {
+    if (row.verdict !== "PLAY") return row;
+    return {
+      ...row,
+      verdict: "PASS" as OfficialVerdict,
+      reason,
+      dataLocked: true
+    };
+  });
+}
+
 function buildStats(rows: OfficialResultRow[], verdict: OfficialVerdict): VerdictStats {
   const verdictRows = rows.filter((row) => row.verdict === verdict);
   const settled = verdictRows.filter((row) => row.settled && row.won != null);
@@ -250,6 +266,13 @@ function pill(tone: "cyan" | "green" | "amber" | "red" | "slate" = "slate") {
     slate: "border-white/10 bg-white/[0.04] text-slate-300"
   };
   return `rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${tones[tone]}`;
+}
+
+function dataTone(status: DataTowerStatus) {
+  if (status === "ELITE") return "green" as const;
+  if (status === "USABLE") return "cyan" as const;
+  if (status === "WEAK") return "amber" as const;
+  return "red" as const;
 }
 
 function verdictTone(verdict: OfficialVerdict) {
@@ -301,7 +324,7 @@ function RecentTable({ rows }: { rows: OfficialResultRow[] }) {
     <details className="rounded-[1.5rem] border border-white/10 bg-slate-950/75 p-4" open>
       <summary className="cursor-pointer list-none">
         <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Recent official-result rows</div>
-        <div className="mt-1 text-xs leading-5 text-slate-400">Latest rows after promotion-gate classification.</div>
+        <div className="mt-1 text-xs leading-5 text-slate-400">Latest rows after promotion-gate and data-tower classification.</div>
       </summary>
       <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10">
         <table className="min-w-full text-left text-xs">
@@ -320,7 +343,7 @@ function RecentTable({ rows }: { rows: OfficialResultRow[] }) {
             {rows.slice(0, 50).map((row) => (
               <tr key={`${row.sport}-${row.id}`} className="border-b border-white/5 last:border-none">
                 <td className="px-3 py-3"><div className="font-semibold text-white">{row.eventLabel}</div><div className="mt-1 text-[10px] text-slate-500">{row.sport} · {when(row.capturedAt)}</div></td>
-                <td className="px-3 py-3"><span className={pill(verdictTone(row.verdict))}>{row.verdict.replaceAll("_", " ")}</span></td>
+                <td className="px-3 py-3"><span className={pill(row.dataLocked ? "red" : verdictTone(row.verdict))}>{row.dataLocked ? "DATA LOCK" : row.verdict.replaceAll("_", " ")}</span></td>
                 <td className="px-3 py-3 text-slate-300">{row.pickLabel}</td>
                 <td className="px-3 py-3 text-right font-mono text-sky-200">{pct(row.probability)}</td>
                 <td className="px-3 py-3 text-right font-mono text-slate-200">{row.oddsLabel}</td>
@@ -337,9 +360,10 @@ function RecentTable({ rows }: { rows: OfficialResultRow[] }) {
 }
 
 export default async function OfficialPlayAccuracyPage() {
-  const [mlbScorecard, mmaLedger] = await Promise.all([
+  const [mlbScorecard, mmaLedger, dataTower] = await Promise.all([
     getSimModelScorecard({ league: "MLB", market: "ALL", modelVersion: "ALL", windowDays: 365 }).catch(() => null),
-    getUfcSettledLedger({ limit: 250 })
+    getUfcSettledLedger({ limit: 250 }),
+    getDataControlTowerReport()
   ]);
 
   const mlbRows = [
@@ -347,7 +371,10 @@ export default async function OfficialPlayAccuracyPage() {
     ...(((mlbScorecard?.recentTotals ?? []) as MlbOfficialRow[]).map(normalizeMlb))
   ];
   const mmaRows = mmaLedger.rows.map(normalizeMma);
-  const rows = [...mlbRows, ...mmaRows];
+  const rawRows = [...mlbRows, ...mmaRows];
+  const rows = applyDataTowerLock(rawRows, dataTower.officialPromotionAllowed, dataTower.blockers);
+  const rawPlayCount = rawRows.filter((row) => row.verdict === "PLAY").length;
+  const dataLockedCount = rows.filter((row) => row.dataLocked).length;
   const stats = VERDICT_ORDER.map((verdict) => buildStats(rows, verdict));
   const playStats = stats.find((item) => item.verdict === "PLAY") ?? buildStats(rows, "PLAY");
   const nonPlayRows = rows.filter((row) => row.verdict !== "PLAY");
@@ -363,10 +390,12 @@ export default async function OfficialPlayAccuracyPage() {
               <div className="text-[10px] font-black uppercase tracking-[0.28em] text-cyan-300/75">Official PLAY accuracy</div>
               <h1 className="mt-2 font-display text-4xl font-black tracking-[-0.07em] text-white sm:text-5xl">Judge the promoted picks separately.</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-                Elite products do not grade every projection as a pick. This page compares official PLAYs against leans, watches, passes, and data-not-ready rows so promotion discipline can be measured directly.
+                Elite products do not grade every projection as a pick. This page now applies the Data Control Tower before official PLAY stats are counted.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Link href="/accuracy/data" className={pill(dataTone(dataTower.status))}>Data {dataTower.status}</Link>
+              <Link href="/accuracy/promotion" className={pill("slate")}>Promotion</Link>
               <Link href="/accuracy" className={pill("cyan")}>Proof center</Link>
               <Link href="/accuracy/verdicts" className={pill("slate")}>Verdicts</Link>
               <Link href="/accuracy/calibration" className={pill("slate")}>Calibration</Link>
@@ -375,12 +404,24 @@ export default async function OfficialPlayAccuracyPage() {
           </div>
         </section>
 
+        <section className={`rounded-[1.35rem] border p-4 ${dataTower.officialPromotionAllowed ? "border-emerald-300/15 bg-emerald-300/[0.05]" : "border-rose-300/15 bg-rose-300/[0.05]"}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300">Data promotion status</div>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                {dataTower.officialPromotionAllowed ? "Data tower allows official PLAY accounting." : "Data tower blocks official PLAY accounting. Raw PLAY rows are counted as data-locked PASS rows until blockers clear."}
+              </p>
+            </div>
+            <Link href="/accuracy/data" className={pill(dataTone(dataTower.status))}>Open data tower</Link>
+          </div>
+        </section>
+
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <Metric label="Official PLAY record" value={`${playStats.wins}-${playStats.losses}`} sub={`${playStats.settled.length} settled PLAY rows`} />
+          <Metric label="Official PLAY record" value={`${playStats.wins}-${playStats.losses}`} sub={`${playStats.settled.length} settled PLAY rows after data lock`} />
           <Metric label="PLAY units" value={units(playStats.units)} sub="1u flat stake where odds exist" />
           <Metric label="PLAY ROI" value={pct(playStats.roi)} sub="official promotion quality" />
-          <Metric label="PLAY Brier" value={num(playStats.avgBrier)} sub="official probability error" />
-          <Metric label="Non-PLAY losses" value={nonPlayLosses} sub="losses the gate did not promote" />
+          <Metric label="Raw PLAYs" value={rawPlayCount} sub="Before Data Control Tower lock" />
+          <Metric label="Data-locked" value={dataLockedCount} sub="Raw PLAYs blocked by global data state" />
         </section>
 
         <section className="grid gap-3 xl:grid-cols-5">
