@@ -20,7 +20,7 @@ const REDIRECTS: [string, string][] = [
   ["/simhub", "/sim"],
   ["/simhub/nba", "/sim/nba"],
   ["/simhub/mlb", "/sim/mlb"],
-  ["/simhub/ufc", "/sharkfights/ufc"],
+  ["/simhub/ufc", "/sim/ufc"],
   ["/simhub/versions", "/sim"],
   ["/simhub/logs", "/sim"]
 ];
