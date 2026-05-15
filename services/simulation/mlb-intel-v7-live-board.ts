@@ -5,6 +5,11 @@ import { buildMlbIntelV7Probability } from "@/services/simulation/mlb-intel-v7-p
 import { applyMlbV8PlayerImpactModel } from "@/services/simulation/mlb-v8-player-impact-model";
 import { ensureMlbRosterIntelligenceTables } from "@/services/simulation/mlb-roster-intelligence";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
+import {
+  readSimCache,
+  SIM_CACHE_KEYS,
+  type SimMarketSnapshot
+} from "@/services/simulation/sim-snapshot-service";
 
 type SimGame = {
   id: string;
@@ -40,6 +45,8 @@ type RuntimeMlbIntel = {
     homeBattingOrder?: string[] | null;
   } | null;
 };
+
+type CachedMarketEdge = NonNullable<SimMarketSnapshot["edges"]>[number];
 
 type RoleSummaryRow = {
   role_tier: string;
@@ -140,6 +147,19 @@ function mapLineup(row: LineupRow | null) {
   };
 }
 
+function marketFromCachedEdge(edge: CachedMarketEdge | null | undefined): NonNullable<RuntimeMlbIntel["market"]> | null {
+  const market = edge?.market;
+  if (!market) return null;
+
+  return {
+    source: market.sportsbook ?? edge.sportsbook ?? "sim-market-cache",
+    homeNoVigProbability: market.homeNoVigProbability ?? null,
+    homeOddsAmerican: market.homeMoneyline ?? null,
+    awayOddsAmerican: market.awayMoneyline ?? null,
+    totalLine: market.total ?? null
+  };
+}
+
 async function buildTeamRosterContext(gameId: string, team: string) {
   if (!hasUsableServerDatabaseUrl()) {
     return { available: false, team, hitterRoles: [], pitcherRoles: [], lineup: null, reason: "database unavailable" };
@@ -172,7 +192,7 @@ async function buildTeamRosterContext(gameId: string, team: string) {
   }
 }
 
-async function buildLiveRow(game: SimGame) {
+async function buildLiveRow(game: SimGame, cachedMarketEdge?: CachedMarketEdge | null) {
   const matchup = parseMatchup(game.label);
   const rawProjection = await buildSimProjection(game);
   const projection = await applyMlbV8PlayerImpactModel({
@@ -182,9 +202,13 @@ async function buildLiveRow(game: SimGame) {
     projection: rawProjection
   });
   const mlbIntel = (projection.mlbIntel ?? null) as RuntimeMlbIntel | null;
+  // The v7 board is a request-time status surface, not the market overlay builder.
+  // Prefer the scheduled sim:market snapshot so market coverage stays aligned with /sim.
+  const cachedMarket = marketFromCachedEdge(cachedMarketEdge);
+  const liveMarket = cachedMarket ?? mlbIntel?.market ?? null;
   const v7 = buildMlbIntelV7Probability({
     rawHomeWinPct: projection.distribution.homeWinPct,
-    marketHomeNoVigProbability: mlbIntel?.market?.homeNoVigProbability ?? null,
+    marketHomeNoVigProbability: liveMarket?.homeNoVigProbability ?? null,
     existingConfidence: mlbIntel?.governor?.confidence ?? null,
     existingTier: mlbIntel?.governor?.tier ?? null
   });
@@ -230,11 +254,11 @@ async function buildLiveRow(game: SimGame) {
       ]
     },
     market: {
-      source: mlbIntel?.market?.source ?? null,
+      source: liveMarket?.source ?? null,
       homeNoVigProbability: v7.marketHomeNoVigProbability,
-      homeOddsAmerican: mlbIntel?.market?.homeOddsAmerican ?? null,
-      awayOddsAmerican: mlbIntel?.market?.awayOddsAmerican ?? null,
-      totalLine: mlbIntel?.market?.totalLine ?? null
+      homeOddsAmerican: liveMarket?.homeOddsAmerican ?? null,
+      awayOddsAmerican: liveMarket?.awayOddsAmerican ?? null,
+      totalLine: liveMarket?.totalLine ?? null
     },
     lock: {
       startersConfirmed: mlbIntel?.lock?.startersConfirmed ?? false,
@@ -255,10 +279,12 @@ export async function buildMlbIntelV7LiveBoard(args: { limit?: number } = {}) {
   const limit = Math.max(1, Math.min(60, Math.round(args.limit ?? 30)));
   const warnings: string[] = [];
   const rows = [];
+  const marketSnapshot = await readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market).catch(() => null);
+  const marketByGameId = new Map((marketSnapshot?.edges ?? []).map((edge) => [edge.gameId, edge]));
 
   for (const game of games.slice(0, limit)) {
     try {
-      rows.push(await buildLiveRow(game));
+      rows.push(await buildLiveRow(game, marketByGameId.get(game.id)));
     } catch (error) {
       warnings.push(`${game.label}: ${error instanceof Error ? error.message : "unknown MLB v7 live row error"}`);
     }
