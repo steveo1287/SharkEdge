@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { gradeMmaLedgerVerdict, gradeMlbOfficialVerdict, summarizeVerdicts, type OfficialVerdict } from "@/services/decision/official-verdict";
 import { applyPromotionGateV2, type PromotionGateDecision } from "@/services/decision/promotion-gate";
+import { getDataControlTowerReport } from "@/services/ops/data-control-tower";
 import { buildSimCardViewModels, type SimCardViewModel } from "@/services/simulation/build-sim-card-view-model";
 import { readSimCache, SIM_CACHE_KEYS, type SimMarketSnapshot, type SimPrioritySnapshot } from "@/services/simulation/sim-cache";
 import { getUfcSettledLedger, type UfcSettledLedgerRow } from "@/services/ufc/settled-ledger";
@@ -65,6 +66,13 @@ function verdictTone(verdict: OfficialVerdict) {
   if (verdict === "WATCH") return "amber" as const;
   if (verdict === "PASS") return "red" as const;
   return "slate" as const;
+}
+
+function dataTone(status: string) {
+  if (status === "ELITE") return "green" as const;
+  if (status === "USABLE") return "cyan" as const;
+  if (status === "WEAK") return "amber" as const;
+  return "red" as const;
 }
 
 function mlbPickLabel(model: SimCardViewModel) {
@@ -140,6 +148,25 @@ function mmaGateRow(row: UfcSettledLedgerRow, settledProofSample: number): GateR
   };
 }
 
+function applyDataTowerLock(rows: GateRow[], officialPromotionAllowed: boolean): GateRow[] {
+  if (officialPromotionAllowed) return rows;
+  return rows.map((row) => {
+    if (row.finalVerdict !== "PLAY") return row;
+    return {
+      ...row,
+      finalVerdict: "PASS",
+      gate: {
+        ...row.gate,
+        finalVerdict: "PASS",
+        officialPlayEligible: false,
+        blocked: true,
+        downgraded: true,
+        blockers: Array.from(new Set([...row.gate.blockers, "Data Control Tower blocks official promotion"]))
+      }
+    };
+  });
+}
+
 function Metric({ label, value, sub }: { label: string; value: string | number; sub: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -189,11 +216,12 @@ function counts(rows: GateRow[], verdict: OfficialVerdict, field: "baseVerdict" 
 }
 
 export default async function PromotionGatePage() {
-  const [mlb, mmaLedger] = await Promise.all([readMlbModels(), getUfcSettledLedger({ limit: 150 })]);
+  const [mlb, mmaLedger, dataTower] = await Promise.all([readMlbModels(), getUfcSettledLedger({ limit: 150 }), getDataControlTowerReport()]);
   const mlbRows = mlb.models.map((model) => mlbGateRow(model, mlb.actualOddsCoveragePct));
   const mmaRows = mmaLedger.rows.map((row) => mmaGateRow(row, mmaLedger.settledCount));
-  const rows = [...mlbRows, ...mmaRows];
-  const rawSummary = summarizeVerdicts(rows, (row) => ({ verdict: row.baseVerdict, officialPlayEligible: row.baseVerdict === "PLAY", score: row.gate.gateScore, reasons: [], passReasons: [] }));
+  const rawRows = [...mlbRows, ...mmaRows];
+  const rows = applyDataTowerLock(rawRows, dataTower.officialPromotionAllowed);
+  const rawSummary = summarizeVerdicts(rawRows, (row) => ({ verdict: row.baseVerdict, officialPlayEligible: row.baseVerdict === "PLAY", score: row.gate.gateScore, reasons: [], passReasons: [] }));
   const finalPlayCount = counts(rows, "PLAY", "finalVerdict");
   const downgraded = rows.filter((row) => row.gate.downgraded).length;
   const blocked = rows.filter((row) => row.gate.blocked).length;
@@ -208,11 +236,12 @@ export default async function PromotionGatePage() {
               <div className="text-[10px] font-black uppercase tracking-[0.28em] text-purple-200/75">Promotion Gate v2</div>
               <h1 className="mt-2 font-display text-4xl font-black tracking-[-0.07em] text-white sm:text-5xl">Make PLAY earn promotion.</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-                This layer sits after the verdict engine. Raw PLAYs are downgraded when odds, CLV, sample depth, data quality, confidence, or calibration gates are not strong enough.
+                This layer sits after the verdict engine and the Data Control Tower. Raw PLAYs are downgraded when odds, CLV, sample depth, data quality, confidence, calibration, or global data eligibility are not strong enough.
               </p>
-              <div className="mt-2 text-xs text-slate-500">MLB generated {when(mlb.generatedAt)} · MMA generated {when(mmaLedger.generatedAt)}</div>
+              <div className="mt-2 text-xs text-slate-500">MLB generated {when(mlb.generatedAt)} · MMA generated {when(mmaLedger.generatedAt)} · Data tower generated {when(dataTower.generatedAt)}</div>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Link href="/accuracy/data" className={pill(dataTone(dataTower.status))}>Data {dataTower.status}</Link>
               <Link href="/accuracy/official" className={pill("purple")}>Official</Link>
               <Link href="/accuracy/verdicts" className={pill("cyan")}>Verdicts</Link>
               <Link href="/accuracy/calibration" className={pill("green")}>Calibration</Link>
@@ -221,12 +250,24 @@ export default async function PromotionGatePage() {
           </div>
         </section>
 
+        <section className={`rounded-[1.35rem] border p-4 ${dataTower.officialPromotionAllowed ? "border-emerald-300/15 bg-emerald-300/[0.05]" : "border-rose-300/15 bg-rose-300/[0.05]"}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300">Data promotion status</div>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                {dataTower.officialPromotionAllowed ? "Data tower allows official promotion." : "Data tower blocks official promotion. Raw PLAYs cannot survive until blockers clear."}
+              </p>
+            </div>
+            <Link href="/accuracy/data" className={pill(dataTone(dataTower.status))}>Open data tower</Link>
+          </div>
+        </section>
+
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <Metric label="Raw PLAYs" value={rawSummary.counts.PLAY} sub="Before Promotion Gate v2" />
           <Metric label="Final PLAYs" value={finalPlayCount} sub="After elite restrictions" />
           <Metric label="Downgraded" value={downgraded} sub="Raw verdict changed by gate" />
           <Metric label="Blocked" value={blocked} sub="Hard blocker present" />
-          <Metric label="Total rows" value={rows.length} sub="MLB board + MMA ledger rows" />
+          <Metric label="Data score" value={dataTower.score} sub={`${dataTower.status} tower status`} />
         </section>
 
         <section className="grid gap-3">
