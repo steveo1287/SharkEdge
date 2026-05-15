@@ -9,13 +9,14 @@ const NAV_ITEMS = [
   { href: "/", label: "Home" },
   { href: "/sim-fast", label: "Sims" },
   { href: "/baseball", label: "MLB" },
-  { href: "/sharkfights/ufc", label: "Fights" },
+  { href: "/sim/ufc", label: "Fights" },
   { href: "/accuracy", label: "Accuracy" }
 ] as const;
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
-  if (href === "/sim-fast") return pathname === "/sim" || pathname === "/sim-fast" || (pathname.startsWith("/sim/") && !pathname.startsWith("/sim/accuracy"));
+  if (href === "/sim-fast") return pathname === "/sim" || pathname === "/sim-fast" || (pathname.startsWith("/sim/") && !pathname.startsWith("/sim/accuracy") && !pathname.startsWith("/sim/ufc"));
+  if (href === "/sim/ufc") return pathname.startsWith("/sim/ufc") || pathname.startsWith("/sharkfights/ufc");
   if (href === "/baseball") return pathname === "/baseball" || pathname.startsWith("/sim/mlb");
   if (href === "/accuracy") return pathname.startsWith("/accuracy") || pathname.startsWith("/sim/accuracy");
   return pathname.startsWith(href);
