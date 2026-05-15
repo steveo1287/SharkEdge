@@ -255,6 +255,7 @@ async function fetchFromMlbTrendRows(options: Required<HistoricalTrendSourceOpti
     JOIN mlb_betting_games bg ON bg.game_pk = tr.game_pk
     WHERE bg.game_date >= ${options.start}
       AND bg.game_date <= ${options.end}
+      AND lower(tr.result) IN ('win', 'loss', 'push', 'void')
     ORDER BY bg.game_date DESC, tr.id ASC
     LIMIT ${options.limit}
   `;
