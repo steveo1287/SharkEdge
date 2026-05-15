@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { UfcPipelineStatusPanel } from "@/components/ufc/pipeline-status-panel";
-import { SharkFightsHeader, UfcCardGrid } from "@/components/ufc/sharkfights-ufc";
+import { SharkFightsHeader } from "@/components/ufc/sharkfights-ufc";
 import type { UfcCardSummary } from "@/services/ufc/card-feed";
 import { getUfcCards } from "@/services/ufc/card-feed";
 import { getUfcPipelineStatus } from "@/services/ufc/pipeline-status";
@@ -54,12 +54,31 @@ function toneClasses(tone: ReadinessTone) {
   return "border-white/10 bg-white/[0.04] text-slate-300";
 }
 
+function pill(tone: "aqua" | "green" | "amber" | "slate" = "slate") {
+  const tones = {
+    aqua: "border-aqua/25 bg-aqua/10 text-aqua",
+    green: "border-emerald-300/25 bg-emerald-300/10 text-emerald-200",
+    amber: "border-amber-300/25 bg-amber-300/10 text-amber-200",
+    slate: "border-white/10 bg-white/[0.04] text-slate-300"
+  };
+  return `rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${tones[tone]}`;
+}
+
 function LabMetric({ label, value, sub, tone = "cold" }: { label: string; value: string | number; sub: string; tone?: ReadinessTone }) {
   return (
     <div className={`rounded-[1.2rem] border p-4 ${toneClasses(tone)}`}>
       <div className="text-[9px] font-black uppercase tracking-[0.18em] opacity-70">{label}</div>
       <div className="mt-2 font-display text-3xl font-black tracking-[-0.05em] text-white">{value}</div>
       <div className="mt-1 text-[11px] leading-4 opacity-75">{sub}</div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] px-2 py-2 text-center">
+      <div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">{label}</div>
+      <div className="mt-1 font-display text-lg font-black text-white">{value}</div>
     </div>
   );
 }
@@ -121,6 +140,50 @@ function ProductChecklist() {
   );
 }
 
+function UfcLabCardGrid({ cards }: { cards: UfcCardSummary[] }) {
+  if (!cards.length) {
+    return (
+      <section className="rounded-[1.35rem] border border-white/10 bg-white/[0.045] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">
+        <div className="text-sm leading-6 text-slate-400">
+          No UFC cards yet. Run <span className="font-black text-aqua">npm run worker:ufc:upcoming</span> to ingest upcoming card matchups, then run SharkSim when model features are ready.
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {cards.map((card) => {
+        const complete = card.fightCount > 0 && card.simulatedFightCount >= card.fightCount;
+        const partial = card.simulatedFightCount > 0 && !complete;
+        return (
+          <Link key={card.eventId} href={`/sim/ufc/cards/${card.eventId}`} className="rounded-[1.25rem] border border-white/10 bg-[#06101b]/80 p-4 transition hover:border-aqua/35 hover:bg-aqua/[0.045]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">{dateLabel(card.eventDate)}</div>
+                <div className="mt-1 font-display text-2xl font-black tracking-[-0.04em] text-white">{card.eventLabel}</div>
+              </div>
+              <span className={pill(complete ? "green" : partial ? "amber" : card.providerStatus === "event-linked" ? "aqua" : "slate")}>
+                {complete ? "sim ready" : partial ? "partial" : card.providerStatus}
+              </span>
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+              <MiniStat label="Fights" value={card.fightCount} />
+              <MiniStat label="Sims" value={card.simulatedFightCount} />
+              <MiniStat label="Quality" value={card.dataQualityGrade ?? "Pending"} />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className={pill("slate")}>{card.shadowPendingCount} pending</span>
+              <span className={pill("slate")}>{card.shadowResolvedCount} resolved</span>
+              <span className={pill(partial || complete ? "aqua" : "slate")}>{pct(card.simulatedFightCount, card.fightCount)} coverage</span>
+            </div>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 export default async function UfcFightLabPage() {
   const [cards, status] = await Promise.all([getUfcCards({ includePast: true }), getUfcPipelineStatus()]);
 
@@ -134,7 +197,7 @@ export default async function UfcFightLabPage() {
         <ProductRail cards={cards} />
         <UfcPipelineStatusPanel status={status} />
         <ProductChecklist />
-        <UfcCardGrid cards={cards} />
+        <UfcLabCardGrid cards={cards} />
       </div>
     </main>
   );
