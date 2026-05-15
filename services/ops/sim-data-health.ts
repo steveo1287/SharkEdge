@@ -204,7 +204,7 @@ async function buildDbProbes() {
       category: "MARKET",
       priority: "high",
       maxFreshMinutes: 60,
-      query: () => prisma.$queryRaw<CountLatestRow[]>`SELECT COUNT(*) AS row_count, MAX(captured_at) AS latest_at FROM event_market_snapshots`
+      query: () => prisma.$queryRaw<CountLatestRow[]>`SELECT COUNT(*) AS row_count, MAX("capturedAt") AS latest_at FROM event_market_snapshots`
     }),
     queryProbe({
       key: "player-game-stats",
@@ -212,7 +212,7 @@ async function buildDbProbes() {
       category: "MLB",
       priority: "medium",
       maxFreshMinutes: 720,
-      query: () => prisma.$queryRaw<CountLatestRow[]>`SELECT COUNT(*) AS row_count, MAX(updated_at) AS latest_at FROM player_game_stats`
+      query: () => prisma.$queryRaw<CountLatestRow[]>`SELECT COUNT(*) AS row_count, MAX("updatedAt") AS latest_at FROM player_game_stats`
     }),
     queryProbe({
       key: "team-game-stats",
@@ -220,7 +220,7 @@ async function buildDbProbes() {
       category: "MLB",
       priority: "medium",
       maxFreshMinutes: 720,
-      query: () => prisma.$queryRaw<CountLatestRow[]>`SELECT COUNT(*) AS row_count, MAX(updated_at) AS latest_at FROM team_game_stats`
+      query: () => prisma.$queryRaw<CountLatestRow[]>`SELECT COUNT(*) AS row_count, MAX("updatedAt") AS latest_at FROM team_game_stats`
     })
   ]);
 }
