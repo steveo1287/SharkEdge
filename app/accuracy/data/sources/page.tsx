@@ -1,6 +1,7 @@
 import Link from "next/link";
 
-import { getDataSourceCoverageReport, type DataSourceCoverageGroup, type DataSourceCoverageRow, type SourceCoverageStatus } from "@/services/ops/data-source-coverage";
+import { type DataSourceCoverageGroup, type DataSourceCoverageRow, type SourceCoverageStatus } from "@/services/ops/data-source-coverage";
+import { getEnhancedDataSourceCoverageReport } from "@/services/ops/data-source-coverage-enhanced";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -93,7 +94,7 @@ function CoverageGroup({ group }: { group: DataSourceCoverageGroup }) {
           <div className="text-[10px] font-black uppercase tracking-[0.22em] text-cyan-300/75">{group.sport} pipeline</div>
           <h2 className="mt-1 font-display text-3xl font-black tracking-[-0.06em] text-white">{group.label}</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            This matrix separates live data from configured, missing, stale, fallback, and paid-required inputs so the stats pipeline can be hardened in priority order.
+            This matrix separates live data from configured, missing, stale, fallback, and paid-required inputs. Internal event-market snapshots now count as free odds-history evidence when available.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -117,7 +118,7 @@ function CoverageGroup({ group }: { group: DataSourceCoverageGroup }) {
 }
 
 export default async function DataSourceCoveragePage() {
-  const report = await getDataSourceCoverageReport();
+  const report = await getEnhancedDataSourceCoverageReport();
 
   return (
     <main className="min-h-screen bg-[#02060b] px-3 py-4 text-white sm:px-5">
@@ -128,7 +129,7 @@ export default async function DataSourceCoveragePage() {
               <div className="text-[10px] font-black uppercase tracking-[0.28em] text-cyan-300/75">Stats Pipeline Matrix</div>
               <h1 className="mt-2 font-display text-4xl font-black tracking-[-0.07em] text-white sm:text-5xl">Know every input before trusting the edge.</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-                This is the source-of-truth map for SharkEdge data. It marks every critical MLB, MMA, and odds input as live, configured, missing, stale, fallback, or paid-required.
+                This is the source-of-truth map for SharkEdge data. It now recognizes internal odds snapshots as free archive evidence before requiring paid history.
               </p>
               <div className="mt-2 text-xs text-slate-500">Generated {when(report.generatedAt)}</div>
             </div>
