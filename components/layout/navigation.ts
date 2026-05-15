@@ -19,16 +19,17 @@ export const NAV_ICONS = {
 
 export const MAIN_NAV_ITEMS: NavItem[] = [
   { href: "/", label: "Home", shortLabel: "Home", description: "Daily top plays command center.", icon: NAV_ICONS.home },
-  { href: "/sim-fast", label: "SimHub", shortLabel: "Sims", description: "MLB and UFC simulation engine.", icon: NAV_ICONS.sim, badge: "SIM" },
+  { href: "/sim", label: "SimHub", shortLabel: "Sims", description: "MLB and UFC simulation engine.", icon: NAV_ICONS.sim, badge: "SIM" },
   { href: "/baseball", label: "MLB Lab", shortLabel: "MLB", description: "MLB simulation and calibration workspace.", icon: NAV_ICONS.trends, badge: "MLB" },
-  { href: "/sharkfights/ufc", label: "SharkFights", shortLabel: "Fights", description: "UFC fight prediction workspace.", icon: NAV_ICONS.fights, badge: "UFC" },
+  { href: "/sim/ufc", label: "UFC Lab", shortLabel: "UFC", description: "UFC Fight Lab decision workspace.", icon: NAV_ICONS.fights, badge: "UFC" },
   { href: "/accuracy", label: "Accuracy", shortLabel: "Accuracy", description: "Model credibility and calibration.", icon: NAV_ICONS.accuracy, badge: "GRADE" },
   { href: "/saved", label: "Saved", shortLabel: "Saved", description: "Saved plays, tracked picks, watchlist, and alerts.", icon: NAV_ICONS.saved }
 ];
 
 export function isActivePath(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
-  if (href === "/sim-fast") return pathname === "/sim" || pathname === "/sim-fast" || (pathname.startsWith("/sim/") && !pathname.startsWith("/sim/accuracy"));
+  if (href === "/sim") return pathname === "/sim" || pathname === "/sim-fast" || (pathname.startsWith("/sim/") && !pathname.startsWith("/sim/accuracy"));
+  if (href === "/sim/ufc") return pathname.startsWith("/sim/ufc") || pathname.startsWith("/sharkfights");
   if (href === "/accuracy") return pathname.startsWith("/accuracy") || pathname.startsWith("/sim/accuracy");
   const cleanHref = href.split("?")[0] ?? href;
   return pathname === cleanHref || pathname.startsWith(`${cleanHref}/`);
@@ -37,10 +38,10 @@ export function isActivePath(pathname: string, href: string) {
 export function getRouteMeta(pathname: string) {
   const routes = [
     { match: (v: string) => v === "/", eyebrow: "Command Center", title: "Today", subtitle: "Top plays, biggest edges, and model calls." },
-    { match: (v: string) => v === "/sim" || v === "/sim-fast" || (v.startsWith("/sim/") && !v.startsWith("/sim/accuracy")), eyebrow: "Simulation Engine", title: "SimHub", subtitle: "MLB and UFC simulation output." },
-    { match: (v: string) => v.startsWith("/baseball"), eyebrow: "MLB Simulation", title: "MLB Lab", subtitle: "Baseball projections, calibration, and model proof." },
+    { match: (v: string) => v === "/sim" || v === "/sim-fast", eyebrow: "Simulation Engine", title: "SimHub", subtitle: "MLB and UFC simulation output." },
+    { match: (v: string) => v.startsWith("/baseball") || v.startsWith("/sim/mlb"), eyebrow: "MLB Simulation", title: "MLB Lab", subtitle: "Baseball projections, calibration, and model proof." },
+    { match: (v: string) => v.startsWith("/sim/ufc") || v.startsWith("/sharkfights"), eyebrow: "UFC Simulation", title: "UFC Fight Lab", subtitle: "Fight predictions, method lanes, source audit, and decision readiness." },
     { match: (v: string) => v.startsWith("/trends") || v.startsWith("/sharktrends"), eyebrow: "Research Lab", title: "SharkTrends Paused", subtitle: "Premium trend mining is dormant while the product focuses on simulation." },
-    { match: (v: string) => v.startsWith("/sharkfights"), eyebrow: "SharkFights", title: "SharkFights", subtitle: "UFC fight predictions." },
     { match: (v: string) => v.startsWith("/accuracy") || v.startsWith("/sim/accuracy"), eyebrow: "Model Credibility", title: "Accuracy", subtitle: "Model record and calibration." },
     { match: (v: string) => v.startsWith("/saved"), eyebrow: "Saved", title: "Saved", subtitle: "Saved plays, watchlist, bets, and alerts." }
   ];
