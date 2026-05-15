@@ -31,8 +31,6 @@ on:
       - "scripts/fetch-pbpstats-nba.py"
       - "scripts/enrich-nba-warehouse-with-nba-api.ts"
       - "package.json"
-  schedule:
-    - cron: "17 * * * *"
 
 permissions:
   contents: write

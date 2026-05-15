@@ -16,6 +16,7 @@ env:
   RAILWAY_WEB_SERVICE: ${{ vars.RAILWAY_WEB_SERVICE || 'sharkedge-web' }}
   RAILWAY_WORKER_ODDS_SERVICE: ${{ vars.RAILWAY_WORKER_ODDS_SERVICE || 'odds-worker' }}
   RAILWAY_WORKER_TRENDS_SERVICE: ${{ vars.RAILWAY_WORKER_TRENDS_SERVICE || '' }}
+  ENABLE_TRENDS_WORKER_DEPLOY: ${{ vars.ENABLE_TRENDS_WORKER_DEPLOY || 'false' }}
   RAILWAY_WORKER_ODDSHARVESTER_SERVICE: ${{ vars.RAILWAY_WORKER_ODDSHARVESTER_SERVICE || '' }}
 
 jobs:
@@ -101,8 +102,10 @@ jobs:
           railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_WEB_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
           railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_WORKER_ODDS_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
 
-          if [ -n "${RAILWAY_WORKER_TRENDS_SERVICE:-}" ]; then
+          if [ "${ENABLE_TRENDS_WORKER_DEPLOY:-false}" = "true" ] && [ -n "${RAILWAY_WORKER_TRENDS_SERVICE:-}" ]; then
             railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_WORKER_TRENDS_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
+          else
+            echo "Trends worker deploy skipped. Set ENABLE_TRENDS_WORKER_DEPLOY=true to deploy it."
           fi
 
           if [ -n "${RAILWAY_WORKER_ODDSHARVESTER_SERVICE:-}" ]; then
@@ -187,5 +190,5 @@ jobs:
           echo "Environment: $RAILWAY_ENVIRONMENT"
           echo "Web service: $RAILWAY_WEB_SERVICE"
           echo "Odds worker: $RAILWAY_WORKER_ODDS_SERVICE"
-          echo "Trends worker: ${RAILWAY_WORKER_TRENDS_SERVICE:-<skipped>}"
+          echo "Trends worker: ${RAILWAY_WORKER_TRENDS_SERVICE:-<skipped>} (enabled=${ENABLE_TRENDS_WORKER_DEPLOY:-false})"
           echo "OddsHarvester worker: ${RAILWAY_WORKER_ODDSHARVESTER_SERVICE:-<skipped>}"

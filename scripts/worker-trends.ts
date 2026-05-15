@@ -6,12 +6,23 @@ import { getNumberArg, getStringArg, logStep, parseArgs } from "./_runtime-utils
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const force = getStringArg(args, "force") === "true";
+  const enabled = process.env.SHARKTRENDS_HEAVY_ENABLED === "true" || force;
   const leagues = getStringArg(args, "leagues")
     ?.split(",")
     .map((value) => value.trim().toUpperCase())
     .filter(Boolean) as SupportedLeagueKey[] | undefined;
   const days = getNumberArg(args, "days", 7);
   const skipSimLedger = getStringArg(args, "sim") === "false";
+
+  if (!enabled) {
+    logStep("worker:trends:skipped", {
+      reason: "SharkTrends heavy worker is disabled in simulator-first mode.",
+      enableWith: "SHARKTRENDS_HEAVY_ENABLED=true",
+      forceArg: "--force=true"
+    });
+    return;
+  }
 
   logStep("worker:trends:start", {
     leagues: leagues ?? null,
@@ -28,7 +39,7 @@ async function main() {
     error: error instanceof Error ? error.message : "Sim ledger refresh failed."
   }));
   const warm = await warmTrendDashboardCaches({
-    leagues: ["ALL", "MLB", "NBA", "NHL", "NFL", "NCAAF"],
+    leagues: ["ALL", "MLB"],
     markets: ["ALL", "moneyline", "spread", "total"]
   });
 

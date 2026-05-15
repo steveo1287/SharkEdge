@@ -60,35 +60,15 @@
     },
     {
       "path": "/api/cron/sim-refresh",
-      "schedule": "*/10 * * * *"
+      "schedule": "*/30 13-23 * * *"
     },
     {
       "path": "/api/cron/sim-market-refresh",
-      "schedule": "*/5 * * * *"
+      "schedule": "*/15 13-23 * * *"
     },
     {
       "path": "/api/jobs/precompute-sims",
-      "schedule": "*/10 13-23 * * *"
-    },
-    {
-      "path": "/api/jobs/precompute-sims",
-      "schedule": "*/5 0-6 * * *"
-    },
-    {
-      "path": "/api/trends/systems/capture?inactive=true",
-      "schedule": "*/30 * * * *"
-    },
-    {
-      "path": "/api/trends/systems/closing-lines?limit=500",
-      "schedule": "12,42 * * * *"
-    },
-    {
-      "path": "/api/trends/systems/grade?limit=500",
-      "schedule": "17,47 * * * *"
-    },
-    {
-      "path": "/api/trends/systems/cycle?inactive=true&limit=500",
-      "schedule": "22,52 * * * *"
+      "schedule": "*/30 13-23 * * *"
     },
     {
       "path": "/api/sim/accuracy?action=capture",

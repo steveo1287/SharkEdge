@@ -35,6 +35,8 @@ async function runRefresh(leagues?: SupportedLeagueKey[], days = 365) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const force = getStringArg(args, "force") === "true";
+  const enabled = process.env.SHARKTRENDS_HEAVY_ENABLED === "true" || force;
   const leagues = getStringArg(args, "leagues")
     ?.split(",")
     .map((value) => value.trim().toUpperCase())
@@ -42,6 +44,15 @@ async function main() {
   const days = getNumberArg(args, "days", 365);
   const loop = getBooleanArg(args, "loop");
   const intervalSeconds = getNumberArg(args, "intervalSeconds", 3600);
+
+  if (!enabled) {
+    logStep("worker:historical-refresh:skipped", {
+      reason: "SharkTrends historical refresh is disabled in simulator-first mode.",
+      enableWith: "SHARKTRENDS_HEAVY_ENABLED=true",
+      forceArg: "--force=true"
+    });
+    return;
+  }
 
   do {
     await runRefresh(leagues, days);

@@ -159,6 +159,34 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Unauthorized trends refresh request." }, { status: 401 });
   }
 
+  if (process.env.SHARKTRENDS_HEAVY_ENABLED !== "true") {
+    const generatedAt = new Date().toISOString();
+    const warning = "SharkTrends heavy refresh is paused in simulator-first mode.";
+    await writeTrendRefreshStatus({
+      running: false,
+      queued: false,
+      ok: true,
+      lastStartedAt: null,
+      lastSuccessAt: null,
+      lastFailureAt: null,
+      reason: warning,
+      warnings: [warning],
+      sourceStatus: {
+        phase: "paused",
+        generatedAt,
+        enableWith: "SHARKTRENDS_HEAVY_ENABLED=true"
+      }
+    });
+
+    return NextResponse.json({
+      ok: true,
+      paused: true,
+      generatedAt,
+      warning,
+      next: "Set SHARKTRENDS_HEAVY_ENABLED=true to run trend cache refreshes."
+    });
+  }
+
   const url = new URL(request.url);
   const leagues = parseLeagues(url.searchParams.get("leagues"));
   const days = Number(url.searchParams.get("days") ?? "7");

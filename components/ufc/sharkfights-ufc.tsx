@@ -55,7 +55,7 @@ export function SharkFightsHeader({ title, subtitle }: { title: string; subtitle
       <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">{subtitle}</p>
       <div className="mt-4 flex flex-wrap gap-2">
         <Link href="/sharkfights/ufc" className={pill("aqua")}>UFC Fight IQ</Link>
-        <Link href="/trends?league=UFC" className={pill("slate")}>SharkTrends UFC</Link>
+        <Link href="/accuracy" className={pill("slate")}>Fight Accuracy</Link>
         <Link href="/" className={pill("slate")}>Command Desk</Link>
       </div>
     </header>

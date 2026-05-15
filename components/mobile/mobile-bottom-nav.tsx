@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils/cn";
 const NAV_ITEMS = [
   { href: "/", label: "Home" },
   { href: "/sim-fast", label: "Sims" },
-  { href: "/trends", label: "Trends" },
+  { href: "/baseball", label: "MLB" },
   { href: "/sharkfights/ufc", label: "Fights" },
   { href: "/accuracy", label: "Accuracy" }
 ] as const;
@@ -16,6 +16,7 @@ const NAV_ITEMS = [
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
   if (href === "/sim-fast") return pathname === "/sim" || pathname === "/sim-fast" || (pathname.startsWith("/sim/") && !pathname.startsWith("/sim/accuracy"));
+  if (href === "/baseball") return pathname === "/baseball" || pathname.startsWith("/sim/mlb");
   if (href === "/accuracy") return pathname.startsWith("/accuracy") || pathname.startsWith("/sim/accuracy");
   return pathname.startsWith(href);
 }

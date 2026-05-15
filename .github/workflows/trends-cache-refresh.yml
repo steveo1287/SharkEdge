@@ -6,13 +6,11 @@ on:
       leagues:
         description: "Comma-separated leagues to refresh"
         required: false
-        default: "NBA,MLB,NHL,NFL,NCAAF"
+        default: "MLB"
       days:
         description: "Historical refresh window"
         required: false
         default: "7"
-  schedule:
-    - cron: "*/10 * * * *"
 
 permissions:
   contents: read
@@ -28,7 +26,7 @@ jobs:
     env:
       TRENDS_REFRESH_TOKEN: ${{ secrets.TRENDS_REFRESH_TOKEN }}
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
-      LEAGUES: ${{ github.event.inputs.leagues || 'NBA,MLB,NHL,NFL,NCAAF' }}
+      LEAGUES: ${{ github.event.inputs.leagues || 'MLB' }}
       DAYS: ${{ github.event.inputs.days || '7' }}
     steps:
       - name: Refresh production trend cache

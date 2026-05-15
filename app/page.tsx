@@ -181,7 +181,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       <div className="relative mx-auto grid max-w-7xl gap-5 px-3 pb-24 pt-3 sm:px-5 md:pb-10">
         <header className="rounded-[1.35rem] border border-white/10 bg-[#06101b]/88 p-4 shadow-[0_18px_70px_rgba(0,0,0,0.30)] backdrop-blur-xl">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <Link href="/" className="flex items-center gap-2"><span className="grid size-9 place-items-center rounded-2xl border border-aqua/30 bg-aqua/10 font-display text-lg font-black text-aqua">S</span><span><span className="block text-[10px] font-black uppercase tracking-[0.28em] text-aqua">SharkEdge</span><span className="block text-[11px] text-slate-500">top plays command center</span></span></Link>
+            <Link href="/" className="flex items-center gap-2"><span className="grid size-9 place-items-center rounded-2xl border border-aqua/30 bg-aqua/10 font-display text-lg font-black text-aqua">S</span><span><span className="block text-[10px] font-black uppercase tracking-[0.28em] text-aqua">SharkEdge</span><span className="block text-[11px] text-slate-500">simulation command center</span></span></Link>
             <div className="flex flex-wrap items-center gap-2"><Pill label={home.deskStatusLabel} tone={home.deskStatusState === "HEALTHY" ? "good" : "warn"} /><Link href="/sim" className="rounded-full border border-aqua/25 bg-aqua/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-aqua">SimHub</Link><Link href="/accuracy" className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-slate-300 hover:text-aqua">Accuracy</Link></div>
           </div>
         </header>
@@ -189,12 +189,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_360px]">
           <div className="rounded-[1.75rem] border border-aqua/25 bg-[radial-gradient(circle_at_top_left,rgba(0,210,255,0.20),transparent_18rem),linear-gradient(135deg,rgba(5,18,32,0.98),rgba(2,7,13,0.98))] p-5 shadow-[0_28px_100px_rgba(0,0,0,0.36)]">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div><div className="text-[10px] font-black uppercase tracking-[0.24em] text-aqua">Today’s command center</div><h1 className="mt-3 max-w-3xl font-display text-4xl font-black leading-[0.95] tracking-[-0.06em] text-white sm:text-6xl">Find the best plays. Then prove the model.</h1><p className="mt-4 max-w-3xl text-sm leading-7 text-slate-400">Home now focuses on MLB, NBA, and UFC signals only: top plays, live slate, model explanation routes, trends, fights, accuracy, and saved plays.</p></div>
+              <div><div className="text-[10px] font-black uppercase tracking-[0.24em] text-aqua">Simulator-first command center</div><h1 className="mt-3 max-w-3xl font-display text-4xl font-black leading-[0.95] tracking-[-0.06em] text-white sm:text-6xl">Sim the game. Show the proof. Cut the noise.</h1><p className="mt-4 max-w-3xl text-sm leading-7 text-slate-400">SharkEdge is now focused on MLB simulation, UFC fight modeling, odds-aware calibration, and honest model history. Premium trend mining is paused until we have the right data foundation.</p></div>
               <Pill label={selectedDateLabel} />
             </div>
             <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <QuickAction href="/sim/mlb" label="MLB" title="MLB SimHub" body="Sides, totals, pitcher factors, bullpen fatigue, and market edge." />
-              <QuickAction href="/sim/nba" label="NBA" title="NBA SimHub" body="Player sims, side queue, injuries, usage, pace, and matchup context." />
+              <QuickAction href="/baseball" label="MLB" title="MLB Sim Lab" body="Sides, totals, pitcher factors, bullpen fatigue, and calibration history." />
+              <QuickAction href="/sim/mlb" label="Slate" title="MLB Detail Sims" body="Drill into each matchup with factor stacks, market sanity, and no-bet gates." />
               <QuickAction href="/sharkfights/ufc" label="UFC" title="SharkFights" body="Fight card, path to victory, finish probability, and danger flags." />
               <QuickAction href="/accuracy" label="Proof" title="Sim Accuracy" body="Records, model versions, calibration, and honest empty states." />
             </div>
@@ -217,7 +217,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="grid gap-4"><SectionHeader eyebrow="Live slate" title="Upcoming verified games" href="/sim" /><div className="grid gap-2 md:grid-cols-2">{slate.length ? slate.map((game, index) => <SlateCard key={game.id ?? index} game={game} />) : <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.035] p-6 text-sm leading-6 text-slate-400">No verified slate rows returned for this filter.</div>}</div></div>
-          <aside className="grid gap-3"><SectionHeader eyebrow="Clean routes" title="Where each thing lives" /><QuickAction href="/trends" label="Trends" title="Trends Center" body="Actionable, model-confirmed, market-disagreement, and trap/fade trend groups." /><QuickAction href="/saved" label="Saved" title="Saved Plays" body="Watchlist, tracked bets, and alert preferences collapsed into one lean page." /><QuickAction href="/sim" label="Engine" title="SimHub" body="The old board, props, and edge desks are consolidated into the simulation engine." /></aside>
+          <aside className="grid gap-3"><SectionHeader eyebrow="Clean routes" title="Where each thing lives" /><QuickAction href="/baseball" label="MLB" title="MLB Sim Lab" body="The main baseball product surface: projections, factors, totals, and calibration." /><QuickAction href="/sharkfights/ufc" label="UFC" title="Fight Simulator" body="Low-volume, high-depth fight modeling without hammering the database." /><QuickAction href="/sharktrends" label="Paused" title="SharkTrends Lab" body="Trend mining is preserved for later, but no longer drives the product or background spend." /></aside>
         </section>
 
         <section className="rounded-[1.35rem] border border-white/10 bg-white/[0.035] p-4 text-xs leading-6 text-slate-500"><span className="font-black uppercase tracking-[0.16em] text-slate-300">Data note:</span> {home.deskSourceNote}</section>

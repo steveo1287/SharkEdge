@@ -695,14 +695,14 @@ export default async function SimHubPage() {
       ready: !market?.stale && (market?.lineCount ?? 0) > 0
     },
     {
-      href: "/trends",
-      eyebrow: "MLB Trends",
-      title: "Trends Center",
-      description: "Historical betting rows, closing-line movement, system matches, and trend validation.",
-      count: String(market?.edges.length ?? "-"),
-      statusLabel: "Market-linked systems",
-      action: "Open trends",
-      ready: (market?.edges.length ?? 0) > 0
+      href: "/sharkfights/ufc",
+      eyebrow: "Fight Workspace",
+      title: "UFC Fight Sim",
+      description: "Style, grappling, striking, durability, pace, and context modeling for fight-night simulations.",
+      count: "UFC",
+      statusLabel: "Simulator lane",
+      action: "Open fight sim",
+      ready: true
     },
     {
       href: "/sim/accuracy",
