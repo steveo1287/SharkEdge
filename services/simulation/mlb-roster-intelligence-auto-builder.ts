@@ -10,20 +10,20 @@ import {
 } from "@/services/simulation/mlb-roster-intelligence";
 
 type PlayerStatRow = {
-  player_id: string;
-  player_name: string;
-  team_abbr: string | null;
+  playerId: string;
+  playerName: string;
+  teamAbbr: string | null;
   position: string | null;
   starter: boolean | null;
-  stats_json: unknown;
-  updated_at: Date | string;
+  statsJson: unknown;
+  updatedAt: Date | string;
 };
 
 type TeamStatRow = {
-  game_id: string;
-  team_abbr: string | null;
-  stats_json: unknown;
-  updated_at: Date | string;
+  gameId: string;
+  teamAbbr: string | null;
+  statsJson: unknown;
+  updatedAt: Date | string;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -63,10 +63,6 @@ function inverseScale(value: number | null, min: number, max: number, fallback =
 function avg(values: Array<number | null | undefined>, fallback = 55) {
   const clean = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   return clean.length ? clean.reduce((sum, value) => sum + value, 0) / clean.length : fallback;
-}
-
-function id(prefix: string, value: string) {
-  return `${prefix}_${Buffer.from(value).toString("base64url").slice(0, 32)}`;
 }
 
 function season() {
@@ -130,49 +126,60 @@ function pitcherInput(stats: JsonRecord): MlbPitcherSkillInput {
   };
 }
 
-async function latestPlayerStats(lookbackDays: number, limit: number) {
+async function latestPlayerStats(lookbackDays: number, limit: number): Promise<PlayerStatRow[]> {
   const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
-  return prisma.$queryRaw<PlayerStatRow[]>`
-    SELECT DISTINCT ON (pgs.player_id)
-      pgs.player_id,
-      COALESCE(p.name, pgs.player_id) AS player_name,
-      COALESCE(t.abbr, t.name) AS team_abbr,
-      p.position,
-      pgs.starter,
-      pgs.stats_json,
-      pgs.updated_at
-    FROM player_game_stats pgs
-    JOIN players p ON p.id = pgs.player_id
-    LEFT JOIN teams t ON t.id = pgs.team_id
-    LEFT JOIN leagues l ON l.id = p.league_id
-    WHERE l.key = 'MLB'
-      AND pgs.updated_at >= ${since}
-    ORDER BY pgs.player_id, pgs.updated_at DESC
-    LIMIT ${Math.max(50, Math.min(5000, limit))};
-  `;
+  const rawRows = await prisma.playerGameStat.findMany({
+    where: { updatedAt: { gte: since }, player: { league: { key: "MLB" } } },
+    select: {
+      playerId: true,
+      starter: true,
+      statsJson: true,
+      updatedAt: true,
+      player: { select: { name: true, position: true, team: { select: { abbreviation: true, name: true } } } }
+    },
+    orderBy: { updatedAt: "desc" },
+    take: Math.max(50, Math.min(5000, limit))
+  });
+  const seen = new Set<string>();
+  const rows: PlayerStatRow[] = [];
+  for (const row of rawRows) {
+    if (seen.has(row.playerId)) continue;
+    seen.add(row.playerId);
+    rows.push({
+      playerId: row.playerId,
+      playerName: row.player.name,
+      teamAbbr: row.player.team.abbreviation ?? row.player.team.name,
+      position: row.player.position,
+      starter: row.starter,
+      statsJson: row.statsJson,
+      updatedAt: row.updatedAt
+    });
+  }
+  return rows;
 }
 
-async function latestTeamStats(lookbackDays: number, limit: number) {
+async function latestTeamStats(lookbackDays: number, limit: number): Promise<TeamStatRow[]> {
   const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
-  return prisma.$queryRaw<TeamStatRow[]>`
-    SELECT DISTINCT ON (tgs.game_id, tgs.team_id)
-      tgs.game_id,
-      COALESCE(t.abbr, t.name) AS team_abbr,
-      tgs.stats_json,
-      tgs.updated_at
-    FROM team_game_stats tgs
-    JOIN teams t ON t.id = tgs.team_id
-    JOIN leagues l ON l.id = t.league_id
-    WHERE l.key = 'MLB'
-      AND tgs.updated_at >= ${since}
-    ORDER BY tgs.game_id, tgs.team_id, tgs.updated_at DESC
-    LIMIT ${Math.max(50, Math.min(3000, limit))};
-  `;
+  const rawRows = await prisma.teamGameStat.findMany({
+    where: { updatedAt: { gte: since }, team: { league: { key: "MLB" } } },
+    select: { gameId: true, statsJson: true, updatedAt: true, team: { select: { abbreviation: true, name: true } } },
+    orderBy: { updatedAt: "desc" },
+    take: Math.max(50, Math.min(3000, limit))
+  });
+  const seen = new Set<string>();
+  const rows: TeamStatRow[] = [];
+  for (const row of rawRows) {
+    const key = `${row.gameId}:${row.team.abbreviation ?? row.team.name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({ gameId: row.gameId, teamAbbr: row.team.abbreviation ?? row.team.name, statsJson: row.statsJson, updatedAt: row.updatedAt });
+  }
+  return rows;
 }
 
 async function insertHitter(row: PlayerStatRow, input: MlbHitterSkillInput) {
-  const stats = asRecord(row.stats_json);
-  const team = row.team_abbr ?? "UNKNOWN";
+  const stats = asRecord(row.statsJson);
+  const team = row.teamAbbr ?? "UNKNOWN";
   const overall = calculateMlbHitterOverall(input);
   const roleTier = classifyMlbHitterRole(overall);
   await prisma.$executeRaw`
@@ -181,17 +188,17 @@ async function insertHitter(row: PlayerStatRow, input: MlbHitterSkillInput) {
       contact, power, discipline, vs_lhp, vs_rhp, baserunning, fielding, current_form, overall,
       metrics_json, source, snapshot_at
     ) VALUES (
-      ${crypto.randomUUID()}, ${row.player_id}, ${row.player_name}, ${team}, ${season()}, ${row.position ?? null}, ${roleTier},
+      ${crypto.randomUUID()}, ${row.playerId}, ${row.playerName}, ${team}, ${season()}, ${row.position ?? null}, ${roleTier},
       ${input.contact}, ${input.power}, ${input.discipline}, ${input.vsLhp}, ${input.vsRhp}, ${input.baserunning}, ${input.fielding}, ${input.currentForm}, ${overall},
-      ${safeJson({ autoBuiltFrom: "player_game_stats", sourceUpdatedAt: row.updated_at, raw: stats })}::jsonb, 'auto-player-game-stats', now()
+      ${safeJson({ autoBuiltFrom: "player_game_stats", sourceUpdatedAt: row.updatedAt, raw: stats })}::jsonb, 'auto-player-game-stats', now()
     );
   `;
-  return { playerId: row.player_id, name: row.player_name, team, overall, roleTier };
+  return { playerId: row.playerId, name: row.playerName, team, overall, roleTier };
 }
 
 async function insertPitcher(row: PlayerStatRow, input: MlbPitcherSkillInput) {
-  const stats = asRecord(row.stats_json);
-  const team = row.team_abbr ?? "UNKNOWN";
+  const stats = asRecord(row.statsJson);
+  const team = row.teamAbbr ?? "UNKNOWN";
   const overall = calculateMlbPitcherOverall(input);
   const roleTier = classifyMlbStarterRole(overall);
   await prisma.$executeRaw`
@@ -200,17 +207,17 @@ async function insertPitcher(row: PlayerStatRow, input: MlbPitcherSkillInput) {
       xera_quality, fip_quality, k_bb, hr_risk, groundball_rate, platoon_split, stamina, recent_workload, arsenal_quality, overall,
       metrics_json, source, snapshot_at
     ) VALUES (
-      ${crypto.randomUUID()}, ${row.player_id}, ${row.player_name}, ${team}, ${season()}, ${roleTier},
+      ${crypto.randomUUID()}, ${row.playerId}, ${row.playerName}, ${team}, ${season()}, ${roleTier},
       ${input.xeraQuality}, ${input.fipQuality}, ${input.kBb}, ${input.hrRisk}, ${input.groundballRate}, ${input.platoonSplit}, ${input.stamina}, ${input.recentWorkload}, ${input.arsenalQuality}, ${overall},
-      ${safeJson({ autoBuiltFrom: "player_game_stats", sourceUpdatedAt: row.updated_at, raw: stats })}::jsonb, 'auto-player-game-stats', now()
+      ${safeJson({ autoBuiltFrom: "player_game_stats", sourceUpdatedAt: row.updatedAt, raw: stats })}::jsonb, 'auto-player-game-stats', now()
     );
   `;
-  return { pitcherId: row.player_id, name: row.player_name, team, overall, roleTier };
+  return { pitcherId: row.playerId, name: row.playerName, team, overall, roleTier };
 }
 
 async function insertLineup(row: TeamStatRow) {
-  const stats = asRecord(row.stats_json);
-  const probablePitcher = num(stats, ["probablePitcherId", "starterPitcherId"], null);
+  const stats = asRecord(row.statsJson);
+  const probablePitcherId = String(stats.probablePitcherId ?? stats.starterPitcherId ?? "").trim() || null;
   const probablePitcherName = String(stats.probablePitcherName ?? stats.starterPitcherName ?? "").trim() || null;
   const battingOrder = Array.isArray(stats.battingOrder) ? stats.battingOrder : [];
   const availableRelievers = Array.isArray(stats.availableRelievers) ? stats.availableRelievers : [];
@@ -221,17 +228,17 @@ async function insertLineup(row: TeamStatRow) {
       id, game_id, team, confirmed, batting_order_json, bench_json, starting_pitcher_id, starting_pitcher_name,
       available_relievers_json, unavailable_relievers_json, injuries_json, source, captured_at
     ) VALUES (
-      ${crypto.randomUUID()}, ${row.game_id}, ${row.team_abbr ?? "UNKNOWN"}, ${Boolean(stats.confirmedLineup ?? stats.lineupConfirmed)},
+      ${crypto.randomUUID()}, ${row.gameId}, ${row.teamAbbr ?? "UNKNOWN"}, ${Boolean(stats.confirmedLineup ?? stats.lineupConfirmed)},
       ${safeJson(battingOrder)}::jsonb,
       ${safeJson(Array.isArray(stats.bench) ? stats.bench : [])}::jsonb,
-      ${probablePitcher == null ? null : String(probablePitcher)}, ${probablePitcherName},
+      ${probablePitcherId}, ${probablePitcherName},
       ${safeJson(availableRelievers)}::jsonb,
       ${safeJson(unavailableRelievers)}::jsonb,
       ${safeJson(injuries)}::jsonb,
       'auto-team-game-stats', now()
     );
   `;
-  return { gameId: row.game_id, team: row.team_abbr ?? "UNKNOWN", confirmed: Boolean(stats.confirmedLineup ?? stats.lineupConfirmed) };
+  return { gameId: row.gameId, team: row.teamAbbr ?? "UNKNOWN", confirmed: Boolean(stats.confirmedLineup ?? stats.lineupConfirmed) };
 }
 
 export async function buildMlbRosterIntelligenceFromStats(options: { lookbackDays?: number; limit?: number; includeLineups?: boolean } = {}) {
@@ -243,7 +250,7 @@ export async function buildMlbRosterIntelligenceFromStats(options: { lookbackDay
   const hitterResults = [];
   const pitcherResults = [];
   for (const row of rows) {
-    const stats = asRecord(row.stats_json);
+    const stats = asRecord(row.statsJson);
     if (pitcherLike(row, stats)) pitcherResults.push(await insertPitcher(row, pitcherInput(stats)));
     else hitterResults.push(await insertHitter(row, hitterInput(stats)));
   }
