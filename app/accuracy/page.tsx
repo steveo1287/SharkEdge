@@ -104,6 +104,31 @@ function ProofCard({ href, sport, title, body, tone, children }: { href: string;
   );
 }
 
+function DecisionDisciplineCard() {
+  return (
+    <Link href="/accuracy/verdicts" className="group rounded-[1.5rem] border border-cyan-300/20 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.14),transparent_18rem),rgba(2,6,12,0.92)] p-5 transition hover:-translate-y-0.5 hover:border-cyan-300/35">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.22em] text-cyan-300/80">Official verdict engine</div>
+          <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.06em] text-white">Predictions are not picks.</h2>
+        </div>
+        <span className={pill("cyan")}>decision discipline</span>
+      </div>
+      <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-400">
+        The verdict engine is the promotion gate between raw model output and user-facing action. It splits every graded row into PLAY, LEAN, WATCH, PASS, or DATA_NOT_READY so SharkEdge stays selective instead of becoming a pick spammer.
+      </p>
+      <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        <Tile label="PLAY" value="Strict" sub="Only rows that clear data, market, edge, and confidence gates." />
+        <Tile label="LEAN" value="Useful" sub="Model sees value, but not enough for official promotion." />
+        <Tile label="WATCH" value="Observe" sub="Interesting setup without enough trust to act." />
+        <Tile label="PASS" value="Saved" sub="A real product must avoid bad or thin spots." />
+        <Tile label="DATA" value="Gated" sub="Missing market, stale feed, or unresolved proof blocks action." />
+      </div>
+      <div className="mt-5 border-t border-white/10 pt-4 text-[11px] font-black uppercase tracking-[0.14em] text-cyan-200/80 group-hover:text-cyan-100">Open verdict dashboard →</div>
+    </Link>
+  );
+}
+
 function OperatingRule({ title, body }: { title: string; body: string }) {
   return (
     <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.035] p-4">
@@ -168,12 +193,15 @@ export default async function AccuracyCommandCenterPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Link href="/sim" className={pill("cyan")}>SimHub</Link>
+              <Link href="/accuracy/verdicts" className={pill("cyan")}>Verdicts</Link>
+              <Link href="/sim" className={pill("slate")}>SimHub</Link>
               <Link href="/baseball/readiness" className={pill("slate")}>MLB readiness</Link>
               <Link href="/sim/ufc" className={pill("slate")}>MMA lab</Link>
             </div>
           </div>
         </section>
+
+        <DecisionDisciplineCard />
 
         <section className="grid gap-4 lg:grid-cols-2">
           <ProofCard
