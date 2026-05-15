@@ -206,32 +206,27 @@ export default async function MmaAccuracyPage({ searchParams }: PageProps) {
               </tr>
             </thead>
             <tbody>
-              {ledger.rows.slice(0, 40).map((row) => {
-                const pickIsA = row.pickFighterId === row.fighterAName || row.pickName === row.fighterAName;
-                const openOdds = row.pickFighterId === row.pickFighterId && row.pickName === row.fighterAName ? row.marketOddsAOpen : row.marketOddsBOpen;
-                const closeOdds = row.pickName === row.fighterAName ? row.marketOddsAClose : row.marketOddsBClose;
-                return (
-                  <tr key={row.id} className="border-b border-white/5 last:border-none">
-                    <td className="px-3 py-3">
-                      <div className="font-semibold text-white">{row.fighterAName ?? "Fighter A"} vs {row.fighterBName ?? "Fighter B"}</div>
-                      <div className="mt-1 text-[10px] text-slate-500">{row.eventLabel} · {when(row.recordedAt)}</div>
-                    </td>
-                    <td className="px-3 py-3 text-slate-300">
-                      <div>{row.pickName ?? "—"}</div>
-                      <div className="mt-1 text-[10px] text-slate-600">{row.dataQualityGrade ?? "—"} / {row.confidenceGrade ?? "—"}</div>
-                    </td>
-                    <td className="px-3 py-3 text-slate-300">{row.actualWinnerName ?? "pending"}</td>
-                    <td className="px-3 py-3 text-right font-mono text-sky-200">{pct(row.pickProbability)}</td>
-                    <td className="px-3 py-3 text-right font-mono text-slate-200">{odds(openOdds)}</td>
-                    <td className="px-3 py-3 text-right font-mono text-slate-200">{odds(closeOdds)}</td>
-                    <td className="px-3 py-3 text-right font-mono text-emerald-200">{pctRaw(row.closingLineValuePct)}</td>
-                    <td className="px-3 py-3 text-right font-mono text-slate-200">{num(row.brier, 4)}</td>
-                    <td className="px-3 py-3 text-right">
-                      <span className={pill(row.resultCorrect === true ? "green" : row.resultCorrect === false ? "red" : row.shouldHavePassed ? "amber" : "slate")}>{row.resultCorrect === true ? "win" : row.resultCorrect === false ? "loss" : row.shouldHavePassed ? "pass" : row.status}</span>
-                    </td>
-                  </tr>
-                );
-              })}
+              {ledger.rows.slice(0, 40).map((row) => (
+                <tr key={row.id} className="border-b border-white/5 last:border-none">
+                  <td className="px-3 py-3">
+                    <div className="font-semibold text-white">{row.fighterAName ?? "Fighter A"} vs {row.fighterBName ?? "Fighter B"}</div>
+                    <div className="mt-1 text-[10px] text-slate-500">{row.eventLabel} · {when(row.recordedAt)}</div>
+                  </td>
+                  <td className="px-3 py-3 text-slate-300">
+                    <div>{row.pickName ?? "—"}</div>
+                    <div className="mt-1 text-[10px] text-slate-600">{row.dataQualityGrade ?? "—"} / {row.confidenceGrade ?? "—"}</div>
+                  </td>
+                  <td className="px-3 py-3 text-slate-300">{row.actualWinnerName ?? "pending"}</td>
+                  <td className="px-3 py-3 text-right font-mono text-sky-200">{pct(row.pickProbability)}</td>
+                  <td className="px-3 py-3 text-right font-mono text-slate-200">{odds(row.pickOpenOddsAmerican)}</td>
+                  <td className="px-3 py-3 text-right font-mono text-slate-200">{odds(row.pickCloseOddsAmerican)}</td>
+                  <td className="px-3 py-3 text-right font-mono text-emerald-200">{pctRaw(row.closingLineValuePct)}</td>
+                  <td className="px-3 py-3 text-right font-mono text-slate-200">{num(row.brier, 4)}</td>
+                  <td className="px-3 py-3 text-right">
+                    <span className={pill(row.resultCorrect === true ? "green" : row.resultCorrect === false ? "red" : row.shouldHavePassed ? "amber" : "slate")}>{row.resultCorrect === true ? "win" : row.resultCorrect === false ? "loss" : row.shouldHavePassed ? "pass" : row.status}</span>
+                  </td>
+                </tr>
+              ))}
               {!ledger.rows.length ? (
                 <tr><td colSpan={9} className="px-3 py-6 text-center text-slate-500">No MMA ledger rows yet.</td></tr>
               ) : null}
