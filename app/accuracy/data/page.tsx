@@ -115,6 +115,7 @@ export default async function DataControlTowerPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <span className={pill(tone(report.status))}>{report.status}</span>
+              <Link href="/accuracy/data/pipeline" className={pill("cyan")}>Run pipeline</Link>
               <Link href="/accuracy/promotion" className={pill("purple")}>Promotion gate</Link>
               <Link href="/accuracy/official" className={pill("slate")}>Official</Link>
               <Link href="/baseball/readiness" className={pill("slate")}>MLB readiness</Link>
