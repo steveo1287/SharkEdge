@@ -32,6 +32,15 @@ function latestSim(cards: UfcCardSummary[]) {
     .at(-1) ?? null;
 }
 
+function nextDisplayCard(cards: UfcCardSummary[]) {
+  const now = Date.now() - 12 * 60 * 60 * 1000;
+  return [...cards]
+    .filter((card) => new Date(card.eventDate).getTime() >= now)
+    .sort((a, b) => new Date(a.eventDate).getTime() - new Date(b.eventDate).getTime())[0]
+    ?? cards[0]
+    ?? null;
+}
+
 function readinessTone(args: { fightCount: number; simulatedFightCount: number; pendingSimCount: number }): ReadinessTone {
   if (args.fightCount === 0) return "cold";
   if (args.simulatedFightCount > 0 && args.pendingSimCount === 0) return "ready";
@@ -60,7 +69,7 @@ function ProductRail({ cards }: { cards: UfcCardSummary[] }) {
   const simulatedFightCount = cards.reduce((sum, card) => sum + card.simulatedFightCount, 0);
   const pendingCount = Math.max(0, fightCount - simulatedFightCount);
   const resolvedShadowCount = cards.reduce((sum, card) => sum + card.shadowResolvedCount, 0);
-  const firstCard = cards[0] ?? null;
+  const targetCard = nextDisplayCard(cards);
   const tone = readinessTone({ fightCount, simulatedFightCount, pendingSimCount: pendingCount });
   const lastSim = latestSim(cards);
 
@@ -76,14 +85,14 @@ function ProductRail({ cards }: { cards: UfcCardSummary[] }) {
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/sim" className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-300">Sim hub</Link>
-          {firstCard ? (
-            <Link href={`/sharkfights/ufc/cards/${firstCard.eventId}`} className="rounded-full border border-aqua/30 bg-aqua/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-aqua">Open next card</Link>
+          {targetCard ? (
+            <Link href={`/sim/ufc/cards/${targetCard.eventId}`} className="rounded-full border border-aqua/30 bg-aqua/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-aqua">Open target card</Link>
           ) : null}
         </div>
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <LabMetric label="Cards" value={cards.length} sub={firstCard ? `Next: ${firstCard.eventLabel}` : "No card rows loaded"} tone={cards.length ? tone : "cold"} />
+        <LabMetric label="Cards" value={cards.length} sub={targetCard ? `Target: ${targetCard.eventLabel}` : "No card rows loaded"} tone={cards.length ? tone : "cold"} />
         <LabMetric label="Fights" value={fightCount} sub={`${pendingCount} pending simulation`} tone={fightCount ? tone : "cold"} />
         <LabMetric label="Sim coverage" value={pct(simulatedFightCount, fightCount)} sub={`${simulatedFightCount}/${fightCount} fights simulated`} tone={tone} />
         <LabMetric label="Shadow review" value={resolvedShadowCount} sub={`Last sim: ${dateLabel(lastSim)}`} tone={resolvedShadowCount ? "ready" : tone} />
