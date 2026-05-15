@@ -19,11 +19,36 @@ function isAuthorized(request: Request) {
   return url.searchParams.get("force") === "1";
 }
 
-async function runRefresh() {
+function boolParam(value: string | null, fallback = false) {
+  if (value == null) return fallback;
+  return !["0", "false", "no", "off"].includes(value.toLowerCase());
+}
+
+async function runRefresh(request: Request) {
+  const url = new URL(request.url);
+  const { runStatsPipelinePreflight } = await import("@/services/ops/stats-pipeline-preflight");
   const { refreshFullSimSnapshots, refreshSimMarketSnapshot } = await import("@/services/simulation/sim-snapshot-service");
   const { refreshMainMlbSimSnapshot } = await import("@/services/simulation/main-sim-snapshot-service");
 
   const startedAtMs = Date.now();
+  const statsPipeline = await runStatsPipelinePreflight({
+    source: "api-sim-refresh",
+    force: boolParam(url.searchParams.get("statsForce"), false),
+    enabled: boolParam(url.searchParams.get("statsPreflight"), false),
+    runMlb: boolParam(url.searchParams.get("runMlb"), true),
+    runUfc: boolParam(url.searchParams.get("runUfc"), true),
+    includeLineups: boolParam(url.searchParams.get("includeLineups"), true),
+    mlbLookbackDays: Number(url.searchParams.get("mlbLookbackDays") ?? 45),
+    mlbLimit: Number(url.searchParams.get("mlbLimit") ?? 1500),
+    ufcLimit: Number(url.searchParams.get("ufcLimit") ?? 50),
+    modelVersion: url.searchParams.get("modelVersion") ?? "ufc-fight-iq-v1"
+  }).catch((error) => ({
+    ok: false,
+    attempted: false,
+    skipped: false,
+    reason: "preflight-error",
+    error: error instanceof Error ? error.message : "unknown stats preflight error"
+  }));
   const full = await refreshFullSimSnapshots().catch((error) => ({
     ok: false,
     warnings: [error instanceof Error ? error.message : "unknown full sim refresh error"]
@@ -38,8 +63,9 @@ async function runRefresh() {
   }));
 
   const result = {
-    ok: Boolean(full.ok && market.ok && mainMlb.ok),
+    ok: Boolean(statsPipeline.ok && full.ok && market.ok && mainMlb.ok),
     elapsedMs: Date.now() - startedAtMs,
+    statsPipeline,
     full,
     market,
     mainMlb
@@ -59,12 +85,12 @@ export async function GET(request: Request) {
   const wait = url.searchParams.get("wait") === "1" || request.headers.get("x-vercel-cron") === "1";
 
   if (wait) {
-    const result = await runRefresh();
+    const result = await runRefresh(request);
     return NextResponse.json({ ...result, queued: false, startedAt }, { status: result.ok ? 200 : 207 });
   }
 
   after(async () => {
-    await runRefresh();
+    await runRefresh(request);
   });
 
   return NextResponse.json({ ok: true, queued: true, startedAt }, { status: 202 });
