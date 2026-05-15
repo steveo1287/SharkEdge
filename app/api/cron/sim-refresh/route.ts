@@ -33,7 +33,7 @@ export async function GET(request: Request) {
   const statsPipeline = await runStatsPipelinePreflight({
     source: "cron-sim-refresh",
     force: boolParam(url.searchParams.get("statsForce"), false),
-    enabled: boolParam(url.searchParams.get("statsPreflight"), false),
+    enabled: boolParam(url.searchParams.get("statsPreflight"), true),
     runMlb: boolParam(url.searchParams.get("runMlb"), true),
     runUfc: boolParam(url.searchParams.get("runUfc"), true),
     includeLineups: boolParam(url.searchParams.get("includeLineups"), true),
