@@ -258,10 +258,11 @@ async function fromBoardFeed(awayTeam: string, homeTeam: string): Promise<MlbNoV
   return null;
 }
 
-async function fromMarketLineHistory(awayTeam: string, homeTeam: string): Promise<MlbNoVigMarket | null> {
+async function fromMarketLineHistory(awayTeam: string, homeTeam: string, gameId?: string | null): Promise<MlbNoVigMarket | null> {
   if (!hasUsableServerDatabaseUrl()) return null;
 
   try {
+    const normalizedGameId = String(gameId ?? "").trim();
     const rows = await prisma.$queryRaw<MarketLineHistoryRow[]>`
       SELECT DISTINCT ON (event_id, market_type, side, selection, sportsbook_name)
         event_id,
@@ -278,6 +279,7 @@ async function fromMarketLineHistory(awayTeam: string, homeTeam: string): Promis
         AND start_time >= now() - interval '2 days'
         AND start_time <= now() + interval '10 days'
         AND market_type IN ('moneyline', 'total')
+        AND (${normalizedGameId} = '' OR event_id = ${normalizedGameId})
       ORDER BY event_id, market_type, side, selection, sportsbook_name, captured_at DESC
       LIMIT 2500
     `;
@@ -285,7 +287,7 @@ async function fromMarketLineHistory(awayTeam: string, homeTeam: string): Promis
     const lines = new Map<string, HistoryLine>();
     for (const row of rows) {
       const names = namesForEventName(row.event_name);
-      if (!looseTeamMatch(names.away, awayTeam) || !looseTeamMatch(names.home, homeTeam)) continue;
+      if (normalizedGameId === "" && (!looseTeamMatch(names.away, awayTeam) || !looseTeamMatch(names.home, homeTeam))) continue;
 
       const sportsbook = row.sportsbook_name ?? "market-line-history";
       const key = `${row.event_id}:${sportsbook}`;
@@ -317,6 +319,10 @@ async function fromMarketLineHistory(awayTeam: string, homeTeam: string): Promis
       lines.set(key, line);
     }
 
+    if (!lines.size && normalizedGameId !== "") {
+      return fromMarketLineHistory(awayTeam, homeTeam, null);
+    }
+
     for (const line of lines.values()) {
       const market = mergeMarket({
         source: line.sportsbook,
@@ -329,6 +335,10 @@ async function fromMarketLineHistory(awayTeam: string, homeTeam: string): Promis
         underOddsAmerican: line.underOddsAmerican
       });
       if (market?.homeNoVigProbability != null || market?.totalLine != null) return market;
+    }
+
+    if (normalizedGameId !== "") {
+      return fromMarketLineHistory(awayTeam, homeTeam, null);
     }
   } catch {
     return null;
@@ -367,8 +377,8 @@ async function fromOddsSnapshot(awayTeam: string, homeTeam: string): Promise<Mlb
   return null;
 }
 
-export async function getMlbNoVigMarket(awayTeam: string, homeTeam: string): Promise<MlbNoVigMarket> {
-  const history = await fromMarketLineHistory(awayTeam, homeTeam);
+export async function getMlbNoVigMarket(awayTeam: string, homeTeam: string, gameId?: string | null): Promise<MlbNoVigMarket> {
+  const history = await fromMarketLineHistory(awayTeam, homeTeam, gameId);
   if (history) return history;
   const board = await fromBoardFeed(awayTeam, homeTeam);
   if (board) return board;

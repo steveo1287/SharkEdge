@@ -223,14 +223,14 @@ function buildMlbRunProbabilityModel(args: {
   };
 }
 
-async function buildMlbIntel(matchup: { away: string; home: string }, comparison: MlbMatchupComparison) {
+async function buildMlbIntel(matchup: { away: string; home: string }, comparison: MlbMatchupComparison, gameId?: string | null) {
   const [awayPlayers, homePlayers, lock, ratings, history, market, umpire] = await Promise.all([
     getMlbTeamPlayerSummary(matchup.away),
     getMlbTeamPlayerSummary(matchup.home),
     getMlbLineupLock(matchup.away, matchup.home),
     compareMlbRatings(matchup.away, matchup.home),
     compareMlbPlayerHistory(matchup.away, matchup.home),
-    getMlbNoVigMarket(matchup.away, matchup.home),
+    getMlbNoVigMarket(matchup.away, matchup.home, gameId),
     getMlbUmpireTendency(matchup.away, matchup.home)
   ]);
   const official = lockEdges(lock);
@@ -507,7 +507,7 @@ export async function buildSimProjection(input: SimProjectionInput): Promise<Sim
     const weather = await getMlbGameWeather(matchup.home, input.startTime).catch(() => null);
     if (weather) mlbComparison.home.weatherRunFactor = weather.weatherRunFactor;
   }
-  const mlbIntel = mlbComparison ? await buildMlbIntel(matchup, mlbComparison) : null;
+  const mlbIntel = mlbComparison ? await buildMlbIntel(matchup, mlbComparison, input.id) : null;
   if (mlbIntel) {
     const rulesTotal = clamp(mlbIntel.projectedTotal, 5.4, 14.5);
     const rulesHomeWinPct = clamp(mlbIntel.runModel?.blendedHomeWinPct ?? 0.5, 0.24, 0.78);
