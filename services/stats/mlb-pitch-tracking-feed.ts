@@ -21,6 +21,7 @@ type PitcherSummary = {
   walks: number;
   hitsAllowed: number;
   runsAllowed: number;
+  homeRunsAllowed: number;
   pitchTypes: Record<string, PitchTypeStats>;
   inningByInning: Record<number, { pitches: number; runs: number }>;
 };
@@ -37,6 +38,7 @@ type BoxPlayer = {
       baseOnBalls?: number;
       hits?: number;
       runs?: number;
+      homeRuns?: number;
       outs?: number;
     };
   };
@@ -131,6 +133,7 @@ function summarizePitcher(box: BoxTeam, pitcherIds: number[], teamAbbr: string, 
       walks: p.baseOnBalls ?? 0,
       hitsAllowed: p.hits ?? 0,
       runsAllowed: p.runs ?? 0,
+      homeRunsAllowed: p.homeRuns ?? 0,
       pitchTypes: {},
       inningByInning: {},
     });
@@ -196,6 +199,7 @@ async function ensureTable() {
       walks INTEGER NOT NULL DEFAULT 0,
       hits_allowed INTEGER NOT NULL DEFAULT 0,
       runs_allowed INTEGER NOT NULL DEFAULT 0,
+      home_runs_allowed INTEGER NOT NULL DEFAULT 0,
       pitch_type_json JSONB NOT NULL DEFAULT '{}'::jsonb,
       avg_velocity DOUBLE PRECISION,
       whiff_rate DOUBLE PRECISION,
@@ -212,6 +216,7 @@ async function ensureTable() {
     CREATE UNIQUE INDEX IF NOT EXISTS mlb_pitch_game_log_game_pitcher_idx
     ON mlb_pitch_game_log (game_pk, pitcher_id)
   `;
+  await prisma.$executeRaw`ALTER TABLE mlb_pitch_game_log ADD COLUMN IF NOT EXISTS home_runs_allowed INTEGER NOT NULL DEFAULT 0`;
 }
 
 type ScheduleGame = {
@@ -276,12 +281,12 @@ async function ingestGame(gamePk: number): Promise<number> {
         id, game_pk, game_date, pitcher_id, pitcher_name, pitcher_team,
         is_starter, innings_pitched, pitch_count, strikes, balls,
         strikeouts, walks, hits_allowed, runs_allowed,
-        pitch_type_json, k_rate, bb_rate, whiff_rate,
+        home_runs_allowed, pitch_type_json, k_rate, bb_rate, whiff_rate,
         inning_by_inning_json, source, captured_at
       ) VALUES (
         ${id}, ${gamePk}, ${gameDate}::DATE, ${s.pitcherId}, ${s.pitcherName}, ${s.pitcherTeam},
         ${s.isStarter}, ${s.inningsPitched}, ${s.pitchCount}, ${s.strikes}, ${s.balls},
-        ${s.strikeouts}, ${s.walks}, ${s.hitsAllowed}, ${s.runsAllowed},
+        ${s.strikeouts}, ${s.walks}, ${s.hitsAllowed}, ${s.runsAllowed}, ${s.homeRunsAllowed},
         ${JSON.stringify(pitchTypeJson)}::JSONB, ${kRate}, ${bbRate}, ${whiffRate},
         ${JSON.stringify(inningJson)}::JSONB, 'statsapi_live', now()
       )
@@ -294,6 +299,7 @@ async function ingestGame(gamePk: number): Promise<number> {
         walks              = EXCLUDED.walks,
         hits_allowed       = EXCLUDED.hits_allowed,
         runs_allowed       = EXCLUDED.runs_allowed,
+        home_runs_allowed  = EXCLUDED.home_runs_allowed,
         pitch_type_json    = EXCLUDED.pitch_type_json,
         k_rate             = EXCLUDED.k_rate,
         bb_rate            = EXCLUDED.bb_rate,
@@ -394,4 +400,95 @@ export async function getRecentPitchLogs(gamePk: number): Promise<PitchGameLogRo
     bbRate: r.bb_rate,
     whiffRate: r.whiff_rate,
   }));
+}
+
+type PitchRollingSourceRow = {
+  game_pk: number;
+  game_date: Date;
+  pitcher_id: string;
+  pitcher_team: string | null;
+  innings_pitched: number;
+  strikeouts: number;
+  walks: number;
+  hits_allowed: number;
+  runs_allowed: number;
+  home_runs_allowed: number;
+};
+
+function pitcherGameScore(row: PitchRollingSourceRow) {
+  const outs = Math.round((Number(row.innings_pitched) || 0) * 3);
+  return Number((47.4
+    + Number(row.strikeouts || 0)
+    + outs * 1.5
+    - Number(row.walks || 0) * 2
+    - Number(row.hits_allowed || 0) * 2
+    - Number(row.runs_allowed || 0) * 3
+    - Number(row.home_runs_allowed || 0) * 4).toFixed(2));
+}
+
+function avg(values: number[]) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
+export async function buildMlbPitcherRollingSnapshotsFromPitchLogs(args: { lookbackDays?: number; rollingGames?: number } = {}) {
+  await ensureTable();
+  const lookbackDays = Math.max(1, Math.min(365, Math.round(args.lookbackDays ?? 45)));
+  const rollingGames = Math.max(1, Math.min(10, Math.round(args.rollingGames ?? 5)));
+  const rows = await prisma.$queryRaw<PitchRollingSourceRow[]>`
+    SELECT game_pk, game_date, pitcher_id, pitcher_team, innings_pitched, strikeouts, walks,
+      hits_allowed, runs_allowed, home_runs_allowed
+    FROM mlb_pitch_game_log
+    WHERE is_starter = true
+      AND game_date >= CURRENT_DATE - (${lookbackDays} * interval '1 day')
+      AND innings_pitched > 0
+    ORDER BY pitcher_id ASC, game_date ASC, game_pk ASC
+  `;
+
+  const previousScores = new Map<string, number[]>();
+  let snapshotsUpserted = 0;
+
+  for (const row of rows) {
+    const gameScore = pitcherGameScore(row);
+    const history = previousScores.get(row.pitcher_id) ?? [];
+    const rolling = avg(history.slice(-rollingGames)) ?? gameScore;
+    await prisma.mlbPitcherRollingSnapshot.upsert({
+      where: {
+        pitcherId_retrosheetGameId: {
+          pitcherId: row.pitcher_id,
+          retrosheetGameId: `statsapi:${row.game_pk}`
+        }
+      },
+      update: {
+        sourceKey: "STATSAPI_PITCH_LOG",
+        teamId: row.pitcher_team,
+        season: row.game_date.getUTCFullYear(),
+        gameDate: row.game_date,
+        rollingGameScore: Number(rolling.toFixed(2)),
+        gamesIncluded: Math.min(rollingGames, history.length),
+        gameScore
+      },
+      create: {
+        sourceKey: "STATSAPI_PITCH_LOG",
+        pitcherId: row.pitcher_id,
+        teamId: row.pitcher_team,
+        season: row.game_date.getUTCFullYear(),
+        gameDate: row.game_date,
+        retrosheetGameId: `statsapi:${row.game_pk}`,
+        rollingGameScore: Number(rolling.toFixed(2)),
+        gamesIncluded: Math.min(rollingGames, history.length),
+        gameScore
+      }
+    });
+    previousScores.set(row.pitcher_id, [...history, gameScore].slice(-rollingGames));
+    snapshotsUpserted += 1;
+  }
+
+  return {
+    ok: true,
+    source: "STATSAPI_PITCH_LOG",
+    lookbackDays,
+    rollingGames,
+    pitchLogRows: rows.length,
+    snapshotsUpserted
+  };
 }

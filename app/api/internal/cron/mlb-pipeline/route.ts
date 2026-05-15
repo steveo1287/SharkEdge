@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ensureInternalApiAccess } from "@/lib/utils/internal-api";
 import { ingestMlbStatcastQuality } from "@/services/stats/mlb-statcast-ingestion";
-import { ingestMlbPitchTracking } from "@/services/stats/mlb-pitch-tracking-feed";
+import { buildMlbPitcherRollingSnapshotsFromPitchLogs, ingestMlbPitchTracking } from "@/services/stats/mlb-pitch-tracking-feed";
 import { refreshUmpireAssignments, seedMlbUmpireDb } from "@/services/simulation/mlb-umpire-db";
 import { captureMlbClosingLines } from "@/services/mlb/mlb-closing-line-capture";
 import { runMlbFeatureMonitor } from "@/services/simulation/mlb-feature-monitor";
@@ -76,6 +76,13 @@ export async function GET(request: Request) {
     warnings.push(`statcastAndPitching: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // 3b. Rolling pitcher game-score snapshots from captured StatsAPI pitch logs.
+  try {
+    results.pitcherRolling = await buildMlbPitcherRollingSnapshotsFromPitchLogs();
+  } catch (err) {
+    warnings.push(`pitcherRolling: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   // 4. Closing line capture
   try {
     results.closingLines = await captureMlbClosingLines({ windowBeforeMinutes: 90, windowAfterMinutes: 180 });
@@ -130,6 +137,8 @@ async function runSingleStep(step: string) {
         return NextResponse.json({ ok: true, result: await ingestMlbStatcastQuality({ lookbackDays: 3 }) });
       case "pitch-tracking":
         return NextResponse.json({ ok: true, result: await ingestMlbPitchTracking() });
+      case "pitcher-rolling":
+        return NextResponse.json({ ok: true, result: await buildMlbPitcherRollingSnapshotsFromPitchLogs() });
       case "closing-lines":
         return NextResponse.json({ ok: true, result: await captureMlbClosingLines({ force: true }) });
       case "feature-monitor":
@@ -145,7 +154,7 @@ async function runSingleStep(step: string) {
         return NextResponse.json({ ok: true, result: lock });
       }
       default:
-        return NextResponse.json({ ok: false, error: `Unknown step: ${step}`, validSteps: ["game-spine", "umpire", "statcast", "pitch-tracking", "closing-lines", "feature-monitor", "retrain", "warehouse", "spine-elo", "lineup-test"] }, { status: 400 });
+        return NextResponse.json({ ok: false, error: `Unknown step: ${step}`, validSteps: ["game-spine", "umpire", "statcast", "pitch-tracking", "pitcher-rolling", "closing-lines", "feature-monitor", "retrain", "warehouse", "spine-elo", "lineup-test"] }, { status: 400 });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
