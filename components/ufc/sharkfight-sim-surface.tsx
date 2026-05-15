@@ -49,14 +49,14 @@ function FightPathSnapshot({ fight }: { fight: UfcFightIqDetail }) {
   const fair = odds(prediction?.fairOddsAmerican);
   const book = odds(prediction?.sportsbookOddsAmerican);
   const edge = edgePct(prediction?.edgePct);
-  const methodRows = [
-    ["KO/TKO", fight.methodProbabilities?.KO_TKO],
-    ["Submission", fight.methodProbabilities?.SUBMISSION],
-    ["Decision", fight.methodProbabilities?.DECISION]
-  ] as const;
+  const methodRows: Array<{ label: string; value: number | null | undefined }> = [
+    { label: "KO/TKO", value: fight.methodProbabilities?.KO_TKO },
+    { label: "Submission", value: fight.methodProbabilities?.SUBMISSION },
+    { label: "Decision", value: fight.methodProbabilities?.DECISION }
+  ];
   const topMethod = methodRows
-    .filter((entry): entry is readonly [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]))
-    .sort((a, b) => b[1] - a[1])[0] ?? null;
+    .filter((entry) => typeof entry.value === "number" && Number.isFinite(entry.value))
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))[0] ?? null;
   const marketReady = typeof prediction?.sportsbookOddsAmerican === "number";
 
   return (
@@ -80,7 +80,7 @@ function FightPathSnapshot({ fight }: { fight: UfcFightIqDetail }) {
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SimMetric label="Pick" value={pickName} sub={prediction ? `${pct(prediction.fighterAWinProbability)} / ${pct(prediction.fighterBWinProbability)}` : "no prediction"} />
         <SimMetric label="Market edge" value={edge} sub={`fair ${fair} · book ${book}`} />
-        <SimMetric label="Likely path" value={topMethod?.[0] ?? "--"} sub={topMethod ? pct(topMethod[1]) : "method pending"} />
+        <SimMetric label="Likely path" value={topMethod?.label ?? "--"} sub={topMethod ? pct(topMethod.value) : "method pending"} />
         <SimMetric label="Data / confidence" value={fight.dataQualityGrade ?? "--"} sub={fight.confidenceGrade ?? "confidence pending"} />
       </div>
     </section>
