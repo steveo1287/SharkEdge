@@ -12,6 +12,7 @@ import {
 
 const FULL_SIM_RETENTION_SECONDS = 36 * 60 * 60;
 const FULL_SIM_TTL_SECONDS = 75 * 60;
+const MAIN_MLB_PROJECTION_CONCURRENCY = 3;
 
 function expiresAt(secondsFromNow: number) {
   return new Date(Date.now() + secondsFromNow * 1000).toISOString();
@@ -21,6 +22,31 @@ function flattenMlb(sections: BoardSportSectionView[]): SimGame[] {
   return sections.flatMap((section) => section.leagueKey === "MLB"
     ? section.scoreboard.map((game) => ({ ...game, leagueKey: section.leagueKey as LeagueKey, leagueLabel: section.leagueLabel }))
     : []);
+}
+
+async function settleLimited<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<PromiseSettledResult<R>[]> {
+  const results = new Array<PromiseSettledResult<R>>(items.length);
+  let cursor = 0;
+  const limit = Math.max(1, Math.min(concurrency, items.length || 1));
+
+  async function runWorker() {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      try {
+        results[index] = { status: "fulfilled", value: await worker(items[index], index) };
+      } catch (error) {
+        results[index] = { status: "rejected", reason: error };
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: limit }, runWorker));
+  return results;
 }
 
 function compactProjection(projection: Awaited<ReturnType<typeof buildMainSimProjection>>): CachedSimProjection {
@@ -52,15 +78,16 @@ export async function refreshMainMlbSimSnapshot() {
   const warnings: string[] = [];
   const sourceStatus: Record<string, unknown> = {
     cacheVersion: "main-sim-brain-v1",
-    mainBrain: "mlb-intel-v8-player-impact+mlb-intel-v7-calibration"
+    mainBrain: "mlb-intel-v8-player-impact+mlb-intel-v7-calibration",
+    projectionConcurrency: MAIN_MLB_PROJECTION_CONCURRENCY
   };
 
   const sections = await buildBoardSportSections({ selectedLeague: "MLB", gamesByLeague: {}, maxScoreboardGames: null });
   const games = flattenMlb(sections);
-  const settled = await Promise.allSettled(games.map(async (game) => ({
+  const settled = await settleLimited(games, MAIN_MLB_PROJECTION_CONCURRENCY, async (game) => ({
     game,
     projection: compactProjection(await buildMainSimProjection(game))
-  })));
+  }));
   const rows: CachedSimGameProjection[] = [];
 
   for (const result of settled) {
