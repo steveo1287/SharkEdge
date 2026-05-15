@@ -1,5 +1,6 @@
 import { getDataSourceCoverageReport, type DataSourceCoverageGroup, type DataSourceCoverageReport, type DataSourceCoverageRow, type SourceCoverageStatus } from "@/services/ops/data-source-coverage";
 import { getMarketArchiveHints } from "@/services/ops/market-archive-hints";
+import { getPlayerTendencyCoverageReport, type TendencyCoverageLane, type TendencyCoverageStatus } from "@/services/ops/player-tendency-coverage";
 
 function scoreStatus(status: SourceCoverageStatus) {
   if (status === "LIVE") return 1;
@@ -8,6 +9,21 @@ function scoreStatus(status: SourceCoverageStatus) {
   if (status === "STALE") return 0.35;
   if (status === "PAID_REQUIRED") return 0.2;
   return 0;
+}
+
+function sourceStatusFromTendency(status: TendencyCoverageStatus): SourceCoverageStatus {
+  if (status === "ELITE") return "LIVE";
+  if (status === "USABLE") return "CONFIGURED";
+  if (status === "THIN") return "FALLBACK";
+  return "MISSING";
+}
+
+function sourceStatusFromPct(pct: number | null | undefined): SourceCoverageStatus {
+  if (typeof pct !== "number" || !Number.isFinite(pct)) return "MISSING";
+  if (pct >= 0.8) return "LIVE";
+  if (pct >= 0.5) return "CONFIGURED";
+  if (pct > 0.05) return "FALLBACK";
+  return "MISSING";
 }
 
 function statusFromScore(score: number, criticalMissing: number) {
@@ -71,19 +87,131 @@ function archiveStatus(snapshotCount: number, freshnessMinutes: number | null): 
   return "STALE";
 }
 
+function metricPct(lane: TendencyCoverageLane | undefined, key: string) {
+  return lane?.metrics.find((metric) => metric.key === key)?.pct ?? null;
+}
+
+function metricEvidence(lane: TendencyCoverageLane | undefined, key: string) {
+  const metric = lane?.metrics.find((item) => item.key === key);
+  return metric ? `${metric.label}: ${metric.count}/${metric.total} (${metric.pct == null ? "—" : `${(metric.pct * 100).toFixed(1)}%`})` : null;
+}
+
+function applyMlbPlayerTendencies(rows: DataSourceCoverageRow[], mlbLane: TendencyCoverageLane | undefined) {
+  if (!mlbLane) return rows;
+  let nextRows = rows;
+  const statcastPct = Math.max(
+    metricPct(mlbLane, "mlb_statcast_profiles") ?? 0,
+    metricPct(mlbLane, "mlb_xwoba") ?? 0,
+    metricPct(mlbLane, "mlb_hard_hit") ?? 0
+  );
+  const pitcherPct = Math.max(
+    metricPct(mlbLane, "mlb_pitch_mix") ?? 0,
+    metricPct(mlbLane, "mlb_pitcher_context") ?? 0
+  );
+  const bullpenPct = Math.max(
+    metricPct(mlbLane, "mlb_bullpen_usage") ?? 0,
+    metricPct(mlbLane, "mlb_probable_pitchers") ?? 0
+  );
+
+  nextRows = updateRow(nextRows, "mlb-statcast-splits", {
+    status: sourceStatusFromPct(statcastPct),
+    runtimeEvidence: [metricEvidence(mlbLane, "mlb_statcast_profiles"), metricEvidence(mlbLane, "mlb_xwoba"), metricEvidence(mlbLane, "mlb_hard_hit")].filter(Boolean).join("; ") || null,
+    nextAction: statcastPct >= 0.8
+      ? "Statcast-style player tendency coverage is strong. Keep it fresh and feed it into matchup features."
+      : "Increase Statcast-style tendency coverage: xwOBA, hard-hit rate, barrel rate, chase/contact, and platoon split quality."
+  });
+
+  nextRows = updateRow(nextRows, "mlb-fangraphs-player-feed", {
+    status: sourceStatusFromTendency(mlbLane.status),
+    runtimeEvidence: `MLB profile score: ${mlbLane.score}; player rows: ${mlbLane.sample.playerStatRows ?? "—"}; roster players: ${mlbLane.sample.playerCount ?? "—"}`,
+    nextAction: mlbLane.score >= 80
+      ? "MLB player profile/tendency depth is strong enough to support matchup modeling. Keep source freshness healthy."
+      : "Improve MLB player profile depth: roster identity, recent stat rows, pitcher context, plate discipline, and opponent-quality tendencies."
+  });
+
+  nextRows = updateRow(nextRows, "mlb-probable-starters", {
+    status: sourceStatusFromPct(metricPct(mlbLane, "mlb_probable_pitchers")),
+    runtimeEvidence: metricEvidence(mlbLane, "mlb_probable_pitchers"),
+    nextAction: "Promotions should require confirmed or high-confidence probable starters from team context or a starter feed."
+  });
+
+  nextRows = updateRow(nextRows, "mlb-bullpen-fatigue", {
+    status: sourceStatusFromPct(bullpenPct),
+    runtimeEvidence: [metricEvidence(mlbLane, "mlb_bullpen_usage"), metricEvidence(mlbLane, "mlb_probable_pitchers")].filter(Boolean).join("; ") || null,
+    nextAction: "Track bullpen usage over the last 3 games, high-leverage availability, closer status, and starter length tendency."
+  });
+
+  if (pitcherPct > 0.05) {
+    nextRows = updateRow(nextRows, "mlb-team-boxscores", {
+      runtimeEvidence: [rows.find((row) => row.key === "mlb-team-boxscores")?.runtimeEvidence, metricEvidence(mlbLane, "mlb_pitcher_context")].filter(Boolean).join("; ") || null
+    });
+  }
+
+  return nextRows;
+}
+
+function applyMmaPlayerTendencies(rows: DataSourceCoverageRow[], mmaLane: TendencyCoverageLane | undefined) {
+  if (!mmaLane) return rows;
+  let nextRows = rows;
+  const bioPct = Math.max(metricPct(mmaLane, "mma_bio_profiles") ?? 0, metricPct(mmaLane, "mma_reach_stance") ?? 0);
+  const historyPct = Math.max(metricPct(mmaLane, "mma_fight_history") ?? 0, metricPct(mmaLane, "mma_opponent_strength") ?? 0, metricPct(mmaLane, "mma_finish_profile") ?? 0);
+  const advancedPct = Math.max(metricPct(mmaLane, "mma_striking_tendencies") ?? 0, metricPct(mmaLane, "mma_grappling_tendencies") ?? 0);
+  const status = sourceStatusFromTendency(mmaLane.status);
+
+  nextRows = updateRow(nextRows, "mma-fighter-profiles", {
+    status: sourceStatusFromPct(bioPct),
+    runtimeEvidence: [metricEvidence(mmaLane, "mma_bio_profiles"), metricEvidence(mmaLane, "mma_reach_stance"), `fighter count: ${mmaLane.sample.fighterCount ?? "—"}`].filter(Boolean).join("; ") || null,
+    nextAction: bioPct >= 0.8
+      ? "Fighter bio/profile coverage is strong. Keep it fresh before fight-week modeling."
+      : "Wire fighter profiles: age, reach, stance, camp, weight class, layoff, and weight-cut context."
+  });
+
+  nextRows = updateRow(nextRows, "mma-fight-history", {
+    status: sourceStatusFromPct(historyPct),
+    runtimeEvidence: [metricEvidence(mmaLane, "mma_fight_history"), metricEvidence(mmaLane, "mma_opponent_strength"), metricEvidence(mmaLane, "mma_finish_profile")].filter(Boolean).join("; ") || null,
+    nextAction: historyPct >= 0.8
+      ? "Fight history and opponent-strength coverage is strong. Use it for quality-adjusted fighter form."
+      : "Wire fight history: opponent strength, ranked wins, recent form, layoff, finish/decision profile, and short-notice context."
+  });
+
+  nextRows = updateRow(nextRows, "mma-striking-grappling", {
+    status: sourceStatusFromPct(advancedPct),
+    runtimeEvidence: [metricEvidence(mmaLane, "mma_striking_tendencies"), metricEvidence(mmaLane, "mma_grappling_tendencies")].filter(Boolean).join("; ") || null,
+    nextAction: advancedPct >= 0.8
+      ? "Advanced striking/grappling tendencies are strong. Feed them into style-clash and finish-path models."
+      : "Wire advanced UFC stats: SLpM, SApM, accuracy, defense, takedowns, TD defense, submissions, and control time."
+  });
+
+  nextRows = updateRow(nextRows, "mma-weigh-ins", {
+    status: sourceStatusFromPct(metricPct(mmaLane, "mma_layoff_short_notice")),
+    runtimeEvidence: metricEvidence(mmaLane, "mma_layoff_short_notice"),
+    nextAction: "Add fight-week risk profile: weigh-in misses, short notice, camp change, layoff days, and bad weight-cut flags."
+  });
+
+  if (status !== "MISSING") {
+    nextRows = updateRow(nextRows, "mma-event-card", {
+      runtimeEvidence: [rows.find((row) => row.key === "mma-event-card")?.runtimeEvidence, `MMA profile score: ${mmaLane.score}`].filter(Boolean).join("; ") || null
+    });
+  }
+
+  return nextRows;
+}
+
 export async function getEnhancedDataSourceCoverageReport(): Promise<DataSourceCoverageReport> {
-  const [report, archive] = await Promise.all([
+  const [report, archive, tendencies] = await Promise.all([
     getDataSourceCoverageReport(),
-    getMarketArchiveHints(7).catch(() => null)
+    getMarketArchiveHints(7).catch(() => null),
+    getPlayerTendencyCoverageReport().catch(() => null)
   ]);
 
-  if (!archive) return report;
+  const mlbTendencyLane = tendencies?.lanes.find((lane) => lane.sport === "MLB");
+  const mmaTendencyLane = tendencies?.lanes.find((lane) => lane.sport === "MMA");
 
   const groups = report.groups.map((group) => {
     if (group.sport === "MLB") {
-      let rows = group.rows;
-      const mlbArchiveStatus = archiveStatus(archive.mlb.snapshotCount, archive.mlb.freshnessMinutes);
-      if (archive.mlb.snapshotCount > 0) {
+      let rows = applyMlbPlayerTendencies(group.rows, mlbTendencyLane);
+      const mlbArchiveStatus = archive ? archiveStatus(archive.mlb.snapshotCount, archive.mlb.freshnessMinutes) : "MISSING";
+      if (archive?.mlb.snapshotCount && archive.mlb.snapshotCount > 0) {
         rows = updateRow(rows, "mlb-closing-lines", {
           status: archive.mlb.closingLineCount > 0 ? "LIVE" : "FALLBACK",
           runtimeEvidence: `Snapshots: ${archive.mlb.snapshotCount}; closing lines: ${archive.mlb.closingLineCount}; latest archive age min: ${archive.mlb.freshnessMinutes ?? "—"}`,
@@ -94,10 +222,10 @@ export async function getEnhancedDataSourceCoverageReport(): Promise<DataSourceC
       }
       rows = updateRow(rows, "mlb-market-freshness", {
         status: mlbArchiveStatus,
-        runtimeEvidence: archive.mlb.snapshotCount > 0
+        runtimeEvidence: archive && archive.mlb.snapshotCount > 0
           ? `Internal archive snapshots: ${archive.mlb.snapshotCount}; latest age min: ${archive.mlb.freshnessMinutes ?? "—"}`
           : group.rows.find((row) => row.key === "mlb-market-freshness")?.runtimeEvidence ?? null,
-        nextAction: archive.mlb.snapshotCount > 0
+        nextAction: archive && archive.mlb.snapshotCount > 0
           ? "Use internal market snapshot cadence as the free freshness monitor while paid historical odds are unavailable."
           : "Start writing EventMarketSnapshot rows from each odds refresh so freshness and closing evidence are local."
       });
@@ -105,8 +233,8 @@ export async function getEnhancedDataSourceCoverageReport(): Promise<DataSourceC
     }
 
     if (group.sport === "MMA") {
-      let rows = group.rows;
-      if (archive.mma.snapshotCount > 0) {
+      let rows = applyMmaPlayerTendencies(group.rows, mmaTendencyLane);
+      if (archive?.mma.snapshotCount && archive.mma.snapshotCount > 0) {
         rows = updateRow(rows, "mma-closing-lines", {
           status: archive.mma.closingLineCount > 0 ? "LIVE" : "FALLBACK",
           runtimeEvidence: `Snapshots: ${archive.mma.snapshotCount}; closing lines: ${archive.mma.closingLineCount}; latest archive age min: ${archive.mma.freshnessMinutes ?? "—"}`,
