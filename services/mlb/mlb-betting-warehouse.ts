@@ -180,7 +180,7 @@ async function refreshResultGradesAndTrendRows() {
       CASE WHEN bg.home_result = 'win' THEN 1 WHEN bg.home_result = 'loss' THEN -1 ELSE 0 END,
       moc.close_price, 'MLB spine moneyline grade.', now()
     FROM mlb_betting_games bg
-    LEFT JOIN mlb_market_open_close moc ON moc.game_pk = bg.game_pk AND moc.market_type = 'moneyline' AND moc.side = 'home'
+    LEFT JOIN LATERAL (SELECT close_price FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'moneyline' AND x.side = 'home' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc ON TRUE
     WHERE bg.is_final = true
   `;
   await prisma.$executeRaw`
@@ -191,7 +191,7 @@ async function refreshResultGradesAndTrendRows() {
       CASE WHEN bg.away_result = 'win' THEN 1 WHEN bg.away_result = 'loss' THEN -1 ELSE 0 END,
       moc.close_price, 'MLB spine moneyline grade.', now()
     FROM mlb_betting_games bg
-    LEFT JOIN mlb_market_open_close moc ON moc.game_pk = bg.game_pk AND moc.market_type = 'moneyline' AND moc.side = 'away'
+    LEFT JOIN LATERAL (SELECT close_price FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'moneyline' AND x.side = 'away' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc ON TRUE
     WHERE bg.is_final = true
   `;
 
@@ -218,7 +218,7 @@ async function refreshResultGradesAndTrendRows() {
       END,
       moc.close_point, 'MLB run line grade (home).', now()
     FROM mlb_betting_games bg
-    LEFT JOIN mlb_market_open_close moc ON moc.game_pk = bg.game_pk AND moc.market_type = 'spread' AND moc.side = 'home'
+    LEFT JOIN LATERAL (SELECT close_point FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'spread' AND x.side = 'home' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc ON TRUE
     WHERE bg.is_final = true
   `;
   await prisma.$executeRaw`
@@ -239,8 +239,8 @@ async function refreshResultGradesAndTrendRows() {
       END,
       COALESCE(moc_away.close_point, -moc_home.close_point), 'MLB run line grade (away).', now()
     FROM mlb_betting_games bg
-    LEFT JOIN mlb_market_open_close moc_home ON moc_home.game_pk = bg.game_pk AND moc_home.market_type = 'spread' AND moc_home.side = 'home'
-    LEFT JOIN mlb_market_open_close moc_away ON moc_away.game_pk = bg.game_pk AND moc_away.market_type = 'spread' AND moc_away.side = 'away'
+    LEFT JOIN LATERAL (SELECT close_point FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'spread' AND x.side = 'home' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc_home ON TRUE
+    LEFT JOIN LATERAL (SELECT close_point FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'spread' AND x.side = 'away' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc_away ON TRUE
     WHERE bg.is_final = true
   `;
 
@@ -413,7 +413,7 @@ async function refreshResultGradesAndTrendRows() {
       jsonb_build_object('homeAway', 'home', 'totalRuns', bg.total_runs, 'closingLine', moc.close_point, 'qualifier', 'base'),
       now()
     FROM mlb_betting_games bg
-    LEFT JOIN mlb_market_open_close moc ON moc.game_pk = bg.game_pk AND moc.market_type = 'total' AND moc.side = 'over'
+    LEFT JOIN LATERAL (SELECT close_point FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'total' AND x.side = 'over' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc ON TRUE
     WHERE bg.is_final = true
     ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, updated_at = now()
   `;
@@ -438,7 +438,7 @@ async function refreshResultGradesAndTrendRows() {
       jsonb_build_object('homeAway', 'away', 'totalRuns', bg.total_runs, 'closingLine', moc.close_point, 'qualifier', 'base'),
       now()
     FROM mlb_betting_games bg
-    LEFT JOIN mlb_market_open_close moc ON moc.game_pk = bg.game_pk AND moc.market_type = 'total' AND moc.side = 'over'
+    LEFT JOIN LATERAL (SELECT close_point FROM mlb_market_open_close x WHERE x.game_pk = bg.game_pk AND x.market_type = 'total' AND x.side = 'over' ORDER BY x.last_seen_at DESC NULLS LAST, x.sportsbook_name NULLS LAST LIMIT 1) moc ON TRUE
     WHERE bg.is_final = true
     ON CONFLICT (id) DO UPDATE SET result = EXCLUDED.result, units = EXCLUDED.units, updated_at = now()
   `;
