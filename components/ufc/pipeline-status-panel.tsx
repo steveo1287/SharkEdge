@@ -51,7 +51,7 @@ export function UfcPipelineStatusPanel({ status }: { status: UfcPipelineStatus }
           <div className="text-[10px] font-black uppercase tracking-[0.2em] text-aqua">UFC pipeline</div>
           <h2 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">Card load and sim status</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            Upcoming card ingestion, feature hydration, and SharkSim readiness. Use this when SharkFights shows no cards or fights are stuck at Sim pending.
+            Upcoming card ingestion, feature hydration, and SharkSim readiness. Use this when UFC Fight Lab shows no cards or fights are stuck at Sim pending.
           </p>
         </div>
         <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${metricTone(status)}`}>
@@ -74,7 +74,7 @@ export function UfcPipelineStatusPanel({ status }: { status: UfcPipelineStatus }
         <ActionLink href={`${base}&dryRun=1&hydrate=1&limit=25&horizonDays=120`} label="Dry run" />
         <ActionLink href={`${base}&hydrate=1&limit=25&horizonDays=120`} label="Load cards" tone="aqua" />
         <ActionLink href={`${base}&hydrate=1&simulate=1&limit=25&horizonDays=120`} label="Load + sim" tone="amber" />
-        <ActionLink href="/sharkfights/ufc" label="Refresh page" />
+        <ActionLink href="/sim/ufc" label="Refresh page" />
       </div>
 
       {status.errors.length ? (
