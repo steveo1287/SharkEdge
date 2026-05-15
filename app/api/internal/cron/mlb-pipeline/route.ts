@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ensureInternalApiAccess } from "@/lib/utils/internal-api";
 import { ingestMlbStatcastQuality } from "@/services/stats/mlb-statcast-ingestion";
 import { ingestMlbPitchTracking } from "@/services/stats/mlb-pitch-tracking-feed";
 import { refreshUmpireAssignments, seedMlbUmpireDb } from "@/services/simulation/mlb-umpire-db";
@@ -14,6 +15,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 function isAuthorized(request: Request) {
+  if (!ensureInternalApiAccess(request)) return true;
+
   const authHeader = request.headers.get("authorization");
   const bearer = authHeader?.startsWith("Bearer ")
     ? authHeader.slice("Bearer ".length).trim()
