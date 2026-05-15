@@ -1,4 +1,5 @@
 import { getBoardFeed } from "@/services/market-data/market-data-service";
+import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import { readLatestOddsApiSnapshot } from "@/services/odds/the-odds-api-budget-service";
 
 export type MlbNoVigMarket = {
@@ -37,6 +38,29 @@ type OddsSnapshotEvent = {
     title?: string;
     markets?: Array<{ key?: string; outcomes?: Array<{ name?: string; price?: number; point?: number | null }> }>;
   }>;
+};
+
+type MarketLineHistoryRow = {
+  event_id: string;
+  event_name: string;
+  start_time: Date | string;
+  market_type: string;
+  side: string | null;
+  selection: string | null;
+  sportsbook_name: string | null;
+  price: number | null;
+  point: number | null;
+};
+
+type HistoryLine = {
+  awayTeam: string;
+  homeTeam: string;
+  awayOddsAmerican: number | null;
+  homeOddsAmerican: number | null;
+  totalLine: number | null;
+  overOddsAmerican: number | null;
+  underOddsAmerican: number | null;
+  sportsbook: string;
 };
 
 function normalizeTeam(value: string | null | undefined) {
@@ -148,6 +172,15 @@ function namesForBoardEvent(event: BoardEvent) {
   return { away: away ?? fallbackAway ?? "", home: home ?? fallbackHome ?? "" };
 }
 
+function namesForEventName(eventName: string | null | undefined) {
+  const raw = String(eventName ?? "");
+  const atSplit = raw.split(" @ ");
+  if (atSplit.length === 2) return { away: atSplit[0]?.trim() ?? "", home: atSplit[1]?.trim() ?? "" };
+  const vsSplit = raw.split(" vs ");
+  if (vsSplit.length === 2) return { away: vsSplit[0]?.trim() ?? "", home: vsSplit[1]?.trim() ?? "" };
+  return { away: "", home: "" };
+}
+
 function emptyMarket(awayTeam: string, homeTeam: string): MlbNoVigMarket {
   return {
     available: false,
@@ -225,6 +258,85 @@ async function fromBoardFeed(awayTeam: string, homeTeam: string): Promise<MlbNoV
   return null;
 }
 
+async function fromMarketLineHistory(awayTeam: string, homeTeam: string): Promise<MlbNoVigMarket | null> {
+  if (!hasUsableServerDatabaseUrl()) return null;
+
+  try {
+    const rows = await prisma.$queryRaw<MarketLineHistoryRow[]>`
+      SELECT DISTINCT ON (event_id, market_type, side, selection, sportsbook_name)
+        event_id,
+        event_name,
+        start_time,
+        market_type,
+        side,
+        selection,
+        sportsbook_name,
+        price,
+        point
+      FROM market_line_history
+      WHERE league = 'MLB'
+        AND start_time >= now() - interval '2 days'
+        AND start_time <= now() + interval '10 days'
+        AND market_type IN ('moneyline', 'total')
+      ORDER BY event_id, market_type, side, selection, sportsbook_name, captured_at DESC
+      LIMIT 2500
+    `;
+
+    const lines = new Map<string, HistoryLine>();
+    for (const row of rows) {
+      const names = namesForEventName(row.event_name);
+      if (!looseTeamMatch(names.away, awayTeam) || !looseTeamMatch(names.home, homeTeam)) continue;
+
+      const sportsbook = row.sportsbook_name ?? "market-line-history";
+      const key = `${row.event_id}:${sportsbook}`;
+      const line = lines.get(key) ?? {
+        awayTeam,
+        homeTeam,
+        awayOddsAmerican: null,
+        homeOddsAmerican: null,
+        totalLine: null,
+        overOddsAmerican: null,
+        underOddsAmerican: null,
+        sportsbook
+      };
+      const side = String(row.side ?? "").toLowerCase();
+      const selection = String(row.selection ?? "").toLowerCase();
+
+      if (row.market_type === "moneyline") {
+        if (side.includes("home") || looseTeamMatch(selection, homeTeam)) line.homeOddsAmerican = numeric(row.price);
+        if (side.includes("away") || looseTeamMatch(selection, awayTeam)) line.awayOddsAmerican = numeric(row.price);
+      }
+
+      if (row.market_type === "total") {
+        const point = numeric(row.point);
+        if (point != null) line.totalLine = point;
+        if (side.includes("over") || selection.includes("over")) line.overOddsAmerican = numeric(row.price);
+        if (side.includes("under") || selection.includes("under")) line.underOddsAmerican = numeric(row.price);
+      }
+
+      lines.set(key, line);
+    }
+
+    for (const line of lines.values()) {
+      const market = mergeMarket({
+        source: line.sportsbook,
+        awayTeam,
+        homeTeam,
+        awayOddsAmerican: line.awayOddsAmerican,
+        homeOddsAmerican: line.homeOddsAmerican,
+        totalLine: line.totalLine,
+        overOddsAmerican: line.overOddsAmerican,
+        underOddsAmerican: line.underOddsAmerican
+      });
+      if (market?.homeNoVigProbability != null || market?.totalLine != null) return market;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 async function fromOddsSnapshot(awayTeam: string, homeTeam: string): Promise<MlbNoVigMarket | null> {
   try {
     const snapshot = await readLatestOddsApiSnapshot();
@@ -256,6 +368,8 @@ async function fromOddsSnapshot(awayTeam: string, homeTeam: string): Promise<Mlb
 }
 
 export async function getMlbNoVigMarket(awayTeam: string, homeTeam: string): Promise<MlbNoVigMarket> {
+  const history = await fromMarketLineHistory(awayTeam, homeTeam);
+  if (history) return history;
   const board = await fromBoardFeed(awayTeam, homeTeam);
   if (board) return board;
   const snapshot = await fromOddsSnapshot(awayTeam, homeTeam);
