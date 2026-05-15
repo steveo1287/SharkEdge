@@ -129,6 +129,31 @@ function DecisionDisciplineCard() {
   );
 }
 
+function CalibrationTruthCard() {
+  return (
+    <Link href="/accuracy/calibration" className="group rounded-[1.5rem] border border-emerald-300/20 bg-[radial-gradient(circle_at_top_left,rgba(52,211,153,0.13),transparent_18rem),rgba(2,6,12,0.92)] p-5 transition hover:-translate-y-0.5 hover:border-emerald-300/35">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-300/80">Calibration proof</div>
+          <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.06em] text-white">Probability has to earn trust.</h2>
+        </div>
+        <span className={pill("green")}>probability truth</span>
+      </div>
+      <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-400">
+        Win rate is not enough. Calibration checks whether 55%, 60%, 65%, and 70% predictions actually win near those rates, then flags thin or miscalibrated buckets before they are promoted as official plays.
+      </p>
+      <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        <Tile label="50-55" value="Base" sub="Coin-flip range must stay disciplined." />
+        <Tile label="55-60" value="Lean" sub="Useful only when market edge also agrees." />
+        <Tile label="60-65" value="Core" sub="Should become the main official-play proving range." />
+        <Tile label="65-70" value="Strong" sub="Must be monitored for overconfidence." />
+        <Tile label="70+" value="Elite" sub="High confidence only works if it stays calibrated." />
+      </div>
+      <div className="mt-5 border-t border-white/10 pt-4 text-[11px] font-black uppercase tracking-[0.14em] text-emerald-200/80 group-hover:text-emerald-100">Open calibration room →</div>
+    </Link>
+  );
+}
+
 function OperatingRule({ title, body }: { title: string; body: string }) {
   return (
     <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.035] p-4">
@@ -193,7 +218,9 @@ export default async function AccuracyCommandCenterPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Link href="/accuracy/calibration" className={pill("green")}>Calibration</Link>
               <Link href="/accuracy/verdicts" className={pill("cyan")}>Verdicts</Link>
+              <Link href="/accuracy/autopsy" className={pill("amber")}>Autopsy</Link>
               <Link href="/sim" className={pill("slate")}>SimHub</Link>
               <Link href="/baseball/readiness" className={pill("slate")}>MLB readiness</Link>
               <Link href="/sim/ufc" className={pill("slate")}>MMA lab</Link>
@@ -202,6 +229,7 @@ export default async function AccuracyCommandCenterPage() {
         </section>
 
         <DecisionDisciplineCard />
+        <CalibrationTruthCard />
 
         <section className="grid gap-4 lg:grid-cols-2">
           <ProofCard
@@ -234,7 +262,7 @@ export default async function AccuracyCommandCenterPage() {
         <section className="grid gap-3 md:grid-cols-3">
           <OperatingRule title="No proof, no promotion" body="A model can generate projections before it is promoted. Official plays need settled proof, not just a sharp-looking UI." />
           <OperatingRule title="Pass is a feature" body="Bad data, stale odds, thin samples, and weak calibration should turn into pass/watch labels instead of forced action." />
-          <OperatingRule title="Calibrate or cut" body="The next elite layer is calibration buckets and postgame autopsy, so every miss teaches the model what to fix." />
+          <OperatingRule title="Calibrate or cut" body="Calibration buckets and postgame autopsy close the loop, so every probability range and every miss teaches the product what to restrict next." />
         </section>
 
         {mma.warnings.length ? (
