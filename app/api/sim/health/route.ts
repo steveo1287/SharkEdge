@@ -116,6 +116,7 @@ async function dbCounts(): Promise<DbCounts> {
     "event_market_snapshot",
     "mlb_v8_player_impact_profiles",
     "retrosheet_games",
+    "retrosheet_pitching_game_stats",
     "mlb_team_elo_snapshots",
     "mlb_pitcher_rolling_snapshots"
   ];
@@ -141,6 +142,9 @@ async function dbCounts(): Promise<DbCounts> {
   if (!tables.market_line_history && !tables.event_market_snapshot && !tables.current_market_state) warnings.push("No durable market-line table is available for MLB market matching.");
   if (!tables.mlb_v8_player_impact_profiles) warnings.push("MLB v8 player-impact profile table is missing; player-impact weights fall back to defaults.");
   if (!tables.retrosheet_games) warnings.push("Retrosheet warehouse is missing; historical Elo/pitcher priors are not active.");
+  if (tables.retrosheet_pitching_game_stats && Number(counts.retrosheet_pitching_game_statsRows ?? 0) <= 0) {
+    warnings.push("Retrosheet pitching game-stat table has 0 rows; starter rolling game-score priors cannot be built until pitching CSVs are imported.");
+  }
   if (!tables.mlb_team_elo_snapshots || !tables.mlb_pitcher_rolling_snapshots) warnings.push("MLB Elo/pitcher rolling snapshot tables are missing.");
   if (tables.mlb_team_elo_snapshots && Number(counts.mlb_team_elo_snapshotsRows ?? 0) <= 0) {
     warnings.push("MLB team Elo snapshot table has 0 rows; Elo priors are inactive.");
