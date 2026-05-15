@@ -705,13 +705,23 @@ export default async function SimHubPage() {
       ready: true
     },
     {
-      href: "/sim/accuracy",
+      href: "/accuracy/verdicts",
+      eyebrow: "Decision Discipline",
+      title: "Official Verdict Engine",
+      description: "Separates raw model output from official PLAY candidates with PLAY, LEAN, WATCH, PASS, and DATA_NOT_READY gates.",
+      count: "PLAY",
+      statusLabel: "Promotion gate",
+      action: "Open verdicts",
+      ready: true
+    },
+    {
+      href: "/accuracy/mlb",
       eyebrow: "Model Proof",
-      title: "Accuracy Lab",
+      title: "MLB Accuracy Lab",
       description: "Brier, log loss, closing-line value, settlement, and promotion-gate evidence for MLB picks.",
       count: String(priority?.rows.length ?? "-"),
       statusLabel: "MLB validation",
-      action: "Open accuracy",
+      action: "Open proof",
       ready: (priority?.rows.length ?? 0) > 0
     }
   ];
@@ -722,8 +732,9 @@ export default async function SimHubPage() {
         title="SharkEdge Sim Hub"
         description="A consolidated market workspace: one card per matchup, duplicate signals merged, and deeper analysis hidden until the user opens the game."
         actions={[
+          { href: "/accuracy/verdicts", label: "Verdicts", tone: "secondary" },
           { href: "/api/sim/health", label: "Health JSON", tone: "secondary" },
-          { href: "/sim/evaluation", label: "Accuracy", tone: "secondary" }
+          { href: "/accuracy", label: "Proof", tone: "secondary" }
         ]}
       >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -762,7 +773,7 @@ export default async function SimHubPage() {
 
       <SnapshotNotice priority={priority} status={status} />
 
-      <section className="grid gap-4 xl:grid-cols-3">
+      <section className="grid gap-4 xl:grid-cols-4">
         {workspaces.map((workspace) => (
           <WorkspaceCard key={workspace.href} config={workspace} />
         ))}
