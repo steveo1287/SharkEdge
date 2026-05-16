@@ -90,6 +90,11 @@ function clamp(value: number, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Number(value.toFixed(2))));
 }
 
+function safeMax(existing: unknown, value: number) {
+  const numeric = typeof existing === "number" && Number.isFinite(existing) ? existing : 0;
+  return Math.max(numeric, value);
+}
+
 function unique(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }
@@ -338,26 +343,39 @@ function mergePayload(current: unknown, enrichment: WikimediaFighterEnrichment) 
   const payload = asRecord(current);
   const existingBackground = asRecord(payload.background);
   const existingRawFeature = asRecord(payload.rawFeature);
+  const existingPriors = asRecord(payload.backgroundPriors);
   const backgroundPriors = enrichment.extracted.backgroundPriors;
   return {
     ...payload,
     wikimedia: enrichment,
+    backgroundPriors: {
+      ...existingPriors,
+      wikimedia: {
+        source: "wikimedia",
+        confidence: enrichment.confidence,
+        pageTitle: enrichment.pageTitle,
+        pageId: enrichment.pageId,
+        sourceUrl: enrichment.sourceUrl,
+        retrievedAt: enrichment.retrievedAt,
+        priors: Object.fromEntries(Object.entries(backgroundPriors).map(([key, value]) => [key, safeMax(asRecord(asRecord(existingPriors).wikimedia).priors ? asRecord(asRecord(existingPriors).wikimedia).priors[key] : undefined, value)])),
+        evidence: enrichment.extracted.evidence
+      }
+    },
     background: {
       ...existingBackground,
       camp: existingBackground.camp ?? enrichment.extracted.camp,
       combatBase: existingBackground.combatBase ?? enrichment.extracted.combatBase,
       martialArts: unique([...(Array.isArray(existingBackground.martialArts) ? existingBackground.martialArts.map(String) : []), ...enrichment.extracted.martialArts]),
-      amateurSignal: Math.max(Number(existingBackground.amateurSignal ?? 0), enrichment.extracted.amateurSignal),
-      promotionTierSignal: Math.max(Number(existingBackground.promotionTierSignal ?? 0), enrichment.extracted.promotionTierSignal),
+      amateurSignal: safeMax(existingBackground.amateurSignal, enrichment.extracted.amateurSignal),
+      promotionTierSignal: safeMax(existingBackground.promotionTierSignal, enrichment.extracted.promotionTierSignal),
       source: "wikimedia-enrichment"
     },
     rawFeature: {
       ...existingRawFeature,
-      ...Object.fromEntries(Object.entries(backgroundPriors).map(([key, value]) => [key, Math.max(Number(existingRawFeature[key] ?? 0), value)])),
       combatBase: existingRawFeature.combatBase ?? enrichment.extracted.combatBase,
       camp: existingRawFeature.camp ?? enrichment.extracted.camp,
-      amateurSignal: Math.max(Number(existingRawFeature.amateurSignal ?? 0), enrichment.extracted.amateurSignal),
-      promotionTierSignal: Math.max(Number(existingRawFeature.promotionTierSignal ?? 0), enrichment.extracted.promotionTierSignal),
+      amateurSignal: safeMax(existingRawFeature.amateurSignal, enrichment.extracted.amateurSignal),
+      promotionTierSignal: safeMax(existingRawFeature.promotionTierSignal, enrichment.extracted.promotionTierSignal),
       wikimediaConfidence: enrichment.confidence
     },
     lastWikimediaEnrichmentAt: enrichment.retrievedAt
