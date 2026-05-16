@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
 import { buildEliteUfcFighterProfiles } from "@/services/ufc/elite-fighter-profile-builder";
 import { persistUfcCalibrationSnapshot } from "@/services/ufc/calibration";
+import { discoverCompletedUfcStatsEvents } from "@/services/ufc/ufcstats-event-discovery";
 import { fetchUfcStatsSnapshotWithDiagnostics } from "@/services/ufc/ufcstats-fetcher";
 
 type Options = {
@@ -11,6 +12,8 @@ type Options = {
   rebuildProfiles?: boolean;
   profileLimit?: number;
   horizonDays?: number;
+  discoverCompleted?: boolean;
+  eventLimit?: number;
 };
 
 type FightRow = {
@@ -103,7 +106,7 @@ function winnerIdFromName(fight: FightRow, winnerName: string | null | undefined
   return null;
 }
 
-async function updateFightResult(args: { fight: FightRow; winnerFighterId: string; winnerName: string; loserName?: string | null; method?: string | null; round?: number | null; time?: string | null; sourceFightId: string; sourceUrl: string; matchType: string }) {
+async function updateFightResult(args: { fight: FightRow; winnerFighterId: string; winnerName: string; loserName?: string | null; method?: string | null; round?: number | null; time?: string | null; sourceFightId: string; sourceUrl: string; matchType: string; eventName?: string | null; eventUrl?: string | null }) {
   await prisma.$executeRaw`
     UPDATE ufc_fights
     SET winner_fighter_id = ${args.winnerFighterId},
@@ -112,6 +115,8 @@ async function updateFightResult(args: { fight: FightRow; winnerFighterId: strin
         payload_json = COALESCE(payload_json, '{}'::jsonb) || ${JSON.stringify({
           resultSource: "ufcstats",
           resultSourceUrl: args.sourceUrl,
+          resultEventName: args.eventName ?? null,
+          resultEventUrl: args.eventUrl ?? null,
           resultMatchType: args.matchType,
           winnerName: args.winnerName,
           loserName: args.loserName ?? null,
@@ -195,43 +200,68 @@ async function updateRatingsFromCompletedResults(limit = 200) {
   return { completedFightCount: fights.length, ratingRowsUpserted: updated };
 }
 
+async function syncEventResults(args: { eventUrl: string; modelVersion: string }) {
+  const warnings: string[] = [];
+  const synced: Array<{ fightId: string; winnerFighterId: string; matchType: string; method: string | null; round: number | null; time: string | null; eventUrl: string }> = [];
+  const fetched = await fetchUfcStatsSnapshotWithDiagnostics({ eventUrl: args.eventUrl, modelVersion: args.modelVersion, snapshotAt: new Date().toISOString() });
+  for (const detail of fetched.fights) {
+    if (!detail.winnerName) {
+      warnings.push(`No winner parsed for ${detail.fighterAName} vs ${detail.fighterBName}`);
+      continue;
+    }
+    const match = await findInternalFight({ externalFightId: detail.sourceFightId, fighterAName: detail.fighterAName, fighterBName: detail.fighterBName, eventDate: fetched.event.eventDate });
+    if (!match) {
+      warnings.push(`No internal fight match for ${detail.fighterAName} vs ${detail.fighterBName}`);
+      continue;
+    }
+    const winnerFighterId = winnerIdFromName(match.fight, detail.winnerName);
+    if (!winnerFighterId) {
+      warnings.push(`Winner name did not match internal fighters for ${match.fight.id}: ${detail.winnerName}`);
+      continue;
+    }
+    await updateFightResult({
+      fight: match.fight,
+      winnerFighterId,
+      winnerName: detail.winnerName,
+      loserName: detail.loserName,
+      method: detail.method,
+      round: detail.round,
+      time: detail.time,
+      sourceFightId: detail.sourceFightId,
+      sourceUrl: detail.url,
+      matchType: match.matchType,
+      eventName: fetched.event.eventName,
+      eventUrl: args.eventUrl
+    });
+    synced.push({ fightId: match.fight.id, winnerFighterId, matchType: match.matchType, method: detail.method ?? null, round: detail.round ?? null, time: detail.time ?? null, eventUrl: args.eventUrl });
+  }
+  return { eventUrl: args.eventUrl, diagnostics: fetched.diagnostics, synced, warnings };
+}
+
 export async function runUfcResultSettlement(options: Options = {}) {
   const modelVersion = options.modelVersion ?? DEFAULT_MODEL_VERSION;
   const warnings: string[] = [];
-  const synced: Array<{ fightId: string; winnerFighterId: string; matchType: string; method: string | null; round: number | null; time: string | null }> = [];
-  let diagnostics: unknown = null;
+  const synced: Array<{ fightId: string; winnerFighterId: string; matchType: string; method: string | null; round: number | null; time: string | null; eventUrl?: string }> = [];
+  const diagnostics: unknown[] = [];
+  let discovery: unknown = null;
+  const eventUrls: string[] = [];
 
-  if (options.eventUrl) {
-    const fetched = await fetchUfcStatsSnapshotWithDiagnostics({ eventUrl: options.eventUrl, modelVersion, snapshotAt: new Date().toISOString() });
-    diagnostics = fetched.diagnostics;
-    for (const detail of fetched.fights) {
-      if (!detail.winnerName) {
-        warnings.push(`No winner parsed for ${detail.fighterAName} vs ${detail.fighterBName}`);
-        continue;
-      }
-      const match = await findInternalFight({ externalFightId: detail.sourceFightId, fighterAName: detail.fighterAName, fighterBName: detail.fighterBName, eventDate: fetched.event.eventDate });
-      if (!match) {
-        warnings.push(`No internal fight match for ${detail.fighterAName} vs ${detail.fighterBName}`);
-        continue;
-      }
-      const winnerFighterId = winnerIdFromName(match.fight, detail.winnerName);
-      if (!winnerFighterId) {
-        warnings.push(`Winner name did not match internal fighters for ${match.fight.id}: ${detail.winnerName}`);
-        continue;
-      }
-      await updateFightResult({
-        fight: match.fight,
-        winnerFighterId,
-        winnerName: detail.winnerName,
-        loserName: detail.loserName,
-        method: detail.method,
-        round: detail.round,
-        time: detail.time,
-        sourceFightId: detail.sourceFightId,
-        sourceUrl: detail.url,
-        matchType: match.matchType
-      });
-      synced.push({ fightId: match.fight.id, winnerFighterId, matchType: match.matchType, method: detail.method ?? null, round: detail.round ?? null, time: detail.time ?? null });
+  if (options.eventUrl) eventUrls.push(options.eventUrl);
+  if (options.discoverCompleted) {
+    const discovered = await discoverCompletedUfcStatsEvents({ limit: options.eventLimit ?? 3 });
+    discovery = discovered;
+    warnings.push(...discovered.warnings.map((warning) => `discovery: ${warning}`));
+    for (const event of discovered.events) eventUrls.push(event.eventUrl);
+  }
+
+  for (const eventUrl of Array.from(new Set(eventUrls))) {
+    try {
+      const eventResult = await syncEventResults({ eventUrl, modelVersion });
+      synced.push(...eventResult.synced);
+      warnings.push(...eventResult.warnings.map((warning) => `${eventUrl}: ${warning}`));
+      diagnostics.push(eventResult.diagnostics);
+    } catch (error) {
+      warnings.push(`${eventUrl}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -246,6 +276,9 @@ export async function runUfcResultSettlement(options: Options = {}) {
     ok: warnings.length === 0,
     modelVersion,
     eventUrl: options.eventUrl ?? null,
+    discoverCompleted: Boolean(options.discoverCompleted),
+    discovery,
+    eventsProcessed: Array.from(new Set(eventUrls)).length,
     syncedFightCount: synced.length,
     settledPredictionCount,
     ratings,
