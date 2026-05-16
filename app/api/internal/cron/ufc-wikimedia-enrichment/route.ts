@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { ensureInternalApiAccess } from "@/lib/utils/internal-api";
+import { applyWikimediaPriorsToUfcModelFeatures } from "@/services/ufc/wikimedia-prior-feature-blend";
 import { runWikimediaFighterEnrichment } from "@/services/ufc/wikimedia-fighter-enrichment";
 
 export const dynamic = "force-dynamic";
@@ -21,14 +22,27 @@ export async function GET(request: Request) {
   if (authError) return authError;
 
   const url = new URL(request.url);
+  const dryRun = parseBool(url.searchParams.get("dryRun"));
+  const rebuildProfiles = parseBool(url.searchParams.get("rebuildProfiles"));
+  const applyPriors = parseBool(url.searchParams.get("applyPriors")) || rebuildProfiles;
+  const modelVersion = url.searchParams.get("modelVersion") ?? undefined;
+  const horizonDays = parseIntParam(url.searchParams.get("horizonDays"), 180, 1, 365);
   const result = await runWikimediaFighterEnrichment({
     limit: parseIntParam(url.searchParams.get("limit"), 50, 1, 200),
     offset: parseIntParam(url.searchParams.get("offset"), 0, 0, 100_000),
-    dryRun: parseBool(url.searchParams.get("dryRun")),
-    rebuildProfiles: parseBool(url.searchParams.get("rebuildProfiles")),
-    modelVersion: url.searchParams.get("modelVersion") ?? undefined,
-    horizonDays: parseIntParam(url.searchParams.get("horizonDays"), 180, 1, 365)
+    dryRun,
+    rebuildProfiles,
+    modelVersion,
+    horizonDays
   });
 
-  return NextResponse.json(result);
+  const priorBlend = applyPriors && !dryRun
+    ? await applyWikimediaPriorsToUfcModelFeatures({
+      modelVersion,
+      horizonDays,
+      limit: parseIntParam(url.searchParams.get("featureLimit"), 1000, 1, 5000)
+    })
+    : null;
+
+  return NextResponse.json({ ...result, priorBlend });
 }
