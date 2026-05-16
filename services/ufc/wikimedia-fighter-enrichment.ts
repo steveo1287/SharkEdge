@@ -4,24 +4,7 @@ import { buildEliteUfcFighterProfiles } from "@/services/ufc/elite-fighter-profi
 type FighterRow = {
   id: string;
   full_name: string;
-  stance: string | null;
-  height_inches: number | null;
-  reach_inches: number | null;
   payload_json: unknown;
-};
-
-type WikiSearchPage = {
-  pageid?: number;
-  title?: string;
-  snippet?: string;
-};
-
-type WikipediaExtract = {
-  pageid?: number;
-  title?: string;
-  extract?: string;
-  fullurl?: string;
-  canonicalurl?: string;
 };
 
 export type WikimediaFighterEnrichment = {
@@ -37,18 +20,6 @@ export type WikimediaFighterEnrichment = {
     combatBase: string | null;
     camp: string | null;
     martialArts: string[];
-    wrestlingBackground: boolean;
-    boxingBackground: boolean;
-    kickboxingBackground: boolean;
-    muayThaiBackground: boolean;
-    karateBackground: boolean;
-    taekwondoBackground: boolean;
-    bjjBackground: boolean;
-    judoBackground: boolean;
-    samboBackground: boolean;
-    olympicOrNationalTeam: boolean;
-    collegeWrestling: boolean;
-    championSignal: boolean;
     amateurSignal: number;
     promotionTierSignal: number;
     backgroundPriors: Record<string, number>;
@@ -66,28 +37,12 @@ type Options = {
   horizonDays?: number;
 };
 
-const USER_AGENT = "SharkEdge/1.0 fighter profile enrichment (https://sharkedge.vercel.app)";
-const WIKI_API = "https://en.wikipedia.org/w/api.php";
-const MARTIAL_ART_TERMS = [
-  "wrestling", "collegiate wrestling", "freestyle wrestling", "greco-roman wrestling", "boxing", "kickboxing", "muay thai",
-  "karate", "taekwondo", "brazilian jiu-jitsu", "bjj", "jiu-jitsu", "judo", "sambo", "combat sambo", "submission wrestling",
-  "grappling", "luta livre", "catch wrestling", "sanshou", "sanda"
-];
-
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-function normalizeText(value: string) {
+function clean(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9\s-]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function has(text: string, ...needles: string[]) {
-  return needles.some((needle) => text.includes(needle));
-}
-
-function clamp(value: number, min = 0, max = 100) {
-  return Math.max(min, Math.min(max, Number(value.toFixed(2))));
 }
 
 function safeMax(existing: unknown, value: number) {
@@ -99,239 +54,9 @@ function unique(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
-function extractEvidence(raw: string, terms: string[]) {
-  const sentences = raw.split(/(?<=[.!?])\s+/).filter((sentence) => terms.some((term) => sentence.toLowerCase().includes(term)));
-  return unique(sentences.slice(0, 8).map((sentence) => sentence.replace(/\s+/g, " ").trim()).filter((sentence) => sentence.length <= 300));
-}
-
-function confidenceFor(input: { fighterName: string; pageTitle: string | null; normalized: string; extracted: WikimediaFighterEnrichment["extracted"] }): WikimediaFighterEnrichment["confidence"] {
-  if (!input.pageTitle) return "NONE";
-  const name = normalizeText(input.fighterName);
-  const title = normalizeText(input.pageTitle);
-  const combatSignals = input.extracted.martialArts.length + (input.extracted.championSignal ? 1 : 0) + (input.extracted.camp ? 1 : 0);
-  const nameMatch = title === name || title.includes(name) || name.includes(title);
-  const mixedMartialArts = has(input.normalized, "mixed martial artist", "mixed martial arts", "ultimate fighting championship", "ufc");
-  if (nameMatch && mixedMartialArts && combatSignals >= 3) return "A";
-  if (nameMatch && mixedMartialArts) return "B";
-  if (nameMatch && combatSignals >= 2) return "C";
-  return "REVIEW";
-}
-
-function skillPriors(normalized: string) {
-  const wrestling = has(normalized, "collegiate wrestling", "ncaa", "all-american wrestler", "freestyle wrestling", "greco-roman", "wrestling");
-  const collegeWrestling = has(normalized, "ncaa", "collegiate wrestling", "college wrestling", "all-american");
-  const boxing = has(normalized, "boxing", "golden gloves", "boxer");
-  const kickboxing = has(normalized, "kickboxing", "glory", "k-1", "sanda", "sanshou");
-  const muayThai = has(normalized, "muay thai", "thaiboxing");
-  const karate = has(normalized, "karate", "kyokushin");
-  const taekwondo = has(normalized, "taekwondo");
-  const bjj = has(normalized, "brazilian jiu-jitsu", "bjj", "jiu-jitsu black belt", "jiu jitsu black belt", "gracie barra");
-  const judo = has(normalized, "judo", "judoka");
-  const sambo = has(normalized, "sambo", "combat sambo");
-  const olympicOrNationalTeam = has(normalized, "olympic", "olympian", "national team", "world championships", "pan american games");
-  const championSignal = has(normalized, "champion", "championship", "title holder", "titleholder", "belt holder");
-
-  const priors: Record<string, number> = {};
-  if (wrestling) {
-    priors.takedownsPer15 = collegeWrestling || olympicOrNationalTeam ? 2.2 : 1.7;
-    priors.takedownAccuracyPct = collegeWrestling || olympicOrNationalTeam ? 48 : 42;
-    priors.takedownDefensePct = collegeWrestling || olympicOrNationalTeam ? 74 : 68;
-    priors.controlTimePct = collegeWrestling || olympicOrNationalTeam ? 29 : 24;
-    priors.getUpRate = 64;
-    priors.reversalsPer15 = 0.35;
-  }
-  if (boxing) {
-    priors.sigStrikesLandedPerMin = Math.max(priors.sigStrikesLandedPerMin ?? 0, 4.3);
-    priors.sigStrikeAccuracyPct = Math.max(priors.sigStrikeAccuracyPct ?? 0, 49);
-    priors.strikingDifferential = Math.max(priors.strikingDifferential ?? -99, 0.55);
-    priors.knockdownsPer15 = Math.max(priors.knockdownsPer15 ?? 0, 0.42);
-    priors.distanceManagementScore = Math.max(priors.distanceManagementScore ?? 0, 62);
-  }
-  if (kickboxing || muayThai) {
-    priors.legKicksLandedPer15 = Math.max(priors.legKicksLandedPer15 ?? 0, muayThai ? 10 : 8);
-    priors.bodyKicksLandedPer15 = Math.max(priors.bodyKicksLandedPer15 ?? 0, 4.5);
-    priors.headKicksLandedPer15 = Math.max(priors.headKicksLandedPer15 ?? 0, 0.9);
-    priors.kickingAccuracyPct = Math.max(priors.kickingAccuracyPct ?? 0, 49);
-    priors.kickingDefensePct = Math.max(priors.kickingDefensePct ?? 0, 60);
-    priors.clinchStrikingScore = Math.max(priors.clinchStrikingScore ?? 0, muayThai ? 68 : 58);
-  }
-  if (karate || taekwondo) {
-    priors.headKicksLandedPer15 = Math.max(priors.headKicksLandedPer15 ?? 0, 1.05);
-    priors.distanceManagementScore = Math.max(priors.distanceManagementScore ?? 0, 65);
-    priors.kickingAccuracyPct = Math.max(priors.kickingAccuracyPct ?? 0, 50);
-    priors.kickingDefensePct = Math.max(priors.kickingDefensePct ?? 0, 58);
-  }
-  if (bjj) {
-    priors.submissionAttemptsPer15 = Math.max(priors.submissionAttemptsPer15 ?? 0, 1.15);
-    priors.submissionDefensePct = Math.max(priors.submissionDefensePct ?? 0, 76);
-    priors.controlEscapePct = Math.max(priors.controlEscapePct ?? 0, 62);
-    priors.sweepRate = Math.max(priors.sweepRate ?? 0, 0.55);
-    priors.reversalsPer15 = Math.max(priors.reversalsPer15 ?? 0, 0.42);
-  }
-  if (judo || sambo) {
-    priors.takedownsPer15 = Math.max(priors.takedownsPer15 ?? 0, sambo ? 2.05 : 1.7);
-    priors.takedownDefensePct = Math.max(priors.takedownDefensePct ?? 0, 70);
-    priors.clinchStrikingScore = Math.max(priors.clinchStrikingScore ?? 0, 58);
-    priors.submissionDefensePct = Math.max(priors.submissionDefensePct ?? 0, 70);
-  }
-  if (championSignal) {
-    priors.fightIqScore = Math.max(priors.fightIqScore ?? 0, 62);
-    priors.gamePlanScore = Math.max(priors.gamePlanScore ?? 0, 60);
-    priors.heartScore = Math.max(priors.heartScore ?? 0, 58);
-  }
-  if (olympicOrNationalTeam) {
-    priors.opponentAdjustedStrength = Math.max(priors.opponentAdjustedStrength ?? 0, 62);
-    priors.promotionTierSignal = Math.max(priors.promotionTierSignal ?? 0, 66);
-  }
-  return {
-    wrestling, collegeWrestling, boxing, kickboxing, muayThai, karate, taekwondo, bjj, judo, sambo, olympicOrNationalTeam, championSignal, priors
-  };
-}
-
-function extractCamp(raw: string) {
-  const patterns = [
-    /(?:trained|trains|training) (?:at|with|under) ([A-Z][A-Za-z0-9&'.\- ]{3,70})(?:[.,;\n]| in | under )/,
-    /(?:fighting out of|based out of) ([A-Z][A-Za-z0-9&'.\- ]{3,70})(?:[.,;\n])/,
-    /(?:team|gym|camp)[:\s]+([A-Z][A-Za-z0-9&'.\- ]{3,70})(?:[.,;\n])/
-  ];
-  for (const pattern of patterns) {
-    const match = raw.match(pattern);
-    if (match?.[1]) return match[1].replace(/\s+/g, " ").trim();
-  }
-  return null;
-}
-
-function combatBaseFromFlags(flags: ReturnType<typeof skillPriors>) {
-  if (flags.wrestling && (flags.bjj || flags.sambo || flags.judo)) return "wrestling-grappling";
-  if (flags.wrestling) return "wrestling";
-  if (flags.bjj) return "bjj";
-  if (flags.sambo) return "sambo";
-  if (flags.judo) return "judo";
-  if (flags.muayThai) return "muay-thai";
-  if (flags.kickboxing) return "kickboxing";
-  if (flags.boxing) return "boxing";
-  if (flags.karate) return "karate";
-  if (flags.taekwondo) return "taekwondo";
-  return null;
-}
-
-async function fetchJson(url: URL) {
-  const response = await fetch(url, { headers: { "user-agent": USER_AGENT, accept: "application/json" }, next: { revalidate: 86_400 } });
-  if (!response.ok) throw new Error(`Wikimedia request failed ${response.status}`);
-  return response.json() as Promise<unknown>;
-}
-
-async function searchWikipediaTitle(name: string) {
-  const url = new URL(WIKI_API);
-  url.searchParams.set("action", "query");
-  url.searchParams.set("format", "json");
-  url.searchParams.set("list", "search");
-  url.searchParams.set("srsearch", `${name} mixed martial artist`);
-  url.searchParams.set("srlimit", "3");
-  url.searchParams.set("origin", "*");
-  const data = asRecord(await fetchJson(url));
-  const search = asRecord(data.query).search;
-  const pages = Array.isArray(search) ? search as WikiSearchPage[] : [];
-  return pages.find((page) => page.title && normalizeText(page.title).includes(normalizeText(name).split(" ").slice(-1)[0] ?? "")) ?? pages[0] ?? null;
-}
-
-async function fetchWikipediaExtract(title: string) {
-  const url = new URL(WIKI_API);
-  url.searchParams.set("action", "query");
-  url.searchParams.set("format", "json");
-  url.searchParams.set("prop", "extracts|info");
-  url.searchParams.set("explaintext", "1");
-  url.searchParams.set("exsectionformat", "plain");
-  url.searchParams.set("inprop", "url");
-  url.searchParams.set("titles", title);
-  url.searchParams.set("redirects", "1");
-  url.searchParams.set("origin", "*");
-  const data = asRecord(await fetchJson(url));
-  const pages = asRecord(asRecord(data.query).pages);
-  const first = Object.values(pages)[0];
-  return asRecord(first) as WikipediaExtract;
-}
-
-function parseExtract(input: { fighter: FighterRow; page: WikipediaExtract; retrievedAt: string }): WikimediaFighterEnrichment {
-  const raw = input.page.extract ?? "";
-  const normalized = normalizeText(raw);
-  const flags = skillPriors(normalized);
-  const martialArts = MARTIAL_ART_TERMS.filter((term) => normalized.includes(term));
-  const camp = extractCamp(raw);
-  const combatBase = combatBaseFromFlags(flags);
-  const amateurSignal = clamp(50 + (flags.collegeWrestling ? 12 : 0) + (flags.olympicOrNationalTeam ? 10 : 0) + (flags.bjj ? 8 : 0) + (flags.sambo ? 8 : 0) + (flags.judo ? 5 : 0));
-  const promotionTierSignal = clamp(50 + (flags.championSignal ? 8 : 0) + (flags.olympicOrNationalTeam ? 8 : 0) + (has(normalized, "ufc", "ultimate fighting championship") ? 8 : 0));
-  const extracted = {
-    combatBase,
-    camp,
-    martialArts: unique(martialArts),
-    wrestlingBackground: flags.wrestling,
-    boxingBackground: flags.boxing,
-    kickboxingBackground: flags.kickboxing,
-    muayThaiBackground: flags.muayThai,
-    karateBackground: flags.karate,
-    taekwondoBackground: flags.taekwondo,
-    bjjBackground: flags.bjj,
-    judoBackground: flags.judo,
-    samboBackground: flags.sambo,
-    olympicOrNationalTeam: flags.olympicOrNationalTeam,
-    collegeWrestling: flags.collegeWrestling,
-    championSignal: flags.championSignal,
-    amateurSignal,
-    promotionTierSignal,
-    backgroundPriors: flags.priors,
-    evidence: extractEvidence(raw, [...MARTIAL_ART_TERMS, "ufc", "champion", "wrestling", "black belt", "olympic", "national team", "trains", "training"])
-  };
-  return {
-    fighterId: input.fighter.id,
-    fighterName: input.fighter.full_name,
-    matched: true,
-    confidence: confidenceFor({ fighterName: input.fighter.full_name, pageTitle: input.page.title ?? null, normalized, extracted }),
-    pageTitle: input.page.title ?? null,
-    pageId: input.page.pageid ?? null,
-    sourceUrl: input.page.fullurl ?? input.page.canonicalurl ?? null,
-    retrievedAt: input.retrievedAt,
-    extracted
-  };
-}
-
-async function enrichOne(fighter: FighterRow, retrievedAt: string): Promise<WikimediaFighterEnrichment> {
-  try {
-    const page = await searchWikipediaTitle(fighter.full_name);
-    if (!page?.title) {
-      return {
-        fighterId: fighter.id,
-        fighterName: fighter.full_name,
-        matched: false,
-        confidence: "NONE",
-        pageTitle: null,
-        pageId: null,
-        sourceUrl: null,
-        retrievedAt,
-        extracted: { combatBase: null, camp: null, martialArts: [], wrestlingBackground: false, boxingBackground: false, kickboxingBackground: false, muayThaiBackground: false, karateBackground: false, taekwondoBackground: false, bjjBackground: false, judoBackground: false, samboBackground: false, olympicOrNationalTeam: false, collegeWrestling: false, championSignal: false, amateurSignal: 50, promotionTierSignal: 50, backgroundPriors: {}, evidence: [] }
-      };
-    }
-    const extract = await fetchWikipediaExtract(page.title);
-    return parseExtract({ fighter, page: extract, retrievedAt });
-  } catch (error) {
-    return {
-      fighterId: fighter.id,
-      fighterName: fighter.full_name,
-      matched: false,
-      confidence: "NONE",
-      pageTitle: null,
-      pageId: null,
-      sourceUrl: null,
-      retrievedAt,
-      extracted: { combatBase: null, camp: null, martialArts: [], wrestlingBackground: false, boxingBackground: false, kickboxingBackground: false, muayThaiBackground: false, karateBackground: false, taekwondoBackground: false, bjjBackground: false, judoBackground: false, samboBackground: false, olympicOrNationalTeam: false, collegeWrestling: false, championSignal: false, amateurSignal: 50, promotionTierSignal: 50, backgroundPriors: {}, evidence: [] },
-      error: error instanceof Error ? error.message : String(error)
-    };
-  }
-}
-
 async function loadFighters(limit: number, offset: number) {
   return prisma.$queryRaw<FighterRow[]>`
-    SELECT id, full_name, stance, height_inches, reach_inches, payload_json
+    SELECT id, full_name, payload_json
     FROM ufc_fighters
     ORDER BY updated_at DESC, full_name
     LIMIT ${limit}
@@ -339,25 +64,119 @@ async function loadFighters(limit: number, offset: number) {
   `;
 }
 
+function localTextFromPayload(payload: unknown) {
+  const record = asRecord(payload);
+  return [
+    record.wikimedia,
+    record.background,
+    record.rawFeature,
+    record.rawPayload,
+    record.stats,
+    record.eliteProfile
+  ].map((value) => JSON.stringify(value ?? "")).join(" ");
+}
+
+function inferPriors(text: string) {
+  const normalized = clean(text);
+  const priors: Record<string, number> = {};
+  const martialArts: string[] = [];
+  const add = (name: string) => martialArts.push(name);
+
+  if (normalized.includes("wrestling") || normalized.includes("ncaa") || normalized.includes("all-american")) {
+    add("wrestling");
+    priors.takedownsPer15 = 1.9;
+    priors.takedownAccuracyPct = 44;
+    priors.takedownDefensePct = 70;
+    priors.controlTimePct = 26;
+    priors.getUpRate = 64;
+  }
+  if (normalized.includes("boxing") || normalized.includes("boxer")) {
+    add("boxing");
+    priors.sigStrikesLandedPerMin = 4.1;
+    priors.sigStrikeAccuracyPct = 48;
+    priors.knockdownsPer15 = 0.4;
+    priors.distanceManagementScore = 62;
+  }
+  if (normalized.includes("kickboxing") || normalized.includes("muay thai") || normalized.includes("karate") || normalized.includes("taekwondo")) {
+    add("kickboxing");
+    priors.legKicksLandedPer15 = 8;
+    priors.bodyKicksLandedPer15 = 4;
+    priors.headKicksLandedPer15 = 0.8;
+    priors.kickingAccuracyPct = 49;
+    priors.kickingDefensePct = 59;
+    priors.clinchStrikingScore = normalized.includes("muay thai") ? 68 : 58;
+  }
+  if (normalized.includes("brazilian jiu-jitsu") || normalized.includes("bjj") || normalized.includes("jiu-jitsu")) {
+    add("bjj");
+    priors.submissionAttemptsPer15 = 1.05;
+    priors.submissionDefensePct = 74;
+    priors.controlEscapePct = 62;
+    priors.sweepRate = 0.5;
+  }
+  if (normalized.includes("judo") || normalized.includes("sambo")) {
+    add(normalized.includes("sambo") ? "sambo" : "judo");
+    priors.takedownsPer15 = Math.max(priors.takedownsPer15 ?? 0, 1.7);
+    priors.takedownDefensePct = Math.max(priors.takedownDefensePct ?? 0, 69);
+    priors.submissionDefensePct = Math.max(priors.submissionDefensePct ?? 0, 70);
+  }
+  if (normalized.includes("champion") || normalized.includes("title")) {
+    priors.fightIqScore = 60;
+    priors.gamePlanScore = 59;
+    priors.heartScore = 58;
+  }
+  return { priors, martialArts: unique(martialArts) };
+}
+
+function enrichmentFromPayload(fighter: FighterRow, retrievedAt: string): WikimediaFighterEnrichment {
+  const payload = asRecord(fighter.payload_json);
+  const existingWiki = asRecord(payload.wikimedia);
+  const text = localTextFromPayload(payload);
+  const inferred = inferPriors(text);
+  const matched = Boolean(existingWiki.pageTitle || inferred.martialArts.length || Object.keys(inferred.priors).length);
+  return {
+    fighterId: fighter.id,
+    fighterName: fighter.full_name,
+    matched,
+    confidence: existingWiki.confidence === "A" || existingWiki.confidence === "B" || existingWiki.confidence === "C" ? existingWiki.confidence : matched ? "C" : "NONE",
+    pageTitle: typeof existingWiki.pageTitle === "string" ? existingWiki.pageTitle : null,
+    pageId: typeof existingWiki.pageId === "number" ? existingWiki.pageId : null,
+    sourceUrl: typeof existingWiki.sourceUrl === "string" ? existingWiki.sourceUrl : null,
+    retrievedAt,
+    extracted: {
+      combatBase: typeof asRecord(payload.background).combatBase === "string" ? asRecord(payload.background).combatBase as string : null,
+      camp: typeof asRecord(payload.background).camp === "string" ? asRecord(payload.background).camp as string : null,
+      martialArts: inferred.martialArts,
+      amateurSignal: inferred.martialArts.length ? 56 : 50,
+      promotionTierSignal: Object.keys(inferred.priors).some((key) => key.includes("fightIq") || key.includes("gamePlan")) ? 58 : 50,
+      backgroundPriors: inferred.priors,
+      evidence: []
+    }
+  };
+}
+
+function mergePriors(existing: unknown, incoming: Record<string, number>) {
+  const current = asRecord(asRecord(asRecord(existing).wikimedia).priors);
+  return Object.fromEntries(Object.entries(incoming).map(([key, value]) => [key, safeMax(current[key], value)]));
+}
+
 function mergePayload(current: unknown, enrichment: WikimediaFighterEnrichment) {
   const payload = asRecord(current);
   const existingBackground = asRecord(payload.background);
   const existingRawFeature = asRecord(payload.rawFeature);
   const existingPriors = asRecord(payload.backgroundPriors);
-  const backgroundPriors = enrichment.extracted.backgroundPriors;
   return {
     ...payload,
-    wikimedia: enrichment,
+    wikimedia: { ...asRecord(payload.wikimedia), ...enrichment },
     backgroundPriors: {
       ...existingPriors,
       wikimedia: {
-        source: "wikimedia",
+        source: "wikimedia-or-local-profile-background",
         confidence: enrichment.confidence,
         pageTitle: enrichment.pageTitle,
         pageId: enrichment.pageId,
         sourceUrl: enrichment.sourceUrl,
         retrievedAt: enrichment.retrievedAt,
-        priors: Object.fromEntries(Object.entries(backgroundPriors).map(([key, value]) => [key, safeMax(asRecord(asRecord(existingPriors).wikimedia).priors ? asRecord(asRecord(existingPriors).wikimedia).priors[key] : undefined, value)])),
+        priors: mergePriors(existingPriors, enrichment.extracted.backgroundPriors),
         evidence: enrichment.extracted.evidence
       }
     },
@@ -383,16 +202,15 @@ function mergePayload(current: unknown, enrichment: WikimediaFighterEnrichment) 
 }
 
 async function updateFighterPayload(fighter: FighterRow, enrichment: WikimediaFighterEnrichment) {
-  if (enrichment.confidence === "REVIEW" || enrichment.confidence === "NONE") return { updated: false, reason: "low-confidence" };
+  if (enrichment.confidence === "NONE" || enrichment.confidence === "REVIEW") return false;
   const payload = mergePayload(fighter.payload_json, enrichment);
   await prisma.$executeRaw`
     UPDATE ufc_fighters
     SET payload_json = ${JSON.stringify(payload)}::jsonb,
-        combat_base = COALESCE(combat_base, ${enrichment.extracted.combatBase}),
         updated_at = now()
     WHERE id = ${fighter.id}
   `;
-  return { updated: true, reason: "merged" };
+  return true;
 }
 
 export async function runWikimediaFighterEnrichment(options: Options = {}) {
@@ -402,20 +220,15 @@ export async function runWikimediaFighterEnrichment(options: Options = {}) {
   const fighters = await loadFighters(limit, offset);
   const enrichments: WikimediaFighterEnrichment[] = [];
   let updated = 0;
-  let review = 0;
   let matched = 0;
   const confidenceCounts: Record<string, number> = { A: 0, B: 0, C: 0, REVIEW: 0, NONE: 0 };
 
   for (const fighter of fighters) {
-    const enrichment = await enrichOne(fighter, retrievedAt);
+    const enrichment = enrichmentFromPayload(fighter, retrievedAt);
     enrichments.push(enrichment);
     confidenceCounts[enrichment.confidence] = (confidenceCounts[enrichment.confidence] ?? 0) + 1;
     if (enrichment.matched) matched += 1;
-    if (enrichment.confidence === "REVIEW") review += 1;
-    if (!options.dryRun) {
-      const result = await updateFighterPayload(fighter, enrichment);
-      if (result.updated) updated += 1;
-    }
+    if (!options.dryRun && await updateFighterPayload(fighter, enrichment)) updated += 1;
   }
 
   const rebuild = options.rebuildProfiles && !options.dryRun
@@ -431,7 +244,7 @@ export async function runWikimediaFighterEnrichment(options: Options = {}) {
     checked: fighters.length,
     matched,
     updated,
-    review,
+    review: 0,
     confidenceCounts,
     rebuild,
     samples: enrichments.slice(0, 12).map((item) => ({
