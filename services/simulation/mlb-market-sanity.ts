@@ -173,8 +173,8 @@ function namesForBoardEvent(event: BoardEvent) {
 }
 
 function namesForEventName(eventName: string | null | undefined) {
-  const raw = String(eventName ?? "");
-  const atSplit = raw.split(" @ ");
+  const raw = String(eventName ?? "").trim();
+  const atSplit = raw.split(/\s+@\s+|\s+at\s+/i);
   if (atSplit.length === 2) return { away: atSplit[0]?.trim() ?? "", home: atSplit[1]?.trim() ?? "" };
   const vsSplit = raw.split(" vs ");
   if (vsSplit.length === 2) return { away: vsSplit[0]?.trim() ?? "", home: vsSplit[1]?.trim() ?? "" };
@@ -264,30 +264,39 @@ async function fromMarketLineHistory(awayTeam: string, homeTeam: string, gameId?
   try {
     const normalizedGameId = String(gameId ?? "").trim();
     const rows = await prisma.$queryRaw<MarketLineHistoryRow[]>`
-      SELECT DISTINCT ON (event_id, market_type, side, selection, sportsbook_name)
-        event_id,
-        event_name,
-        start_time,
-        market_type,
-        side,
-        selection,
-        sportsbook_name,
-        price,
-        point
-      FROM market_line_history
-      WHERE league = 'MLB'
-        AND start_time >= now() - interval '2 days'
-        AND start_time <= now() + interval '10 days'
-        AND market_type IN ('moneyline', 'total')
-        AND (${normalizedGameId} = '' OR event_id = ${normalizedGameId})
-      ORDER BY event_id, market_type, side, selection, sportsbook_name, captured_at DESC
-      LIMIT 2500
+      WITH latest AS (
+        SELECT DISTINCT ON (mlh.event_id, mlh.sportsbook_name, mlh.market_type, mlh.side, COALESCE(mlh.selection, ''))
+          mlh.event_id,
+          e.name AS event_name,
+          e."startTime" AS start_time,
+          mlh.market_type,
+          mlh.side,
+          mlh.selection,
+          mlh.sportsbook_name,
+          mlh.price,
+          mlh.point
+        FROM market_line_history mlh
+        JOIN events e ON e.id = mlh.event_id
+        JOIN leagues l ON l.id = e."leagueId"
+        WHERE l.key = 'MLB'
+          AND e."startTime" >= now() - interval '1 day'
+          AND e."startTime" <= now() + interval '4 days'
+          AND mlh.captured_at >= now() - interval '10 days'
+          AND mlh.market_type IN ('moneyline', 'total')
+          AND mlh.price IS NOT NULL
+          AND (${normalizedGameId} = '' OR mlh.event_id = ${normalizedGameId})
+        ORDER BY mlh.event_id, mlh.sportsbook_name, mlh.market_type, mlh.side, COALESCE(mlh.selection, ''), mlh.captured_at DESC
+      )
+      SELECT *
+      FROM latest
+      ORDER BY start_time ASC
+      LIMIT 800
     `;
 
     const lines = new Map<string, HistoryLine>();
     for (const row of rows) {
       const names = namesForEventName(row.event_name);
-      if (normalizedGameId === "" && (!looseTeamMatch(names.away, awayTeam) || !looseTeamMatch(names.home, homeTeam))) continue;
+      if (!looseTeamMatch(names.away, awayTeam) || !looseTeamMatch(names.home, homeTeam)) continue;
 
       const sportsbook = row.sportsbook_name ?? "market-line-history";
       const key = `${row.event_id}:${sportsbook}`;
@@ -323,9 +332,34 @@ async function fromMarketLineHistory(awayTeam: string, homeTeam: string, gameId?
       return fromMarketLineHistory(awayTeam, homeTeam, null);
     }
 
+    const markets: MlbNoVigMarket[] = [];
     for (const line of lines.values()) {
       const market = mergeMarket({
-        source: line.sportsbook,
+        source: `market-line-history:${line.sportsbook}`,
+        awayTeam,
+        homeTeam,
+        awayOddsAmerican: line.awayOddsAmerican,
+        homeOddsAmerican: line.homeOddsAmerican,
+        totalLine: line.totalLine,
+        overOddsAmerican: line.overOddsAmerican,
+        underOddsAmerican: line.underOddsAmerican
+      });
+      if (market) markets.push(market);
+    }
+
+    const moneylineMarket = markets
+      .filter((market) => market.homeNoVigProbability != null && market.awayNoVigProbability != null)
+      .sort((left, right) => (left.hold ?? 1) - (right.hold ?? 1))[0];
+    if (moneylineMarket) return moneylineMarket;
+
+    const totalMarket = markets
+      .filter((market) => market.totalLine != null)
+      .sort((left, right) => (left.totalHold ?? 1) - (right.totalHold ?? 1))[0];
+    if (totalMarket) return totalMarket;
+
+    for (const line of lines.values()) {
+      const market = mergeMarket({
+        source: `market-line-history:${line.sportsbook}`,
         awayTeam,
         homeTeam,
         awayOddsAmerican: line.awayOddsAmerican,
