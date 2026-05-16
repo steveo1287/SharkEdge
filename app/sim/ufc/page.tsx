@@ -38,6 +38,10 @@ function latestSim(cards: UfcCardSummary[]) {
     .at(-1) ?? null;
 }
 
+function isFeaturedCard(card: UfcCardSummary) {
+  return card.fightCount > 0 && card.simulatedFightCount > 0 && card.dataQualityGrade !== "D";
+}
+
 function nextDisplayCard(cards: UfcCardSummary[]) {
   const now = Date.now() - 12 * 60 * 60 * 1000;
   return [...cards]
@@ -91,11 +95,12 @@ function MiniStat({ label, value }: { label: string; value: string | number }) {
 }
 
 function ProductRail({ cards }: { cards: UfcCardSummary[] }) {
-  const fightCount = cards.reduce((sum, card) => sum + card.fightCount, 0);
-  const simulatedFightCount = cards.reduce((sum, card) => sum + card.simulatedFightCount, 0);
+  const featured = cards.filter(isFeaturedCard);
+  const fightCount = featured.reduce((sum, card) => sum + card.fightCount, 0);
+  const simulatedFightCount = featured.reduce((sum, card) => sum + card.simulatedFightCount, 0);
   const pendingCount = Math.max(0, fightCount - simulatedFightCount);
   const resolvedShadowCount = cards.reduce((sum, card) => sum + card.shadowResolvedCount, 0);
-  const targetCard = nextDisplayCard(cards);
+  const targetCard = nextDisplayCard(featured);
   const tone = readinessTone({ fightCount, simulatedFightCount, pendingSimCount: pendingCount });
   const lastSim = latestSim(cards);
 
@@ -104,23 +109,23 @@ function ProductRail({ cards }: { cards: UfcCardSummary[] }) {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="text-[10px] font-black uppercase tracking-[0.22em] text-aqua">MMA Fight Lab</div>
-          <h2 className="mt-1 font-display text-3xl font-black tracking-[-0.06em] text-white">UFC + MVP fight simulation surface</h2>
+          <h2 className="mt-1 font-display text-3xl font-black tracking-[-0.06em] text-white">Featured fight simulation surface</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            This is the sim-first combat lane: UFC cards, MVP fight promotions, feature readiness, method probabilities, fight paths, source audits, and model diagnostics. It does not rely on TrendsCenter-style historical trend storage.
+            Featured MMA cards exclude cold-start D-grade research cards. Those stay available below in Research Lab until fighter profiles, market odds, and source cross-checks improve.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/sim" className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-300">Sim hub</Link>
           {targetCard ? (
-            <Link href={`/sim/ufc/cards/${targetCard.eventId}`} className="rounded-full border border-aqua/30 bg-aqua/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-aqua">Open target card</Link>
+            <Link href={`/sim/ufc/cards/${targetCard.eventId}`} className="rounded-full border border-aqua/30 bg-aqua/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-aqua">Open featured card</Link>
           ) : null}
         </div>
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <LabMetric label="Cards" value={cards.length} sub={targetCard ? `Target: ${targetCard.eventLabel}` : "No card rows loaded"} tone={cards.length ? tone : "cold"} />
-        <LabMetric label="Fights" value={fightCount} sub={`${pendingCount} pending simulation`} tone={fightCount ? tone : "cold"} />
-        <LabMetric label="Sim coverage" value={pct(simulatedFightCount, fightCount)} sub={`${simulatedFightCount}/${fightCount} fights simulated`} tone={tone} />
+        <LabMetric label="Featured cards" value={featured.length} sub={targetCard ? `Target: ${targetCard.eventLabel}` : `${cards.length} research cards hidden from featured`} tone={featured.length ? tone : "cold"} />
+        <LabMetric label="Featured fights" value={fightCount} sub={`${pendingCount} pending simulation`} tone={fightCount ? tone : "cold"} />
+        <LabMetric label="Sim coverage" value={pct(simulatedFightCount, fightCount)} sub={`${simulatedFightCount}/${fightCount} featured fights simulated`} tone={tone} />
         <LabMetric label="Shadow review" value={resolvedShadowCount} sub={`Last sim: ${dateLabel(lastSim)}`} tone={resolvedShadowCount ? "ready" : tone} />
       </div>
     </section>
@@ -214,7 +219,7 @@ function ProductChecklist() {
 function DiscoveryPanel({ discovery }: { discovery: MmaCardDiscoveryResult | null }) {
   if (!discovery || discovery.cards.length === 0) return null;
   const loadHref = "/api/admin/ufc/load-upcoming?confirm=load-upcoming&includeMvp=1&includeEspn=0&includeTapology=0&includeUfcCom=0&autoBuildFeatures=1&hydrate=1&limit=40&horizonDays=180";
-  const simHref = `${loadHref}&simulate=1&allowFallbackFeatures=1&simulations=10000`;
+  const simHref = `${loadHref}&simulate=1&allowFallbackFeatures=1&simulations=25000`;
 
   return (
     <section className="rounded-[1.35rem] border border-amber-300/20 bg-[radial-gradient(circle_at_top_right,rgba(251,191,36,0.12),transparent_18rem),rgba(255,255,255,0.04)] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">
@@ -228,7 +233,7 @@ function DiscoveryPanel({ discovery }: { discovery: MmaCardDiscoveryResult | nul
         </div>
         <div className="flex flex-wrap gap-2">
           <a href={loadHref} className="rounded-full border border-aqua/30 bg-aqua/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-aqua">Load cards</a>
-          <a href={simHref} className="rounded-full border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-amber-200">Load + sim</a>
+          <a href={simHref} className="rounded-full border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-amber-200">Load + 25k sim</a>
         </div>
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -259,22 +264,16 @@ function DiscoveryPanel({ discovery }: { discovery: MmaCardDiscoveryResult | nul
   );
 }
 
-function UfcLabCardGrid({ cards, discovery }: { cards: UfcCardSummary[]; discovery: MmaCardDiscoveryResult | null }) {
+function CardGrid({ cards, emptyText }: { cards: UfcCardSummary[]; emptyText: string }) {
   if (!cards.length) {
-    return (
-      <section className="rounded-[1.35rem] border border-white/10 bg-white/[0.045] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">
-        <div className="text-sm leading-6 text-slate-400">
-          No warehouse fight cards yet. {discovery?.cards.length ? "Use the official-card panel above to load the detected MVP/UFC inventory into SharkSim." : "Run"} <span className="font-black text-aqua">npm run worker:ufc:upcoming</span> to ingest upcoming card matchups, then run SharkSim when model features are ready.
-        </div>
-      </section>
-    );
+    return <div className="rounded-[1.2rem] border border-white/10 bg-white/[0.035] p-4 text-sm leading-6 text-slate-400">{emptyText}</div>;
   }
-
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {cards.map((card) => {
         const complete = card.fightCount > 0 && card.simulatedFightCount >= card.fightCount;
         const partial = card.simulatedFightCount > 0 && !complete;
+        const coldResearch = card.dataQualityGrade === "D";
         return (
           <Link key={card.eventId} href={`/sim/ufc/cards/${card.eventId}`} className="rounded-[1.25rem] border border-white/10 bg-[#06101b]/80 p-4 transition hover:border-aqua/35 hover:bg-aqua/[0.045]">
             <div className="flex items-start justify-between gap-3">
@@ -282,8 +281,8 @@ function UfcLabCardGrid({ cards, discovery }: { cards: UfcCardSummary[]; discove
                 <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">{dateLabel(card.eventDate)}</div>
                 <div className="mt-1 font-display text-2xl font-black tracking-[-0.04em] text-white">{card.eventLabel}</div>
               </div>
-              <span className={pill(complete ? "green" : partial ? "amber" : card.providerStatus.includes("linked") ? "aqua" : "slate")}>
-                {complete ? "sim ready" : partial ? "partial" : card.providerStatus}
+              <span className={pill(coldResearch ? "red" : complete ? "green" : partial ? "amber" : card.providerStatus.includes("linked") ? "aqua" : "slate")}>
+                {coldResearch ? "research only" : complete ? "sim ready" : partial ? "partial" : card.providerStatus}
               </span>
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
@@ -303,6 +302,39 @@ function UfcLabCardGrid({ cards, discovery }: { cards: UfcCardSummary[]; discove
           </Link>
         );
       })}
+    </div>
+  );
+}
+
+function UfcLabCardGrid({ cards, discovery }: { cards: UfcCardSummary[]; discovery: MmaCardDiscoveryResult | null }) {
+  if (!cards.length) {
+    return (
+      <section className="rounded-[1.35rem] border border-white/10 bg-white/[0.045] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">
+        <div className="text-sm leading-6 text-slate-400">
+          No warehouse fight cards yet. {discovery?.cards.length ? "Use the official-card panel above to load the detected MVP/UFC inventory into SharkSim." : "Run"} <span className="font-black text-aqua">npm run worker:ufc:upcoming</span> to ingest upcoming card matchups, then run SharkSim when model features are ready.
+        </div>
+      </section>
+    );
+  }
+  const featuredCards = cards.filter(isFeaturedCard);
+  const researchCards = cards.filter((card) => !isFeaturedCard(card));
+
+  return (
+    <div className="grid gap-4">
+      <section className="grid gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">Featured cards</div>
+          <p className="mt-1 text-sm leading-6 text-slate-400">Only non-D cards with cached simulations appear here. Cold-start MVP/UFC cards stay in Research Lab until their profiles are hydrated.</p>
+        </div>
+        <CardGrid cards={featuredCards} emptyText="No featured MMA cards yet. Current cards are research-only because they are D-grade/cold-start, missing odds, or not sufficiently hydrated." />
+      </section>
+      <section className="grid gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-200">Research Lab</div>
+          <p className="mt-1 text-sm leading-6 text-slate-400">All loaded cards remain available here for inspection, source audit, fighter-profile debugging, and no-market-edge research.</p>
+        </div>
+        <CardGrid cards={researchCards} emptyText="No research-only cards. Everything currently meets featured-card minimums." />
+      </section>
     </div>
   );
 }
