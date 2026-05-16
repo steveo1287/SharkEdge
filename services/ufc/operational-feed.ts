@@ -42,6 +42,52 @@ export type UfcOperationalFeedCard = {
     quality: string | null;
     corrections: Record<string, number> | null;
   };
+  simInputAudit?: {
+    score: number | null;
+    grade: string | null;
+    fighterA: {
+      score: number | null;
+      grade: string | null;
+      missingCritical: string[];
+      missingUseful: string[];
+      coldStartActive: boolean | null;
+    };
+    fighterB: {
+      score: number | null;
+      grade: string | null;
+      missingCritical: string[];
+      missingUseful: string[];
+      coldStartActive: boolean | null;
+    };
+    market: {
+      hasTwoSidedMarket: boolean | null;
+      score: number | null;
+      missing: string[];
+    };
+    engineReadiness: {
+      roundByRoundReady: boolean | null;
+      exchangeReady: boolean | null;
+      skillReady: boolean | null;
+      score: number | null;
+      blockers: string[];
+    };
+    blockers: string[];
+    warnings: string[];
+  };
+  marketAware?: {
+    hasRealMarket: boolean | null;
+    noMarketEdge: boolean | null;
+    modelWeight: number | null;
+    marketWeight: number | null;
+    edgePct: number | null;
+    confidenceBand: {
+      low: number | null;
+      high: number | null;
+      width: number | null;
+      crossesMarket: boolean | null;
+    };
+    reasonCodes: string[];
+  };
   promotionGate?: {
     status: string;
     grade: string | null;
@@ -116,6 +162,10 @@ function numberOrNull(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function booleanOrNull(value: unknown) {
+  return typeof value === "boolean" ? value : null;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -152,11 +202,69 @@ function rawMethodProbabilitiesFromPrediction(row: FeedRow) {
   };
 }
 
+function marketAwareFromPrediction(row: FeedRow) {
+  const marketAware = asRecord(asRecord(row.prediction_json).marketAware);
+  const confidenceBand = asRecord(marketAware.confidenceBand);
+  return {
+    hasRealMarket: booleanOrNull(marketAware.hasRealMarket),
+    noMarketEdge: booleanOrNull(marketAware.noMarketEdge),
+    modelWeight: numberOrNull(marketAware.modelWeight),
+    marketWeight: numberOrNull(marketAware.marketWeight),
+    edgePct: numberOrNull(marketAware.edgePct),
+    confidenceBand: {
+      low: numberOrNull(confidenceBand.low),
+      high: numberOrNull(confidenceBand.high),
+      width: numberOrNull(confidenceBand.width),
+      crossesMarket: booleanOrNull(confidenceBand.crossesMarket)
+    },
+    reasonCodes: asArray(marketAware.reasonCodes)
+  };
+}
+
+function fighterAuditFromRecord(value: unknown) {
+  const record = asRecord(value);
+  return {
+    score: numberOrNull(record.score),
+    grade: stringOrNull(record.grade),
+    missingCritical: asArray(record.missingCritical),
+    missingUseful: asArray(record.missingUseful),
+    coldStartActive: booleanOrNull(record.coldStartActive)
+  };
+}
+
+function simInputAuditFromPrediction(row: FeedRow) {
+  const audit = asRecord(asRecord(row.prediction_json).simInputAudit);
+  const market = asRecord(audit.market);
+  const engineReadiness = asRecord(audit.engineReadiness);
+  return {
+    score: numberOrNull(audit.score),
+    grade: stringOrNull(audit.grade),
+    fighterA: fighterAuditFromRecord(audit.fighterA),
+    fighterB: fighterAuditFromRecord(audit.fighterB),
+    market: {
+      hasTwoSidedMarket: booleanOrNull(market.hasTwoSidedMarket),
+      score: numberOrNull(market.score),
+      missing: asArray(market.missing)
+    },
+    engineReadiness: {
+      roundByRoundReady: booleanOrNull(engineReadiness.roundByRoundReady),
+      exchangeReady: booleanOrNull(engineReadiness.exchangeReady),
+      skillReady: booleanOrNull(engineReadiness.skillReady),
+      score: numberOrNull(engineReadiness.score),
+      blockers: asArray(engineReadiness.blockers)
+    },
+    blockers: asArray(audit.blockers),
+    warnings: asArray(audit.warnings)
+  };
+}
+
 function mapRows(rows: FeedRow[]): UfcOperationalFeedCard[] {
   return rows.map((row) => {
     const gate = gateFromPrediction(row);
     const methodCalibration = methodCalibrationFromPrediction(row);
     const rawMethodProbabilities = rawMethodProbabilitiesFromPrediction(row);
+    const simInputAudit = simInputAuditFromPrediction(row);
+    const marketAware = marketAwareFromPrediction(row);
     return {
       fightId: row.fight_id,
       eventId: row.event_id,
@@ -191,6 +299,8 @@ function mapRows(rows: FeedRow[]): UfcOperationalFeedCard[] {
       },
       rawMethodProbabilities,
       methodCalibration,
+      simInputAudit,
+      marketAware,
       promotionGate: gate,
       isPromotable: gate.status === "PROMOTABLE",
       isWatchlist: gate.status === "WATCHLIST",
