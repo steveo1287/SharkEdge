@@ -25,7 +25,7 @@ export const SIM_CACHE_KEYS = {
 const FULL_SIM_TTL_SECONDS = 75 * 60;
 const MARKET_TTL_SECONDS = 15 * 60;
 const NBA_PROJECTION_TIMEOUT_MS = 8_000;
-const MLB_PROJECTION_TIMEOUT_MS = 18_000;
+const MLB_PROJECTION_TIMEOUT_MS = 25_000;
 const MARKET_OVERLAY_TIMEOUT_MS = 18_000;
 const FULL_SIM_RETENTION_SECONDS = 36 * 60 * 60;
 const MARKET_RETENTION_SECONDS = 6 * 60 * 60;
@@ -45,6 +45,26 @@ export type SimGame = {
 };
 
 type FullProjection = Awaited<ReturnType<typeof buildSimProjection>>;
+
+type FallbackProjectionDetail = {
+  gameId: string;
+  label: string;
+  startTime: string;
+  status: string;
+  reason: string;
+  reusedLastGood: boolean;
+};
+
+type ProjectionBuildReport = {
+  attempted: number;
+  usable: number;
+  fallbackExcluded: number;
+  reusedPrevious: number;
+  failures: number;
+  timeoutMs: number;
+  concurrency: number;
+  fallbackDetails: FallbackProjectionDetail[];
+};
 
 export type CachedSimProjection = {
   matchup: FullProjection["matchup"];
@@ -312,13 +332,64 @@ function isFallbackProjectionRow(row: CachedSimGameProjection) {
   return row.game.leagueKey === "MLB" && (dataSource === "fallback-mlb-base-projection" || governorSource === "fallback-mlb-base-projection");
 }
 
-function removeFallbackProjectionRows(rows: CachedSimGameProjection[], warnings: string[]) {
-  const usableRows = rows.filter((row) => !isFallbackProjectionRow(row));
-  const removedCount = rows.length - usableRows.length;
-  if (removedCount > 0) {
-    warnings.push(`Excluded ${removedCount} fallback MLB projection row${removedCount === 1 ? "" : "s"} from cached sim output; preserving only real model projections.`);
+function fallbackReasonForRow(row: CachedSimGameProjection) {
+  const reasons = row.projection.mlbIntel?.governor?.reasons ?? [];
+  return reasons.find((reason) => /timeout|failed|failure|error/i.test(reason)) ?? row.projection.read ?? "fallback projection";
+}
+
+function removeFallbackProjectionRows(
+  rows: CachedSimGameProjection[],
+  warnings: string[],
+  previousByGameId?: Map<string, CachedSimGameProjection>
+) {
+  const usableRows: CachedSimGameProjection[] = [];
+  const fallbackDetails: FallbackProjectionDetail[] = [];
+  let fallbackExcluded = 0;
+  let reusedPrevious = 0;
+
+  for (const row of rows) {
+    if (!isFallbackProjectionRow(row)) {
+      usableRows.push(row);
+      continue;
+    }
+
+    const previous = previousByGameId?.get(row.game.id);
+    const canReusePrevious = previous && !isFallbackProjectionRow(previous);
+    if (canReusePrevious) {
+      usableRows.push({ ...previous, game: row.game });
+      reusedPrevious += 1;
+    } else {
+      fallbackExcluded += 1;
+    }
+
+    fallbackDetails.push({
+      gameId: row.game.id,
+      label: row.game.label,
+      startTime: row.game.startTime,
+      status: row.game.status,
+      reason: fallbackReasonForRow(row),
+      reusedLastGood: Boolean(canReusePrevious)
+    });
   }
-  return usableRows;
+
+  if (reusedPrevious > 0) {
+    warnings.push(`Reused ${reusedPrevious} last-good MLB projection row${reusedPrevious === 1 ? "" : "s"} after the current refresh returned guarded fallback output.`);
+  }
+  if (fallbackExcluded > 0) {
+    warnings.push(`Excluded ${fallbackExcluded} fallback MLB projection row${fallbackExcluded === 1 ? "" : "s"} from cached sim output; preserving only real model projections.`);
+  }
+
+  const report: ProjectionBuildReport = {
+    attempted: rows.length,
+    usable: usableRows.length,
+    fallbackExcluded,
+    reusedPrevious,
+    failures: 0,
+    timeoutMs: MLB_PROJECTION_TIMEOUT_MS,
+    concurrency: SIM_PROJECTION_CONCURRENCY,
+    fallbackDetails
+  };
+  return { rows: usableRows, report };
 }
 
 function asMlbProjection(projection: CachedSimProjection): MlbEdgeProjection {
@@ -412,11 +483,15 @@ async function buildRowsFromGames(games: SimGame[], warnings: string[]) {
   const settled = await settleLimited(games, SIM_PROJECTION_CONCURRENCY, async (game) => ({ game, projection: compactProjection(await buildProjectionWithTimeout(game)) }));
   logTiming("sim-refresh", "buildSimProjection batch", settledStartedAt);
   const rows: CachedSimGameProjection[] = [];
+  let failures = 0;
   for (const result of settled) {
     if (result.status === "fulfilled") rows.push(result.value);
-    else warnings.push(`Projection failed: ${result.reason instanceof Error ? result.reason.message : "unknown projection error"}`);
+    else {
+      failures += 1;
+      warnings.push(`Projection failed: ${result.reason instanceof Error ? result.reason.message : "unknown projection error"}`);
+    }
   }
-  return rows;
+  return { rows, failures };
 }
 
 async function readLiveGames(selectedLeague: "ALL" | LeagueKey, warnings: string[], sourceStatus: Record<string, unknown>) {
@@ -460,7 +535,13 @@ export async function refreshFullSimSnapshots() {
     logTiming("sim-refresh", "savant cache pre-warm", savantStartedAt);
   }
 
-  const rows = removeFallbackProjectionRows(await buildRowsFromGames(games, warnings), warnings);
+  const previousMlbBoard = await readSnapshotCache<SimBoardSnapshot>(SIM_CACHE_KEYS.mlbBoard);
+  const previousByGameId = new Map((previousMlbBoard?.games ?? []).map((row) => [row.game.id, row]));
+  const builtRows = await buildRowsFromGames(games, warnings);
+  const projectionFilter = removeFallbackProjectionRows(builtRows.rows, warnings, previousByGameId);
+  projectionFilter.report.failures = builtRows.failures;
+  sourceStatus.projections = projectionFilter.report;
+  const rows = projectionFilter.rows;
   if (rows.length === 0) {
     const result = await preserveLastGoodSnapshot("Projection batch returned zero usable MLB model projections; preserved last successful sim snapshot instead of writing fallback output.", { generatedAt, warnings, sourceStatus });
     logTiming("sim-refresh", "total", startedAt);
@@ -520,7 +601,13 @@ export async function refreshFullSimSnapshots() {
 async function rebuildMlbBoardSnapshot(warnings: string[], sourceStatus: Record<string, unknown>) {
   const games = (await readLiveGames("MLB", warnings, sourceStatus)).filter((game) => game.leagueKey === "MLB");
   if (!games.length) return null;
-  const rows = removeFallbackProjectionRows(await buildRowsFromGames(games, warnings), warnings).filter((row) => row.game.leagueKey === "MLB");
+  const previousMlbBoard = await readSnapshotCache<SimBoardSnapshot>(SIM_CACHE_KEYS.mlbBoard);
+  const previousByGameId = new Map((previousMlbBoard?.games ?? []).map((row) => [row.game.id, row]));
+  const builtRows = await buildRowsFromGames(games, warnings);
+  const projectionFilter = removeFallbackProjectionRows(builtRows.rows, warnings, previousByGameId);
+  projectionFilter.report.failures = builtRows.failures;
+  sourceStatus.projections = projectionFilter.report;
+  const rows = projectionFilter.rows.filter((row) => row.game.leagueKey === "MLB");
   if (!rows.length) return null;
   const generatedAt = new Date().toISOString();
   const snapshot: SimBoardSnapshot = {

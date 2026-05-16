@@ -6,6 +6,7 @@ type SnapshotLike = {
   stale?: boolean;
   summary?: unknown;
   warnings?: string[];
+  sourceStatus?: Record<string, unknown>;
   rows?: unknown[];
   games?: unknown[];
   edges?: unknown[];
@@ -25,7 +26,8 @@ function summarize(snapshot: SnapshotLike | null) {
     gameCount: Array.isArray(snapshot.games) ? snapshot.games.length : snapshot.gameCount ?? null,
     edgeCount: Array.isArray(snapshot.edges) ? snapshot.edges.length : null,
     lineCount: snapshot.lineCount ?? null,
-    warnings: snapshot.warnings ?? []
+    warnings: snapshot.warnings ?? [],
+    sourceStatus: snapshot.sourceStatus ?? null
   };
 }
 
