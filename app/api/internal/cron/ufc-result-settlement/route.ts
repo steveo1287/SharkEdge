@@ -28,7 +28,8 @@ export async function GET(request: Request) {
     profileLimit: parseIntParam(url.searchParams.get("profileLimit"), 2500, 1, 5000),
     horizonDays: parseIntParam(url.searchParams.get("horizonDays"), 180, 1, 365),
     discoverCompleted: parseBool(url.searchParams.get("discoverCompleted")),
-    eventLimit: parseIntParam(url.searchParams.get("eventLimit"), 3, 1, 10)
+    eventLimit: parseIntParam(url.searchParams.get("eventLimit"), 3, 1, 10),
+    learningLimit: parseIntParam(url.searchParams.get("learningLimit"), 100, 1, 500)
   });
 
   return NextResponse.json(result, { status: result.ok ? 200 : 207 });
