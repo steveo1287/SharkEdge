@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 
 import { getDataControlTowerReport, type DataTowerStatus } from "@/services/ops/data-control-tower";
 
@@ -19,28 +20,40 @@ function smallPill(className: string, label: string) {
   return <span className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${className}`}>{label}</span>;
 }
 
+function scopeFromPath(pathname: string | null) {
+  const path = pathname ?? "";
+  if (path.includes("/ufc") || path.includes("/mma") || path.includes("fight")) return "MMA" as const;
+  if (path.includes("/mlb")) return "MLB" as const;
+  return "GLOBAL" as const;
+}
+
 export default async function SimLayout({ children }: { children: React.ReactNode }) {
-  const dataTower = await getDataControlTowerReport();
+  const headerList = await headers();
+  const pathname = headerList.get("x-pathname") ?? headerList.get("x-invoke-path") ?? headerList.get("next-url");
+  const scope = scopeFromPath(pathname);
+  const dataTower = await getDataControlTowerReport({ scope });
   const allowed = dataTower.officialPromotionAllowed;
   const topBlockers = dataTower.blockers.slice(0, 3);
   const topWarnings = dataTower.warnings.slice(0, 3);
+  const scopeLabel = dataTower.scope === "GLOBAL" ? "Global" : dataTower.scope;
 
   return (
     <div className="space-y-5">
       <section className={`panel px-5 py-4 ${panelTone(dataTower.status, allowed)}`}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-aqua/70">Sim data gate</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-aqua/70">{scopeLabel} sim data gate</div>
             <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight text-white">
-              {allowed ? "Official promotion is data-cleared." : "Official promotion is data-blocked."}
+              {allowed ? `${scopeLabel} promotion is data-cleared.` : `${scopeLabel} promotion is data-blocked.`}
             </h2>
             <p className="mt-2 max-w-4xl text-xs leading-5 text-slate-400">
-              SimHub is now downstream of the Data Control Tower. Board cards can still be researched, but official PLAY promotion must clear MLB quality, live odds readiness, and MMA operational gates first.
+              SimHub is downstream of the Data Control Tower. This view uses the active sport scope unless global mode is explicitly requested, so MLB blockers do not lock MMA research cards.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {smallPill(tone(dataTower.status), `Data ${dataTower.status}`)}
             {smallPill(allowed ? "border-mint/25 bg-mint/[0.06] text-mint" : "border-crimson/25 bg-crimson/[0.06] text-crimson", allowed ? "promotion allowed" : "promotion blocked")}
+            {smallPill("border-white/10 bg-white/[0.04] text-slate-300", `${scopeLabel} scope`)}
             <Link href="/accuracy/data" className="rounded-full border border-aqua/25 bg-aqua/[0.06] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-aqua transition hover:bg-aqua/[0.12]">
               Data tower
             </Link>
