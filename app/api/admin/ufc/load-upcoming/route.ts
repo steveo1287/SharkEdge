@@ -23,6 +23,12 @@ function numberParam(url: URL, name: string, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function boolParam(url: URL, name: string, fallback = false) {
+  const value = url.searchParams.get(name);
+  if (value == null) return fallback;
+  return value === "1" || value === "true" || value === "yes";
+}
+
 export async function GET(request: Request) {
   return POST(request);
 }
@@ -33,31 +39,33 @@ export async function POST(request: Request) {
   }
 
   const url = new URL(request.url);
-  const dryRun = url.searchParams.get("dryRun") === "1" || url.searchParams.get("dryRun") === "true";
-  const skipIngest = url.searchParams.get("skipIngest") === "1" || url.searchParams.get("skipIngest") === "true";
+  const dryRun = boolParam(url, "dryRun", false);
+  const skipIngest = boolParam(url, "skipIngest", false);
   const hydrate = url.searchParams.get("hydrate") !== "0";
   const autoBuildFeatures = url.searchParams.get("autoBuildFeatures") !== "0";
-  const simulate = url.searchParams.get("simulate") === "1" || url.searchParams.get("simulate") === "true";
+  const simulate = boolParam(url, "simulate", false);
   const includeMvp = url.searchParams.get("includeMvp") !== "0";
-  const includeEspn = url.searchParams.get("includeEspn") === "1" || url.searchParams.get("includeEspn") === "true";
-  const includeTapology = url.searchParams.get("includeTapology") === "1" || url.searchParams.get("includeTapology") === "true";
-  const includeUfcCom = url.searchParams.get("includeUfcCom") === "1" || url.searchParams.get("includeUfcCom") === "true";
-  const allowFallbackFeatures = url.searchParams.get("allowFallbackFeatures") === "1" || url.searchParams.get("allowFallbackFeatures") === "true";
+  const includeEspn = boolParam(url, "includeEspn", false);
+  const includeTapology = boolParam(url, "includeTapology", false);
+  const includeUfcCom = boolParam(url, "includeUfcCom", false);
+  const allowFallbackFeatures = boolParam(url, "allowFallbackFeatures", false);
+  const forceRegenerate = boolParam(url, "forceRegenerate", autoBuildFeatures || hydrate);
   const horizonDays = numberParam(url, "horizonDays", 120);
   const limit = numberParam(url, "limit", 25);
-  const simulations = numberParam(url, "simulations", 10000);
+  const simulations = numberParam(url, "simulations", 25000);
   const seed = numberParam(url, "seed", 1287);
 
   try {
     const ingestion = skipIngest ? null : await ingestUpcomingUfcCards({ dryRun, includeUfcStats: true, includeUfcCom, includeEspn, includeTapology, includeMvp });
     const autoBuild = autoBuildFeatures ? await buildUfcModelFeaturesFromWarehouse({ dryRun, horizonDays, limit }) : null;
     const hydration = hydrate ? await hydrateUpcomingUfcFeatureSnapshots({ dryRun, horizonDays, limit }) : null;
-    const sim = simulate ? await runUfcUpcomingToSimPipeline({ dryRun, skipIngest: true, horizonDays, limit, simulations, seed, recordShadow: true, allowFallbackFeatures }) : null;
+    const sim = simulate ? await runUfcUpcomingToSimPipeline({ dryRun, skipIngest: true, horizonDays, limit, simulations, seed, recordShadow: true, allowFallbackFeatures, forceRegenerate }) : null;
 
     return NextResponse.json({
       ok: (!ingestion || Boolean((ingestion as any).ok)) && (!autoBuild || autoBuild.ok) && (!hydration || hydration.ok) && (!sim || sim.ok),
       mode: dryRun ? "dry-run" : "load",
       skippedIngest: skipIngest,
+      config: { autoBuildFeatures, hydrate, simulate, allowFallbackFeatures, forceRegenerate, horizonDays, limit, simulations, seed },
       ingestion,
       autoBuild,
       hydration,
