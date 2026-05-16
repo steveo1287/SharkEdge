@@ -93,6 +93,7 @@ type FighterPayloadRow = { id: string; payload_json: unknown };
 
 const DEFAULT_MODEL_VERSION = "ufc-fight-iq-v1";
 const DEFAULT_SIMULATIONS = 25_000;
+const OPERATIONAL_SIM_CACHE_VERSION = "market-aware-input-audit-style-matchup-v1";
 
 function stableId(prefix: string, value: string) { return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`; }
 function toIso(value: Date | string) { return value instanceof Date ? value.toISOString() : new Date(value).toISOString(); }
@@ -265,9 +266,10 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     profileFeatureSignal,
     enrichedPriorBridge,
     fighterSkillProfiles: { fighterA: aProfile, fighterB: bProfile },
-    featureSnapshots: { fighterA: aSnapshot, fighterB: bSnapshot }
+    featureSnapshots: { fighterA: aSnapshot, fighterB: bSnapshot },
+    cacheVersion: OPERATIONAL_SIM_CACHE_VERSION
   };
-  const predictionId = stableId("ufcp", `${fightId}:${modelVersion}:${seed}:${simulations}:ensemble:${activeEnsembleWeights.source}:${activeEnsembleWeights.weights.skillMarkov}:${activeEnsembleWeights.weights.exchangeMonteCarlo}:${activeEnsembleWeights.weights.roundByRound}:market-aware-input-audit-v1`);
+  const predictionId = stableId("ufcp", `${fightId}:${modelVersion}:${seed}:${simulations}:ensemble:${activeEnsembleWeights.source}:${activeEnsembleWeights.weights.skillMarkov}:${activeEnsembleWeights.weights.exchangeMonteCarlo}:${activeEnsembleWeights.weights.roundByRound}:${activeEnsembleWeights.weights.styleMatchup}:${OPERATIONAL_SIM_CACHE_VERSION}`);
 
   await prisma.$executeRaw`
     INSERT INTO ufc_predictions (id, fight_id, model_version, generated_at, fighter_a_id, fighter_b_id, fighter_a_win_probability, fighter_b_win_probability, pick_fighter_id, fair_odds_american, sportsbook_odds_american, edge_pct, ko_tko_probability, submission_probability, decision_probability, prediction_json, updated_at)
@@ -278,7 +280,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
   const simRunId = stableId("ufcsr", `${predictionId}:${seed}:${simulations}`);
   await prisma.$executeRaw`
     INSERT INTO ufc_sim_runs (id, prediction_id, fight_id, model_version, seed, simulation_count, completed_at, cache_key, status, result_json, updated_at)
-    VALUES (${simRunId}, ${predictionId}, ${fightId}, ${modelVersion}, ${seed}, ${simulations}, now(), ${`ufc:${fightId}:${modelVersion}:${seed}:${simulations}:ensemble:${activeEnsembleWeights.source}:market-aware-input-audit-v1`}, 'COMPLETED', ${JSON.stringify(predictionPayload)}::jsonb, now())
+    VALUES (${simRunId}, ${predictionId}, ${fightId}, ${modelVersion}, ${seed}, ${simulations}, now(), ${`ufc:${fightId}:${modelVersion}:${seed}:${simulations}:ensemble:${activeEnsembleWeights.source}:${OPERATIONAL_SIM_CACHE_VERSION}`}, 'COMPLETED', ${JSON.stringify(predictionPayload)}::jsonb, now())
     ON CONFLICT (id) DO UPDATE SET completed_at = EXCLUDED.completed_at, status = EXCLUDED.status, result_json = EXCLUDED.result_json, updated_at = now()
   `;
 
