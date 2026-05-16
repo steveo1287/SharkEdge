@@ -21,17 +21,14 @@ type FightRow = {
   fighter_b_id: string;
 };
 
-type RatingRow = { fighter_id: string; pre_fight_rating: number | null; as_of: Date | string; payload_json: unknown };
-type StrengthRow = { fighter_id: string; opponent_strength_score: number | null; fights_included: number | null; as_of: Date | string; payload_json: unknown };
-type ProspectNoteRow = { fighter_id: string; note_date: Date | string; combat_base: string | null; promotion_tier: string | null; confidence_cap: number | null; tags_json: unknown; payload_json: unknown };
-type AmateurSummaryRow = { fighter_id: string; results: number | bigint; wins: number | bigint; ko_wins: number | bigint; sub_wins: number | bigint; as_of: Date | string | null };
+type RatingRow = { fighter_id: string; pre_fight_rating: number | null; as_of: Date | string };
+type StrengthRow = { fighter_id: string; opponent_strength_score: number | null; as_of: Date | string };
 
 type RoundAggRow = {
   fighter_id: string;
   fights: number | bigint;
   rounds: number | bigint;
   seconds: number | null;
-  last_fight_date: Date | string | null;
   days_since_last_fight: number | null;
   sig_landed: number | null;
   sig_attempted: number | null;
@@ -52,28 +49,63 @@ type JsonRecord = Record<string, unknown>;
 
 const DEFAULT_MODEL_VERSION = "ufc-fight-iq-v1";
 
-function asRecord(value: unknown): JsonRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {}; }
-function nested(record: JsonRecord, key: string) { return asRecord(record[key]); }
-function int(value: unknown, fallback = 0) { if (typeof value === "bigint") return Number(value); if (typeof value === "number" && Number.isFinite(value)) return Math.round(value); if (typeof value === "string" && Number.isFinite(Number(value))) return Math.round(Number(value)); return fallback; }
-function numeric(value: unknown) { if (typeof value === "number" && Number.isFinite(value)) return value; if (typeof value === "string" && value.trim()) { const parsed = Number(value.replace(/%$/, "")); return Number.isFinite(parsed) ? parsed : null; } return null; }
-function clamp(value: number, min = 0, max = 100) { return Math.max(min, Math.min(max, value)); }
-function round(value: number | null | undefined, digits = 4) { return value == null || !Number.isFinite(value) ? null : Number(value.toFixed(digits)); }
-function stableId(prefix: string, value: string) { return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`; }
-function iso(value: Date | string) { return value instanceof Date ? value.toISOString() : new Date(value).toISOString(); }
-function safeJson(value: unknown) { return JSON.stringify(value ?? {}); }
-function snapshotAt(fightDate: Date | string) { const time = new Date(fightDate).getTime(); return Number.isFinite(time) ? new Date(Math.min(Date.now(), time - 60_000)).toISOString() : new Date().toISOString(); }
-function rate(count: number, minutes: number | null, scale = 1) { return minutes && minutes > 0 ? count * scale / minutes : null; }
-function pct(made: number, attempted: number) { return attempted > 0 ? clamp((made / attempted) * 100) : null; }
-function defensePct(opponentMade: number, opponentAttempted: number, fallback: number | null = null) { return opponentAttempted > 0 ? clamp((1 - opponentMade / opponentAttempted) * 100) : fallback; }
-function boolish(value: unknown) { return value === true || (typeof value === "string" && ["true", "yes", "1"].includes(value.toLowerCase())); }
-
-function latestBefore<T extends { fighter_id: string; as_of: Date | string }>(rows: T[], fighterId: string, fightDate: Date | string) {
-  const fightTime = new Date(fightDate).getTime();
-  return rows
-    .filter((row) => row.fighter_id === fighterId && new Date(row.as_of).getTime() <= fightTime)
-    .sort((a, b) => new Date(b.as_of).getTime() - new Date(a.as_of).getTime())[0] ?? null;
+function stableId(prefix: string, value: string) {
+  return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
 }
-
+function asRecord(value: unknown): JsonRecord {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
+}
+function int(value: unknown, fallback = 0) {
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "number" && Number.isFinite(value)) return Math.round(value);
+  if (typeof value === "string" && Number.isFinite(Number(value))) return Math.round(Number(value));
+  return fallback;
+}
+function numeric(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.replace(/%$/, ""));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+function clamp(value: number, min = 0, max = 100) {
+  return Math.max(min, Math.min(max, value));
+}
+function round(value: number | null | undefined, digits = 4) {
+  return value == null || !Number.isFinite(value) ? null : Number(value.toFixed(digits));
+}
+function iso(value: Date | string) {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+function snapshotAt(fightDate: Date | string) {
+  const time = new Date(fightDate).getTime();
+  return Number.isFinite(time) ? new Date(Math.min(Date.now(), time - 60_000)).toISOString() : new Date().toISOString();
+}
+function rate(count: number, minutes: number | null, scale = 1) {
+  return minutes && minutes > 0 ? count * scale / minutes : null;
+}
+function pct(made: number, attempted: number) {
+  return attempted > 0 ? clamp((made / attempted) * 100) : null;
+}
+function defensePct(opponentMade: number, opponentAttempted: number, fallback: number | null = null) {
+  return opponentAttempted > 0 ? clamp((1 - opponentMade / opponentAttempted) * 100) : fallback;
+}
+function safeJson(value: unknown) {
+  return JSON.stringify(value ?? {});
+}
+function payloadRecords(fighter: FighterRow) {
+  const payload = asRecord(fighter.payload_json);
+  return [
+    asRecord(payload.stats),
+    asRecord(asRecord(payload.eliteProfile).careerStats),
+    asRecord(payload.rawFeature),
+    asRecord(payload.rawPayload),
+    asRecord(payload.profile),
+    asRecord(payload.history),
+    payload
+  ];
+}
 function pickNumber(records: JsonRecord[], keys: string[], fallback: number | null = null) {
   for (const record of records) {
     for (const key of keys) {
@@ -83,7 +115,6 @@ function pickNumber(records: JsonRecord[], keys: string[], fallback: number | nu
   }
   return fallback;
 }
-
 function pickText(records: JsonRecord[], keys: string[], fallback: string | null = null) {
   for (const record of records) {
     for (const key of keys) {
@@ -93,53 +124,18 @@ function pickText(records: JsonRecord[], keys: string[], fallback: string | null
   }
   return fallback;
 }
-
-function payloadRecords(fighter: FighterRow) {
-  const payload = asRecord(fighter.payload_json);
-  const stats = nested(payload, "stats");
-  const profile = nested(payload, "profile");
-  const history = nested(payload, "history");
-  const elite = nested(payload, "eliteProfile");
-  const careerStats = nested(elite, "careerStats");
-  const rawFeature = nested(payload, "rawFeature");
-  const rawPayload = nested(payload, "rawPayload");
-  return { payload, stats, profile, history, elite, careerStats, rawFeature, rawPayload, records: [stats, careerStats, rawFeature, rawPayload, profile, history, payload] };
+function latestBefore<T extends { fighter_id: string; as_of: Date | string }>(rows: T[], fighterId: string, fightDate: Date | string) {
+  const fightTime = new Date(fightDate).getTime();
+  return rows
+    .filter((row) => row.fighter_id === fighterId && new Date(row.as_of).getTime() <= fightTime)
+    .sort((a, b) => new Date(b.as_of).getTime() - new Date(a.as_of).getTime())[0] ?? null;
 }
 
-function derivedScores(input: { slpm: number | null; sapm: number | null; strikeDef: number | null; tdPer15: number | null; tdDef: number | null; subPer15: number | null; controlPct: number | null; escapePct: number | null; finishRate: number | null; daysSinceLastFight: number | null; rating: number | null; amateurWins: number; amateurResults: number; shortNotice: boolean }) {
-  const strikeDiff = (input.slpm ?? 3.1) - (input.sapm ?? 3.1);
-  const ratingBoost = input.rating ? clamp((input.rating - 1200) / 8, -12, 18) : 0;
-  const layoffPenalty = input.daysSinceLastFight && input.daysSinceLastFight > 540 ? 8 : input.daysSinceLastFight && input.daysSinceLastFight < 28 ? 5 : 0;
-  const amateurWinPct = input.amateurResults > 0 ? input.amateurWins / input.amateurResults : 0.5;
-  return {
-    pressureScore: round(clamp(50 + (input.slpm ?? 3.1) * 4 + Math.max(0, strikeDiff) * 5 + ratingBoost)),
-    distanceManagementScore: round(clamp(50 + (input.strikeDef ?? 54) * 0.45 + strikeDiff * 6 - 24)),
-    staminaScore: round(clamp(58 + (input.controlPct ?? 18) * 0.22 + (input.tdDef ?? 62) * 0.16 - layoffPenalty - (input.shortNotice ? 7 : 0))),
-    paceScore: round(clamp(45 + (input.slpm ?? 3.1) * 7 + (input.tdPer15 ?? 1.1) * 4)),
-    chinScore: round(clamp(50 + (input.strikeDef ?? 54) * 0.32 - (input.sapm ?? 3.1) * 3 + ratingBoost * 0.25)),
-    recoveryScore: round(clamp(52 + (input.escapePct ?? 50) * 0.18 + (input.tdDef ?? 62) * 0.12 - layoffPenalty * 0.5)),
-    fightIqScore: round(clamp(50 + ratingBoost + (input.tdDef ?? 62) * 0.12 + (input.strikeDef ?? 54) * 0.1)),
-    heartScore: round(clamp(50 + amateurWinPct * 12 + (input.escapePct ?? 50) * 0.12 + (input.finishRate ?? 0.45) * 10)),
-    recentFormScore: round(clamp(52 + ratingBoost - layoffPenalty + amateurWinPct * 8)),
-    lateRoundPerformance: round(clamp(52 + (input.staminaScore ?? 58) * 0.35 + (input.controlPct ?? 18) * 0.2))
-  };
-}
-
-function featureFromWarehouse(args: {
-  fighter: FighterRow;
-  opponent: FighterRow;
-  fight: FightRow;
-  agg: RoundAggRow | null;
-  rating: RatingRow | null;
-  strength: StrengthRow | null;
-  note: ProspectNoteRow | null;
-  amateur: AmateurSummaryRow | null;
-}) {
-  const source = payloadRecords(args.fighter);
-  const notePayload = asRecord(args.note?.payload_json);
-  const records = [notePayload, ...source.records];
+function buildDeepFeature(args: { fighter: FighterRow; opponent: FighterRow; fight: FightRow; agg: RoundAggRow | null; rating: RatingRow | null; strength: StrengthRow | null }) {
+  const records = payloadRecords(args.fighter);
+  const payload = asRecord(args.fighter.payload_json);
   const fights = int(args.agg?.fights, 0);
-  const rounds = int(args.agg?.rounds, pickNumber(records, ["roundsFought", "rounds_fought"], 0) ?? 0);
+  const rounds = Math.max(int(args.agg?.rounds, 0), int(pickNumber(records, ["roundsFought", "rounds_fought"], 0), 0));
   const seconds = Number(args.agg?.seconds ?? 0);
   const minutes = seconds > 0 ? seconds / 60 : rounds > 0 ? rounds * 5 : null;
   const sigLanded = Number(args.agg?.sig_landed ?? 0);
@@ -155,18 +151,18 @@ function featureFromWarehouse(args: {
   const oppSubs = Number(args.agg?.opp_submission_attempts ?? 0);
   const control = Number(args.agg?.control_seconds ?? 0);
   const oppControl = Number(args.agg?.opp_control_seconds ?? 0);
-  const amateurResults = int(args.amateur?.results, 0);
-  const amateurWins = int(args.amateur?.wins, 0);
-  const proFights = Math.max(fights, int(pickNumber(records, ["proFights", "pro_fights"], 0), 0), amateurResults);
+
+  const proFights = Math.max(fights, int(pickNumber(records, ["proFights", "pro_fights"], 0), 0));
   const ufcFights = Math.max(fights, int(pickNumber(records, ["ufcFights", "ufc_fights"], 0), 0));
   const slpm = pickNumber(records, ["sigStrikesLandedPerMin", "sig_strikes_landed_per_min", "slpm"], rate(sigLanded, minutes));
   const sapm = pickNumber(records, ["sigStrikesAbsorbedPerMin", "sig_strikes_absorbed_per_min", "sapm"], rate(sigAbsorbed || oppSigLanded, minutes));
-  const strikeAcc = pickNumber(records, ["sigStrikeAccuracyPct", "strikeAccuracyPct", "sig_strike_accuracy_pct"], pct(sigLanded, sigAttempted));
-  const strikeDef = pickNumber(records, ["sigStrikeDefensePct", "strikeDefensePct", "sig_strike_defense_pct"], defensePct(oppSigLanded || sigAbsorbed, oppSigAttempted, sapm != null && slpm != null ? clamp(54 + (slpm - sapm) * 4, 35, 76) : 54));
-  const tdPer15 = pickNumber(records, ["takedownsPer15", "takedowns_per_15", "tdAvg", "takedownAverage"], rate(tdLanded, minutes, 15));
-  const tdAcc = pickNumber(records, ["takedownAccuracyPct", "takedown_accuracy_pct", "tdAccuracy"], pct(tdLanded, tdAttempted));
+  const strikeDiff = slpm != null && sapm != null ? slpm - sapm : pickNumber(records, ["strikingDifferential"], 0);
+  const strikeAcc = pickNumber(records, ["sigStrikeAccuracyPct", "strikeAccuracyPct", "sig_strike_accuracy_pct"], pct(sigLanded, sigAttempted) ?? 44);
+  const strikeDef = pickNumber(records, ["sigStrikeDefensePct", "strikeDefensePct", "sig_strike_defense_pct"], defensePct(oppSigLanded || sigAbsorbed, oppSigAttempted, strikeDiff != null ? clamp(54 + strikeDiff * 4, 35, 76) : 54));
+  const tdPer15 = pickNumber(records, ["takedownsPer15", "takedowns_per_15", "tdAvg", "takedownAverage"], rate(tdLanded, minutes, 15) ?? 0.8);
+  const tdAcc = pickNumber(records, ["takedownAccuracyPct", "takedown_accuracy_pct", "tdAccuracy"], pct(tdLanded, tdAttempted) ?? 35);
   const tdDef = pickNumber(records, ["takedownDefensePct", "takedown_defense_pct", "tdDefense"], defensePct(oppTdLanded, oppTdAttempted, 62));
-  const subPer15 = pickNumber(records, ["submissionAttemptsPer15", "submission_attempts_per_15", "submissionAverage", "subAvg"], rate(subs, minutes, 15));
+  const subPer15 = pickNumber(records, ["submissionAttemptsPer15", "submission_attempts_per_15", "submissionAverage", "subAvg"], rate(subs, minutes, 15) ?? 0.25);
   const oppSubPer15 = rate(oppSubs, minutes, 15) ?? 0;
   const subDef = pickNumber(records, ["submissionDefensePct", "submission_defense_pct", "subDefense", "submissionDefense"], clamp(70 - oppSubPer15 * 12, 45, 86));
   const controlPct = pickNumber(records, ["controlTimePct", "control_time_pct"], seconds > 0 ? clamp(control / seconds * 100) : 18);
@@ -174,10 +170,10 @@ function featureFromWarehouse(args: {
   const getUpRate = pickNumber(records, ["getUpRate", "get_up_rate", "standupRate"], escapePct);
   const opponentStrength = pickNumber(records, ["opponentAdjustedStrength", "opponentStrength", "strengthOfSchedule"], args.strength?.opponent_strength_score ?? (args.rating?.pre_fight_rating ? clamp(50 + (args.rating.pre_fight_rating - 1500) / 18) : 50));
   const daysSinceLastFight = pickNumber(records, ["daysSinceLastFight", "layoffDays"], args.agg?.days_since_last_fight ?? null);
-  const finishRate = pickNumber(records, ["finishRate", "finish_rate"], amateurResults > 0 ? clamp((int(args.amateur?.ko_wins, 0) + int(args.amateur?.sub_wins, 0)) / amateurResults, 0, 1) : 0.45);
-  const shortNotice = boolish(source.payload.shortNotice) || boolish(source.profile.shortNotice) || boolish(notePayload.shortNotice);
-  const stanceText = args.fighter.stance ?? pickText(records, ["stance"], null);
-  const derived = derivedScores({ slpm, sapm, strikeDef, tdPer15, tdDef, subPer15, controlPct, escapePct, finishRate, daysSinceLastFight, rating: args.rating?.pre_fight_rating ?? null, amateurWins, amateurResults, shortNotice });
+  const finishRate = pickNumber(records, ["finishRate", "finish_rate"], 0.45);
+  const ratingBoost = args.rating?.pre_fight_rating ? clamp((args.rating.pre_fight_rating - 1200) / 8, -12, 18) : 0;
+  const layoffPenalty = daysSinceLastFight && daysSinceLastFight > 540 ? 8 : daysSinceLastFight && daysSinceLastFight < 28 ? 5 : 0;
+  const staminaScore = clamp(58 + (controlPct ?? 18) * 0.22 + (tdDef ?? 62) * 0.16 - layoffPenalty);
   const coldStartActive = ufcFights < 3 || proFights < 8;
 
   return {
@@ -186,10 +182,10 @@ function featureFromWarehouse(args: {
     roundsFought: rounds || null,
     sigStrikesLandedPerMin: round(slpm),
     sigStrikesAbsorbedPerMin: round(sapm),
-    strikingDifferential: round(slpm != null && sapm != null ? slpm - sapm : pickNumber(records, ["strikingDifferential"], 0)),
-    takedownsPer15: round(tdPer15 ?? 0),
+    strikingDifferential: round(strikeDiff),
+    takedownsPer15: round(tdPer15),
     takedownDefensePct: round(tdDef),
-    submissionAttemptsPer15: round(subPer15 ?? 0),
+    submissionAttemptsPer15: round(subPer15),
     controlTimePct: round(controlPct),
     opponentAdjustedStrength: round(opponentStrength),
     coldStartActive,
@@ -200,24 +196,21 @@ function featureFromWarehouse(args: {
       opponentName: args.opponent.full_name,
       dataSources: {
         roundStats: Boolean(args.agg),
-        fighterPayload: Object.keys(source.payload).length > 0,
+        fighterPayload: Object.keys(payload).length > 0,
         ratings: Boolean(args.rating),
-        opponentStrength: Boolean(args.strength),
-        prospectNotes: Boolean(args.note),
-        amateurResults: Boolean(args.amateur)
+        opponentStrength: Boolean(args.strength)
       },
       age: pickNumber(records, ["age"], null),
       heightInches: args.fighter.height_inches ?? pickNumber(records, ["heightInches", "height_inches"], null),
       reachInches: args.fighter.reach_inches ?? pickNumber(records, ["reachInches", "reach_inches"], null),
-      stance: stanceText,
-      combatBase: args.fighter.combat_base ?? args.note?.combat_base ?? pickText(records, ["combatBase", "combat_base"], null),
+      stance: args.fighter.stance ?? pickText(records, ["stance"], null),
+      combatBase: args.fighter.combat_base ?? pickText(records, ["combatBase", "combat_base"], null),
       weightClass: pickText(records, ["weightClass", "weight_class"], null),
       daysSinceLastFight: round(daysSinceLastFight, 1),
-      shortNotice,
-      sigStrikeAccuracyPct: round(strikeAcc ?? 44),
-      sigStrikeDefensePct: round(strikeDef ?? 54),
+      sigStrikeAccuracyPct: round(strikeAcc),
+      sigStrikeDefensePct: round(strikeDef),
       knockdownsPer15: round(pickNumber(records, ["knockdownsPer15", "knockdowns_per_15"], 0.22)),
-      takedownAccuracyPct: round(tdAcc ?? 35),
+      takedownAccuracyPct: round(tdAcc),
       submissionDefensePct: round(subDef),
       controlEscapePct: round(escapePct),
       getUpRate: round(getUpRate),
@@ -229,27 +222,24 @@ function featureFromWarehouse(args: {
       kickingAccuracyPct: round(pickNumber(records, ["kickingAccuracyPct", "kickAccuracyPct"], 42)),
       kickingDefensePct: round(pickNumber(records, ["kickingDefensePct", "kickDefensePct"], 55)),
       clinchStrikingScore: round(pickNumber(records, ["clinchStrikingScore"], 50 + (controlPct ?? 18) * 0.25)),
-      pressureScore: derived.pressureScore,
-      distanceManagementScore: derived.distanceManagementScore,
-      recentFormScore: pickNumber(records, ["recentFormScore", "recent_form_score"], derived.recentFormScore),
+      pressureScore: round(clamp(50 + (slpm ?? 3.1) * 4 + Math.max(0, strikeDiff ?? 0) * 5 + ratingBoost)),
+      distanceManagementScore: round(clamp(50 + (strikeDef ?? 54) * 0.45 + (strikeDiff ?? 0) * 6 - 24)),
+      recentFormScore: round(pickNumber(records, ["recentFormScore", "recent_form_score"], clamp(52 + ratingBoost - layoffPenalty))),
       finishRate: round(finishRate),
-      lateRoundPerformance: pickNumber(records, ["lateRoundPerformance", "late_round_performance"], derived.lateRoundPerformance),
-      heartScore: pickNumber(records, ["heartScore", "adversityScore"], derived.heartScore),
-      staminaScore: pickNumber(records, ["staminaScore", "cardioScore"], derived.staminaScore),
-      paceScore: pickNumber(records, ["paceScore", "outputScore"], derived.paceScore),
-      chinScore: pickNumber(records, ["chinScore", "koResistance"], derived.chinScore),
-      recoveryScore: pickNumber(records, ["recoveryScore"], derived.recoveryScore),
-      fightIqScore: pickNumber(records, ["fightIqScore", "fightIQ", "fightIq"], derived.fightIqScore),
-      gamePlanScore: pickNumber(records, ["gamePlanScore"], derived.fightIqScore),
-      shortNoticePenalty: shortNotice ? 10 : 0,
+      lateRoundPerformance: round(pickNumber(records, ["lateRoundPerformance", "late_round_performance"], clamp(52 + staminaScore * 0.35 + (controlPct ?? 18) * 0.2))),
+      heartScore: round(pickNumber(records, ["heartScore", "adversityScore"], clamp(50 + (escapePct ?? 50) * 0.12 + (finishRate ?? 0.45) * 10))),
+      staminaScore: round(pickNumber(records, ["staminaScore", "cardioScore"], staminaScore)),
+      paceScore: round(pickNumber(records, ["paceScore", "outputScore"], clamp(45 + (slpm ?? 3.1) * 7 + (tdPer15 ?? 1.1) * 4))),
+      chinScore: round(pickNumber(records, ["chinScore", "koResistance"], clamp(50 + (strikeDef ?? 54) * 0.32 - (sapm ?? 3.1) * 3 + ratingBoost * 0.25))),
+      recoveryScore: round(pickNumber(records, ["recoveryScore"], clamp(52 + (escapePct ?? 50) * 0.18 + (tdDef ?? 62) * 0.12 - layoffPenalty * 0.5))),
+      fightIqScore: round(pickNumber(records, ["fightIqScore", "fightIQ", "fightIq"], clamp(50 + ratingBoost + (tdDef ?? 62) * 0.12 + (strikeDef ?? 54) * 0.1))),
+      gamePlanScore: round(pickNumber(records, ["gamePlanScore"], clamp(50 + ratingBoost + (tdDef ?? 62) * 0.12))),
+      shortNoticePenalty: pickNumber(records, ["shortNoticePenalty", "short_notice_penalty"], 0),
       injuryLayoffRisk: daysSinceLastFight && daysSinceLastFight > 540 ? 12 : 0,
-      amateurSignal: amateurResults > 0 ? clamp(45 + (amateurWins / amateurResults) * 25) : 50,
-      promotionTierSignal: args.note?.promotion_tier ? 58 : 50,
+      amateurSignal: pickNumber(records, ["amateurSignal"], 50),
+      promotionTierSignal: pickNumber(records, ["promotionTierSignal"], 50),
       rating: args.rating?.pre_fight_rating ?? null,
-      ratingPayload: args.rating?.payload_json ?? null,
-      opponentStrengthPayload: args.strength?.payload_json ?? null,
-      prospectNotePayload: args.note?.payload_json ?? null,
-      rawPayload: source.payload
+      rawPayload: payload
     }
   };
 }
@@ -269,7 +259,11 @@ async function upcomingFights(limit: number, horizonDays: number) {
 
 async function fightersFor(ids: string[]) {
   if (!ids.length) return [];
-  return prisma.$queryRaw<FighterRow[]>`SELECT id, full_name, stance, height_inches, reach_inches, combat_base, payload_json FROM ufc_fighters WHERE id = ANY(${ids}::text[])`;
+  return prisma.$queryRaw<FighterRow[]>`
+    SELECT id, full_name, stance, height_inches, reach_inches, combat_base, payload_json
+    FROM ufc_fighters
+    WHERE id = ANY(${ids}::text[]);
+  `;
 }
 
 async function aggregateFor(fighterId: string, fight: FightRow) {
@@ -279,7 +273,6 @@ async function aggregateFor(fighterId: string, fight: FightRow) {
       COUNT(DISTINCT r.fight_id) AS fights,
       COUNT(*) AS rounds,
       SUM(COALESCE(r.seconds_fought, 300))::double precision AS seconds,
-      MAX(f.fight_date) AS last_fight_date,
       EXTRACT(EPOCH FROM (${fightDate}::timestamptz - MAX(f.fight_date))) / 86400 AS days_since_last_fight,
       SUM(r.sig_strikes_landed)::double precision AS sig_landed,
       SUM(r.sig_strikes_attempted)::double precision AS sig_attempted,
@@ -308,41 +301,26 @@ async function aggregateFor(fighterId: string, fight: FightRow) {
 
 async function ratingsFor(ids: string[]) {
   if (!ids.length) return [];
-  return prisma.$queryRaw<RatingRow[]>`SELECT fighter_id, pre_fight_rating, as_of, payload_json FROM ufc_fighter_ratings WHERE fighter_id = ANY(${ids}::text[]) ORDER BY fighter_id, as_of DESC`;
+  return prisma.$queryRaw<RatingRow[]>`
+    SELECT fighter_id, pre_fight_rating, as_of
+    FROM ufc_fighter_ratings
+    WHERE fighter_id = ANY(${ids}::text[])
+    ORDER BY fighter_id, as_of DESC;
+  `;
 }
 
 async function strengthsFor(ids: string[]) {
   if (!ids.length) return [];
-  return prisma.$queryRaw<StrengthRow[]>`SELECT fighter_id, opponent_strength_score, fights_included, as_of, payload_json FROM ufc_opponent_strength_snapshots WHERE fighter_id = ANY(${ids}::text[]) ORDER BY fighter_id, as_of DESC`;
-}
-
-async function prospectNotesFor(ids: string[]) {
-  if (!ids.length) return [];
-  return prisma.$queryRaw<ProspectNoteRow[]>`SELECT fighter_id, note_date, combat_base, promotion_tier, confidence_cap, tags_json, payload_json FROM ufc_prospect_notes WHERE fighter_id = ANY(${ids}::text[]) ORDER BY fighter_id, note_date DESC`;
-}
-
-async function amateurSummariesFor(ids: string[]) {
-  if (!ids.length) return [];
-  return prisma.$queryRaw<AmateurSummaryRow[]>`
-    SELECT fighter_id,
-      COUNT(*) AS results,
-      COUNT(*) FILTER (WHERE lower(COALESCE(result, '')) LIKE '%win%' OR lower(COALESCE(result, '')) = 'w') AS wins,
-      COUNT(*) FILTER (WHERE lower(COALESCE(method, '')) LIKE '%ko%' OR lower(COALESCE(method, '')) LIKE '%tko%') AS ko_wins,
-      COUNT(*) FILTER (WHERE lower(COALESCE(method, '')) LIKE '%sub%') AS sub_wins,
-      MAX(result_date) AS as_of
-    FROM ufc_amateur_results
+  return prisma.$queryRaw<StrengthRow[]>`
+    SELECT fighter_id, opponent_strength_score, as_of
+    FROM ufc_opponent_strength_snapshots
     WHERE fighter_id = ANY(${ids}::text[])
-    GROUP BY fighter_id;
+    ORDER BY fighter_id, as_of DESC;
   `;
 }
 
-function latestNote(rows: ProspectNoteRow[], fighterId: string, fightDate: Date | string) {
-  const fightTime = new Date(fightDate).getTime();
-  return rows.filter((row) => row.fighter_id === fighterId && new Date(row.note_date).getTime() <= fightTime).sort((a, b) => new Date(b.note_date).getTime() - new Date(a.note_date).getTime())[0] ?? null;
-}
-
-async function upsertFeature(args: { fight: FightRow; fighter: FighterRow; opponent: FighterRow; agg: RoundAggRow | null; rating: RatingRow | null; strength: StrengthRow | null; note: ProspectNoteRow | null; amateur: AmateurSummaryRow | null; modelVersion: string; dryRun?: boolean }) {
-  const built = featureFromWarehouse(args);
+async function upsertFeature(args: { fight: FightRow; fighter: FighterRow; opponent: FighterRow; agg: RoundAggRow | null; rating: RatingRow | null; strength: StrengthRow | null; modelVersion: string; dryRun?: boolean }) {
+  const built = buildDeepFeature(args);
   const snap = snapshotAt(args.fight.fight_date);
   const id = stableId("ufcmf", `${args.fight.id}:${args.fighter.id}:${args.modelVersion}`);
   if (args.dryRun) return { fightId: args.fight.id, fighterId: args.fighter.id, fighterName: args.fighter.full_name, source: built.feature.source, coldStartActive: built.coldStartActive, proFights: built.proFights, ufcFights: built.ufcFights, roundsFought: built.roundsFought, dryRun: true };
@@ -375,9 +353,8 @@ export async function buildUfcModelFeaturesFromWarehouse(options: { limit?: numb
   const horizonDays = Math.max(1, Math.floor(options.horizonDays ?? 120));
   const fights = await upcomingFights(options.limit ?? 50, horizonDays);
   const ids = Array.from(new Set(fights.flatMap((fight) => [fight.fighter_a_id, fight.fighter_b_id])));
-  const [fighters, ratings, strengths, notes, amateurRows] = await Promise.all([fightersFor(ids), ratingsFor(ids), strengthsFor(ids), prospectNotesFor(ids), amateurSummariesFor(ids)]);
+  const [fighters, ratings, strengths] = await Promise.all([fightersFor(ids), ratingsFor(ids), strengthsFor(ids)]);
   const fighterMap = new Map(fighters.map((fighter) => [fighter.id, fighter]));
-  const amateurMap = new Map(amateurRows.map((row) => [row.fighter_id, row]));
   const results = [];
   const missing = [];
 
@@ -386,8 +363,8 @@ export async function buildUfcModelFeaturesFromWarehouse(options: { limit?: numb
     const b = fighterMap.get(fight.fighter_b_id);
     if (!a || !b) { missing.push(fight.id); continue; }
     const [aggA, aggB] = await Promise.all([aggregateFor(a.id, fight), aggregateFor(b.id, fight)]);
-    results.push(await upsertFeature({ fight, fighter: a, opponent: b, agg: aggA, rating: latestBefore(ratings, a.id, fight.fight_date), strength: latestBefore(strengths, a.id, fight.fight_date), note: latestNote(notes, a.id, fight.fight_date), amateur: amateurMap.get(a.id) ?? null, modelVersion, dryRun: options.dryRun }));
-    results.push(await upsertFeature({ fight, fighter: b, opponent: a, agg: aggB, rating: latestBefore(ratings, b.id, fight.fight_date), strength: latestBefore(strengths, b.id, fight.fight_date), note: latestNote(notes, b.id, fight.fight_date), amateur: amateurMap.get(b.id) ?? null, modelVersion, dryRun: options.dryRun }));
+    results.push(await upsertFeature({ fight, fighter: a, opponent: b, agg: aggA, rating: latestBefore(ratings, a.id, fight.fight_date), strength: latestBefore(strengths, a.id, fight.fight_date), modelVersion, dryRun: options.dryRun }));
+    results.push(await upsertFeature({ fight, fighter: b, opponent: a, agg: aggB, rating: latestBefore(ratings, b.id, fight.fight_date), strength: latestBefore(strengths, b.id, fight.fight_date), modelVersion, dryRun: options.dryRun }));
   }
 
   return {
