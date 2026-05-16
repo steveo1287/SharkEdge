@@ -219,7 +219,7 @@ export async function getDataControlTowerReport(options: ReportOptions = {}): Pr
   const activeLaneKeys = activeKeysForScope(scope, Boolean(options.globalMode));
   const [mlbResult, oddsResult, mmaResult] = await Promise.allSettled([
     getMlbDataQualityReport({ lookbackDays: 7 }),
-    getLiveOddsReadinessReport({ leagues: scope === "MMA" ? ["MMA", "UFC"] : ["MLB"] }),
+    getLiveOddsReadinessReport({ leagues: scope === "MMA" ? ["UFC"] : ["MLB"] }),
     getUfcOperationalStatus()
   ]);
   const lanes = [
