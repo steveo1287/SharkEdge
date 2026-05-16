@@ -334,7 +334,7 @@ export async function upsertUfcWarehousePayload(raw: unknown) {
         ON CONFLICT (model_version, backtest_name, fold_number) DO UPDATE SET metrics_json = EXCLUDED.metrics_json, updated_at = now()
       `;
     }
-  });
+  }, { maxWait: 10_000, timeout: 60_000 });
 
   return { ok: true, summary: summarizeUfcWarehousePayload(payload) };
 }
