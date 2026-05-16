@@ -44,6 +44,7 @@ export async function GET(request: Request) {
   const includeTapology = parseBool(url.searchParams.get("includeTapology"), true);
   const includeUfcCom = parseBool(url.searchParams.get("includeUfcCom"), true);
   const allowFallbackFeatures = parseBool(url.searchParams.get("allowFallbackFeatures"), true);
+  const forceRegenerate = parseBool(url.searchParams.get("forceRegenerate"), false);
   const runWikimedia = parseBool(url.searchParams.get("runWikimedia"), true);
   const rebuildProfiles = parseBool(url.searchParams.get("rebuildProfiles"), true);
   const recordShadow = parseBool(url.searchParams.get("recordShadow"), true);
@@ -53,14 +54,7 @@ export async function GET(request: Request) {
 
   const startedAt = new Date().toISOString();
   const wikimedia = runWikimedia
-    ? await runWikimediaFighterEnrichment({
-      limit: wikimediaLimit,
-      offset: wikimediaOffset,
-      dryRun,
-      rebuildProfiles: false,
-      modelVersion,
-      horizonDays
-    }).catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }))
+    ? await runWikimediaFighterEnrichment({ limit: wikimediaLimit, offset: wikimediaOffset, dryRun, rebuildProfiles: false, modelVersion, horizonDays }).catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }))
     : null;
 
   const profiles = rebuildProfiles && !dryRun
@@ -76,15 +70,14 @@ export async function GET(request: Request) {
     simulations,
     recordShadow,
     allowFallbackFeatures,
+    forceRegenerate,
     includeMvp,
     includeEspn,
     includeTapology,
     includeUfcCom
   });
 
-  const feed = dryRun
-    ? []
-    : await getUfcOperationalFeed({ modelVersion, limit, includePast: false }).catch(() => []);
+  const feed = dryRun ? [] : await getUfcOperationalFeed({ modelVersion, limit, includePast: false }).catch(() => []);
   const promotionCounts = feed.reduce((acc, card) => {
     const status = card.promotionGate?.status ?? "SHADOW_ONLY";
     acc[status] = (acc[status] ?? 0) + 1;
@@ -92,7 +85,7 @@ export async function GET(request: Request) {
   }, {} as Record<string, number>);
   const actionCounts = countActions(sim.candidates);
   const missingPredictionCandidates = sim.candidates
-    .filter((candidate) => candidate.action !== "simulate" && candidate.action !== "skip-existing")
+    .filter((candidate) => candidate.action !== "simulate" && candidate.action !== "regenerate" && candidate.action !== "skip-existing")
     .map((candidate) => ({
       fightId: candidate.fightId,
       eventName: candidate.eventName,
@@ -111,19 +104,7 @@ export async function GET(request: Request) {
     startedAt,
     finishedAt: new Date().toISOString(),
     modelVersion,
-    params: {
-      horizonDays,
-      limit,
-      simulations,
-      allowFallbackFeatures,
-      recordShadow,
-      runWikimedia,
-      rebuildProfiles,
-      includeMvp,
-      includeEspn,
-      includeTapology,
-      includeUfcCom
-    },
+    params: { horizonDays, limit, simulations, allowFallbackFeatures, forceRegenerate, recordShadow, runWikimedia, rebuildProfiles, includeMvp, includeEspn, includeTapology, includeUfcCom },
     wikimedia,
     profiles,
     simSummary: {
