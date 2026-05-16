@@ -3,6 +3,8 @@ import crypto from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
 import { buildEliteUfcFighterProfiles } from "@/services/ufc/elite-fighter-profile-builder";
 import { persistUfcCalibrationSnapshot } from "@/services/ufc/calibration";
+import { persistUfcStatsFightStatsFromDetail, type UfcFightStatPersistenceResult } from "@/services/ufc/fight-stat-extractor";
+import { applyUfcOutcomeSkillLearning } from "@/services/ufc/outcome-skill-adjuster";
 import { discoverCompletedUfcStatsEvents } from "@/services/ufc/ufcstats-event-discovery";
 import { fetchUfcStatsSnapshotWithDiagnostics } from "@/services/ufc/ufcstats-fetcher";
 
@@ -14,6 +16,7 @@ type Options = {
   horizonDays?: number;
   discoverCompleted?: boolean;
   eventLimit?: number;
+  learningLimit?: number;
 };
 
 type FightRow = {
@@ -203,6 +206,7 @@ async function updateRatingsFromCompletedResults(limit = 200) {
 async function syncEventResults(args: { eventUrl: string; modelVersion: string }) {
   const warnings: string[] = [];
   const synced: Array<{ fightId: string; winnerFighterId: string; matchType: string; method: string | null; round: number | null; time: string | null; eventUrl: string }> = [];
+  const stats: UfcFightStatPersistenceResult[] = [];
   const fetched = await fetchUfcStatsSnapshotWithDiagnostics({ eventUrl: args.eventUrl, modelVersion: args.modelVersion, snapshotAt: new Date().toISOString() });
   for (const detail of fetched.fights) {
     if (!detail.winnerName) {
@@ -233,15 +237,19 @@ async function syncEventResults(args: { eventUrl: string; modelVersion: string }
       eventName: fetched.event.eventName,
       eventUrl: args.eventUrl
     });
+    const statResult = await persistUfcStatsFightStatsFromDetail({ detail, fight: match.fight });
+    stats.push(statResult);
+    if (!statResult.ok) warnings.push(...statResult.warnings.map((warning) => `${match.fight.id}: ${warning}`));
     synced.push({ fightId: match.fight.id, winnerFighterId, matchType: match.matchType, method: detail.method ?? null, round: detail.round ?? null, time: detail.time ?? null, eventUrl: args.eventUrl });
   }
-  return { eventUrl: args.eventUrl, diagnostics: fetched.diagnostics, synced, warnings };
+  return { eventUrl: args.eventUrl, diagnostics: fetched.diagnostics, synced, stats, warnings };
 }
 
 export async function runUfcResultSettlement(options: Options = {}) {
   const modelVersion = options.modelVersion ?? DEFAULT_MODEL_VERSION;
   const warnings: string[] = [];
   const synced: Array<{ fightId: string; winnerFighterId: string; matchType: string; method: string | null; round: number | null; time: string | null; eventUrl?: string }> = [];
+  const statsPersistence: UfcFightStatPersistenceResult[] = [];
   const diagnostics: unknown[] = [];
   let discovery: unknown = null;
   const eventUrls: string[] = [];
@@ -258,6 +266,7 @@ export async function runUfcResultSettlement(options: Options = {}) {
     try {
       const eventResult = await syncEventResults({ eventUrl, modelVersion });
       synced.push(...eventResult.synced);
+      statsPersistence.push(...eventResult.stats);
       warnings.push(...eventResult.warnings.map((warning) => `${eventUrl}: ${warning}`));
       diagnostics.push(eventResult.diagnostics);
     } catch (error) {
@@ -267,6 +276,7 @@ export async function runUfcResultSettlement(options: Options = {}) {
 
   const settledPredictionCount = await settleShadowPredictions(modelVersion);
   const ratings = await updateRatingsFromCompletedResults();
+  const outcomeLearning = await applyUfcOutcomeSkillLearning({ limit: options.learningLimit ?? 100 }).catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }));
   const calibration = await persistUfcCalibrationSnapshot(modelVersion, "result-settlement").catch((error) => ({ error: error instanceof Error ? error.message : String(error) }));
   const profileRebuild = options.rebuildProfiles
     ? await buildEliteUfcFighterProfiles({ modelVersion, limit: options.profileLimit ?? 2500, horizonDays: options.horizonDays ?? 180 }).catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }))
@@ -280,11 +290,14 @@ export async function runUfcResultSettlement(options: Options = {}) {
     discovery,
     eventsProcessed: Array.from(new Set(eventUrls)).length,
     syncedFightCount: synced.length,
+    statsRowsWritten: statsPersistence.reduce((sum, item) => sum + item.rowsWritten, 0),
     settledPredictionCount,
     ratings,
+    outcomeLearning,
     calibration,
     profileRebuild,
     synced,
+    statsPersistence,
     diagnostics,
     warnings
   };
