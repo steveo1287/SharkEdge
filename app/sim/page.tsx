@@ -699,9 +699,9 @@ export default async function SimHubPage() {
     {
       href: "/sharkfights/ufc",
       eyebrow: "Fight Workspace",
-      title: "UFC Fight Sim",
-      description: "Style, grappling, striking, durability, pace, and context modeling for fight-night simulations.",
-      count: "UFC",
+      title: "MMA Fight Sim",
+      description: "UFC and MVP card inventory, style, grappling, striking, durability, pace, and context modeling for fight-night simulations.",
+      count: "MMA",
       statusLabel: "Simulator lane",
       action: "Open fight sim",
       ready: true

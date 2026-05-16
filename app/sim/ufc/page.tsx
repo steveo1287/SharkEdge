@@ -4,6 +4,7 @@ import { UfcPipelineStatusPanel } from "@/components/ufc/pipeline-status-panel";
 import { SharkFightsHeader } from "@/components/ufc/sharkfights-ufc";
 import type { UfcCardSummary } from "@/services/ufc/card-feed";
 import { getUfcCards } from "@/services/ufc/card-feed";
+import { discoverOfficialMmaCards, type MmaCardDiscoveryResult } from "@/services/ufc/mma-card-discovery";
 import { getUfcPipelineStatus, type UfcPipelineStatus } from "@/services/ufc/pipeline-status";
 
 export const dynamic = "force-dynamic";
@@ -192,7 +193,7 @@ function TrustGate({ status }: { status: UfcPipelineStatus }) {
 
 function ProductChecklist() {
   const items = [
-    ["Fight cards", "Upcoming UFC cards and fights must be loaded before the lab can show value."],
+    ["Fight cards", "Upcoming UFC and MVP cards must be loaded before the lab can show value."],
     ["Feature hydration", "Each fighter needs feature pairs before the strongest model output is available."],
     ["SharkSim output", "Method, round, edge, and path summaries come from cached UFC predictions."],
     ["Source audit", "Card detail pages show provider agreement and source quality before trusting a pick."]
@@ -210,12 +211,60 @@ function ProductChecklist() {
   );
 }
 
-function UfcLabCardGrid({ cards }: { cards: UfcCardSummary[] }) {
+function DiscoveryPanel({ discovery }: { discovery: MmaCardDiscoveryResult | null }) {
+  if (!discovery || discovery.cards.length === 0) return null;
+  const loadHref = "/api/admin/ufc/load-upcoming?confirm=load-upcoming&includeMvp=1&includeEspn=0&includeTapology=0&hydrate=1&limit=40&horizonDays=180";
+  const simHref = `${loadHref}&simulate=1&allowFallbackFeatures=1`;
+
+  return (
+    <section className="rounded-[1.35rem] border border-amber-300/20 bg-[radial-gradient(circle_at_top_right,rgba(251,191,36,0.12),transparent_18rem),rgba(255,255,255,0.04)] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-200">Official cards detected</div>
+          <h2 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">MVP/UFC cards are available but not loaded into SharkSim yet</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+            This panel reads official promotion inventory directly so upcoming MMA cards are not buried when the warehouse is empty. Load cards to write them into the fight warehouse, then simulate when features are ready.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <a href={loadHref} className="rounded-full border border-aqua/30 bg-aqua/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-aqua">Load cards</a>
+          <a href={simHref} className="rounded-full border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-amber-200">Load + sim</a>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {discovery.cards.map((card) => (
+          <a key={`${card.promotionKey}:${card.sourceKey}`} href={card.sourceUrl ?? loadHref} className="rounded-[1.2rem] border border-white/10 bg-black/20 p-4 transition hover:border-amber-300/35">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-200">{dateLabel(card.eventDate)}</div>
+                <div className="mt-1 font-display text-2xl font-black tracking-[-0.04em] text-white">{card.eventName}</div>
+              </div>
+              <span className={pill(card.promotionKey === "mvp" ? "amber" : "aqua")}>{card.promotionName ?? card.promotionKey ?? "MMA"}</span>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className={pill("slate")}>{card.combatSport ?? "MMA"}</span>
+              <span className={pill("slate")}>{card.fightCount} fights</span>
+              <span className={pill("slate")}>{card.sourceStatus ?? "official"}</span>
+            </div>
+            {card.location ? <div className="mt-3 text-xs leading-5 text-slate-500">{card.location}</div> : null}
+          </a>
+        ))}
+      </div>
+      {discovery.warnings.length || discovery.errors.length ? (
+        <div className="mt-4 rounded-2xl border border-amber-300/15 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">
+          {[...discovery.warnings, ...discovery.errors].slice(0, 3).map((message) => <p key={message}>{message}</p>)}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function UfcLabCardGrid({ cards, discovery }: { cards: UfcCardSummary[]; discovery: MmaCardDiscoveryResult | null }) {
   if (!cards.length) {
     return (
       <section className="rounded-[1.35rem] border border-white/10 bg-white/[0.045] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">
         <div className="text-sm leading-6 text-slate-400">
-          No UFC cards yet. Run <span className="font-black text-aqua">npm run worker:ufc:upcoming</span> to ingest upcoming card matchups, then run SharkSim when model features are ready.
+          No warehouse fight cards yet. {discovery?.cards.length ? "Use the official-card panel above to load the detected MVP/UFC inventory into SharkSim." : "Run"} <span className="font-black text-aqua">npm run worker:ufc:upcoming</span> to ingest upcoming card matchups, then run SharkSim when model features are ready.
         </div>
       </section>
     );
@@ -260,6 +309,7 @@ function UfcLabCardGrid({ cards }: { cards: UfcCardSummary[] }) {
 
 export default async function UfcFightLabPage() {
   const [cards, status] = await Promise.all([getUfcCards({ includePast: true }), getUfcPipelineStatus()]);
+  const discovery = cards.length ? null : await discoverOfficialMmaCards({ timeoutMs: 5000, maxEvents: 3 });
 
   return (
     <main className="min-h-screen bg-[#02060b] px-3 py-4 text-white sm:px-5">
@@ -271,8 +321,9 @@ export default async function UfcFightLabPage() {
         <ProductRail cards={cards} />
         <TrustGate status={status} />
         <UfcPipelineStatusPanel status={status} />
+        <DiscoveryPanel discovery={discovery} />
         <ProductChecklist />
-        <UfcLabCardGrid cards={cards} />
+        <UfcLabCardGrid cards={cards} discovery={discovery} />
       </div>
     </main>
   );

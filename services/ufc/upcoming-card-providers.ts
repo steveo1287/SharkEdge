@@ -245,7 +245,7 @@ export function parseMvpEventPage(html: string, sourceUrl: string): UfcUpcomingS
   };
 }
 
-export async function fetchMvpUpcomingProvider(options: { listUrl?: string; eventUrls?: string[]; fetchImpl?: typeof fetch } = {}): Promise<UfcUpcomingProviderResult> {
+export async function fetchMvpUpcomingProvider(options: { listUrl?: string; eventUrls?: string[]; fetchImpl?: typeof fetch; maxEvents?: number } = {}): Promise<UfcUpcomingProviderResult> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const listUrl = options.listUrl ?? "https://www.mostvaluablepromotions.com/events/?filter=upcoming";
   const fetchedAt = new Date().toISOString();
@@ -255,6 +255,7 @@ export async function fetchMvpUpcomingProvider(options: { listUrl?: string; even
   try {
     const eventUrls = options.eventUrls ?? parseMvpUpcomingEventsList(await getHtml(listUrl, fetchImpl), listUrl).map((event) => event.url);
     for (const url of [...new Set(eventUrls)]) {
+      if (options.maxEvents && events.length >= options.maxEvents) break;
       try {
         events.push(parseMvpEventPage(await getHtml(url, fetchImpl), url));
       } catch (error) {

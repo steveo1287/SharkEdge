@@ -43,6 +43,10 @@ export async function GET(request: Request) {
   const limit = numberParam(url, "limit", 25);
   const simulations = numberParam(url, "simulations", 25000);
   const seed = numberParam(url, "seed", 1287);
+  const includeUfcCom = boolParam(url, "includeUfcCom", true);
+  const includeEspn = boolParam(url, "includeEspn", false);
+  const includeTapology = boolParam(url, "includeTapology", false);
+  const includeMvp = boolParam(url, "includeMvp", true);
 
   try {
     const before = await getUfcPipelineStatus();
@@ -56,7 +60,11 @@ export async function GET(request: Request) {
           simulations,
           seed,
           recordShadow: true,
-          allowFallbackFeatures
+          allowFallbackFeatures,
+          includeUfcCom,
+          includeEspn,
+          includeTapology,
+          includeMvp
         })
       : null;
     const after = await getUfcPipelineStatus();
@@ -66,7 +74,7 @@ export async function GET(request: Request) {
       mode: dryRun ? "dry-run" : "autopilot",
       startedAt,
       finishedAt: new Date().toISOString(),
-      config: { hydrate, simulate, allowFallbackFeatures, horizonDays, limit, simulations, seed },
+      config: { hydrate, simulate, allowFallbackFeatures, horizonDays, limit, simulations, seed, includeUfcCom, includeEspn, includeTapology, includeMvp },
       before,
       hydration,
       pipeline,

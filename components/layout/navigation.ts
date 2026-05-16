@@ -40,7 +40,7 @@ export function getRouteMeta(pathname: string) {
     { match: (v: string) => v === "/", eyebrow: "Command Center", title: "Today", subtitle: "Top plays, biggest edges, and model calls." },
     { match: (v: string) => v === "/sim" || v === "/sim-fast", eyebrow: "Simulation Engine", title: "SimHub", subtitle: "MLB and UFC simulation output." },
     { match: (v: string) => v.startsWith("/baseball") || v.startsWith("/sim/mlb"), eyebrow: "MLB Simulation", title: "MLB Lab", subtitle: "Baseball projections, calibration, and model proof." },
-    { match: (v: string) => v.startsWith("/sim/ufc") || v.startsWith("/sharkfights"), eyebrow: "UFC Simulation", title: "UFC Fight Lab", subtitle: "Fight predictions, method lanes, source audit, and decision readiness." },
+    { match: (v: string) => v.startsWith("/sim/ufc") || v.startsWith("/sharkfights"), eyebrow: "MMA Simulation", title: "MMA Fight Lab", subtitle: "UFC and MVP fight predictions, method lanes, source audit, and decision readiness." },
     { match: (v: string) => v.startsWith("/trends") || v.startsWith("/sharktrends"), eyebrow: "Research Lab", title: "SharkTrends Paused", subtitle: "Premium trend mining is dormant while the product focuses on simulation." },
     { match: (v: string) => v.startsWith("/accuracy") || v.startsWith("/sim/accuracy"), eyebrow: "Model Credibility", title: "Accuracy", subtitle: "Model record and calibration." },
     { match: (v: string) => v.startsWith("/saved"), eyebrow: "Saved", title: "Saved", subtitle: "Saved plays, watchlist, bets, and alerts." }

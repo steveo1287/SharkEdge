@@ -43,15 +43,15 @@ function ActionLink({ href, label, tone = "slate" }: { href: string; label: stri
 }
 
 export function UfcPipelineStatusPanel({ status }: { status: UfcPipelineStatus }) {
-  const base = "/api/admin/ufc/load-upcoming?confirm=load-upcoming";
+  const base = "/api/admin/ufc/load-upcoming?confirm=load-upcoming&includeMvp=1&includeEspn=0&includeTapology=0";
   return (
     <section className="rounded-[1.35rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(0,210,255,0.12),transparent_18rem),rgba(255,255,255,0.04)] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-aqua">UFC pipeline</div>
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-aqua">MMA pipeline</div>
           <h2 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">Card load and sim status</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            Upcoming card ingestion, feature hydration, and SharkSim readiness. Use this when UFC Fight Lab shows no cards or fights are stuck at Sim pending.
+            Upcoming UFC and MVP card ingestion, feature hydration, and SharkSim readiness. Use this when MMA Fight Lab shows no cards or fights are stuck at Sim pending.
           </p>
         </div>
         <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${metricTone(status)}`}>
