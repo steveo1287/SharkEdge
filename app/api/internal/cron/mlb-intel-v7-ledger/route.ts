@@ -34,6 +34,12 @@ function parseWindowDays(value: string | null) {
   return Number.isFinite(numeric) ? Math.max(1, Math.min(3650, Math.round(numeric))) : 180;
 }
 
+function pickCount(value: unknown, key: string) {
+  if (!value || typeof value !== "object") return null;
+  const count = (value as Record<string, unknown>)[key];
+  return typeof count === "number" && Number.isFinite(count) ? count : null;
+}
+
 export async function GET(request: Request) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
@@ -54,12 +60,25 @@ export async function GET(request: Request) {
       : await updateMlbIntelV7ClosingLines(limit);
   const grade = await gradeMlbIntelV7Ledgers({ limit });
   const summary = await getMlbIntelV7LedgerSummary(90);
+  const captureRecord = capture as Record<string, unknown>;
+  const officialCapture = captureRecord.capture;
+  const v8Shadow = captureRecord.v8Shadow;
 
   return NextResponse.json({
     ok: Boolean(capture.ok && closingLines.ok && grade.ok && summary.ok),
     mode,
     productionMode: "productionMode" in capture ? capture.productionMode : null,
     capturePath: "capturePath" in capture ? capture.capturePath : "skipped",
+    governance: {
+      officialLedgerModel: captureRecord.productionMode === "v7_control" ? "mlb-intel-v7" : captureRecord.productionMode === "force_v7" ? "main-sim-brain-v1" : null,
+      v8OfficialPromotion: false,
+      v8ShadowOnly: Boolean(v8Shadow),
+      officialSnapshots: pickCount(officialCapture, "capturedSnapshots"),
+      officialPicks: pickCount(officialCapture, "officialPicks"),
+      v8ShadowSnapshots: pickCount(v8Shadow, "capturedSnapshots"),
+      v8ShadowOfficialPicks: pickCount(v8Shadow, "officialPicks"),
+      v8ShadowBlocked: pickCount(v8Shadow, "shadowBlocked")
+    },
     capture,
     closingLines,
     grade,
