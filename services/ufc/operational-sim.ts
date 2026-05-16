@@ -9,6 +9,7 @@ import { buildUfcFighterSkillProfile, type UfcModelFeatureSnapshot } from "@/ser
 import { evaluateUfcMarketAwareFairProbability, type UfcMarketAwareFairProbability } from "@/services/ufc/market-aware-fair-probability";
 import { applyUfcMethodCalibration, buildUfcPromotionGate, getUfcMethodCalibration, type UfcMethodCalibration, type UfcPromotionGate } from "@/services/ufc/method-calibration-gate";
 import { applyPayloadPriorsToUfcFeature, enrichedPriorPathSummary, type UfcPriorBridgeResult } from "@/services/ufc/profile-prior-sim-bridge";
+import { auditUfcSimInputs, type UfcSimInputAudit } from "@/services/ufc/sim-input-audit";
 
 export type UfcOperationalSimOptions = {
   modelVersion?: string;
@@ -21,6 +22,7 @@ export type UfcOperationalSimOptions = {
   marketOddsBClose?: number | null;
   skillMarkovWeight?: number | null;
   exchangeMonteCarloWeight?: number | null;
+  roundByRoundWeight?: number | null;
 };
 
 export type UfcOperationalSimResult = {
@@ -37,6 +39,7 @@ export type UfcOperationalSimResult = {
   fairOddsAmerican: number;
   edgePct: number | null;
   marketAware: UfcMarketAwareFairProbability;
+  simInputAudit: UfcSimInputAudit;
   dataQualityGrade: string;
   confidenceGrade: string;
   confidenceGradeBeforeProfileCap: string;
@@ -163,7 +166,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
   const simulations = options.simulations ?? DEFAULT_SIMULATIONS;
   const seed = options.seed ?? Number.parseInt(crypto.createHash("sha256").update(fightId).digest("hex").slice(0, 8), 16);
   const [activeEnsembleWeights, profileFeatureSignalReport, methodCalibration] = await Promise.all([
-    resolveUfcEnsembleWeights(modelVersion, { skillMarkovWeight: options.skillMarkovWeight, exchangeMonteCarloWeight: options.exchangeMonteCarloWeight }),
+    resolveUfcEnsembleWeights(modelVersion, { skillMarkovWeight: options.skillMarkovWeight, exchangeMonteCarloWeight: options.exchangeMonteCarloWeight, roundByRoundWeight: options.roundByRoundWeight }),
     getProfileFeatureSignalReport().catch(() => null),
     getUfcMethodCalibration(modelVersion).catch(() => ({ modelVersion, sampleSize: 0, quality: "D" as const, actualRates: { KO_TKO: 0.33, SUBMISSION: 0.22, DECISION: 0.45 }, predictedAverages: { KO_TKO: 0.33, SUBMISSION: 0.22, DECISION: 0.45 }, corrections: { KO_TKO: 0, SUBMISSION: 0, DECISION: 0 }, maxCorrection: 0, generatedAt: new Date().toISOString() }))
   ]);
@@ -196,16 +199,18 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
   const bSnapshot = bPriorBridge.feature;
   const aProfile = buildUfcFighterSkillProfile({ feature: aSnapshot });
   const bProfile = buildUfcFighterSkillProfile({ feature: bSnapshot });
+  const marketOddsA = options.marketOddsAClose ?? options.marketOddsAOpen ?? null;
+  const marketOddsB = options.marketOddsBClose ?? options.marketOddsBOpen ?? null;
+  const simInputAudit = auditUfcSimInputs({ fighterA: aSnapshot, fighterB: bSnapshot, marketOddsA, marketOddsB });
+  const profileDataQualityGrade = weakerGrade(aProfile.sampleQuality, bProfile.sampleQuality);
+  const dataQualityGrade = weakerGrade(profileDataQualityGrade, simInputAudit.grade);
   const sim = runUfcEnsembleSimFromFeatures(aSnapshot, bSnapshot, { simulations, seed, scheduledRounds: fight.scheduled_rounds === 5 ? 5 : 3, weights: activeEnsembleWeights.weights });
   const calibratedMethodProbabilities = applyUfcMethodCalibration(sim.methodProbabilities, methodCalibration);
   const enrichedPriorBridge = { fighterA: stripBridgeFeature(aPriorBridge), fighterB: stripBridgeFeature(bPriorBridge) };
   const priorPathSummary = enrichedPriorPathSummary({ fighterAId: fight.fighter_a_id, fighterBId: fight.fighter_b_id, a: aPriorBridge, b: bPriorBridge });
-  const dataQualityGrade = weakerGrade(aProfile.sampleQuality, bProfile.sampleQuality);
   const rawPickProbability = Math.max(sim.fighterAWinProbability, sim.fighterBWinProbability);
-  const confidenceBeforeProfileCap = confidenceGrade(rawPickProbability, dataQualityGrade, aProfile.prospect.coldStartActive || bProfile.prospect.coldStartActive);
+  const confidenceBeforeProfileCap = confidenceGrade(rawPickProbability, dataQualityGrade, aProfile.prospect.coldStartActive || bProfile.prospect.coldStartActive || simInputAudit.fighterA.coldStartActive || simInputAudit.fighterB.coldStartActive);
   const confidence = weakerConfidence(confidenceBeforeProfileCap, maxConfidenceFromSignal(profileFeatureSignal));
-  const marketOddsA = options.marketOddsAClose ?? options.marketOddsAOpen ?? null;
-  const marketOddsB = options.marketOddsBClose ?? options.marketOddsBOpen ?? null;
   const marketAware = evaluateUfcMarketAwareFairProbability({
     fighterAId: fight.fighter_a_id,
     fighterBId: fight.fighter_b_id,
@@ -215,30 +220,34 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     marketOddsB,
     dataQualityGrade,
     confidenceGrade: confidence,
-    profileFeatureScore: profileFeatureSignal?.score ?? null,
+    profileFeatureScore: Math.min(profileFeatureSignal?.score ?? 100, simInputAudit.score),
     methodCalibrationQuality: methodCalibration.quality,
     hasLearningSignal: Boolean(aPriorBridge.learningApplied || bPriorBridge.learningApplied),
     hasPriorSignal: Boolean(aPriorBridge.applied || bPriorBridge.applied),
-    coldStartActive: Boolean(aProfile.prospect.coldStartActive || bProfile.prospect.coldStartActive)
+    coldStartActive: Boolean(aProfile.prospect.coldStartActive || bProfile.prospect.coldStartActive || simInputAudit.fighterA.coldStartActive || simInputAudit.fighterB.coldStartActive)
   });
   const pickFighterId = marketAware.pickFighterId;
   const pickProbability = marketAware.pickProbability;
   const pickMarketOdds = marketAware.marketOddsAmerican;
-  const edgePct = marketAware.noMarketEdge ? null : marketAware.edgePct;
+  const edgePct = marketAware.noMarketEdge || simInputAudit.grade === "D" ? null : marketAware.edgePct;
+  const auditReasonCodes = [
+    ...simInputAudit.blockers.map((item) => `INPUT_BLOCKER_${item}`),
+    ...simInputAudit.warnings.map((item) => `INPUT_WARNING_${item}`)
+  ];
   const promotionGate = buildUfcPromotionGate({
     dataQualityGrade,
     confidenceGrade: confidence,
     edgePct,
     pickProbability,
-    profileFeatureScore: profileFeatureSignal?.score ?? null,
+    profileFeatureScore: Math.min(profileFeatureSignal?.score ?? 100, simInputAudit.score),
     methodCalibration,
     hasLearningSignal: Boolean(aPriorBridge.learningApplied || bPriorBridge.learningApplied),
     hasPriorSignal: Boolean(aPriorBridge.applied || bPriorBridge.applied),
     hasRealMarket: marketAware.hasRealMarket,
-    noMarketEdge: marketAware.noMarketEdge,
+    noMarketEdge: marketAware.noMarketEdge || simInputAudit.grade === "D",
     uncertaintyCrossesMarket: marketAware.confidenceBand.crossesMarket,
     confidenceBandWidth: marketAware.confidenceBand.width,
-    marketAwareReasonCodes: marketAware.reasonCodes
+    marketAwareReasonCodes: [...marketAware.reasonCodes, ...auditReasonCodes]
   });
   const predictionPayload = {
     ...sim,
@@ -247,6 +256,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     fighterAWinProbability: marketAware.blendedProbabilityA,
     fighterBWinProbability: marketAware.blendedProbabilityB,
     marketAware,
+    simInputAudit,
     rawMethodProbabilities: sim.methodProbabilities,
     methodProbabilities: calibratedMethodProbabilities,
     methodCalibration,
@@ -257,7 +267,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     fighterSkillProfiles: { fighterA: aProfile, fighterB: bProfile },
     featureSnapshots: { fighterA: aSnapshot, fighterB: bSnapshot }
   };
-  const predictionId = stableId("ufcp", `${fightId}:${modelVersion}:${seed}:${simulations}:ensemble:${activeEnsembleWeights.source}:${activeEnsembleWeights.weights.skillMarkov}:${activeEnsembleWeights.weights.exchangeMonteCarlo}:market-aware-v1`);
+  const predictionId = stableId("ufcp", `${fightId}:${modelVersion}:${seed}:${simulations}:ensemble:${activeEnsembleWeights.source}:${activeEnsembleWeights.weights.skillMarkov}:${activeEnsembleWeights.weights.exchangeMonteCarlo}:${activeEnsembleWeights.weights.roundByRound}:market-aware-input-audit-v1`);
 
   await prisma.$executeRaw`
     INSERT INTO ufc_predictions (id, fight_id, model_version, generated_at, fighter_a_id, fighter_b_id, fighter_a_win_probability, fighter_b_win_probability, pick_fighter_id, fair_odds_american, sportsbook_odds_american, edge_pct, ko_tko_probability, submission_probability, decision_probability, prediction_json, updated_at)
@@ -268,7 +278,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
   const simRunId = stableId("ufcsr", `${predictionId}:${seed}:${simulations}`);
   await prisma.$executeRaw`
     INSERT INTO ufc_sim_runs (id, prediction_id, fight_id, model_version, seed, simulation_count, completed_at, cache_key, status, result_json, updated_at)
-    VALUES (${simRunId}, ${predictionId}, ${fightId}, ${modelVersion}, ${seed}, ${simulations}, now(), ${`ufc:${fightId}:${modelVersion}:${seed}:${simulations}:ensemble:${activeEnsembleWeights.source}:market-aware-v1`}, 'COMPLETED', ${JSON.stringify(predictionPayload)}::jsonb, now())
+    VALUES (${simRunId}, ${predictionId}, ${fightId}, ${modelVersion}, ${seed}, ${simulations}, now(), ${`ufc:${fightId}:${modelVersion}:${seed}:${simulations}:ensemble:${activeEnsembleWeights.source}:market-aware-input-audit-v1`}, 'COMPLETED', ${JSON.stringify(predictionPayload)}::jsonb, now())
     ON CONFLICT (id) DO UPDATE SET completed_at = EXCLUDED.completed_at, status = EXCLUDED.status, result_json = EXCLUDED.result_json, updated_at = now()
   `;
 
@@ -277,7 +287,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     shadowPredictionId = stableId("ufcsh", `${predictionId}:shadow`);
     await prisma.$executeRaw`
       INSERT INTO ufc_shadow_predictions (id, fight_id, prediction_id, model_version, recorded_at, market_odds_a_open, market_odds_b_open, market_odds_a_close, market_odds_b_close, fighter_a_win_probability, fighter_b_win_probability, pick_fighter_id, data_quality_grade, confidence_grade, status, payload_json, updated_at)
-      VALUES (${shadowPredictionId}, ${fightId}, ${predictionId}, ${modelVersion}, now(), ${options.marketOddsAOpen ?? null}, ${options.marketOddsBOpen ?? null}, ${options.marketOddsAClose ?? null}, ${options.marketOddsBClose ?? null}, ${marketAware.blendedProbabilityA}, ${marketAware.blendedProbabilityB}, ${pickFighterId}, ${promotionGate.grade}, ${promotionGate.confidenceCap}, ${promotionGate.status === "PROMOTABLE" ? "PENDING" : "SHADOW_ONLY"}, ${JSON.stringify({ sim: predictionPayload, pathSummary: [...priorPathSummary, ...promotionGate.reasons, ...sim.pathSummary], dangerFlags: [...sim.dangerFlags, ...marketAware.reasonCodes], profileFeatureSignal, enrichedPriorBridge, methodCalibration, promotionGate, marketAware })}::jsonb, now())
+      VALUES (${shadowPredictionId}, ${fightId}, ${predictionId}, ${modelVersion}, now(), ${options.marketOddsAOpen ?? null}, ${options.marketOddsBOpen ?? null}, ${options.marketOddsAClose ?? null}, ${options.marketOddsBClose ?? null}, ${marketAware.blendedProbabilityA}, ${marketAware.blendedProbabilityB}, ${pickFighterId}, ${promotionGate.grade}, ${promotionGate.confidenceCap}, ${promotionGate.status === "PROMOTABLE" ? "PENDING" : "SHADOW_ONLY"}, ${JSON.stringify({ sim: predictionPayload, pathSummary: [...priorPathSummary, `Input audit ${simInputAudit.grade} (${simInputAudit.score}/100).`, ...simInputAudit.blockers, ...simInputAudit.warnings, ...promotionGate.reasons, ...sim.pathSummary], dangerFlags: [...sim.dangerFlags, ...marketAware.reasonCodes, ...auditReasonCodes], profileFeatureSignal, enrichedPriorBridge, methodCalibration, promotionGate, marketAware, simInputAudit })}::jsonb, now())
       ON CONFLICT (id) DO UPDATE SET fighter_a_win_probability = EXCLUDED.fighter_a_win_probability, fighter_b_win_probability = EXCLUDED.fighter_b_win_probability, payload_json = EXCLUDED.payload_json, confidence_grade = EXCLUDED.confidence_grade, data_quality_grade = EXCLUDED.data_quality_grade, status = EXCLUDED.status, updated_at = now()
     `;
   }
@@ -296,6 +306,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     fairOddsAmerican: probabilityToAmericanOdds(pickProbability),
     edgePct,
     marketAware,
+    simInputAudit,
     dataQualityGrade: promotionGate.grade,
     confidenceGrade: promotionGate.confidenceCap,
     confidenceGradeBeforeProfileCap: confidenceBeforeProfileCap,
@@ -310,6 +321,9 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     pathSummary: [
       ...(profileFeatureSignal ? [`MMA profile feature signal ${profileFeatureSignal.status} (${profileFeatureSignal.score}/100) capped confidence at ${Math.round(profileFeatureSignal.confidenceCap * 100)}%.`] : []),
       ...priorPathSummary,
+      `Input audit ${simInputAudit.grade} (${simInputAudit.score}/100): fighterA=${simInputAudit.fighterA.score}, fighterB=${simInputAudit.fighterB.score}, market=${simInputAudit.market.score}, engine=${simInputAudit.engineReadiness.score}.`,
+      ...simInputAudit.blockers,
+      ...simInputAudit.warnings,
       `Market-aware blend modelWeight=${marketAware.modelWeight} marketWeight=${marketAware.marketWeight}; ${marketAware.hasRealMarket ? "real no-vig market applied" : "NO MARKET EDGE"}.`,
       `Confidence band ${Math.round(marketAware.confidenceBand.low * 1000) / 10}%–${Math.round(marketAware.confidenceBand.high * 1000) / 10}%${marketAware.confidenceBand.crossesMarket ? " crosses market" : ""}.`,
       `Method calibration ${methodCalibration.quality} sample=${methodCalibration.sampleSize}; corrections KO ${methodCalibration.corrections.KO_TKO}, SUB ${methodCalibration.corrections.SUBMISSION}, DEC ${methodCalibration.corrections.DECISION}.`,
