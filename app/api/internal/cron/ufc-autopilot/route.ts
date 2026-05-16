@@ -41,6 +41,7 @@ export async function GET(request: Request) {
   const hydrate = boolParam(url, "hydrate", true);
   const simulate = boolParam(url, "simulate", true);
   const allowFallbackFeatures = boolParam(url, "allowFallbackFeatures", false);
+  const forceRegenerate = boolParam(url, "forceRegenerate", autoBuildFeatures || hydrate);
   const horizonDays = numberParam(url, "horizonDays", 120);
   const limit = numberParam(url, "limit", 25);
   const simulations = numberParam(url, "simulations", 25000);
@@ -64,6 +65,7 @@ export async function GET(request: Request) {
           seed,
           recordShadow: true,
           allowFallbackFeatures,
+          forceRegenerate,
           includeUfcCom,
           includeEspn,
           includeTapology,
@@ -77,7 +79,7 @@ export async function GET(request: Request) {
       mode: dryRun ? "dry-run" : "autopilot",
       startedAt,
       finishedAt: new Date().toISOString(),
-      config: { autoBuildFeatures, hydrate, simulate, allowFallbackFeatures, horizonDays, limit, simulations, seed, includeUfcCom, includeEspn, includeTapology, includeMvp },
+      config: { autoBuildFeatures, hydrate, simulate, allowFallbackFeatures, forceRegenerate, horizonDays, limit, simulations, seed, includeUfcCom, includeEspn, includeTapology, includeMvp },
       before,
       autoBuild,
       hydration,
