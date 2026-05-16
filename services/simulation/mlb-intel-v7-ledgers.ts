@@ -71,6 +71,52 @@ function safeJson(value: unknown) {
   return JSON.stringify(value ?? null);
 }
 
+function numericScore(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) return Number(value);
+  return null;
+}
+
+function participantResultScore(value: unknown, key: "home" | "away", competitorId: string | null | undefined) {
+  if (!value || typeof value !== "object") return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const rowKey = String(row.role ?? row.side ?? "").toLowerCase();
+      const rowCompetitorId = typeof row.competitorId === "string" ? row.competitorId : null;
+      if (rowKey === key || (competitorId && rowCompetitorId === competitorId)) {
+        return numericScore(row.score);
+      }
+    }
+    return null;
+  }
+  const byKey = value as Record<string, unknown>;
+  const keyed = byKey[key];
+  if (keyed && typeof keyed === "object") {
+    const score = numericScore((keyed as Record<string, unknown>).score);
+    if (score !== null) return score;
+  }
+  if (competitorId) {
+    const keyedByCompetitor = byKey[competitorId];
+    if (keyedByCompetitor && typeof keyedByCompetitor === "object") {
+      const score = numericScore((keyedByCompetitor as Record<string, unknown>).score);
+      if (score !== null) return score;
+    }
+  }
+  return null;
+}
+
+function deriveScoresFromResultFields(totalPoints: unknown, margin: unknown) {
+  const total = numericScore(totalPoints);
+  const homeMargin = numericScore(margin);
+  if (total === null || homeMargin === null) return null;
+  const homeScore = (total + homeMargin) / 2;
+  const awayScore = (total - homeMargin) / 2;
+  if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) return null;
+  return { homeScore, awayScore };
+}
+
 function parseMatchup(label: string) {
   const atSplit = label.split(" @ ");
   if (atSplit.length === 2) return { away: atSplit[0]?.trim() || "Away", home: atSplit[1]?.trim() || "Home" };
@@ -123,6 +169,44 @@ async function finalScoreMap() {
     if (game.status !== "FINAL") continue;
     const result = parseScoreboard(game.scoreboard);
     if (result) map.set(game.id, result);
+  }
+  return map;
+}
+
+async function databaseFinalScoreMap(gameIds: string[]) {
+  if (!gameIds.length) return new Map<string, ScoreResult>();
+  const events = await prisma.event.findMany({
+    where: {
+      league: { key: "MLB" },
+      OR: [
+        { id: { in: gameIds } },
+        { externalEventId: { in: gameIds } }
+      ],
+      eventResult: { isNot: null }
+    },
+    include: {
+      participants: true,
+      eventResult: true
+    }
+  });
+  const map = new Map<string, ScoreResult>();
+  for (const event of events) {
+    const home = event.participants.find((participant) => participant.role === "HOME");
+    const away = event.participants.find((participant) => participant.role === "AWAY");
+    const resultJson = event.eventResult?.participantResultsJson ?? null;
+    const derived = deriveScoresFromResultFields(event.eventResult?.totalPoints, event.eventResult?.margin);
+    const homeScore = numericScore(home?.score) ?? participantResultScore(resultJson, "home", home?.competitorId) ?? derived?.homeScore ?? null;
+    const awayScore = numericScore(away?.score) ?? participantResultScore(resultJson, "away", away?.competitorId) ?? derived?.awayScore ?? null;
+    if (homeScore === null || awayScore === null) continue;
+    const result = {
+      homeScore,
+      awayScore,
+      finalTotal: homeScore + awayScore,
+      finalMargin: homeScore - awayScore,
+      homeWon: homeScore > awayScore
+    };
+    map.set(event.id, result);
+    if (event.externalEventId) map.set(event.externalEventId, result);
   }
   return map;
 }
@@ -356,6 +440,8 @@ async function gradeTable(tableName: "mlb_model_snapshot_ledger" | "mlb_official
     ORDER BY captured_at ASC
     LIMIT 1000;
   `);
+  const databaseFinals = await databaseFinalScoreMap(rows.map((row) => row.game_id));
+  for (const [key, value] of databaseFinals.entries()) finals.set(key, value);
   let graded = 0;
 
   for (const row of rows) {
