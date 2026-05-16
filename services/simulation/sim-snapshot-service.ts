@@ -30,6 +30,7 @@ const MARKET_OVERLAY_TIMEOUT_MS = 18_000;
 const FULL_SIM_RETENTION_SECONDS = 36 * 60 * 60;
 const MARKET_RETENTION_SECONDS = 6 * 60 * 60;
 const MAX_PRIORITY_ROWS = 80;
+const ACTIVE_SIM_LEAGUE: LeagueKey = "MLB";
 
 type ActionAwareSignal = { takeAction?: { action?: unknown } };
 
@@ -275,6 +276,25 @@ function compactProjection(projection: FullProjection): CachedSimProjection {
   };
 }
 
+function isFallbackProjectionRow(row: CachedSimGameProjection) {
+  const dataSource = row.projection.mlbIntel && typeof row.projection.mlbIntel === "object"
+    ? String((row.projection.mlbIntel as { dataSource?: unknown }).dataSource ?? "")
+    : "";
+  const governorSource = row.projection.mlbIntel?.governor && typeof row.projection.mlbIntel.governor === "object"
+    ? String((row.projection.mlbIntel.governor as { source?: unknown }).source ?? "")
+    : "";
+  return row.game.leagueKey === "MLB" && (dataSource === "fallback-mlb-base-projection" || governorSource === "fallback-mlb-base-projection");
+}
+
+function removeFallbackProjectionRows(rows: CachedSimGameProjection[], warnings: string[]) {
+  const usableRows = rows.filter((row) => !isFallbackProjectionRow(row));
+  const removedCount = rows.length - usableRows.length;
+  if (removedCount > 0) {
+    warnings.push(`Excluded ${removedCount} fallback MLB projection row${removedCount === 1 ? "" : "s"} from cached sim output; preserving only real model projections.`);
+  }
+  return usableRows;
+}
+
 function asMlbProjection(projection: CachedSimProjection): MlbEdgeProjection {
   return { matchup: projection.matchup, distribution: projection.distribution, mlbIntel: projection.mlbIntel };
 }
@@ -378,7 +398,7 @@ async function readLiveGames(selectedLeague: "ALL" | LeagueKey, warnings: string
     const boardStartedAt = Date.now();
     const sections = await buildBoardSportSections({ selectedLeague, gamesByLeague: {}, maxScoreboardGames: null });
     logTiming("sim-refresh", "buildBoardSportSections", boardStartedAt);
-    const games = flatten(sections).filter((game) => game.leagueKey === "NBA" || game.leagueKey === "MLB");
+    const games = flatten(sections).filter((game) => game.leagueKey === ACTIVE_SIM_LEAGUE);
     sourceStatus.board = { ok: true, gameCount: games.length, selectedLeague };
     return games;
   } catch (error) {
@@ -398,9 +418,9 @@ export async function refreshFullSimSnapshots() {
 
   await writeRefreshStatus({ ok: true, running: true, lastSuccessAt: null, lastFailureAt: null, warnings: [], sourceStatus: { phase: "running", cacheVersion: SIM_CACHE_VERSION } });
 
-  const games = await readLiveGames("ALL", warnings, sourceStatus);
+  const games = await readLiveGames(ACTIVE_SIM_LEAGUE, warnings, sourceStatus);
   if (games.length === 0) {
-    const result = await preserveLastGoodSnapshot("Scoreboard returned zero NBA/MLB games; preserved last successful sim snapshot instead of writing a blank slate.", { generatedAt, warnings, sourceStatus });
+    const result = await preserveLastGoodSnapshot("Scoreboard returned zero MLB games; preserved last successful sim snapshot instead of writing a blank slate.", { generatedAt, warnings, sourceStatus });
     logTiming("sim-refresh", "total", startedAt);
     return result;
   }
@@ -414,9 +434,9 @@ export async function refreshFullSimSnapshots() {
     logTiming("sim-refresh", "savant cache pre-warm", savantStartedAt);
   }
 
-  const rows = await buildRowsFromGames(games, warnings);
+  const rows = removeFallbackProjectionRows(await buildRowsFromGames(games, warnings), warnings);
   if (rows.length === 0) {
-    const result = await preserveLastGoodSnapshot("Projection batch returned zero successful games; preserved last successful sim snapshot instead of writing a blank slate.", { generatedAt, warnings, sourceStatus });
+    const result = await preserveLastGoodSnapshot("Projection batch returned zero usable MLB model projections; preserved last successful sim snapshot instead of writing fallback output.", { generatedAt, warnings, sourceStatus });
     logTiming("sim-refresh", "total", startedAt);
     return result;
   }
@@ -474,7 +494,7 @@ export async function refreshFullSimSnapshots() {
 async function rebuildMlbBoardSnapshot(warnings: string[], sourceStatus: Record<string, unknown>) {
   const games = (await readLiveGames("MLB", warnings, sourceStatus)).filter((game) => game.leagueKey === "MLB");
   if (!games.length) return null;
-  const rows = (await buildRowsFromGames(games, warnings)).filter((row) => row.game.leagueKey === "MLB");
+  const rows = removeFallbackProjectionRows(await buildRowsFromGames(games, warnings), warnings).filter((row) => row.game.leagueKey === "MLB");
   if (!rows.length) return null;
   const generatedAt = new Date().toISOString();
   const snapshot: SimBoardSnapshot = {

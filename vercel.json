@@ -60,15 +60,23 @@
     },
     {
       "path": "/api/cron/sim-refresh",
-      "schedule": "*/30 13-23 * * *"
+      "schedule": "*/30 15-23 * * *"
+    },
+    {
+      "path": "/api/cron/sim-refresh",
+      "schedule": "*/30 0-4 * * *"
+    },
+    {
+      "path": "/api/cron/sim-refresh",
+      "schedule": "0 5-14 * * *"
     },
     {
       "path": "/api/cron/sim-market-refresh",
-      "schedule": "*/15 13-23 * * *"
+      "schedule": "*/10 15-23 * * *"
     },
     {
-      "path": "/api/jobs/precompute-sims",
-      "schedule": "*/30 13-23 * * *"
+      "path": "/api/cron/sim-market-refresh",
+      "schedule": "*/10 0-4 * * *"
     },
     {
       "path": "/api/sim/accuracy?action=capture",

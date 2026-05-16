@@ -20,15 +20,17 @@ import {
   type SimPrioritySnapshot,
   type SimRefreshStatusSnapshot,
   type SimSnapshotEnvelope
-} from "@/services/simulation/sim-cache";
+} from "@/services/simulation/sim-snapshot-service";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 30;
 
 const DISPLAY_TIME_ZONE = "America/Chicago";
-const SIM_REFRESH_INTERVAL_MINUTES = 10;
-const SIM_MARKET_REFRESH_INTERVAL_MINUTES = 5;
+const SIM_REFRESH_INTERVAL_MINUTES = 30;
+const SIM_MARKET_REFRESH_INTERVAL_MINUTES = 10;
+const SIM_FRESHNESS_WINDOW_MINUTES = 75;
+const MARKET_FRESHNESS_WINDOW_MINUTES = 15;
 
 type WorkspaceConfig = {
   href: string;
@@ -242,8 +244,8 @@ function SimStatusRail({
   const marketGeneratedAt = market?.generatedAt ?? null;
   const nextSim = nextExpectedRefresh(simGeneratedAt, SIM_REFRESH_INTERVAL_MINUTES);
   const nextMarket = nextExpectedRefresh(marketGeneratedAt, SIM_MARKET_REFRESH_INTERVAL_MINUTES);
-  const simOk = (ageMinutes(simGeneratedAt) ?? 999) <= 20;
-  const marketOk = (ageMinutes(marketGeneratedAt) ?? 999) <= 10;
+  const simOk = (ageMinutes(simGeneratedAt) ?? 999) <= SIM_FRESHNESS_WINDOW_MINUTES;
+  const marketOk = (ageMinutes(marketGeneratedAt) ?? 999) <= MARKET_FRESHNESS_WINDOW_MINUTES;
   const refreshOk = status?.ok !== false;
   const hasRows = (priority?.rows.length ?? 0) > 0;
   const allGood = simOk && marketOk && refreshOk && hasRows;
@@ -753,7 +755,7 @@ export default async function SimHubPage() {
           <SimMetricTile
             label="MLB market"
             value={market ? (market.stale ? "Stale" : "Fresh") : "Missing"}
-            sub={`5-min overlay - ${formatAge(market?.generatedAt)}`}
+            sub={`10-min overlay - ${formatAge(market?.generatedAt)}`}
             emphasis={market && !market.stale ? "strong" : "normal"}
           />
           <SimMetricTile
