@@ -160,9 +160,16 @@ function mvpEventSport(text: string): "MMA" | "BOXING" | "COMBAT" {
   return "COMBAT";
 }
 
+function isUpcomingEventDate(value: string, now = Date.now()) {
+  const time = new Date(value).getTime();
+  if (Number.isNaN(time)) return true;
+  return time >= now - 12 * 60 * 60 * 1000;
+}
+
 function parseMvpFightSegment(segment: string, sourceUrl: string, index: number, fallbackSport: "MMA" | "BOXING" | "COMBAT" = "COMBAT"): UfcUpcomingSourceFight | null {
   const compact = strip(segment);
   if (!/\bVS\b/.test(compact) || !/View Stats/i.test(compact)) return null;
+  if (/\bWINNER\s*\|/i.test(compact)) return null;
   const sport: "MMA" | "BOXING" | "COMBAT" = /Professional\s+MMA\s+Bout/i.test(compact)
     ? "MMA"
     : /Professional\s+Boxing\s+Bout|World\s+Championship/i.test(compact)
@@ -245,7 +252,7 @@ export function parseMvpEventPage(html: string, sourceUrl: string): UfcUpcomingS
   };
 }
 
-export async function fetchMvpUpcomingProvider(options: { listUrl?: string; eventUrls?: string[]; fetchImpl?: typeof fetch; maxEvents?: number } = {}): Promise<UfcUpcomingProviderResult> {
+export async function fetchMvpUpcomingProvider(options: { listUrl?: string; eventUrls?: string[]; fetchImpl?: typeof fetch; maxEvents?: number; includePast?: boolean } = {}): Promise<UfcUpcomingProviderResult> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const listUrl = options.listUrl ?? "https://www.mostvaluablepromotions.com/events/?filter=upcoming";
   const fetchedAt = new Date().toISOString();
@@ -257,7 +264,9 @@ export async function fetchMvpUpcomingProvider(options: { listUrl?: string; even
     for (const url of [...new Set(eventUrls)]) {
       if (options.maxEvents && events.length >= options.maxEvents) break;
       try {
-        events.push(parseMvpEventPage(await getHtml(url, fetchImpl), url));
+        const event = parseMvpEventPage(await getHtml(url, fetchImpl), url);
+        if (!options.includePast && !isUpcomingEventDate(event.eventDate)) continue;
+        events.push(event);
       } catch (error) {
         warnings.push(error instanceof Error ? error.message : String(error));
       }
