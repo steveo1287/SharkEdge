@@ -34,6 +34,7 @@ export async function POST(request: Request) {
 
   const url = new URL(request.url);
   const dryRun = url.searchParams.get("dryRun") === "1" || url.searchParams.get("dryRun") === "true";
+  const skipIngest = url.searchParams.get("skipIngest") === "1" || url.searchParams.get("skipIngest") === "true";
   const hydrate = url.searchParams.get("hydrate") !== "0";
   const autoBuildFeatures = url.searchParams.get("autoBuildFeatures") !== "0";
   const simulate = url.searchParams.get("simulate") === "1" || url.searchParams.get("simulate") === "true";
@@ -48,14 +49,15 @@ export async function POST(request: Request) {
   const seed = numberParam(url, "seed", 1287);
 
   try {
-    const ingestion = await ingestUpcomingUfcCards({ dryRun, includeUfcStats: true, includeUfcCom, includeEspn, includeTapology, includeMvp });
+    const ingestion = skipIngest ? null : await ingestUpcomingUfcCards({ dryRun, includeUfcStats: true, includeUfcCom, includeEspn, includeTapology, includeMvp });
     const autoBuild = autoBuildFeatures ? await buildUfcModelFeaturesFromWarehouse({ dryRun, horizonDays, limit }) : null;
     const hydration = hydrate ? await hydrateUpcomingUfcFeatureSnapshots({ dryRun, horizonDays, limit }) : null;
     const sim = simulate ? await runUfcUpcomingToSimPipeline({ dryRun, skipIngest: true, horizonDays, limit, simulations, seed, recordShadow: true, allowFallbackFeatures }) : null;
 
     return NextResponse.json({
-      ok: Boolean((ingestion as any).ok) && (!autoBuild || autoBuild.ok) && (!hydration || hydration.ok) && (!sim || sim.ok),
+      ok: (!ingestion || Boolean((ingestion as any).ok)) && (!autoBuild || autoBuild.ok) && (!hydration || hydration.ok) && (!sim || sim.ok),
       mode: dryRun ? "dry-run" : "load",
+      skippedIngest: skipIngest,
       ingestion,
       autoBuild,
       hydration,
