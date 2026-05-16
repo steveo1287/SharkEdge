@@ -8,7 +8,7 @@ export const maxDuration = 180;
 
 function authorized(request: Request) {
   const url = new URL(request.url);
-  const envSecret = process.env.UFC_ADMIN_RUN_TOKEN ?? process.env.INTERNAL_API_KEY ?? process.env.CRON_SECRET;
+  const envSecret = process.env.UFC_ADMIN_RUN_TOKEN?.trim();
   if (envSecret) {
     const bearer = request.headers.get("authorization")?.replace(/^bearer\s+/i, "").trim();
     return url.searchParams.get("token") === envSecret || request.headers.get("x-api-key") === envSecret || bearer === envSecret;
@@ -29,7 +29,7 @@ function numberParam(url: URL, name: string, fallback: number, min: number, max:
 
 export async function GET(request: Request) {
   if (!authorized(request)) {
-    return NextResponse.json({ ok: false, error: "unauthorized", required: process.env.UFC_ADMIN_RUN_TOKEN || process.env.INTERNAL_API_KEY || process.env.CRON_SECRET ? "valid token" : "?confirm=backfill-known-fighter-stats" }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "unauthorized", required: process.env.UFC_ADMIN_RUN_TOKEN ? "valid token" : "?confirm=backfill-known-fighter-stats" }, { status: 401 });
   }
 
   const url = new URL(request.url);
