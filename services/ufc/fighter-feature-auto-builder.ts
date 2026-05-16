@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
+import { evaluateUfcMatchupQuality } from "@/services/ufc/matchup-quality-gate";
 
 type FighterRow = {
   id: string;
@@ -19,6 +20,13 @@ type FightRow = {
   scheduled_rounds: number;
   fighter_a_id: string;
   fighter_b_id: string;
+  source_status: string | null;
+  fight_payload_json: unknown;
+  event_source_key: string | null;
+  event_name: string | null;
+  event_payload_json: unknown;
+  fighter_a_name: string | null;
+  fighter_b_name: string | null;
 };
 
 type RatingRow = { fighter_id: string; pre_fight_rating: number | null; as_of: Date | string };
@@ -49,86 +57,53 @@ type JsonRecord = Record<string, unknown>;
 
 const DEFAULT_MODEL_VERSION = "ufc-fight-iq-v1";
 
-function stableId(prefix: string, value: string) {
-  return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
-}
-function asRecord(value: unknown): JsonRecord {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
-}
-function int(value: unknown, fallback = 0) {
-  if (typeof value === "bigint") return Number(value);
-  if (typeof value === "number" && Number.isFinite(value)) return Math.round(value);
-  if (typeof value === "string" && Number.isFinite(Number(value))) return Math.round(Number(value));
-  return fallback;
-}
-function numeric(value: unknown) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value.replace(/%$/, ""));
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-function clamp(value: number, min = 0, max = 100) {
-  return Math.max(min, Math.min(max, value));
-}
-function round(value: number | null | undefined, digits = 4) {
-  return value == null || !Number.isFinite(value) ? null : Number(value.toFixed(digits));
-}
-function iso(value: Date | string) {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
-}
-function snapshotAt(fightDate: Date | string) {
-  const time = new Date(fightDate).getTime();
-  return Number.isFinite(time) ? new Date(Math.min(Date.now(), time - 60_000)).toISOString() : new Date().toISOString();
-}
-function rate(count: number, minutes: number | null, scale = 1) {
-  return minutes && minutes > 0 ? count * scale / minutes : null;
-}
-function pct(made: number, attempted: number) {
-  return attempted > 0 ? clamp((made / attempted) * 100) : null;
-}
-function defensePct(opponentMade: number, opponentAttempted: number, fallback: number | null = null) {
-  return opponentAttempted > 0 ? clamp((1 - opponentMade / opponentAttempted) * 100) : fallback;
-}
-function safeJson(value: unknown) {
-  return JSON.stringify(value ?? {});
-}
+function stableId(prefix: string, value: string) { return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`; }
+function asRecord(value: unknown): JsonRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {}; }
+function int(value: unknown, fallback = 0) { if (typeof value === "bigint") return Number(value); if (typeof value === "number" && Number.isFinite(value)) return Math.round(value); if (typeof value === "string" && Number.isFinite(Number(value))) return Math.round(Number(value)); return fallback; }
+function numeric(value: unknown) { if (typeof value === "number" && Number.isFinite(value)) return value; if (typeof value === "string" && value.trim()) { const parsed = Number(value.replace(/%$/, "")); return Number.isFinite(parsed) ? parsed : null; } return null; }
+function clamp(value: number, min = 0, max = 100) { return Math.max(min, Math.min(max, value)); }
+function round(value: number | null | undefined, digits = 4) { return value == null || !Number.isFinite(value) ? null : Number(value.toFixed(digits)); }
+function iso(value: Date | string) { return value instanceof Date ? value.toISOString() : new Date(value).toISOString(); }
+function snapshotAt(fightDate: Date | string) { const time = new Date(fightDate).getTime(); return Number.isFinite(time) ? new Date(Math.min(Date.now(), time - 60_000)).toISOString() : new Date().toISOString(); }
+function rate(count: number, minutes: number | null, scale = 1) { return minutes && minutes > 0 ? count * scale / minutes : null; }
+function pct(made: number, attempted: number) { return attempted > 0 ? clamp((made / attempted) * 100) : null; }
+function defensePct(opponentMade: number, opponentAttempted: number, fallback: number | null = null) { return opponentAttempted > 0 ? clamp((1 - opponentMade / opponentAttempted) * 100) : fallback; }
+function safeJson(value: unknown) { return JSON.stringify(value ?? {}); }
 function payloadRecords(fighter: FighterRow) {
   const payload = asRecord(fighter.payload_json);
-  return [
-    asRecord(payload.stats),
-    asRecord(asRecord(payload.eliteProfile).careerStats),
-    asRecord(payload.rawFeature),
-    asRecord(payload.rawPayload),
-    asRecord(payload.profile),
-    asRecord(payload.history),
-    payload
-  ];
+  return [asRecord(payload.stats), asRecord(asRecord(payload.eliteProfile).careerStats), asRecord(payload.rawFeature), asRecord(payload.rawPayload), asRecord(payload.profile), asRecord(payload.history), payload];
 }
 function pickNumber(records: JsonRecord[], keys: string[], fallback: number | null = null) {
-  for (const record of records) {
-    for (const key of keys) {
-      const value = numeric(record[key]);
-      if (value != null) return value;
-    }
-  }
+  for (const record of records) for (const key of keys) { const value = numeric(record[key]); if (value != null) return value; }
   return fallback;
 }
 function pickText(records: JsonRecord[], keys: string[], fallback: string | null = null) {
-  for (const record of records) {
-    for (const key of keys) {
-      const value = record[key];
-      if (typeof value === "string" && value.trim()) return value.trim();
-    }
-  }
+  for (const record of records) for (const key of keys) { const value = record[key]; if (typeof value === "string" && value.trim()) return value.trim(); }
   return fallback;
 }
 function latestBefore<T extends { fighter_id: string; as_of: Date | string }>(rows: T[], fighterId: string, fightDate: Date | string) {
   const fightTime = new Date(fightDate).getTime();
-  return rows
-    .filter((row) => row.fighter_id === fighterId && new Date(row.as_of).getTime() <= fightTime)
-    .sort((a, b) => new Date(b.as_of).getTime() - new Date(a.as_of).getTime())[0] ?? null;
+  return rows.filter((row) => row.fighter_id === fighterId && new Date(row.as_of).getTime() <= fightTime).sort((a, b) => new Date(b.as_of).getTime() - new Date(a.as_of).getTime())[0] ?? null;
+}
+function combatSportFor(fight: FightRow) {
+  const fightPayload = asRecord(fight.fight_payload_json);
+  const eventPayload = asRecord(fight.event_payload_json);
+  const value = fightPayload.combatSport ?? fightPayload.sport ?? eventPayload.combatSport ?? eventPayload.sport;
+  return typeof value === "string" ? value : null;
+}
+function isValidProfileBuildFight(fight: FightRow) {
+  const stored = asRecord(fight.fight_payload_json);
+  if (stored.matchupQuality === "FAKE_NAVIGATION") return false;
+  const quality = evaluateUfcMatchupQuality({
+    sourceKey: fight.event_source_key,
+    eventName: fight.event_name,
+    eventLabel: fight.event_label,
+    fighterAName: fight.fighter_a_name ?? fight.fighter_a_id,
+    fighterBName: fight.fighter_b_name ?? fight.fighter_b_id,
+    combatSport: combatSportFor(fight),
+    sourceStatus: fight.source_status
+  });
+  return !quality.fakeNavigation;
 }
 
 function buildDeepFeature(args: { fighter: FighterRow; opponent: FighterRow; fight: FightRow; agg: RoundAggRow | null; rating: RatingRow | null; strength: StrengthRow | null }) {
@@ -151,7 +126,6 @@ function buildDeepFeature(args: { fighter: FighterRow; opponent: FighterRow; fig
   const oppSubs = Number(args.agg?.opp_submission_attempts ?? 0);
   const control = Number(args.agg?.control_seconds ?? 0);
   const oppControl = Number(args.agg?.opp_control_seconds ?? 0);
-
   const proFights = Math.max(fights, int(pickNumber(records, ["proFights", "pro_fights"], 0), 0));
   const ufcFights = Math.max(fights, int(pickNumber(records, ["ufcFights", "ufc_fights"], 0), 0));
   const slpm = pickNumber(records, ["sigStrikesLandedPerMin", "sig_strikes_landed_per_min", "slpm"], rate(sigLanded, minutes));
@@ -194,12 +168,7 @@ function buildDeepFeature(args: { fighter: FighterRow; opponent: FighterRow; fig
       hydrationQuality: coldStartActive ? "deep-profile-cold-start" : "deep-profile-derived",
       fighterName: args.fighter.full_name,
       opponentName: args.opponent.full_name,
-      dataSources: {
-        roundStats: Boolean(args.agg),
-        fighterPayload: Object.keys(payload).length > 0,
-        ratings: Boolean(args.rating),
-        opponentStrength: Boolean(args.strength)
-      },
+      dataSources: { roundStats: Boolean(args.agg), fighterPayload: Object.keys(payload).length > 0, ratings: Boolean(args.rating), opponentStrength: Boolean(args.strength) },
       age: pickNumber(records, ["age"], null),
       heightInches: args.fighter.height_inches ?? pickNumber(records, ["heightInches", "height_inches"], null),
       reachInches: args.fighter.reach_inches ?? pickNumber(records, ["reachInches", "reach_inches"], null),
@@ -245,16 +214,24 @@ function buildDeepFeature(args: { fighter: FighterRow; opponent: FighterRow; fig
 }
 
 async function upcomingFights(limit: number, horizonDays: number) {
-  return prisma.$queryRaw<FightRow[]>`
-    SELECT id, event_label, fight_date, scheduled_rounds, fighter_a_id, fighter_b_id
-    FROM ufc_fights
-    WHERE fight_date >= now() - interval '3 days'
-      AND fight_date <= now() + (${horizonDays}::text || ' days')::interval
-      AND status NOT IN ('CANCELED', 'VOID')
-      AND COALESCE(payload_json->>'matchupQuality', '') <> 'FAKE_NAVIGATION'
-    ORDER BY fight_date ASC
-    LIMIT ${Math.max(1, Math.min(200, limit))};
+  const requestedLimit = Math.max(1, Math.min(200, limit));
+  const queryLimit = Math.max(requestedLimit, Math.min(500, requestedLimit * 20));
+  const rows = await prisma.$queryRaw<FightRow[]>`
+    SELECT f.id, f.event_label, f.fight_date, f.scheduled_rounds, f.fighter_a_id, f.fighter_b_id, f.source_status, f.payload_json AS fight_payload_json,
+      e.source_key AS event_source_key, e.event_name, e.payload_json AS event_payload_json,
+      fa.full_name AS fighter_a_name, fb.full_name AS fighter_b_name
+    FROM ufc_fights f
+    LEFT JOIN ufc_events e ON e.id = f.event_id
+    LEFT JOIN ufc_fighters fa ON fa.id = f.fighter_a_id
+    LEFT JOIN ufc_fighters fb ON fb.id = f.fighter_b_id
+    WHERE f.fight_date >= now() - interval '3 days'
+      AND f.fight_date <= now() + (${horizonDays}::text || ' days')::interval
+      AND f.status NOT IN ('CANCELED', 'VOID')
+      AND COALESCE(f.payload_json->>'matchupQuality', '') <> 'FAKE_NAVIGATION'
+    ORDER BY f.fight_date ASC
+    LIMIT ${queryLimit};
   `;
+  return rows.filter(isValidProfileBuildFight).slice(0, requestedLimit);
 }
 
 async function fightersFor(ids: string[]) {
@@ -367,16 +344,5 @@ export async function buildUfcModelFeaturesFromWarehouse(options: { limit?: numb
     results.push(await upsertFeature({ fight, fighter: b, opponent: a, agg: aggB, rating: latestBefore(ratings, b.id, fight.fight_date), strength: latestBefore(strengths, b.id, fight.fight_date), modelVersion, dryRun: options.dryRun }));
   }
 
-  return {
-    ok: true,
-    source: "deep-ufc-warehouse-profile-builder",
-    modelVersion,
-    dryRun: Boolean(options.dryRun),
-    horizonDays,
-    fights: fights.length,
-    features: results.length,
-    missingFights: missing.length,
-    missingFightIds: missing.slice(0, 20),
-    results: results.slice(0, 20)
-  };
+  return { ok: true, source: "deep-ufc-warehouse-profile-builder", modelVersion, dryRun: Boolean(options.dryRun), horizonDays, fights: fights.length, features: results.length, missingFights: missing.length, missingFightIds: missing.slice(0, 20), results: results.slice(0, 20) };
 }
