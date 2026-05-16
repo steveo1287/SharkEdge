@@ -17,6 +17,7 @@ export type UfcUpcomingToSimPipelineOptions = UfcUpcomingCardIngestionOptions & 
   seed?: number;
   recordShadow?: boolean;
   allowFallbackFeatures?: boolean;
+  forceRegenerate?: boolean;
   dryRun?: boolean;
 };
 
@@ -38,7 +39,7 @@ export type UfcUpcomingSimCandidate = {
   fighterBFeatureCount: number;
 };
 
-export type UfcUpcomingCandidateAction = "simulate" | "skip-existing" | "skip-missing-features" | "dry-run";
+export type UfcUpcomingCandidateAction = "simulate" | "regenerate" | "skip-existing" | "skip-missing-features" | "dry-run";
 
 export type UfcUpcomingToSimPipelineResult = {
   ok: boolean;
@@ -107,9 +108,9 @@ export function hasCompleteFeaturePair(candidate: Pick<UfcUpcomingSimCandidate, 
   return candidate.fighterAFeatureCount > 0 && candidate.fighterBFeatureCount > 0;
 }
 
-export function shouldSimulateUpcomingCandidate(candidate: Pick<UfcUpcomingSimCandidate, "hasPrediction" | "fighterAFeatureCount" | "fighterBFeatureCount">, allowFallbackFeatures: boolean) {
-  if (candidate.hasPrediction) return "skip-existing" as const;
-  if (hasCompleteFeaturePair(candidate) || allowFallbackFeatures) return "simulate" as const;
+export function shouldSimulateUpcomingCandidate(candidate: Pick<UfcUpcomingSimCandidate, "hasPrediction" | "fighterAFeatureCount" | "fighterBFeatureCount">, allowFallbackFeatures: boolean, forceRegenerate = false) {
+  if (candidate.hasPrediction && !forceRegenerate) return "skip-existing" as const;
+  if (hasCompleteFeaturePair(candidate) || allowFallbackFeatures) return candidate.hasPrediction ? "regenerate" as const : "simulate" as const;
   return "skip-missing-features" as const;
 }
 
@@ -134,6 +135,7 @@ export function buildFallbackFeaturePayload(input: {
       source: "upcoming-card-fallback",
       dataQuality: "D",
       confidenceCapReason: "missing_pre_fight_feature_snapshot",
+      noMarketEdgeLabel: "NO MARKET EDGE",
       age: null,
       reachInches: null,
       heightInches: null,
@@ -205,13 +207,7 @@ async function seedReusableProfileFeatures(candidate: UfcUpcomingSimCandidate, m
   let fighterBFeatureCount = candidate.fighterBFeatureCount;
 
   if (fighterAFeatureCount === 0) {
-    const feature = await buildReusableUfcModelFeature({
-      fightId: candidate.fightId,
-      fightDate: candidate.fightDate,
-      fighterId: candidate.fighterAId,
-      opponentFighterId: candidate.fighterBId,
-      modelVersion
-    });
+    const feature = await buildReusableUfcModelFeature({ fightId: candidate.fightId, fightDate: candidate.fightDate, fighterId: candidate.fighterAId, opponentFighterId: candidate.fighterBId, modelVersion });
     if (feature) {
       await insertUfcModelFeaturePayload(feature);
       fighterAFeatureCount += 1;
@@ -220,13 +216,7 @@ async function seedReusableProfileFeatures(candidate: UfcUpcomingSimCandidate, m
   }
 
   if (fighterBFeatureCount === 0) {
-    const feature = await buildReusableUfcModelFeature({
-      fightId: candidate.fightId,
-      fightDate: candidate.fightDate,
-      fighterId: candidate.fighterBId,
-      opponentFighterId: candidate.fighterAId,
-      modelVersion
-    });
+    const feature = await buildReusableUfcModelFeature({ fightId: candidate.fightId, fightDate: candidate.fightDate, fighterId: candidate.fighterBId, opponentFighterId: candidate.fighterAId, modelVersion });
     if (feature) {
       await insertUfcModelFeaturePayload(feature);
       fighterBFeatureCount += 1;
@@ -239,13 +229,8 @@ async function seedReusableProfileFeatures(candidate: UfcUpcomingSimCandidate, m
 
 async function seedFallbackFeatures(candidate: UfcUpcomingSimCandidate, modelVersion: string) {
   const payloads = [];
-  if (candidate.fighterAFeatureCount === 0) {
-    payloads.push(buildFallbackFeaturePayload({ fightId: candidate.fightId, fightDate: candidate.fightDate, fighterId: candidate.fighterAId, opponentFighterId: candidate.fighterBId, modelVersion }));
-  }
-  if (candidate.fighterBFeatureCount === 0) {
-    payloads.push(buildFallbackFeaturePayload({ fightId: candidate.fightId, fightDate: candidate.fightDate, fighterId: candidate.fighterBId, opponentFighterId: candidate.fighterAId, modelVersion }));
-  }
-
+  if (candidate.fighterAFeatureCount === 0) payloads.push(buildFallbackFeaturePayload({ fightId: candidate.fightId, fightDate: candidate.fightDate, fighterId: candidate.fighterAId, opponentFighterId: candidate.fighterBId, modelVersion }));
+  if (candidate.fighterBFeatureCount === 0) payloads.push(buildFallbackFeaturePayload({ fightId: candidate.fightId, fightDate: candidate.fightDate, fighterId: candidate.fighterBId, opponentFighterId: candidate.fighterAId, modelVersion }));
   for (const payload of payloads) {
     await prisma.$executeRaw`
       INSERT INTO ufc_model_features (id, fight_id, fight_date, fighter_id, opponent_fighter_id, snapshot_at, model_version, pro_fights, ufc_fights, rounds_fought, sig_strikes_landed_per_min, sig_strikes_absorbed_per_min, striking_differential, takedowns_per_15, takedown_defense_pct, submission_attempts_per_15, control_time_pct, opponent_adjusted_strength, cold_start_active, feature_json, updated_at)
@@ -253,7 +238,6 @@ async function seedFallbackFeatures(candidate: UfcUpcomingSimCandidate, modelVer
       ON CONFLICT (fight_id, fighter_id, model_version) DO NOTHING
     `;
   }
-
   return payloads.length;
 }
 
@@ -271,15 +255,14 @@ export async function runUfcUpcomingToSimPipeline(options: UfcUpcomingToSimPipel
   const horizonDays = Math.max(1, Math.floor(options.horizonDays ?? DEFAULT_HORIZON_DAYS));
   const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? DEFAULT_LIMIT)));
   const mode = options.dryRun ? "dry-run" : options.skipIngest ? "simulate-only" : "ingest-and-sim";
+  const forceRegenerate = Boolean(options.forceRegenerate);
   const errors: string[] = [];
   const simulations: unknown[] = [];
   let reusableFeatureCount = 0;
   let fallbackFeatureCount = 0;
   let ingestion: unknown | null = null;
 
-  if (!options.skipIngest) {
-    ingestion = await ingestUpcomingUfcCards({ ...options, dryRun: options.dryRun });
-  }
+  if (!options.skipIngest) ingestion = await ingestUpcomingUfcCards({ ...options, dryRun: options.dryRun });
 
   const candidates = await queryCandidates(modelVersion, horizonDays, limit);
   const annotatedCandidates: UfcUpcomingToSimPipelineResult["candidates"] = [];
@@ -293,7 +276,7 @@ export async function runUfcUpcomingToSimPipeline(options: UfcUpcomingToSimPipel
       continue;
     }
 
-    if (workingCandidate.hasPrediction) {
+    if (workingCandidate.hasPrediction && !forceRegenerate) {
       annotatedCandidates.push({ ...workingCandidate, action: "skip-existing", featureSource });
       continue;
     }
@@ -303,11 +286,7 @@ export async function runUfcUpcomingToSimPipeline(options: UfcUpcomingToSimPipel
         const reused = await seedReusableProfileFeatures(workingCandidate, modelVersion);
         if (reused.created > 0) {
           reusableFeatureCount += reused.created;
-          workingCandidate = {
-            ...workingCandidate,
-            fighterAFeatureCount: reused.fighterAFeatureCount,
-            fighterBFeatureCount: reused.fighterBFeatureCount
-          };
+          workingCandidate = { ...workingCandidate, fighterAFeatureCount: reused.fighterAFeatureCount, fighterBFeatureCount: reused.fighterBFeatureCount };
           featureSource = hasCompleteFeaturePair(workingCandidate) ? "reused-profile" : "missing";
         }
       } catch (error) {
@@ -326,36 +305,18 @@ export async function runUfcUpcomingToSimPipeline(options: UfcUpcomingToSimPipel
       }
     }
 
-    const action = shouldSimulateUpcomingCandidate(workingCandidate, false);
+    const action = shouldSimulateUpcomingCandidate(workingCandidate, false, forceRegenerate);
     annotatedCandidates.push({ ...workingCandidate, action, featureSource: hasCompleteFeaturePair(workingCandidate) ? featureSource : "missing" });
-    if (action !== "simulate") continue;
+    if (action !== "simulate" && action !== "regenerate") continue;
 
     try {
-      simulations.push(await runUfcOperationalSkillSim(workingCandidate.fightId, {
-        modelVersion,
-        simulations: options.simulations,
-        seed: options.seed,
-        recordShadow: options.recordShadow
-      }));
+      simulations.push(await runUfcOperationalSkillSim(workingCandidate.fightId, { modelVersion, simulations: options.simulations, seed: options.seed, recordShadow: options.recordShadow }));
     } catch (error) {
       errors.push(`${workingCandidate.fightId}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   const simulatedCount = simulations.length;
-  const skippedCount = annotatedCandidates.filter((candidate) => candidate.action !== "simulate").length;
-  return {
-    ok: errors.length === 0,
-    mode,
-    modelVersion,
-    ingestion,
-    candidateCount: candidates.length,
-    simulatedCount,
-    skippedCount,
-    reusableFeatureCount,
-    fallbackFeatureCount,
-    candidates: annotatedCandidates,
-    simulations,
-    errors
-  };
+  const skippedCount = annotatedCandidates.filter((candidate) => candidate.action !== "simulate" && candidate.action !== "regenerate").length;
+  return { ok: errors.length === 0, mode, modelVersion, ingestion, candidateCount: candidates.length, simulatedCount, skippedCount, reusableFeatureCount, fallbackFeatureCount, candidates: annotatedCandidates, simulations, errors };
 }
