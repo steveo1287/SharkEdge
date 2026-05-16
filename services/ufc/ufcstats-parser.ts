@@ -30,6 +30,8 @@ export type UfcStatsFightDetail = {
   fighterBName: string;
   fighterAUrl?: string | null;
   fighterBUrl?: string | null;
+  winnerName?: string | null;
+  loserName?: string | null;
   weightClass?: string | null;
   scheduledRounds?: number | null;
   method?: string | null;
@@ -49,13 +51,32 @@ function title(html: string) {
 
 function valueAfter(html: string, label: string) {
   const plain = strip(html);
-  const match = plain.match(new RegExp(`${label}:?\\s*([^:]+?)(?=HEIGHT:|WEIGHT:|REACH:|STANCE:|DOB:|SLpM:|Str. Acc:|SApM:|Str. Def:|TD Avg:|TD Acc:|TD Def:|Sub. Avg:|$)`, "i"));
+  const match = plain.match(new RegExp(`${label}:?\\s*([^:]+?)(?=HEIGHT:|WEIGHT:|REACH:|STANCE:|DOB:|SLpM:|Str. Acc:|SApM:|Str. Def:|TD Avg:|TD Acc:|TD Def:|Sub. Avg:|METHOD:|ROUND:|TIME:|TIME FORMAT:|REFEREE:|DETAILS:|$)`, "i"));
   return match?.[1]?.trim() ?? null;
 }
 
 function inches(height?: string | null) {
   const match = String(height ?? "").match(/(\d+)\s*'\s*(\d+)/);
   return match ? Number(match[1]) * 12 + Number(match[2]) : null;
+}
+
+function fighterStatuses(html: string) {
+  const blocks = [...html.matchAll(/<div[^>]*class=["'][^"']*b-fight-details__person[^"']*["'][^>]*>[\s\S]*?<\/div>\s*<\/div>/gi)]
+    .map((match) => match[0]);
+  const parsed = blocks.flatMap((block) => {
+    const name = strip(block.match(/fighter-details[^>]*>([\s\S]*?)<\/a>/i)?.[1] ?? "");
+    const status = strip(block.match(/b-fight-details__person-status[^>]*>([\s\S]*?)<\/i>/i)?.[1] ?? "").toUpperCase();
+    return name ? [{ name, status }] : [];
+  });
+  if (parsed.length >= 2) return parsed.slice(0, 2);
+
+  const plain = strip(html);
+  const names = [...html.matchAll(/fighter-details[^>]*>([\s\S]*?)<\/a>/gi)]
+    .map((match) => strip(match[1]))
+    .filter((name, index, all) => name && all.indexOf(name) === index)
+    .slice(0, 2);
+  const winnerByPlain = names.find((name) => new RegExp(`W\\s+${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i").test(plain));
+  return names.map((name) => ({ name, status: name === winnerByPlain ? "W" : winnerByPlain ? "L" : "" }));
 }
 
 export function parseUfcStatsFighterProfile(html: string, url = ""): UfcStatsFighterProfile {
@@ -93,5 +114,21 @@ export function parseUfcStatsEventPage(html: string, eventUrl = ""): UfcStatsEve
 export function parseUfcStatsFightDetail(html: string, url = ""): UfcStatsFightDetail {
   const links = [...html.matchAll(/href=["']([^"']*fighter-details[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].map((m) => ({ url: m[1], name: strip(m[2]) })).filter((x, i, a) => x.name && a.findIndex((y) => y.name === x.name) === i).slice(0, 2);
   if (links.length < 2) throw new Error("UFCStats fight detail missing two fighter links.");
-  return { sourceFightId: idFrom("ufcstats", url || "fight", "fight-details"), url, fighterAName: links[0].name, fighterBName: links[1].name, fighterAUrl: links[0].url, fighterBUrl: links[1].url, scheduledRounds: null, method: valueAfter(html, "METHOD"), round: maybeNumber(valueAfter(html, "ROUND")), time: valueAfter(html, "TIME") };
+  const statuses = fighterStatuses(html);
+  const winnerName = statuses.find((fighter) => fighter.status === "W")?.name ?? null;
+  const loserName = statuses.find((fighter) => fighter.status === "L")?.name ?? null;
+  return {
+    sourceFightId: idFrom("ufcstats", url || "fight", "fight-details"),
+    url,
+    fighterAName: links[0].name,
+    fighterBName: links[1].name,
+    fighterAUrl: links[0].url,
+    fighterBUrl: links[1].url,
+    winnerName,
+    loserName,
+    scheduledRounds: null,
+    method: valueAfter(html, "METHOD"),
+    round: maybeNumber(valueAfter(html, "ROUND")),
+    time: valueAfter(html, "TIME")
+  };
 }
