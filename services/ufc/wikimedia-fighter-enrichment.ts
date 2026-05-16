@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { buildEliteUfcFighterProfiles } from "@/services/ufc/elite-fighter-profile-builder";
+import { fetchLiveWikimediaFighterEnrichment } from "@/services/ufc/wikimedia-live-client";
 
 type FighterRow = {
   id: string;
@@ -14,6 +15,7 @@ export type WikimediaFighterEnrichment = {
   confidence: "A" | "B" | "C" | "REVIEW" | "NONE";
   pageTitle: string | null;
   pageId: number | null;
+  wikidataQid: string | null;
   sourceUrl: string | null;
   retrievedAt: string;
   extracted: {
@@ -35,6 +37,7 @@ type Options = {
   rebuildProfiles?: boolean;
   modelVersion?: string;
   horizonDays?: number;
+  liveWikimedia?: boolean;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -66,14 +69,9 @@ async function loadFighters(limit: number, offset: number) {
 
 function localTextFromPayload(payload: unknown) {
   const record = asRecord(payload);
-  return [
-    record.wikimedia,
-    record.background,
-    record.rawFeature,
-    record.rawPayload,
-    record.stats,
-    record.eliteProfile
-  ].map((value) => JSON.stringify(value ?? "")).join(" ");
+  return [record.wikimedia, record.background, record.rawFeature, record.rawPayload, record.stats, record.eliteProfile]
+    .map((value) => JSON.stringify(value ?? ""))
+    .join(" ");
 }
 
 function inferPriors(text: string) {
@@ -127,7 +125,7 @@ function inferPriors(text: string) {
   return { priors, martialArts: unique(martialArts) };
 }
 
-function enrichmentFromPayload(fighter: FighterRow, retrievedAt: string): WikimediaFighterEnrichment {
+function localEnrichmentFromPayload(fighter: FighterRow, retrievedAt: string): WikimediaFighterEnrichment {
   const payload = asRecord(fighter.payload_json);
   const existingWiki = asRecord(payload.wikimedia);
   const text = localTextFromPayload(payload);
@@ -140,6 +138,7 @@ function enrichmentFromPayload(fighter: FighterRow, retrievedAt: string): Wikime
     confidence: existingWiki.confidence === "A" || existingWiki.confidence === "B" || existingWiki.confidence === "C" ? existingWiki.confidence : matched ? "C" : "NONE",
     pageTitle: typeof existingWiki.pageTitle === "string" ? existingWiki.pageTitle : null,
     pageId: typeof existingWiki.pageId === "number" ? existingWiki.pageId : null,
+    wikidataQid: typeof existingWiki.wikidataQid === "string" ? existingWiki.wikidataQid : null,
     sourceUrl: typeof existingWiki.sourceUrl === "string" ? existingWiki.sourceUrl : null,
     retrievedAt,
     extracted: {
@@ -151,6 +150,32 @@ function enrichmentFromPayload(fighter: FighterRow, retrievedAt: string): Wikime
       backgroundPriors: inferred.priors,
       evidence: []
     }
+  };
+}
+
+async function liveEnrichmentFromWikimedia(fighter: FighterRow, retrievedAt: string): Promise<WikimediaFighterEnrichment | null> {
+  const live = await fetchLiveWikimediaFighterEnrichment(fighter.full_name);
+  if (!live.matched) return null;
+  return {
+    fighterId: fighter.id,
+    fighterName: fighter.full_name,
+    matched: live.matched,
+    confidence: live.confidence,
+    pageTitle: live.pageTitle,
+    pageId: live.pageId,
+    wikidataQid: live.wikidataQid,
+    sourceUrl: live.sourceUrl,
+    retrievedAt,
+    extracted: {
+      combatBase: live.combatBase,
+      camp: live.camp,
+      martialArts: live.martialArts,
+      amateurSignal: live.amateurSignal,
+      promotionTierSignal: live.promotionTierSignal,
+      backgroundPriors: live.backgroundPriors,
+      evidence: live.evidence
+    },
+    error: live.error
   };
 }
 
@@ -170,10 +195,11 @@ function mergePayload(current: unknown, enrichment: WikimediaFighterEnrichment) 
     backgroundPriors: {
       ...existingPriors,
       wikimedia: {
-        source: "wikimedia-or-local-profile-background",
+        source: enrichment.sourceUrl ? "live-wikimedia" : "local-profile-background",
         confidence: enrichment.confidence,
         pageTitle: enrichment.pageTitle,
         pageId: enrichment.pageId,
+        wikidataQid: enrichment.wikidataQid,
         sourceUrl: enrichment.sourceUrl,
         retrievedAt: enrichment.retrievedAt,
         priors: mergePriors(existingPriors, enrichment.extracted.backgroundPriors),
@@ -187,7 +213,7 @@ function mergePayload(current: unknown, enrichment: WikimediaFighterEnrichment) 
       martialArts: unique([...(Array.isArray(existingBackground.martialArts) ? existingBackground.martialArts.map(String) : []), ...enrichment.extracted.martialArts]),
       amateurSignal: safeMax(existingBackground.amateurSignal, enrichment.extracted.amateurSignal),
       promotionTierSignal: safeMax(existingBackground.promotionTierSignal, enrichment.extracted.promotionTierSignal),
-      source: "wikimedia-enrichment"
+      source: enrichment.sourceUrl ? "live-wikimedia-enrichment" : "local-profile-enrichment"
     },
     rawFeature: {
       ...existingRawFeature,
@@ -221,13 +247,18 @@ export async function runWikimediaFighterEnrichment(options: Options = {}) {
   const enrichments: WikimediaFighterEnrichment[] = [];
   let updated = 0;
   let matched = 0;
+  let liveMatched = 0;
+  let review = 0;
   const confidenceCounts: Record<string, number> = { A: 0, B: 0, C: 0, REVIEW: 0, NONE: 0 };
 
   for (const fighter of fighters) {
-    const enrichment = enrichmentFromPayload(fighter, retrievedAt);
+    const live = options.liveWikimedia === false ? null : await liveEnrichmentFromWikimedia(fighter, retrievedAt);
+    const enrichment = live ?? localEnrichmentFromPayload(fighter, retrievedAt);
     enrichments.push(enrichment);
     confidenceCounts[enrichment.confidence] = (confidenceCounts[enrichment.confidence] ?? 0) + 1;
     if (enrichment.matched) matched += 1;
+    if (live?.matched) liveMatched += 1;
+    if (enrichment.confidence === "REVIEW") review += 1;
     if (!options.dryRun && await updateFighterPayload(fighter, enrichment)) updated += 1;
   }
 
@@ -238,13 +269,15 @@ export async function runWikimediaFighterEnrichment(options: Options = {}) {
   return {
     ok: true,
     mode: options.dryRun ? "dry-run" : "enrich",
+    sourceMode: options.liveWikimedia === false ? "local-only" : "live-wikimedia-first",
     retrievedAt,
     limit,
     offset,
     checked: fighters.length,
     matched,
+    liveMatched,
     updated,
-    review: 0,
+    review,
     confidenceCounts,
     rebuild,
     samples: enrichments.slice(0, 12).map((item) => ({
@@ -252,6 +285,8 @@ export async function runWikimediaFighterEnrichment(options: Options = {}) {
       fighterName: item.fighterName,
       confidence: item.confidence,
       pageTitle: item.pageTitle,
+      wikidataQid: item.wikidataQid,
+      sourceUrl: item.sourceUrl,
       combatBase: item.extracted.combatBase,
       camp: item.extracted.camp,
       martialArts: item.extracted.martialArts,
