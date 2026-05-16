@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { buildUfcModelFeaturesFromWarehouse } from "@/services/ufc/fighter-feature-auto-builder";
 import { getUfcPipelineStatus } from "@/services/ufc/pipeline-status";
 import { hydrateUpcomingUfcFeatureSnapshots } from "@/services/ufc/upcoming-feature-hydration";
 import { runUfcUpcomingToSimPipeline } from "@/services/ufc/upcoming-to-sim-pipeline";
@@ -36,6 +37,7 @@ export async function GET(request: Request) {
   const startedAt = new Date().toISOString();
   const url = new URL(request.url);
   const dryRun = boolParam(url, "dryRun", false);
+  const autoBuildFeatures = boolParam(url, "autoBuildFeatures", true);
   const hydrate = boolParam(url, "hydrate", true);
   const simulate = boolParam(url, "simulate", true);
   const allowFallbackFeatures = boolParam(url, "allowFallbackFeatures", false);
@@ -43,13 +45,14 @@ export async function GET(request: Request) {
   const limit = numberParam(url, "limit", 25);
   const simulations = numberParam(url, "simulations", 25000);
   const seed = numberParam(url, "seed", 1287);
-  const includeUfcCom = boolParam(url, "includeUfcCom", true);
+  const includeUfcCom = boolParam(url, "includeUfcCom", false);
   const includeEspn = boolParam(url, "includeEspn", false);
   const includeTapology = boolParam(url, "includeTapology", false);
   const includeMvp = boolParam(url, "includeMvp", true);
 
   try {
     const before = await getUfcPipelineStatus();
+    const autoBuild = autoBuildFeatures ? await buildUfcModelFeaturesFromWarehouse({ dryRun, horizonDays, limit }) : null;
     const hydration = hydrate ? await hydrateUpcomingUfcFeatureSnapshots({ dryRun, horizonDays, limit }) : null;
     const pipeline = simulate
       ? await runUfcUpcomingToSimPipeline({
@@ -70,12 +73,13 @@ export async function GET(request: Request) {
     const after = await getUfcPipelineStatus();
 
     return NextResponse.json({
-      ok: before.ok && (!hydration || hydration.ok) && (!pipeline || pipeline.ok) && after.ok,
+      ok: before.ok && (!autoBuild || autoBuild.ok) && (!hydration || hydration.ok) && (!pipeline || pipeline.ok) && after.ok,
       mode: dryRun ? "dry-run" : "autopilot",
       startedAt,
       finishedAt: new Date().toISOString(),
-      config: { hydrate, simulate, allowFallbackFeatures, horizonDays, limit, simulations, seed, includeUfcCom, includeEspn, includeTapology, includeMvp },
+      config: { autoBuildFeatures, hydrate, simulate, allowFallbackFeatures, horizonDays, limit, simulations, seed, includeUfcCom, includeEspn, includeTapology, includeMvp },
       before,
+      autoBuild,
       hydration,
       pipeline,
       after

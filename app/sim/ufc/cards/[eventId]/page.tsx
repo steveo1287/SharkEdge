@@ -68,7 +68,7 @@ function consensusScore(grade: string | null | undefined) {
 function cardReadinessScore(args: { card: UfcCardDetail; sourceCount: number; consensusGrade: string | null | undefined }) {
   const simulationPct = args.card.fightCount ? (args.card.simulatedFightCount / args.card.fightCount) * 100 : 0;
   const sourcePct = Math.min(100, args.sourceCount * 25);
-  const providerScore = args.card.providerStatus === "event-linked" ? 100 : args.card.providerStatus === "legacy-date" ? 62 : 35;
+  const providerScore = args.card.providerStatus.includes("linked") ? 100 : args.card.providerStatus === "legacy-date" ? 62 : 35;
   const dataScore = gradeScore(args.card.dataQualityGrade);
   const consensus = consensusScore(args.consensusGrade);
   const raw = simulationPct * 0.34 + sourcePct * 0.16 + providerScore * 0.18 + dataScore * 0.16 + consensus * 0.16;
@@ -121,7 +121,7 @@ function CardDecisionGate({ card, sourceCount, consensusGrade }: { card: UfcCard
       <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
         <GateMetric label="Simulation" value={pctValue(simulationPct)} sub={`${card.simulatedFightCount}/${card.fightCount} fights have cached predictions.`} pass={card.fightCount > 0 && card.simulatedFightCount >= card.fightCount} />
         <GateMetric label="Sources" value={sourceCount} sub="Provider rows contributing to the card audit." pass={sourceCount >= 2} />
-        <GateMetric label="Provider link" value={card.providerStatus} sub="Event-linked beats legacy date grouping." pass={card.providerStatus === "event-linked"} />
+        <GateMetric label="Provider link" value={card.providerStatus} sub="Event-linked beats legacy date grouping." pass={card.providerStatus.includes("linked")} />
         <GateMetric label="Data / consensus" value={`${card.dataQualityGrade ?? "--"} / ${consensusGrade ?? "--"}`} sub="Worst fight data grade and source consensus grade." pass={gradeScore(card.dataQualityGrade) >= 65 && consensusScore(consensusGrade) >= 65} />
       </div>
     </section>
@@ -141,9 +141,9 @@ export default async function UfcFightLabCardPage({ params, searchParams }: Page
   return (
     <main className="min-h-screen bg-[#02060b] px-3 py-4 text-white sm:px-5">
       <div className="mx-auto grid max-w-7xl gap-4">
-        <SharkFightsHeader title={card.eventLabel} subtitle="UFC Fight Lab card detail: fight-by-fight SharkSim picks, cached ensemble output, source confidence, matchup consensus, method lanes, and danger flags." />
+        <SharkFightsHeader title={card.eventLabel} subtitle="MMA Fight Lab card detail: fight-by-fight SharkSim picks, cached ensemble output, source confidence, matchup consensus, method lanes, and danger flags." />
         <div className="flex flex-wrap gap-2">
-          <Link href="/sim/ufc" className={pill("slate")}>Back to UFC Lab</Link>
+          <Link href="/sim/ufc" className={pill("slate")}>Back to MMA Lab</Link>
           <Link href="/sim" className={pill("slate")}>Sim hub</Link>
           <span className={pill("aqua")}>{card.fightCount} fights</span>
           <span className={pill(card.simulatedFightCount >= card.fightCount && card.fightCount > 0 ? "green" : "amber")}>{card.simulatedFightCount} simulated</span>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { ingestUpcomingUfcCards } from "@/services/ufc/upcoming-card-ingestion";
+import { buildUfcModelFeaturesFromWarehouse } from "@/services/ufc/fighter-feature-auto-builder";
 import { hydrateUpcomingUfcFeatureSnapshots } from "@/services/ufc/upcoming-feature-hydration";
 import { runUfcUpcomingToSimPipeline } from "@/services/ufc/upcoming-to-sim-pipeline";
 
@@ -34,27 +35,32 @@ export async function POST(request: Request) {
   const url = new URL(request.url);
   const dryRun = url.searchParams.get("dryRun") === "1" || url.searchParams.get("dryRun") === "true";
   const hydrate = url.searchParams.get("hydrate") !== "0";
+  const autoBuildFeatures = url.searchParams.get("autoBuildFeatures") !== "0";
   const simulate = url.searchParams.get("simulate") === "1" || url.searchParams.get("simulate") === "true";
   const includeMvp = url.searchParams.get("includeMvp") !== "0";
-  const includeEspn = url.searchParams.get("includeEspn") !== "0";
-  const includeTapology = url.searchParams.get("includeTapology") !== "0";
-  const includeUfcCom = url.searchParams.get("includeUfcCom") !== "0";
+  const includeEspn = url.searchParams.get("includeEspn") === "1" || url.searchParams.get("includeEspn") === "true";
+  const includeTapology = url.searchParams.get("includeTapology") === "1" || url.searchParams.get("includeTapology") === "true";
+  const includeUfcCom = url.searchParams.get("includeUfcCom") === "1" || url.searchParams.get("includeUfcCom") === "true";
   const allowFallbackFeatures = url.searchParams.get("allowFallbackFeatures") === "1" || url.searchParams.get("allowFallbackFeatures") === "true";
   const horizonDays = numberParam(url, "horizonDays", 120);
   const limit = numberParam(url, "limit", 25);
+  const simulations = numberParam(url, "simulations", 10000);
+  const seed = numberParam(url, "seed", 1287);
 
   try {
     const ingestion = await ingestUpcomingUfcCards({ dryRun, includeUfcStats: true, includeUfcCom, includeEspn, includeTapology, includeMvp });
+    const autoBuild = autoBuildFeatures ? await buildUfcModelFeaturesFromWarehouse({ dryRun, horizonDays, limit }) : null;
     const hydration = hydrate ? await hydrateUpcomingUfcFeatureSnapshots({ dryRun, horizonDays, limit }) : null;
-    const sim = simulate ? await runUfcUpcomingToSimPipeline({ dryRun, skipIngest: true, horizonDays, limit, recordShadow: true, allowFallbackFeatures }) : null;
+    const sim = simulate ? await runUfcUpcomingToSimPipeline({ dryRun, skipIngest: true, horizonDays, limit, simulations, seed, recordShadow: true, allowFallbackFeatures }) : null;
 
     return NextResponse.json({
-      ok: Boolean((ingestion as any).ok) && (!hydration || hydration.ok) && (!sim || sim.ok),
+      ok: Boolean((ingestion as any).ok) && (!autoBuild || autoBuild.ok) && (!hydration || hydration.ok) && (!sim || sim.ok),
       mode: dryRun ? "dry-run" : "load",
       ingestion,
+      autoBuild,
       hydration,
       sim,
-      next: simulate ? "/sharkfights/ufc" : "Run again with &simulate=1 after feature hydration if you want immediate SharkSim output."
+      next: simulate ? "/sim/ufc" : "Run again with &simulate=1 after feature hydration if you want immediate SharkSim output."
     });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 500 });

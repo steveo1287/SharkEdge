@@ -190,11 +190,12 @@ function featureFromWarehouse(args: {
   };
 }
 
-async function upcomingFights(limit: number) {
+async function upcomingFights(limit: number, horizonDays: number) {
   return prisma.$queryRaw<FightRow[]>`
     SELECT id, event_label, fight_date, scheduled_rounds, fighter_a_id, fighter_b_id
     FROM ufc_fights
     WHERE fight_date >= now() - interval '3 days'
+      AND fight_date <= now() + (${horizonDays}::text || ' days')::interval
       AND status NOT IN ('CANCELED', 'VOID')
     ORDER BY fight_date ASC
     LIMIT ${Math.max(1, Math.min(200, limit))};
@@ -256,13 +257,15 @@ async function upsertFeature(args: {
   rating: RatingRow | null;
   strength: StrengthRow | null;
   modelVersion: string;
+  dryRun?: boolean;
 }) {
   const built = featureFromWarehouse(args);
   const snap = snapshotAt(args.fight.fight_date);
   const id = stableId("ufcmf", `${args.fight.id}:${args.fighter.id}:${args.modelVersion}`);
+  if (args.dryRun) return { fightId: args.fight.id, fighterId: args.fighter.id, fighterName: args.fighter.full_name, coldStartActive: built.coldStartActive, dryRun: true };
   await prisma.$executeRaw`
     INSERT INTO ufc_model_features (id, fight_id, fight_date, fighter_id, opponent_fighter_id, snapshot_at, model_version, pro_fights, ufc_fights, rounds_fought, sig_strikes_landed_per_min, sig_strikes_absorbed_per_min, striking_differential, takedowns_per_15, takedown_defense_pct, submission_attempts_per_15, control_time_pct, opponent_adjusted_strength, cold_start_active, feature_json, updated_at)
-    VALUES (${id}, ${args.fight.id}, ${iso(args.fight.fight_date)}, ${args.fighter.id}, ${args.opponent.id}, ${snap}, ${args.modelVersion}, ${built.proFights}, ${built.ufcFights}, ${built.roundsFought}, ${built.sigStrikesLandedPerMin}, ${built.sigStrikesAbsorbedPerMin}, ${built.strikingDifferential}, ${built.takedownsPer15}, ${built.takedownDefensePct}, ${built.submissionAttemptsPer15}, ${built.controlTimePct}, ${built.opponentAdjustedStrength}, ${built.coldStartActive}, ${safeJson(built.feature)}::jsonb, now())
+    VALUES (${id}, ${args.fight.id}, ${iso(args.fight.fight_date)}::timestamptz, ${args.fighter.id}, ${args.opponent.id}, ${snap}::timestamptz, ${args.modelVersion}, ${built.proFights}, ${built.ufcFights}, ${built.roundsFought}, ${built.sigStrikesLandedPerMin}, ${built.sigStrikesAbsorbedPerMin}, ${built.strikingDifferential}, ${built.takedownsPer15}, ${built.takedownDefensePct}, ${built.submissionAttemptsPer15}, ${built.controlTimePct}, ${built.opponentAdjustedStrength}, ${built.coldStartActive}, ${safeJson(built.feature)}::jsonb, now())
     ON CONFLICT (fight_id, fighter_id, model_version) DO UPDATE SET
       snapshot_at = EXCLUDED.snapshot_at,
       pro_fights = EXCLUDED.pro_fights,
@@ -283,10 +286,11 @@ async function upsertFeature(args: {
   return { fightId: args.fight.id, fighterId: args.fighter.id, fighterName: args.fighter.full_name, coldStartActive: built.coldStartActive };
 }
 
-export async function buildUfcModelFeaturesFromWarehouse(options: { limit?: number; modelVersion?: string } = {}) {
+export async function buildUfcModelFeaturesFromWarehouse(options: { limit?: number; horizonDays?: number; modelVersion?: string; dryRun?: boolean } = {}) {
   if (!hasUsableServerDatabaseUrl()) return { ok: false, error: "No usable server database URL is configured.", fights: 0, features: 0 };
   const modelVersion = options.modelVersion ?? DEFAULT_MODEL_VERSION;
-  const fights = await upcomingFights(options.limit ?? 50);
+  const horizonDays = Math.max(1, Math.floor(options.horizonDays ?? 120));
+  const fights = await upcomingFights(options.limit ?? 50, horizonDays);
   const ids = Array.from(new Set(fights.flatMap((fight) => [fight.fighter_a_id, fight.fighter_b_id])));
   const [fighters, aggs, ratings, strengths] = await Promise.all([
     fightersFor(ids),
@@ -306,14 +310,16 @@ export async function buildUfcModelFeaturesFromWarehouse(options: { limit?: numb
       missing.push(fight.id);
       continue;
     }
-    results.push(await upsertFeature({ fight, fighter: a, opponent: b, agg: aggMap.get(a.id) ?? null, rating: latestBefore(ratings, a.id, fight.fight_date), strength: latestBefore(strengths, a.id, fight.fight_date), modelVersion }));
-    results.push(await upsertFeature({ fight, fighter: b, opponent: a, agg: aggMap.get(b.id) ?? null, rating: latestBefore(ratings, b.id, fight.fight_date), strength: latestBefore(strengths, b.id, fight.fight_date), modelVersion }));
+    results.push(await upsertFeature({ fight, fighter: a, opponent: b, agg: aggMap.get(a.id) ?? null, rating: latestBefore(ratings, a.id, fight.fight_date), strength: latestBefore(strengths, a.id, fight.fight_date), modelVersion, dryRun: options.dryRun }));
+    results.push(await upsertFeature({ fight, fighter: b, opponent: a, agg: aggMap.get(b.id) ?? null, rating: latestBefore(ratings, b.id, fight.fight_date), strength: latestBefore(strengths, b.id, fight.fight_date), modelVersion, dryRun: options.dryRun }));
   }
 
   return {
     ok: true,
     source: "auto-ufc-warehouse",
     modelVersion,
+    dryRun: Boolean(options.dryRun),
+    horizonDays,
     fights: fights.length,
     features: results.length,
     missingFights: missing.length,

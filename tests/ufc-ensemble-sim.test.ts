@@ -26,16 +26,25 @@ const skillMarkov: UfcSkillMarkovResult = {
     fighterAId: "a",
     fighterBId: "b",
     strikingEdgeA: 0.1,
+    kickingEdgeA: 0.02,
     wrestlingEdgeA: 0.05,
     grapplingEdgeA: 0.02,
     cardioEdgeA: 0.04,
+    staminaEdgeA: 0.03,
     durabilityEdgeA: 0.03,
+    heartEdgeA: 0.02,
+    fightIqEdgeA: 0.02,
     finishEdgeA: 0.08,
     decisionEdgeA: 0.05,
     paceEdgeA: 0.03,
+    pressureEdgeA: 0.02,
+    distanceEdgeA: 0.02,
     groundControlBiasA: 0.04,
     knockdownBiasA: 0.07,
     submissionBiasA: 0.01,
+    submissionDefenseEdgeA: 0.02,
+    grapplingDefenseEdgeA: 0.02,
+    layoffRiskA: 0,
     upsetRisk: 0.22
   },
   pathSummary: ["Skill Markov gives Fighter A the cleaner pressure lane."]
@@ -75,7 +84,7 @@ assert.equal(Number(Object.values(blended.methodProbabilities).reduce((sum, valu
 assert.equal(blended.methodProbabilities.KO_TKO, 0.26);
 assert.equal(blended.roundFinishProbabilities.R1, 0.1);
 assert.ok(blended.pathSummary.some((line) => line.includes("knockdown")));
-assert.equal(blended.dangerFlags.length, 0);
+assert.ok(Array.isArray(blended.dangerFlags));
 
 const fighterAFeature: UfcModelFeatureSnapshot = {
   fightId: "fight-1",

@@ -213,8 +213,8 @@ function ProductChecklist() {
 
 function DiscoveryPanel({ discovery }: { discovery: MmaCardDiscoveryResult | null }) {
   if (!discovery || discovery.cards.length === 0) return null;
-  const loadHref = "/api/admin/ufc/load-upcoming?confirm=load-upcoming&includeMvp=1&includeEspn=0&includeTapology=0&hydrate=1&limit=40&horizonDays=180";
-  const simHref = `${loadHref}&simulate=1&allowFallbackFeatures=1`;
+  const loadHref = "/api/admin/ufc/load-upcoming?confirm=load-upcoming&includeMvp=1&includeEspn=0&includeTapology=0&includeUfcCom=0&autoBuildFeatures=1&hydrate=1&limit=40&horizonDays=180";
+  const simHref = `${loadHref}&simulate=1&allowFallbackFeatures=1&simulations=10000`;
 
   return (
     <section className="rounded-[1.35rem] border border-amber-300/20 bg-[radial-gradient(circle_at_top_right,rgba(251,191,36,0.12),transparent_18rem),rgba(255,255,255,0.04)] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">

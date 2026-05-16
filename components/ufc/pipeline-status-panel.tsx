@@ -43,7 +43,7 @@ function ActionLink({ href, label, tone = "slate" }: { href: string; label: stri
 }
 
 export function UfcPipelineStatusPanel({ status }: { status: UfcPipelineStatus }) {
-  const base = "/api/admin/ufc/load-upcoming?confirm=load-upcoming&includeMvp=1&includeEspn=0&includeTapology=0";
+  const base = "/api/admin/ufc/load-upcoming?confirm=load-upcoming&includeMvp=1&includeEspn=0&includeTapology=0&includeUfcCom=0&autoBuildFeatures=1";
   return (
     <section className="rounded-[1.35rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(0,210,255,0.12),transparent_18rem),rgba(255,255,255,0.04)] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -73,7 +73,7 @@ export function UfcPipelineStatusPanel({ status }: { status: UfcPipelineStatus }
       <div className="mt-4 flex flex-wrap gap-2">
         <ActionLink href={`${base}&dryRun=1&hydrate=1&limit=25&horizonDays=120`} label="Dry run" />
         <ActionLink href={`${base}&hydrate=1&limit=25&horizonDays=120`} label="Load cards" tone="aqua" />
-        <ActionLink href={`${base}&hydrate=1&simulate=1&limit=25&horizonDays=120`} label="Load + sim" tone="amber" />
+        <ActionLink href={`${base}&hydrate=1&simulate=1&allowFallbackFeatures=1&limit=25&horizonDays=120&simulations=10000`} label="Load + sim" tone="amber" />
         <ActionLink href="/sim/ufc" label="Refresh page" />
       </div>
 

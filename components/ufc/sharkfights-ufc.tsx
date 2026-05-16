@@ -174,6 +174,7 @@ export function UfcFightIqPanel({ fight }: { fight: UfcFightIqDetail | null }) {
         <MiniStat label="Sim Count" value={prediction?.simulationCount ?? "--"} />
         <MiniStat label="Shadow" value={fight.shadowStatus ?? "--"} />
       </div>
+      <Section title="Fighter profiles"><FighterProfiles fight={fight} /></Section>
       <Section title="Why this pick">
         {(pending ? ["This upcoming fight is on the card but has not been simulated yet. It will upgrade automatically after model features and SharkSim output are generated."] : fight.pathSummary.length ? fight.pathSummary : ["No path summary stored yet. Run the operational sim to populate explanation data."]).map((line, index) => <p key={index} className="text-sm leading-6 text-slate-300">{index + 1}. {line}</p>)}
       </Section>
@@ -188,6 +189,79 @@ export function UfcFightIqPanel({ fight }: { fight: UfcFightIqDetail | null }) {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return <div className="mt-5 border-t border-white/10 pt-4"><h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-aqua">{title}</h3>{children}</div>;
+}
+
+function skill(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return Math.round(value);
+}
+
+function signalText(value: unknown) {
+  if (typeof value === "string" && value.trim()) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(Math.round(value));
+  if (Array.isArray(value) && value.length) return value.slice(0, 3).join(", ");
+  return "--";
+}
+
+function FighterProfileCard({ name, profile, snapshot }: {
+  name: string | null;
+  profile: NonNullable<UfcFightIqDetail["fighterProfiles"]>["fighterA"];
+  snapshot: NonNullable<UfcFightIqDetail["featureSnapshots"]>["fighterA"];
+}) {
+  const feature = snapshot?.feature ?? {};
+  if (!profile) {
+    return (
+      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+        <div className="font-black text-white">{name ?? "Fighter"}</div>
+        <p className="mt-2 text-xs leading-5 text-slate-500">Profile pending. Load profiles or run feature auto-build to expose rankings, scouting tags, and skill ratings.</p>
+      </div>
+    );
+  }
+
+  const rows = [
+    ["Strike O/D", `${skill(profile.striking.offense)} / ${skill(profile.striking.defense)}`],
+    ["Power", skill(profile.striking.power)],
+    ["TD O/D", `${skill(profile.wrestling.takedownOffense)} / ${skill(profile.wrestling.takedownDefense)}`],
+    ["Control", skill(profile.wrestling.control)],
+    ["Sub Threat", skill(profile.grappling.submissionThreat)],
+    ["Durability", skill(profile.durability.koResistance)],
+    ["Cardio", skill(profile.cardio.round3)],
+    ["Reliability", `${Math.round(profile.sampleReliability * 100)}%`]
+  ] as const;
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="font-black text-white">{name ?? "Fighter"}</div>
+          <div className="mt-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Sample {profile.sampleQuality} / {profile.weightClass ?? "open weight"}</div>
+        </div>
+        <span className={pill(profile.prospect.coldStartActive ? "amber" : "green")}>{profile.prospect.coldStartActive ? "cold" : "rated"}</span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="rounded-xl border border-white/10 bg-black/20 px-2 py-2">
+            <div className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">{label}</div>
+            <div className="mt-1 text-sm font-black text-white">{value}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 grid gap-1 text-[11px] leading-5 text-slate-400">
+        <div>FightMatrix: <span className="font-black text-white">{signalText(feature.fightMatrixRank)}</span></div>
+        <div>Amateur / promo: <span className="font-black text-white">{skill(profile.prospect.amateurSignal)} / {skill(profile.prospect.promotionTierSignal)}</span></div>
+        <div>Scouting: <span className="font-black text-white">{signalText(feature.scoutingTags)}</span></div>
+      </div>
+    </div>
+  );
+}
+
+function FighterProfiles({ fight }: { fight: UfcFightIqDetail }) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      <FighterProfileCard name={fight.fighters.fighterA.name} profile={fight.fighterProfiles?.fighterA ?? null} snapshot={fight.featureSnapshots?.fighterA ?? null} />
+      <FighterProfileCard name={fight.fighters.fighterB.name} profile={fight.fighterProfiles?.fighterB ?? null} snapshot={fight.featureSnapshots?.fighterB ?? null} />
+    </div>
+  );
 }
 
 function MethodBars({ fight }: { fight: UfcFightIqDetail }) {

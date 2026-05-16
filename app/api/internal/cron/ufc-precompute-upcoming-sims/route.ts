@@ -86,7 +86,7 @@ export async function GET(request: Request) {
     ? []
     : await getUfcOperationalFeed({ modelVersion, limit, includePast: false }).catch(() => []);
   const promotionCounts = feed.reduce((acc, card) => {
-    const status = card.promotionGate.status;
+    const status = card.promotionGate?.status ?? "SHADOW_ONLY";
     acc[status] = (acc[status] ?? 0) + 1;
     return acc;
   }, {} as Record<string, number>);

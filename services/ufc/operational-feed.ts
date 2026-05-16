@@ -32,25 +32,25 @@ export type UfcOperationalFeedCard = {
     SUBMISSION: number | null;
     DECISION: number | null;
   };
-  rawMethodProbabilities: {
+  rawMethodProbabilities?: {
     KO_TKO: number | null;
     SUBMISSION: number | null;
     DECISION: number | null;
   };
-  methodCalibration: {
+  methodCalibration?: {
     sampleSize: number | null;
     quality: string | null;
     corrections: Record<string, number> | null;
   };
-  promotionGate: {
+  promotionGate?: {
     status: string;
     grade: string | null;
     reasons: string[];
     confidenceCap: string | null;
   };
-  isPromotable: boolean;
-  isWatchlist: boolean;
-  isShadowOnly: boolean;
+  isPromotable?: boolean;
+  isWatchlist?: boolean;
+  isShadowOnly?: boolean;
   dataQualityGrade: string | null;
   confidenceGrade: string | null;
   simulationCount: number | null;

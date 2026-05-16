@@ -295,7 +295,15 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     promotionGate,
     activeEnsembleWeights,
     profileFeatureSignal,
-    enrichedPriorBridge
+    enrichedPriorBridge,
+    fighterSkillProfiles: {
+      fighterA: aProfile,
+      fighterB: bProfile
+    },
+    featureSnapshots: {
+      fighterA: aSnapshot,
+      fighterB: bSnapshot
+    }
   };
   const predictionId = stableId("ufcp", `${fightId}:${modelVersion}:${seed}:${simulations}:ensemble:${activeEnsembleWeights.source}:${activeEnsembleWeights.weights.skillMarkov}:${activeEnsembleWeights.weights.exchangeMonteCarlo}:method-calibrated-gated-v1`);
 

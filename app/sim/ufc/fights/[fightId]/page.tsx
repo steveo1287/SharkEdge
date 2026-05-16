@@ -136,11 +136,11 @@ export default async function UfcFightLabFightPage({ params }: PageProps) {
       <div className="mx-auto grid max-w-5xl gap-4">
         <SharkFightsHeader
           title={`${fight.fighters.fighterA.name ?? "Fighter A"} vs ${fight.fighters.fighterB.name ?? "Fighter B"}`}
-          subtitle="Full UFC Fight Lab detail: fight-path reasoning, method probabilities, round distribution, feature comparison, and engine diagnostics."
+          subtitle="Full MMA Fight Lab detail: fight-path reasoning, method probabilities, round distribution, fighter profiles, feature comparison, and engine diagnostics."
         />
         <div className="flex flex-wrap gap-2">
           <Link href={`/sim/ufc/cards/${fight.eventId}?fightId=${fight.fightId}`} className={pill("aqua")}>Back to card</Link>
-          <Link href="/sim/ufc" className={pill("slate")}>UFC Lab</Link>
+          <Link href="/sim/ufc" className={pill("slate")}>MMA Lab</Link>
           <Link href="/sim" className={pill("slate")}>Sim hub</Link>
         </div>
         <FightDecisionGate fight={fight} />

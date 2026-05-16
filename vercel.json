@@ -91,7 +91,7 @@
       "schedule": "5 * * * *"
     },
     {
-      "path": "/api/internal/cron/ufc-autopilot?hydrate=1&simulate=1&allowFallbackFeatures=1&includeMvp=1&includeEspn=0&includeTapology=0&limit=40&horizonDays=180&simulations=10000",
+      "path": "/api/internal/cron/ufc-autopilot?autoBuildFeatures=1&hydrate=1&simulate=1&allowFallbackFeatures=1&includeMvp=1&includeEspn=0&includeTapology=0&includeUfcCom=0&limit=40&horizonDays=180&simulations=10000",
       "schedule": "17 */6 * * *"
     }
   ]
