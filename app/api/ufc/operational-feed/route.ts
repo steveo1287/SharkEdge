@@ -8,10 +8,16 @@ export async function GET(request: Request) {
   const limitParam = url.searchParams.get("limit");
   const limit = limitParam ? Number(limitParam) : undefined;
   const includePast = url.searchParams.get("includePast") === "1";
+  const promotionStatus = url.searchParams.get("promotionStatus") ?? url.searchParams.get("gateStatus") ?? undefined;
 
   try {
-    const cards = await getUfcOperationalFeed({ modelVersion, limit, includePast });
-    return NextResponse.json({ ok: true, cards });
+    const cards = await getUfcOperationalFeed({ modelVersion, limit, includePast, promotionStatus });
+    const counts = cards.reduce((acc, card) => {
+      const status = card.promotionGate.status;
+      acc[status] = (acc[status] ?? 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    return NextResponse.json({ ok: true, counts, cards });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "UFC operational feed failed" }, { status: 500 });
   }
