@@ -35,12 +35,16 @@ export async function POST(request: Request) {
   const dryRun = url.searchParams.get("dryRun") === "1" || url.searchParams.get("dryRun") === "true";
   const hydrate = url.searchParams.get("hydrate") !== "0";
   const simulate = url.searchParams.get("simulate") === "1" || url.searchParams.get("simulate") === "true";
+  const includeMvp = url.searchParams.get("includeMvp") !== "0";
+  const includeEspn = url.searchParams.get("includeEspn") !== "0";
+  const includeTapology = url.searchParams.get("includeTapology") !== "0";
+  const includeUfcCom = url.searchParams.get("includeUfcCom") !== "0";
   const allowFallbackFeatures = url.searchParams.get("allowFallbackFeatures") === "1" || url.searchParams.get("allowFallbackFeatures") === "true";
   const horizonDays = numberParam(url, "horizonDays", 120);
   const limit = numberParam(url, "limit", 25);
 
   try {
-    const ingestion = await ingestUpcomingUfcCards({ dryRun, includeUfcStats: true });
+    const ingestion = await ingestUpcomingUfcCards({ dryRun, includeUfcStats: true, includeUfcCom, includeEspn, includeTapology, includeMvp });
     const hydration = hydrate ? await hydrateUpcomingUfcFeatureSnapshots({ dryRun, horizonDays, limit }) : null;
     const sim = simulate ? await runUfcUpcomingToSimPipeline({ dryRun, skipIngest: true, horizonDays, limit, recordShadow: true, allowFallbackFeatures }) : null;
 

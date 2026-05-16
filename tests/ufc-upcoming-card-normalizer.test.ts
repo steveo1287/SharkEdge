@@ -14,6 +14,9 @@ const providerResult: UfcUpcomingProviderResult = {
     sourceUrl: "https://www.ufc.com/event/test-card",
     eventName: "UFC Test Card",
     eventDate: "2026-06-01T02:00:00.000Z",
+    promotionKey: "ufc",
+    promotionName: "UFC",
+    combatSport: "MMA",
     venue: "Test Arena",
     city: "Chicago",
     region: "IL",
@@ -46,6 +49,7 @@ const payload = normalizeUpcomingUfcProviderResults([providerResult], "2026-05-0
 
 assert.equal(payload.events.length, 1);
 assert.equal(payload.events[0].externalEventId, "ufc.com-ufccom-card-1");
+assert.equal(payload.events[0].sourceKey, "ufc");
 assert.equal(payload.events[0].eventName, "UFC Test Card");
 assert.equal(payload.events[0].venue, "Test Arena");
 assert.equal(payload.events[0].broadcastInfo, "ESPN+");
@@ -62,6 +66,8 @@ assert.equal(payload.fights[0].scheduledRounds, 5);
 assert.equal(payload.fights[0].boutOrder, 1);
 assert.equal(payload.fights[0].cardSection, "MAIN_CARD");
 assert.equal(payload.fights[0].isMainEvent, true);
+assert.equal(payload.fights[0].payload?.promotionKey, "ufc");
+assert.equal(payload.fights[0].payload?.combatSport, "MMA");
 assert.equal(payload.fights[0].lastSeenAt, "2026-05-03T12:00:00.000Z");
 
 assert.equal(payload.fightSources.length, 1);

@@ -54,7 +54,7 @@ export function SharkFightsHeader({ title, subtitle }: { title: string; subtitle
       <h1 className="mt-2 font-display text-4xl font-black tracking-[-0.07em] text-white sm:text-5xl">{title}</h1>
       <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">{subtitle}</p>
       <div className="mt-4 flex flex-wrap gap-2">
-        <Link href="/sim/ufc" className={pill("aqua")}>UFC Fight Lab</Link>
+        <Link href="/sim/ufc" className={pill("aqua")}>MMA Fight Lab</Link>
         <Link href="/sim" className={pill("slate")}>Sim Hub</Link>
         <Link href="/accuracy" className={pill("slate")}>Fight Accuracy</Link>
       </div>
@@ -64,7 +64,7 @@ export function SharkFightsHeader({ title, subtitle }: { title: string; subtitle
 
 export function UfcCardGrid({ cards }: { cards: UfcCardSummary[] }) {
   if (!cards.length) {
-    return <CardShell><div className="text-sm leading-6 text-slate-400">No UFC cards yet. Run <span className="font-black text-aqua">npm run worker:ufc:upcoming</span> to ingest upcoming card matchups, then run SharkSim when model features are ready.</div></CardShell>;
+    return <CardShell><div className="text-sm leading-6 text-slate-400">No fight cards yet. Run <span className="font-black text-aqua">npm run worker:ufc:upcoming</span> to ingest UFC and MVP upcoming card matchups, then run SharkSim when model features are ready.</div></CardShell>;
   }
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -78,9 +78,13 @@ export function UfcCardGrid({ cards }: { cards: UfcCardSummary[] }) {
                 <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">{dateLabel(card.eventDate)}</div>
                 <div className="mt-1 font-display text-2xl font-black tracking-[-0.04em] text-white">{card.eventLabel}</div>
               </div>
-              <span className={pill(complete ? "green" : partial ? "amber" : card.providerStatus === "event-linked" ? "aqua" : card.providerStatus === "legacy-date" ? "amber" : "slate")}>
+              <span className={pill(complete ? "green" : partial ? "amber" : card.providerStatus.includes("linked") ? "aqua" : card.providerStatus === "legacy-date" ? "amber" : "slate")}>
                 {complete ? "sim ready" : partial ? "partial" : card.providerStatus}
               </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <span className={pill(card.promotionKey === "mvp" ? "amber" : "aqua")}>{card.promotionName ?? "UFC"}</span>
+              <span className={pill("slate")}>{card.combatSport ?? "MMA"}</span>
             </div>
             <div className="mt-4 grid grid-cols-3 gap-2 text-center">
               <MiniStat label="Fights" value={card.fightCount} />

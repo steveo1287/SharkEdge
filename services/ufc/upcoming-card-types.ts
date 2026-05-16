@@ -1,14 +1,14 @@
 export type UfcSourceConfidence = "OFFICIAL_CONFIRMED" | "OFFICIAL_PARTIAL" | "CROSS_CHECKED" | "EARLY_REPORTED" | "MANUAL_REVIEW";
 
 export type UfcUpcomingSourceFight = {
-  sourceName: "ufcstats" | "ufc.com" | "espn" | "tapology" | "manual";
+  sourceName: "ufcstats" | "ufc.com" | "espn" | "tapology" | "mvp" | "manual";
   sourceUrl?: string | null;
   sourceEventId?: string | null;
   sourceFightId?: string | null;
   fighterAName: string;
   fighterBName: string;
   weightClass?: string | null;
-  scheduledRounds?: 3 | 5 | null;
+  scheduledRounds?: number | null;
   boutOrder?: number | null;
   cardSection?: string | null;
   sourceStatus?: UfcSourceConfidence;
@@ -20,11 +20,14 @@ export type UfcUpcomingSourceFight = {
 };
 
 export type UfcUpcomingSourceEvent = {
-  sourceName: "ufcstats" | "ufc.com" | "espn" | "tapology" | "manual";
+  sourceName: "ufcstats" | "ufc.com" | "espn" | "tapology" | "mvp" | "manual";
   sourceUrl?: string | null;
   sourceEventId: string;
   eventName: string;
   eventDate: string;
+  promotionKey?: string | null;
+  promotionName?: string | null;
+  combatSport?: "MMA" | "BOXING" | "COMBAT" | null;
   location?: string | null;
   venue?: string | null;
   city?: string | null;

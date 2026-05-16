@@ -18,11 +18,25 @@ function eventSourceUrls(event: UfcUpcomingSourceEvent) {
 }
 
 function eventPayload(event: UfcUpcomingSourceEvent) {
-  return { sourceName: event.sourceName, sourceUrl: event.sourceUrl ?? null, raw: event.payload ?? {} };
+  return {
+    sourceName: event.sourceName,
+    sourceUrl: event.sourceUrl ?? null,
+    promotionKey: event.promotionKey ?? (event.sourceName === "mvp" ? "mvp" : "ufc"),
+    promotionName: event.promotionName ?? (event.sourceName === "mvp" ? "Most Valuable Promotions" : "UFC"),
+    combatSport: event.combatSport ?? (event.sourceName === "mvp" ? "COMBAT" : "MMA"),
+    raw: event.payload ?? {}
+  };
 }
 
 function fightPayload(event: UfcUpcomingSourceEvent, fight: UfcUpcomingSourceFight) {
-  return { sourceName: fight.sourceName, sourceUrl: fight.sourceUrl ?? event.sourceUrl ?? null, raw: fight.payload ?? {} };
+  return {
+    sourceName: fight.sourceName,
+    sourceUrl: fight.sourceUrl ?? event.sourceUrl ?? null,
+    promotionKey: event.promotionKey ?? (fight.sourceName === "mvp" ? "mvp" : "ufc"),
+    promotionName: event.promotionName ?? (fight.sourceName === "mvp" ? "Most Valuable Promotions" : "UFC"),
+    combatSport: event.combatSport ?? (fight.payload?.combatSport as string | undefined) ?? (fight.sourceName === "mvp" ? "COMBAT" : "MMA"),
+    raw: fight.payload ?? {}
+  };
 }
 
 export function normalizeUpcomingUfcProviderResults(results: UfcUpcomingProviderResult[], fetchedAt = new Date().toISOString()): UfcWarehousePayload {
@@ -48,7 +62,7 @@ export function normalizeUpcomingUfcProviderResults(results: UfcUpcomingProvider
 
   const events = [...eventMap.values()].map((event) => ({
     externalEventId: eventKey(event),
-    sourceKey: event.sourceName,
+    sourceKey: event.promotionKey ?? event.sourceName,
     eventName: event.eventName,
     eventDate: parseIsoOrOriginal(event.eventDate),
     location: event.location ?? null,

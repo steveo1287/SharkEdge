@@ -1,4 +1,4 @@
-import { fetchGenericUpcomingProvider, fetchUfcStatsUpcomingProvider } from "@/services/ufc/upcoming-card-providers";
+import { fetchGenericUpcomingProvider, fetchMvpUpcomingProvider, fetchUfcStatsUpcomingProvider } from "@/services/ufc/upcoming-card-providers";
 import { normalizeUpcomingUfcProviderResults } from "@/services/ufc/upcoming-card-normalizer";
 import type { UfcUpcomingIngestionSummary, UfcUpcomingProviderResult, UfcUpcomingSourceEvent } from "@/services/ufc/upcoming-card-types";
 import { upsertUfcWarehousePayload, summarizeUfcWarehousePayload } from "@/services/ufc/warehouse-ingestion";
@@ -6,10 +6,16 @@ import { upsertUfcWarehousePayload, summarizeUfcWarehousePayload } from "@/servi
 export type UfcUpcomingCardIngestionOptions = {
   fetchImpl?: typeof fetch;
   includeUfcStats?: boolean;
+  includeUfcCom?: boolean;
+  includeEspn?: boolean;
+  includeTapology?: boolean;
   ufcStatsListUrl?: string;
   ufcComUrls?: string[];
   espnUrls?: string[];
   tapologyUrls?: string[];
+  includeMvp?: boolean;
+  mvpListUrl?: string;
+  mvpEventUrls?: string[];
   manualEvents?: UfcUpcomingSourceEvent[];
   dryRun?: boolean;
 };
@@ -52,22 +58,32 @@ export async function fetchUpcomingUfcCardProviders(options: UfcUpcomingCardInge
     results.push(await fetchUfcStatsUpcomingProvider({ listUrl: options.ufcStatsListUrl, fetchImpl }));
   }
 
-  if (options.ufcComUrls !== undefined) {
+  if (options.includeUfcCom === false) {
+    // Explicitly skipped.
+  } else if (options.ufcComUrls !== undefined) {
     results.push(await fetchGenericUpcomingProvider("ufc.com", options.ufcComUrls, fetchImpl));
   } else {
     results.push(await fetchGenericUpcomingProvider("ufc.com", DEFAULT_UFC_COM_URLS, fetchImpl));
   }
 
-  if (options.espnUrls !== undefined) {
+  if (options.includeEspn === false) {
+    // Explicitly skipped.
+  } else if (options.espnUrls !== undefined) {
     results.push(await fetchGenericUpcomingProvider("espn", options.espnUrls, fetchImpl));
   } else {
     results.push(await fetchGenericUpcomingProvider("espn", DEFAULT_ESPN_URLS, fetchImpl));
   }
 
-  if (options.tapologyUrls !== undefined) {
+  if (options.includeTapology === false) {
+    // Explicitly skipped.
+  } else if (options.tapologyUrls !== undefined) {
     results.push(await fetchGenericUpcomingProvider("tapology", options.tapologyUrls, fetchImpl));
   } else {
     results.push(await fetchGenericUpcomingProvider("tapology", DEFAULT_TAPOLOGY_URLS, fetchImpl));
+  }
+
+  if (options.includeMvp !== false) {
+    results.push(await fetchMvpUpcomingProvider({ listUrl: options.mvpListUrl, eventUrls: options.mvpEventUrls, fetchImpl }));
   }
 
   if (options.manualEvents?.length) results.push(manualProvider(options.manualEvents));

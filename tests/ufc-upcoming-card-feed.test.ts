@@ -10,6 +10,10 @@ const pendingFight: UfcOperationalFeedCard = {
   eventId: "event-upcoming",
   eventName: "UFC Upcoming Card",
   eventDate: "2026-07-01T01:00:00.000Z",
+  eventSourceKey: "ufc",
+  promotionKey: "ufc",
+  promotionName: "UFC",
+  combatSport: "MMA",
   eventLabel: "Fighter A vs Fighter B",
   fightDate: "2026-07-01T02:00:00.000Z",
   scheduledRounds: 3,
@@ -45,7 +49,8 @@ assert.equal(cards[0].eventLabel, "UFC Upcoming Card");
 assert.equal(cards[0].fightCount, 1);
 assert.equal(cards[0].simulatedFightCount, 0);
 assert.equal(cards[0].lastSimulatedAt, null);
-assert.equal(cards[0].providerStatus, "event-linked");
+assert.equal(cards[0].promotionKey, "ufc");
+assert.equal(cards[0].providerStatus, "ufc-linked");
 
 const cardSurface = buildSharkFightCardSimSurface({ fights: [pendingFight], shadowPendingCount: 0, shadowResolvedCount: 0 });
 assert.equal(cardSurface.fightCount, 1);

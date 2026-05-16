@@ -5,6 +5,10 @@ export type UfcOperationalFeedCard = {
   eventId: string | null;
   eventName: string | null;
   eventDate: string | null;
+  eventSourceKey: string | null;
+  promotionKey: string | null;
+  promotionName: string | null;
+  combatSport: string | null;
   eventLabel: string;
   fightDate: string;
   scheduledRounds: number;
@@ -42,6 +46,8 @@ type FeedRow = {
   event_id: string | null;
   event_name: string | null;
   event_date: Date | string | null;
+  event_source_key: string | null;
+  event_payload_json: any;
   event_label: string;
   fight_date: Date | string;
   scheduled_rounds: number;
@@ -83,12 +89,20 @@ function asArray(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function stringOrNull(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function mapRows(rows: FeedRow[]): UfcOperationalFeedCard[] {
   return rows.map((row) => ({
     fightId: row.fight_id,
     eventId: row.event_id,
     eventName: row.event_name,
     eventDate: toIsoNullable(row.event_date),
+    eventSourceKey: row.event_source_key,
+    promotionKey: stringOrNull(row.event_payload_json?.promotionKey) ?? row.event_source_key,
+    promotionName: stringOrNull(row.event_payload_json?.promotionName) ?? (row.event_source_key === "mvp" ? "Most Valuable Promotions" : row.event_source_key === "ufc" ? "UFC" : null),
+    combatSport: stringOrNull(row.event_payload_json?.combatSport),
     eventLabel: row.event_label,
     fightDate: toIso(row.fight_date),
     scheduledRounds: row.scheduled_rounds,
@@ -129,6 +143,8 @@ async function queryEventLinkedFeed(modelVersion: string, limit: number, include
       e.id AS event_id,
       e.event_name,
       e.event_date,
+      e.source_key AS event_source_key,
+      e.payload_json AS event_payload_json,
       f.event_label,
       f.fight_date,
       f.scheduled_rounds,
@@ -182,6 +198,8 @@ async function queryLegacyFeed(modelVersion: string, limit: number, includePast:
       null::text AS event_id,
       null::text AS event_name,
       null::timestamptz AS event_date,
+      null::text AS event_source_key,
+      '{}'::jsonb AS event_payload_json,
       f.event_label,
       f.fight_date,
       f.scheduled_rounds,

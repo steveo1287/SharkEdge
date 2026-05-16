@@ -27,6 +27,18 @@ function dateFromText(text: string) {
   return match?.[0] ?? new Date().toISOString();
 }
 
+function dateTimeFromText(text: string) {
+  const match = text.match(/((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4})\s+at\s+(\d{1,2}:\d{2}\s*[AP]M)/i);
+  return match ? `${match[1]} ${match[2]}` : dateFromText(text);
+}
+
+function titleCaseDayDate(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .replace(/\s+-\s+/g, " ");
+}
+
 function fightFromNames(sourceName: UfcUpcomingSourceFight["sourceName"], names: string[], sourceUrl: string, index: number): UfcUpcomingSourceFight | null {
   if (names.length < 2) return null;
   return {
@@ -108,6 +120,153 @@ export async function fetchUfcStatsUpcomingProvider(options: { listUrl?: string;
   return { provider: "ufcstats", fetchedAt, events, warnings, errors };
 }
 
+export function parseMvpUpcomingEventsList(html: string, baseUrl = "https://www.mostvaluablepromotions.com/events/?filter=upcoming") {
+  const text = strip(html);
+  const links = [...html.matchAll(/href=["']([^"']*\/event\/[^"']+)["']/gi)]
+    .map((match) => absolute(match[1], baseUrl))
+    .filter((url) => /mostvaluablepromotions\.com\/event\//i.test(url));
+  const uniqueLinks = [...new Set(links)];
+  const upcoming = uniqueLinks.flatMap((url) => {
+    const eventSlug = (() => {
+      try { return new URL(url).pathname.split("/").filter(Boolean).at(-1) ?? url; } catch { return url; }
+    })();
+    const slugLabel = eventSlug.replace(/-\d{6,8}$/i, "").replace(/-/g, " ");
+    return [{
+      url,
+      sourceEventId: idFromUrl("mvp", url),
+      label: normalizeName(slugLabel)
+    }];
+  });
+
+  if (upcoming.length) return upcoming;
+
+  const fallbackRows = [...text.matchAll(/([A-Z][A-Za-z0-9&'.: -]+?)\s+(?:SATURDAY|SUNDAY|FRIDAY|THURSDAY|WEDNESDAY|TUESDAY|MONDAY)\s+-\s+([A-Z]+\s+-\s+[A-Z]+\s+\d{1,2},\s+\d{4})/g)];
+  return fallbackRows.map((match, index) => ({
+    url: baseUrl,
+    sourceEventId: `mvp-fallback-${index + 1}-${slug(match[1])}`,
+    label: normalizeName(match[1]),
+    dateLabel: titleCaseDayDate(match[2])
+  }));
+}
+
+function mvpLocation(text: string) {
+  const match = text.match(/(?:\d{1,2}:\d{2}\s*[AP]M)\s+([^#]+?)(?:\s+Ticketmaster|\s+How to Watch|\s+Main Card|\s+Prelims)/i);
+  return normalizeName(match?.[1] ?? "");
+}
+
+function mvpEventSport(text: string): "MMA" | "BOXING" | "COMBAT" {
+  if (/Professional\s+MMA\s+Bout|MVP\s+MMA/i.test(text)) return "MMA";
+  if (/World\s+Championship|Professional\s+Boxing\s+Bout|MVPW|boxing/i.test(text)) return "BOXING";
+  return "COMBAT";
+}
+
+function parseMvpFightSegment(segment: string, sourceUrl: string, index: number, fallbackSport: "MMA" | "BOXING" | "COMBAT" = "COMBAT"): UfcUpcomingSourceFight | null {
+  const compact = strip(segment);
+  if (!/\bVS\b/.test(compact) || !/View Stats/i.test(compact)) return null;
+  const sport: "MMA" | "BOXING" | "COMBAT" = /Professional\s+MMA\s+Bout/i.test(compact)
+    ? "MMA"
+    : /Professional\s+Boxing\s+Bout|World\s+Championship/i.test(compact)
+      ? "BOXING"
+      : fallbackSport;
+  const roundMatch = compact.match(/(\d{1,2})\s*\D{0,3}\s*\d{1,2}\s+Professional/i);
+  const actualRounds = roundMatch ? Number(roundMatch[1]) : null;
+  const vsIndex = compact.indexOf(" VS ");
+  const viewStatsIndex = compact.indexOf(" View Stats", vsIndex);
+  if (vsIndex <= 0 || viewStatsIndex <= vsIndex) return null;
+  const leftRaw = compact.slice(0, vsIndex);
+  const rightRaw = compact.slice(vsIndex + 4, viewStatsIndex);
+  const cleanFighterName = (value: string) => normalizeName(value.replace(/#+/g, " ").replace(/\bVS\b/gi, " "));
+  const fighterA = cleanFighterName(leftRaw
+    .replace(/^.*(?:Bout|Championship)\s+/i, "")
+    .replace(/^\d{1,2}\s*\D{0,3}\s*\d{1,2}\s+Professional\s+(?:MMA|Boxing)\s+Bout\s+/i, ""));
+  const fighterB = cleanFighterName(rightRaw);
+  if (!fighterA || !fighterB || fighterA.length > 80 || fighterB.length > 80) return null;
+  return {
+    sourceName: "mvp",
+    sourceUrl,
+    sourceFightId: `mvp-${slug(fighterA)}-vs-${slug(fighterB)}-${index + 1}`,
+    fighterAName: fighterA,
+    fighterBName: fighterB,
+    weightClass: normalizeName(compact.match(/([A-Za-z ]+(?:Bout|Championship))/)?.[1] ?? "") || null,
+    scheduledRounds: sport === "MMA" && actualRounds === 5 ? 5 : 3,
+    boutOrder: index + 1,
+    cardSection: compact.includes("Prelims") ? "PRELIMS" : index < 5 ? "MAIN_CARD" : "PRELIMS",
+    sourceStatus: "OFFICIAL_PARTIAL",
+    confidence: "OFFICIAL_PARTIAL",
+    isMainEvent: index === 0,
+    isTitleFight: /Championship/i.test(compact),
+    isCatchweight: /Catchweight/i.test(compact),
+    payload: {
+      provider: "mvp",
+      promotionKey: "mvp",
+      promotionName: "Most Valuable Promotions",
+      combatSport: sport,
+      actualScheduledRounds: actualRounds,
+      modelRoundPolicy: sport === "MMA" ? "mma_3_or_5_rounds" : "boxing_card_inventory_only"
+    }
+  };
+}
+
+export function parseMvpEventPage(html: string, sourceUrl: string): UfcUpcomingSourceEvent {
+  const text = strip(html);
+  const eventName = normalizeName(strip(html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? "MVP Fight Card"));
+  const sport = mvpEventSport(text);
+  const segments = html.includes("<!-- Fight Card -->")
+    ? html.split(/<!--\s*Fight Card\s*-->/i).slice(1)
+    : text.split(/Image:\s+Fight Background/i).slice(1);
+  const fights = segments
+    .map((segment, index) => parseMvpFightSegment(segment, sourceUrl, index, sport))
+    .filter((fight): fight is UfcUpcomingSourceFight => Boolean(fight));
+  const location = mvpLocation(text) || null;
+  const [venue, cityRegion] = location ? location.split(/\s+-\s+|\s*,\s*/).map((item) => normalizeName(item)).filter(Boolean) : [];
+
+  return {
+    sourceName: "mvp",
+    sourceUrl,
+    sourceEventId: idFromUrl("mvp", sourceUrl),
+    eventName,
+    eventDate: dateTimeFromText(text),
+    promotionKey: "mvp",
+    promotionName: "Most Valuable Promotions",
+    combatSport: sport,
+    location,
+    venue: venue ?? null,
+    city: cityRegion ?? null,
+    sourceStatus: fights.length ? "OFFICIAL_PARTIAL" : "EARLY_REPORTED",
+    sourceUrls: { mvp: sourceUrl },
+    payload: {
+      provider: "mvp",
+      promotionKey: "mvp",
+      promotionName: "Most Valuable Promotions",
+      combatSport: sport,
+      parsedFightCount: fights.length
+    },
+    fights
+  };
+}
+
+export async function fetchMvpUpcomingProvider(options: { listUrl?: string; eventUrls?: string[]; fetchImpl?: typeof fetch } = {}): Promise<UfcUpcomingProviderResult> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const listUrl = options.listUrl ?? "https://www.mostvaluablepromotions.com/events/?filter=upcoming";
+  const fetchedAt = new Date().toISOString();
+  const events: UfcUpcomingSourceEvent[] = [];
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  try {
+    const eventUrls = options.eventUrls ?? parseMvpUpcomingEventsList(await getHtml(listUrl, fetchImpl), listUrl).map((event) => event.url);
+    for (const url of [...new Set(eventUrls)]) {
+      try {
+        events.push(parseMvpEventPage(await getHtml(url, fetchImpl), url));
+      } catch (error) {
+        warnings.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
+  return { provider: "mvp", fetchedAt, events, warnings, errors };
+}
+
 function parseJsonLdEvents(html: string, sourceName: UfcUpcomingSourceEvent["sourceName"], sourceUrl: string): UfcUpcomingSourceEvent[] {
   const blocks = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)].map((match) => match[1]);
   const events: UfcUpcomingSourceEvent[] = [];
@@ -180,3 +339,4 @@ export async function fetchGenericUpcomingProvider(sourceName: "ufc.com" | "espn
   }
   return { provider: sourceName, fetchedAt, events, warnings, errors };
 }
+

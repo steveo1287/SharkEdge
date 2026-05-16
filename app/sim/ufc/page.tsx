@@ -102,10 +102,10 @@ function ProductRail({ cards }: { cards: UfcCardSummary[] }) {
     <section className="rounded-[1.5rem] border border-aqua/15 bg-[radial-gradient(circle_at_top_right,rgba(0,210,255,0.14),transparent_18rem),rgba(255,255,255,0.035)] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.28)]">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="text-[10px] font-black uppercase tracking-[0.22em] text-aqua">UFC Fight Lab</div>
-          <h2 className="mt-1 font-display text-3xl font-black tracking-[-0.06em] text-white">Fight simulation product surface</h2>
+          <div className="text-[10px] font-black uppercase tracking-[0.22em] text-aqua">MMA Fight Lab</div>
+          <h2 className="mt-1 font-display text-3xl font-black tracking-[-0.06em] text-white">UFC + MVP fight simulation surface</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            This is the sim-first UFC lane: card ingestion, feature readiness, method probabilities, fight paths, source audits, and model diagnostics. It does not rely on TrendsCenter-style historical trend storage.
+            This is the sim-first combat lane: UFC cards, MVP fight promotions, feature readiness, method probabilities, fight paths, source audits, and model diagnostics. It does not rely on TrendsCenter-style historical trend storage.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -233,9 +233,13 @@ function UfcLabCardGrid({ cards }: { cards: UfcCardSummary[] }) {
                 <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">{dateLabel(card.eventDate)}</div>
                 <div className="mt-1 font-display text-2xl font-black tracking-[-0.04em] text-white">{card.eventLabel}</div>
               </div>
-              <span className={pill(complete ? "green" : partial ? "amber" : card.providerStatus === "event-linked" ? "aqua" : "slate")}>
+              <span className={pill(complete ? "green" : partial ? "amber" : card.providerStatus.includes("linked") ? "aqua" : "slate")}>
                 {complete ? "sim ready" : partial ? "partial" : card.providerStatus}
               </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <span className={pill(card.promotionKey === "mvp" ? "amber" : "aqua")}>{card.promotionName ?? "UFC"}</span>
+              <span className={pill("slate")}>{card.combatSport ?? "MMA"}</span>
             </div>
             <div className="mt-4 grid grid-cols-3 gap-2 text-center">
               <MiniStat label="Fights" value={card.fightCount} />
@@ -261,8 +265,8 @@ export default async function UfcFightLabPage() {
     <main className="min-h-screen bg-[#02060b] px-3 py-4 text-white sm:px-5">
       <div className="mx-auto grid max-w-7xl gap-4">
         <SharkFightsHeader
-          title="UFC Fight Lab"
-          subtitle="The SharkEdge fight-sim workspace: style matchups, method probabilities, fight-path reasoning, source audits, and pipeline readiness in one UFC lane."
+          title="MMA Fight Lab"
+          subtitle="The SharkEdge fight-sim workspace: UFC and MVP fight cards, style matchups, method probabilities, fight-path reasoning, source audits, and pipeline readiness."
         />
         <ProductRail cards={cards} />
         <TrustGate status={status} />

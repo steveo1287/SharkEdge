@@ -11,6 +11,10 @@ function feedFight(overrides: Partial<UfcOperationalFeedCard> = {}): UfcOperatio
     eventId: overrides.eventId ?? "event-1",
     eventName: overrides.eventName ?? "UFC Test Card",
     eventDate: overrides.eventDate ?? "2026-06-01T01:00:00.000Z",
+    eventSourceKey: overrides.eventSourceKey ?? "ufc",
+    promotionKey: overrides.promotionKey ?? "ufc",
+    promotionName: overrides.promotionName ?? "UFC",
+    combatSport: overrides.combatSport ?? "MMA",
     eventLabel: overrides.eventLabel ?? "A vs B",
     fightDate: overrides.fightDate ?? "2026-06-01T02:00:00.000Z",
     scheduledRounds: overrides.scheduledRounds ?? 3,
@@ -44,13 +48,16 @@ const card: UfcCardDetail = {
   eventId: "event-1",
   eventLabel: "UFC Test Card",
   eventDate: "2026-06-01T01:00:00.000Z",
+  promotionKey: "ufc",
+  promotionName: "UFC",
+  combatSport: "MMA",
   fightCount: 3,
   simulatedFightCount: 2,
   dataQualityGrade: "B",
   lastSimulatedAt: "2026-05-31T18:00:00.000Z",
   shadowPendingCount: 1,
   shadowResolvedCount: 1,
-  providerStatus: "event-linked",
+  providerStatus: "ufc-linked",
   fights: [
     feedFight({ fightId: "fight-1", confidenceGrade: "HIGH", edgePct: 4.2, dangerFlags: ["finish-volatility"] }),
     feedFight({ fightId: "fight-2", pickFighterId: "b", fighterAWinProbability: 0.45, fighterBWinProbability: 0.55, confidenceGrade: "MEDIUM", edgePct: -1, shadowStatus: "RESOLVED", methodProbabilities: { KO_TKO: 0.55, SUBMISSION: 0.1, DECISION: 0.35 } }),
@@ -68,7 +75,7 @@ assert.equal(cardSurface.highConfidenceCount, 1);
 assert.equal(cardSurface.pendingShadowCount, 1);
 assert.equal(cardSurface.resolvedShadowCount, 1);
 assert.equal(cardSurface.dominantMethod, "DECISION");
-assert.equal(cardSurface.averagePickProbability, 0.5967);
+assert.equal(cardSurface.averagePickProbability, 0.595);
 
 const detail: UfcFightIqDetail = {
   fightId: "fight-1",

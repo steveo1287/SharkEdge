@@ -20,10 +20,16 @@ async function main() {
   const result = await ingestUpcomingUfcCards({
     dryRun: hasFlag("dryRun"),
     includeUfcStats: !hasFlag("skipUfcStats"),
+    includeUfcCom: !hasFlag("skipUfcCom"),
+    includeEspn: !hasFlag("skipEspn"),
+    includeTapology: !hasFlag("skipTapology"),
+    includeMvp: !hasFlag("skipMvp"),
     ufcStatsListUrl: argValue("ufcStatsListUrl") ?? undefined,
     ufcComUrls: listArg("ufcComUrls"),
     espnUrls: listArg("espnUrls"),
-    tapologyUrls: listArg("tapologyUrls")
+    tapologyUrls: listArg("tapologyUrls"),
+    mvpListUrl: argValue("mvpListUrl") ?? undefined,
+    mvpEventUrls: listArg("mvpEventUrls")
   });
 
   console.log(JSON.stringify(result, null, 2));

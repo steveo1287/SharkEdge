@@ -5,6 +5,9 @@ export type UfcCardSummary = {
   eventId: string;
   eventLabel: string;
   eventDate: string;
+  promotionKey: string | null;
+  promotionName: string | null;
+  combatSport: string | null;
   fightCount: number;
   simulatedFightCount: number;
   dataQualityGrade: string | null;
@@ -117,24 +120,37 @@ function cardLabel(eventId: string, rows: UfcOperationalFeedCard[]) {
   return `UFC Card · ${date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 }
 
+function cardPromotion(rows: UfcOperationalFeedCard[]) {
+  const first = rows.find((row) => row.promotionKey || row.promotionName || row.combatSport);
+  return {
+    promotionKey: first?.promotionKey ?? null,
+    promotionName: first?.promotionName ?? null,
+    combatSport: first?.combatSport ?? null
+  };
+}
+
 export function buildUfcCardSummaries(fights: UfcOperationalFeedCard[]): UfcCardSummary[] {
   const groups = new Map<string, UfcOperationalFeedCard[]>();
   for (const fight of fights) {
     const eventId = cardIdForFight(fight);
     groups.set(eventId, [...(groups.get(eventId) ?? []), fight]);
   }
-  return [...groups.entries()].map(([eventId, rows]) => ({
-    eventId,
-    eventLabel: cardLabel(eventId, rows),
-    eventDate: rows.find((row) => row.eventDate)?.eventDate ?? rows[0]?.fightDate ?? `${eventId}T00:00:00.000Z`,
-    fightCount: rows.length,
-    simulatedFightCount: rows.filter((fight) => fight.hasPrediction && fight.simulationCount != null).length,
-    dataQualityGrade: worstGrade(rows.map((fight) => fight.dataQualityGrade)),
-    lastSimulatedAt: rows.filter((fight) => fight.hasPrediction).map((fight) => fight.generatedAt).sort().at(-1) ?? null,
-    shadowPendingCount: rows.filter((fight) => fight.shadowStatus === "PENDING").length,
-    shadowResolvedCount: rows.filter((fight) => fight.shadowStatus === "RESOLVED").length,
-    providerStatus: rows.some((fight) => fight.eventId) ? "event-linked" : rows.length ? "legacy-date" : "empty"
-  })).sort((a, b) => new Date(b.eventDate).getTime() - new Date(a.eventDate).getTime());
+  return [...groups.entries()].map(([eventId, rows]) => {
+    const promotion = cardPromotion(rows);
+    return {
+      eventId,
+      eventLabel: cardLabel(eventId, rows),
+      eventDate: rows.find((row) => row.eventDate)?.eventDate ?? rows[0]?.fightDate ?? `${eventId}T00:00:00.000Z`,
+      ...promotion,
+      fightCount: rows.length,
+      simulatedFightCount: rows.filter((fight) => fight.hasPrediction && fight.simulationCount != null).length,
+      dataQualityGrade: worstGrade(rows.map((fight) => fight.dataQualityGrade)),
+      lastSimulatedAt: rows.filter((fight) => fight.hasPrediction).map((fight) => fight.generatedAt).sort().at(-1) ?? null,
+      shadowPendingCount: rows.filter((fight) => fight.shadowStatus === "PENDING").length,
+      shadowResolvedCount: rows.filter((fight) => fight.shadowStatus === "RESOLVED").length,
+      providerStatus: rows.some((fight) => fight.eventId) ? `${promotion.promotionKey ?? "event"}-linked` : rows.length ? "legacy-date" : "empty"
+    };
+  }).sort((a, b) => new Date(b.eventDate).getTime() - new Date(a.eventDate).getTime());
 }
 
 export async function getUfcCards(options: { modelVersion?: string; includePast?: boolean } = {}) {
