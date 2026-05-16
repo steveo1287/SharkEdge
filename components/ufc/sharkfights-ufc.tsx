@@ -64,7 +64,7 @@ export function SharkFightsHeader({ title, subtitle }: { title: string; subtitle
 
 export function UfcCardGrid({ cards }: { cards: UfcCardSummary[] }) {
   if (!cards.length) {
-    return <CardShell><div className="text-sm leading-6 text-slate-400">No fight cards yet. Run <span className="font-black text-aqua">npm run worker:ufc:upcoming</span> to ingest UFC and MVP upcoming card matchups, then run SharkSim when model features are ready.</div></CardShell>;
+    return <CardShell><div className="text-sm leading-6 text-slate-400">No valid fight cards are currently surfaced. Fake UFC navigation rows are filtered out; ingest real card matchups, then run feature build + SharkSim.</div></CardShell>;
   }
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -78,24 +78,11 @@ export function UfcCardGrid({ cards }: { cards: UfcCardSummary[] }) {
                 <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">{dateLabel(card.eventDate)}</div>
                 <div className="mt-1 font-display text-2xl font-black tracking-[-0.04em] text-white">{card.eventLabel}</div>
               </div>
-              <span className={pill(complete ? "green" : partial ? "amber" : card.providerStatus.includes("linked") ? "aqua" : card.providerStatus === "legacy-date" ? "amber" : "slate")}>
-                {complete ? "sim ready" : partial ? "partial" : card.providerStatus}
-              </span>
+              <span className={pill(complete ? "green" : partial ? "amber" : card.providerStatus.includes("linked") ? "aqua" : card.providerStatus === "legacy-date" ? "amber" : "slate")}>{complete ? "sim ready" : partial ? "partial" : card.providerStatus}</span>
             </div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <span className={pill(card.promotionKey === "mvp" ? "amber" : "aqua")}>{card.promotionName ?? "UFC"}</span>
-              <span className={pill("slate")}>{card.combatSport ?? "MMA"}</span>
-            </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-              <MiniStat label="Fights" value={card.fightCount} />
-              <MiniStat label="Sims" value={card.simulatedFightCount} />
-              <MiniStat label="Quality" value={card.dataQualityGrade ?? "Pending"} />
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <span className={pill("slate")}>{card.shadowPendingCount} pending</span>
-              <span className={pill("slate")}>{card.shadowResolvedCount} resolved</span>
-              <span className={pill(partial || complete ? "aqua" : "slate")}>{pct(card.fightCount ? card.simulatedFightCount / card.fightCount : null)} coverage</span>
-            </div>
+            <div className="mt-2 flex flex-wrap gap-2"><span className={pill(card.promotionKey === "mvp" ? "amber" : "aqua")}>{card.promotionName ?? "UFC"}</span><span className={pill("slate")}>{card.combatSport ?? "MMA"}</span></div>
+            <div className="mt-4 grid grid-cols-3 gap-2 text-center"><MiniStat label="Fights" value={card.fightCount} /><MiniStat label="Sims" value={card.simulatedFightCount} /><MiniStat label="Quality" value={card.dataQualityGrade ?? "Pending"} /></div>
+            <div className="mt-3 flex flex-wrap gap-2"><span className={pill("slate")}>{card.shadowPendingCount} pending</span><span className={pill("slate")}>{card.shadowResolvedCount} resolved</span><span className={pill(partial || complete ? "aqua" : "slate")}>{pct(card.fightCount ? card.simulatedFightCount / card.fightCount : null)} coverage</span></div>
           </Link>
         );
       })}
@@ -107,49 +94,17 @@ function MiniStat({ label, value }: { label: string; value: string | number }) {
   return <div className="rounded-2xl border border-white/10 bg-white/[0.035] px-2 py-2"><div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">{label}</div><div className="mt-1 font-display text-lg font-black text-white">{value}</div></div>;
 }
 
-function pickProbability(fight: UfcOperationalFeedCard) {
-  if (!fight.hasPrediction || !fight.pickFighterId) return null;
-  return fight.pickFighterId === fight.fighterAId ? fight.fighterAWinProbability : fight.fighterBWinProbability;
-}
-
-function methodLean(fight: UfcOperationalFeedCard) {
-  if (!fight.hasPrediction) return "Pending sim";
-  const entries = Object.entries(fight.methodProbabilities).filter((item): item is [string, number] => typeof item[1] === "number");
-  return entries.sort((a, b) => b[1] - a[1])[0]?.[0]?.replace("_", "/") ?? "--";
-}
-
-function fightStatusLabel(fight: UfcOperationalFeedCard) {
-  if (fight.hasPrediction) return fight.confidenceGrade ?? "SIM READY";
-  return fight.sourceStatus ?? "UPCOMING";
-}
+function pickProbability(fight: UfcOperationalFeedCard) { if (!fight.hasPrediction || !fight.pickFighterId) return null; return fight.pickFighterId === fight.fighterAId ? fight.fighterAWinProbability : fight.fighterBWinProbability; }
+function methodLean(fight: UfcOperationalFeedCard) { if (!fight.hasPrediction) return "Pending sim"; const entries = Object.entries(fight.methodProbabilities).filter((item): item is [string, number] => typeof item[1] === "number"); return entries.sort((a, b) => b[1] - a[1])[0]?.[0]?.replace("_", "/") ?? "--"; }
+function fightStatusLabel(fight: UfcOperationalFeedCard) { if (fight.hasPrediction) return fight.confidenceGrade ?? "SIM READY"; return fight.sourceStatus ?? "UPCOMING"; }
 
 export function UfcFightList({ card, selectedFightId }: { card: UfcCardDetail; selectedFightId?: string | null }) {
-  return (
-    <div className="grid gap-3">
-      {card.fights.map((fight) => {
-        const selected = fight.fightId === selectedFightId;
-        const pending = !fight.hasPrediction;
-        return (
-          <Link key={fight.fightId} href={`/sim/ufc/cards/${card.eventId}?fightId=${fight.fightId}`} className={`rounded-[1.2rem] border p-4 transition ${selected ? "border-aqua/45 bg-aqua/[0.07]" : "border-white/10 bg-[#06101b]/78 hover:border-aqua/35 hover:bg-aqua/[0.04]"}`}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">{timeLabel(fight.fightDate)} · {fight.scheduledRounds} rounds{fight.cardSection ? ` · ${fight.cardSection}` : ""}</div>
-                <div className="mt-1 font-display text-xl font-black tracking-[-0.04em] text-white">{fight.fighterAName ?? "Fighter A"} vs {fight.fighterBName ?? "Fighter B"}</div>
-                <div className="mt-2 text-sm text-slate-400">{pending ? "Upcoming matchup" : "Pick"}: <span className="font-black text-aqua">{pending ? "Sim pending" : fight.pickName ?? "Pending"}</span> · {pct(pickProbability(fight))} · {methodLean(fight)}</div>
-              </div>
-              <span className={pill(pending ? "amber" : fight.confidenceGrade?.includes("HIGH") ? "green" : fight.confidenceGrade === "LOW" ? "amber" : "aqua")}>{fightStatusLabel(fight)}</span>
-            </div>
-            <div className="mt-3 grid grid-cols-4 gap-2">
-              <MiniStat label="Fair" value={odds(fight.fairOddsAmerican)} />
-              <MiniStat label="Book" value={odds(fight.sportsbookOddsAmerican)} />
-              <MiniStat label="Edge" value={typeof fight.edgePct === "number" ? `${fight.edgePct}%` : "--"} />
-              <MiniStat label="Data" value={fight.dataQualityGrade ?? (pending ? "Source" : "--")} />
-            </div>
-          </Link>
-        );
-      })}
-    </div>
-  );
+  return <div className="grid gap-3">{card.fights.map((fight) => { const selected = fight.fightId === selectedFightId; const pending = !fight.hasPrediction; return (
+    <Link key={fight.fightId} href={`/sim/ufc/cards/${card.eventId}?fightId=${fight.fightId}`} className={`rounded-[1.2rem] border p-4 transition ${selected ? "border-aqua/45 bg-aqua/[0.07]" : "border-white/10 bg-[#06101b]/78 hover:border-aqua/35 hover:bg-aqua/[0.04]"}`}>
+      <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">{timeLabel(fight.fightDate)} · {fight.scheduledRounds} rounds{fight.cardSection ? ` · ${fight.cardSection}` : ""}</div><div className="mt-1 font-display text-xl font-black tracking-[-0.04em] text-white">{fight.fighterAName ?? "Fighter A"} vs {fight.fighterBName ?? "Fighter B"}</div><div className="mt-2 text-sm text-slate-400">{pending ? "Upcoming matchup" : "Pick"}: <span className="font-black text-aqua">{pending ? "Sim pending" : fight.pickName ?? "Pending"}</span> · {pct(pickProbability(fight))} · {methodLean(fight)}</div></div><span className={pill(pending ? "amber" : fight.confidenceGrade?.includes("HIGH") ? "green" : fight.confidenceGrade === "LOW" ? "amber" : "aqua")}>{fightStatusLabel(fight)}</span></div>
+      <div className="mt-3 grid grid-cols-4 gap-2"><MiniStat label="Fair" value={odds(fight.fairOddsAmerican)} /><MiniStat label="Book" value={odds(fight.sportsbookOddsAmerican)} /><MiniStat label="Edge" value={typeof fight.edgePct === "number" ? `${fight.edgePct}%` : "--"} /><MiniStat label="Data" value={fight.dataQualityGrade ?? (pending ? "Source" : "--")} /></div>
+    </Link>
+  ); })}</div>;
 }
 
 export function UfcFightIqPanel({ fight }: { fight: UfcFightIqDetail | null }) {
@@ -160,24 +115,11 @@ export function UfcFightIqPanel({ fight }: { fight: UfcFightIqDetail | null }) {
   const pickProb = prediction ? pct(pickProbability(prediction)) : "--";
   return (
     <CardShell className="lg:sticky lg:top-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">Fight IQ</div>
-          <h2 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">{pickName}</h2>
-          <p className="mt-1 text-sm text-slate-400">{pending ? "Upcoming matchup loaded. Run feature build + SharkSim to generate probabilities." : `Our projected winner · ${pickProb}`}</p>
-        </div>
-        <Link href={`/sim/ufc/fights/${fight.fightId}`} className={pill("aqua")}>Full</Link>
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <MiniStat label="Confidence" value={fight.confidenceGrade ?? (pending ? "Pending" : "--")} />
-        <MiniStat label="Data" value={fight.dataQualityGrade ?? (pending ? "Source" : "--")} />
-        <MiniStat label="Sim Count" value={prediction?.simulationCount ?? "--"} />
-        <MiniStat label="Shadow" value={fight.shadowStatus ?? "--"} />
-      </div>
+      <div className="flex items-start justify-between gap-3"><div><div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">Fight IQ</div><h2 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">{pickName}</h2><p className="mt-1 text-sm text-slate-400">{pending ? "Upcoming matchup loaded. Run feature build + SharkSim to generate probabilities." : `Our projected winner · ${pickProb}`}</p></div><Link href={`/sim/ufc/fights/${fight.fightId}`} className={pill("aqua")}>Full</Link></div>
+      <div className="mt-4 grid grid-cols-2 gap-2"><MiniStat label="Confidence" value={fight.confidenceGrade ?? (pending ? "Pending" : "--")} /><MiniStat label="Data" value={fight.dataQualityGrade ?? (pending ? "Source" : "--")} /><MiniStat label="Sim Count" value={prediction?.simulationCount ?? "--"} /><MiniStat label="Shadow" value={fight.shadowStatus ?? "--"} /></div>
+      <Section title="Style matchup engine"><StyleMatchup fight={fight} /></Section>
       <Section title="Fighter profiles"><FighterProfiles fight={fight} /></Section>
-      <Section title="Why this pick">
-        {(pending ? ["This upcoming fight is on the card but has not been simulated yet. It will upgrade automatically after model features and SharkSim output are generated."] : fight.pathSummary.length ? fight.pathSummary : ["No path summary stored yet. Run the operational sim to populate explanation data."]).map((line, index) => <p key={index} className="text-sm leading-6 text-slate-300">{index + 1}. {line}</p>)}
-      </Section>
+      <Section title="Why this pick">{(pending ? ["This upcoming fight is on the card but has not been simulated yet. It will upgrade automatically after model features and SharkSim output are generated."] : fight.pathSummary.length ? fight.pathSummary : ["No path summary stored yet. Run the operational sim to populate explanation data."]).map((line, index) => <p key={index} className="text-sm leading-6 text-slate-300">{index + 1}. {line}</p>)}</Section>
       <Section title="Method probabilities"><MethodBars fight={fight} /></Section>
       <Section title="Round finish distribution"><RoundDistribution rounds={fight.roundFinishProbabilities} decision={fight.methodProbabilities?.DECISION ?? null} /></Section>
       <Section title="Fighter stat comparison"><StatCompare fight={fight} /></Section>
@@ -187,114 +129,42 @@ export function UfcFightIqPanel({ fight }: { fight: UfcFightIqDetail | null }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return <div className="mt-5 border-t border-white/10 pt-4"><h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-aqua">{title}</h3>{children}</div>;
+function Section({ title, children }: { title: string; children: ReactNode }) { return <div className="mt-5 border-t border-white/10 pt-4"><h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-aqua">{title}</h3>{children}</div>; }
+function skill(value: number | null | undefined) { if (typeof value !== "number" || !Number.isFinite(value)) return "--"; return Math.round(value); }
+function signalText(value: unknown) { if (typeof value === "string" && value.trim()) return value; if (typeof value === "number" && Number.isFinite(value)) return String(Math.round(value)); if (Array.isArray(value) && value.length) return value.slice(0, 3).join(", "); return "--"; }
+function styleText(value: unknown) { return typeof value === "string" && value.trim() ? value.replaceAll("_", " ") : "--"; }
+function topStylePath(paths: unknown) { if (!paths || typeof paths !== "object" || Array.isArray(paths)) return null; const entries = Object.entries(paths as Record<string, unknown>).filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1])); return entries.sort((a, b) => b[1] - a[1])[0] ?? null; }
+
+function StyleMatchup({ fight }: { fight: UfcFightIqDetail }) {
+  const style = fight.sourceOutputs?.styleMatchup;
+  const styleMeta = style?.style;
+  const topPath = topStylePath(style?.pathWins);
+  if (!style) return <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3 text-sm text-slate-400">Style matchup output is pending. Re-run UFC precompute after the style-engine deployment.</div>;
+  return (
+    <div className="grid gap-3">
+      <div className="grid grid-cols-2 gap-2"><MiniStat label="A Style" value={styleText(styleMeta?.fighterA)} /><MiniStat label="B Style" value={styleText(styleMeta?.fighterB)} /><MiniStat label="Style A" value={pct(style.fighterAWinProbability)} /><MiniStat label="Style B" value={pct(style.fighterBWinProbability)} /></div>
+      <div className="rounded-2xl border border-white/10 bg-black/20 p-3"><div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Top path</div><div className="mt-1 text-sm font-black text-white">{topPath ? `${topPath[0].replaceAll("_", " ")} · ${pct(topPath[1])}` : "--"}</div></div>
+      {Array.isArray(style.pathSummary) && style.pathSummary.length ? <div className="grid gap-1">{style.pathSummary.slice(0, 3).map((line: string, index: number) => <p key={index} className="text-sm leading-6 text-slate-300">{line}</p>)}</div> : null}
+    </div>
+  );
 }
 
-function skill(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
-  return Math.round(value);
-}
-
-function signalText(value: unknown) {
-  if (typeof value === "string" && value.trim()) return value;
-  if (typeof value === "number" && Number.isFinite(value)) return String(Math.round(value));
-  if (Array.isArray(value) && value.length) return value.slice(0, 3).join(", ");
-  return "--";
-}
-
-function FighterProfileCard({ name, profile, snapshot }: {
-  name: string | null;
-  profile: NonNullable<UfcFightIqDetail["fighterProfiles"]>["fighterA"];
-  snapshot: NonNullable<UfcFightIqDetail["featureSnapshots"]>["fighterA"];
-}) {
+function FighterProfileCard({ name, profile, snapshot }: { name: string | null; profile: NonNullable<UfcFightIqDetail["fighterProfiles"]>["fighterA"]; snapshot: NonNullable<UfcFightIqDetail["featureSnapshots"]>["fighterA"]; }) {
   const feature = snapshot?.feature ?? {};
-  if (!profile) {
-    return (
-      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
-        <div className="font-black text-white">{name ?? "Fighter"}</div>
-        <p className="mt-2 text-xs leading-5 text-slate-500">Profile pending. Load profiles or run feature auto-build to expose rankings, scouting tags, and skill ratings.</p>
-      </div>
-    );
-  }
-
-  const rows = [
-    ["Strike O/D", `${skill(profile.striking.offense)} / ${skill(profile.striking.defense)}`],
-    ["Power", skill(profile.striking.power)],
-    ["TD O/D", `${skill(profile.wrestling.takedownOffense)} / ${skill(profile.wrestling.takedownDefense)}`],
-    ["Control", skill(profile.wrestling.control)],
-    ["Sub Threat", skill(profile.grappling.submissionThreat)],
-    ["Durability", skill(profile.durability.koResistance)],
-    ["Cardio", skill(profile.cardio.round3)],
-    ["Reliability", `${Math.round(profile.sampleReliability * 100)}%`]
-  ] as const;
-
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <div className="font-black text-white">{name ?? "Fighter"}</div>
-          <div className="mt-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Sample {profile.sampleQuality} / {profile.weightClass ?? "open weight"}</div>
-        </div>
-        <span className={pill(profile.prospect.coldStartActive ? "amber" : "green")}>{profile.prospect.coldStartActive ? "cold" : "rated"}</span>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        {rows.map(([label, value]) => (
-          <div key={label} className="rounded-xl border border-white/10 bg-black/20 px-2 py-2">
-            <div className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">{label}</div>
-            <div className="mt-1 text-sm font-black text-white">{value}</div>
-          </div>
-        ))}
-      </div>
-      <div className="mt-3 grid gap-1 text-[11px] leading-5 text-slate-400">
-        <div>FightMatrix: <span className="font-black text-white">{signalText(feature.fightMatrixRank)}</span></div>
-        <div>Amateur / promo: <span className="font-black text-white">{skill(profile.prospect.amateurSignal)} / {skill(profile.prospect.promotionTierSignal)}</span></div>
-        <div>Scouting: <span className="font-black text-white">{signalText(feature.scoutingTags)}</span></div>
-      </div>
-    </div>
-  );
+  if (!profile) return <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="font-black text-white">{name ?? "Fighter"}</div><p className="mt-2 text-xs leading-5 text-slate-500">Profile pending. Load profiles or run feature auto-build to expose rankings, scouting tags, and skill ratings.</p></div>;
+  const rows = [["Strike O/D", `${skill(profile.striking.offense)} / ${skill(profile.striking.defense)}`], ["Power", skill(profile.striking.power)], ["TD O/D", `${skill(profile.wrestling.takedownOffense)} / ${skill(profile.wrestling.takedownDefense)}`], ["Control", skill(profile.wrestling.control)], ["Sub Threat", skill(profile.grappling.submissionThreat)], ["Durability", skill(profile.durability.koResistance)], ["Cardio", skill(profile.cardio.round3)], ["Reliability", `${Math.round(profile.sampleReliability * 100)}%`]] as const;
+  return <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="flex items-start justify-between gap-2"><div><div className="font-black text-white">{name ?? "Fighter"}</div><div className="mt-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Sample {profile.sampleQuality} / {profile.weightClass ?? "open weight"}</div></div><span className={pill(profile.prospect.coldStartActive ? "amber" : "green")}>{profile.prospect.coldStartActive ? "cold" : "rated"}</span></div><div className="mt-3 grid grid-cols-2 gap-2">{rows.map(([label, value]) => <div key={label} className="rounded-xl border border-white/10 bg-black/20 px-2 py-2"><div className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">{label}</div><div className="mt-1 text-sm font-black text-white">{value}</div></div>)}</div><div className="mt-3 grid gap-1 text-[11px] leading-5 text-slate-400"><div>FightMatrix: <span className="font-black text-white">{signalText(feature.fightMatrixRank)}</span></div><div>Amateur / promo: <span className="font-black text-white">{skill(profile.prospect.amateurSignal)} / {skill(profile.prospect.promotionTierSignal)}</span></div><div>Scouting: <span className="font-black text-white">{signalText(feature.scoutingTags)}</span></div></div></div>;
 }
-
-function FighterProfiles({ fight }: { fight: UfcFightIqDetail }) {
-  return (
-    <div className="grid gap-3 md:grid-cols-2">
-      <FighterProfileCard name={fight.fighters.fighterA.name} profile={fight.fighterProfiles?.fighterA ?? null} snapshot={fight.featureSnapshots?.fighterA ?? null} />
-      <FighterProfileCard name={fight.fighters.fighterB.name} profile={fight.fighterProfiles?.fighterB ?? null} snapshot={fight.featureSnapshots?.fighterB ?? null} />
-    </div>
-  );
-}
-
-function MethodBars({ fight }: { fight: UfcFightIqDetail }) {
-  const methods = fight.methodProbabilities;
-  const rows = [["KO/TKO", methods?.KO_TKO], ["Submission", methods?.SUBMISSION], ["Decision", methods?.DECISION]] as const;
-  return <div className="grid gap-2">{rows.map(([label, value]) => <Bar key={label} label={label} value={typeof value === "number" ? value : 0} />)}</div>;
-}
-
-function RoundDistribution({ rounds, decision }: { rounds: Record<string, number>; decision: number | null }) {
-  const rows = [...Object.entries(rounds), ["Decision", decision ?? 0] as [string, number]];
-  return <div className="grid gap-2">{rows.map(([label, value]) => <Bar key={label} label={label} value={value} />)}</div>;
-}
-
-function Bar({ label, value }: { label: string; value: number }) {
-  const width = Math.max(0, Math.min(100, Math.round(value * 100)));
-  return <div><div className="mb-1 flex justify-between text-xs text-slate-400"><span>{label}</span><span>{width}%</span></div><div className="h-2 rounded-full bg-white/10"><div className="h-2 rounded-full bg-aqua" style={{ width: `${width}%` }} /></div></div>;
-}
-
-function StatCompare({ fight }: { fight: UfcFightIqDetail }) {
-  if (!fight.featureComparison.length) return <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3 text-sm text-slate-400">Feature comparison is pending. Upcoming card source data is loaded; fighter feature snapshots will populate this section.</div>;
-  return <div className="overflow-hidden rounded-2xl border border-white/10"><table className="w-full text-left text-xs"><tbody>{fight.featureComparison.map((row) => <tr key={row.label} className="border-b border-white/10 last:border-0"><td className="px-3 py-2 text-slate-500">{row.label}</td><td className="px-3 py-2 text-white">{row.fighterA ?? "--"}</td><td className="px-3 py-2 text-white">{row.fighterB ?? "--"}</td></tr>)}</tbody></table></div>;
-}
-
+function FighterProfiles({ fight }: { fight: UfcFightIqDetail }) { return <div className="grid gap-3 md:grid-cols-2"><FighterProfileCard name={fight.fighters.fighterA.name} profile={fight.fighterProfiles?.fighterA ?? null} snapshot={fight.featureSnapshots?.fighterA ?? null} /><FighterProfileCard name={fight.fighters.fighterB.name} profile={fight.fighterProfiles?.fighterB ?? null} snapshot={fight.featureSnapshots?.fighterB ?? null} /></div>; }
+function MethodBars({ fight }: { fight: UfcFightIqDetail }) { const methods = fight.methodProbabilities; const rows = [["KO/TKO", methods?.KO_TKO], ["Submission", methods?.SUBMISSION], ["Decision", methods?.DECISION]] as const; return <div className="grid gap-2">{rows.map(([label, value]) => <Bar key={label} label={label} value={typeof value === "number" ? value : 0} />)}</div>; }
+function RoundDistribution({ rounds, decision }: { rounds: Record<string, number>; decision: number | null }) { const rows = [...Object.entries(rounds), ["Decision", decision ?? 0] as [string, number]]; return <div className="grid gap-2">{rows.map(([label, value]) => <Bar key={label} label={label} value={value} />)}</div>; }
+function Bar({ label, value }: { label: string; value: number }) { const width = Math.max(0, Math.min(100, Math.round(value * 100))); return <div><div className="mb-1 flex justify-between text-xs text-slate-400"><span>{label}</span><span>{width}%</span></div><div className="h-2 rounded-full bg-white/10"><div className="h-2 rounded-full bg-aqua" style={{ width: `${width}%` }} /></div></div>; }
+function StatCompare({ fight }: { fight: UfcFightIqDetail }) { if (!fight.featureComparison.length) return <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3 text-sm text-slate-400">Feature comparison is pending. Upcoming card source data is loaded; fighter feature snapshots will populate this section.</div>; return <div className="overflow-hidden rounded-2xl border border-white/10"><table className="w-full text-left text-xs"><tbody>{fight.featureComparison.map((row) => <tr key={row.label} className="border-b border-white/10 last:border-0"><td className="px-3 py-2 text-slate-500">{row.label}</td><td className="px-3 py-2 text-white">{row.fighterA ?? "--"}</td><td className="px-3 py-2 text-white">{row.fighterB ?? "--"}</td></tr>)}</tbody></table></div>; }
 function EngineBreakdown({ fight }: { fight: UfcFightIqDetail }) {
   const weights = fight.activeEnsembleWeights?.weights;
-  const skill = fight.sourceOutputs?.skillMarkov?.fighterAWinProbability;
+  const skillMarkov = fight.sourceOutputs?.skillMarkov?.fighterAWinProbability;
   const exchange = fight.sourceOutputs?.exchangeMonteCarlo?.fighterAWinProbability;
-  return (
-    <div className="grid gap-2 text-sm leading-6 text-slate-300">
-      <p>Skill Markov weight: <span className="font-black text-white">{weights ? pct(weights.skillMarkov) : "--"}</span></p>
-      <p>Exchange Monte Carlo weight: <span className="font-black text-white">{weights ? pct(weights.exchangeMonteCarlo) : "--"}</span></p>
-      <p>Skill Markov Fighter A: <span className="font-black text-white">{pct(skill)}</span></p>
-      <p>Exchange Monte Carlo Fighter A: <span className="font-black text-white">{pct(exchange)}</span></p>
-    </div>
-  );
+  const roundByRound = fight.sourceOutputs?.roundByRound?.fighterAWinProbability;
+  const style = fight.sourceOutputs?.styleMatchup?.fighterAWinProbability;
+  return <div className="grid gap-2 text-sm leading-6 text-slate-300"><p>Skill Markov weight: <span className="font-black text-white">{weights ? pct(weights.skillMarkov) : "--"}</span> · Fighter A <span className="font-black text-white">{pct(skillMarkov)}</span></p><p>Exchange Monte Carlo weight: <span className="font-black text-white">{weights ? pct(weights.exchangeMonteCarlo) : "--"}</span> · Fighter A <span className="font-black text-white">{pct(exchange)}</span></p><p>Round-by-round weight: <span className="font-black text-white">{weights ? pct(weights.roundByRound) : "--"}</span> · Fighter A <span className="font-black text-white">{pct(roundByRound)}</span></p><p>Style matchup weight: <span className="font-black text-white">{weights ? pct(weights.styleMatchup) : "--"}</span> · Fighter A <span className="font-black text-white">{pct(style)}</span></p></div>;
 }
