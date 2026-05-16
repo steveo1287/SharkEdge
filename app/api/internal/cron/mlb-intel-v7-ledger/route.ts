@@ -42,16 +42,24 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const limit = parseLimit(searchParams.get("limit"));
   const windowDays = parseWindowDays(searchParams.get("windowDays"));
+  const mode = searchParams.get("mode")?.trim().toLowerCase() ?? "full";
 
-  const capture = await runMlbProductionCapture({ windowDays });
-  const closingLines = await updateMlbIntelV7ClosingLines(limit);
-  const grade = await gradeMlbIntelV7Ledgers();
+  const capture =
+    mode === "grade"
+      ? { ok: true, skipped: true, reason: "Skipped by mode=grade" }
+      : await runMlbProductionCapture({ windowDays });
+  const closingLines =
+    mode === "grade"
+      ? { ok: true, skipped: true, reason: "Skipped by mode=grade" }
+      : await updateMlbIntelV7ClosingLines(limit);
+  const grade = await gradeMlbIntelV7Ledgers({ limit });
   const summary = await getMlbIntelV7LedgerSummary(90);
 
   return NextResponse.json({
     ok: Boolean(capture.ok && closingLines.ok && grade.ok && summary.ok),
-    productionMode: capture.productionMode,
-    capturePath: capture.capturePath,
+    mode,
+    productionMode: "productionMode" in capture ? capture.productionMode : null,
+    capturePath: "capturePath" in capture ? capture.capturePath : "skipped",
     capture,
     closingLines,
     grade,

@@ -431,14 +431,18 @@ export async function captureCurrentMlbIntelV7Ledgers() {
   return { ok: true, databaseReady, capturedSnapshots, officialPicks, skipped };
 }
 
-async function gradeTable(tableName: "mlb_model_snapshot_ledger" | "mlb_official_pick_ledger") {
-  const finals = await finalScoreMap();
+async function gradeTable(
+  tableName: "mlb_model_snapshot_ledger" | "mlb_official_pick_ledger",
+  args: { finals?: Map<string, ScoreResult>; limit?: number } = {}
+) {
+  const finals = args.finals ?? await finalScoreMap();
+  const limit = Math.max(1, Math.min(1000, Math.round(args.limit ?? 250)));
   const rows = await prisma.$queryRawUnsafe<V7LedgerRow[]>(`
     SELECT id, game_id, market, side, calibrated_probability, market_no_vig_probability, closing_probability
     FROM ${tableName}
     WHERE graded_at IS NULL
     ORDER BY captured_at ASC
-    LIMIT 1000;
+    LIMIT ${limit};
   `);
   const databaseFinals = await databaseFinalScoreMap(rows.map((row) => row.game_id));
   for (const [key, value] of databaseFinals.entries()) finals.set(key, value);
@@ -476,13 +480,13 @@ async function gradeTable(tableName: "mlb_model_snapshot_ledger" | "mlb_official
   return graded;
 }
 
-export async function gradeMlbIntelV7Ledgers() {
+export async function gradeMlbIntelV7Ledgers(args: { limit?: number } = {}) {
   const databaseReady = await ensureMlbIntelV7Ledgers();
   if (!databaseReady) return { ok: false, databaseReady, gradedSnapshots: 0, gradedOfficialPicks: 0, error: "No usable server database URL is configured." };
-  const [gradedSnapshots, gradedOfficialPicks] = await Promise.all([
-    gradeTable("mlb_model_snapshot_ledger"),
-    gradeTable("mlb_official_pick_ledger")
-  ]);
+  const liveFinals = await finalScoreMap();
+  const limit = Math.max(1, Math.min(1000, Math.round(args.limit ?? 250)));
+  const gradedSnapshots = await gradeTable("mlb_model_snapshot_ledger", { finals: new Map(liveFinals), limit });
+  const gradedOfficialPicks = await gradeTable("mlb_official_pick_ledger", { finals: new Map(liveFinals), limit });
   return { ok: true, databaseReady, gradedSnapshots, gradedOfficialPicks };
 }
 
