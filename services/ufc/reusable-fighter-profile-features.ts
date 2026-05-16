@@ -84,32 +84,58 @@ function numeric(value: unknown) {
   return null;
 }
 
+function nestedRecords(payload: Record<string, unknown>) {
+  const elite = asRecord(payload.eliteProfile);
+  const careerStats = asRecord(elite.careerStats);
+  const spider = asRecord(elite.spiderSkills);
+  const wikimediaPriors = asRecord(asRecord(asRecord(payload.backgroundPriors).wikimedia).priors);
+  const outcomeLearning = asRecord(asRecord(payload.outcomeLearning).skillDeltas);
+  return [
+    payload,
+    asRecord(payload.rawFeature),
+    asRecord(payload.rawPayload),
+    asRecord(payload.stats),
+    careerStats,
+    spider,
+    asRecord(payload.careerStats),
+    wikimediaPriors,
+    outcomeLearning
+  ];
+}
+
 function payloadNumber(payload: Record<string, unknown>, ...keys: string[]) {
-  for (const key of keys) {
-    const value = numeric(payload[key]);
-    if (value != null) return value;
+  for (const record of nestedRecords(payload)) {
+    for (const key of keys) {
+      const value = numeric(record[key]);
+      if (value != null) return value;
+    }
   }
-  const rawFeature = asRecord(payload.rawFeature);
-  for (const key of keys) {
-    const value = numeric(rawFeature[key]);
-    if (value != null) return value;
-  }
-  const stats = asRecord(payload.stats);
-  for (const key of keys) {
-    const value = numeric(stats[key]);
-    if (value != null) return value;
+  return null;
+}
+
+function payloadText(payload: Record<string, unknown>, ...keys: string[]) {
+  for (const record of nestedRecords(payload)) {
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
   }
   return null;
 }
 
 function hasEnoughProfileSignal(payload: Record<string, unknown>) {
-  return [
+  const signalCount = [
     payloadNumber(payload, "slpm", "sigStrikesLandedPerMin", "sig_strikes_landed_per_min"),
     payloadNumber(payload, "sapm", "sigStrikesAbsorbedPerMin", "sig_strikes_absorbed_per_min"),
     payloadNumber(payload, "takedownsPer15", "takedowns_per_15", "tdAvg"),
     payloadNumber(payload, "takedownDefensePct", "takedown_defense_pct", "tdDefense"),
-    payloadNumber(payload, "submissionAttemptsPer15", "submission_attempts_per_15", "submissionAverage")
-  ].filter((value) => value != null).length >= 2;
+    payloadNumber(payload, "submissionAttemptsPer15", "submission_attempts_per_15", "submissionAverage"),
+    payloadNumber(payload, "opponentAdjustedStrength", "opponent_strength", "opponent_adjusted_strength"),
+    payloadNumber(payload, "fightIqScore", "heartScore", "staminaScore")
+  ].filter((value) => value != null).length;
+  const hasExternalPrior = Boolean(asRecord(asRecord(asRecord(payload.backgroundPriors).wikimedia).priors) && Object.keys(asRecord(asRecord(asRecord(payload.backgroundPriors).wikimedia).priors)).length);
+  const hasOutcomeLearning = Boolean(Object.keys(asRecord(asRecord(payload.outcomeLearning).skillDeltas)).length);
+  return signalCount >= 2 || (signalCount >= 1 && (hasExternalPrior || hasOutcomeLearning));
 }
 
 function round(value: number | null, digits = 3) {
@@ -192,10 +218,17 @@ function featureFromFighterPayload(input: {
 }): UfcReusableModelFeaturePayload | null {
   const payload = asRecord(input.fighter.payload_json);
   if (!hasEnoughProfileSignal(payload)) return null;
-  const slpm = payloadNumber(payload, "slpm", "sigStrikesLandedPerMin", "sig_strikes_landed_per_min");
-  const sapm = payloadNumber(payload, "sapm", "sigStrikesAbsorbedPerMin", "sig_strikes_absorbed_per_min");
-  const proFights = payloadNumber(payload, "proFights", "pro_fights");
-  const ufcFights = payloadNumber(payload, "ufcFights", "ufc_fights");
+  const slpm = payloadNumber(payload, "slpm", "sigStrikesLandedPerMin", "sig_strikes_landed_per_min") ?? 2.75;
+  const sapm = payloadNumber(payload, "sapm", "sigStrikesAbsorbedPerMin", "sig_strikes_absorbed_per_min") ?? 2.75;
+  const proFights = payloadNumber(payload, "proFights", "pro_fights") ?? payloadNumber(payload, "sample.proFights");
+  const ufcFights = payloadNumber(payload, "ufcFights", "ufc_fights") ?? payloadNumber(payload, "sample.ufcFights");
+  const sourceSignals = {
+    hasEliteProfile: Boolean(payload.eliteProfile),
+    hasWikimedia: Boolean(asRecord(payload.wikimedia).matched || Object.keys(asRecord(asRecord(asRecord(payload.backgroundPriors).wikimedia).priors)).length),
+    hasOutcomeLearning: Boolean(Object.keys(asRecord(asRecord(payload.outcomeLearning).skillDeltas)).length),
+    hasFightHistory: Boolean(payloadNumber(payload, "roundsFought", "rounds_fought") || payloadNumber(payload, "ufcFights", "ufc_fights")),
+    hasRawStats: Boolean(payload.stats || payload.rawFeature || payload.rawPayload)
+  };
   return {
     id: stableId("ufcmf", `${input.fightId}:${input.fighterId}:${input.modelVersion}:fighter-payload`),
     fightId: input.fightId,
@@ -209,24 +242,37 @@ function featureFromFighterPayload(input: {
     roundsFought: payloadNumber(payload, "roundsFought", "rounds_fought"),
     sigStrikesLandedPerMin: slpm,
     sigStrikesAbsorbedPerMin: sapm,
-    strikingDifferential: slpm != null && sapm != null ? round(slpm - sapm) : null,
-    takedownsPer15: payloadNumber(payload, "takedownsPer15", "takedowns_per_15", "tdAvg"),
-    takedownDefensePct: payloadNumber(payload, "takedownDefensePct", "takedown_defense_pct", "tdDefense"),
-    submissionAttemptsPer15: payloadNumber(payload, "submissionAttemptsPer15", "submission_attempts_per_15", "submissionAverage"),
-    controlTimePct: payloadNumber(payload, "controlTimePct", "control_time_pct"),
+    strikingDifferential: round(slpm - sapm),
+    takedownsPer15: payloadNumber(payload, "takedownsPer15", "takedowns_per_15", "tdAvg") ?? 0.8,
+    takedownDefensePct: payloadNumber(payload, "takedownDefensePct", "takedown_defense_pct", "tdDefense") ?? 50,
+    submissionAttemptsPer15: payloadNumber(payload, "submissionAttemptsPer15", "submission_attempts_per_15", "submissionAverage") ?? 0.25,
+    controlTimePct: payloadNumber(payload, "controlTimePct", "control_time_pct") ?? 0,
     opponentAdjustedStrength: payloadNumber(payload, "opponentAdjustedStrength", "opponent_strength", "opponent_adjusted_strength") ?? 50,
-    coldStartActive: (ufcFights ?? 0) < 3 || (proFights ?? 0) < 8,
+    coldStartActive: (ufcFights ?? 0) < 3 && !sourceSignals.hasOutcomeLearning,
     feature: {
       source: "fighter-payload-profile",
-      hydrationQuality: "fighter-payload-derived",
+      hydrationQuality: sourceSignals.hasEliteProfile || sourceSignals.hasOutcomeLearning ? "elite-profile-derived" : sourceSignals.hasWikimedia ? "external-prior-derived" : "fighter-payload-derived",
+      hydrationSources: sourceSignals,
       rawSource: payload.sourceKey ?? payload.source ?? null,
       age: payloadNumber(payload, "age"),
       heightInches: input.fighter.height_inches ?? payloadNumber(payload, "heightInches", "height_inches"),
       reachInches: input.fighter.reach_inches ?? payloadNumber(payload, "reachInches", "reach_inches"),
-      stance: input.fighter.stance ?? (typeof payload.stance === "string" ? payload.stance : null),
-      sigStrikeAccuracyPct: payloadNumber(payload, "sigStrikeAccuracyPct", "strikeAccuracyPct", "sig_strike_accuracy_pct"),
-      sigStrikeDefensePct: payloadNumber(payload, "sigStrikeDefensePct", "strikeDefensePct", "sig_strike_defense_pct"),
-      takedownAccuracyPct: payloadNumber(payload, "takedownAccuracyPct", "takedown_accuracy_pct"),
+      stance: input.fighter.stance ?? payloadText(payload, "stance"),
+      combatBase: input.fighter.combat_base ?? payloadText(payload, "combatBase", "combat_base"),
+      sigStrikeAccuracyPct: payloadNumber(payload, "sigStrikeAccuracyPct", "strikeAccuracyPct", "sig_strike_accuracy_pct") ?? 45,
+      sigStrikeDefensePct: payloadNumber(payload, "sigStrikeDefensePct", "strikeDefensePct", "sig_strike_defense_pct") ?? 50,
+      takedownAccuracyPct: payloadNumber(payload, "takedownAccuracyPct", "takedown_accuracy_pct") ?? 30,
+      submissionDefensePct: payloadNumber(payload, "submissionDefensePct", "subDefense"),
+      fightIqScore: payloadNumber(payload, "fightIqScore", "fightIQ"),
+      heartScore: payloadNumber(payload, "heartScore"),
+      staminaScore: payloadNumber(payload, "staminaScore"),
+      pressureScore: payloadNumber(payload, "pressureScore"),
+      distanceManagementScore: payloadNumber(payload, "distanceManagementScore"),
+      recentFormScore: payloadNumber(payload, "recentFormScore", "recent_form_score") ?? 50,
+      finishRate: payloadNumber(payload, "finishRate", "finish_rate") ?? 0.4,
+      lateRoundPerformance: payloadNumber(payload, "lateRoundPerformance", "late_round_performance") ?? 50,
+      wikimedia: payload.wikimedia ?? null,
+      outcomeLearning: payload.outcomeLearning ?? null,
       rawPayload: payload
     }
   };
