@@ -2,9 +2,10 @@ import { prisma } from "@/lib/db/prisma";
 import type { UfcEnsembleWeights } from "@/services/ufc/ensemble-sim";
 
 export const DEFAULT_UFC_ENSEMBLE_WEIGHTS: UfcEnsembleWeights = {
-  skillMarkov: 0.42,
-  exchangeMonteCarlo: 0.34,
-  roundByRound: 0.24
+  skillMarkov: 0.34,
+  exchangeMonteCarlo: 0.28,
+  roundByRound: 0.2,
+  styleMatchup: 0.18
 };
 
 export type UfcEnsembleWeightSource = "manual" | "learned" | "default";
@@ -22,6 +23,7 @@ export type UfcManualEnsembleWeightOverride = {
   skillMarkovWeight?: number | null;
   exchangeMonteCarloWeight?: number | null;
   roundByRoundWeight?: number | null;
+  styleMatchupWeight?: number | null;
 };
 
 type CalibrationSnapshotRow = {
@@ -36,9 +38,10 @@ export function normalizeUfcEnsembleWeights(weights: Partial<UfcEnsembleWeights>
   const skill = Number.isFinite(weights.skillMarkov) ? Math.max(0, Number(weights.skillMarkov)) : 0;
   const exchange = Number.isFinite(weights.exchangeMonteCarlo) ? Math.max(0, Number(weights.exchangeMonteCarlo)) : 0;
   const roundEngine = Number.isFinite(weights.roundByRound) ? Math.max(0, Number(weights.roundByRound)) : 0;
-  const total = skill + exchange + roundEngine;
+  const style = Number.isFinite(weights.styleMatchup) ? Math.max(0, Number(weights.styleMatchup)) : 0;
+  const total = skill + exchange + roundEngine + style;
   if (total <= 0) return DEFAULT_UFC_ENSEMBLE_WEIGHTS;
-  return { skillMarkov: round(skill / total), exchangeMonteCarlo: round(exchange / total), roundByRound: round(roundEngine / total) };
+  return { skillMarkov: round(skill / total), exchangeMonteCarlo: round(exchange / total), roundByRound: round(roundEngine / total), styleMatchup: round(style / total) };
 }
 
 export function parseManualUfcEnsembleWeights(override?: UfcManualEnsembleWeightOverride | null): UfcEnsembleWeights | null {
@@ -46,11 +49,13 @@ export function parseManualUfcEnsembleWeights(override?: UfcManualEnsembleWeight
   const hasSkill = typeof override.skillMarkovWeight === "number" && Number.isFinite(override.skillMarkovWeight);
   const hasExchange = typeof override.exchangeMonteCarloWeight === "number" && Number.isFinite(override.exchangeMonteCarloWeight);
   const hasRound = typeof override.roundByRoundWeight === "number" && Number.isFinite(override.roundByRoundWeight);
-  if (!hasSkill && !hasExchange && !hasRound) return null;
+  const hasStyle = typeof override.styleMatchupWeight === "number" && Number.isFinite(override.styleMatchupWeight);
+  if (!hasSkill && !hasExchange && !hasRound && !hasStyle) return null;
   return normalizeUfcEnsembleWeights({
     skillMarkov: hasSkill ? Number(override.skillMarkovWeight) : DEFAULT_UFC_ENSEMBLE_WEIGHTS.skillMarkov,
     exchangeMonteCarlo: hasExchange ? Number(override.exchangeMonteCarloWeight) : DEFAULT_UFC_ENSEMBLE_WEIGHTS.exchangeMonteCarlo,
-    roundByRound: hasRound ? Number(override.roundByRoundWeight) : DEFAULT_UFC_ENSEMBLE_WEIGHTS.roundByRound
+    roundByRound: hasRound ? Number(override.roundByRoundWeight) : DEFAULT_UFC_ENSEMBLE_WEIGHTS.roundByRound,
+    styleMatchup: hasStyle ? Number(override.styleMatchupWeight) : DEFAULT_UFC_ENSEMBLE_WEIGHTS.styleMatchup
   });
 }
 
@@ -61,9 +66,15 @@ export function parseLearnedUfcEnsembleWeights(row: CalibrationSnapshotRow | nul
   const skill = recommended.skillMarkov;
   const exchange = recommended.exchangeMonteCarlo;
   const roundEngine = recommended.roundByRound;
+  const style = recommended.styleMatchup;
   if (typeof skill !== "number" || typeof exchange !== "number" || !Number.isFinite(skill) || !Number.isFinite(exchange)) return null;
   return {
-    weights: normalizeUfcEnsembleWeights({ skillMarkov: skill, exchangeMonteCarlo: exchange, roundByRound: typeof roundEngine === "number" && Number.isFinite(roundEngine) ? roundEngine : DEFAULT_UFC_ENSEMBLE_WEIGHTS.roundByRound }),
+    weights: normalizeUfcEnsembleWeights({
+      skillMarkov: skill,
+      exchangeMonteCarlo: exchange,
+      roundByRound: typeof roundEngine === "number" && Number.isFinite(roundEngine) ? roundEngine : DEFAULT_UFC_ENSEMBLE_WEIGHTS.roundByRound,
+      styleMatchup: typeof style === "number" && Number.isFinite(style) ? style : DEFAULT_UFC_ENSEMBLE_WEIGHTS.styleMatchup
+    }),
     source: "learned",
     calibrationSnapshotId: row.id,
     generatedAt: row.generated_at ? new Date(row.generated_at).toISOString() : null,
