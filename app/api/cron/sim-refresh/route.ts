@@ -28,14 +28,13 @@ export async function GET(request: Request) {
 
   const { runStatsPipelinePreflight } = await import("@/services/ops/stats-pipeline-preflight");
   const { refreshFullSimSnapshots } = await import("@/services/simulation/sim-snapshot-service");
-  const { refreshMainMlbSimSnapshot } = await import("@/services/simulation/main-sim-snapshot-service");
 
   const statsPipeline = await runStatsPipelinePreflight({
     source: "cron-sim-refresh",
     force: boolParam(url.searchParams.get("statsForce"), false),
     enabled: boolParam(url.searchParams.get("statsPreflight"), true),
     runMlb: boolParam(url.searchParams.get("runMlb"), true),
-    runUfc: boolParam(url.searchParams.get("runUfc"), true),
+    runUfc: boolParam(url.searchParams.get("runUfc"), false),
     includeLineups: boolParam(url.searchParams.get("includeLineups"), true),
     mlbLookbackDays: Number(url.searchParams.get("mlbLookbackDays") ?? 45),
     mlbLimit: Number(url.searchParams.get("mlbLimit") ?? 1500),
@@ -55,12 +54,12 @@ export async function GET(request: Request) {
     warnings: [error instanceof Error ? error.message : "unknown full sim refresh error"]
   }));
 
-  const mainMlb = await refreshMainMlbSimSnapshot().catch((error) => ({
-    ok: false,
-    gameCount: 0,
-    rowCount: 0,
-    warnings: [error instanceof Error ? error.message : "unknown main MLB brain refresh error"]
-  }));
+  const mainMlb = {
+    ok: true,
+    skipped: true,
+    reason: "covered-by-full-sim-refresh",
+    rowCount: "summary" in result ? result.summary?.mlbCount ?? 0 : 0
+  };
 
   const elapsedMs = Date.now() - startedAt;
   const ok = Boolean(statsPipeline.ok && result.ok && mainMlb.ok);

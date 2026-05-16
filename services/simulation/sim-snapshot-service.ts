@@ -7,7 +7,7 @@ import {
   type MlbEdgeGame,
   type MlbEdgeProjection
 } from "@/services/simulation/mlb-take-action-router";
-import { buildGuardedSimProjection as buildSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
+import { buildMainSimProjection as buildSimProjection } from "@/services/simulation/main-sim-brain";
 import { fetchSavantPitcherProfiles, fetchSavantTeamHistoryProfiles } from "@/services/simulation/mlb-savant-team-feed";
 
 export const SIM_CACHE_VERSION = "v2";

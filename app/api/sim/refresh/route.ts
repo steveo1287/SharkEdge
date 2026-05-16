@@ -28,7 +28,6 @@ async function runRefresh(request: Request) {
   const url = new URL(request.url);
   const { runStatsPipelinePreflight } = await import("@/services/ops/stats-pipeline-preflight");
   const { refreshFullSimSnapshots, refreshSimMarketSnapshot } = await import("@/services/simulation/sim-snapshot-service");
-  const { refreshMainMlbSimSnapshot } = await import("@/services/simulation/main-sim-snapshot-service");
 
   const startedAtMs = Date.now();
   const statsPipeline = await runStatsPipelinePreflight({
@@ -36,7 +35,7 @@ async function runRefresh(request: Request) {
     force: boolParam(url.searchParams.get("statsForce"), false),
     enabled: boolParam(url.searchParams.get("statsPreflight"), true),
     runMlb: boolParam(url.searchParams.get("runMlb"), true),
-    runUfc: boolParam(url.searchParams.get("runUfc"), true),
+    runUfc: boolParam(url.searchParams.get("runUfc"), false),
     includeLineups: boolParam(url.searchParams.get("includeLineups"), true),
     mlbLookbackDays: Number(url.searchParams.get("mlbLookbackDays") ?? 45),
     mlbLimit: Number(url.searchParams.get("mlbLimit") ?? 1500),
@@ -57,10 +56,7 @@ async function runRefresh(request: Request) {
     ok: false,
     warnings: [error instanceof Error ? error.message : "unknown market refresh error"]
   }));
-  const mainMlb = await refreshMainMlbSimSnapshot().catch((error) => ({
-    ok: false,
-    warnings: [error instanceof Error ? error.message : "unknown main MLB refresh error"]
-  }));
+  const mainMlb = { ok: true, skipped: true, reason: "covered-by-full-sim-refresh" };
 
   const result = {
     ok: Boolean(statsPipeline.ok && full.ok && market.ok && mainMlb.ok),
