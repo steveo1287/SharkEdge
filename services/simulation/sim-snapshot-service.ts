@@ -31,6 +31,7 @@ const FULL_SIM_RETENTION_SECONDS = 36 * 60 * 60;
 const MARKET_RETENTION_SECONDS = 6 * 60 * 60;
 const MAX_PRIORITY_ROWS = 80;
 const ACTIVE_SIM_LEAGUE: LeagueKey = "MLB";
+const SIM_PROJECTION_CONCURRENCY = 3;
 
 type ActionAwareSignal = { takeAction?: { action?: unknown } };
 
@@ -252,6 +253,31 @@ async function buildProjectionWithTimeout(game: SimGame) {
     .catch((error) => fallbackProjection(game, error instanceof Error ? error.message : "unknown projection failure"));
 }
 
+async function settleLimited<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<PromiseSettledResult<R>[]> {
+  const results = new Array<PromiseSettledResult<R>>(items.length);
+  let cursor = 0;
+  const limit = Math.max(1, Math.min(concurrency, items.length || 1));
+
+  async function runWorker() {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      try {
+        results[index] = { status: "fulfilled", value: await worker(items[index], index) };
+      } catch (error) {
+        results[index] = { status: "rejected", reason: error };
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: limit }, runWorker));
+  return results;
+}
+
 function compactProjection(projection: FullProjection): CachedSimProjection {
   return {
     matchup: projection.matchup,
@@ -383,7 +409,7 @@ async function preserveLastGoodSnapshot(reason: string, args: { generatedAt: str
 
 async function buildRowsFromGames(games: SimGame[], warnings: string[]) {
   const settledStartedAt = Date.now();
-  const settled = await Promise.allSettled(games.map(async (game) => ({ game, projection: compactProjection(await buildProjectionWithTimeout(game)) })));
+  const settled = await settleLimited(games, SIM_PROJECTION_CONCURRENCY, async (game) => ({ game, projection: compactProjection(await buildProjectionWithTimeout(game)) }));
   logTiming("sim-refresh", "buildSimProjection batch", settledStartedAt);
   const rows: CachedSimGameProjection[] = [];
   for (const result of settled) {
