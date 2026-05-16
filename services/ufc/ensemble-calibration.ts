@@ -8,6 +8,7 @@ export type UfcEnsembleCalibrationRow = {
   actualWinner: "A" | "B";
   skillMarkovFighterAWinProbability: number;
   exchangeMonteCarloFighterAWinProbability: number;
+  roundByRoundFighterAWinProbability: number;
   bucket?: string | null;
 };
 
@@ -36,20 +37,23 @@ export type UfcEnsembleCalibrationReport = {
   bucketReports: Record<string, Omit<UfcEnsembleCalibrationReport, "bucketReports">>;
 };
 
-const DEFAULT_WEIGHTS: UfcEnsembleWeights = { skillMarkov: 0.55, exchangeMonteCarlo: 0.45 };
+const DEFAULT_WEIGHTS: UfcEnsembleWeights = { skillMarkov: 0.42, exchangeMonteCarlo: 0.34, roundByRound: 0.24 };
 const DEFAULT_MIN_SAMPLES = 30;
 const DEFAULT_GRID_STEP = 0.05;
 
 const round = (value: number, digits = 4) => Number(value.toFixed(digits));
 const clampProbability = (value: number) => Number.isFinite(value) ? Math.max(0.001, Math.min(0.999, value)) : 0.5;
 
-function normalizeWeights(weights: UfcEnsembleWeights): UfcEnsembleWeights {
-  const total = Math.max(0.0001, weights.skillMarkov + weights.exchangeMonteCarlo);
-  return { skillMarkov: round(weights.skillMarkov / total), exchangeMonteCarlo: round(weights.exchangeMonteCarlo / total) };
+function normalizeWeights(weights: Partial<UfcEnsembleWeights>): UfcEnsembleWeights {
+  const skill = weights.skillMarkov ?? DEFAULT_WEIGHTS.skillMarkov;
+  const exchange = weights.exchangeMonteCarlo ?? DEFAULT_WEIGHTS.exchangeMonteCarlo;
+  const roundEngine = weights.roundByRound ?? DEFAULT_WEIGHTS.roundByRound;
+  const total = Math.max(0.0001, skill + exchange + roundEngine);
+  return { skillMarkov: round(skill / total), exchangeMonteCarlo: round(exchange / total), roundByRound: round(roundEngine / total) };
 }
 
-function blend(skill: number, exchange: number, weights: UfcEnsembleWeights) {
-  return clampProbability(skill * weights.skillMarkov + exchange * weights.exchangeMonteCarlo);
+function blend(skill: number, exchange: number, roundEngine: number, weights: UfcEnsembleWeights) {
+  return clampProbability(skill * weights.skillMarkov + exchange * weights.exchangeMonteCarlo + roundEngine * weights.roundByRound);
 }
 
 function stableId(prefix: string, value: string) {
@@ -66,7 +70,7 @@ export function scoreUfcEnsembleWeights(rows: UfcEnsembleCalibrationRow[], weigh
   let actualSum = 0;
 
   for (const row of rows) {
-    const pA = blend(row.skillMarkovFighterAWinProbability, row.exchangeMonteCarloFighterAWinProbability, normalized);
+    const pA = blend(row.skillMarkovFighterAWinProbability, row.exchangeMonteCarloFighterAWinProbability, row.roundByRoundFighterAWinProbability, normalized);
     const actualA = row.actualWinner === "A" ? 1 : 0;
     const pickA = pA >= 0.5;
     if ((pickA && actualA === 1) || (!pickA && actualA === 0)) correct += 1;
@@ -88,7 +92,10 @@ function candidateWeights(gridStep: number) {
   const step = Math.max(0.01, Math.min(0.25, gridStep));
   const candidates: UfcEnsembleWeights[] = [];
   for (let skill = 0; skill <= 1.0001; skill += step) {
-    candidates.push(normalizeWeights({ skillMarkov: round(skill, 4), exchangeMonteCarlo: round(1 - skill, 4) }));
+    for (let exchange = 0; exchange <= 1 - skill + 0.0001; exchange += step) {
+      const roundEngine = Math.max(0, 1 - skill - exchange);
+      candidates.push(normalizeWeights({ skillMarkov: round(skill, 4), exchangeMonteCarlo: round(exchange, 4), roundByRound: round(roundEngine, 4) }));
+    }
   }
   return candidates;
 }
@@ -112,7 +119,8 @@ function shrinkWeights(raw: UfcEnsembleWeights, defaults: UfcEnsembleWeights, sa
     shrinkage,
     weights: normalizeWeights({
       skillMarkov: defaults.skillMarkov * (1 - shrinkage) + raw.skillMarkov * shrinkage,
-      exchangeMonteCarlo: defaults.exchangeMonteCarlo * (1 - shrinkage) + raw.exchangeMonteCarlo * shrinkage
+      exchangeMonteCarlo: defaults.exchangeMonteCarlo * (1 - shrinkage) + raw.exchangeMonteCarlo * shrinkage,
+      roundByRound: defaults.roundByRound * (1 - shrinkage) + raw.roundByRound * shrinkage
     })
   };
 }
@@ -155,6 +163,7 @@ function engineBucket(payload: any) {
   if (flags.includes("engine-disagreement")) return "engine-disagreement";
   if (flags.includes("finish-volatility")) return "finish-volatility";
   if (flags.includes("high-upset-risk")) return "high-upset-risk";
+  if (flags.includes("round-engine-close-fight")) return "round-engine-close-fight";
   return "all";
 }
 
@@ -166,12 +175,14 @@ function extractCalibrationRow(row: {
 }): UfcEnsembleCalibrationRow | null {
   const skill = row.payload_json?.sim?.sourceOutputs?.skillMarkov?.fighterAWinProbability;
   const exchange = row.payload_json?.sim?.sourceOutputs?.exchangeMonteCarlo?.fighterAWinProbability;
+  const roundEngine = row.payload_json?.sim?.sourceOutputs?.roundByRound?.fighterAWinProbability;
   if (typeof skill !== "number" || typeof exchange !== "number" || !row.actual_winner_fighter_id) return null;
   return {
     fightId: row.fight_id,
     actualWinner: row.actual_winner_fighter_id === row.fighter_a_id ? "A" : "B",
     skillMarkovFighterAWinProbability: skill,
     exchangeMonteCarloFighterAWinProbability: exchange,
+    roundByRoundFighterAWinProbability: typeof roundEngine === "number" ? roundEngine : (skill + exchange) / 2,
     bucket: engineBucket(row.payload_json)
   };
 }
