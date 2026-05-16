@@ -9,6 +9,7 @@ export type UfcEnsembleCalibrationRow = {
   skillMarkovFighterAWinProbability: number;
   exchangeMonteCarloFighterAWinProbability: number;
   roundByRoundFighterAWinProbability: number;
+  styleMatchupFighterAWinProbability: number;
   bucket?: string | null;
 };
 
@@ -37,9 +38,9 @@ export type UfcEnsembleCalibrationReport = {
   bucketReports: Record<string, Omit<UfcEnsembleCalibrationReport, "bucketReports">>;
 };
 
-const DEFAULT_WEIGHTS: UfcEnsembleWeights = { skillMarkov: 0.42, exchangeMonteCarlo: 0.34, roundByRound: 0.24 };
+const DEFAULT_WEIGHTS: UfcEnsembleWeights = { skillMarkov: 0.34, exchangeMonteCarlo: 0.28, roundByRound: 0.2, styleMatchup: 0.18 };
 const DEFAULT_MIN_SAMPLES = 30;
-const DEFAULT_GRID_STEP = 0.05;
+const DEFAULT_GRID_STEP = 0.1;
 
 const round = (value: number, digits = 4) => Number(value.toFixed(digits));
 const clampProbability = (value: number) => Number.isFinite(value) ? Math.max(0.001, Math.min(0.999, value)) : 0.5;
@@ -48,12 +49,13 @@ function normalizeWeights(weights: Partial<UfcEnsembleWeights>): UfcEnsembleWeig
   const skill = weights.skillMarkov ?? DEFAULT_WEIGHTS.skillMarkov;
   const exchange = weights.exchangeMonteCarlo ?? DEFAULT_WEIGHTS.exchangeMonteCarlo;
   const roundEngine = weights.roundByRound ?? DEFAULT_WEIGHTS.roundByRound;
-  const total = Math.max(0.0001, skill + exchange + roundEngine);
-  return { skillMarkov: round(skill / total), exchangeMonteCarlo: round(exchange / total), roundByRound: round(roundEngine / total) };
+  const style = weights.styleMatchup ?? DEFAULT_WEIGHTS.styleMatchup;
+  const total = Math.max(0.0001, skill + exchange + roundEngine + style);
+  return { skillMarkov: round(skill / total), exchangeMonteCarlo: round(exchange / total), roundByRound: round(roundEngine / total), styleMatchup: round(style / total) };
 }
 
-function blend(skill: number, exchange: number, roundEngine: number, weights: UfcEnsembleWeights) {
-  return clampProbability(skill * weights.skillMarkov + exchange * weights.exchangeMonteCarlo + roundEngine * weights.roundByRound);
+function blend(skill: number, exchange: number, roundEngine: number, style: number, weights: UfcEnsembleWeights) {
+  return clampProbability(skill * weights.skillMarkov + exchange * weights.exchangeMonteCarlo + roundEngine * weights.roundByRound + style * weights.styleMatchup);
 }
 
 function stableId(prefix: string, value: string) {
@@ -70,7 +72,7 @@ export function scoreUfcEnsembleWeights(rows: UfcEnsembleCalibrationRow[], weigh
   let actualSum = 0;
 
   for (const row of rows) {
-    const pA = blend(row.skillMarkovFighterAWinProbability, row.exchangeMonteCarloFighterAWinProbability, row.roundByRoundFighterAWinProbability, normalized);
+    const pA = blend(row.skillMarkovFighterAWinProbability, row.exchangeMonteCarloFighterAWinProbability, row.roundByRoundFighterAWinProbability, row.styleMatchupFighterAWinProbability, normalized);
     const actualA = row.actualWinner === "A" ? 1 : 0;
     const pickA = pA >= 0.5;
     if ((pickA && actualA === 1) || (!pickA && actualA === 0)) correct += 1;
@@ -89,12 +91,14 @@ export function scoreUfcEnsembleWeights(rows: UfcEnsembleCalibrationRow[], weigh
 }
 
 function candidateWeights(gridStep: number) {
-  const step = Math.max(0.01, Math.min(0.25, gridStep));
+  const step = Math.max(0.05, Math.min(0.25, gridStep));
   const candidates: UfcEnsembleWeights[] = [];
   for (let skill = 0; skill <= 1.0001; skill += step) {
     for (let exchange = 0; exchange <= 1 - skill + 0.0001; exchange += step) {
-      const roundEngine = Math.max(0, 1 - skill - exchange);
-      candidates.push(normalizeWeights({ skillMarkov: round(skill, 4), exchangeMonteCarlo: round(exchange, 4), roundByRound: round(roundEngine, 4) }));
+      for (let roundEngine = 0; roundEngine <= 1 - skill - exchange + 0.0001; roundEngine += step) {
+        const style = Math.max(0, 1 - skill - exchange - roundEngine);
+        candidates.push(normalizeWeights({ skillMarkov: round(skill, 4), exchangeMonteCarlo: round(exchange, 4), roundByRound: round(roundEngine, 4), styleMatchup: round(style, 4) }));
+      }
     }
   }
   return candidates;
@@ -120,7 +124,8 @@ function shrinkWeights(raw: UfcEnsembleWeights, defaults: UfcEnsembleWeights, sa
     weights: normalizeWeights({
       skillMarkov: defaults.skillMarkov * (1 - shrinkage) + raw.skillMarkov * shrinkage,
       exchangeMonteCarlo: defaults.exchangeMonteCarlo * (1 - shrinkage) + raw.exchangeMonteCarlo * shrinkage,
-      roundByRound: defaults.roundByRound * (1 - shrinkage) + raw.roundByRound * shrinkage
+      roundByRound: defaults.roundByRound * (1 - shrinkage) + raw.roundByRound * shrinkage,
+      styleMatchup: defaults.styleMatchup * (1 - shrinkage) + raw.styleMatchup * shrinkage
     })
   };
 }
@@ -162,6 +167,8 @@ function engineBucket(payload: any) {
   const flags = Array.isArray(payload?.sim?.dangerFlags) ? payload.sim.dangerFlags : [];
   if (flags.includes("engine-disagreement")) return "engine-disagreement";
   if (flags.includes("finish-volatility")) return "finish-volatility";
+  if (flags.includes("style-engine-close-fight")) return "style-close-fight";
+  if (flags.includes("style-input-volatility")) return "style-input-volatility";
   if (flags.includes("high-upset-risk")) return "high-upset-risk";
   if (flags.includes("round-engine-close-fight")) return "round-engine-close-fight";
   return "all";
@@ -176,6 +183,7 @@ function extractCalibrationRow(row: {
   const skill = row.payload_json?.sim?.sourceOutputs?.skillMarkov?.fighterAWinProbability;
   const exchange = row.payload_json?.sim?.sourceOutputs?.exchangeMonteCarlo?.fighterAWinProbability;
   const roundEngine = row.payload_json?.sim?.sourceOutputs?.roundByRound?.fighterAWinProbability;
+  const style = row.payload_json?.sim?.sourceOutputs?.styleMatchup?.fighterAWinProbability;
   if (typeof skill !== "number" || typeof exchange !== "number" || !row.actual_winner_fighter_id) return null;
   return {
     fightId: row.fight_id,
@@ -183,6 +191,7 @@ function extractCalibrationRow(row: {
     skillMarkovFighterAWinProbability: skill,
     exchangeMonteCarloFighterAWinProbability: exchange,
     roundByRoundFighterAWinProbability: typeof roundEngine === "number" ? roundEngine : (skill + exchange) / 2,
+    styleMatchupFighterAWinProbability: typeof style === "number" ? style : (skill + exchange + (typeof roundEngine === "number" ? roundEngine : 0.5)) / 3,
     bucket: engineBucket(row.payload_json)
   };
 }
