@@ -1,10 +1,12 @@
 import { buildExchangeStatsFromUfcFeature, runUfcExchangeMonteCarlo, type UfcExchangeMonteCarloResult } from "@/services/ufc/exchange-monte-carlo";
 import { buildUfcFighterSkillProfile, type UfcModelFeatureSnapshot } from "@/services/ufc/fighter-skill-profile";
+import { runUfcRoundByRoundFightEngine, type UfcRoundByRoundFightResult } from "@/services/ufc/round-by-round-fight-engine";
 import { runUfcSkillMarkovSim, type UfcSkillMarkovResult } from "@/services/ufc/skill-markov-sim";
 
 export type UfcEnsembleWeights = {
   skillMarkov: number;
   exchangeMonteCarlo: number;
+  roundByRound: number;
 };
 
 export type UfcEnsembleSimOptions = {
@@ -22,14 +24,11 @@ export type UfcEnsembleSimResult = {
   weights: UfcEnsembleWeights;
   fighterAWinProbability: number;
   fighterBWinProbability: number;
-  methodProbabilities: {
-    KO_TKO: number;
-    SUBMISSION: number;
-    DECISION: number;
-  };
+  methodProbabilities: { KO_TKO: number; SUBMISSION: number; DECISION: number };
   roundFinishProbabilities: Record<string, number>;
   transitionProbabilities: Record<string, number>;
   exchangeDiagnostics: UfcExchangeMonteCarloResult["diagnosticProbabilities"];
+  roundEngineDiagnostics: UfcRoundByRoundFightResult["diagnosticProbabilities"];
   averageFightLengthSeconds: number;
   averageDamage: UfcExchangeMonteCarloResult["averageDamage"];
   averageControlSeconds: UfcExchangeMonteCarloResult["averageControlSeconds"];
@@ -39,28 +38,25 @@ export type UfcEnsembleSimResult = {
   sourceOutputs: {
     skillMarkov: UfcSkillMarkovResult;
     exchangeMonteCarlo: UfcExchangeMonteCarloResult;
+    roundByRound: UfcRoundByRoundFightResult;
   };
 };
 
 const DEFAULT_SIMULATIONS = 25_000;
-const DEFAULT_WEIGHTS: UfcEnsembleWeights = { skillMarkov: 0.55, exchangeMonteCarlo: 0.45 };
+const DEFAULT_WEIGHTS: UfcEnsembleWeights = { skillMarkov: 0.42, exchangeMonteCarlo: 0.34, roundByRound: 0.24 };
 
-function round(value: number, digits = 4) {
-  return Number(value.toFixed(digits));
-}
+function round(value: number, digits = 4) { return Number(value.toFixed(digits)); }
 
 function normalizeWeights(input?: Partial<UfcEnsembleWeights>): UfcEnsembleWeights {
   const skill = input?.skillMarkov ?? DEFAULT_WEIGHTS.skillMarkov;
   const exchange = input?.exchangeMonteCarlo ?? DEFAULT_WEIGHTS.exchangeMonteCarlo;
-  const total = Math.max(0.0001, skill + exchange);
-  return {
-    skillMarkov: round(skill / total, 4),
-    exchangeMonteCarlo: round(exchange / total, 4)
-  };
+  const roundEngine = input?.roundByRound ?? DEFAULT_WEIGHTS.roundByRound;
+  const total = Math.max(0.0001, skill + exchange + roundEngine);
+  return { skillMarkov: round(skill / total, 4), exchangeMonteCarlo: round(exchange / total, 4), roundByRound: round(roundEngine / total, 4) };
 }
 
-function blendProbability(skill: number, exchange: number, weights: UfcEnsembleWeights) {
-  return round(skill * weights.skillMarkov + exchange * weights.exchangeMonteCarlo);
+function blendProbability(skill: number, exchange: number, roundEngine: number, weights: UfcEnsembleWeights) {
+  return round(skill * weights.skillMarkov + exchange * weights.exchangeMonteCarlo + roundEngine * weights.roundByRound);
 }
 
 function normalizePair(a: number, b: number) {
@@ -70,57 +66,60 @@ function normalizePair(a: number, b: number) {
 
 function normalizeMethods(methods: UfcEnsembleSimResult["methodProbabilities"]) {
   const total = Math.max(0.0001, methods.KO_TKO + methods.SUBMISSION + methods.DECISION);
-  return {
-    KO_TKO: round(methods.KO_TKO / total),
-    SUBMISSION: round(methods.SUBMISSION / total),
-    DECISION: round(methods.DECISION / total)
-  };
+  return { KO_TKO: round(methods.KO_TKO / total), SUBMISSION: round(methods.SUBMISSION / total), DECISION: round(methods.DECISION / total) };
 }
 
-function blendRoundFinishes(skill: Record<string, number>, exchange: Record<string, number>, weights: UfcEnsembleWeights, scheduledRounds: 3 | 5) {
+function blendRoundFinishes(skill: Record<string, number>, exchange: Record<string, number>, roundEngine: Record<string, number>, weights: UfcEnsembleWeights, scheduledRounds: 3 | 5) {
   const output: Record<string, number> = {};
   for (let roundNo = 1; roundNo <= scheduledRounds; roundNo += 1) {
     const key = `R${roundNo}`;
-    output[key] = blendProbability(skill[key] ?? 0, exchange[key] ?? 0, weights);
+    output[key] = blendProbability(skill[key] ?? 0, exchange[key] ?? 0, roundEngine[key] ?? 0, weights);
   }
   return output;
 }
 
-function dangerFlags(skill: UfcSkillMarkovResult, exchange: UfcExchangeMonteCarloResult) {
-  const flags: string[] = [];
-  const disagreement = Math.abs(skill.fighterAWinProbability - exchange.fighterAWinProbability);
-  if (disagreement >= 0.12) flags.push("engine-disagreement");
-  if (exchange.averageDamage.fighterA >= 75 || exchange.averageDamage.fighterB >= 75) flags.push("high-damage-variance");
-  if (skill.deltas.upsetRisk >= 0.35) flags.push("high-upset-risk");
-  if (exchange.methodProbabilities.KO_TKO >= 0.35) flags.push("finish-volatility");
-  return flags;
+function blendTransitions(skill: Record<string, number>, roundEngine: Record<string, number>, weight: number) {
+  const keys = Array.from(new Set([...Object.keys(skill), ...Object.keys(roundEngine)]));
+  return Object.fromEntries(keys.map((key) => [key, round((skill[key] ?? 0) * (1 - weight) + (roundEngine[key] ?? 0) * weight)]));
 }
 
-function pathSummary(skill: UfcSkillMarkovResult, exchange: UfcExchangeMonteCarloResult) {
+function averagePair(exchange: { fighterA: number; fighterB: number }, roundEngine: { fighterA: number; fighterB: number }, roundWeight: number) {
+  return { fighterA: round(exchange.fighterA * (1 - roundWeight) + roundEngine.fighterA * roundWeight, 2), fighterB: round(exchange.fighterB * (1 - roundWeight) + roundEngine.fighterB * roundWeight, 2) };
+}
+
+function dangerFlags(skill: UfcSkillMarkovResult, exchange: UfcExchangeMonteCarloResult, roundEngine: UfcRoundByRoundFightResult) {
+  const flags: string[] = [];
+  const maxA = Math.max(skill.fighterAWinProbability, exchange.fighterAWinProbability, roundEngine.fighterAWinProbability);
+  const minA = Math.min(skill.fighterAWinProbability, exchange.fighterAWinProbability, roundEngine.fighterAWinProbability);
+  if (maxA - minA >= 0.12) flags.push("engine-disagreement");
+  if (exchange.averageDamage.fighterA >= 75 || exchange.averageDamage.fighterB >= 75 || roundEngine.averageDamage.fighterA >= 75 || roundEngine.averageDamage.fighterB >= 75) flags.push("high-damage-variance");
+  if (skill.deltas.upsetRisk >= 0.35) flags.push("high-upset-risk");
+  if (exchange.methodProbabilities.KO_TKO >= 0.35 || roundEngine.methodProbabilities.KO_TKO >= 0.42) flags.push("finish-volatility");
+  return [...new Set([...flags, ...roundEngine.dangerFlags])];
+}
+
+function pathSummary(skill: UfcSkillMarkovResult, exchange: UfcExchangeMonteCarloResult, roundEngine: UfcRoundByRoundFightResult) {
   const summary = [...skill.pathSummary];
   if (exchange.averageControlSeconds.fighterA > exchange.averageControlSeconds.fighterB + 20) summary.push("Exchange Monte Carlo projects Fighter A control-time pressure.");
   if (exchange.averageControlSeconds.fighterB > exchange.averageControlSeconds.fighterA + 20) summary.push("Exchange Monte Carlo projects Fighter B control-time pressure.");
   if (exchange.averageKnockdowns.fighterA > exchange.averageKnockdowns.fighterB + 0.05) summary.push("Exchange Monte Carlo gives Fighter A the stronger knockdown lane.");
   if (exchange.averageKnockdowns.fighterB > exchange.averageKnockdowns.fighterA + 0.05) summary.push("Exchange Monte Carlo gives Fighter B the stronger knockdown lane.");
-  return [...new Set(summary)].slice(0, 6);
+  summary.push(...roundEngine.pathSummary);
+  return [...new Set(summary)].slice(0, 8);
 }
 
-export function blendUfcSimOutputs(args: {
-  skillMarkov: UfcSkillMarkovResult;
-  exchangeMonteCarlo: UfcExchangeMonteCarloResult;
-  weights?: Partial<UfcEnsembleWeights>;
-}): UfcEnsembleSimResult {
+export function blendUfcSimOutputs(args: { skillMarkov: UfcSkillMarkovResult; exchangeMonteCarlo: UfcExchangeMonteCarloResult; roundByRound: UfcRoundByRoundFightResult; weights?: Partial<UfcEnsembleWeights> }): UfcEnsembleSimResult {
   const weights = normalizeWeights(args.weights);
   const pair = normalizePair(
-    blendProbability(args.skillMarkov.fighterAWinProbability, args.exchangeMonteCarlo.fighterAWinProbability, weights),
-    blendProbability(args.skillMarkov.fighterBWinProbability, args.exchangeMonteCarlo.fighterBWinProbability, weights)
+    blendProbability(args.skillMarkov.fighterAWinProbability, args.exchangeMonteCarlo.fighterAWinProbability, args.roundByRound.fighterAWinProbability, weights),
+    blendProbability(args.skillMarkov.fighterBWinProbability, args.exchangeMonteCarlo.fighterBWinProbability, args.roundByRound.fighterBWinProbability, weights)
   );
   const methods = normalizeMethods({
-    KO_TKO: blendProbability(args.skillMarkov.methodProbabilities.KO_TKO, args.exchangeMonteCarlo.methodProbabilities.KO_TKO, weights),
-    SUBMISSION: blendProbability(args.skillMarkov.methodProbabilities.SUBMISSION, args.exchangeMonteCarlo.methodProbabilities.SUBMISSION, weights),
-    DECISION: blendProbability(args.skillMarkov.methodProbabilities.DECISION, args.exchangeMonteCarlo.methodProbabilities.DECISION, weights)
+    KO_TKO: blendProbability(args.skillMarkov.methodProbabilities.KO_TKO, args.exchangeMonteCarlo.methodProbabilities.KO_TKO, args.roundByRound.methodProbabilities.KO_TKO, weights),
+    SUBMISSION: blendProbability(args.skillMarkov.methodProbabilities.SUBMISSION, args.exchangeMonteCarlo.methodProbabilities.SUBMISSION, args.roundByRound.methodProbabilities.SUBMISSION, weights),
+    DECISION: blendProbability(args.skillMarkov.methodProbabilities.DECISION, args.exchangeMonteCarlo.methodProbabilities.DECISION, args.roundByRound.methodProbabilities.DECISION, weights)
   });
-
+  const roundWeight = weights.roundByRound;
   return {
     engine: "ensemble",
     simulations: args.skillMarkov.simulations,
@@ -130,15 +129,16 @@ export function blendUfcSimOutputs(args: {
     fighterAWinProbability: pair.a,
     fighterBWinProbability: pair.b,
     methodProbabilities: methods,
-    roundFinishProbabilities: blendRoundFinishes(args.skillMarkov.roundFinishProbabilities, args.exchangeMonteCarlo.roundFinishProbabilities, weights, args.exchangeMonteCarlo.scheduledRounds),
-    transitionProbabilities: args.skillMarkov.transitionProbabilities,
+    roundFinishProbabilities: blendRoundFinishes(args.skillMarkov.roundFinishProbabilities, args.exchangeMonteCarlo.roundFinishProbabilities, args.roundByRound.roundFinishProbabilities, weights, args.exchangeMonteCarlo.scheduledRounds),
+    transitionProbabilities: blendTransitions(args.skillMarkov.transitionProbabilities, args.roundByRound.transitionProbabilities, roundWeight),
     exchangeDiagnostics: args.exchangeMonteCarlo.diagnosticProbabilities,
-    averageFightLengthSeconds: args.exchangeMonteCarlo.averageFightLengthSeconds,
-    averageDamage: args.exchangeMonteCarlo.averageDamage,
-    averageControlSeconds: args.exchangeMonteCarlo.averageControlSeconds,
-    averageKnockdowns: args.exchangeMonteCarlo.averageKnockdowns,
-    pathSummary: pathSummary(args.skillMarkov, args.exchangeMonteCarlo),
-    dangerFlags: dangerFlags(args.skillMarkov, args.exchangeMonteCarlo),
+    roundEngineDiagnostics: args.roundByRound.diagnosticProbabilities,
+    averageFightLengthSeconds: round(args.exchangeMonteCarlo.averageFightLengthSeconds * (1 - roundWeight) + args.roundByRound.averageFightLengthSeconds * roundWeight, 1),
+    averageDamage: averagePair(args.exchangeMonteCarlo.averageDamage, args.roundByRound.averageDamage, roundWeight),
+    averageControlSeconds: averagePair(args.exchangeMonteCarlo.averageControlSeconds, args.roundByRound.averageControlSeconds, roundWeight),
+    averageKnockdowns: averagePair(args.exchangeMonteCarlo.averageKnockdowns, args.roundByRound.averageKnockdowns, roundWeight),
+    pathSummary: pathSummary(args.skillMarkov, args.exchangeMonteCarlo, args.roundByRound),
+    dangerFlags: dangerFlags(args.skillMarkov, args.exchangeMonteCarlo, args.roundByRound),
     sourceOutputs: args
   };
 }
@@ -151,5 +151,6 @@ export function runUfcEnsembleSimFromFeatures(fighterAFeature: UfcModelFeatureSn
   const fighterBProfile = buildUfcFighterSkillProfile({ feature: fighterBFeature });
   const skillMarkov = runUfcSkillMarkovSim(fighterAProfile, fighterBProfile, { simulations, seed, scheduledRounds });
   const exchangeMonteCarlo = runUfcExchangeMonteCarlo(buildExchangeStatsFromUfcFeature(fighterAFeature), buildExchangeStatsFromUfcFeature(fighterBFeature), { simulations, seed: seed + 17, scheduledRounds, exchangeSeconds: 5 });
-  return blendUfcSimOutputs({ skillMarkov, exchangeMonteCarlo, weights: options.weights });
+  const roundByRound = runUfcRoundByRoundFightEngine(fighterAProfile, fighterBProfile, { simulations, seed: seed + 31, scheduledRounds });
+  return blendUfcSimOutputs({ skillMarkov, exchangeMonteCarlo, roundByRound, weights: options.weights });
 }
