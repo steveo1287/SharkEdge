@@ -32,6 +32,25 @@ export type UfcOperationalFeedCard = {
     SUBMISSION: number | null;
     DECISION: number | null;
   };
+  rawMethodProbabilities: {
+    KO_TKO: number | null;
+    SUBMISSION: number | null;
+    DECISION: number | null;
+  };
+  methodCalibration: {
+    sampleSize: number | null;
+    quality: string | null;
+    corrections: Record<string, number> | null;
+  };
+  promotionGate: {
+    status: string;
+    grade: string | null;
+    reasons: string[];
+    confidenceCap: string | null;
+  };
+  isPromotable: boolean;
+  isWatchlist: boolean;
+  isShadowOnly: boolean;
   dataQualityGrade: string | null;
   confidenceGrade: string | null;
   simulationCount: number | null;
@@ -93,50 +112,101 @@ function stringOrNull(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function mapRows(rows: FeedRow[]): UfcOperationalFeedCard[] {
-  return rows.map((row) => ({
-    fightId: row.fight_id,
-    eventId: row.event_id,
-    eventName: row.event_name,
-    eventDate: toIsoNullable(row.event_date),
-    eventSourceKey: row.event_source_key,
-    promotionKey: stringOrNull(row.event_payload_json?.promotionKey) ?? row.event_source_key,
-    promotionName: stringOrNull(row.event_payload_json?.promotionName) ?? (row.event_source_key === "mvp" ? "Most Valuable Promotions" : row.event_source_key === "ufc" ? "UFC" : null),
-    combatSport: stringOrNull(row.event_payload_json?.combatSport),
-    eventLabel: row.event_label,
-    fightDate: toIso(row.fight_date),
-    scheduledRounds: row.scheduled_rounds,
-    fighterAId: row.fighter_a_id,
-    fighterBId: row.fighter_b_id,
-    fighterAName: row.fighter_a_name,
-    fighterBName: row.fighter_b_name,
-    hasPrediction: Boolean(row.has_prediction),
-    sourceStatus: row.source_status,
-    cardSection: row.card_section,
-    boutOrder: row.bout_order,
-    pickFighterId: row.pick_fighter_id,
-    pickName: row.pick_name,
-    fighterAWinProbability: row.fighter_a_win_probability,
-    fighterBWinProbability: row.fighter_b_win_probability,
-    fairOddsAmerican: row.fair_odds_american,
-    sportsbookOddsAmerican: row.sportsbook_odds_american,
-    edgePct: row.edge_pct,
-    methodProbabilities: {
-      KO_TKO: row.ko_tko_probability,
-      SUBMISSION: row.submission_probability,
-      DECISION: row.decision_probability
-    },
-    dataQualityGrade: row.data_quality_grade,
-    confidenceGrade: row.confidence_grade,
-    simulationCount: row.simulation_count,
-    generatedAt: toIso(row.generated_at),
-    pathSummary: asArray(row.prediction_json?.pathSummary),
-    dangerFlags: asArray(row.prediction_json?.dangerFlags),
-    shadowStatus: row.shadow_status
-  }));
+function numberOrNull(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-async function queryEventLinkedFeed(modelVersion: string, limit: number, includePast: boolean) {
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function gateFromPrediction(row: FeedRow) {
+  const prediction = asRecord(row.prediction_json);
+  const gate = asRecord(prediction.promotionGate);
+  const status = stringOrNull(gate.status) ?? (row.shadow_status === "SHADOW_ONLY" ? "SHADOW_ONLY" : row.has_prediction ? "WATCHLIST" : "SHADOW_ONLY");
+  return {
+    status,
+    grade: stringOrNull(gate.grade) ?? row.data_quality_grade,
+    reasons: asArray(gate.reasons),
+    confidenceCap: stringOrNull(gate.confidenceCap) ?? row.confidence_grade
+  };
+}
+
+function methodCalibrationFromPrediction(row: FeedRow) {
+  const calibration = asRecord(asRecord(row.prediction_json).methodCalibration);
+  const corrections = asRecord(calibration.corrections);
+  const correctionNumbers = Object.fromEntries(Object.entries(corrections).filter(([, value]) => typeof value === "number")) as Record<string, number>;
+  return {
+    sampleSize: numberOrNull(calibration.sampleSize),
+    quality: stringOrNull(calibration.quality),
+    corrections: Object.keys(correctionNumbers).length ? correctionNumbers : null
+  };
+}
+
+function rawMethodProbabilitiesFromPrediction(row: FeedRow) {
+  const raw = asRecord(asRecord(row.prediction_json).rawMethodProbabilities);
+  return {
+    KO_TKO: numberOrNull(raw.KO_TKO) ?? row.ko_tko_probability,
+    SUBMISSION: numberOrNull(raw.SUBMISSION) ?? row.submission_probability,
+    DECISION: numberOrNull(raw.DECISION) ?? row.decision_probability
+  };
+}
+
+function mapRows(rows: FeedRow[]): UfcOperationalFeedCard[] {
+  return rows.map((row) => {
+    const gate = gateFromPrediction(row);
+    const methodCalibration = methodCalibrationFromPrediction(row);
+    const rawMethodProbabilities = rawMethodProbabilitiesFromPrediction(row);
+    return {
+      fightId: row.fight_id,
+      eventId: row.event_id,
+      eventName: row.event_name,
+      eventDate: toIsoNullable(row.event_date),
+      eventSourceKey: row.event_source_key,
+      promotionKey: stringOrNull(row.event_payload_json?.promotionKey) ?? row.event_source_key,
+      promotionName: stringOrNull(row.event_payload_json?.promotionName) ?? (row.event_source_key === "mvp" ? "Most Valuable Promotions" : row.event_source_key === "ufc" ? "UFC" : null),
+      combatSport: stringOrNull(row.event_payload_json?.combatSport),
+      eventLabel: row.event_label,
+      fightDate: toIso(row.fight_date),
+      scheduledRounds: row.scheduled_rounds,
+      fighterAId: row.fighter_a_id,
+      fighterBId: row.fighter_b_id,
+      fighterAName: row.fighter_a_name,
+      fighterBName: row.fighter_b_name,
+      hasPrediction: Boolean(row.has_prediction),
+      sourceStatus: row.source_status,
+      cardSection: row.card_section,
+      boutOrder: row.bout_order,
+      pickFighterId: row.pick_fighter_id,
+      pickName: row.pick_name,
+      fighterAWinProbability: row.fighter_a_win_probability,
+      fighterBWinProbability: row.fighter_b_win_probability,
+      fairOddsAmerican: row.fair_odds_american,
+      sportsbookOddsAmerican: row.sportsbook_odds_american,
+      edgePct: row.edge_pct,
+      methodProbabilities: {
+        KO_TKO: row.ko_tko_probability,
+        SUBMISSION: row.submission_probability,
+        DECISION: row.decision_probability
+      },
+      rawMethodProbabilities,
+      methodCalibration,
+      promotionGate: gate,
+      isPromotable: gate.status === "PROMOTABLE",
+      isWatchlist: gate.status === "WATCHLIST",
+      isShadowOnly: gate.status === "SHADOW_ONLY",
+      dataQualityGrade: gate.grade ?? row.data_quality_grade,
+      confidenceGrade: gate.confidenceCap ?? row.confidence_grade,
+      simulationCount: row.simulation_count,
+      generatedAt: toIso(row.generated_at),
+      pathSummary: asArray(row.prediction_json?.pathSummary),
+      dangerFlags: asArray(row.prediction_json?.dangerFlags),
+      shadowStatus: row.shadow_status
+    };
+  });
+}
+
+async function queryEventLinkedFeed(modelVersion: string, limit: number, includePast: boolean, promotionStatus: string | null) {
   return prisma.$queryRaw<FeedRow[]>`
     SELECT
       f.id AS fight_id,
@@ -168,8 +238,8 @@ async function queryEventLinkedFeed(modelVersion: string, limit: number, include
       p.decision_probability,
       p.prediction_json,
       COALESCE(p.generated_at, f.last_seen_at, f.updated_at, f.created_at) AS generated_at,
-      s.data_quality_grade,
-      s.confidence_grade,
+      COALESCE(p.prediction_json->'promotionGate'->>'grade', s.data_quality_grade) AS data_quality_grade,
+      COALESCE(p.prediction_json->'promotionGate'->>'confidenceCap', s.confidence_grade) AS confidence_grade,
       r.simulation_count,
       s.status AS shadow_status
     FROM ufc_fights f
@@ -186,12 +256,13 @@ async function queryEventLinkedFeed(modelVersion: string, limit: number, include
     LEFT JOIN ufc_shadow_predictions s ON s.prediction_id = p.id
     LEFT JOIN ufc_sim_runs r ON r.prediction_id = p.id
     WHERE (${includePast}::boolean OR f.fight_date >= now() - interval '12 hours')
+      AND (${promotionStatus}::text IS NULL OR COALESCE(p.prediction_json->'promotionGate'->>'status', s.status, 'SHADOW_ONLY') = ${promotionStatus})
     ORDER BY e.event_date NULLS LAST, f.fight_date, f.bout_order NULLS LAST, f.event_label
     LIMIT ${limit}
   `;
 }
 
-async function queryLegacyFeed(modelVersion: string, limit: number, includePast: boolean) {
+async function queryLegacyFeed(modelVersion: string, limit: number, includePast: boolean, promotionStatus: string | null) {
   return prisma.$queryRaw<FeedRow[]>`
     SELECT DISTINCT ON (p.fight_id)
       f.id AS fight_id,
@@ -223,8 +294,8 @@ async function queryLegacyFeed(modelVersion: string, limit: number, includePast:
       p.decision_probability,
       p.prediction_json,
       p.generated_at,
-      s.data_quality_grade,
-      s.confidence_grade,
+      COALESCE(p.prediction_json->'promotionGate'->>'grade', s.data_quality_grade) AS data_quality_grade,
+      COALESCE(p.prediction_json->'promotionGate'->>'confidenceCap', s.confidence_grade) AS confidence_grade,
       r.simulation_count,
       s.status AS shadow_status
     FROM ufc_predictions p
@@ -236,21 +307,24 @@ async function queryLegacyFeed(modelVersion: string, limit: number, includePast:
     LEFT JOIN ufc_sim_runs r ON r.prediction_id = p.id
     WHERE p.model_version = ${modelVersion}
       AND (${includePast}::boolean OR f.fight_date >= now() - interval '12 hours')
+      AND (${promotionStatus}::text IS NULL OR COALESCE(p.prediction_json->'promotionGate'->>'status', s.status, 'SHADOW_ONLY') = ${promotionStatus})
     ORDER BY p.fight_id, p.generated_at DESC
     LIMIT ${limit}
   `;
 }
 
-export async function getUfcOperationalFeed(options: { modelVersion?: string; limit?: number; includePast?: boolean } = {}): Promise<UfcOperationalFeedCard[]> {
+export async function getUfcOperationalFeed(options: { modelVersion?: string; limit?: number; includePast?: boolean; promotionStatus?: string | null } = {}): Promise<UfcOperationalFeedCard[]> {
   const modelVersion = options.modelVersion ?? "ufc-fight-iq-v1";
   const limit = Math.max(1, Math.min(200, Math.floor(options.limit ?? 100)));
   const includePast = Boolean(options.includePast);
+  const rawStatus = typeof options.promotionStatus === "string" ? options.promotionStatus.toUpperCase() : null;
+  const promotionStatus = rawStatus === "PROMOTABLE" || rawStatus === "WATCHLIST" || rawStatus === "SHADOW_ONLY" ? rawStatus : null;
 
   try {
-    return mapRows(await queryEventLinkedFeed(modelVersion, limit, includePast));
+    return mapRows(await queryEventLinkedFeed(modelVersion, limit, includePast, promotionStatus));
   } catch {
     try {
-      return mapRows(await queryLegacyFeed(modelVersion, limit, includePast));
+      return mapRows(await queryLegacyFeed(modelVersion, limit, includePast, promotionStatus));
     } catch {
       return [];
     }
