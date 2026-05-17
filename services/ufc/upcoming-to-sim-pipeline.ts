@@ -14,6 +14,7 @@ export type UfcUpcomingToSimPipelineOptions = UfcUpcomingCardIngestionOptions & 
   modelVersion?: string;
   horizonDays?: number;
   limit?: number;
+  offset?: number;
   simulations?: number;
   seed?: number;
   recordShadow?: boolean;
@@ -131,8 +132,9 @@ export function buildFallbackFeaturePayload(input: { fightId: string; fightDate:
   };
 }
 
-async function queryCandidates(modelVersion: string, horizonDays: number, limit: number): Promise<UfcUpcomingSimCandidate[]> {
+async function queryCandidates(modelVersion: string, horizonDays: number, limit: number, offset: number): Promise<UfcUpcomingSimCandidate[]> {
   const overfetchLimit = Math.min(500, Math.max(limit * 8, limit));
+  const safeOffset = Math.max(0, Math.floor(offset));
   const rows = await prisma.$queryRaw<CandidateRow[]>`
     SELECT
       f.id AS fight_id,
@@ -166,6 +168,7 @@ async function queryCandidates(modelVersion: string, horizonDays: number, limit:
     GROUP BY f.id, e.id, e.event_name, e.event_date, e.source_key, e.payload_json, f.payload_json, f.event_label, f.fight_date, f.scheduled_rounds, f.fighter_a_id, f.fighter_b_id, fa.full_name, fb.full_name, f.source_status
     ORDER BY f.fight_date ASC, f.bout_order NULLS LAST, f.event_label
     LIMIT ${overfetchLimit}
+    OFFSET ${safeOffset}
   `;
 
   const candidates = rows.flatMap((row) => {
@@ -248,6 +251,7 @@ export async function runUfcUpcomingToSimPipeline(options: UfcUpcomingToSimPipel
   const modelVersion = options.modelVersion ?? DEFAULT_MODEL_VERSION;
   const horizonDays = Math.max(1, Math.floor(options.horizonDays ?? DEFAULT_HORIZON_DAYS));
   const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? DEFAULT_LIMIT)));
+  const offset = Math.max(0, Math.floor(options.offset ?? 0));
   const mode = options.dryRun ? "dry-run" : options.skipIngest ? "simulate-only" : "ingest-and-sim";
   const forceRegenerate = Boolean(options.forceRegenerate);
   const errors: string[] = [];
@@ -259,7 +263,7 @@ export async function runUfcUpcomingToSimPipeline(options: UfcUpcomingToSimPipel
 
   if (!options.skipIngest) ingestion = await ingestUpcomingUfcCards({ ...options, dryRun: options.dryRun });
 
-  const candidates = await queryCandidates(modelVersion, horizonDays, limit);
+  const candidates = await queryCandidates(modelVersion, horizonDays, limit, offset);
   const annotatedCandidates: UfcUpcomingToSimPipelineResult["candidates"] = [];
 
   for (const candidate of candidates) {
