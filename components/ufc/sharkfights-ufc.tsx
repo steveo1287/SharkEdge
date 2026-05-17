@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import type { UfcCardDetail, UfcCardSummary, UfcFightIqDetail } from "@/services/ufc/card-feed";
 import type { UfcOperationalFeedCard } from "@/services/ufc/operational-feed";
+import { buildUfcFinalVerdict, type UfcFinalVerdictTone } from "@/components/ufc/ufc-final-verdict";
 
 function pct(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
@@ -32,7 +33,7 @@ function shell(extra = "") {
   return `border border-white/10 bg-white/[0.045] shadow-[0_24px_90px_rgba(0,0,0,0.24)] backdrop-blur-xl ${extra}`;
 }
 
-function pill(tone: "aqua" | "green" | "amber" | "red" | "slate" = "slate") {
+function pill(tone: UfcFinalVerdictTone = "slate") {
   const tones = {
     aqua: "border-aqua/25 bg-aqua/10 text-aqua",
     green: "border-emerald-300/25 bg-emerald-300/10 text-emerald-200",
@@ -62,6 +63,15 @@ export function SharkFightsHeader({ title, subtitle }: { title: string; subtitle
   );
 }
 
+function cardVerdict(card: UfcCardSummary) {
+  const complete = card.fightCount > 0 && card.simulatedFightCount >= card.fightCount;
+  const partial = card.simulatedFightCount > 0 && !complete;
+  if (!card.fightCount) return { label: "No fights", tone: "slate" as UfcFinalVerdictTone, summary: "No valid matchups loaded." };
+  if (complete) return { label: "Ready", tone: "aqua" as UfcFinalVerdictTone, summary: "Open the card for the final verdict on each fight." };
+  if (partial) return { label: "Partial", tone: "amber" as UfcFinalVerdictTone, summary: "Some fights still need SharkSim precompute." };
+  return { label: "Needs sim", tone: "amber" as UfcFinalVerdictTone, summary: "Run UFC precompute before trusting card output." };
+}
+
 export function UfcCardGrid({ cards }: { cards: UfcCardSummary[] }) {
   if (!cards.length) {
     return <CardShell><div className="text-sm leading-6 text-slate-400">No valid fight cards are currently surfaced. Fake UFC navigation rows are filtered out; ingest real card matchups, then run feature build + SharkSim.</div></CardShell>;
@@ -69,8 +79,7 @@ export function UfcCardGrid({ cards }: { cards: UfcCardSummary[] }) {
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {cards.map((card) => {
-        const complete = card.fightCount > 0 && card.simulatedFightCount >= card.fightCount;
-        const partial = card.simulatedFightCount > 0 && !complete;
+        const verdict = cardVerdict(card);
         return (
           <Link key={card.eventId} href={`/sim/ufc/cards/${card.eventId}`} className="rounded-[1.25rem] border border-white/10 bg-[#06101b]/80 p-4 transition hover:border-aqua/35 hover:bg-aqua/[0.045]">
             <div className="flex items-start justify-between gap-3">
@@ -78,11 +87,11 @@ export function UfcCardGrid({ cards }: { cards: UfcCardSummary[] }) {
                 <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">{dateLabel(card.eventDate)}</div>
                 <div className="mt-1 font-display text-2xl font-black tracking-[-0.04em] text-white">{card.eventLabel}</div>
               </div>
-              <span className={pill(complete ? "green" : partial ? "amber" : card.providerStatus.includes("linked") ? "aqua" : card.providerStatus === "legacy-date" ? "amber" : "slate")}>{complete ? "sim ready" : partial ? "partial" : card.providerStatus}</span>
+              <span className={pill(verdict.tone)}>{verdict.label}</span>
             </div>
-            <div className="mt-2 flex flex-wrap gap-2"><span className={pill(card.promotionKey === "mvp" ? "amber" : "aqua")}>{card.promotionName ?? "UFC"}</span><span className={pill("slate")}>{card.combatSport ?? "MMA"}</span></div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center"><MiniStat label="Fights" value={card.fightCount} /><MiniStat label="Sims" value={card.simulatedFightCount} /><MiniStat label="Quality" value={card.dataQualityGrade ?? "Pending"} /></div>
-            <div className="mt-3 flex flex-wrap gap-2"><span className={pill("slate")}>{card.shadowPendingCount} pending</span><span className={pill("slate")}>{card.shadowResolvedCount} resolved</span><span className={pill(partial || complete ? "aqua" : "slate")}>{pct(card.fightCount ? card.simulatedFightCount / card.fightCount : null)} coverage</span></div>
+            <p className="mt-3 text-sm leading-6 text-slate-400">{verdict.summary}</p>
+            <div className="mt-3 flex flex-wrap gap-2"><span className={pill(card.promotionKey === "mvp" ? "amber" : "aqua")}>{card.promotionName ?? "UFC"}</span><span className={pill("slate")}>{card.combatSport ?? "MMA"}</span></div>
+            <div className="mt-4 grid grid-cols-3 gap-2 text-center"><MiniStat label="Fights" value={card.fightCount} /><MiniStat label="Sims" value={card.simulatedFightCount} /><MiniStat label="Coverage" value={pct(card.fightCount ? card.simulatedFightCount / card.fightCount : null)} /></div>
           </Link>
         );
       })}
@@ -96,13 +105,12 @@ function MiniStat({ label, value }: { label: string; value: string | number }) {
 
 function pickProbability(fight: UfcOperationalFeedCard) { if (!fight.hasPrediction || !fight.pickFighterId) return null; return fight.pickFighterId === fight.fighterAId ? fight.fighterAWinProbability : fight.fighterBWinProbability; }
 function methodLean(fight: UfcOperationalFeedCard) { if (!fight.hasPrediction) return "Pending sim"; const entries = Object.entries(fight.methodProbabilities).filter((item): item is [string, number] => typeof item[1] === "number"); return entries.sort((a, b) => b[1] - a[1])[0]?.[0]?.replace("_", "/") ?? "--"; }
-function fightStatusLabel(fight: UfcOperationalFeedCard) { if (fight.hasPrediction) return fight.confidenceGrade ?? "SIM READY"; return fight.sourceStatus ?? "UPCOMING"; }
 
 export function UfcFightList({ card, selectedFightId }: { card: UfcCardDetail; selectedFightId?: string | null }) {
-  return <div className="grid gap-3">{card.fights.map((fight) => { const selected = fight.fightId === selectedFightId; const pending = !fight.hasPrediction; return (
+  return <div className="grid gap-3">{card.fights.map((fight) => { const selected = fight.fightId === selectedFightId; const verdict = buildUfcFinalVerdict(fight); return (
     <Link key={fight.fightId} href={`/sim/ufc/cards/${card.eventId}?fightId=${fight.fightId}`} className={`rounded-[1.2rem] border p-4 transition ${selected ? "border-aqua/45 bg-aqua/[0.07]" : "border-white/10 bg-[#06101b]/78 hover:border-aqua/35 hover:bg-aqua/[0.04]"}`}>
-      <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">{timeLabel(fight.fightDate)} · {fight.scheduledRounds} rounds{fight.cardSection ? ` · ${fight.cardSection}` : ""}</div><div className="mt-1 font-display text-xl font-black tracking-[-0.04em] text-white">{fight.fighterAName ?? "Fighter A"} vs {fight.fighterBName ?? "Fighter B"}</div><div className="mt-2 text-sm text-slate-400">{pending ? "Upcoming matchup" : "Pick"}: <span className="font-black text-aqua">{pending ? "Sim pending" : fight.pickName ?? "Pending"}</span> · {pct(pickProbability(fight))} · {methodLean(fight)}</div></div><span className={pill(pending ? "amber" : fight.confidenceGrade?.includes("HIGH") ? "green" : fight.confidenceGrade === "LOW" ? "amber" : "aqua")}>{fightStatusLabel(fight)}</span></div>
-      <div className="mt-3 grid grid-cols-4 gap-2"><MiniStat label="Fair" value={odds(fight.fairOddsAmerican)} /><MiniStat label="Book" value={odds(fight.sportsbookOddsAmerican)} /><MiniStat label="Edge" value={typeof fight.edgePct === "number" ? `${fight.edgePct}%` : "--"} /><MiniStat label="Data" value={fight.dataQualityGrade ?? (pending ? "Source" : "--")} /></div>
+      <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">{timeLabel(fight.fightDate)} · {fight.scheduledRounds} rounds{fight.cardSection ? ` · ${fight.cardSection}` : ""}</div><div className="mt-1 font-display text-xl font-black tracking-[-0.04em] text-white">{fight.fighterAName ?? "Fighter A"} vs {fight.fighterBName ?? "Fighter B"}</div><div className="mt-2 text-sm leading-6 text-slate-400"><span className="font-black text-white">{verdict.title}</span><br /><span>{verdict.subtitle}</span></div></div><span className={pill(verdict.tone)}>{verdict.label}</span></div>
+      <div className="mt-3 grid grid-cols-4 gap-2"><MiniStat label="Pick" value={verdict.showPick ? verdict.pickLabel : "No bet"} /><MiniStat label="Edge" value={verdict.edgeLabel} /><MiniStat label="Market" value={verdict.marketLabel} /><MiniStat label="Data" value={verdict.dataLabel} /></div>
     </Link>
   ); })}</div>;
 }
@@ -110,21 +118,20 @@ export function UfcFightList({ card, selectedFightId }: { card: UfcCardDetail; s
 export function UfcFightIqPanel({ fight }: { fight: UfcFightIqDetail | null }) {
   if (!fight) return <CardShell><div className="text-sm leading-6 text-slate-400">Select a fight to open the Fight IQ breakdown.</div></CardShell>;
   const prediction = fight.prediction;
-  const pending = !prediction?.hasPrediction;
-  const pickName = pending ? "Sim pending" : prediction?.pickName ?? "Pending";
-  const pickProb = prediction ? pct(pickProbability(prediction)) : "--";
+  const verdict = buildUfcFinalVerdict(prediction);
   return (
     <CardShell className="lg:sticky lg:top-4">
-      <div className="flex items-start justify-between gap-3"><div><div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">Fight IQ</div><h2 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">{pickName}</h2><p className="mt-1 text-sm text-slate-400">{pending ? "Upcoming matchup loaded. Run feature build + SharkSim to generate probabilities." : `Our projected winner · ${pickProb}`}</p></div><Link href={`/sim/ufc/fights/${fight.fightId}`} className={pill("aqua")}>Full</Link></div>
-      <div className="mt-4 grid grid-cols-2 gap-2"><MiniStat label="Confidence" value={fight.confidenceGrade ?? (pending ? "Pending" : "--")} /><MiniStat label="Data" value={fight.dataQualityGrade ?? (pending ? "Source" : "--")} /><MiniStat label="Sim Count" value={prediction?.simulationCount ?? "--"} /><MiniStat label="Shadow" value={fight.shadowStatus ?? "--"} /></div>
+      <div className="flex items-start justify-between gap-3"><div><div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">Final Verdict</div><h2 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">{verdict.title}</h2><p className="mt-1 text-sm leading-6 text-slate-400">{verdict.subtitle}</p></div><div className="flex flex-col items-end gap-2"><span className={pill(verdict.tone)}>{verdict.label}</span><Link href={`/sim/ufc/fights/${fight.fightId}`} className={pill("aqua")}>Full</Link></div></div>
+      <div className="mt-4 grid grid-cols-2 gap-2"><MiniStat label="Final" value={verdict.label} /><MiniStat label="Pick" value={verdict.showPick ? verdict.pickLabel : "No bet"} /><MiniStat label="Edge" value={verdict.edgeLabel} /><MiniStat label="Market" value={verdict.marketLabel} /></div>
+      <Section title="Final verdict reasons"><div className="grid gap-2">{verdict.reasons.map((line, index) => <p key={`${line}-${index}`} className="text-sm leading-6 text-slate-300">{index + 1}. {line}</p>)}</div><div className="mt-3 grid grid-cols-3 gap-2"><MiniStat label="Confidence" value={verdict.confidenceLabel} /><MiniStat label="Data" value={verdict.dataLabel} /><MiniStat label="Sim Count" value={prediction?.simulationCount ?? "--"} /></div></Section>
       <Section title="Style matchup engine"><StyleMatchup fight={fight} /></Section>
       <Section title="Fighter profiles"><FighterProfiles fight={fight} /></Section>
-      <Section title="Why this pick">{(pending ? ["This upcoming fight is on the card but has not been simulated yet. It will upgrade automatically after model features and SharkSim output are generated."] : fight.pathSummary.length ? fight.pathSummary : ["No path summary stored yet. Run the operational sim to populate explanation data."]).map((line, index) => <p key={index} className="text-sm leading-6 text-slate-300">{index + 1}. {line}</p>)}</Section>
+      <Section title="Why this pick">{(fight.pathSummary.length ? fight.pathSummary : ["No path summary stored yet. Run the operational sim to populate explanation data."]).map((line, index) => <p key={index} className="text-sm leading-6 text-slate-300">{index + 1}. {line}</p>)}</Section>
       <Section title="Method probabilities"><MethodBars fight={fight} /></Section>
       <Section title="Round finish distribution"><RoundDistribution rounds={fight.roundFinishProbabilities} decision={fight.methodProbabilities?.DECISION ?? null} /></Section>
       <Section title="Fighter stat comparison"><StatCompare fight={fight} /></Section>
       <Section title="Engine breakdown"><EngineBreakdown fight={fight} /></Section>
-      {fight.dangerFlags.length ? <Section title="Danger flags"><div className="flex flex-wrap gap-2">{fight.dangerFlags.map((flag) => <span key={flag} className={pill("amber")}>{flag}</span>)}</div></Section> : null}
+      {fight.dangerFlags.length ? <Section title="Technical flags"><div className="flex flex-wrap gap-2">{fight.dangerFlags.map((flag) => <span key={flag} className={pill("amber")}>{flag}</span>)}</div></Section> : null}
     </CardShell>
   );
 }
