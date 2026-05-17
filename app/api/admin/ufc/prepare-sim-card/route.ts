@@ -4,6 +4,7 @@ import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import { buildUfcModelFeaturesFromWarehouse } from "@/services/ufc/fighter-feature-auto-builder";
 import { buildEliteUfcFighterProfiles } from "@/services/ufc/elite-fighter-profile-builder";
 import { backfillKnownUfcFighterStats } from "@/services/ufc/ufcstats-known-fighter-backfill";
+import { ingestUpcomingUfcCards } from "@/services/ufc/upcoming-card-ingestion";
 import { hydrateUpcomingUfcFeatureSnapshots } from "@/services/ufc/upcoming-feature-hydration";
 import { runUfcUpcomingToSimPipeline } from "@/services/ufc/upcoming-to-sim-pipeline";
 
@@ -342,11 +343,16 @@ export async function POST(request: Request) {
   const startedAt = new Date().toISOString();
   const url = new URL(request.url);
   const dryRun = boolParam(url, "dryRun", false);
+  const skipIngest = boolParam(url, "skipIngest", false);
   const skipBackfill = boolParam(url, "skipBackfill", false);
   const skipElite = boolParam(url, "skipElite", false);
   const skipFeatureBuild = boolParam(url, "skipFeatureBuild", false);
   const skipHydrate = boolParam(url, "skipHydrate", false);
   const simulate = boolParam(url, "simulate", false);
+  const includeMvp = boolParam(url, "includeMvp", true);
+  const includeEspn = boolParam(url, "includeEspn", false);
+  const includeTapology = boolParam(url, "includeTapology", false);
+  const includeUfcCom = boolParam(url, "includeUfcCom", false);
   const modelVersion = url.searchParams.get("modelVersion") || DEFAULT_MODEL_VERSION;
   const horizonDays = numberParam(url, "horizonDays", 120, 1, 365);
   const limit = numberParam(url, "limit", 25, 1, 100);
@@ -355,6 +361,7 @@ export async function POST(request: Request) {
   const seed = numberParam(url, "seed", 1287, 1, 2147483647);
 
   try {
+    const ingestion = skipIngest ? null : await ingestUpcomingUfcCards({ dryRun, includeUfcStats: true, includeUfcCom, includeEspn, includeTapology, includeMvp });
     const before = await auditUpcomingFights(modelVersion, horizonDays, limit);
     const backfill = skipBackfill ? null : await backfillKnownUfcFighterStats({ limit: backfillLimit, horizonDays, dryRun });
     const eliteProfiles = skipElite ? null : await buildEliteUfcFighterProfiles({ modelVersion, limit: Math.max(backfillLimit, limit * 2), horizonDays, dryRun });
@@ -363,15 +370,16 @@ export async function POST(request: Request) {
     const after = await auditUpcomingFights(modelVersion, horizonDays, limit);
     const sim = simulate ? await runUfcUpcomingToSimPipeline({ dryRun, skipIngest: true, modelVersion, horizonDays, limit, simulations, seed, recordShadow: true, allowFallbackFeatures: false, forceRegenerate: true }) : null;
 
-    const ok = (!backfill || backfill.ok) && (!eliteProfiles || eliteProfiles.ok) && (!featureBuild || featureBuild.ok) && (!hydration || hydration.ok) && (!sim || sim.ok);
+    const ok = (!ingestion || Boolean((ingestion as any).ok)) && (!backfill || backfill.ok) && (!eliteProfiles || eliteProfiles.ok) && (!featureBuild || featureBuild.ok) && (!hydration || hydration.ok) && (!sim || sim.ok);
     return NextResponse.json({
       ok,
-      mode: dryRun ? "dry-run" : "repair",
+      mode: dryRun ? "dry-run" : "research-and-repair",
       startedAt,
       finishedAt: new Date().toISOString(),
-      config: { modelVersion, horizonDays, limit, backfillLimit, simulations, seed, skipBackfill, skipElite, skipFeatureBuild, skipHydrate, simulate, allowFallbackFeatures: false },
+      config: { modelVersion, horizonDays, limit, backfillLimit, simulations, seed, skipIngest, skipBackfill, skipElite, skipFeatureBuild, skipHydrate, simulate, includeMvp, includeEspn, includeTapology, includeUfcCom, allowFallbackFeatures: false },
       before: { fightCount: before.fightCount, readyFightCount: before.readyFights.length, blockedFightCount: before.blockedFights.length, blockedFights: before.blockedFights },
       repair: {
+        ingestion,
         backfill,
         eliteProfiles,
         featureBuild,
@@ -387,7 +395,7 @@ export async function POST(request: Request) {
       },
       sim,
       next: after.blockedFights.length > 0
-        ? "Review after.missingByFighter, then rerun after adding missing fighter data."
+        ? "Review after.missingByFighter. If a fighter has no public UFCStats record, add prospect/amateur notes or another real source; no fake fallback was used."
         : simulate
           ? "/sim/ufc"
           : "Run again with &simulate=1 to generate operational sim outputs."
