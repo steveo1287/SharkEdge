@@ -27,6 +27,17 @@ type MatchInput = {
   payloadRecord: Record<string, unknown>;
 };
 
+export type UfcCredentialPriorApplication = {
+  id: string;
+  confidence: "A" | "B" | "C";
+  sourceUrl: string;
+  evidence: string[];
+  metadata: Record<string, unknown>;
+  appliedWeight: number;
+  changedKeys: string[];
+  values: Partial<Record<UfcProfilePriorKey, number>>;
+};
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -37,6 +48,14 @@ function flattenText(value: unknown): string[] {
   if (Array.isArray(value)) return value.flatMap(flattenText);
   if (typeof value === "object") return Object.values(value as Record<string, unknown>).flatMap(flattenText);
   return [];
+}
+
+function numeric(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
 
 export function normalizeUfcCredentialToken(value: string | null | undefined) {
@@ -94,6 +113,57 @@ function candidateTokens(input: MatchInput) {
 function containsAny(text: string, tags: string[] | undefined) {
   if (!tags?.length) return false;
   return tags.some((tag) => text.includes(tag.toLowerCase()));
+}
+
+function confidenceMultiplier(confidence: unknown) {
+  if (confidence === "A") return 1;
+  if (confidence === "B") return 0.75;
+  if (confidence === "C") return 0.5;
+  return 0;
+}
+
+function credentialWeight(feature: UfcModelFeatureSnapshot, prior: UfcCredentialPrior) {
+  const ufcFights = typeof feature.ufcFights === "number" && Number.isFinite(feature.ufcFights) ? feature.ufcFights : 0;
+  const proFights = typeof feature.proFights === "number" && Number.isFinite(feature.proFights) ? feature.proFights : 0;
+  const confidence = confidenceMultiplier(prior.confidence);
+  const namedFighter = Boolean(prior.aliases?.length);
+  const base = namedFighter ? 0.72 : 0.56;
+  const establishedPenalty = ufcFights >= 7 ? 0.32 : ufcFights >= 3 ? 0.18 : 0;
+  const proPenalty = ufcFights <= 0 && proFights >= 10 ? 0.1 : 0;
+  return Math.max(0, Number(((base - establishedPenalty - proPenalty) * confidence).toFixed(4)));
+}
+
+function maxCredentialMoveFor(key: string, namedFighter: boolean) {
+  const multiplier = namedFighter ? 1 : 0.72;
+  if (key === "takedownsPer15") return 3.35 * multiplier;
+  if (key === "controlTimePct") return 34 * multiplier;
+  if (key === "takedownAccuracyPct" || key === "takedownDefensePct") return 31 * multiplier;
+  if (key === "submissionAttemptsPer15") return 1.4 * multiplier;
+  if (key === "submissionDefensePct") return 22 * multiplier;
+  if (key === "amateurSignal") return 52 * multiplier;
+  if (key === "promotionTierSignal") return 28 * multiplier;
+  if (key === "opponentAdjustedStrength") return 24 * multiplier;
+  if (key.includes("Pct") || key.includes("Score") || key.includes("Strength") || key.includes("Signal")) return 18 * multiplier;
+  if (key.includes("Per15")) return 1.25 * multiplier;
+  if (key.includes("PerMin")) return 0.85 * multiplier;
+  if (key === "strikingDifferential") return 0.65 * multiplier;
+  return 12 * multiplier;
+}
+
+function currentFeatureValue(feature: UfcModelFeatureSnapshot, key: UfcProfilePriorKey) {
+  const direct = numeric((feature as unknown as Record<string, unknown>)[key]);
+  if (direct != null) return direct;
+  const json = asRecord(feature.feature);
+  const fromJson = numeric(json[key]);
+  if (fromJson != null) return fromJson;
+  const rawFeature = asRecord(json.rawFeature);
+  return numeric(rawFeature[key]);
+}
+
+function blendCredential(current: number | null, prior: number, key: string, weight: number, namedFighter: boolean) {
+  if (current == null) return prior;
+  const maxMove = maxCredentialMoveFor(key, namedFighter);
+  return Number((current + clamp((prior - current) * weight, -maxMove, maxMove)).toFixed(4));
 }
 
 export const UFC_CREDENTIAL_PRIORS: UfcCredentialPrior[] = [
@@ -248,6 +318,36 @@ export function findUfcCredentialPriors(input: MatchInput) {
     const aliasMatch = prior.aliases?.some((alias) => tokens.includes(normalizeUfcCredentialToken(alias))) ?? false;
     return aliasMatch || containsAny(text, prior.matchTags);
   });
+}
+
+export function calculateUfcCredentialPriorApplications(input: MatchInput): UfcCredentialPriorApplication[] {
+  return findUfcCredentialPriors(input).map((prior) => {
+    const weight = credentialWeight(input.feature, prior);
+    const namedFighter = Boolean(prior.aliases?.length);
+    const values: Partial<Record<UfcProfilePriorKey, number>> = {};
+    const changedKeys: string[] = [];
+    for (const key of UFC_PROFILE_PRIOR_KEYS) {
+      const priorValue = prior.priors[key];
+      if (priorValue == null) continue;
+      const current = currentFeatureValue(input.feature, key);
+      const blended = blendCredential(current, priorValue, key, weight, namedFighter);
+      const currentRounded = current == null ? null : Number(current.toFixed(4));
+      if (currentRounded == null || Math.abs(blended - currentRounded) > 0.0001) {
+        values[key] = blended;
+        changedKeys.push(key);
+      }
+    }
+    return {
+      id: prior.id,
+      confidence: prior.confidence,
+      sourceUrl: prior.sourceUrl,
+      evidence: prior.evidence,
+      metadata: prior.metadata ?? {},
+      appliedWeight: weight,
+      changedKeys,
+      values
+    };
+  }).filter((application) => application.changedKeys.length > 0);
 }
 
 export function summarizeUfcCredentialPriorCatalog() {
