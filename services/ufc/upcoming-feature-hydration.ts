@@ -55,6 +55,10 @@ function count(value: number | bigint) {
   return typeof value === "bigint" ? Number(value) : value;
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 function numeric(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim()) {
@@ -64,17 +68,59 @@ function numeric(value: unknown) {
   return null;
 }
 
+function payloadRecords(payload: Record<string, unknown>) {
+  const eliteProfile = asRecord(payload.eliteProfile);
+  return [
+    payload,
+    asRecord(payload.stats),
+    asRecord(payload.profile),
+    asRecord(payload.rawPayload),
+    asRecord(payload.rawFeature),
+    eliteProfile,
+    asRecord(eliteProfile.sample),
+    asRecord(eliteProfile.careerStats),
+    asRecord(eliteProfile.background),
+    asRecord(payload.careerStats),
+    asRecord(payload.background),
+    asRecord(payload.spiderSkills)
+  ];
+}
+
 export function pickUfcPayloadNumber(payload: Record<string, unknown>, ...keys: string[]) {
-  for (const key of keys) {
-    const value = numeric(payload[key]);
-    if (value != null) return value;
-  }
-  const rawFeature = payload.rawFeature;
-  if (rawFeature && typeof rawFeature === "object") {
+  for (const record of payloadRecords(payload)) {
     for (const key of keys) {
-      const value = numeric((rawFeature as Record<string, unknown>)[key]);
+      const value = numeric(record[key]);
       if (value != null) return value;
     }
+  }
+  return null;
+}
+
+function pickUfcPayloadString(payload: Record<string, unknown>, ...keys: string[]) {
+  for (const record of payloadRecords(payload)) {
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+  }
+  return null;
+}
+
+function normalizePct(value: number | null) {
+  if (value == null) return null;
+  return value > 1 ? value : value * 100;
+}
+
+function estimateRounds(proFights: number | null, ufcFights: number | null, wins: number | null, losses: number | null) {
+  const explicit = pickPositive(proFights, ufcFights);
+  const recordFights = (wins ?? 0) + (losses ?? 0);
+  const fights = explicit ?? (recordFights > 0 ? recordFights : null);
+  return fights == null ? null : Math.max(1, Math.round(fights * 2.15));
+}
+
+function pickPositive(...values: Array<number | null>) {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
   }
   return null;
 }
@@ -83,9 +129,9 @@ export function hasHydratableUfcPayload(payload: Record<string, unknown>) {
   const available = [
     pickUfcPayloadNumber(payload, "slpm", "sigStrikesLandedPerMin", "sig_strikes_landed_per_min"),
     pickUfcPayloadNumber(payload, "sapm", "sigStrikesAbsorbedPerMin", "sig_strikes_absorbed_per_min"),
-    pickUfcPayloadNumber(payload, "takedownsPer15", "takedowns_per_15"),
-    pickUfcPayloadNumber(payload, "takedownDefensePct", "takedown_defense_pct"),
-    pickUfcPayloadNumber(payload, "submissionAttemptsPer15", "submission_attempts_per_15")
+    pickUfcPayloadNumber(payload, "takedownsPer15", "takedowns_per_15", "tdAvg", "td_avg"),
+    pickUfcPayloadNumber(payload, "takedownDefensePct", "takedown_defense_pct", "tdDefense"),
+    pickUfcPayloadNumber(payload, "submissionAttemptsPer15", "submission_attempts_per_15", "subAvg")
   ].filter((value) => value != null).length;
   return available >= 2;
 }
@@ -109,7 +155,23 @@ export function buildHydratedUfcFeature(input: {
   const slpm = pickUfcPayloadNumber(input.payload, "slpm", "sigStrikesLandedPerMin", "sig_strikes_landed_per_min");
   const sapm = pickUfcPayloadNumber(input.payload, "sapm", "sigStrikesAbsorbedPerMin", "sig_strikes_absorbed_per_min");
   const proFights = pickUfcPayloadNumber(input.payload, "proFights", "pro_fights");
-  const ufcFights = pickUfcPayloadNumber(input.payload, "ufcFights", "ufc_fights");
+  const ufcFights = pickUfcPayloadNumber(input.payload, "ufcFights", "ufc_fights") ?? proFights;
+  const wins = pickUfcPayloadNumber(input.payload, "wins", "recordWins", "record_wins");
+  const losses = pickUfcPayloadNumber(input.payload, "losses", "recordLosses", "record_losses");
+  const roundsFought = pickUfcPayloadNumber(input.payload, "roundsFought", "rounds_fought") ?? estimateRounds(proFights, ufcFights, wins, losses);
+  const sigStrikeAccuracyPct = normalizePct(pickUfcPayloadNumber(input.payload, "sigStrikeAccuracyPct", "strikeAccuracyPct", "sig_strike_accuracy_pct"));
+  const sigStrikeDefensePct = normalizePct(pickUfcPayloadNumber(input.payload, "sigStrikeDefensePct", "strikeDefensePct", "sig_strike_defense_pct"));
+  const takedownsPer15 = pickUfcPayloadNumber(input.payload, "takedownsPer15", "takedowns_per_15", "tdAvg", "td_avg");
+  const takedownAccuracyPct = normalizePct(pickUfcPayloadNumber(input.payload, "takedownAccuracyPct", "takedown_accuracy_pct", "tdAccuracy"));
+  const takedownDefensePct = normalizePct(pickUfcPayloadNumber(input.payload, "takedownDefensePct", "takedown_defense_pct", "tdDefense"));
+  const submissionAttemptsPer15 = pickUfcPayloadNumber(input.payload, "submissionAttemptsPer15", "submission_attempts_per_15", "subAvg");
+  const controlTimePct = normalizePct(pickUfcPayloadNumber(input.payload, "controlTimePct", "control_time_pct")) ?? Math.max(4, Math.min(42, (takedownsPer15 ?? 0.8) * 7.5 + (submissionAttemptsPer15 ?? 0.25) * 3.5));
+  const controlEscapePct = normalizePct(pickUfcPayloadNumber(input.payload, "controlEscapePct", "control_escape_pct", "escapePct")) ?? (takedownDefensePct != null ? Math.max(25, Math.min(92, takedownDefensePct * 0.82)) : null);
+  const finishRate = pickUfcPayloadNumber(input.payload, "finishRate", "finish_rate");
+  const staminaScore = pickUfcPayloadNumber(input.payload, "staminaScore", "cardioScore", "lateRoundPerformance") ?? (roundsFought != null ? Math.max(42, Math.min(84, 47 + Math.sqrt(roundsFought) * 3.2)) : null);
+  const strikeDiff = slpm != null && sapm != null ? Number((slpm - sapm).toFixed(3)) : pickUfcPayloadNumber(input.payload, "strikingDifferential", "striking_differential");
+  const hydratedFrom = pickUfcPayloadString(input.payload, "source", "provider", "ufcStatsUrl") ?? "fighter-payload";
+
   return {
     id: stableId("ufcmf", `${input.fightId}:${input.fighterId}:${modelVersion}:hydrated`),
     fightId: input.fightId,
@@ -120,26 +182,43 @@ export function buildHydratedUfcFeature(input: {
     modelVersion,
     proFights: proFights == null ? null : Math.max(0, Math.round(proFights)),
     ufcFights: ufcFights == null ? null : Math.max(0, Math.round(ufcFights)),
-    roundsFought: pickUfcPayloadNumber(input.payload, "roundsFought", "rounds_fought"),
+    roundsFought,
     sigStrikesLandedPerMin: slpm,
     sigStrikesAbsorbedPerMin: sapm,
-    strikingDifferential: slpm != null && sapm != null ? Number((slpm - sapm).toFixed(3)) : null,
-    takedownsPer15: pickUfcPayloadNumber(input.payload, "takedownsPer15", "takedowns_per_15"),
-    takedownDefensePct: pickUfcPayloadNumber(input.payload, "takedownDefensePct", "takedown_defense_pct"),
-    submissionAttemptsPer15: pickUfcPayloadNumber(input.payload, "submissionAttemptsPer15", "submission_attempts_per_15"),
-    controlTimePct: pickUfcPayloadNumber(input.payload, "controlTimePct", "control_time_pct"),
+    strikingDifferential: strikeDiff,
+    takedownsPer15,
+    takedownDefensePct,
+    submissionAttemptsPer15,
+    controlTimePct,
     opponentAdjustedStrength: pickUfcPayloadNumber(input.payload, "opponentAdjustedStrength", "opponent_adjusted_strength") ?? 50,
-    coldStartActive: (ufcFights ?? 0) < 3 || (proFights ?? 0) < 8,
+    coldStartActive: (ufcFights ?? proFights ?? 0) < 3,
     feature: {
       source: "upcoming-feature-hydration",
-      hydrationQuality: "profile-derived",
+      hydrationQuality: "internet-profile-derived",
+      hydratedFrom,
       rawSource: input.payload.sourceKey ?? input.payload.source ?? null,
       age: pickUfcPayloadNumber(input.payload, "age"),
       heightInches: pickUfcPayloadNumber(input.payload, "heightInches", "height_inches"),
       reachInches: pickUfcPayloadNumber(input.payload, "reachInches", "reach_inches"),
-      sigStrikeAccuracyPct: pickUfcPayloadNumber(input.payload, "sigStrikeAccuracyPct", "strikeAccuracyPct", "sig_strike_accuracy_pct"),
-      sigStrikeDefensePct: pickUfcPayloadNumber(input.payload, "sigStrikeDefensePct", "strikeDefensePct", "sig_strike_defense_pct"),
-      takedownAccuracyPct: pickUfcPayloadNumber(input.payload, "takedownAccuracyPct", "takedown_accuracy_pct")
+      stance: pickUfcPayloadString(input.payload, "stance"),
+      sigStrikeAccuracyPct,
+      sigStrikeDefensePct,
+      takedownAccuracyPct,
+      takedownDefensePct,
+      submissionDefensePct: normalizePct(pickUfcPayloadNumber(input.payload, "submissionDefensePct", "submission_defense_pct", "subDefense")) ?? Math.max(45, Math.min(88, 58 + (takedownDefensePct ?? 62) * 0.18 - (submissionAttemptsPer15 ?? 0) * 1.5)),
+      controlEscapePct,
+      finishRate,
+      lateRoundPerformance: staminaScore,
+      staminaScore,
+      paceScore: slpm != null ? Math.max(35, Math.min(88, 42 + slpm * 6 + (takedownsPer15 ?? 0) * 2)) : null,
+      chinScore: sigStrikeDefensePct != null && sapm != null ? Math.max(30, Math.min(88, 48 + sigStrikeDefensePct * 0.34 - sapm * 2.4)) : null,
+      fightIqScore: roundsFought != null && sigStrikeDefensePct != null && takedownDefensePct != null ? Math.max(40, Math.min(88, 42 + Math.sqrt(roundsFought) * 2 + sigStrikeDefensePct * 0.16 + takedownDefensePct * 0.12)) : null,
+      derivedEstimates: {
+        roundsFought: pickUfcPayloadNumber(input.payload, "roundsFought", "rounds_fought") == null && roundsFought != null,
+        controlTimePct: pickUfcPayloadNumber(input.payload, "controlTimePct", "control_time_pct") == null && controlTimePct != null,
+        controlEscapePct: pickUfcPayloadNumber(input.payload, "controlEscapePct", "control_escape_pct", "escapePct") == null && controlEscapePct != null,
+        staminaScore: pickUfcPayloadNumber(input.payload, "staminaScore", "cardioScore", "lateRoundPerformance") == null && staminaScore != null
+      }
     }
   };
 }
