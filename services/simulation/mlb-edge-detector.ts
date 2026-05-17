@@ -224,15 +224,11 @@ function oddsApiIoEventContext(data: unknown): OddsApiIoEventWithTeams[] {
   });
 }
 
-function dateOnly(value: Date) {
-  return value.toISOString().slice(0, 10);
-}
-
 function oddsApiIoWindow() {
   const now = new Date();
   const to = new Date(now);
   to.setUTCDate(to.getUTCDate() + 3);
-  return { from: dateOnly(now), to: dateOnly(to) };
+  return { from: now.toISOString(), to: to.toISOString() };
 }
 
 function lineKeyForOddsApiIo(row: OddsApiIoNormalizedOddsRow) {
