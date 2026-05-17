@@ -52,11 +52,21 @@ export type UfcEnsembleSimResult = {
 
 const DEFAULT_SIMULATIONS = 25_000;
 const DEFAULT_WEIGHTS: UfcEnsembleWeights = { skillMarkov: 0.34, exchangeMonteCarlo: 0.28, roundByRound: 0.2, styleMatchup: 0.18 };
+const METHOD_PRIOR = { KO_TKO: 0.32, SUBMISSION: 0.21, DECISION: 0.47 };
 
 function round(value: number, digits = 4) { return Number(value.toFixed(digits)); }
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function numeric(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.replace(/%$/, ""));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 function normalizeWeights(input?: Partial<UfcEnsembleWeights>): UfcEnsembleWeights {
@@ -100,6 +110,84 @@ function averagePair(exchange: { fighterA: number; fighterB: number }, roundEngi
   return { fighterA: round(exchange.fighterA * (1 - roundWeight) + roundEngine.fighterA * roundWeight, 2), fighterB: round(exchange.fighterB * (1 - roundWeight) + roundEngine.fighterB * roundWeight, 2) };
 }
 
+function qualityRank(quality: string | null | undefined) {
+  if (quality === "A") return 4;
+  if (quality === "B") return 3;
+  if (quality === "C") return 2;
+  if (quality === "D") return 1;
+  return 0;
+}
+
+function featureReliability(feature: UfcModelFeatureSnapshot) {
+  const root = asRecord(feature.feature);
+  const diagnostics = asRecord(root.profileDiagnostics);
+  const eliteProfile = asRecord(root.eliteProfile);
+  const sample = asRecord(eliteProfile.sample);
+  const source = typeof root.source === "string" ? root.source : "unknown";
+  const dataQuality = typeof diagnostics.dataQuality === "string" ? diagnostics.dataQuality : typeof eliteProfile.dataQuality === "string" ? eliteProfile.dataQuality : null;
+  const seconds = numeric(diagnostics.seconds) ?? 0;
+  const rounds = numeric(feature.roundsFought) ?? numeric(sample.roundsFought) ?? 0;
+  const ufcFights = numeric(feature.ufcFights) ?? numeric(sample.ufcFights) ?? 0;
+  const proFights = numeric(feature.proFights) ?? numeric(sample.proFights) ?? 0;
+  const usefulHistory = seconds >= 900 || rounds >= 3 || ufcFights >= 1;
+  const coldStart = Boolean(feature.coldStartActive) && !usefulHistory;
+  const historyWeighted = source === "elite-fighter-profile-builder" || source === "elite-fighter-profile-builder-fight-snapshot" || Boolean(asRecord(eliteProfile.diagnostics).historyWeighted) || usefulHistory;
+  const missingCore = [feature.sigStrikesLandedPerMin, feature.sigStrikesAbsorbedPerMin, feature.takedownsPer15, feature.takedownDefensePct, feature.submissionAttemptsPer15, feature.controlTimePct].filter((value) => typeof value !== "number" || !Number.isFinite(value)).length;
+  const base = qualityRank(dataQuality) * 16 + Math.min(18, ufcFights * 4) + Math.min(14, rounds * 1.2) + (historyWeighted ? 10 : 0) - missingCore * 7 - (coldStart ? 18 : 0) + Math.min(8, proFights * 0.5);
+  const score = Math.max(0, Math.min(100, Math.round(base)));
+  return { score, dataQuality: dataQuality ?? "UNKNOWN", usefulHistory, coldStart, historyWeighted, missingCore };
+}
+
+function matchupReliability(fighterAFeature: UfcModelFeatureSnapshot, fighterBFeature: UfcModelFeatureSnapshot) {
+  const a = featureReliability(fighterAFeature);
+  const b = featureReliability(fighterBFeature);
+  const score = Math.min(a.score, b.score);
+  const weak = score < 55 || a.coldStart || b.coldStart || a.dataQuality === "D" || b.dataQuality === "D";
+  const veryWeak = score < 42 || (a.dataQuality === "D" && b.dataQuality === "D") || (a.missingCore >= 3 || b.missingCore >= 3);
+  return { score, weak, veryWeak, fighterA: a, fighterB: b };
+}
+
+function shrinkPairForReliability(pair: { a: number; b: number }, reliability: ReturnType<typeof matchupReliability>) {
+  if (!reliability.weak) return pair;
+  const maxEdge = reliability.veryWeak ? 0.035 : 0.055;
+  const aEdge = Math.max(-maxEdge, Math.min(maxEdge, pair.a - 0.5));
+  return normalizePair(0.5 + aEdge, 0.5 - aEdge);
+}
+
+function applyMethodReliabilityGuard(methods: UfcEnsembleSimResult["methodProbabilities"], reliability: ReturnType<typeof matchupReliability>) {
+  if (!reliability.weak) return normalizeMethods(methods);
+  const priorWeight = reliability.veryWeak ? 0.82 : 0.58;
+  const raw = normalizeMethods(methods);
+  const blended = normalizeMethods({
+    KO_TKO: raw.KO_TKO * (1 - priorWeight) + METHOD_PRIOR.KO_TKO * priorWeight,
+    SUBMISSION: raw.SUBMISSION * (1 - priorWeight) + METHOD_PRIOR.SUBMISSION * priorWeight,
+    DECISION: raw.DECISION * (1 - priorWeight) + METHOD_PRIOR.DECISION * priorWeight
+  });
+  const decisionCap = reliability.veryWeak ? 0.49 : 0.53;
+  if (blended.DECISION <= decisionCap) return blended;
+  const overflow = blended.DECISION - decisionCap;
+  return normalizeMethods({ KO_TKO: blended.KO_TKO + overflow * 0.62, SUBMISSION: blended.SUBMISSION + overflow * 0.38, DECISION: decisionCap });
+}
+
+function reliabilityFlags(reliability: ReturnType<typeof matchupReliability>) {
+  const flags: string[] = [];
+  if (reliability.weak) flags.push("method-prior-fallback");
+  if (reliability.veryWeak) flags.push("winner-probability-shrunk-for-weak-inputs");
+  if (reliability.fighterA.dataQuality === "D") flags.push("fighter-a-profile-d-quality");
+  if (reliability.fighterB.dataQuality === "D") flags.push("fighter-b-profile-d-quality");
+  if (reliability.fighterA.coldStart) flags.push("fighter-a-cold-start-method-cap");
+  if (reliability.fighterB.coldStart) flags.push("fighter-b-cold-start-method-cap");
+  return flags;
+}
+
+function reliabilitySummary(reliability: ReturnType<typeof matchupReliability>) {
+  if (!reliability.weak) return [];
+  return [
+    `Method model fallback guard active: matchup reliability ${reliability.score}/100; method probabilities blended toward base UFC priors and decision confidence capped.`,
+    `Winner probability shrink active for weak inputs: A profile ${reliability.fighterA.dataQuality}/${reliability.fighterA.score}, B profile ${reliability.fighterB.dataQuality}/${reliability.fighterB.score}.`
+  ];
+}
+
 function dangerFlags(skill: UfcSkillMarkovResult, exchange: UfcExchangeMonteCarloResult, roundEngine: UfcRoundByRoundFightResult, style: UfcStyleMatchupResult) {
   const flags: string[] = [];
   const maxA = Math.max(skill.fighterAWinProbability, exchange.fighterAWinProbability, roundEngine.fighterAWinProbability, style.fighterAWinProbability);
@@ -125,18 +213,26 @@ function pathSummary(skill: UfcSkillMarkovResult, exchange: UfcExchangeMonteCarl
   return [...new Set(summary)].slice(0, 12);
 }
 
-export function blendUfcSimOutputs(args: { skillMarkov: UfcSkillMarkovResult; exchangeMonteCarlo: UfcExchangeMonteCarloResult; roundByRound: UfcRoundByRoundFightResult; styleMatchup: UfcStyleMatchupResult; weights?: Partial<UfcEnsembleWeights> }): UfcEnsembleSimResult {
+export function blendUfcSimOutputs(args: { skillMarkov: UfcSkillMarkovResult; exchangeMonteCarlo: UfcExchangeMonteCarloResult; roundByRound: UfcRoundByRoundFightResult; styleMatchup: UfcStyleMatchupResult; weights?: Partial<UfcEnsembleWeights>; reliability?: ReturnType<typeof matchupReliability> }): UfcEnsembleSimResult {
   const weights = normalizeWeights(args.weights);
-  const pair = normalizePair(
+  const rawPair = normalizePair(
     blendProbability(args.skillMarkov.fighterAWinProbability, args.exchangeMonteCarlo.fighterAWinProbability, args.roundByRound.fighterAWinProbability, args.styleMatchup.fighterAWinProbability, weights),
     blendProbability(args.skillMarkov.fighterBWinProbability, args.exchangeMonteCarlo.fighterBWinProbability, args.roundByRound.fighterBWinProbability, args.styleMatchup.fighterBWinProbability, weights)
   );
-  const methods = normalizeMethods({
+  const reliability = args.reliability;
+  const pair = reliability ? shrinkPairForReliability(rawPair, reliability) : rawPair;
+  const methods = reliability ? applyMethodReliabilityGuard({
+    KO_TKO: blendProbability(args.skillMarkov.methodProbabilities.KO_TKO, args.exchangeMonteCarlo.methodProbabilities.KO_TKO, args.roundByRound.methodProbabilities.KO_TKO, args.styleMatchup.methodProbabilities.KO_TKO, weights),
+    SUBMISSION: blendProbability(args.skillMarkov.methodProbabilities.SUBMISSION, args.exchangeMonteCarlo.methodProbabilities.SUBMISSION, args.roundByRound.methodProbabilities.SUBMISSION, args.styleMatchup.methodProbabilities.SUBMISSION, weights),
+    DECISION: blendProbability(args.skillMarkov.methodProbabilities.DECISION, args.exchangeMonteCarlo.methodProbabilities.DECISION, args.roundByRound.methodProbabilities.DECISION, args.styleMatchup.methodProbabilities.DECISION, weights)
+  }, reliability) : normalizeMethods({
     KO_TKO: blendProbability(args.skillMarkov.methodProbabilities.KO_TKO, args.exchangeMonteCarlo.methodProbabilities.KO_TKO, args.roundByRound.methodProbabilities.KO_TKO, args.styleMatchup.methodProbabilities.KO_TKO, weights),
     SUBMISSION: blendProbability(args.skillMarkov.methodProbabilities.SUBMISSION, args.exchangeMonteCarlo.methodProbabilities.SUBMISSION, args.roundByRound.methodProbabilities.SUBMISSION, args.styleMatchup.methodProbabilities.SUBMISSION, weights),
     DECISION: blendProbability(args.skillMarkov.methodProbabilities.DECISION, args.exchangeMonteCarlo.methodProbabilities.DECISION, args.roundByRound.methodProbabilities.DECISION, args.styleMatchup.methodProbabilities.DECISION, weights)
   });
   const physicalRoundWeight = weights.roundByRound / Math.max(0.0001, weights.exchangeMonteCarlo + weights.roundByRound);
+  const baseDangerFlags = dangerFlags(args.skillMarkov, args.exchangeMonteCarlo, args.roundByRound, args.styleMatchup);
+  const basePathSummary = pathSummary(args.skillMarkov, args.exchangeMonteCarlo, args.roundByRound, args.styleMatchup);
   return {
     engine: "ensemble",
     simulations: args.skillMarkov.simulations,
@@ -157,8 +253,8 @@ export function blendUfcSimOutputs(args: { skillMarkov: UfcSkillMarkovResult; ex
     averageDamage: averagePair(args.exchangeMonteCarlo.averageDamage, args.roundByRound.averageDamage, physicalRoundWeight),
     averageControlSeconds: averagePair(args.exchangeMonteCarlo.averageControlSeconds, args.roundByRound.averageControlSeconds, physicalRoundWeight),
     averageKnockdowns: averagePair(args.exchangeMonteCarlo.averageKnockdowns, args.roundByRound.averageKnockdowns, physicalRoundWeight),
-    pathSummary: pathSummary(args.skillMarkov, args.exchangeMonteCarlo, args.roundByRound, args.styleMatchup),
-    dangerFlags: dangerFlags(args.skillMarkov, args.exchangeMonteCarlo, args.roundByRound, args.styleMatchup),
+    pathSummary: [...new Set([...(reliability ? reliabilitySummary(reliability) : []), ...basePathSummary])].slice(0, 14),
+    dangerFlags: [...new Set([...baseDangerFlags, ...(reliability ? reliabilityFlags(reliability) : [])])],
     sourceOutputs: args
   };
 }
@@ -178,5 +274,6 @@ export function runUfcEnsembleSimFromFeatures(fighterAFeature: UfcModelFeatureSn
   const exchangeMonteCarlo = runUfcExchangeMonteCarlo(buildExchangeStatsFromUfcFeature(fighterAFeature), buildExchangeStatsFromUfcFeature(fighterBFeature), { simulations, seed: seed + 17, scheduledRounds, exchangeSeconds: 5 });
   const roundByRound = runUfcRoundByRoundFightEngine(fighterAProfile, fighterBProfile, { simulations, seed: seed + 31, scheduledRounds });
   const styleMatchup = runUfcStyleMatchupEngine(fighterAProfile, fighterBProfile, { simulations, seed: seed + 47, scheduledRounds });
-  return blendUfcSimOutputs({ skillMarkov, exchangeMonteCarlo, roundByRound, styleMatchup, weights: options.weights });
+  const reliability = matchupReliability(fighterAFeature, fighterBFeature);
+  return blendUfcSimOutputs({ skillMarkov, exchangeMonteCarlo, roundByRound, styleMatchup, weights: options.weights, reliability });
 }
