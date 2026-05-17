@@ -8,6 +8,7 @@ import { probabilityToAmericanOdds } from "@/services/ufc/fight-iq";
 import { buildUfcFighterSkillProfile, type UfcModelFeatureSnapshot } from "@/services/ufc/fighter-skill-profile";
 import { evaluateUfcMarketAwareFairProbability, type UfcMarketAwareFairProbability } from "@/services/ufc/market-aware-fair-probability";
 import { applyUfcMethodCalibration, buildUfcPromotionGate, getUfcMethodCalibration, type UfcMethodCalibration, type UfcPromotionGate } from "@/services/ufc/method-calibration-gate";
+import { applyProfileIntelligenceToUfcFeature, profileIntelligencePathSummary, type UfcProfileIntelligenceBridgeResult } from "@/services/ufc/profile-intelligence-sim-bridge";
 import { applyPayloadPriorsToUfcFeature, enrichedPriorPathSummary, type UfcPriorBridgeResult } from "@/services/ufc/profile-prior-sim-bridge";
 import { auditUfcProfileTruth, weakerTruthConfidence, weakerTruthGrade, type UfcProfileTruthAudit } from "@/services/ufc/profile-truth-audit";
 import { auditUfcSimInputs, type UfcSimInputAudit } from "@/services/ufc/sim-input-audit";
@@ -42,6 +43,10 @@ export type UfcOperationalSimResult = {
   marketAware: UfcMarketAwareFairProbability;
   simInputAudit: UfcSimInputAudit;
   profileTruthAudit: { fighterA: UfcProfileTruthAudit; fighterB: UfcProfileTruthAudit; combinedGrade: string; combinedConfidenceCap: string };
+  profileIntelligenceBridge: {
+    fighterA: Omit<UfcProfileIntelligenceBridgeResult, "feature">;
+    fighterB: Omit<UfcProfileIntelligenceBridgeResult, "feature">;
+  };
   dataQualityGrade: string;
   confidenceGrade: string;
   confidenceGradeBeforeProfileCap: string;
@@ -104,7 +109,7 @@ type ResolvedMarketOdds = {
 
 const DEFAULT_MODEL_VERSION = "ufc-fight-iq-v1";
 const DEFAULT_SIMULATIONS = 25_000;
-const OPERATIONAL_SIM_CACHE_VERSION = "market-aware-input-audit-style-matchup-truth-audit-v1";
+const OPERATIONAL_SIM_CACHE_VERSION = "market-aware-input-audit-style-matchup-truth-intelligence-v1";
 
 function stableId(prefix: string, value: string) { return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`; }
 function toIso(value: Date | string) { return value instanceof Date ? value.toISOString() : new Date(value).toISOString(); }
@@ -141,6 +146,11 @@ function featureNumber(featureJson: Record<string, unknown>, ...keys: string[]) 
     const value = featureJson[key];
     if (typeof value === "number" && Number.isFinite(value)) return value;
   }
+  const rawFeature = asRecord(featureJson.rawFeature);
+  for (const key of keys) {
+    const value = rawFeature[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
   return null;
 }
 function resolveMarketOddsFromFight(fight: WarehouseFight, options: UfcOperationalSimOptions): ResolvedMarketOdds {
@@ -152,14 +162,13 @@ function resolveMarketOddsFromFight(fight: WarehouseFight, options: UfcOperation
   const payloadBOpen = marketNumber(open.fighterBOddsAmerican) ?? marketNumber(open.fighterB) ?? marketNumber(marketOddsSnapshot.fighterBOddsAmerican);
   const payloadAClose = marketNumber(close.fighterAOddsAmerican) ?? marketNumber(close.fighterA) ?? payloadAOpen;
   const payloadBClose = marketNumber(close.fighterBOddsAmerican) ?? marketNumber(close.fighterB) ?? payloadBOpen;
-  const resolved = {
+  return {
     marketOddsAOpen: options.marketOddsAOpen ?? payloadAOpen ?? null,
     marketOddsBOpen: options.marketOddsBOpen ?? payloadBOpen ?? null,
     marketOddsAClose: options.marketOddsAClose ?? payloadAClose ?? null,
     marketOddsBClose: options.marketOddsBClose ?? payloadBClose ?? null,
     marketOddsSnapshot: Object.keys(marketOddsSnapshot).length ? marketOddsSnapshot : null
   };
-  return resolved;
 }
 function toFeatureSnapshot(row: WarehouseFeature): UfcModelFeatureSnapshot {
   const featureJson = row.feature_json ?? {};
@@ -199,6 +208,7 @@ function toFeatureSnapshot(row: WarehouseFeature): UfcModelFeatureSnapshot {
   };
 }
 function stripBridgeFeature(input: UfcPriorBridgeResult): Omit<UfcPriorBridgeResult, "feature"> { const { feature: _feature, ...rest } = input; return rest; }
+function stripIntelligenceFeature(input: UfcProfileIntelligenceBridgeResult): Omit<UfcProfileIntelligenceBridgeResult, "feature"> { const { feature: _feature, ...rest } = input; return rest; }
 
 export async function runUfcOperationalSkillSim(fightId: string, options: UfcOperationalSimOptions = {}): Promise<UfcOperationalSimResult> {
   const modelVersion = options.modelVersion ?? DEFAULT_MODEL_VERSION;
@@ -239,22 +249,29 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
   const combinedTruthConfidenceCap = weakerTruthConfidence(aTruthAudit.confidenceCap, bTruthAudit.confidenceCap);
   const aPriorBridge = applyPayloadPriorsToUfcFeature(aRawSnapshot, payloadById.get(fight.fighter_a_id));
   const bPriorBridge = applyPayloadPriorsToUfcFeature(bRawSnapshot, payloadById.get(fight.fighter_b_id));
-  const aSnapshot = aPriorBridge.feature;
-  const bSnapshot = bPriorBridge.feature;
+  const aIntelligenceBridge = applyProfileIntelligenceToUfcFeature(aPriorBridge.feature);
+  const bIntelligenceBridge = applyProfileIntelligenceToUfcFeature(bPriorBridge.feature);
+  const aSnapshot = aIntelligenceBridge.feature;
+  const bSnapshot = bIntelligenceBridge.feature;
   const aProfile = buildUfcFighterSkillProfile({ feature: aSnapshot });
   const bProfile = buildUfcFighterSkillProfile({ feature: bSnapshot });
   const marketOddsA = resolvedMarketOdds.marketOddsAClose ?? resolvedMarketOdds.marketOddsAOpen ?? null;
   const marketOddsB = resolvedMarketOdds.marketOddsBClose ?? resolvedMarketOdds.marketOddsBOpen ?? null;
   const simInputAudit = auditUfcSimInputs({ fighterA: aSnapshot, fighterB: bSnapshot, marketOddsA, marketOddsB });
   const profileDataQualityGrade = weakerGrade(aProfile.sampleQuality, bProfile.sampleQuality);
-  const dataQualityGrade = weakerGrade(weakerGrade(profileDataQualityGrade, simInputAudit.grade), combinedTruthGrade);
+  const intelligenceGrade = weakerGrade(aIntelligenceBridge.readinessGrade ?? "D", bIntelligenceBridge.readinessGrade ?? "D");
+  const dataQualityGrade = weakerGrade(weakerGrade(weakerGrade(profileDataQualityGrade, simInputAudit.grade), combinedTruthGrade), intelligenceGrade);
   const sim = runUfcEnsembleSimFromFeatures(aSnapshot, bSnapshot, { simulations, seed, scheduledRounds: fight.scheduled_rounds === 5 ? 5 : 3, weights: activeEnsembleWeights.weights });
   const calibratedMethodProbabilities = applyUfcMethodCalibration(sim.methodProbabilities, methodCalibration);
   const enrichedPriorBridge = { fighterA: stripBridgeFeature(aPriorBridge), fighterB: stripBridgeFeature(bPriorBridge) };
+  const profileIntelligenceBridge = { fighterA: stripIntelligenceFeature(aIntelligenceBridge), fighterB: stripIntelligenceFeature(bIntelligenceBridge) };
   const priorPathSummary = enrichedPriorPathSummary({ fighterAId: fight.fighter_a_id, fighterBId: fight.fighter_b_id, a: aPriorBridge, b: bPriorBridge });
+  const intelligencePathSummary = profileIntelligencePathSummary({ fighterAId: fight.fighter_a_id, fighterBId: fight.fighter_b_id, a: aIntelligenceBridge, b: bIntelligenceBridge });
   const rawPickProbability = Math.max(sim.fighterAWinProbability, sim.fighterBWinProbability);
-  const confidenceBeforeProfileCap = confidenceGrade(rawPickProbability, dataQualityGrade, aProfile.prospect.coldStartActive || bProfile.prospect.coldStartActive || simInputAudit.fighterA.coldStartActive || simInputAudit.fighterB.coldStartActive);
+  const intelligenceColdStart = aIntelligenceBridge.blockers.length > 0 || bIntelligenceBridge.blockers.length > 0;
+  const confidenceBeforeProfileCap = confidenceGrade(rawPickProbability, dataQualityGrade, aProfile.prospect.coldStartActive || bProfile.prospect.coldStartActive || simInputAudit.fighterA.coldStartActive || simInputAudit.fighterB.coldStartActive || intelligenceColdStart);
   const confidence = weakerConfidence(weakerConfidence(confidenceBeforeProfileCap, maxConfidenceFromSignal(profileFeatureSignal)), combinedTruthConfidenceCap);
+  const profileFeatureScore = Math.min(profileFeatureSignal?.score ?? 100, simInputAudit.score, aTruthAudit.score, bTruthAudit.score, aIntelligenceBridge.readinessScore ?? 100, bIntelligenceBridge.readinessScore ?? 100);
   const marketAware = evaluateUfcMarketAwareFairProbability({
     fighterAId: fight.fighter_a_id,
     fighterBId: fight.fighter_b_id,
@@ -264,33 +281,38 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     marketOddsB,
     dataQualityGrade,
     confidenceGrade: confidence,
-    profileFeatureScore: Math.min(profileFeatureSignal?.score ?? 100, simInputAudit.score, aTruthAudit.score, bTruthAudit.score),
+    profileFeatureScore,
     methodCalibrationQuality: methodCalibration.quality,
     hasLearningSignal: Boolean(aPriorBridge.learningApplied || bPriorBridge.learningApplied),
-    hasPriorSignal: Boolean(aPriorBridge.applied || bPriorBridge.applied),
-    coldStartActive: Boolean(aProfile.prospect.coldStartActive || bProfile.prospect.coldStartActive || simInputAudit.fighterA.coldStartActive || simInputAudit.fighterB.coldStartActive)
+    hasPriorSignal: Boolean(aPriorBridge.applied || bPriorBridge.applied || aIntelligenceBridge.applied || bIntelligenceBridge.applied),
+    coldStartActive: Boolean(aProfile.prospect.coldStartActive || bProfile.prospect.coldStartActive || simInputAudit.fighterA.coldStartActive || simInputAudit.fighterB.coldStartActive || intelligenceColdStart)
   });
   const pickFighterId = marketAware.pickFighterId;
   const pickProbability = marketAware.pickProbability;
   const pickMarketOdds = marketAware.marketOddsAmerican;
-  const edgePct = marketAware.noMarketEdge || simInputAudit.grade === "D" || combinedTruthGrade === "D" ? null : marketAware.edgePct;
+  const noEdgeByAudit = simInputAudit.grade === "D" || combinedTruthGrade === "D" || intelligenceGrade === "D";
+  const edgePct = marketAware.noMarketEdge || noEdgeByAudit ? null : marketAware.edgePct;
   const auditReasonCodes = [
     ...simInputAudit.blockers.map((item) => `INPUT_BLOCKER_${item}`),
     ...simInputAudit.warnings.map((item) => `INPUT_WARNING_${item}`),
     ...aTruthAudit.reasonCodes.map((item) => `FIGHTER_A_${item}`),
-    ...bTruthAudit.reasonCodes.map((item) => `FIGHTER_B_${item}`)
+    ...bTruthAudit.reasonCodes.map((item) => `FIGHTER_B_${item}`),
+    ...aIntelligenceBridge.blockers.map((item) => `FIGHTER_A_INTEL_BLOCKER_${item}`),
+    ...bIntelligenceBridge.blockers.map((item) => `FIGHTER_B_INTEL_BLOCKER_${item}`),
+    ...aIntelligenceBridge.warnings.map((item) => `FIGHTER_A_INTEL_WARNING_${item}`),
+    ...bIntelligenceBridge.warnings.map((item) => `FIGHTER_B_INTEL_WARNING_${item}`)
   ];
   const promotionGate = buildUfcPromotionGate({
     dataQualityGrade,
     confidenceGrade: confidence,
     edgePct,
     pickProbability,
-    profileFeatureScore: Math.min(profileFeatureSignal?.score ?? 100, simInputAudit.score, aTruthAudit.score, bTruthAudit.score),
+    profileFeatureScore,
     methodCalibration,
     hasLearningSignal: Boolean(aPriorBridge.learningApplied || bPriorBridge.learningApplied),
-    hasPriorSignal: Boolean(aPriorBridge.applied || bPriorBridge.applied),
+    hasPriorSignal: Boolean(aPriorBridge.applied || bPriorBridge.applied || aIntelligenceBridge.applied || bIntelligenceBridge.applied),
     hasRealMarket: marketAware.hasRealMarket,
-    noMarketEdge: marketAware.noMarketEdge || simInputAudit.grade === "D" || combinedTruthGrade === "D",
+    noMarketEdge: marketAware.noMarketEdge || noEdgeByAudit,
     uncertaintyCrossesMarket: marketAware.confidenceBand.crossesMarket,
     confidenceBandWidth: marketAware.confidenceBand.width,
     marketAwareReasonCodes: [...marketAware.reasonCodes, ...auditReasonCodes]
@@ -305,6 +327,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     marketAware,
     simInputAudit,
     profileTruthAudit,
+    profileIntelligenceBridge,
     rawMethodProbabilities: sim.methodProbabilities,
     methodProbabilities: calibratedMethodProbabilities,
     methodCalibration,
@@ -337,7 +360,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     shadowPredictionId = stableId("ufcsh", `${predictionId}:shadow`);
     await prisma.$executeRaw`
       INSERT INTO ufc_shadow_predictions (id, fight_id, prediction_id, model_version, recorded_at, market_odds_a_open, market_odds_b_open, market_odds_a_close, market_odds_b_close, fighter_a_win_probability, fighter_b_win_probability, pick_fighter_id, data_quality_grade, confidence_grade, status, payload_json, updated_at)
-      VALUES (${shadowPredictionId}, ${fightId}, ${predictionId}, ${modelVersion}, now(), ${resolvedMarketOdds.marketOddsAOpen ?? null}, ${resolvedMarketOdds.marketOddsBOpen ?? null}, ${resolvedMarketOdds.marketOddsAClose ?? null}, ${resolvedMarketOdds.marketOddsBClose ?? null}, ${marketAware.blendedProbabilityA}, ${marketAware.blendedProbabilityB}, ${pickFighterId}, ${promotionGate.grade}, ${promotionGate.confidenceCap}, ${promotionGate.status === "PROMOTABLE" ? "PENDING" : "SHADOW_ONLY"}, ${JSON.stringify({ sim: predictionPayload, pathSummary: [...priorPathSummary, `Truth audit ${combinedTruthGrade}: A=${aTruthAudit.score}/100, B=${bTruthAudit.score}/100.`, ...aTruthAudit.reasonCodes.map((item) => `A ${item}`), ...bTruthAudit.reasonCodes.map((item) => `B ${item}`), `Input audit ${simInputAudit.grade} (${simInputAudit.score}/100).`, ...simInputAudit.blockers, ...simInputAudit.warnings, ...promotionGate.reasons, ...sim.pathSummary], dangerFlags: [...sim.dangerFlags, ...marketAware.reasonCodes, ...auditReasonCodes], profileFeatureSignal, profileTruthAudit, enrichedPriorBridge, methodCalibration, promotionGate, marketAware, simInputAudit, marketOddsSnapshot: resolvedMarketOdds.marketOddsSnapshot })}::jsonb, now())
+      VALUES (${shadowPredictionId}, ${fightId}, ${predictionId}, ${modelVersion}, now(), ${resolvedMarketOdds.marketOddsAOpen ?? null}, ${resolvedMarketOdds.marketOddsBOpen ?? null}, ${resolvedMarketOdds.marketOddsAClose ?? null}, ${resolvedMarketOdds.marketOddsBClose ?? null}, ${marketAware.blendedProbabilityA}, ${marketAware.blendedProbabilityB}, ${pickFighterId}, ${promotionGate.grade}, ${promotionGate.confidenceCap}, ${promotionGate.status === "PROMOTABLE" ? "PENDING" : "SHADOW_ONLY"}, ${JSON.stringify({ sim: predictionPayload, pathSummary: [...priorPathSummary, ...intelligencePathSummary, `Truth audit ${combinedTruthGrade}: A=${aTruthAudit.score}/100, B=${bTruthAudit.score}/100.`, ...aTruthAudit.reasonCodes.map((item) => `A ${item}`), ...bTruthAudit.reasonCodes.map((item) => `B ${item}`), `Input audit ${simInputAudit.grade} (${simInputAudit.score}/100).`, ...simInputAudit.blockers, ...simInputAudit.warnings, ...promotionGate.reasons, ...sim.pathSummary], dangerFlags: [...sim.dangerFlags, ...marketAware.reasonCodes, ...auditReasonCodes], profileFeatureSignal, profileTruthAudit, profileIntelligenceBridge, enrichedPriorBridge, methodCalibration, promotionGate, marketAware, simInputAudit, marketOddsSnapshot: resolvedMarketOdds.marketOddsSnapshot })}::jsonb, now())
       ON CONFLICT (id) DO UPDATE SET fighter_a_win_probability = EXCLUDED.fighter_a_win_probability, fighter_b_win_probability = EXCLUDED.fighter_b_win_probability, payload_json = EXCLUDED.payload_json, confidence_grade = EXCLUDED.confidence_grade, data_quality_grade = EXCLUDED.data_quality_grade, status = EXCLUDED.status, updated_at = now()
     `;
   }
@@ -358,6 +381,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     marketAware,
     simInputAudit,
     profileTruthAudit,
+    profileIntelligenceBridge,
     dataQualityGrade: promotionGate.grade,
     confidenceGrade: promotionGate.confidenceCap,
     confidenceGradeBeforeProfileCap: confidenceBeforeProfileCap,
@@ -375,6 +399,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
       ...aTruthAudit.reasonCodes.map((item) => `Fighter A truth flag: ${item}`),
       ...bTruthAudit.reasonCodes.map((item) => `Fighter B truth flag: ${item}`),
       ...priorPathSummary,
+      ...intelligencePathSummary,
       `Input audit ${simInputAudit.grade} (${simInputAudit.score}/100): fighterA=${simInputAudit.fighterA.score}, fighterB=${simInputAudit.fighterB.score}, market=${simInputAudit.market.score}, engine=${simInputAudit.engineReadiness.score}.`,
       ...simInputAudit.blockers,
       ...simInputAudit.warnings,
