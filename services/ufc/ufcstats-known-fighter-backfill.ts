@@ -4,9 +4,10 @@ import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 
 type KnownFighterRow = { id: string; full_name: string; profile_gap_score: number | null };
 type FighterIndexItem = { name: string; url: string };
+type FighterMatch = FighterIndexItem & { matchMethod: string; matchScore: number };
 type ParsedUfcStatsProfile = { url: string; record: { wins: number; losses: number; draws: number } | null; heightInches: number | null; reachInches: number | null; stance: string | null; dob: string | null; stats: Record<string, number | null> };
 
-export type UfcStatsKnownFighterBackfillResult = { ok: boolean; mode: "dry-run" | "backfill"; requestedLimit: number; offset: number; knownFighters: number; indexedFighters: number; matchedFighters: number; updatedFighters: number; roundStatsInserted: number; unmatched: string[]; updated: Array<{ fighterId: string; fullName: string; url: string; stats: Record<string, number | null> }>; errors: string[] };
+export type UfcStatsKnownFighterBackfillResult = { ok: boolean; mode: "dry-run" | "backfill"; requestedLimit: number; offset: number; knownFighters: number; indexedFighters: number; matchedFighters: number; updatedFighters: number; roundStatsInserted: number; unmatched: string[]; updated: Array<{ fighterId: string; fullName: string; matchedName: string; matchMethod: string; matchScore: number; url: string; stats: Record<string, number | null> }>; errors: string[] };
 
 const BAD_NAMES = new Set([
   "ufc", "ufc apex", "find a gym", "find a bar", "skip to main content", "events", "tickets", "watch", "shop",
@@ -14,9 +15,34 @@ const BAD_NAMES = new Set([
   "dana whites contender series", "dana white s contender series", "road to ufc", "ufc fight pass", "newsletter"
 ]);
 
+const NAME_ALIASES: Record<string, string[]> = {
+  "aoriqileng": ["aori qileng"],
+  "song yadong": ["song ya dong"],
+  "sumudaerji": ["su mudaerji"],
+  "sergei pavlovich": ["sergey pavlovich"],
+  "shara magomedov": ["sharabutdin magomedov"],
+  "zhang mingyang": ["mingyang zhang"],
+  "yi sak lee": ["leesak yi", "lee sak yi"],
+  "zhu kangjie": ["kangjie zhu"],
+  "rei tsuruya": ["rei tsuruya"],
+  "timmy cuamba": ["timothy cuamba"],
+  "tommy gantt": ["tom gantt"],
+  "tuco tokkos": ["tuco tokkos"],
+  "sean o malley": ["sean o malley", "sean omalley"],
+  "rafael fiziev": ["rafael fiziev"],
+  "shauna bannon": ["shauna bannon"],
+  "victor henry": ["victor henry"],
+  "tom nolan": ["tom nolan"],
+  "steve garcia": ["steve garcia"],
+  "shara bullet": ["sharabutdin magomedov"]
+};
+
 function stableId(prefix: string, value: string) { return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`; }
 function cleanHtml(value: string) { return value.replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&#039;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim(); }
 function normalizeName(value: string) { return cleanHtml(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+function sortedNameKey(value: string) { return normalizeName(value).split(" ").filter(Boolean).sort().join(" "); }
+function tokenSet(value: string) { return new Set(normalizeName(value).split(" ").filter(Boolean)); }
+function tokenScore(left: string, right: string) { const a = tokenSet(left); const b = tokenSet(right); if (!a.size || !b.size) return 0; const common = [...a].filter((token) => b.has(token)).length; return common / Math.max(a.size, b.size); }
 function parseNumber(value: string | null) { if (!value) return null; const clean = value.replace(/%/g, "").replace(/--/g, "").trim(); if (!clean) return null; const parsed = Number(clean); return Number.isFinite(parsed) ? parsed : null; }
 function parseHeight(value: string | null) { if (!value) return null; const match = value.match(/(\d+)\s*'\s*(\d+)/); if (!match) return null; return Number(match[1]) * 12 + Number(match[2]); }
 function parseReach(value: string | null) { if (!value) return null; const parsed = Number(value.replace(/[^0-9.]/g, "")); return Number.isFinite(parsed) ? parsed : null; }
@@ -48,6 +74,25 @@ async function buildUfcStatsIndex(fetchImpl: typeof fetch) {
   for (const item of items) byName.set(normalizeName(item.name), item);
   return byName;
 }
+function findIndexItem(fighterName: string, index: Map<string, FighterIndexItem>): FighterMatch | null {
+  const normalized = normalizeName(fighterName);
+  const direct = index.get(normalized);
+  if (direct) return { ...direct, matchMethod: "exact", matchScore: 1 };
+  for (const alias of NAME_ALIASES[normalized] ?? []) {
+    const item = index.get(normalizeName(alias));
+    if (item) return { ...item, matchMethod: `alias:${alias}`, matchScore: 0.98 };
+  }
+  const sorted = sortedNameKey(normalized);
+  for (const item of index.values()) {
+    if (sortedNameKey(item.name) === sorted) return { ...item, matchMethod: "token-sort", matchScore: 0.96 };
+  }
+  const scored = [...index.values()]
+    .map((item) => ({ item, score: tokenScore(normalized, item.name) }))
+    .filter(({ score }) => score >= 0.86)
+    .sort((a, b) => b.score - a.score || a.item.name.length - b.item.name.length);
+  const best = scored[0];
+  return best ? { ...best.item, matchMethod: "token-fuzzy", matchScore: Number(best.score.toFixed(3)) } : null;
+}
 async function knownUpcomingFighters(limit: number, offset: number, horizonDays: number) {
   return prisma.$queryRaw<KnownFighterRow[]>`
     WITH upcoming AS (
@@ -77,8 +122,8 @@ async function knownUpcomingFighters(limit: number, offset: number, horizonDays:
     OFFSET ${Math.max(0, Math.floor(offset))};
   `;
 }
-function profilePayload(profile: ParsedUfcStatsProfile, fullName: string, backfilledAt: string) { const record = profile.record; const proFights = record ? record.wins + record.losses + record.draws : null; return { source: "ufcstats-known-fighter-backfill", ufcStatsUrl: profile.url, ufcStatsBackfilledAt: backfilledAt, stats: { ...profile.stats, proFights, ufcFights: proFights, recordWins: record?.wins ?? null, recordLosses: record?.losses ?? null, recordDraws: record?.draws ?? null }, profile: { fullName, heightInches: profile.heightInches, reachInches: profile.reachInches, stance: profile.stance, dob: profile.dob }, rawPayload: { provider: "ufcstats", url: profile.url } }; }
-async function updateFighterFromProfile(fighter: KnownFighterRow, profile: ParsedUfcStatsProfile, dryRun: boolean) { const backfilledAt = new Date().toISOString(); const payload = profilePayload(profile, fighter.full_name, backfilledAt); if (dryRun) return; await prisma.$executeRaw`UPDATE ufc_fighters SET stance = COALESCE(${profile.stance}, stance), height_inches = COALESCE(${profile.heightInches}, height_inches), reach_inches = COALESCE(${profile.reachInches}, reach_inches), payload_json = COALESCE(payload_json, '{}'::jsonb) || ${JSON.stringify(payload)}::jsonb, updated_at = now() WHERE id = ${fighter.id};`; }
+function profilePayload(profile: ParsedUfcStatsProfile, fullName: string, match: FighterMatch, backfilledAt: string) { const record = profile.record; const proFights = record ? record.wins + record.losses + record.draws : null; return { source: "ufcstats-known-fighter-backfill", ufcStatsUrl: profile.url, ufcStatsMatchedName: match.name, ufcStatsMatchMethod: match.matchMethod, ufcStatsMatchScore: match.matchScore, ufcStatsBackfilledAt: backfilledAt, stats: { ...profile.stats, proFights, ufcFights: proFights, recordWins: record?.wins ?? null, recordLosses: record?.losses ?? null, recordDraws: record?.draws ?? null }, profile: { fullName, heightInches: profile.heightInches, reachInches: profile.reachInches, stance: profile.stance, dob: profile.dob }, rawPayload: { provider: "ufcstats", url: profile.url } }; }
+async function updateFighterFromProfile(fighter: KnownFighterRow, match: FighterMatch, profile: ParsedUfcStatsProfile, dryRun: boolean) { const backfilledAt = new Date().toISOString(); const payload = profilePayload(profile, fighter.full_name, match, backfilledAt); if (dryRun) return; await prisma.$executeRaw`UPDATE ufc_fighters SET stance = COALESCE(${profile.stance}, stance), height_inches = COALESCE(${profile.heightInches}, height_inches), reach_inches = COALESCE(${profile.reachInches}, reach_inches), payload_json = COALESCE(payload_json, '{}'::jsonb) || ${JSON.stringify(payload)}::jsonb, updated_at = now() WHERE id = ${fighter.id};`; }
 export async function backfillKnownUfcFighterStats(options: { limit?: number; offset?: number; horizonDays?: number; dryRun?: boolean; fetchImpl?: typeof fetch } = {}): Promise<UfcStatsKnownFighterBackfillResult> {
   if (!hasUsableServerDatabaseUrl()) return { ok: false, mode: options.dryRun ? "dry-run" : "backfill", requestedLimit: options.limit ?? 40, offset: options.offset ?? 0, knownFighters: 0, indexedFighters: 0, matchedFighters: 0, updatedFighters: 0, roundStatsInserted: 0, unmatched: [], updated: [], errors: ["No usable server database URL is configured."] };
   const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 40)));
@@ -94,16 +139,16 @@ export async function backfillKnownUfcFighterStats(options: { limit?: number; of
   let matchedFighters = 0;
   let updatedFighters = 0;
   for (const fighter of fighters) {
-    const indexItem = index.get(normalizeName(fighter.full_name));
-    if (!indexItem) { unmatched.push(fighter.full_name); continue; }
+    const match = findIndexItem(fighter.full_name, index);
+    if (!match) { unmatched.push(fighter.full_name); continue; }
     matchedFighters += 1;
     try {
-      const profile = parseProfile(await fetchText(indexItem.url, fetchImpl), indexItem.url);
+      const profile = parseProfile(await fetchText(match.url, fetchImpl), match.url);
       const hasStats = Object.values(profile.stats).some((value) => typeof value === "number" && Number.isFinite(value));
       if (!hasStats && !profile.record && !profile.heightInches && !profile.reachInches) { unmatched.push(fighter.full_name); continue; }
-      await updateFighterFromProfile(fighter, profile, dryRun);
+      await updateFighterFromProfile(fighter, match, profile, dryRun);
       updatedFighters += 1;
-      updated.push({ fighterId: fighter.id, fullName: fighter.full_name, url: profile.url, stats: profile.stats });
+      updated.push({ fighterId: fighter.id, fullName: fighter.full_name, matchedName: match.name, matchMethod: match.matchMethod, matchScore: match.matchScore, url: profile.url, stats: profile.stats });
     } catch (error) { errors.push(`${fighter.full_name}: ${error instanceof Error ? error.message : String(error)}`); }
   }
   return { ok: errors.length === 0, mode: dryRun ? "dry-run" : "backfill", requestedLimit: limit, offset, knownFighters: fighters.length, indexedFighters: index.size, matchedFighters, updatedFighters, roundStatsInserted: 0, unmatched: unmatched.slice(0, 50), updated: updated.slice(0, 50), errors: errors.slice(0, 50) };
