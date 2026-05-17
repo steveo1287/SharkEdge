@@ -17,6 +17,8 @@ export type FetchUfcMoneylineOddsResult = UfcMarketOddsIngestionResult & {
   sportKey: string;
   regions: string | null;
   bookmakers: string | null;
+  apiKeySource: string | null;
+  keyPoolSize: number;
   requestsRemaining: string | null;
   requestsUsed: string | null;
   requestsLast: string | null;
@@ -31,6 +33,21 @@ function envValue(...keys: string[]) {
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return null;
+}
+
+function splitKeys(value: string | null) {
+  return (value ?? "").split(",").map((key) => key.trim()).filter(Boolean);
+}
+
+function resolveApiKey(explicit?: string) {
+  if (explicit?.trim()) return { key: explicit.trim(), source: "explicit", poolSize: 1 };
+  const pooled = splitKeys(envValue("UFC_ODDS_API_KEYS", "ODDS_API_KEYS", "THE_ODDS_API_KEYS"));
+  if (pooled.length) {
+    const bucket = Math.floor(Date.now() / 3_600_000);
+    return { key: pooled[bucket % pooled.length], source: "pooled", poolSize: pooled.length };
+  }
+  const single = envValue("THE_ODDS_API_KEY", "ODDS_API_KEY", "UFC_ODDS_API_KEY");
+  return single ? { key: single, source: "single", poolSize: 1 } : { key: null, source: null, poolSize: 0 };
 }
 
 function buildOddsApiUrl(args: { apiKey: string; sportKey: string; regions: string | null; bookmakers: string | null }) {
@@ -50,7 +67,7 @@ function redactedUrl(url: URL) {
   return clone.toString();
 }
 
-function emptyResult(args: { ok: boolean; error: string; dryRun?: boolean; sportKey: string; regions: string | null; bookmakers: string | null }): FetchUfcMoneylineOddsResult {
+function emptyResult(args: { ok: boolean; error: string; dryRun?: boolean; sportKey: string; regions: string | null; bookmakers: string | null; apiKeySource?: string | null; keyPoolSize?: number }): FetchUfcMoneylineOddsResult {
   return {
     ok: args.ok,
     mode: args.dryRun ? "dry-run" : "write",
@@ -67,6 +84,8 @@ function emptyResult(args: { ok: boolean; error: string; dryRun?: boolean; sport
     sportKey: args.sportKey,
     regions: args.regions,
     bookmakers: args.bookmakers,
+    apiKeySource: args.apiKeySource ?? null,
+    keyPoolSize: args.keyPoolSize ?? 0,
     requestsRemaining: null,
     requestsUsed: null,
     requestsLast: null
@@ -74,16 +93,16 @@ function emptyResult(args: { ok: boolean; error: string; dryRun?: boolean; sport
 }
 
 export async function fetchAndIngestUfcMoneylineOdds(options: FetchUfcMoneylineOddsOptions = {}): Promise<FetchUfcMoneylineOddsResult> {
-  const apiKey = options.apiKey ?? envValue("THE_ODDS_API_KEY", "ODDS_API_KEY", "UFC_ODDS_API_KEY");
+  const resolvedKey = resolveApiKey(options.apiKey);
   const sportKey = options.sportKey ?? envValue("UFC_ODDS_API_SPORT_KEY") ?? DEFAULT_SPORT_KEY;
   const regions = options.regions ?? envValue("UFC_ODDS_API_REGIONS") ?? DEFAULT_REGIONS;
   const bookmakers = options.bookmakers ?? envValue("UFC_ODDS_API_BOOKMAKERS");
-  if (!apiKey) {
-    return emptyResult({ ok: false, error: "Missing THE_ODDS_API_KEY, ODDS_API_KEY, or UFC_ODDS_API_KEY for UFC moneyline odds.", dryRun: options.dryRun, sportKey, regions, bookmakers });
+  if (!resolvedKey.key) {
+    return emptyResult({ ok: false, error: "Missing THE_ODDS_API_KEY, ODDS_API_KEY, UFC_ODDS_API_KEY, or ODDS_API_KEYS for UFC moneyline odds.", dryRun: options.dryRun, sportKey, regions, bookmakers, apiKeySource: resolvedKey.source, keyPoolSize: resolvedKey.poolSize });
   }
 
   const fetchImpl = options.fetchImpl ?? fetch;
-  const url = buildOddsApiUrl({ apiKey, sportKey, regions, bookmakers });
+  const url = buildOddsApiUrl({ apiKey: resolvedKey.key, sportKey, regions, bookmakers });
   const response = await fetchImpl(url, { headers: { accept: "application/json" }, cache: "no-store" });
   const endpoint = redactedUrl(url);
   const requestsRemaining = response.headers.get("x-requests-remaining");
@@ -93,7 +112,7 @@ export async function fetchAndIngestUfcMoneylineOdds(options: FetchUfcMoneylineO
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     return {
-      ...emptyResult({ ok: false, error: `The Odds API returned ${response.status}${body ? `: ${body.slice(0, 300)}` : ""}`, dryRun: options.dryRun, sportKey, regions, bookmakers }),
+      ...emptyResult({ ok: false, error: `The Odds API returned ${response.status}${body ? `: ${body.slice(0, 300)}` : ""}`, dryRun: options.dryRun, sportKey, regions, bookmakers, apiKeySource: resolvedKey.source, keyPoolSize: resolvedKey.poolSize }),
       fetched: true,
       endpoint,
       requestsRemaining,
@@ -117,6 +136,8 @@ export async function fetchAndIngestUfcMoneylineOdds(options: FetchUfcMoneylineO
     sportKey,
     regions,
     bookmakers,
+    apiKeySource: resolvedKey.source,
+    keyPoolSize: resolvedKey.poolSize,
     requestsRemaining,
     requestsUsed,
     requestsLast
