@@ -47,6 +47,45 @@ assert.equal(generic.length, 1);
 assert.equal(generic[0].sportsbookName, "Bet365");
 assert.equal(generic[0].price, 140);
 
+const teamNamedMoneyline = filterOddsApiIoMainBoardRows(normalizeOddsApiIoOdds({
+  bookmakers: [{
+    bookmaker: "Circa",
+    markets: [{
+      key: "moneyline",
+      outcomes: [
+        { name: "Chicago Cubs", price: "-142" },
+        { name: "St. Louis Cardinals", price: "120" }
+      ]
+    }]
+  }]
+}, {
+  ...base,
+  sourceEventId: "63302145",
+  homeTeam: "Chicago Cubs",
+  awayTeam: "St. Louis Cardinals"
+}));
+
+assert.equal(teamNamedMoneyline.length, 2);
+assert.equal(teamNamedMoneyline.find((row) => row.selection === "Chicago Cubs")?.side, "home");
+assert.equal(teamNamedMoneyline.find((row) => row.selection === "St. Louis Cardinals")?.side, "away");
+
+const labelledTotal = filterOddsApiIoMainBoardRows(normalizeOddsApiIoOdds({
+  bookmakers: [{
+    bookmaker: "Circa",
+    markets: [{
+      key: "total",
+      outcomes: [
+        { name: "Over 8.5", price: "-105" },
+        { name: "Under 8.5", price: "-115" }
+      ]
+    }]
+  }]
+}, { ...base, sourceEventId: "63302146" }));
+
+assert.equal(labelledTotal.length, 2);
+assert.equal(labelledTotal.find((row) => row.side === "over")?.point, 8.5);
+assert.equal(labelledTotal.find((row) => row.side === "under")?.point, 8.5);
+
 const ladder = normalizeOddsApiIoOdds({
   id: 63302144,
   bookmakers: {

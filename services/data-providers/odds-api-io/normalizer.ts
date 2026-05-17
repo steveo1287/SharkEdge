@@ -3,6 +3,8 @@ export type OddsApiIoNormalizedEvent = {
   league: string;
   sport: string | null;
   eventLabel: string;
+  homeTeam: string | null;
+  awayTeam: string | null;
   startTime: string | null;
   status: string | null;
   raw: Record<string, unknown>;
@@ -21,6 +23,15 @@ export type OddsApiIoNormalizedOddsRow = {
   point: number | null;
   sourceSnapshotId: string;
   capturedAt: string;
+};
+
+type OddsApiIoOddsContext = {
+  sourceEventId: string;
+  league: string;
+  sport?: string | null;
+  capturedAt?: string;
+  homeTeam?: string | null;
+  awayTeam?: string | null;
 };
 
 function text(value: unknown) {
@@ -68,6 +79,22 @@ function date(value: unknown): string | null {
 
 function idSafe(value: string) {
   return value.replace(/[^a-zA-Z0-9_:-]/g, "_").slice(0, 180);
+}
+
+function normalizeName(value: unknown) {
+  return text(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function teamMatchesSelection(selection: unknown, team: unknown) {
+  const left = normalizeName(selection);
+  const right = normalizeName(team);
+  if (!left || !right) return false;
+  return left === right || left.includes(right) || right.includes(left);
+}
+
+function extractPointFromText(value: unknown): number | null {
+  const match = text(value).match(/(?:^|[^0-9])(\d{1,2}(?:\.\d)?)(?:[^0-9]|$)/);
+  return match ? num(match[1]) : null;
 }
 
 function eventId(event: Record<string, unknown>) {
@@ -121,6 +148,8 @@ export function normalizeOddsApiIoEvents(data: unknown, fallback: { league: stri
       league: (leagueStr ?? text(event.leagueKey ?? fallback.league)).toUpperCase(),
       sport: objectText(event.sport, ["slug", "name", "key"]) || text(fallback.sport) || null,
       eventLabel,
+      homeTeam: home || null,
+      awayTeam: away || null,
       startTime: date(event.startTime ?? event.start_time ?? event.commence_time ?? event.date),
       status: text(event.status ?? event.state) || null,
       raw: event
@@ -145,6 +174,29 @@ function inferSide(selection: string, market: string) {
   if (lower.includes("away") || lower.includes("road")) return "away";
   if (lower.includes("draw")) return "draw";
   return selection || "unknown";
+}
+
+function repairMarketType(marketType: string, selection: string | null, context: OddsApiIoOddsContext) {
+  if (marketType !== "unknown") return marketType;
+  if (teamMatchesSelection(selection, context.homeTeam) || teamMatchesSelection(selection, context.awayTeam)) return "moneyline";
+  const lower = text(selection).toLowerCase();
+  if (lower.includes("over") || lower.includes("under")) return "total";
+  return marketType;
+}
+
+function repairSide(side: string, marketType: string, selection: string | null, context: OddsApiIoOddsContext) {
+  if (marketType === "moneyline") {
+    if (side === "home" || side === "away" || side === "draw") return side;
+    if (teamMatchesSelection(selection, context.homeTeam)) return "home";
+    if (teamMatchesSelection(selection, context.awayTeam)) return "away";
+  }
+  if (marketType === "total") {
+    if (side === "over" || side === "under") return side;
+    const lower = text(selection).toLowerCase();
+    if (lower.includes("over")) return "over";
+    if (lower.includes("under")) return "under";
+  }
+  return side || "unknown";
 }
 
 function looksLikeOutcome(value: unknown): value is Record<string, unknown> {
@@ -189,7 +241,7 @@ function oddsArray(odds: unknown): Record<string, unknown>[] {
 
 function normalizeBookmakersOdds(
   event: Record<string, unknown>,
-  context: { sourceEventId: string; league: string; sport?: string | null; capturedAt: string }
+  context: OddsApiIoOddsContext & { capturedAt: string }
 ): OddsApiIoNormalizedOddsRow[] {
   const bookmakers = event.bookmakers as Record<string, unknown>;
   const rows: OddsApiIoNormalizedOddsRow[] = [];
@@ -200,25 +252,27 @@ function normalizeBookmakersOdds(
       const market = marketEntry.value;
       if (!market || typeof market !== "object") continue;
       const m = market as Record<string, unknown>;
-      const marketType = inferMarket(text(m.name ?? m.market ?? m.marketName ?? m.key ?? marketEntry.key ?? ""));
+      const rawMarketType = inferMarket(text(m.name ?? m.market ?? m.marketName ?? m.key ?? marketEntry.key ?? ""));
       for (const o of oddsArray(m.odds ?? m.outcomes ?? m.prices ?? m)) {
-        const hdp = num(o.hdp);
+        const hdp = num(o.hdp ?? o.point ?? o.handicap ?? o.line) ?? extractPointFromText(o.label ?? o.name ?? o.selection);
         const label = o.label ? text(o.label) : null;
         for (const sideKey of OUTCOME_SIDE_KEYS) {
           const price = normalizePrice(o[sideKey]);
           if (price == null) continue;
           const selection = label ?? sideKey;
-          const side = sideKey === "home" || sideKey === "away" || sideKey === "over" || sideKey === "under" || sideKey === "draw"
+          const repairedMarketType = repairMarketType(rawMarketType, selection, context);
+          const rawSide = sideKey === "home" || sideKey === "away" || sideKey === "over" || sideKey === "under" || sideKey === "draw"
             ? sideKey
-            : inferSide(selection, marketType);
-          const sourceSnapshotId = idSafe(`${context.sourceEventId}:${bkName}:${marketType}:${side}:${selection}:${hdp ?? "np"}:${idx}`);
+            : inferSide(selection, repairedMarketType);
+          const side = repairSide(rawSide, repairedMarketType, selection, context);
+          const sourceSnapshotId = idSafe(`${context.sourceEventId}:${bkName}:${repairedMarketType}:${side}:${selection}:${hdp ?? "np"}:${idx}`);
           idx++;
           rows.push({
             id: `oddsapiio:${sourceSnapshotId}`,
             eventId: context.sourceEventId,
             league: context.league,
             sport: context.sport ?? null,
-            marketType,
+            marketType: repairedMarketType,
             side,
             selection,
             sportsbookName: bkName,
@@ -234,13 +288,18 @@ function normalizeBookmakersOdds(
   return rows;
 }
 
-export function normalizeOddsApiIoOdds(data: unknown, context: { sourceEventId: string; league: string; sport?: string | null; capturedAt?: string }): OddsApiIoNormalizedOddsRow[] {
+export function normalizeOddsApiIoOdds(data: unknown, context: OddsApiIoOddsContext): OddsApiIoNormalizedOddsRow[] {
   const capturedAt = context.capturedAt ?? new Date().toISOString();
 
   if (data && typeof data === "object" && !Array.isArray(data)) {
     const obj = data as Record<string, unknown>;
     if (obj.bookmakers && typeof obj.bookmakers === "object" && !Array.isArray(obj.bookmakers)) {
-      return normalizeBookmakersOdds(obj, { ...context, capturedAt });
+      return normalizeBookmakersOdds(obj, {
+        ...context,
+        homeTeam: teamName(obj, ["home", "homeTeam", "home_team", "teamHome", "participant1"]) || context.homeTeam || null,
+        awayTeam: teamName(obj, ["away", "awayTeam", "away_team", "teamAway", "participant2"]) || context.awayTeam || null,
+        capturedAt
+      });
     }
   }
 
@@ -248,10 +307,11 @@ export function normalizeOddsApiIoOdds(data: unknown, context: { sourceEventId: 
   return outcomes.flatMap(({ path, outcome }: { path: string[]; outcome: Record<string, unknown> }, index: number): OddsApiIoNormalizedOddsRow[] => {
     const price = normalizePrice(outcome.price ?? outcome.odds ?? outcome.american ?? outcome.value);
     if (price == null) return [];
-    const marketType = inferMarket(text(outcome.market ?? outcome.marketType ?? outcome.key ?? path.find((item: string) => /money|h2h|spread|handicap|total|over|under/i.test(item)) ?? "unknown"));
+    const rawMarketType = inferMarket(text(outcome.market ?? outcome.marketType ?? outcome.key ?? path.find((item: string) => /money|h2h|spread|handicap|total|over|under/i.test(item)) ?? "unknown"));
     const selection = text(outcome.name ?? outcome.selection ?? outcome.team ?? outcome.label ?? outcome.side) || null;
-    const side = inferSide(selection ?? text(path[path.length - 1]), marketType);
-    const point = num(outcome.point ?? outcome.handicap ?? outcome.hdp ?? outcome.line);
+    const marketType = repairMarketType(rawMarketType, selection, context);
+    const side = repairSide(inferSide(selection ?? text(path[path.length - 1]), marketType), marketType, selection, context);
+    const point = num(outcome.point ?? outcome.handicap ?? outcome.hdp ?? outcome.line) ?? extractPointFromText(selection ?? path[path.length - 1]);
     const sportsbookName = bookmakerName(path, outcome);
     const sourceSnapshotId = idSafe(`${context.sourceEventId}:${sportsbookName ?? "book"}:${marketType}:${side}:${selection ?? "selection"}:${point ?? "np"}:${index}`);
     return [{

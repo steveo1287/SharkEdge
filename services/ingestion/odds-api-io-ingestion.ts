@@ -337,13 +337,25 @@ export async function ingestOddsApiIo(options: OddsApiIoIngestionOptions): Promi
       for (const event of group) {
         const payload = payloads.get(event.sourceEventId);
         if (!payload) continue;
-        rawOddsRows.push(...normalizeOddsApiIoOdds(payload, { sourceEventId: event.sourceEventId, league: event.league, sport: event.sport }));
+        rawOddsRows.push(...normalizeOddsApiIoOdds(payload, {
+          sourceEventId: event.sourceEventId,
+          league: event.league,
+          sport: event.sport,
+          homeTeam: event.homeTeam,
+          awayTeam: event.awayTeam
+        }));
       }
     } catch {
       for (const event of group) {
         const oddsResponse = await client.getEventOdds(event.sourceEventId, bookmakers);
         providerMeta.push({ url: oddsResponse.meta.url, status: oddsResponse.meta.status, remaining: oddsResponse.meta.rateLimit.remaining });
-        rawOddsRows.push(...normalizeOddsApiIoOdds(oddsResponse.data, { sourceEventId: event.sourceEventId, league: event.league, sport: event.sport }));
+        rawOddsRows.push(...normalizeOddsApiIoOdds(oddsResponse.data, {
+          sourceEventId: event.sourceEventId,
+          league: event.league,
+          sport: event.sport,
+          homeTeam: event.homeTeam,
+          awayTeam: event.awayTeam
+        }));
       }
     }
   }

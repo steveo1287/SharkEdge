@@ -349,7 +349,13 @@ async function fetchOddsApiIoDirectLines() {
       for (const event of group) {
         const payload = payloads.get(event.sourceEventId);
         if (!payload) continue;
-        oddsRows.push(...normalizeOddsApiIoOdds(payload, { sourceEventId: event.sourceEventId, league: "MLB", sport: "baseball" }));
+        oddsRows.push(...normalizeOddsApiIoOdds(payload, {
+          sourceEventId: event.sourceEventId,
+          league: "MLB",
+          sport: "baseball",
+          homeTeam: event.homeTeam,
+          awayTeam: event.awayTeam
+        }));
       }
     }
 
