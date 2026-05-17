@@ -4,6 +4,8 @@ import { buildSimProjection } from "@/services/simulation/sim-projection-engine"
 import { readLatestOddsApiSnapshot, runOddsApiSnapshotPull } from "@/services/odds/the-odds-api-budget-service";
 import { normalizeTeamKey } from "@/lib/utils/team-normalization";
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
+import { defaultOddsApiIoBookmakers, OddsApiIoClient } from "@/services/data-providers/odds-api-io/client";
+import { filterOddsApiIoMainBoardRows, normalizeOddsApiIoEvents, normalizeOddsApiIoOdds, type OddsApiIoNormalizedOddsRow } from "@/services/data-providers/odds-api-io/normalizer";
 
 export type SportsbookLine = {
   gameId?: string;
@@ -66,6 +68,15 @@ type MarketSignal = {
   sourceCount: number;
   marketHold: number | null;
   warnings: string[];
+};
+
+type OddsApiIoEventWithTeams = {
+  sourceEventId: string;
+  eventLabel: string;
+  startTime: string | null;
+  homeTeam: string | null;
+  awayTeam: string | null;
+  raw: Record<string, unknown>;
 };
 
 type MarketLineHistoryRow = {
@@ -164,6 +175,200 @@ export function isPlausibleMlbGameTotal(value: unknown) {
 function validMlbGameTotal(value: unknown) {
   const number = validNumber(value);
   return isPlausibleMlbGameTotal(number) ? number : null;
+}
+
+function text(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function parseIntEnv(name: string, fallback: number, min: number, max: number) {
+  const parsed = Number(process.env[name] ?? fallback);
+  return Number.isFinite(parsed) ? Math.max(min, Math.min(max, Math.floor(parsed))) : fallback;
+}
+
+function teamNameFromOddsApiIoEvent(event: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = event[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (value && typeof value === "object" && "name" in value) return text((value as Record<string, unknown>).name);
+  }
+  return null;
+}
+
+function oddsApiIoRows(data: unknown): unknown[] {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== "object") return [];
+  const body = data as Record<string, unknown>;
+  if (Array.isArray(body.data)) return body.data;
+  if (Array.isArray(body.events)) return body.events;
+  return [];
+}
+
+function oddsApiIoEventContext(data: unknown): OddsApiIoEventWithTeams[] {
+  return oddsApiIoRows(data).flatMap((raw): OddsApiIoEventWithTeams[] => {
+    if (!raw || typeof raw !== "object") return [];
+    const event = raw as Record<string, unknown>;
+    const normalized = normalizeOddsApiIoEvents([event], { league: "MLB", sport: "baseball" })[0];
+    if (!normalized) return [];
+    const homeTeam = teamNameFromOddsApiIoEvent(event, ["home", "homeTeam", "home_team", "teamHome", "participant1"]);
+    const awayTeam = teamNameFromOddsApiIoEvent(event, ["away", "awayTeam", "away_team", "teamAway", "participant2"]);
+    const labelTeams = namesFromEventName(normalized.eventLabel);
+    return [{
+      sourceEventId: normalized.sourceEventId,
+      eventLabel: normalized.eventLabel,
+      startTime: normalized.startTime,
+      homeTeam: homeTeam ?? (labelTeams.home === "Home" ? null : labelTeams.home),
+      awayTeam: awayTeam ?? (labelTeams.away === "Away" ? null : labelTeams.away),
+      raw: event
+    }];
+  });
+}
+
+function dateOnly(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function oddsApiIoWindow() {
+  const now = new Date();
+  const to = new Date(now);
+  to.setUTCDate(to.getUTCDate() + 3);
+  return { from: dateOnly(now), to: dateOnly(to) };
+}
+
+function lineKeyForOddsApiIo(row: OddsApiIoNormalizedOddsRow) {
+  return `${row.eventId}:${row.sportsbookName ?? "odds-api-io"}`;
+}
+
+function emptyOddsApiIoLine(event: OddsApiIoEventWithTeams, sportsbook: string | null): SportsbookLine {
+  return {
+    gameId: event.sourceEventId,
+    awayTeam: event.awayTeam ?? namesFromEventName(event.eventLabel).away,
+    homeTeam: event.homeTeam ?? namesFromEventName(event.eventLabel).home,
+    homeMoneyline: null,
+    awayMoneyline: null,
+    total: null,
+    overPrice: null,
+    underPrice: null,
+    sportsbook: sportsbook ?? "Odds-API.io"
+  };
+}
+
+function linesFromOddsApiIoRows(events: OddsApiIoEventWithTeams[], rows: OddsApiIoNormalizedOddsRow[]) {
+  const eventById = new Map(events.map((event) => [event.sourceEventId, event]));
+  const lines = new Map<string, SportsbookLine>();
+  const totalGroups = new Map<string, { row: OddsApiIoNormalizedOddsRow; overPrice: number | null; underPrice: number | null }>();
+
+  for (const row of filterOddsApiIoMainBoardRows(rows)) {
+    const event = eventById.get(row.eventId);
+    if (!event) continue;
+    const key = lineKeyForOddsApiIo(row);
+    const line = lines.get(key) ?? emptyOddsApiIoLine(event, row.sportsbookName);
+
+    if (row.marketType === "moneyline") {
+      if (row.side === "home") line.homeMoneyline = validNumber(row.price);
+      if (row.side === "away") line.awayMoneyline = validNumber(row.price);
+      lines.set(key, line);
+      continue;
+    }
+
+    if (row.marketType === "total") {
+      const total = validMlbGameTotal(row.point);
+      if (total === null) continue;
+      const totalKey = `${row.eventId}||${row.sportsbookName ?? "odds-api-io"}||${total}`;
+      const group = totalGroups.get(totalKey) ?? { row, overPrice: null, underPrice: null };
+      if (row.side === "over") group.overPrice = validNumber(row.price);
+      if (row.side === "under") group.underPrice = validNumber(row.price);
+      totalGroups.set(totalKey, group);
+    }
+  }
+
+  for (const [totalKey, group] of totalGroups) {
+    const [eventId, sportsbook] = totalKey.split("||");
+    const event = eventById.get(eventId);
+    if (!event || group.overPrice === null || group.underPrice === null) continue;
+    const key = `${eventId}:${sportsbook}`;
+    const line = lines.get(key) ?? emptyOddsApiIoLine(event, group.row.sportsbookName);
+    if (line.total === null) {
+      line.total = validMlbGameTotal(group.row.point);
+      line.overPrice = group.overPrice;
+      line.underPrice = group.underPrice;
+    }
+    lines.set(key, line);
+  }
+
+  return [...lines.values()].filter((line) => line.homeMoneyline !== null || line.awayMoneyline !== null || line.total !== null);
+}
+
+function oddsApiIoPayloadRows(data: unknown) {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object" && Array.isArray((data as Record<string, unknown>).data)) return (data as Record<string, unknown>).data as unknown[];
+  return data ? [data] : [];
+}
+
+function oddsApiIoPayloadsByEventId(data: unknown, events: OddsApiIoEventWithTeams[]) {
+  const byId = new Map<string, unknown>();
+  const rows = oddsApiIoPayloadRows(data);
+
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const obj = row as Record<string, unknown>;
+    const id = String(obj.id ?? obj.eventId ?? obj.event_id ?? "").trim();
+    if (id) byId.set(id, obj);
+  }
+
+  if (rows.length === 1 && events.length === 1 && !byId.has(events[0].sourceEventId)) {
+    byId.set(events[0].sourceEventId, rows[0]);
+  }
+
+  return byId;
+}
+
+async function fetchOddsApiIoDirectLines() {
+  const startedAt = Date.now();
+  if (process.env.ODDS_API_IO_DIRECT_MLB_ENABLED === "0" || process.env.ODDS_API_IO_DIRECT_MLB_ENABLED === "false") return [] as SportsbookLine[];
+
+  const client = new OddsApiIoClient();
+  if (!client.isConfigured()) return [] as SportsbookLine[];
+
+  try {
+    const eventLimit = parseIntEnv("ODDS_API_IO_MLB_DIRECT_EVENT_LIMIT", 20, 1, 40);
+    const bookmakers = process.env.ODDS_API_IO_MLB_BOOKMAKERS ?? process.env.ODDS_API_IO_BOOKMAKERS ?? defaultOddsApiIoBookmakers();
+    const primaryBookmaker = bookmakers.split(",").map((book) => book.trim()).find(Boolean);
+    const window = oddsApiIoWindow();
+    const eventsResponse = await client.getEvents({ sport: "baseball", league: "usa-mlb", status: "pending", from: window.from, to: window.to, bookmaker: primaryBookmaker });
+    const events = oddsApiIoEventContext(eventsResponse.data).slice(0, eventLimit);
+    const oddsRows: OddsApiIoNormalizedOddsRow[] = [];
+
+    for (let index = 0; index < events.length; index += 10) {
+      const group = events.slice(index, index + 10);
+      if (!group.length) continue;
+      const oddsResponse = group.length > 1
+        ? await client.getMultiOdds(group.map((event) => event.sourceEventId), bookmakers)
+        : await client.getEventOdds(group[0].sourceEventId, bookmakers);
+      const payloads = oddsApiIoPayloadsByEventId(oddsResponse.data, group);
+      for (const event of group) {
+        const payload = payloads.get(event.sourceEventId);
+        if (!payload) continue;
+        oddsRows.push(...normalizeOddsApiIoOdds(payload, { sourceEventId: event.sourceEventId, league: "MLB", sport: "baseball" }));
+      }
+    }
+
+    const lines = linesFromOddsApiIoRows(events, oddsRows);
+    console.info("[sim-market-refresh] odds-api-io direct MLB lines", {
+      events: events.length,
+      rows: oddsRows.length,
+      lines: lines.length,
+      remaining: eventsResponse.meta.rateLimit.remaining
+    });
+    return lines;
+  } catch (error) {
+    console.warn("[sim-market-refresh] odds-api-io direct MLB fallback failed", {
+      reason: error instanceof Error ? error.message : "unknown error"
+    });
+    return [] as SportsbookLine[];
+  } finally {
+    logTiming("fetchLines.oddsApiIoDirect", startedAt);
+  }
 }
 
 function normalizeTeam(value: string | null | undefined) {
@@ -456,8 +661,9 @@ async function fetchMarketLineHistoryLines() {
 
 export async function fetchMlbSportsbookLines(options: { allowRefresh?: boolean } = {}) {
   const startedAt = Date.now();
-  const [persisted, external, snapshot, history] = await Promise.all([fetchPersistedBoardLines(), fetchExternalLines(), fetchSnapshotLines(), fetchMarketLineHistoryLines()]);
-  const lines = [...persisted, ...external, ...snapshot, ...history];
+  const directPromise = options.allowRefresh === false ? Promise.resolve([] as SportsbookLine[]) : fetchOddsApiIoDirectLines();
+  const [persisted, external, snapshot, history, oddsApiIoDirect] = await Promise.all([fetchPersistedBoardLines(), fetchExternalLines(), fetchSnapshotLines(), fetchMarketLineHistoryLines(), directPromise]);
+  const lines = [...persisted, ...external, ...snapshot, ...history, ...oddsApiIoDirect];
   if (lines.length > 0 || options.allowRefresh === false) {
     logTiming("fetchLines.total", startedAt);
     return lines;

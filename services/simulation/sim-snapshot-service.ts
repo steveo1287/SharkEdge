@@ -651,7 +651,7 @@ export async function refreshSimMarketSnapshot() {
     ]);
     logTiming("sim-market-refresh", "MLB edge/market overlay", edgeStartedAt);
 
-    if (edgeData.lineCount <= 0) warnings.push("MLB sportsbook line pull returned zero lines. Verify ODDS_API_KEY and active-hours/budget guard.");
+    if (edgeData.lineCount <= 0) warnings.push("MLB sportsbook line pull returned zero lines. Verify ODDS_API_IO_KEY and active-hours/budget guard.");
 
     const payload: SimMarketSnapshot = {
       generatedAt,
