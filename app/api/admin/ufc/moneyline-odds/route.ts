@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { fetchAndIngestBackendUfcMoneylineOdds } from "@/services/ufc/backend-moneyline-odds";
 import { fetchAndIngestUfcMoneylineOdds } from "@/services/ufc/the-odds-api-moneyline";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,15 @@ function numberParam(url: URL, name: string, fallback: number, min: number, max:
   return Math.max(min, Math.min(max, Number.isFinite(parsed) ? Math.floor(parsed) : fallback));
 }
 
+function settledValue<T>(result: PromiseSettledResult<T>) {
+  if (result.status === "fulfilled") return result.value;
+  return { ok: false, error: result.reason instanceof Error ? result.reason.message : String(result.reason) };
+}
+
+function okResult(value: unknown) {
+  return Boolean(value && typeof value === "object" && "ok" in value && (value as { ok?: unknown }).ok);
+}
+
 export async function GET(request: Request) {
   return POST(request);
 }
@@ -37,6 +47,8 @@ export async function POST(request: Request) {
   const startedAt = new Date().toISOString();
   const url = new URL(request.url);
   const dryRun = boolParam(url, "dryRun", false);
+  const skipBackend = boolParam(url, "skipBackend", false);
+  const skipDirect = boolParam(url, "skipDirect", false);
   const horizonDays = numberParam(url, "horizonDays", 120, 1, 365);
   const regions = url.searchParams.get("regions") || undefined;
   const bookmakers = url.searchParams.get("bookmakers") || undefined;
@@ -45,15 +57,24 @@ export async function POST(request: Request) {
   const minMatchScore = minMatchScoreRaw ? Number(minMatchScoreRaw) : undefined;
 
   try {
-    const result = await fetchAndIngestUfcMoneylineOdds({ dryRun, horizonDays, regions, bookmakers, sportKey, minMatchScore });
+    const [backend, direct] = await Promise.allSettled([
+      skipBackend ? Promise.resolve(null) : fetchAndIngestBackendUfcMoneylineOdds({ dryRun, horizonDays, minMatchScore }),
+      skipDirect ? Promise.resolve(null) : fetchAndIngestUfcMoneylineOdds({ dryRun, horizonDays, regions, bookmakers, sportKey, minMatchScore })
+    ]);
+    const backendResult = settledValue(backend);
+    const directResult = settledValue(direct);
+    const ok = okResult(backendResult) || okResult(directResult);
     return NextResponse.json({
-      ok: result.ok,
+      ok,
       mode: dryRun ? "dry-run" : "write",
       startedAt,
       finishedAt: new Date().toISOString(),
-      config: { horizonDays, regions, bookmakers, sportKey, minMatchScore },
-      result
-    }, { status: result.ok ? 200 : 502 });
+      config: { horizonDays, regions, bookmakers, sportKey, minMatchScore, skipBackend, skipDirect, primary: "backend-current-odds-mma_ufc", backup: "the-odds-api-mma" },
+      results: {
+        backend: backendResult,
+        direct: directResult
+      }
+    }, { status: ok ? 200 : 502 });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String(error), startedAt, finishedAt: new Date().toISOString() }, { status: 500 });
   }
