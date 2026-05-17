@@ -110,7 +110,8 @@ type ResolvedMarketOdds = {
 
 const DEFAULT_MODEL_VERSION = "ufc-fight-iq-v1";
 const DEFAULT_SIMULATIONS = 25_000;
-const OPERATIONAL_SIM_CACHE_VERSION = "market-aware-input-audit-style-genome-v1";
+const OPERATIONAL_SIM_CACHE_VERSION = "market-aware-input-audit-style-genome-shadow-v2";
+const SHADOW_AUDIT_SCHEMA_VERSION = "ufc-shadow-audit-v2";
 
 function stableId(prefix: string, value: string) { return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`; }
 function toIso(value: Date | string) { return value instanceof Date ? value.toISOString() : new Date(value).toISOString(); }
@@ -318,6 +319,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
   const pickFighterId = marketAware.pickFighterId;
   const pickProbability = marketAware.pickProbability;
   const pickMarketOdds = marketAware.marketOddsAmerican;
+  const fairOddsAmerican = probabilityToAmericanOdds(pickProbability);
   const noEdgeByAudit = simInputAudit.grade === "D" || combinedTruthGrade === "D" || intelligenceGrade === "D";
   const edgePct = marketAware.noMarketEdge || noEdgeByAudit ? null : marketAware.edgePct;
   const auditReasonCodes = [
@@ -366,13 +368,14 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     fighterSkillProfiles: { fighterA: aProfile, fighterB: bProfile },
     featureSnapshots: styleFeatureSnapshots,
     marketOddsSnapshot: resolvedMarketOdds.marketOddsSnapshot,
+    shadowAuditSchemaVersion: SHADOW_AUDIT_SCHEMA_VERSION,
     cacheVersion: OPERATIONAL_SIM_CACHE_VERSION
   };
   const predictionId = stableId("ufcp", `${fightId}:${modelVersion}:${seed}:${simulations}:ensemble:${activeEnsembleWeights.source}:${activeEnsembleWeights.weights.skillMarkov}:${activeEnsembleWeights.weights.exchangeMonteCarlo}:${activeEnsembleWeights.weights.roundByRound}:${activeEnsembleWeights.weights.styleMatchup}:${OPERATIONAL_SIM_CACHE_VERSION}`);
 
   await prisma.$executeRaw`
     INSERT INTO ufc_predictions (id, fight_id, model_version, generated_at, fighter_a_id, fighter_b_id, fighter_a_win_probability, fighter_b_win_probability, pick_fighter_id, fair_odds_american, sportsbook_odds_american, edge_pct, ko_tko_probability, submission_probability, decision_probability, prediction_json, updated_at)
-    VALUES (${predictionId}, ${fightId}, ${modelVersion}, now(), ${fight.fighter_a_id}, ${fight.fighter_b_id}, ${marketAware.blendedProbabilityA}, ${marketAware.blendedProbabilityB}, ${pickFighterId}, ${probabilityToAmericanOdds(pickProbability)}, ${pickMarketOdds ?? null}, ${edgePct}, ${calibratedMethodProbabilities.KO_TKO}, ${calibratedMethodProbabilities.SUBMISSION}, ${calibratedMethodProbabilities.DECISION}, ${JSON.stringify(predictionPayload)}::jsonb, now())
+    VALUES (${predictionId}, ${fightId}, ${modelVersion}, now(), ${fight.fighter_a_id}, ${fight.fighter_b_id}, ${marketAware.blendedProbabilityA}, ${marketAware.blendedProbabilityB}, ${pickFighterId}, ${fairOddsAmerican}, ${pickMarketOdds ?? null}, ${edgePct}, ${calibratedMethodProbabilities.KO_TKO}, ${calibratedMethodProbabilities.SUBMISSION}, ${calibratedMethodProbabilities.DECISION}, ${JSON.stringify(predictionPayload)}::jsonb, now())
     ON CONFLICT (id) DO UPDATE SET fighter_a_win_probability = EXCLUDED.fighter_a_win_probability, fighter_b_win_probability = EXCLUDED.fighter_b_win_probability, pick_fighter_id = EXCLUDED.pick_fighter_id, fair_odds_american = EXCLUDED.fair_odds_american, sportsbook_odds_american = EXCLUDED.sportsbook_odds_american, edge_pct = EXCLUDED.edge_pct, ko_tko_probability = EXCLUDED.ko_tko_probability, submission_probability = EXCLUDED.submission_probability, decision_probability = EXCLUDED.decision_probability, prediction_json = EXCLUDED.prediction_json, updated_at = now()
   `;
 
@@ -386,10 +389,99 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
   let shadowPredictionId: string | null = null;
   if (options.recordShadow) {
     shadowPredictionId = stableId("ufcsh", `${predictionId}:shadow`);
+    const shadowPathSummary = [
+      ...stylePathSummary,
+      ...priorPathSummary,
+      ...intelligencePathSummary,
+      `Truth audit ${combinedTruthGrade}: A=${aTruthAudit.score}/100, B=${bTruthAudit.score}/100.`,
+      ...aTruthAudit.reasonCodes.map((item) => `A ${item}`),
+      ...bTruthAudit.reasonCodes.map((item) => `B ${item}`),
+      `Input audit ${simInputAudit.grade} (${simInputAudit.score}/100).`,
+      ...simInputAudit.blockers,
+      ...simInputAudit.warnings,
+      ...promotionGate.reasons,
+      ...sim.pathSummary
+    ];
+    const shadowDangerFlags = [...new Set([...sim.dangerFlags, ...marketAware.reasonCodes, ...auditReasonCodes])];
+    const shadowPayload = {
+      schemaVersion: SHADOW_AUDIT_SCHEMA_VERSION,
+      status: "PENDING_SETTLEMENT",
+      fightId,
+      modelVersion,
+      predictionId,
+      simRunId,
+      cacheVersion: OPERATIONAL_SIM_CACHE_VERSION,
+      generatedAt: new Date().toISOString(),
+      fighters: {
+        fighterAId: fight.fighter_a_id,
+        fighterBId: fight.fighter_b_id
+      },
+      probabilities: {
+        fighterAWinProbability: marketAware.blendedProbabilityA,
+        fighterBWinProbability: marketAware.blendedProbabilityB,
+        rawFighterAWinProbability: sim.fighterAWinProbability,
+        rawFighterBWinProbability: sim.fighterBWinProbability,
+        pickFighterId,
+        pickProbability,
+        fairOddsAmerican,
+        sportsbookOddsAmerican: pickMarketOdds ?? null,
+        edgePct
+      },
+      odds: {
+        marketOddsAOpen: resolvedMarketOdds.marketOddsAOpen,
+        marketOddsBOpen: resolvedMarketOdds.marketOddsBOpen,
+        marketOddsAClose: resolvedMarketOdds.marketOddsAClose,
+        marketOddsBClose: resolvedMarketOdds.marketOddsBClose,
+        marketOddsSnapshot: resolvedMarketOdds.marketOddsSnapshot
+      },
+      methods: {
+        rawMethodProbabilities: sim.methodProbabilities,
+        methodProbabilities: calibratedMethodProbabilities,
+        roundFinishProbabilities: sim.roundFinishProbabilities,
+        transitionProbabilities: sim.transitionProbabilities,
+        methodCalibration
+      },
+      style: {
+        styleGenome: sim.styleGenome,
+        styleMatchup: sim.sourceOutputs.styleMatchup,
+        pathWins: sim.stylePathWins,
+        clash: sim.styleGenome.clash
+      },
+      audits: {
+        simInputAudit,
+        profileTruthAudit,
+        profileIntelligenceBridge,
+        enrichedPriorBridge,
+        profileFeatureSignal
+      },
+      promotionGate,
+      marketAware,
+      activeEnsembleWeights,
+      settlement: {
+        status: "PENDING",
+        actualWinnerFighterId: null,
+        resultCorrect: null,
+        closingLineValuePct: null
+      },
+      pathSummary: shadowPathSummary,
+      dangerFlags: shadowDangerFlags,
+      sim: predictionPayload
+    };
+    await prisma.$executeRaw`
+      UPDATE ufc_shadow_predictions
+      SET status = 'SUPERSEDED',
+          payload_json = COALESCE(payload_json, '{}'::jsonb) || jsonb_build_object('supersededAt', now(), 'supersededByPredictionId', ${predictionId}, 'supersededByShadowPredictionId', ${shadowPredictionId}),
+          updated_at = now()
+      WHERE fight_id = ${fightId}
+        AND model_version = ${modelVersion}
+        AND status = 'PENDING'
+        AND id <> ${shadowPredictionId}
+    `;
     await prisma.$executeRaw`
       INSERT INTO ufc_shadow_predictions (id, fight_id, prediction_id, model_version, recorded_at, market_odds_a_open, market_odds_b_open, market_odds_a_close, market_odds_b_close, fighter_a_win_probability, fighter_b_win_probability, pick_fighter_id, data_quality_grade, confidence_grade, status, payload_json, updated_at)
-      VALUES (${shadowPredictionId}, ${fightId}, ${predictionId}, ${modelVersion}, now(), ${resolvedMarketOdds.marketOddsAOpen ?? null}, ${resolvedMarketOdds.marketOddsBOpen ?? null}, ${resolvedMarketOdds.marketOddsAClose ?? null}, ${resolvedMarketOdds.marketOddsBClose ?? null}, ${marketAware.blendedProbabilityA}, ${marketAware.blendedProbabilityB}, ${pickFighterId}, ${promotionGate.grade}, ${promotionGate.confidenceCap}, ${promotionGate.status === "PROMOTABLE" ? "PENDING" : "SHADOW_ONLY"}, ${JSON.stringify({ sim: predictionPayload, styleGenome: sim.styleGenome, pathSummary: [...stylePathSummary, ...priorPathSummary, ...intelligencePathSummary, `Truth audit ${combinedTruthGrade}: A=${aTruthAudit.score}/100, B=${bTruthAudit.score}/100.`, ...aTruthAudit.reasonCodes.map((item) => `A ${item}`), ...bTruthAudit.reasonCodes.map((item) => `B ${item}`), `Input audit ${simInputAudit.grade} (${simInputAudit.score}/100).`, ...simInputAudit.blockers, ...simInputAudit.warnings, ...promotionGate.reasons, ...sim.pathSummary], dangerFlags: [...sim.dangerFlags, ...marketAware.reasonCodes, ...auditReasonCodes], profileFeatureSignal, profileTruthAudit, profileIntelligenceBridge, enrichedPriorBridge, methodCalibration, promotionGate, marketAware, simInputAudit, marketOddsSnapshot: resolvedMarketOdds.marketOddsSnapshot })}::jsonb, now())
-      ON CONFLICT (id) DO UPDATE SET fighter_a_win_probability = EXCLUDED.fighter_a_win_probability, fighter_b_win_probability = EXCLUDED.fighter_b_win_probability, payload_json = EXCLUDED.payload_json, confidence_grade = EXCLUDED.confidence_grade, data_quality_grade = EXCLUDED.data_quality_grade, status = EXCLUDED.status, updated_at = now()
+      VALUES (${shadowPredictionId}, ${fightId}, ${predictionId}, ${modelVersion}, now(), ${resolvedMarketOdds.marketOddsAOpen ?? null}, ${resolvedMarketOdds.marketOddsBOpen ?? null}, ${resolvedMarketOdds.marketOddsAClose ?? null}, ${resolvedMarketOdds.marketOddsBClose ?? null}, ${marketAware.blendedProbabilityA}, ${marketAware.blendedProbabilityB}, ${pickFighterId}, ${promotionGate.grade}, ${promotionGate.confidenceCap}, 'PENDING', ${JSON.stringify(shadowPayload)}::jsonb, now())
+      ON CONFLICT (id) DO UPDATE SET recorded_at = now(), prediction_id = EXCLUDED.prediction_id, market_odds_a_open = EXCLUDED.market_odds_a_open, market_odds_b_open = EXCLUDED.market_odds_b_open, market_odds_a_close = EXCLUDED.market_odds_a_close, market_odds_b_close = EXCLUDED.market_odds_b_close, fighter_a_win_probability = EXCLUDED.fighter_a_win_probability, fighter_b_win_probability = EXCLUDED.fighter_b_win_probability, pick_fighter_id = EXCLUDED.pick_fighter_id, actual_winner_fighter_id = NULL, closing_line_value_pct = NULL, result_correct = NULL, payload_json = EXCLUDED.payload_json, confidence_grade = EXCLUDED.confidence_grade, data_quality_grade = EXCLUDED.data_quality_grade, status = 'PENDING', updated_at = now()
+      WHERE ufc_shadow_predictions.status <> 'RESOLVED'
     `;
   }
 
@@ -404,7 +496,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     rawFighterAWinProbability: sim.fighterAWinProbability,
     rawFighterBWinProbability: sim.fighterBWinProbability,
     pickFighterId,
-    fairOddsAmerican: probabilityToAmericanOdds(pickProbability),
+    fairOddsAmerican,
     edgePct,
     marketAware,
     simInputAudit,
