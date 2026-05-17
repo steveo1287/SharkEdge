@@ -39,4 +39,16 @@ const crossSportPollution = evaluateUfcMatchupQuality({
 
 assert.equal(crossSportPollution.status, "FAKE_NAVIGATION");
 
+const fightcenterPollution = evaluateUfcMatchupQuality({
+  sourceKey: "ufc.com",
+  eventName: "Events",
+  eventLabel: "Home vs Fightcenter",
+  fighterAName: "Home",
+  fighterBName: "Fightcenter",
+  combatSport: "MMA",
+  sourceStatus: "OFFICIAL_PARTIAL"
+});
+
+assert.equal(fightcenterPollution.status, "FAKE_NAVIGATION");
+
 console.log("ufc-matchup-quality-gate tests passed");
