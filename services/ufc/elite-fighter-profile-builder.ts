@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 import { prisma } from "@/lib/db/prisma";
 import { buildUfcFighterSkillProfile, type UfcModelFeatureSnapshot } from "@/services/ufc/fighter-skill-profile";
+import { evaluateUfcMatchupQuality } from "@/services/ufc/matchup-quality-gate";
 
 const DEFAULT_MODEL_VERSION = "ufc-fight-iq-v1";
 const BASELINE_RATING = 1500;
@@ -69,6 +70,11 @@ type ProspectRow = {
 
 type UpcomingFightRow = {
   fight_id: string;
+  event_name: string | null;
+  event_source_key: string | null;
+  event_payload_json: unknown;
+  fight_payload_json: unknown;
+  event_label: string | null;
   fight_date: Date | string;
   weight_class: string | null;
   scheduled_rounds: number;
@@ -76,6 +82,7 @@ type UpcomingFightRow = {
   fighter_b_id: string;
   fighter_a_name: string | null;
   fighter_b_name: string | null;
+  source_status: string | null;
   a_feature_count: number | bigint;
   b_feature_count: number | bigint;
 };
@@ -140,6 +147,16 @@ function stableId(prefix: string, value: string) {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stringOrNull(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function combatSportFor(eventPayload: unknown, fightPayload: unknown) {
+  const fight = asRecord(fightPayload);
+  const event = asRecord(eventPayload);
+  return stringOrNull(fight.combatSport) ?? stringOrNull(fight.sport) ?? stringOrNull(event.combatSport) ?? stringOrNull(event.sport);
 }
 
 function toIso(value: Date | string | null | undefined) {
@@ -573,23 +590,37 @@ async function updateFighterProfile(profile: FighterProfile) {
 }
 
 async function loadUpcomingFights(modelVersion: string, horizonDays: number, limit: number) {
-  return prisma.$queryRaw<UpcomingFightRow[]>`
-    SELECT f.id AS fight_id, f.fight_date, f.weight_class, f.scheduled_rounds,
+  const rows = await prisma.$queryRaw<UpcomingFightRow[]>`
+    SELECT f.id AS fight_id, e.event_name, e.source_key AS event_source_key, e.payload_json AS event_payload_json, f.payload_json AS fight_payload_json, f.source_status, f.event_label, f.fight_date, f.weight_class, f.scheduled_rounds,
       f.fighter_a_id, f.fighter_b_id,
       fa.full_name AS fighter_a_name, fb.full_name AS fighter_b_name,
       COUNT(DISTINCT af.id) AS a_feature_count,
       COUNT(DISTINCT bf.id) AS b_feature_count
     FROM ufc_fights f
+    LEFT JOIN ufc_events e ON e.id = f.event_id
     LEFT JOIN ufc_fighters fa ON fa.id = f.fighter_a_id
     LEFT JOIN ufc_fighters fb ON fb.id = f.fighter_b_id
     LEFT JOIN ufc_model_features af ON af.fight_id = f.id AND af.fighter_id = f.fighter_a_id AND af.model_version = ${modelVersion}
     LEFT JOIN ufc_model_features bf ON bf.fight_id = f.id AND bf.fighter_id = f.fighter_b_id AND bf.model_version = ${modelVersion}
     WHERE f.fight_date >= now() - interval '12 hours'
       AND f.fight_date <= now() + (${horizonDays}::text || ' days')::interval
-    GROUP BY f.id, f.fight_date, f.weight_class, f.scheduled_rounds, f.fighter_a_id, f.fighter_b_id, fa.full_name, fb.full_name
+      AND COALESCE(f.payload_json->>'matchupQuality', '') <> 'FAKE_NAVIGATION'
+    GROUP BY f.id, e.id, e.event_name, e.source_key, e.payload_json, f.payload_json, f.source_status, f.event_label, f.fight_date, f.weight_class, f.scheduled_rounds, f.fighter_a_id, f.fighter_b_id, fa.full_name, fb.full_name
     ORDER BY f.fight_date ASC
     LIMIT ${limit}
   `;
+  return rows.filter((row) => {
+    const quality = evaluateUfcMatchupQuality({
+      sourceKey: row.event_source_key,
+      eventName: row.event_name,
+      eventLabel: row.event_label,
+      fighterAName: row.fighter_a_name,
+      fighterBName: row.fighter_b_name,
+      combatSport: combatSportFor(row.event_payload_json, row.fight_payload_json),
+      sourceStatus: row.source_status
+    });
+    return !quality.fakeNavigation;
+  });
 }
 
 function featureForFight(base: UfcModelFeatureSnapshot, input: { fightId: string; fightDate: string; opponentFighterId: string; weightClass: string | null }) {
