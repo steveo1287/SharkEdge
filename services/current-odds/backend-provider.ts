@@ -10,7 +10,7 @@ import {
   hasCurrentOddsBackendBaseUrl
 } from "./backend-url";
 
-const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "MLB", "NHL", "NFL", "NCAAF"];
+const SUPPORTED_LEAGUES: LeagueKey[] = ["NBA", "MLB", "NHL", "NFL", "NCAAF", "UFC"];
 const BACKEND_PROVIDER_TIMEOUT_MS = 2_500;
 
 type OddsHarvesterHarvestResponse = {
