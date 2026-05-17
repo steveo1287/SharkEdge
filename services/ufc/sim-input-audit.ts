@@ -65,6 +65,15 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function numeric(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.replace(/%$/, ""));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 function valueFor(feature: UfcModelFeatureSnapshot, key: keyof UfcModelFeatureSnapshot | string): number | string | boolean | null {
   const direct = (feature as Record<string, unknown>)[key];
   if (typeof direct === "number" && Number.isFinite(direct)) return direct;
@@ -74,7 +83,10 @@ function valueFor(feature: UfcModelFeatureSnapshot, key: keyof UfcModelFeatureSn
   const rawFeature = record(source.rawFeature);
   const rawPayload = record(source.rawPayload);
   const stats = record(source.stats);
-  for (const sourceRecord of [source, rawFeature, rawPayload, stats]) {
+  const careerStats = record(source.careerStats);
+  const eliteProfile = record(source.eliteProfile);
+  const eliteCareerStats = record(eliteProfile.careerStats);
+  for (const sourceRecord of [source, rawFeature, rawPayload, stats, careerStats, eliteCareerStats]) {
     const value = sourceRecord[key];
     if (typeof value === "number" && Number.isFinite(value)) return value;
     if (typeof value === "string" && value.trim()) return value;
@@ -124,6 +136,42 @@ const FIELD_SPECS: Array<{ key: keyof UfcModelFeatureSnapshot | string; label: s
   { key: "daysSinceLastFight", label: "Days since last fight", weight: 2 }
 ];
 
+function profileDiagnostics(feature: UfcModelFeatureSnapshot) {
+  const source = record(feature.feature);
+  const diagnostics = record(source.profileDiagnostics);
+  const eliteProfile = record(source.eliteProfile);
+  const eliteDiagnostics = record(record(eliteProfile.diagnostics));
+  const sample = record(eliteProfile.sample);
+  const seconds = numeric(diagnostics.seconds) ?? 0;
+  const fightCount = numeric(diagnostics.fightCount) ?? numeric(sample.ufcFights) ?? numeric(feature.ufcFights) ?? 0;
+  const proFights = numeric(sample.proFights) ?? numeric(feature.proFights) ?? fightCount;
+  const roundsFought = numeric(sample.roundsFought) ?? numeric(feature.roundsFought) ?? 0;
+  const dataQuality = typeof diagnostics.dataQuality === "string" ? diagnostics.dataQuality : typeof eliteProfile.dataQuality === "string" ? eliteProfile.dataQuality : null;
+  const profileSource = typeof eliteDiagnostics.profileSource === "string" ? eliteDiagnostics.profileSource : typeof source.source === "string" ? source.source : null;
+  const historyWeighted = eliteDiagnostics.historyWeighted === true || source.source === "elite-fighter-profile-builder" || source.source === "elite-fighter-profile-builder-fight-snapshot";
+  return { seconds, fightCount, proFights, roundsFought, dataQuality, profileSource, historyWeighted };
+}
+
+function eliteProfileReliabilityBonus(feature: UfcModelFeatureSnapshot, fields: UfcSimInputAuditField[]) {
+  const diagnostics = profileDiagnostics(feature);
+  if (!diagnostics.historyWeighted) return 0;
+  const usefulHistory = diagnostics.seconds >= 900 || diagnostics.fightCount >= 1 || diagnostics.roundsFought >= 3;
+  if (!usefulHistory) return 0;
+  const presentCore = fields.filter((field) => field.present && field.weight >= 5).length;
+  const qualityBonus = diagnostics.dataQuality === "A" ? 8 : diagnostics.dataQuality === "B" ? 6 : diagnostics.dataQuality === "C" ? 3 : 0;
+  return clamp(qualityBonus + Math.min(8, presentCore), 0, 14);
+}
+
+function coldStartFromFeature(feature: UfcModelFeatureSnapshot) {
+  const diagnostics = profileDiagnostics(feature);
+  const featureCold = Boolean(feature.coldStartActive);
+  const ufcFights = typeof feature.ufcFights === "number" ? feature.ufcFights : diagnostics.fightCount;
+  const proFights = typeof feature.proFights === "number" ? feature.proFights : diagnostics.proFights;
+  const hasUsefulHistory = diagnostics.historyWeighted && (diagnostics.seconds >= 900 || diagnostics.roundsFought >= 3 || ufcFights >= 1);
+  if (hasUsefulHistory && diagnostics.dataQuality !== "D") return false;
+  return featureCold || ufcFights < 3 || proFights < 8;
+}
+
 function fighterAudit(feature: UfcModelFeatureSnapshot): UfcFighterInputAudit {
   const fields = FIELD_SPECS.map((spec) => {
     const value = valueFor(feature, spec.key);
@@ -131,12 +179,12 @@ function fighterAudit(feature: UfcModelFeatureSnapshot): UfcFighterInputAudit {
   });
   const totalWeight = fields.reduce((sum, field) => sum + field.weight, 0);
   const presentWeight = fields.reduce((sum, field) => sum + (field.present ? field.weight : 0), 0);
-  const coldStartActive = Boolean(feature.coldStartActive) || (typeof feature.ufcFights === "number" && feature.ufcFights < 3) || (typeof feature.proFights === "number" && feature.proFights < 8);
+  const coldStartActive = coldStartFromFeature(feature);
   const missingCritical = FIELD_SPECS.filter((spec) => spec.critical).filter((spec) => !fields.find((field) => field.key === String(spec.key))?.present).map((spec) => spec.label);
   const missingUseful = FIELD_SPECS.filter((spec) => !spec.critical).filter((spec) => !fields.find((field) => field.key === String(spec.key))?.present).map((spec) => spec.label);
   const coldStartPenalty = coldStartActive ? 10 : 0;
   const criticalPenalty = Math.min(18, missingCritical.length * 3);
-  const score = clamp(round((presentWeight / Math.max(1, totalWeight)) * 100 - coldStartPenalty - criticalPenalty), 0, 100);
+  const score = clamp(round((presentWeight / Math.max(1, totalWeight)) * 100 + eliteProfileReliabilityBonus(feature, fields) - coldStartPenalty - criticalPenalty), 0, 100);
   return { fighterId: feature.fighterId, score, grade: grade(score), missingCritical, missingUseful, fields, coldStartActive };
 }
 
