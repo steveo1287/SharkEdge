@@ -35,11 +35,12 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const dryRun = boolParam(url, "dryRun", true);
   const limit = numberParam(url, "limit", 40, 1, 100);
+  const offset = numberParam(url, "offset", 0, 0, 5000);
   const horizonDays = numberParam(url, "horizonDays", 180, 1, 365);
 
   try {
-    const result = await backfillKnownUfcFighterStats({ dryRun, limit, horizonDays });
-    return NextResponse.json(result, { status: result.ok ? 200 : 207 });
+    const result = await backfillKnownUfcFighterStats({ dryRun, limit, offset, horizonDays });
+    return NextResponse.json({ ...result, nextOffset: offset + limit }, { status: result.ok ? 200 : 207 });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
