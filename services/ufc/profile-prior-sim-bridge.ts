@@ -30,12 +30,74 @@ const PROFILE_KEYS = [
 
 type ProfileKey = typeof PROFILE_KEYS[number];
 
+type EliteCombatCredentialPrior = {
+  aliases: string[];
+  confidence: "A" | "B" | "C";
+  sourceUrl: string;
+  evidence: string[];
+  priors: Partial<Record<ProfileKey, number>>;
+  metadata?: Record<string, unknown>;
+};
+
+const ELITE_COMBAT_CREDENTIAL_PRIORS: Record<string, EliteCombatCredentialPrior> = {
+  "gable-steveson": {
+    aliases: ["gable-steveson", "gable-stevenson", "gable-dan-steveson"],
+    confidence: "A",
+    sourceUrl: "manual:elite-combat-credential-priors/gable-steveson",
+    evidence: [
+      "Olympic freestyle wrestling gold medalist; do not flatten to generic takedown/control baselines.",
+      "Two-time NCAA Division I heavyweight wrestling champion; heavyweight elite-wrestling archetype."
+    ],
+    priors: {
+      sigStrikesLandedPerMin: 2.35,
+      sigStrikesAbsorbedPerMin: 2.8,
+      strikingDifferential: -0.15,
+      sigStrikeAccuracyPct: 43,
+      sigStrikeDefensePct: 50,
+      knockdownsPer15: 0.18,
+      takedownsPer15: 4.75,
+      takedownAccuracyPct: 74,
+      takedownDefensePct: 86,
+      submissionAttemptsPer15: 0.28,
+      submissionDefensePct: 76,
+      controlTimePct: 62,
+      controlEscapePct: 72,
+      getUpRate: 76,
+      reversalsPer15: 0.55,
+      sweepRate: 0.35,
+      clinchStrikingScore: 58,
+      pressureScore: 64,
+      distanceManagementScore: 48,
+      recentFormScore: 62,
+      heartScore: 69,
+      staminaScore: 68,
+      paceScore: 58,
+      chinScore: 57,
+      recoveryScore: 60,
+      fightIqScore: 64,
+      gamePlanScore: 74,
+      opponentAdjustedStrength: 72,
+      amateurSignal: 99,
+      promotionTierSignal: 72
+    },
+    metadata: {
+      combatBase: "elite_freestyle_wrestling",
+      projectedWeightClass: "Heavyweight",
+      styleOverride: "elite_wrestling_top_control"
+    }
+  }
+};
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function asNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeId(value: string | null | undefined) {
+  return String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
 function confidenceMultiplier(confidence: unknown) {
@@ -54,6 +116,15 @@ function historyWeight(feature: UfcModelFeatureSnapshot) {
   return 0.05;
 }
 
+function eliteCombatCredentialWeight(feature: UfcModelFeatureSnapshot) {
+  const ufcFights = typeof feature.ufcFights === "number" && Number.isFinite(feature.ufcFights) ? feature.ufcFights : 0;
+  const proFights = typeof feature.proFights === "number" && Number.isFinite(feature.proFights) ? feature.proFights : 0;
+  if (ufcFights <= 0 && proFights <= 3) return 0.72;
+  if (ufcFights <= 0) return 0.6;
+  if (ufcFights < 3) return 0.44;
+  return 0.24;
+}
+
 function outcomeLearningWeight(feature: UfcModelFeatureSnapshot) {
   const ufcFights = typeof feature.ufcFights === "number" && Number.isFinite(feature.ufcFights) ? feature.ufcFights : 0;
   if (ufcFights <= 0) return 0.55;
@@ -69,6 +140,20 @@ function maxMoveFor(key: string) {
   if (key.includes("PerMin")) return 0.55;
   if (key === "strikingDifferential") return 0.38;
   return 5;
+}
+
+function maxEliteCombatMoveFor(key: string) {
+  if (key === "takedownsPer15") return 3.35;
+  if (key === "controlTimePct") return 34;
+  if (key === "takedownAccuracyPct" || key === "takedownDefensePct") return 31;
+  if (key === "amateurSignal") return 52;
+  if (key === "promotionTierSignal") return 28;
+  if (key === "opponentAdjustedStrength") return 24;
+  if (key.includes("Pct") || key.includes("Score") || key.includes("Strength") || key.includes("Signal")) return 18;
+  if (key.includes("Per15")) return 1.25;
+  if (key.includes("PerMin")) return 0.85;
+  if (key === "strikingDifferential") return 0.65;
+  return 12;
 }
 
 function maxOutcomeMoveFor(key: string) {
@@ -99,6 +184,12 @@ function blend(current: number | null, prior: number, key: string, weight: numbe
   return Number((current + clamp((prior - current) * weight, -maxMove, maxMove)).toFixed(4));
 }
 
+function blendEliteCombat(current: number | null, prior: number, key: string, weight: number) {
+  if (current == null) return prior;
+  const maxMove = maxEliteCombatMoveFor(key);
+  return Number((current + clamp((prior - current) * weight, -maxMove, maxMove)).toFixed(4));
+}
+
 function applyDelta(current: number | null, delta: number, key: string, weight: number) {
   const base = current ?? 0;
   const maxMove = maxOutcomeMoveFor(key);
@@ -114,6 +205,61 @@ function setFeatureValue(feature: UfcModelFeatureSnapshot, key: ProfileKey, valu
 function extractEvidence(value: unknown) {
   const evidence = asRecord(value).evidence;
   return Array.isArray(evidence) ? evidence.map(String).filter(Boolean).slice(0, 4) : [];
+}
+
+function findEliteCombatCredentialPrior(feature: UfcModelFeatureSnapshot, payloadRecord: Record<string, unknown>) {
+  const candidates = [
+    feature.fighterId,
+    asRecord(feature.feature).fighterName,
+    asRecord(feature.feature).name,
+    payloadRecord.fullName,
+    payloadRecord.name,
+    payloadRecord.full_name,
+    payloadRecord.slug,
+    payloadRecord.fighterSlug
+  ].map((value) => normalizeId(typeof value === "string" ? value : null)).filter(Boolean);
+  return Object.values(ELITE_COMBAT_CREDENTIAL_PRIORS).find((prior) => prior.aliases.some((alias) => candidates.includes(normalizeId(alias)))) ?? null;
+}
+
+function applyEliteCombatCredentialPriors(nextFeature: UfcModelFeatureSnapshot, payloadRecord: Record<string, unknown>) {
+  const prior = findEliteCombatCredentialPrior(nextFeature, payloadRecord);
+  const changedKeys: string[] = [];
+  if (!prior) return { source: null, confidence: null, sourceUrl: null, evidence: [] as string[], changedKeys };
+
+  const weight = eliteCombatCredentialWeight(nextFeature) * confidenceMultiplier(prior.confidence);
+  if (weight <= 0) return { source: "elite-combat-credentials", confidence: prior.confidence, sourceUrl: prior.sourceUrl, evidence: prior.evidence, changedKeys };
+
+  for (const key of PROFILE_KEYS) {
+    const priorValue = prior.priors[key];
+    if (priorValue == null) continue;
+    const current = currentFeatureValue(nextFeature, key);
+    const blended = blendEliteCombat(current, priorValue, key, weight);
+    const currentRounded = current == null ? null : Number(current.toFixed(4));
+    if (currentRounded == null || Math.abs(blended - currentRounded) > 0.0001) {
+      setFeatureValue(nextFeature, key, blended);
+      changedKeys.push(key);
+    }
+  }
+
+  if (changedKeys.length) {
+    nextFeature.coldStartActive = false;
+    if (!nextFeature.weightClass && typeof prior.metadata?.projectedWeightClass === "string") nextFeature.weightClass = prior.metadata.projectedWeightClass;
+    nextFeature.feature = {
+      ...asRecord(nextFeature.feature),
+      combatBase: prior.metadata?.combatBase ?? asRecord(nextFeature.feature).combatBase ?? null,
+      eliteCombatCredentialPrior: {
+        source: "elite-combat-credentials",
+        confidence: prior.confidence,
+        sourceUrl: prior.sourceUrl,
+        appliedWeight: Number(weight.toFixed(4)),
+        changedKeys,
+        evidence: prior.evidence,
+        metadata: prior.metadata ?? {}
+      }
+    };
+  }
+
+  return { source: "elite-combat-credentials", confidence: prior.confidence, sourceUrl: prior.sourceUrl, evidence: prior.evidence, changedKeys };
 }
 
 function applyWikimediaPriors(nextFeature: UfcModelFeatureSnapshot, payloadRecord: Record<string, unknown>) {
@@ -203,21 +349,22 @@ function applyOutcomeLearning(nextFeature: UfcModelFeatureSnapshot, payloadRecor
 export function applyPayloadPriorsToUfcFeature(feature: UfcModelFeatureSnapshot, payload: unknown): UfcPriorBridgeResult {
   const payloadRecord = asRecord(payload);
   const nextFeature: UfcModelFeatureSnapshot = { ...feature, feature: { ...asRecord(feature.feature) } };
+  const eliteCombat = applyEliteCombatCredentialPriors(nextFeature, payloadRecord);
   const prior = applyWikimediaPriors(nextFeature, payloadRecord);
   const learning = applyOutcomeLearning(nextFeature, payloadRecord);
   const wikimedia = asRecord(prior.wikimedia);
   const priorEvidence = extractEvidence(wikimedia);
-  const changedKeys = [...prior.changedKeys, ...learning.changedKeys.map((key) => `learned:${key}`)];
-  const source = [prior.source, learning.source].filter(Boolean).join("+") || null;
+  const changedKeys = [...eliteCombat.changedKeys.map((key) => `elite:${key}`), ...prior.changedKeys, ...learning.changedKeys.map((key) => `learned:${key}`)];
+  const source = [eliteCombat.source, prior.source, learning.source].filter(Boolean).join("+") || null;
 
   return {
     feature: nextFeature,
     applied: changedKeys.length > 0,
     source,
-    confidence: typeof prior.confidence === "string" ? prior.confidence : null,
+    confidence: eliteCombat.confidence ?? (typeof prior.confidence === "string" ? prior.confidence : null),
     wikidataQid: typeof wikimedia.wikidataQid === "string" ? wikimedia.wikidataQid : null,
-    sourceUrl: typeof wikimedia.sourceUrl === "string" ? wikimedia.sourceUrl : null,
-    evidence: priorEvidence,
+    sourceUrl: eliteCombat.sourceUrl ?? (typeof wikimedia.sourceUrl === "string" ? wikimedia.sourceUrl : null),
+    evidence: [...eliteCombat.evidence, ...priorEvidence].slice(0, 6),
     changedKeys,
     learningApplied: learning.changedKeys.length > 0,
     learningChangedKeys: learning.changedKeys,
@@ -227,8 +374,12 @@ export function applyPayloadPriorsToUfcFeature(feature: UfcModelFeatureSnapshot,
 
 export function enrichedPriorPathSummary(args: { fighterAId: string; fighterBId: string; a: UfcPriorBridgeResult; b: UfcPriorBridgeResult }) {
   const lines: string[] = [];
-  const aPriorKeys = args.a.changedKeys.filter((key) => !key.startsWith("learned:")).slice(0, 5);
-  const bPriorKeys = args.b.changedKeys.filter((key) => !key.startsWith("learned:")).slice(0, 5);
+  const aEliteKeys = args.a.changedKeys.filter((key) => key.startsWith("elite:")).map((key) => key.replace(/^elite:/, "")).slice(0, 5);
+  const bEliteKeys = args.b.changedKeys.filter((key) => key.startsWith("elite:")).map((key) => key.replace(/^elite:/, "")).slice(0, 5);
+  const aPriorKeys = args.a.changedKeys.filter((key) => !key.startsWith("learned:") && !key.startsWith("elite:")).slice(0, 5);
+  const bPriorKeys = args.b.changedKeys.filter((key) => !key.startsWith("learned:") && !key.startsWith("elite:")).slice(0, 5);
+  if (aEliteKeys.length) lines.push(`Elite combat-credential priors applied to ${args.fighterAId}: ${aEliteKeys.join(", ")}${args.a.changedKeys.length > 5 ? "…" : ""}.`);
+  if (bEliteKeys.length) lines.push(`Elite combat-credential priors applied to ${args.fighterBId}: ${bEliteKeys.join(", ")}${args.b.changedKeys.length > 5 ? "…" : ""}.`);
   if (aPriorKeys.length) lines.push(`Enriched background priors applied to ${args.fighterAId}: ${aPriorKeys.join(", ")}${args.a.changedKeys.length > 5 ? "…" : ""}.`);
   if (bPriorKeys.length) lines.push(`Enriched background priors applied to ${args.fighterBId}: ${bPriorKeys.join(", ")}${args.b.changedKeys.length > 5 ? "…" : ""}.`);
   if (args.a.learningApplied) lines.push(`Post-fight outcome learning applied to ${args.fighterAId}: ${args.a.learningChangedKeys?.slice(0, 5).join(", ")}${(args.a.learningChangedKeys?.length ?? 0) > 5 ? "…" : ""}.`);
