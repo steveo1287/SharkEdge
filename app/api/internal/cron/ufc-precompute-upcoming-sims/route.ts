@@ -52,21 +52,24 @@ export async function GET(request: Request) {
   const dryRun = parseBool(url.searchParams.get("dryRun"));
   const modelVersion = url.searchParams.get("modelVersion") ?? "ufc-fight-iq-v1";
   const horizonDays = parseIntParam(url.searchParams.get("horizonDays"), 180, 1, 365);
-  const limit = parseIntParam(url.searchParams.get("limit"), 50, 1, 100);
-  const simulations = parseIntParam(url.searchParams.get("simulations"), 25_000, 1_000, 100_000);
+  const limit = parseIntParam(url.searchParams.get("limit"), 25, 1, 100);
+  const simulations = parseIntParam(url.searchParams.get("simulations"), 10_000, 1_000, 100_000);
   const includeMvp = parseBool(url.searchParams.get("includeMvp"), true);
   const includeEspn = parseBool(url.searchParams.get("includeEspn"), true);
   const includeTapology = parseBool(url.searchParams.get("includeTapology"), true);
   const includeUfcCom = parseBool(url.searchParams.get("includeUfcCom"), true);
   const allowFallbackFeatures = parseBool(url.searchParams.get("allowFallbackFeatures"), true);
   const forceRegenerate = parseBool(url.searchParams.get("forceRegenerate"), true);
-  const refreshOdds = parseBool(url.searchParams.get("refreshOdds"), true);
-  const runWikimedia = parseBool(url.searchParams.get("runWikimedia"), true);
-  const rebuildProfiles = parseBool(url.searchParams.get("rebuildProfiles"), true);
+  // This endpoint must stay focused on surfacing already-ingested MMA sim work.
+  // Heavy ingest/enrichment can be run explicitly, but should not block cache precompute.
+  const skipIngest = parseBool(url.searchParams.get("skipIngest"), true);
+  const refreshOdds = parseBool(url.searchParams.get("refreshOdds"), false);
+  const runWikimedia = parseBool(url.searchParams.get("runWikimedia"), false);
+  const rebuildProfiles = parseBool(url.searchParams.get("rebuildProfiles"), false);
   const recordShadow = parseBool(url.searchParams.get("recordShadow"), true);
   const wikimediaLimit = parseIntParam(url.searchParams.get("wikimediaLimit"), 40, 1, 200);
   const wikimediaOffset = parseIntParam(url.searchParams.get("wikimediaOffset"), 0, 0, 100_000);
-  const profileLimit = parseIntParam(url.searchParams.get("profileLimit"), 2500, 1, 5000);
+  const profileLimit = parseIntParam(url.searchParams.get("profileLimit"), 300, 1, 5000);
 
   const startedAt = new Date().toISOString();
   const oddsRefresh = refreshOdds && !dryRun
@@ -83,7 +86,7 @@ export async function GET(request: Request) {
 
   const sim = await runUfcUpcomingToSimPipeline({
     dryRun,
-    skipIngest: false,
+    skipIngest,
     modelVersion,
     horizonDays,
     limit,
@@ -127,7 +130,7 @@ export async function GET(request: Request) {
     startedAt,
     finishedAt: new Date().toISOString(),
     modelVersion,
-    params: { horizonDays, limit, simulations, allowFallbackFeatures, forceRegenerate, refreshOdds, recordShadow, runWikimedia, rebuildProfiles, includeMvp, includeEspn, includeTapology, includeUfcCom },
+    params: { horizonDays, limit, simulations, allowFallbackFeatures, forceRegenerate, skipIngest, refreshOdds, recordShadow, runWikimedia, rebuildProfiles, profileLimit, includeMvp, includeEspn, includeTapology, includeUfcCom },
     oddsRefresh: compactOddsRefresh(oddsRefresh as any),
     wikimedia,
     profiles,

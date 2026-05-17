@@ -8,23 +8,31 @@ on:
       limit:
         description: "Number of fights to regenerate"
         required: false
-        default: "50"
+        default: "25"
       simulations:
         description: "Simulation count per fight"
         required: false
-        default: "25000"
+        default: "10000"
       refresh_odds:
         description: "Refresh UFC odds before regeneration"
         required: false
-        default: "true"
+        default: "false"
       rebuild_profiles:
         description: "Rebuild elite UFC fighter profiles"
         required: false
-        default: "true"
+        default: "false"
       run_wikimedia:
         description: "Run Wikimedia fighter enrichment"
         required: false
+        default: "false"
+      skip_ingest:
+        description: "Skip upstream card ingestion and simulate from existing warehouse rows"
+        required: false
         default: "true"
+      profile_limit:
+        description: "Profile rebuild cap when rebuild_profiles=true"
+        required: false
+        default: "300"
   push:
     branches:
       - main
@@ -61,11 +69,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "limit=${{ github.event.inputs.limit || '50' }}" >> "$GITHUB_OUTPUT"
-          echo "simulations=${{ github.event.inputs.simulations || '25000' }}" >> "$GITHUB_OUTPUT"
-          echo "refresh_odds=${{ github.event.inputs.refresh_odds || 'true' }}" >> "$GITHUB_OUTPUT"
-          echo "rebuild_profiles=${{ github.event.inputs.rebuild_profiles || 'true' }}" >> "$GITHUB_OUTPUT"
-          echo "run_wikimedia=${{ github.event.inputs.run_wikimedia || 'true' }}" >> "$GITHUB_OUTPUT"
+          echo "limit=${{ github.event.inputs.limit || '25' }}" >> "$GITHUB_OUTPUT"
+          echo "simulations=${{ github.event.inputs.simulations || '10000' }}" >> "$GITHUB_OUTPUT"
+          echo "refresh_odds=${{ github.event.inputs.refresh_odds || 'false' }}" >> "$GITHUB_OUTPUT"
+          echo "rebuild_profiles=${{ github.event.inputs.rebuild_profiles || 'false' }}" >> "$GITHUB_OUTPUT"
+          echo "run_wikimedia=${{ github.event.inputs.run_wikimedia || 'false' }}" >> "$GITHUB_OUTPUT"
+          echo "skip_ingest=${{ github.event.inputs.skip_ingest || 'true' }}" >> "$GITHUB_OUTPUT"
+          echo "profile_limit=${{ github.event.inputs.profile_limit || '300' }}" >> "$GITHUB_OUTPUT"
 
       - name: Run protected UFC precompute
         shell: bash
@@ -76,10 +86,12 @@ jobs:
           REFRESH_ODDS: ${{ steps.params.outputs.refresh_odds }}
           REBUILD_PROFILES: ${{ steps.params.outputs.rebuild_profiles }}
           RUN_WIKIMEDIA: ${{ steps.params.outputs.run_wikimedia }}
+          SKIP_INGEST: ${{ steps.params.outputs.skip_ingest }}
+          PROFILE_LIMIT: ${{ steps.params.outputs.profile_limit }}
         run: |
           set -euo pipefail
-          URL="https://sharkedge.vercel.app/api/internal/cron/ufc-precompute-upcoming-sims?limit=${LIMIT}&simulations=${SIMULATIONS}&forceRegenerate=true&recordShadow=true&allowFallbackFeatures=true&refreshOdds=${REFRESH_ODDS}&runWikimedia=${RUN_WIKIMEDIA}&rebuildProfiles=${REBUILD_PROFILES}"
-          echo "Calling UFC precompute: limit=${LIMIT}, simulations=${SIMULATIONS}, refreshOdds=${REFRESH_ODDS}, rebuildProfiles=${REBUILD_PROFILES}, runWikimedia=${RUN_WIKIMEDIA}"
+          URL="https://sharkedge.vercel.app/api/internal/cron/ufc-precompute-upcoming-sims?limit=${LIMIT}&simulations=${SIMULATIONS}&forceRegenerate=true&recordShadow=true&allowFallbackFeatures=true&skipIngest=${SKIP_INGEST}&refreshOdds=${REFRESH_ODDS}&runWikimedia=${RUN_WIKIMEDIA}&rebuildProfiles=${REBUILD_PROFILES}&profileLimit=${PROFILE_LIMIT}"
+          echo "Calling UFC precompute: limit=${LIMIT}, simulations=${SIMULATIONS}, skipIngest=${SKIP_INGEST}, refreshOdds=${REFRESH_ODDS}, rebuildProfiles=${REBUILD_PROFILES}, runWikimedia=${RUN_WIKIMEDIA}, profileLimit=${PROFILE_LIMIT}"
           HTTP_CODE=$(curl --silent --show-error --location --max-time 310 --retry 1 --retry-delay 8 \
             --output /tmp/ufc-precompute-response.json \
             --write-out "%{http_code}" \
