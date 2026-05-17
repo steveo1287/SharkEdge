@@ -118,7 +118,9 @@ export async function GET(request: Request) {
     }));
 
   const oddsOk = !oddsRefresh || Boolean((oddsRefresh as any).ok) || Boolean((oddsRefresh as any).skipped);
-  const ok = Boolean(sim.ok) && oddsOk && (!profiles || Boolean((profiles as any).ok)) && (!wikimedia || Boolean((wikimedia as any).ok));
+  // Profile rebuilds are enrichment. They should report warnings, but stale profile
+  // rows must not block the surfaced fight-card precompute from publishing.
+  const ok = Boolean(sim.ok) && oddsOk && (!wikimedia || Boolean((wikimedia as any).ok));
   return NextResponse.json({
     ok,
     mode: dryRun ? "dry-run" : "precompute-upcoming-sims",

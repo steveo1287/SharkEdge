@@ -646,6 +646,8 @@ async function insertModelFeature(feature: UfcModelFeatureSnapshot) {
     VALUES (${(feature as any).id}, ${feature.fightId}, ${feature.fightDate}::timestamptz, ${feature.fighterId}, ${feature.opponentFighterId}, ${feature.snapshotAt}::timestamptz, ${feature.modelVersion}, ${feature.proFights ?? null}, ${feature.ufcFights ?? null}, ${feature.roundsFought ?? null}, ${feature.sigStrikesLandedPerMin ?? null}, ${feature.sigStrikesAbsorbedPerMin ?? null}, ${feature.strikingDifferential ?? null}, ${feature.takedownsPer15 ?? null}, ${feature.takedownDefensePct ?? null}, ${feature.submissionAttemptsPer15 ?? null}, ${feature.controlTimePct ?? null}, ${feature.opponentAdjustedStrength ?? null}, ${Boolean(feature.coldStartActive)}, ${JSON.stringify(feature.feature ?? {})}::jsonb, now())
     ON CONFLICT (fight_id, fighter_id, model_version)
     DO UPDATE SET
+      fight_date = EXCLUDED.fight_date,
+      opponent_fighter_id = EXCLUDED.opponent_fighter_id,
       snapshot_at = EXCLUDED.snapshot_at,
       pro_fights = EXCLUDED.pro_fights,
       ufc_fights = EXCLUDED.ufc_fights,
@@ -705,8 +707,12 @@ export async function buildEliteUfcFighterProfiles(options: { modelVersion?: str
     ];
     for (const feature of features) {
       if (!feature) continue;
-      if (!options.dryRun) await insertModelFeature(feature);
-      writtenFightFeatures += 1;
+      try {
+        if (!options.dryRun) await insertModelFeature(feature);
+        writtenFightFeatures += 1;
+      } catch (error) {
+        errors.push(`${fight.fight_id}:${feature.fighterId}: feature write failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 
