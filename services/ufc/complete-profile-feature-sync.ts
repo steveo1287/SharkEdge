@@ -74,11 +74,17 @@ function getCompleteProfile(payload: unknown): CompleteProfile | null {
   return profile && profile.noMissingData === true ? profile as CompleteProfile : null;
 }
 
+function getProfileIntelligence(payload: unknown) {
+  const root = asRecord(payload);
+  const intelligence = asRecord(root.profileIntelligence);
+  return Object.keys(intelligence).length ? intelligence : null;
+}
+
 function toIso(value: Date | string) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-function featureJson(profile: CompleteProfile, row: FightProfileRow, fighterId: string, opponentId: string) {
+function featureJson(profile: CompleteProfile, intelligence: Record<string, unknown> | null, row: FightProfileRow, fighterId: string, opponentId: string) {
   return {
     source: "complete-profile-feature-sync",
     noMissingData: true,
@@ -87,6 +93,13 @@ function featureJson(profile: CompleteProfile, row: FightProfileRow, fighterId: 
     confidence: numberValue(profile.confidence) ?? 0.5,
     sourceSummary: profile.sourceSummary ?? null,
     estimatedFields: profile.audit?.estimatedFields ?? [],
+    profileIntelligence: intelligence,
+    profileIntelligenceReadiness: intelligence ? asRecord(intelligence.readiness) : null,
+    opponentStrength: intelligence ? asRecord(intelligence.opponentStrength) : null,
+    recentForm: intelligence ? asRecord(intelligence.recentForm) : null,
+    stanceStyle: intelligence ? asRecord(intelligence.stanceStyle) : null,
+    contextFlags: intelligence ? asRecord(intelligence.contextFlags) : null,
+    fallbackReferences: intelligence ? asRecord(intelligence.fallbackReferences) : null,
     completeProfile: profile,
     ratings: profile.ratings ?? {},
     rawFeature: {
@@ -117,6 +130,7 @@ function featureJson(profile: CompleteProfile, row: FightProfileRow, fighterId: 
 async function upsertFeature(args: {
   row: FightProfileRow;
   profile: CompleteProfile;
+  intelligence: Record<string, unknown> | null;
   fighterId: string;
   opponentId: string;
   modelVersion: string;
@@ -127,7 +141,7 @@ async function upsertFeature(args: {
   const id = stableId("ufcmf", `${args.row.fight_id}:${args.fighterId}:complete-sync:${args.modelVersion}`);
   const slpm = statValue(args.profile, "slpm", 3.65);
   const sapm = statValue(args.profile, "sapm", 3.2);
-  const payload = featureJson(args.profile, args.row, args.fighterId, args.opponentId);
+  const payload = featureJson(args.profile, args.intelligence, args.row, args.fighterId, args.opponentId);
   if (args.dryRun) return;
   await prisma.$executeRaw`
     INSERT INTO ufc_model_features (id, fight_id, fight_date, fighter_id, opponent_fighter_id, snapshot_at, model_version, pro_fights, ufc_fights, rounds_fought, sig_strikes_landed_per_min, sig_strikes_absorbed_per_min, striking_differential, takedowns_per_15, takedown_defense_pct, submission_attempts_per_15, control_time_pct, opponent_adjusted_strength, cold_start_active, feature_json, updated_at)
@@ -174,15 +188,20 @@ export async function syncCompleteUfcProfilesToSimFeatures(options: { modelVersi
   `;
   let writtenFeatures = 0;
   const missingProfiles: string[] = [];
+  const missingIntelligence: string[] = [];
   const errors: string[] = [];
   for (const row of rows) {
     const a = getCompleteProfile(row.fighter_a_payload);
     const b = getCompleteProfile(row.fighter_b_payload);
+    const aIntelligence = getProfileIntelligence(row.fighter_a_payload);
+    const bIntelligence = getProfileIntelligence(row.fighter_b_payload);
     if (!a) missingProfiles.push(row.fighter_a_name ?? row.fighter_a_id);
     if (!b) missingProfiles.push(row.fighter_b_name ?? row.fighter_b_id);
+    if (!aIntelligence) missingIntelligence.push(row.fighter_a_name ?? row.fighter_a_id);
+    if (!bIntelligence) missingIntelligence.push(row.fighter_b_name ?? row.fighter_b_id);
     try {
-      if (a) { await upsertFeature({ row, profile: a, fighterId: row.fighter_a_id, opponentId: row.fighter_b_id, modelVersion, dryRun }); writtenFeatures += 1; }
-      if (b) { await upsertFeature({ row, profile: b, fighterId: row.fighter_b_id, opponentId: row.fighter_a_id, modelVersion, dryRun }); writtenFeatures += 1; }
+      if (a) { await upsertFeature({ row, profile: a, intelligence: aIntelligence, fighterId: row.fighter_a_id, opponentId: row.fighter_b_id, modelVersion, dryRun }); writtenFeatures += 1; }
+      if (b) { await upsertFeature({ row, profile: b, intelligence: bIntelligence, fighterId: row.fighter_b_id, opponentId: row.fighter_a_id, modelVersion, dryRun }); writtenFeatures += 1; }
     } catch (error) {
       errors.push(`${row.event_label}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -194,7 +213,9 @@ export async function syncCompleteUfcProfilesToSimFeatures(options: { modelVersi
     fightCount: rows.length,
     writtenFeatures,
     missingProfiles: Array.from(new Set(missingProfiles)).slice(0, 50),
+    missingIntelligence: Array.from(new Set(missingIntelligence)).slice(0, 50),
     noMissingFeatureRows: missingProfiles.length === 0,
+    noMissingIntelligence: missingIntelligence.length === 0,
     errors: errors.slice(0, 50)
   };
 }
