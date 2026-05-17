@@ -197,6 +197,7 @@ async function writeFeature(feature: ReturnType<typeof buildFeature>, dryRun: bo
     INSERT INTO ufc_model_features (id, fight_id, fight_date, fighter_id, opponent_fighter_id, snapshot_at, model_version, pro_fights, ufc_fights, rounds_fought, sig_strikes_landed_per_min, sig_strikes_absorbed_per_min, striking_differential, takedowns_per_15, takedown_defense_pct, submission_attempts_per_15, control_time_pct, opponent_adjusted_strength, cold_start_active, feature_json, updated_at)
     VALUES (${feature.id}, ${feature.fightId}, ${feature.fightDate}::timestamptz, ${feature.fighterId}, ${feature.opponentFighterId}, LEAST(now(), ${feature.fightDate}::timestamptz - interval '1 minute'), ${feature.modelVersion}, ${feature.proFights}, ${feature.ufcFights}, ${feature.roundsFought}, ${feature.sigStrikesLandedPerMin}, ${feature.sigStrikesAbsorbedPerMin}, ${feature.strikingDifferential}, ${feature.takedownsPer15}, ${feature.takedownDefensePct}, ${feature.submissionAttemptsPer15}, ${feature.controlTimePct}, ${feature.opponentAdjustedStrength}, ${feature.coldStartActive}, ${JSON.stringify(feature.feature)}::jsonb, now())
     ON CONFLICT (fight_id, fighter_id, model_version) DO UPDATE SET
+      fight_date = EXCLUDED.fight_date,
       snapshot_at = EXCLUDED.snapshot_at,
       pro_fights = EXCLUDED.pro_fights,
       ufc_fights = EXCLUDED.ufc_fights,
