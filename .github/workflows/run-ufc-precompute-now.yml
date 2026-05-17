@@ -1,0 +1,118 @@
+name: Run UFC precompute now
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Number of fights to regenerate"
+        required: false
+        default: "50"
+      simulations:
+        description: "Simulation count per fight"
+        required: false
+        default: "25000"
+      refresh_odds:
+        description: "Refresh UFC odds before regeneration"
+        required: false
+        default: "true"
+      rebuild_profiles:
+        description: "Rebuild elite UFC fighter profiles"
+        required: false
+        default: "true"
+      run_wikimedia:
+        description: "Run Wikimedia fighter enrichment"
+        required: false
+        default: "true"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/run-ufc-precompute-now.yml"
+
+jobs:
+  run-ufc-precompute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Choose internal token
+        id: token
+        shell: bash
+        env:
+          INTERNAL_API_KEY: ${{ secrets.INTERNAL_API_KEY }}
+          INTERNAL_API_KEY2: ${{ secrets.INTERNAL_API_KEY2 }}
+          TRENDS_REFRESH_TOKEN: ${{ secrets.TRENDS_REFRESH_TOKEN }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          TOKEN="${INTERNAL_API_KEY:-}"
+          if [ -z "$TOKEN" ]; then TOKEN="${INTERNAL_API_KEY2:-}"; fi
+          if [ -z "$TOKEN" ]; then TOKEN="${TRENDS_REFRESH_TOKEN:-}"; fi
+          if [ -z "$TOKEN" ]; then TOKEN="${CRON_SECRET:-}"; fi
+          if [ -z "$TOKEN" ]; then
+            echo "No internal API token secret found. Add INTERNAL_API_KEY, INTERNAL_API_KEY2, TRENDS_REFRESH_TOKEN, or CRON_SECRET as a GitHub repository secret." >&2
+            exit 1
+          fi
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Set run parameters
+        id: params
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "limit=${{ github.event.inputs.limit || '50' }}" >> "$GITHUB_OUTPUT"
+          echo "simulations=${{ github.event.inputs.simulations || '25000' }}" >> "$GITHUB_OUTPUT"
+          echo "refresh_odds=${{ github.event.inputs.refresh_odds || 'true' }}" >> "$GITHUB_OUTPUT"
+          echo "rebuild_profiles=${{ github.event.inputs.rebuild_profiles || 'true' }}" >> "$GITHUB_OUTPUT"
+          echo "run_wikimedia=${{ github.event.inputs.run_wikimedia || 'true' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Run protected UFC precompute
+        shell: bash
+        env:
+          TOKEN: ${{ steps.token.outputs.token }}
+          LIMIT: ${{ steps.params.outputs.limit }}
+          SIMULATIONS: ${{ steps.params.outputs.simulations }}
+          REFRESH_ODDS: ${{ steps.params.outputs.refresh_odds }}
+          REBUILD_PROFILES: ${{ steps.params.outputs.rebuild_profiles }}
+          RUN_WIKIMEDIA: ${{ steps.params.outputs.run_wikimedia }}
+        run: |
+          set -euo pipefail
+          URL="https://sharkedge.vercel.app/api/internal/cron/ufc-precompute-upcoming-sims?limit=${LIMIT}&simulations=${SIMULATIONS}&forceRegenerate=true&recordShadow=true&allowFallbackFeatures=true&refreshOdds=${REFRESH_ODDS}&runWikimedia=${RUN_WIKIMEDIA}&rebuildProfiles=${REBUILD_PROFILES}"
+          echo "Calling UFC precompute: limit=${LIMIT}, simulations=${SIMULATIONS}, refreshOdds=${REFRESH_ODDS}, rebuildProfiles=${REBUILD_PROFILES}, runWikimedia=${RUN_WIKIMEDIA}"
+          HTTP_CODE=$(curl --silent --show-error --location --max-time 310 --retry 1 --retry-delay 8 \
+            --output /tmp/ufc-precompute-response.json \
+            --write-out "%{http_code}" \
+            -H "x-api-key: ${TOKEN}" \
+            "$URL")
+          echo "HTTP ${HTTP_CODE}"
+          cat /tmp/ufc-precompute-response.json
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            exit 1
+          fi
+
+      - name: Verify UFC shadow audit health
+        shell: bash
+        run: |
+          set -euo pipefail
+          HEALTH_URL="https://sharkedge.vercel.app/api/ufc/audit-health?limit=20"
+          echo "Checking ${HEALTH_URL}"
+          HTTP_CODE=$(curl --silent --show-error --location --max-time 60 --retry 2 --retry-delay 10 \
+            --output /tmp/ufc-shadow-health.json \
+            --write-out "%{http_code}" \
+            "$HEALTH_URL")
+          echo "HTTP ${HTTP_CODE}"
+          cat /tmp/ufc-shadow-health.json
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            exit 1
+          fi
+          node - <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/ufc-shadow-health.json', 'utf8'));
+          const active = body?.health?.activeV2PendingCount ?? 0;
+          const needs = body?.health?.needsAuthorizedPrecompute;
+          console.log(`activeV2PendingCount=${active}`);
+          console.log(`needsAuthorizedPrecompute=${needs}`);
+          if (!(active > 0) || needs === true) {
+            console.error('UFC shadow audit is still not refreshed. Expected active v2 pending rows.');
+            process.exit(1);
+          }
+          NODE
