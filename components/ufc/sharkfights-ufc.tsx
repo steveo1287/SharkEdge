@@ -133,18 +133,64 @@ function Section({ title, children }: { title: string; children: ReactNode }) { 
 function skill(value: number | null | undefined) { if (typeof value !== "number" || !Number.isFinite(value)) return "--"; return Math.round(value); }
 function signalText(value: unknown) { if (typeof value === "string" && value.trim()) return value; if (typeof value === "number" && Number.isFinite(value)) return String(Math.round(value)); if (Array.isArray(value) && value.length) return value.slice(0, 3).join(", "); return "--"; }
 function styleText(value: unknown) { return typeof value === "string" && value.trim() ? value.replaceAll("_", " ") : "--"; }
+function rating(value: unknown) { if (typeof value !== "number" || !Number.isFinite(value)) return "--"; return `${Math.round(value)}/100`; }
+function genomePct(value: unknown) { if (typeof value !== "number" || !Number.isFinite(value)) return "--"; return value <= 1 ? pct(value) : `${Math.round(value)}%`; }
 function topStylePath(paths: unknown) { if (!paths || typeof paths !== "object" || Array.isArray(paths)) return null; const entries = Object.entries(paths as Record<string, unknown>).filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1])); return entries.sort((a, b) => b[1] - a[1])[0] ?? null; }
+function styleArchetype(genome: any) { return styleText(genome?.archetype?.primary ?? genome?.primaryArchetype ?? genome?.style); }
+function styleConfidence(genome: any) { return genomePct(genome?.archetype?.confidence ?? genome?.confidence); }
+function styleTags(genome: any) { const raw = [genome?.archetype?.secondary, ...(Array.isArray(genome?.tags) ? genome.tags : []), ...(Array.isArray(genome?.traits) ? genome.traits : [])]; const values = raw.filter((item): item is string => typeof item === "string" && item.trim()); return [...new Set(values)].slice(0, 4); }
+function tendencyRows(genome: any) { const tendencies = genome?.tendencies ?? genome?.metrics ?? genome?.styleMetrics ?? {}; return [["Pressure", tendencies.pressure ?? tendencies.forwardPressure], ["Pace", tendencies.pace ?? tendencies.tempo], ["Grappling", tendencies.grappling ?? tendencies.grapplingFrequency], ["Clinch", tendencies.clinch ?? tendencies.clinchFrequency], ["Finish", tendencies.finishThreat ?? tendencies.finishVolatility], ["Decision", tendencies.decisionReliability ?? tendencies.decisionSafety]].filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1])); }
+
+function StyleGenomeCard({ label, name, genome }: { label: string; name: string | null; genome: any }) {
+  if (!genome) return <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">{label}</div><div className="mt-1 font-black text-white">{name ?? "Fighter"}</div><p className="mt-2 text-xs leading-5 text-slate-500">Style genome pending for this side. Re-run operational sim to attach archetype and tendency scores.</p></div>;
+  const tags = styleTags(genome);
+  const rows = tendencyRows(genome);
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">{label}</div>
+          <div className="mt-1 font-black text-white">{name ?? "Fighter"}</div>
+          <div className="mt-1 text-sm font-black capitalize text-aqua">{styleArchetype(genome)}</div>
+        </div>
+        <span className={pill("aqua")}>{styleConfidence(genome)}</span>
+      </div>
+      {tags.length ? <div className="mt-3 flex flex-wrap gap-2">{tags.map((tag) => <span key={tag} className={pill("slate")}>{styleText(tag)}</span>)}</div> : null}
+      {rows.length ? <div className="mt-3 grid grid-cols-2 gap-2">{rows.slice(0, 6).map(([rowLabel, value]) => <MiniStat key={rowLabel} label={rowLabel} value={rating(value)} />)}</div> : null}
+    </div>
+  );
+}
 
 function StyleMatchup({ fight }: { fight: UfcFightIqDetail }) {
+  const genome = fight.styleGenome;
+  const aGenome = genome?.fighterA ?? fight.featureSnapshots?.fighterA?.feature?.styleGenome ?? null;
+  const bGenome = genome?.fighterB ?? fight.featureSnapshots?.fighterB?.feature?.styleGenome ?? null;
+  const clash = genome?.clash ?? null;
   const style = fight.sourceOutputs?.styleMatchup;
   const styleMeta = style?.style;
   const topPath = topStylePath(style?.pathWins);
-  if (!style) return <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3 text-sm text-slate-400">Style matchup output is pending. Re-run UFC precompute after the style-engine deployment.</div>;
+  if (!genome && !style && !aGenome && !bGenome) return <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3 text-sm text-slate-400">Style matchup output is pending. Re-run UFC precompute after the style-engine deployment.</div>;
   return (
     <div className="grid gap-3">
-      <div className="grid grid-cols-2 gap-2"><MiniStat label="A Style" value={styleText(styleMeta?.fighterA)} /><MiniStat label="B Style" value={styleText(styleMeta?.fighterB)} /><MiniStat label="Style A" value={pct(style.fighterAWinProbability)} /><MiniStat label="Style B" value={pct(style.fighterBWinProbability)} /></div>
-      <div className="rounded-2xl border border-white/10 bg-black/20 p-3"><div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Top path</div><div className="mt-1 text-sm font-black text-white">{topPath ? `${topPath[0].replaceAll("_", " ")} · ${pct(topPath[1])}` : "--"}</div></div>
-      {Array.isArray(style.pathSummary) && style.pathSummary.length ? <div className="grid gap-1">{style.pathSummary.slice(0, 3).map((line: string, index: number) => <p key={index} className="text-sm leading-6 text-slate-300">{line}</p>)}</div> : null}
+      <div className="grid gap-3 md:grid-cols-2">
+        <StyleGenomeCard label="Fighter A genome" name={fight.fighters.fighterA.name} genome={aGenome} />
+        <StyleGenomeCard label="Fighter B genome" name={fight.fighters.fighterB.name} genome={bGenome} />
+      </div>
+      {clash ? (
+        <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+          <div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Style clash</div>
+          <div className="mt-2 grid grid-cols-3 gap-2"><MiniStat label="Pace" value={rating(clash.paceProjection)} /><MiniStat label="Finish Vol" value={rating(clash.finishVolatility)} /><MiniStat label="Decision" value={rating(clash.decisionReliability)} /></div>
+          {Array.isArray(clash.styleWarnings) && clash.styleWarnings.length ? <div className="mt-3 flex flex-wrap gap-2">{clash.styleWarnings.slice(0, 5).map((warning: string) => <span key={warning} className={pill("amber")}>{warning}</span>)}</div> : null}
+        </div>
+      ) : null}
+      {style ? (
+        <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+          <div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Legacy style model</div>
+          <div className="mt-2 grid grid-cols-2 gap-2"><MiniStat label="A Style" value={styleText(styleMeta?.fighterA)} /><MiniStat label="B Style" value={styleText(styleMeta?.fighterB)} /><MiniStat label="Style A" value={pct(style.fighterAWinProbability)} /><MiniStat label="Style B" value={pct(style.fighterBWinProbability)} /></div>
+          <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] p-3"><div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Top path</div><div className="mt-1 text-sm font-black text-white">{topPath ? `${topPath[0].replaceAll("_", " ")} · ${pct(topPath[1])}` : "--"}</div></div>
+          {Array.isArray(style.pathSummary) && style.pathSummary.length ? <div className="mt-3 grid gap-1">{style.pathSummary.slice(0, 3).map((line: string, index: number) => <p key={index} className="text-sm leading-6 text-slate-300">{line}</p>)}</div> : null}
+        </div>
+      ) : null}
     </div>
   );
 }
