@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { getUfcSettledLedger } from "@/services/ufc/settled-ledger";
+import { UfcStyleCalibrationPanel } from "./UfcStyleCalibrationPanel";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -167,6 +168,8 @@ export default async function MmaAccuracyPage({ searchParams }: PageProps) {
           </div>
         </section>
       ) : null}
+
+      <UfcStyleCalibrationPanel modelVersion={modelVersion} />
 
       {ledger.warnings.length ? (
         <section className="rounded-[1.5rem] border border-amber-300/15 bg-amber-300/[0.05] p-4">
