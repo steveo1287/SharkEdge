@@ -189,11 +189,11 @@ function resolveMarketOddsFromFight(fight: WarehouseFight, options: UfcOperation
     marketOddsSnapshot: Object.keys(marketOddsSnapshot).length ? marketOddsSnapshot : null
   };
 }
-function toFeatureSnapshot(row: WarehouseFeature): UfcModelFeatureSnapshot {
+function toFeatureSnapshot(row: WarehouseFeature, canonicalFightDate?: string): UfcModelFeatureSnapshot {
   const featureJson = row.feature_json ?? {};
   return {
     fightId: row.fight_id,
-    fightDate: toIso(row.fight_date),
+    fightDate: canonicalFightDate ?? toIso(row.fight_date),
     fighterId: row.fighter_id,
     opponentFighterId: row.opponent_fighter_id,
     snapshotAt: toIso(row.snapshot_at),
@@ -244,6 +244,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
   const fights = await prisma.$queryRaw<WarehouseFight[]>`SELECT id, event_label, fight_date, scheduled_rounds, fighter_a_id, fighter_b_id, payload_json FROM ufc_fights WHERE id = ${fightId} LIMIT 1`;
   const fight = fights[0];
   if (!fight) throw new Error(`UFC operational sim missing fight: ${fightId}`);
+  const canonicalFightDate = toIso(fight.fight_date);
   const resolvedMarketOdds = resolveMarketOddsFromFight(fight, options);
 
   const features = await prisma.$queryRaw<WarehouseFeature[]>`
@@ -252,7 +253,9 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
       striking_differential, takedowns_per_15, takedown_defense_pct, submission_attempts_per_15,
       control_time_pct, opponent_adjusted_strength, cold_start_active, feature_json
     FROM ufc_model_features
-    WHERE fight_id = ${fightId} AND model_version = ${modelVersion} AND snapshot_at <= fight_date
+    WHERE fight_id = ${fightId}
+      AND model_version = ${modelVersion}
+      AND snapshot_at <= ${canonicalFightDate}::timestamptz
     ORDER BY snapshot_at DESC
   `;
   const aFeature = features.find((feature) => feature.fighter_id === fight.fighter_a_id);
@@ -261,8 +264,11 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
 
   const fighterPayloadRows = await prisma.$queryRaw<FighterPayloadRow[]>`SELECT id, payload_json FROM ufc_fighters WHERE id IN (${fight.fighter_a_id}, ${fight.fighter_b_id})`;
   const payloadById = new Map(fighterPayloadRows.map((row) => [row.id, row.payload_json]));
-  const aRawSnapshot = toFeatureSnapshot(aFeature);
-  const bRawSnapshot = toFeatureSnapshot(bFeature);
+  // The fight schedule row is canonical. Older feature rows can carry stale
+  // fight_date metadata after provider corrections, so never let that block
+  // pre-fight validation for the current fight.
+  const aRawSnapshot = toFeatureSnapshot(aFeature, canonicalFightDate);
+  const bRawSnapshot = toFeatureSnapshot(bFeature, canonicalFightDate);
   const aTruthAudit = auditUfcProfileTruth(aRawSnapshot.feature);
   const bTruthAudit = auditUfcProfileTruth(bRawSnapshot.feature);
   const combinedTruthGrade = weakerTruthGrade(aTruthAudit.grade, bTruthAudit.grade);
