@@ -140,14 +140,22 @@ async function settleShadowPredictions(modelVersion: string) {
     UPDATE ufc_shadow_predictions s
     SET actual_winner_fighter_id = f.winner_fighter_id,
         result_correct = CASE WHEN s.pick_fighter_id IS NULL OR f.winner_fighter_id IS NULL THEN NULL ELSE s.pick_fighter_id = f.winner_fighter_id END,
-        status = CASE WHEN f.winner_fighter_id IS NULL THEN s.status ELSE 'RESOLVED' END,
+        status = 'RESOLVED',
         updated_at = now(),
-        payload_json = COALESCE(s.payload_json, '{}'::jsonb) || jsonb_build_object('settledAt', now(), 'settlementSource', 'ufc-result-settlement')
+        payload_json = COALESCE(s.payload_json, '{}'::jsonb) || jsonb_build_object(
+          'settledAt', now(),
+          'settlementSource', 'ufc-result-settlement',
+          'settlement', jsonb_build_object(
+            'status', 'RESOLVED',
+            'actualWinnerFighterId', f.winner_fighter_id,
+            'resultCorrect', CASE WHEN s.pick_fighter_id IS NULL OR f.winner_fighter_id IS NULL THEN NULL ELSE s.pick_fighter_id = f.winner_fighter_id END
+          )
+        )
     FROM ufc_fights f
     WHERE s.fight_id = f.id
       AND s.model_version = ${modelVersion}
       AND f.winner_fighter_id IS NOT NULL
-      AND COALESCE(s.status, 'PENDING') <> 'RESOLVED'
+      AND COALESCE(s.status, 'PENDING') = 'PENDING'
   `;
   return Number(result ?? 0);
 }
