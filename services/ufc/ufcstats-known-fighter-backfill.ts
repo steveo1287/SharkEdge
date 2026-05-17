@@ -13,7 +13,6 @@ const BAD_NAMES = new Set([
   "all athletes", "athletes", "betting odds", "connect", "group sales", "hall of fame", "how to watch", "ufc fight club",
   "dana whites contender series", "dana white s contender series", "road to ufc", "ufc fight pass", "newsletter"
 ]);
-const BAD_NAME_SQL = Array.from(BAD_NAMES);
 
 function stableId(prefix: string, value: string) { return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`; }
 function cleanHtml(value: string) { return value.replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&#039;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim(); }
@@ -59,7 +58,7 @@ async function knownUpcomingFighters(limit: number, offset: number, horizonDays:
         AND f.fight_date <= now() + (${horizonDays}::text || ' days')::interval
         AND f.status NOT IN ('CANCELED', 'VOID')
         AND COALESCE(f.payload_json->>'matchupQuality', '') <> 'FAKE_NAVIGATION'
-        AND regexp_replace(lower(ftr.full_name), '[^a-z0-9]+', ' ', 'g') NOT IN (${BAD_NAME_SQL.join(",")})
+        AND regexp_replace(lower(ftr.full_name), '[^a-z0-9]+', ' ', 'g') NOT IN ('ufc', 'ufc apex', 'find a gym', 'find a bar', 'skip to main content', 'events', 'tickets', 'watch', 'shop', 'all athletes', 'athletes', 'betting odds', 'connect', 'group sales', 'hall of fame', 'how to watch', 'ufc fight club', 'dana whites contender series', 'dana white s contender series', 'road to ufc', 'ufc fight pass', 'newsletter')
     ), feature_scores AS (
       SELECT fighter_id,
         MIN(CASE
