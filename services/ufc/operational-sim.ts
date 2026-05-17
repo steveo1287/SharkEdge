@@ -65,6 +65,7 @@ type WarehouseFight = {
   scheduled_rounds: number;
   fighter_a_id: string;
   fighter_b_id: string;
+  payload_json: unknown;
 };
 
 type WarehouseFeature = {
@@ -91,6 +92,14 @@ type WarehouseFeature = {
 
 type FighterPayloadRow = { id: string; payload_json: unknown };
 
+type ResolvedMarketOdds = {
+  marketOddsAOpen: number | null;
+  marketOddsBOpen: number | null;
+  marketOddsAClose: number | null;
+  marketOddsBClose: number | null;
+  marketOddsSnapshot: Record<string, unknown> | null;
+};
+
 const DEFAULT_MODEL_VERSION = "ufc-fight-iq-v1";
 const DEFAULT_SIMULATIONS = 25_000;
 const OPERATIONAL_SIM_CACHE_VERSION = "market-aware-input-audit-style-matchup-v1";
@@ -101,6 +110,15 @@ function gradeRank(grade: string) { if (grade === "A") return 4; if (grade === "
 function weakerGrade(left: string, right: string) { return gradeRank(left) <= gradeRank(right) ? left : right; }
 function confidenceRank(grade: string) { if (grade === "HIGH") return 4; if (grade === "MEDIUM_HIGH") return 3; if (grade === "MEDIUM") return 2; return 1; }
 function weakerConfidence(left: string, right: string) { return confidenceRank(left) <= confidenceRank(right) ? left : right; }
+function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
+function marketNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.round(value);
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.replace(/^\+/, ""));
+    return Number.isFinite(parsed) ? Math.round(parsed) : null;
+  }
+  return null;
+}
 function maxConfidenceFromSignal(signal: MmaProfileFeatureSignal | null) {
   if (!signal) return "MEDIUM_HIGH";
   if (signal.confidenceCap >= 0.78) return "HIGH";
@@ -122,6 +140,24 @@ function featureNumber(featureJson: Record<string, unknown>, ...keys: string[]) 
     if (typeof value === "number" && Number.isFinite(value)) return value;
   }
   return null;
+}
+function resolveMarketOddsFromFight(fight: WarehouseFight, options: UfcOperationalSimOptions): ResolvedMarketOdds {
+  const payload = asRecord(fight.payload_json);
+  const marketOddsSnapshot = asRecord(payload.marketOdds);
+  const open = asRecord(marketOddsSnapshot.open);
+  const close = asRecord(marketOddsSnapshot.close);
+  const payloadAOpen = marketNumber(open.fighterAOddsAmerican) ?? marketNumber(open.fighterA) ?? marketNumber(marketOddsSnapshot.fighterAOddsAmerican);
+  const payloadBOpen = marketNumber(open.fighterBOddsAmerican) ?? marketNumber(open.fighterB) ?? marketNumber(marketOddsSnapshot.fighterBOddsAmerican);
+  const payloadAClose = marketNumber(close.fighterAOddsAmerican) ?? marketNumber(close.fighterA) ?? payloadAOpen;
+  const payloadBClose = marketNumber(close.fighterBOddsAmerican) ?? marketNumber(close.fighterB) ?? payloadBOpen;
+  const resolved = {
+    marketOddsAOpen: options.marketOddsAOpen ?? payloadAOpen ?? null,
+    marketOddsBOpen: options.marketOddsBOpen ?? payloadBOpen ?? null,
+    marketOddsAClose: options.marketOddsAClose ?? payloadAClose ?? null,
+    marketOddsBClose: options.marketOddsBClose ?? payloadBClose ?? null,
+    marketOddsSnapshot: Object.keys(marketOddsSnapshot).length ? marketOddsSnapshot : null
+  };
+  return resolved;
 }
 function toFeatureSnapshot(row: WarehouseFeature): UfcModelFeatureSnapshot {
   const featureJson = row.feature_json ?? {};
@@ -173,9 +209,10 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
   ]);
   const profileFeatureSignal = profileFeatureSignalReport?.mma ?? null;
 
-  const fights = await prisma.$queryRaw<WarehouseFight[]>`SELECT id, event_label, fight_date, scheduled_rounds, fighter_a_id, fighter_b_id FROM ufc_fights WHERE id = ${fightId} LIMIT 1`;
+  const fights = await prisma.$queryRaw<WarehouseFight[]>`SELECT id, event_label, fight_date, scheduled_rounds, fighter_a_id, fighter_b_id, payload_json FROM ufc_fights WHERE id = ${fightId} LIMIT 1`;
   const fight = fights[0];
   if (!fight) throw new Error(`UFC operational sim missing fight: ${fightId}`);
+  const resolvedMarketOdds = resolveMarketOddsFromFight(fight, options);
 
   const features = await prisma.$queryRaw<WarehouseFeature[]>`
     SELECT fight_id, fight_date, fighter_id, opponent_fighter_id, snapshot_at, model_version,
@@ -200,8 +237,8 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
   const bSnapshot = bPriorBridge.feature;
   const aProfile = buildUfcFighterSkillProfile({ feature: aSnapshot });
   const bProfile = buildUfcFighterSkillProfile({ feature: bSnapshot });
-  const marketOddsA = options.marketOddsAClose ?? options.marketOddsAOpen ?? null;
-  const marketOddsB = options.marketOddsBClose ?? options.marketOddsBOpen ?? null;
+  const marketOddsA = resolvedMarketOdds.marketOddsAClose ?? resolvedMarketOdds.marketOddsAOpen ?? null;
+  const marketOddsB = resolvedMarketOdds.marketOddsBClose ?? resolvedMarketOdds.marketOddsBOpen ?? null;
   const simInputAudit = auditUfcSimInputs({ fighterA: aSnapshot, fighterB: bSnapshot, marketOddsA, marketOddsB });
   const profileDataQualityGrade = weakerGrade(aProfile.sampleQuality, bProfile.sampleQuality);
   const dataQualityGrade = weakerGrade(profileDataQualityGrade, simInputAudit.grade);
@@ -267,6 +304,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     enrichedPriorBridge,
     fighterSkillProfiles: { fighterA: aProfile, fighterB: bProfile },
     featureSnapshots: { fighterA: aSnapshot, fighterB: bSnapshot },
+    marketOddsSnapshot: resolvedMarketOdds.marketOddsSnapshot,
     cacheVersion: OPERATIONAL_SIM_CACHE_VERSION
   };
   const predictionId = stableId("ufcp", `${fightId}:${modelVersion}:${seed}:${simulations}:ensemble:${activeEnsembleWeights.source}:${activeEnsembleWeights.weights.skillMarkov}:${activeEnsembleWeights.weights.exchangeMonteCarlo}:${activeEnsembleWeights.weights.roundByRound}:${activeEnsembleWeights.weights.styleMatchup}:${OPERATIONAL_SIM_CACHE_VERSION}`);
@@ -289,7 +327,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     shadowPredictionId = stableId("ufcsh", `${predictionId}:shadow`);
     await prisma.$executeRaw`
       INSERT INTO ufc_shadow_predictions (id, fight_id, prediction_id, model_version, recorded_at, market_odds_a_open, market_odds_b_open, market_odds_a_close, market_odds_b_close, fighter_a_win_probability, fighter_b_win_probability, pick_fighter_id, data_quality_grade, confidence_grade, status, payload_json, updated_at)
-      VALUES (${shadowPredictionId}, ${fightId}, ${predictionId}, ${modelVersion}, now(), ${options.marketOddsAOpen ?? null}, ${options.marketOddsBOpen ?? null}, ${options.marketOddsAClose ?? null}, ${options.marketOddsBClose ?? null}, ${marketAware.blendedProbabilityA}, ${marketAware.blendedProbabilityB}, ${pickFighterId}, ${promotionGate.grade}, ${promotionGate.confidenceCap}, ${promotionGate.status === "PROMOTABLE" ? "PENDING" : "SHADOW_ONLY"}, ${JSON.stringify({ sim: predictionPayload, pathSummary: [...priorPathSummary, `Input audit ${simInputAudit.grade} (${simInputAudit.score}/100).`, ...simInputAudit.blockers, ...simInputAudit.warnings, ...promotionGate.reasons, ...sim.pathSummary], dangerFlags: [...sim.dangerFlags, ...marketAware.reasonCodes, ...auditReasonCodes], profileFeatureSignal, enrichedPriorBridge, methodCalibration, promotionGate, marketAware, simInputAudit })}::jsonb, now())
+      VALUES (${shadowPredictionId}, ${fightId}, ${predictionId}, ${modelVersion}, now(), ${resolvedMarketOdds.marketOddsAOpen ?? null}, ${resolvedMarketOdds.marketOddsBOpen ?? null}, ${resolvedMarketOdds.marketOddsAClose ?? null}, ${resolvedMarketOdds.marketOddsBClose ?? null}, ${marketAware.blendedProbabilityA}, ${marketAware.blendedProbabilityB}, ${pickFighterId}, ${promotionGate.grade}, ${promotionGate.confidenceCap}, ${promotionGate.status === "PROMOTABLE" ? "PENDING" : "SHADOW_ONLY"}, ${JSON.stringify({ sim: predictionPayload, pathSummary: [...priorPathSummary, `Input audit ${simInputAudit.grade} (${simInputAudit.score}/100).`, ...simInputAudit.blockers, ...simInputAudit.warnings, ...promotionGate.reasons, ...sim.pathSummary], dangerFlags: [...sim.dangerFlags, ...marketAware.reasonCodes, ...auditReasonCodes], profileFeatureSignal, enrichedPriorBridge, methodCalibration, promotionGate, marketAware, simInputAudit, marketOddsSnapshot: resolvedMarketOdds.marketOddsSnapshot })}::jsonb, now())
       ON CONFLICT (id) DO UPDATE SET fighter_a_win_probability = EXCLUDED.fighter_a_win_probability, fighter_b_win_probability = EXCLUDED.fighter_b_win_probability, payload_json = EXCLUDED.payload_json, confidence_grade = EXCLUDED.confidence_grade, data_quality_grade = EXCLUDED.data_quality_grade, status = EXCLUDED.status, updated_at = now()
     `;
   }
