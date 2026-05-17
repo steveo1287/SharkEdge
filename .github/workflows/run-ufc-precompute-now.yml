@@ -1,5 +1,7 @@
 name: Run UFC precompute now
 
+# Trigger marker: rerun UFC precompute after elite credential prior patch.
+
 on:
   workflow_dispatch:
     inputs:
