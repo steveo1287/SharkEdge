@@ -1,3 +1,4 @@
+import { runOddsApiSnapshotPull } from "@/services/odds/the-odds-api-budget-service";
 import { runUfcUpcomingToSimPipeline } from "@/services/ufc/upcoming-to-sim-pipeline";
 
 function argValue(name: string) {
@@ -24,7 +25,18 @@ function numberArg(name: string) {
   return parsed;
 }
 
+async function refreshUfcOddsIfRequested() {
+  if (hasFlag("dryRun") || hasFlag("noOddsRefresh")) return null;
+  return runOddsApiSnapshotPull({ mode: "manual", sportsCsv: "mma_mixed_martial_arts" }).catch((error) => ({
+    ok: false,
+    skipped: false,
+    reason: error instanceof Error ? error.message : String(error),
+    ufcMarketOdds: null
+  }));
+}
+
 async function main() {
+  const oddsRefresh = await refreshUfcOddsIfRequested();
   const result = await runUfcUpcomingToSimPipeline({
     dryRun: hasFlag("dryRun"),
     skipIngest: hasFlag("skipIngest"),
@@ -49,7 +61,7 @@ async function main() {
     mvpEventUrls: listArg("mvpEventUrls")
   });
 
-  console.log(JSON.stringify(result, null, 2));
+  console.log(JSON.stringify({ oddsRefresh, sim: result }, null, 2));
   if (!result.ok) process.exit(1);
 }
 
