@@ -19,10 +19,13 @@ assert.equal(summary.modelFeatures, 1);
 assert.equal(summary.predictions, 1);
 assert.equal(summary.backtestResults, 1);
 
-assert.throws(() => validateUfcWarehousePayload({
+const futureLeakPayload = validateUfcWarehousePayload({
   ...validPayload,
   fights: [{ ...validPayload.fights[0], preFightSnapshotAt: "2026-06-02T00:00:00.000Z" }]
-}), /future-data leakage/);
+});
+assert.equal(futureLeakPayload.fights.length, 0);
+assert.equal(futureLeakPayload.quarantine.length, 1);
+assert.equal(futureLeakPayload.quarantine[0]?.quality.reasons.includes("future_data_snapshot_after_fight_start"), true);
 
 assert.throws(() => validateUfcWarehousePayload({
   ...validPayload,

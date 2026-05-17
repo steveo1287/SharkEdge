@@ -177,6 +177,7 @@ type NormalizedPayload = UfcWarehousePayload & { quarantine: Array<{ type: "figh
 
 function stableId(prefix: string, value: string) { return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`; }
 function iso(value: string | null | undefined) { if (!value) return null; const date = new Date(value); if (Number.isNaN(date.getTime())) throw new Error(`Invalid timestamp: ${value}`); return date.toISOString(); }
+function hasFutureSnapshot(snapshotAt: string | null | undefined, fightDate: string | null | undefined) { if (!snapshotAt || !fightDate) return false; const snapshot = new Date(snapshotAt).getTime(); const fight = new Date(fightDate).getTime(); if (Number.isNaN(snapshot) || Number.isNaN(fight)) return false; return snapshot > fight; }
 function assertNoFutureSnapshot(snapshotAt: string | null | undefined, fightDate: string | null | undefined, label: string) { if (!snapshotAt || !fightDate) return; const snapshot = new Date(snapshotAt).getTime(); const fight = new Date(fightDate).getTime(); if (Number.isNaN(snapshot) || Number.isNaN(fight)) return; if (snapshot > fight) throw new Error(`${label} has future-data leakage: snapshotAt must be at or before fightDate.`); }
 function json(value: unknown) { return JSON.stringify(value ?? {}); }
 function payloadSport(value: Record<string, unknown> | undefined) { return typeof value?.combatSport === "string" ? value.combatSport : typeof value?.sport === "string" ? value.sport : null; }
@@ -208,6 +209,10 @@ function normalizeWarehousePayload(raw: unknown): NormalizedPayload {
     const fightKey = fight.id ?? fight.externalFightId ?? fight.eventLabel;
     if (quality.fakeNavigation) {
       quarantine.push({ type: "fight", key: fightKey, label: fight.eventLabel, quality });
+      return [];
+    }
+    if (hasFutureSnapshot(fight.preFightSnapshotAt, fight.fightDate)) {
+      quarantine.push({ type: "fight", key: fightKey, label: fight.eventLabel, quality: { ...quality, status: "FAKE_NAVIGATION", valid: false, fakeNavigation: true, questionable: false, reasons: [...quality.reasons, "future_data_snapshot_after_fight_start"] } });
       return [];
     }
     validFightKeys.add(fightKey);
@@ -285,7 +290,7 @@ export async function upsertUfcWarehousePayload(raw: unknown) {
     }
     for (const feature of payload.modelFeatures) {
       const id = feature.id ?? stableId("ufcmf", `${feature.fightKey}:${feature.fighterKey}:${feature.modelVersion}`);
-      await tx.$executeRaw`INSERT INTO ufc_model_features (id, fight_id, fight_date, fighter_id, opponent_fighter_id, snapshot_at, model_version, pro_fights, ufc_fights, rounds_fought, sig_strikes_landed_per_min, sig_strikes_absorbed_per_min, striking_differential, takedowns_per_15, takedown_defense_pct, submission_attempts_per_15, control_time_pct, opponent_adjusted_strength, cold_start_active, feature_json, updated_at) VALUES (${id}, ${fightIdFor(feature.fightKey)}, ${iso(feature.fightDate)}::timestamptz, ${fighterIdFor(feature.fighterKey)}, ${fighterIdFor(feature.opponentFighterKey)}, ${iso(feature.snapshotAt)}::timestamptz, ${feature.modelVersion}, ${feature.proFights ?? null}, ${feature.ufcFights ?? null}, ${feature.roundsFought ?? null}, ${feature.sigStrikesLandedPerMin ?? null}, ${feature.sigStrikesAbsorbedPerMin ?? null}, ${feature.strikingDifferential ?? null}, ${feature.takedownsPer15 ?? null}, ${feature.takedownDefensePct ?? null}, ${feature.submissionAttemptsPer15 ?? null}, ${feature.controlTimePct ?? null}, ${feature.opponentAdjustedStrength ?? null}, ${feature.coldStartActive}, ${json(feature.feature)}::jsonb, now()) ON CONFLICT (fight_id, fighter_id, model_version) DO UPDATE SET snapshot_at = EXCLUDED.snapshot_at, feature_json = EXCLUDED.feature_json, cold_start_active = EXCLUDED.cold_start_active, updated_at = now()`;
+      await tx.$executeRaw`INSERT INTO ufc_model_features (id, fight_id, fight_date, fighter_id, opponent_fighter_id, snapshot_at, model_version, pro_fights, ufc_fights, rounds_fought, sig_strikes_landed_per_min, sig_strikes_absorbed_per_min, striking_differential, takedowns_per_15, takedown_defense_pct, submission_attempts_per_15, control_time_pct, opponent_adjusted_strength, cold_start_active, feature_json, updated_at) VALUES (${id}, ${fightIdFor(feature.fightKey)}, ${iso(feature.fightDate)}::timestamptz, ${fighterIdFor(feature.fighterKey)}, ${fighterIdFor(feature.opponentFighterKey)}, ${iso(feature.snapshotAt)}::timestamptz, ${feature.modelVersion}, ${feature.proFights ?? null}, ${feature.ufcFights ?? null}, ${feature.roundsFought ?? null}, ${feature.sigStrikesLandedPerMin ?? null}, ${feature.sigStrikesAbsorbedPerMin ?? null}, ${feature.strikingDifferential ?? null}, ${feature.takedownsPer15 ?? null}, ${feature.takedownDefensePct ?? null}, ${feature.submissionAttemptsPer15 ?? null}, ${feature.controlTimePct ?? null}, ${feature.opponentAdjustedStrength ?? null}, ${feature.coldStartActive}, ${json(feature.feature)}::jsonb, now()) ON CONFLICT (fight_id, fighter_id, model_version) DO UPDATE SET fight_date = EXCLUDED.fight_date, opponent_fighter_id = EXCLUDED.opponent_fighter_id, snapshot_at = EXCLUDED.snapshot_at, feature_json = EXCLUDED.feature_json, cold_start_active = EXCLUDED.cold_start_active, updated_at = now()`;
     }
     for (const prediction of payload.predictions) {
       const id = prediction.id ?? stableId("ufcp", `${prediction.fightKey}:${prediction.modelVersion}:${prediction.generatedAt}`);
