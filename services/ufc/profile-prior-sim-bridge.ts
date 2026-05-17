@@ -1,5 +1,5 @@
 import type { UfcModelFeatureSnapshot } from "@/services/ufc/fighter-skill-profile";
-import { findUfcCredentialPriors, UFC_PROFILE_PRIOR_KEYS, type UfcProfilePriorKey, type UfcCredentialPrior } from "@/services/ufc/fighter-credential-priors";
+import { calculateUfcCredentialPriorApplications, UFC_PROFILE_PRIOR_KEYS, type UfcProfilePriorKey } from "@/services/ufc/fighter-credential-priors";
 
 export type UfcFighterPayloadPrior = {
   fighter_id: string;
@@ -52,17 +52,6 @@ function historyWeight(feature: UfcModelFeatureSnapshot) {
   return 0.05;
 }
 
-function credentialWeight(feature: UfcModelFeatureSnapshot, prior: UfcCredentialPrior) {
-  const ufcFights = typeof feature.ufcFights === "number" && Number.isFinite(feature.ufcFights) ? feature.ufcFights : 0;
-  const proFights = typeof feature.proFights === "number" && Number.isFinite(feature.proFights) ? feature.proFights : 0;
-  const confidence = confidenceMultiplier(prior.confidence);
-  const namedFighter = Boolean(prior.aliases?.length);
-  const base = namedFighter ? 0.72 : 0.56;
-  const establishedPenalty = ufcFights >= 7 ? 0.32 : ufcFights >= 3 ? 0.18 : 0;
-  const proPenalty = ufcFights <= 0 && proFights >= 10 ? 0.1 : 0;
-  return Math.max(0, Number(((base - establishedPenalty - proPenalty) * confidence).toFixed(4)));
-}
-
 function outcomeLearningWeight(feature: UfcModelFeatureSnapshot) {
   const ufcFights = typeof feature.ufcFights === "number" && Number.isFinite(feature.ufcFights) ? feature.ufcFights : 0;
   if (ufcFights <= 0) return 0.55;
@@ -78,23 +67,6 @@ function maxMoveFor(key: string) {
   if (key.includes("PerMin")) return 0.55;
   if (key === "strikingDifferential") return 0.38;
   return 5;
-}
-
-function maxCredentialMoveFor(key: string, namedFighter: boolean) {
-  const multiplier = namedFighter ? 1 : 0.72;
-  if (key === "takedownsPer15") return 3.35 * multiplier;
-  if (key === "controlTimePct") return 34 * multiplier;
-  if (key === "takedownAccuracyPct" || key === "takedownDefensePct") return 31 * multiplier;
-  if (key === "submissionAttemptsPer15") return 1.4 * multiplier;
-  if (key === "submissionDefensePct") return 22 * multiplier;
-  if (key === "amateurSignal") return 52 * multiplier;
-  if (key === "promotionTierSignal") return 28 * multiplier;
-  if (key === "opponentAdjustedStrength") return 24 * multiplier;
-  if (key.includes("Pct") || key.includes("Score") || key.includes("Strength") || key.includes("Signal")) return 18 * multiplier;
-  if (key.includes("Per15")) return 1.25 * multiplier;
-  if (key.includes("PerMin")) return 0.85 * multiplier;
-  if (key === "strikingDifferential") return 0.65 * multiplier;
-  return 12 * multiplier;
 }
 
 function maxOutcomeMoveFor(key: string) {
@@ -125,12 +97,6 @@ function blend(current: number | null, prior: number, key: string, weight: numbe
   return Number((current + clamp((prior - current) * weight, -maxMove, maxMove)).toFixed(4));
 }
 
-function blendCredential(current: number | null, prior: number, key: string, weight: number, namedFighter: boolean) {
-  if (current == null) return prior;
-  const maxMove = maxCredentialMoveFor(key, namedFighter);
-  return Number((current + clamp((prior - current) * weight, -maxMove, maxMove)).toFixed(4));
-}
-
 function applyDelta(current: number | null, delta: number, key: string, weight: number) {
   const base = current ?? 0;
   const maxMove = maxOutcomeMoveFor(key);
@@ -149,58 +115,41 @@ function extractEvidence(value: unknown) {
 }
 
 function applyCredentialPriors(nextFeature: UfcModelFeatureSnapshot, payloadRecord: Record<string, unknown>) {
-  const priors = findUfcCredentialPriors({ feature: nextFeature, payloadRecord });
+  const applications = calculateUfcCredentialPriorApplications({ feature: nextFeature, payloadRecord });
   const changedKeys: string[] = [];
   const evidence: string[] = [];
   const sourceUrls: string[] = [];
   const confidences: string[] = [];
-  const appliedPriors: Array<Record<string, unknown>> = [];
 
-  for (const prior of priors) {
-    const weight = credentialWeight(nextFeature, prior);
-    const namedFighter = Boolean(prior.aliases?.length);
-    if (weight <= 0) continue;
-    const priorChangedKeys: string[] = [];
+  for (const application of applications) {
     for (const key of PROFILE_KEYS) {
-      const priorValue = prior.priors[key];
-      if (priorValue == null) continue;
-      const current = currentFeatureValue(nextFeature, key);
-      const blended = blendCredential(current, priorValue, key, weight, namedFighter);
-      const currentRounded = current == null ? null : Number(current.toFixed(4));
-      if (currentRounded == null || Math.abs(blended - currentRounded) > 0.0001) {
-        setFeatureValue(nextFeature, key, blended);
-        priorChangedKeys.push(key);
-        changedKeys.push(`credential:${prior.id}:${key}`);
-      }
+      const value = application.values[key];
+      if (value == null) continue;
+      setFeatureValue(nextFeature, key, value);
+      changedKeys.push(`credential:${application.id}:${key}`);
     }
-    if (priorChangedKeys.length) {
-      nextFeature.coldStartActive = false;
-      if (!nextFeature.weightClass && typeof prior.metadata?.projectedWeightClass === "string") nextFeature.weightClass = prior.metadata.projectedWeightClass;
-      sourceUrls.push(prior.sourceUrl);
-      confidences.push(prior.confidence);
-      evidence.push(...prior.evidence);
-      appliedPriors.push({ id: prior.id, confidence: prior.confidence, sourceUrl: prior.sourceUrl, appliedWeight: weight, changedKeys: priorChangedKeys, evidence: prior.evidence, metadata: prior.metadata ?? {} });
-      nextFeature.feature = {
-        ...asRecord(nextFeature.feature),
-        combatBase: prior.metadata?.combatBase ?? asRecord(nextFeature.feature).combatBase ?? null
-      };
-    }
+    nextFeature.coldStartActive = false;
+    if (!nextFeature.weightClass && typeof application.metadata.projectedWeightClass === "string") nextFeature.weightClass = application.metadata.projectedWeightClass;
+    nextFeature.feature = { ...asRecord(nextFeature.feature), combatBase: application.metadata.combatBase ?? asRecord(nextFeature.feature).combatBase ?? null };
+    sourceUrls.push(application.sourceUrl);
+    confidences.push(application.confidence);
+    evidence.push(...application.evidence);
   }
 
-  if (appliedPriors.length) {
+  if (applications.length) {
     nextFeature.feature = {
       ...asRecord(nextFeature.feature),
       eliteCombatCredentialPrior: {
         source: "fighter-credential-priors",
         confidence: strongestConfidence(confidences),
         sourceUrl: sourceUrls[0] ?? null,
-        appliedPriors,
+        appliedPriors: applications.map((application) => ({ id: application.id, confidence: application.confidence, sourceUrl: application.sourceUrl, appliedWeight: application.appliedWeight, changedKeys: application.changedKeys, evidence: application.evidence, metadata: application.metadata })),
         evidence: [...new Set(evidence)].slice(0, 8)
       }
     };
   }
 
-  return { source: appliedPriors.length ? "fighter-credential-priors" : null, confidence: strongestConfidence(confidences), sourceUrl: sourceUrls[0] ?? null, evidence: [...new Set(evidence)].slice(0, 8), changedKeys };
+  return { source: applications.length ? "fighter-credential-priors" : null, confidence: strongestConfidence(confidences), sourceUrl: sourceUrls[0] ?? null, evidence: [...new Set(evidence)].slice(0, 8), changedKeys };
 }
 
 function applyWikimediaPriors(nextFeature: UfcModelFeatureSnapshot, payloadRecord: Record<string, unknown>) {
