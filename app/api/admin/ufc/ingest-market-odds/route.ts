@@ -1,0 +1,71 @@
+import { NextResponse } from "next/server";
+
+import { ingestUfcMarketOdds } from "@/services/ufc/market-odds-ingestion";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+export const maxDuration = 180;
+
+function authorized(request: Request) {
+  const url = new URL(request.url);
+  const envSecret = process.env.UFC_ADMIN_RUN_TOKEN?.trim();
+  if (envSecret) {
+    const bearer = request.headers.get("authorization")?.replace(/^bearer\s+/i, "").trim();
+    return url.searchParams.get("token") === envSecret || request.headers.get("x-api-key") === envSecret || bearer === envSecret;
+  }
+  return url.searchParams.get("confirm") === "ingest-market-odds";
+}
+
+function boolParam(url: URL, name: string, fallback = false) {
+  const value = url.searchParams.get(name);
+  if (value == null) return fallback;
+  return value === "1" || value === "true" || value === "yes";
+}
+
+function numberParam(url: URL, name: string, fallback: number, min: number, max: number) {
+  const parsed = Number(url.searchParams.get(name) ?? fallback);
+  return Number.isFinite(parsed) ? Math.max(min, Math.min(max, Number(parsed))) : fallback;
+}
+
+async function readInput(request: Request) {
+  if (request.method === "POST") {
+    try {
+      return await request.json();
+    } catch {
+      return [];
+    }
+  }
+  const feedUrl = process.env.UFC_ODDS_FEED_URL?.trim();
+  if (!feedUrl) return [];
+  const response = await fetch(feedUrl, { cache: "no-store", headers: { accept: "application/json" } });
+  if (!response.ok) throw new Error(`UFC_ODDS_FEED_URL returned ${response.status}`);
+  return response.json();
+}
+
+async function handler(request: Request) {
+  if (!authorized(request)) {
+    return NextResponse.json({ ok: false, error: "unauthorized", required: process.env.UFC_ADMIN_RUN_TOKEN ? "valid token" : "?confirm=ingest-market-odds" }, { status: 401 });
+  }
+
+  const url = new URL(request.url);
+  const dryRun = boolParam(url, "dryRun", true);
+  const horizonDays = numberParam(url, "horizonDays", 180, 1, 365);
+  const minMatchScore = numberParam(url, "minMatchScore", 0.86, 0.5, 1);
+  const source = url.searchParams.get("source") ?? (process.env.UFC_ODDS_FEED_URL ? "ufc-odds-feed-url" : "manual-json");
+
+  try {
+    const input = await readInput(request);
+    const result = await ingestUfcMarketOdds(input, { dryRun, horizonDays, minMatchScore, source });
+    return NextResponse.json(result, { status: result.ok ? 200 : 207 });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  }
+}
+
+export async function GET(request: Request) {
+  return handler(request);
+}
+
+export async function POST(request: Request) {
+  return handler(request);
+}
