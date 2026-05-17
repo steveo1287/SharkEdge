@@ -46,6 +46,7 @@ export type UfcFightIqDetail = {
   dangerFlags: string[];
   activeEnsembleWeights: any;
   sourceOutputs: any;
+  styleGenome: any;
   fighterProfiles?: {
     fighterA: UfcFighterSkillProfile | null;
     fighterB: UfcFighterSkillProfile | null;
@@ -311,6 +312,7 @@ function detailFromFeedOnly(fightId: string, feed: UfcOperationalFeedCard[]): Uf
     dangerFlags: prediction.dangerFlags,
     activeEnsembleWeights: predictionJson.activeEnsembleWeights ?? null,
     sourceOutputs: predictionJson.sourceOutputs ?? null,
+    styleGenome: predictionJson.styleGenome ?? null,
     fighterProfiles: {
       fighterA: predictionJson.fighterSkillProfiles?.fighterA ?? null,
       fighterB: predictionJson.fighterSkillProfiles?.fighterB ?? null
@@ -420,6 +422,7 @@ export async function getUfcFightIqDetail(fightId: string, options: { modelVersi
       dangerFlags: Array.isArray(predictionJson.dangerFlags) ? predictionJson.dangerFlags : prediction?.dangerFlags ?? [],
       activeEnsembleWeights: predictionJson.activeEnsembleWeights ?? null,
       sourceOutputs: predictionJson.sourceOutputs ?? null,
+      styleGenome: predictionJson.styleGenome ?? null,
       fighterProfiles: {
         fighterA: aProfile,
         fighterB: bProfile
