@@ -78,6 +78,7 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const limit = numberParam(url, "limit", 25, 1, 100);
+  const offset = numberParam(url, "offset", 0, 0, 1000);
   const horizonDays = numberParam(url, "horizonDays", 180, 1, 365);
   const simulations = numberParam(url, "simulations", 5000, 100, 25000);
   const seed = numberParam(url, "seed", 1287, 1, 999999999);
@@ -91,6 +92,7 @@ export async function GET(request: Request) {
       skipIngest: true,
       dryRun,
       limit,
+      offset,
       horizonDays,
       simulations,
       seed,
@@ -104,7 +106,7 @@ export async function GET(request: Request) {
       ok: result.ok,
       mode: result.mode,
       modelVersion: result.modelVersion,
-      config: { limit, horizonDays, simulations, seed, dryRun, allowFallbackFeatures, forceRegenerate },
+      config: { limit, offset, nextOffset: offset + limit, horizonDays, simulations, seed, dryRun, allowFallbackFeatures, forceRegenerate },
       candidateCount: result.candidateCount,
       simulatedCount: result.simulatedCount,
       skippedCount: result.skippedCount,
