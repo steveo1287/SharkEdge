@@ -112,6 +112,7 @@ const DEFAULT_MODEL_VERSION = "ufc-fight-iq-v1";
 const DEFAULT_SIMULATIONS = 25_000;
 const OPERATIONAL_SIM_CACHE_VERSION = "market-aware-input-audit-style-genome-shadow-v2";
 const SHADOW_AUDIT_SCHEMA_VERSION = "ufc-shadow-audit-v2";
+const INT32_MAX = 2_147_483_647;
 
 function stableId(prefix: string, value: string) { return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`; }
 function toIso(value: Date | string) { return value instanceof Date ? value.toISOString() : new Date(value).toISOString(); }
@@ -130,6 +131,12 @@ function marketNumber(value: unknown) {
     return Number.isFinite(parsed) ? Math.round(parsed) : null;
   }
   return null;
+}
+
+function normalizeDbInt(value: number, fallback: number) {
+  if (!Number.isFinite(value)) return fallback;
+  const whole = Math.floor(Math.abs(value));
+  return Math.min(INT32_MAX, Math.max(1, whole));
 }
 function maxConfidenceFromSignal(signal: MmaProfileFeatureSignal | null) {
   if (!signal) return "MEDIUM_HIGH";
@@ -217,8 +224,9 @@ function stripIntelligenceFeature(input: UfcProfileIntelligenceBridgeResult): Om
 
 export async function runUfcOperationalSkillSim(fightId: string, options: UfcOperationalSimOptions = {}): Promise<UfcOperationalSimResult> {
   const modelVersion = options.modelVersion ?? DEFAULT_MODEL_VERSION;
-  const simulations = options.simulations ?? DEFAULT_SIMULATIONS;
-  const seed = options.seed ?? Number.parseInt(crypto.createHash("sha256").update(fightId).digest("hex").slice(0, 8), 16);
+  const simulations = normalizeDbInt(options.simulations ?? DEFAULT_SIMULATIONS, DEFAULT_SIMULATIONS);
+  const derivedSeed = Number.parseInt(crypto.createHash("sha256").update(fightId).digest("hex").slice(0, 8), 16);
+  const seed = normalizeDbInt(options.seed ?? derivedSeed, 1287);
   const [activeEnsembleWeights, profileFeatureSignalReport, methodCalibration] = await Promise.all([
     resolveUfcEnsembleWeights(modelVersion, { skillMarkovWeight: options.skillMarkovWeight, exchangeMonteCarloWeight: options.exchangeMonteCarloWeight, roundByRoundWeight: options.roundByRoundWeight }),
     getProfileFeatureSignalReport().catch(() => null),
