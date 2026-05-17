@@ -1,5 +1,6 @@
 import { invalidateHotCache, readHotCache, writeHotCache } from "@/lib/cache/live-cache";
 import { upsertOddsIngestPayload } from "@/services/market-data/market-data-service";
+import { syncUfcMarketOddsFromEvents } from "@/services/ufc/market-odds-sync";
 
 const PROVIDER = "the-odds-api";
 const INGEST_SOURCE = "theoddsapi";
@@ -20,6 +21,7 @@ const RUN_STATE_CACHE_TTL_SECONDS = 60 * 60 * 24 * 45;
 const DEFAULT_REGULAR_SPORTS = [
   "basketball_nba",
   "baseball_mlb",
+  "mma_mixed_martial_arts",
   "icehockey_nhl"
 ];
 
@@ -100,7 +102,7 @@ function dailyKey(day = dayKey()) {
 }
 
 function getApiKey() {
-  return process.env.THE_ODDS_API_KEY?.trim() || process.env.ODDS_API_KEY?.trim() || "";
+  return process.env.THE_ODDS_API_KEY?.trim() || process.env.ODDS_API_KEY?.trim() || process.env.ODDS_API_IO_KEY?.trim() || process.env.ODDSAPI_IO_KEY?.trim() || "";
 }
 
 function parseSports(input?: string | null) {
@@ -300,6 +302,14 @@ async function persistFetchedOdds(fetched: SportFetchResult[], generatedAt: stri
   return result;
 }
 
+async function syncFetchedUfcMarketOdds(fetched: SportFetchResult[], generatedAt: string) {
+  const mmaEvents = fetched
+    .filter((entry) => entry.sport === "mma_mixed_martial_arts" || entry.sport === "ufc")
+    .flatMap((entry) => entry.events.map((event) => ({ ...event, sport_key: entry.sport })));
+  if (!mmaEvents.length) return null;
+  return syncUfcMarketOddsFromEvents(mmaEvents, generatedAt);
+}
+
 export async function getOddsApiBudget(): Promise<BudgetState> {
   const existing = await readHotCache<BudgetState>(budgetKey());
   if (existing?.month === monthKey()) {
@@ -355,7 +365,7 @@ export async function runOddsApiSnapshotPull(args?: { mode?: PullMode; sportsCsv
   const plan = await getOddsApiPullPlan(args);
   const snapshot = await readLatestOddsApiSnapshot();
 
-  if (!apiKey) return { ok: false, skipped: true, reason: "THE_ODDS_API_KEY or ODDS_API_KEY is not configured in the environment.", budget: plan.budget, daily: plan.daily, guardrails: plan.guardrails, snapshot };
+  if (!apiKey) return { ok: false, skipped: true, reason: "THE_ODDS_API_KEY, ODDS_API_KEY, ODDS_API_IO_KEY, or ODDSAPI_IO_KEY is not configured in the environment.", budget: plan.budget, daily: plan.daily, guardrails: plan.guardrails, snapshot };
   if (!plan.ok) return { ok: false, skipped: true, reason: plan.reason, budget: plan.budget, daily: plan.daily, guardrails: plan.guardrails, snapshot };
   const allowed = canPullMonthly(plan.budget, plan.sports.length, mode);
   if (!allowed.ok) return { ok: false, skipped: true, reason: allowed.reason, budget: plan.budget, daily: plan.daily, guardrails: plan.guardrails, snapshot };
@@ -374,8 +384,10 @@ export async function runOddsApiSnapshotPull(args?: { mode?: PullMode; sportsCsv
   const snapshotBase: OddsApiSnapshot = { meta: { provider: PROVIDER, generatedAt, mode, sports: plan.sports, requestsUsed: requestCost, monthlyUsed: nextBudget.used, monthlyLimit: nextBudget.limit, dailyRegularUsed: nextDaily.used, previousGeneratedAt: snapshot?.meta?.generatedAt ?? null }, events: fetched.flatMap((entry) => entry.events.map((event) => ({ ...event, sport_key: entry.sport }))) };
   const nextSnapshot = { ...snapshotBase, movement: buildMovement(snapshot, snapshotBase) };
   const ingest = await persistFetchedOdds(fetched, generatedAt);
+  const ufcMarketOdds = await syncFetchedUfcMarketOdds(fetched, generatedAt);
   await writeHotCache(SNAPSHOT_CACHE_KEY, nextSnapshot, SNAPSHOT_CACHE_TTL_SECONDS);
   await invalidateHotCache("board:v1:all");
+  if (ufcMarketOdds?.updatedFights) await invalidateHotCache("board:v1:UFC");
 
-  return { ok: true, skipped: false, reason: "snapshot refreshed and persisted", budget: nextBudget, daily: nextDaily, guardrails: plan.guardrails, ingest, snapshot: nextSnapshot };
+  return { ok: true, skipped: false, reason: "snapshot refreshed and persisted", budget: nextBudget, daily: nextDaily, guardrails: plan.guardrails, ingest, ufcMarketOdds, snapshot: nextSnapshot };
 }
