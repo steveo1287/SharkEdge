@@ -127,6 +127,7 @@ export async function persistUfcCalibrationSnapshot(modelVersion: string, snapsh
     FROM ufc_shadow_predictions s
     JOIN ufc_fights f ON f.id = s.fight_id
     WHERE s.model_version = ${modelVersion}
+      AND s.status = 'RESOLVED'
       AND s.actual_winner_fighter_id IS NOT NULL
   `;
 
