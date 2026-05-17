@@ -24,6 +24,7 @@ const NAVIGATION_TERMS = new Set([
   "all athletes",
   "athletes",
   "betting odds",
+  "champions",
   "connect",
   "dana white's contender series",
   "espn",
@@ -82,6 +83,7 @@ const NAVIGATION_TERMS = new Set([
   "view fight card",
   "vip experiences",
   "watch",
+  "where to watch",
   "what's new",
   "zuffa boxing"
 ]);
@@ -107,6 +109,9 @@ function isLikelyBrandOrMenu(value: string | null | undefined) {
   const name = normalize(value);
   if (!name) return true;
   if (NAVIGATION_TERMS.has(name)) return true;
+  const tokens = name.split(/\s+/).filter(Boolean);
+  if (tokens.some((token) => NAVIGATION_TERMS.has(token))) return true;
+  if (Array.from(NAVIGATION_TERMS).some((term) => (term.includes(" ") || term.includes("-")) && name.includes(term))) return true;
   if (name.includes("newsletter") || name.includes("podcast") || name.includes("collectibles")) return true;
   if (name.includes("fight pass") || name.includes("travel deals") || name.includes("view fight card")) return true;
   if (name.includes("performance solutions")) return true;

@@ -63,4 +63,16 @@ const rankingsPollution = evaluateUfcMatchupQuality({
 
 assert.equal(rankingsPollution.status, "FAKE_NAVIGATION");
 
+const championsPollution = evaluateUfcMatchupQuality({
+  sourceKey: "ufc.com",
+  eventName: "Events",
+  eventLabel: "Champions vs Where To Watch",
+  fighterAName: "Champions",
+  fighterBName: "Where To Watch",
+  combatSport: "MMA",
+  sourceStatus: "OFFICIAL_PARTIAL"
+});
+
+assert.equal(championsPollution.status, "FAKE_NAVIGATION");
+
 console.log("ufc-matchup-quality-gate tests passed");
