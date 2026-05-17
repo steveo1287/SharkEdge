@@ -27,4 +27,16 @@ const leaguePollution = evaluateUfcMatchupQuality({
 assert.equal(leaguePollution.status, "FAKE_NAVIGATION");
 assert.equal(leaguePollution.fakeNavigation, true);
 
+const crossSportPollution = evaluateUfcMatchupQuality({
+  sourceKey: "ufc.com",
+  eventName: "Events",
+  eventLabel: "WNBA vs Golf",
+  fighterAName: "WNBA",
+  fighterBName: "Golf",
+  combatSport: "MMA",
+  sourceStatus: "OFFICIAL_PARTIAL"
+});
+
+assert.equal(crossSportPollution.status, "FAKE_NAVIGATION");
+
 console.log("ufc-matchup-quality-gate tests passed");

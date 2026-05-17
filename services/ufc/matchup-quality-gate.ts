@@ -40,6 +40,7 @@ const NAVIGATION_TERMS = new Set([
   "basketball",
   "boxing",
   "football",
+  "golf",
   "mlb",
   "mma",
   "nba",
@@ -47,6 +48,9 @@ const NAVIGATION_TERMS = new Set([
   "ncaaf",
   "nfl",
   "nhl",
+  "soccer",
+  "tennis",
+  "wnba",
   "news",
   "newsletter",
   "past",
@@ -137,7 +141,7 @@ export function evaluateUfcMatchupQuality(input: UfcMatchupQualityInput): UfcMat
   if (sport && sport !== "mma" && sport !== "boxing") { score -= 8; reasons.push("unsupported_combat_sport"); }
 
   score = Math.max(0, Math.min(100, Math.round(score)));
-  const fakeNavigation = score < 45 || fighterABad || fighterBBad;
+  const fakeNavigation = score < 55 || fighterABad || fighterBBad;
   const questionable = !fakeNavigation && score < 76;
   const status: UfcMatchupQualityStatus = fakeNavigation ? "FAKE_NAVIGATION" : questionable ? "QUESTIONABLE" : "VALID";
 
