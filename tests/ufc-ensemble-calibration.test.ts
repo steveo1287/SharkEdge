@@ -7,16 +7,16 @@ import {
 } from "@/services/ufc/ensemble-calibration";
 
 const rows: UfcEnsembleCalibrationRow[] = [
-  { fightId: "f1", actualWinner: "A", skillMarkovFighterAWinProbability: 0.52, exchangeMonteCarloFighterAWinProbability: 0.78, bucket: "finish-volatility" },
-  { fightId: "f2", actualWinner: "A", skillMarkovFighterAWinProbability: 0.49, exchangeMonteCarloFighterAWinProbability: 0.70, bucket: "finish-volatility" },
-  { fightId: "f3", actualWinner: "B", skillMarkovFighterAWinProbability: 0.51, exchangeMonteCarloFighterAWinProbability: 0.25, bucket: "finish-volatility" },
-  { fightId: "f4", actualWinner: "B", skillMarkovFighterAWinProbability: 0.54, exchangeMonteCarloFighterAWinProbability: 0.33, bucket: "finish-volatility" },
-  { fightId: "f5", actualWinner: "A", skillMarkovFighterAWinProbability: 0.74, exchangeMonteCarloFighterAWinProbability: 0.58, bucket: "all" },
-  { fightId: "f6", actualWinner: "B", skillMarkovFighterAWinProbability: 0.28, exchangeMonteCarloFighterAWinProbability: 0.43, bucket: "all" }
+  { fightId: "f1", actualWinner: "A", skillMarkovFighterAWinProbability: 0.52, exchangeMonteCarloFighterAWinProbability: 0.78, roundByRoundFighterAWinProbability: 0.58, styleMatchupFighterAWinProbability: 0.62, bucket: "finish-volatility" },
+  { fightId: "f2", actualWinner: "A", skillMarkovFighterAWinProbability: 0.49, exchangeMonteCarloFighterAWinProbability: 0.70, roundByRoundFighterAWinProbability: 0.56, styleMatchupFighterAWinProbability: 0.6, bucket: "finish-volatility" },
+  { fightId: "f3", actualWinner: "B", skillMarkovFighterAWinProbability: 0.51, exchangeMonteCarloFighterAWinProbability: 0.25, roundByRoundFighterAWinProbability: 0.42, styleMatchupFighterAWinProbability: 0.39, bucket: "finish-volatility" },
+  { fightId: "f4", actualWinner: "B", skillMarkovFighterAWinProbability: 0.54, exchangeMonteCarloFighterAWinProbability: 0.33, roundByRoundFighterAWinProbability: 0.44, styleMatchupFighterAWinProbability: 0.41, bucket: "finish-volatility" },
+  { fightId: "f5", actualWinner: "A", skillMarkovFighterAWinProbability: 0.74, exchangeMonteCarloFighterAWinProbability: 0.58, roundByRoundFighterAWinProbability: 0.68, styleMatchupFighterAWinProbability: 0.66, bucket: "all" },
+  { fightId: "f6", actualWinner: "B", skillMarkovFighterAWinProbability: 0.28, exchangeMonteCarloFighterAWinProbability: 0.43, roundByRoundFighterAWinProbability: 0.35, styleMatchupFighterAWinProbability: 0.37, bucket: "all" }
 ];
 
-const defaultMetrics = scoreUfcEnsembleWeights(rows, { skillMarkov: 0.55, exchangeMonteCarlo: 0.45 });
-const exchangeHeavyMetrics = scoreUfcEnsembleWeights(rows, { skillMarkov: 0.1, exchangeMonteCarlo: 0.9 });
+const defaultMetrics = scoreUfcEnsembleWeights(rows, { skillMarkov: 0.34, exchangeMonteCarlo: 0.28, roundByRound: 0.2, styleMatchup: 0.18 });
+const exchangeHeavyMetrics = scoreUfcEnsembleWeights(rows, { skillMarkov: 0.1, exchangeMonteCarlo: 0.7, roundByRound: 0.1, styleMatchup: 0.1 });
 assert.ok(exchangeHeavyMetrics.logLoss < defaultMetrics.logLoss);
 assert.ok(exchangeHeavyMetrics.brierScore < defaultMetrics.brierScore);
 
@@ -36,7 +36,7 @@ assert.deepEqual(fullSampleReport.recommendedWeights, fullSampleReport.bestRawWe
 
 const emptyReport = calculateUfcEnsembleCalibrationReport([], { minSamples: 30 });
 assert.equal(emptyReport.sampleCount, 0);
-assert.deepEqual(emptyReport.recommendedWeights, { skillMarkov: 0.55, exchangeMonteCarlo: 0.45 });
+assert.deepEqual(emptyReport.recommendedWeights, { skillMarkov: 0.34, exchangeMonteCarlo: 0.28, roundByRound: 0.2, styleMatchup: 0.18 });
 assert.equal(emptyReport.recommendedMetrics.logLoss, 0);
 
 console.log("ufc-ensemble-calibration tests passed");

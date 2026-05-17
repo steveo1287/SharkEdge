@@ -39,7 +39,9 @@ function latestSim(cards: UfcCardSummary[]) {
 }
 
 function isFeaturedCard(card: UfcCardSummary) {
-  return card.fightCount > 0 && card.simulatedFightCount > 0 && card.dataQualityGrade !== "D";
+  // Surface every real card with cached sim output. A D grade means "research/shadow",
+  // not "hide the user's new MMA work behind an empty product shell."
+  return card.fightCount > 0 && card.simulatedFightCount > 0;
 }
 
 function nextDisplayCard(cards: UfcCardSummary[]) {
@@ -111,7 +113,7 @@ function ProductRail({ cards }: { cards: UfcCardSummary[] }) {
           <div className="text-[10px] font-black uppercase tracking-[0.22em] text-aqua">MMA Fight Lab</div>
           <h2 className="mt-1 font-display text-3xl font-black tracking-[-0.06em] text-white">Featured fight simulation surface</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            Featured MMA cards exclude cold-start D-grade research cards. Those stay available below in Research Lab until fighter profiles, market odds, and source cross-checks improve.
+            Featured MMA cards now surface every real card with cached SharkSim output. Weak-input/D-grade cards stay visibly marked as research/shadow instead of being buried.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -324,9 +326,9 @@ function UfcLabCardGrid({ cards, discovery }: { cards: UfcCardSummary[]; discove
       <section className="grid gap-3">
         <div>
           <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">Featured cards</div>
-          <p className="mt-1 text-sm leading-6 text-slate-400">Only non-D cards with cached simulations appear here. Cold-start MVP/UFC cards stay in Research Lab until their profiles are hydrated.</p>
+          <p className="mt-1 text-sm leading-6 text-slate-400">Every real card with cached simulations appears here. D-grade cards are research/shadow, but they still deserve to be visible.</p>
         </div>
-        <CardGrid cards={featuredCards} emptyText="No featured MMA cards yet. Current cards are research-only because they are D-grade/cold-start, missing odds, or not sufficiently hydrated." />
+        <CardGrid cards={featuredCards} emptyText="No featured MMA cards yet. Load cards, build features, then run SharkSim precompute." />
       </section>
       <section className="grid gap-3">
         <div>

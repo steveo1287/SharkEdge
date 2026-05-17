@@ -5,6 +5,16 @@ import type { UfcModelFeatureSnapshot } from "@/services/ufc/fighter-skill-profi
 import type { UfcExchangeMonteCarloResult } from "@/services/ufc/exchange-monte-carlo";
 import type { UfcSkillMarkovResult } from "@/services/ufc/skill-markov-sim";
 
+function stripGeneratedAt(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripGeneratedAt);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key !== "generatedAt")
+      .map(([key, inner]) => [key, stripGeneratedAt(inner)])
+  );
+}
+
 const skillMarkov: UfcSkillMarkovResult = {
   simulations: 1_000,
   seed: 11,
@@ -75,7 +85,62 @@ const exchangeMonteCarlo: UfcExchangeMonteCarloResult = {
   }
 };
 
-const blended = blendUfcSimOutputs({ skillMarkov, exchangeMonteCarlo, weights: { skillMarkov: 0.5, exchangeMonteCarlo: 0.5 } });
+const roundByRound = {
+  engine: "round_by_round",
+  simulations: 1_000,
+  seed: 42,
+  scheduledRounds: 3,
+  fighterAWinProbability: 0.64,
+  fighterBWinProbability: 0.36,
+  methodProbabilities: { KO_TKO: 0.28, SUBMISSION: 0.1, DECISION: 0.62 },
+  roundFinishProbabilities: { R1: 0.1, R2: 0.07, R3: 0.05 },
+  transitionProbabilities: { strikingExchangeToKnockdownA: 0.03 },
+  averageFightLengthSeconds: 720,
+  averageDamage: { fighterA: 48, fighterB: 72 },
+  averageControlSeconds: { fighterA: 70, fighterB: 30 },
+  averageKnockdowns: { fighterA: 0.16, fighterB: 0.04 },
+  diagnosticProbabilities: {
+    paceA: 0.58,
+    paceB: 0.44,
+    strikingEdgeA: 0.12,
+    grapplingEdgeA: 0.08,
+    finishPressureA: 0.2,
+    finishPressureB: 0.1,
+    decisionEdgeA: 0.07
+  },
+  pathSummary: ["Round engine keeps Fighter A ahead late."],
+  dangerFlags: []
+} as const;
+
+const styleMatchup = {
+  engine: "style_matchup",
+  simulations: 1_000,
+  seed: 58,
+  scheduledRounds: 3,
+  fighterAWinProbability: 0.63,
+  fighterBWinProbability: 0.37,
+  methodProbabilities: { KO_TKO: 0.24, SUBMISSION: 0.12, DECISION: 0.64 },
+  roundFinishProbabilities: { R1: 0.08, R2: 0.06, R3: 0.04 },
+  transitionProbabilities: { pressure_exchange: 0.22 },
+  style: {
+    fighterA: "PRESSURE_STRIKER",
+    fighterB: "BALANCED_MMA",
+    fighterAScores: {},
+    fighterBScores: {},
+    matchupLevers: {}
+  },
+  pathWins: { pressure_exchange: 0.4 },
+  pathSummary: ["Style matchup favors Fighter A pressure."],
+  dangerFlags: []
+} as any;
+
+const blended = blendUfcSimOutputs({
+  skillMarkov,
+  exchangeMonteCarlo,
+  roundByRound: roundByRound as any,
+  styleMatchup,
+  weights: { skillMarkov: 0.5, exchangeMonteCarlo: 0.5, roundByRound: 0, styleMatchup: 0 }
+});
 assert.equal(blended.engine, "ensemble");
 assert.equal(blended.fighterAWinProbability, 0.65);
 assert.equal(blended.fighterBWinProbability, 0.35);
@@ -134,7 +199,7 @@ const fighterBFeature: UfcModelFeatureSnapshot = {
 
 const featureRun = runUfcEnsembleSimFromFeatures(fighterAFeature, fighterBFeature, { simulations: 1_000, seed: 99, scheduledRounds: 3 });
 const featureRunAgain = runUfcEnsembleSimFromFeatures(fighterAFeature, fighterBFeature, { simulations: 1_000, seed: 99, scheduledRounds: 3 });
-assert.deepEqual(featureRun, featureRunAgain);
+assert.deepEqual(stripGeneratedAt(featureRun), stripGeneratedAt(featureRunAgain));
 assert.equal(Number((featureRun.fighterAWinProbability + featureRun.fighterBWinProbability).toFixed(4)), 1);
 assert.ok(featureRun.fighterAWinProbability > 0.5);
 assert.ok(featureRun.averageDamage.fighterB > featureRun.averageDamage.fighterA);

@@ -34,6 +34,7 @@ export type UfcOperationalFeedCard = {
   methodProbabilities: { KO_TKO: number | null; SUBMISSION: number | null; DECISION: number | null };
   rawMethodProbabilities?: { KO_TKO: number | null; SUBMISSION: number | null; DECISION: number | null };
   methodCalibration?: { sampleSize: number | null; quality: string | null; corrections: Record<string, number> | null };
+  predictionJson?: Record<string, unknown>;
   simInputAudit?: {
     score: number | null;
     grade: string | null;
@@ -186,6 +187,7 @@ function mapRows(rows: FeedRow[], limit: number): UfcOperationalFeedCard[] {
       sportsbookOddsAmerican: row.sportsbook_odds_american,
       edgePct: row.edge_pct,
       methodProbabilities: { KO_TKO: row.ko_tko_probability, SUBMISSION: row.submission_probability, DECISION: row.decision_probability },
+      predictionJson: asRecord(row.prediction_json),
       rawMethodProbabilities,
       methodCalibration,
       simInputAudit,
@@ -219,7 +221,12 @@ async function queryEventLinkedFeed(modelVersion: string, limit: number, include
     WHERE (${includePast}::boolean OR f.fight_date >= now() - interval '12 hours')
       AND COALESCE(f.payload_json->>'matchupQuality', '') <> 'FAKE_NAVIGATION'
       AND (${promotionStatus}::text IS NULL OR COALESCE(p.prediction_json->'promotionGate'->>'status', s.status, 'SHADOW_ONLY') = ${promotionStatus})
-    ORDER BY e.event_date NULLS LAST, f.fight_date, f.bout_order NULLS LAST, f.event_label
+    ORDER BY
+      CASE WHEN f.fight_date >= now() - interval '12 hours' THEN 0 ELSE 1 END,
+      f.fight_date ASC,
+      e.event_date ASC NULLS LAST,
+      f.bout_order NULLS LAST,
+      f.event_label
     LIMIT ${limit}
   `;
 }

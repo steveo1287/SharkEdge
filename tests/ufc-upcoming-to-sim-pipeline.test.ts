@@ -6,10 +6,11 @@ assert.equal(hasCompleteFeaturePair({ fighterAFeatureCount: 1, fighterBFeatureCo
 assert.equal(hasCompleteFeaturePair({ fighterAFeatureCount: 1, fighterBFeatureCount: 0 }), false);
 assert.equal(hasCompleteFeaturePair({ fighterAFeatureCount: 0, fighterBFeatureCount: 1 }), false);
 
-assert.equal(shouldSimulateUpcomingCandidate({ hasPrediction: true, fighterAFeatureCount: 1, fighterBFeatureCount: 1 }, false), "skip-existing");
-assert.equal(shouldSimulateUpcomingCandidate({ hasPrediction: false, fighterAFeatureCount: 1, fighterBFeatureCount: 1 }, false), "simulate");
-assert.equal(shouldSimulateUpcomingCandidate({ hasPrediction: false, fighterAFeatureCount: 1, fighterBFeatureCount: 0 }, false), "skip-missing-features");
-assert.equal(shouldSimulateUpcomingCandidate({ hasPrediction: false, fighterAFeatureCount: 0, fighterBFeatureCount: 0 }, true), "simulate");
+assert.equal(shouldSimulateUpcomingCandidate({ hasPrediction: true, fighterAFeatureCount: 1, fighterBFeatureCount: 1, matchupQuality: "VALID" }, false), "skip-existing");
+assert.equal(shouldSimulateUpcomingCandidate({ hasPrediction: false, fighterAFeatureCount: 1, fighterBFeatureCount: 1, matchupQuality: "VALID" }, false), "simulate");
+assert.equal(shouldSimulateUpcomingCandidate({ hasPrediction: false, fighterAFeatureCount: 1, fighterBFeatureCount: 0, matchupQuality: "VALID" }, false), "skip-missing-features");
+assert.equal(shouldSimulateUpcomingCandidate({ hasPrediction: false, fighterAFeatureCount: 0, fighterBFeatureCount: 0, matchupQuality: "VALID" }, true), "simulate");
+assert.equal(shouldSimulateUpcomingCandidate({ hasPrediction: false, fighterAFeatureCount: 1, fighterBFeatureCount: 1, matchupQuality: "FAKE_NAVIGATION" }, true), "skip-fake-matchup");
 
 const fallback = buildFallbackFeaturePayload({
   fightId: "fight-1",

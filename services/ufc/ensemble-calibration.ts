@@ -135,7 +135,7 @@ function withoutBuckets(report: UfcEnsembleCalibrationReport): Omit<UfcEnsembleC
   return rest;
 }
 
-export function calculateUfcEnsembleCalibrationReport(rows: UfcEnsembleCalibrationRow[], options: UfcEnsembleCalibrationOptions = {}): UfcEnsembleCalibrationReport {
+function calculateUfcEnsembleCalibrationReportInternal(rows: UfcEnsembleCalibrationRow[], options: UfcEnsembleCalibrationOptions = {}, includeBucketReports = true): UfcEnsembleCalibrationReport {
   const defaultWeights = normalizeWeights(options.defaultWeights ?? DEFAULT_WEIGHTS);
   const minSamples = options.minSamples ?? DEFAULT_MIN_SAMPLES;
   const gridStep = options.gridStep ?? DEFAULT_GRID_STEP;
@@ -144,10 +144,10 @@ export function calculateUfcEnsembleCalibrationReport(rows: UfcEnsembleCalibrati
   const shrunk = shrinkWeights(bestRaw.weights, defaultWeights, rows.length, minSamples);
   const recommendedMetrics = scoreUfcEnsembleWeights(rows, shrunk.weights);
   const bucketReports: Record<string, Omit<UfcEnsembleCalibrationReport, "bucketReports">> = {};
-  const bucketNames = [...new Set(rows.map((row) => row.bucket).filter((bucket): bucket is string => Boolean(bucket)))];
+  const bucketNames = includeBucketReports ? [...new Set(rows.map((row) => row.bucket).filter((bucket): bucket is string => Boolean(bucket)))] : [];
 
   for (const bucket of bucketNames) {
-    bucketReports[bucket] = withoutBuckets(calculateUfcEnsembleCalibrationReport(rows.filter((row) => row.bucket === bucket), options));
+    bucketReports[bucket] = withoutBuckets(calculateUfcEnsembleCalibrationReportInternal(rows.filter((row) => row.bucket === bucket), options, false));
   }
 
   return {
@@ -161,6 +161,10 @@ export function calculateUfcEnsembleCalibrationReport(rows: UfcEnsembleCalibrati
     recommendedMetrics,
     bucketReports
   };
+}
+
+export function calculateUfcEnsembleCalibrationReport(rows: UfcEnsembleCalibrationRow[], options: UfcEnsembleCalibrationOptions = {}): UfcEnsembleCalibrationReport {
+  return calculateUfcEnsembleCalibrationReportInternal(rows, options, true);
 }
 
 function engineBucket(payload: any) {

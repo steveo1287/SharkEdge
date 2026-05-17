@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { getProfileFeatureSignalReport, type MmaProfileFeatureSignal } from "@/services/simulation/profile-feature-signals";
 import { runUfcEnsembleSimFromFeatures, type UfcEnsembleSimResult } from "@/services/ufc/ensemble-sim";
 import { resolveUfcEnsembleWeights, type UfcResolvedEnsembleWeights } from "@/services/ufc/ensemble-weight-store";
-import { probabilityToAmericanOdds } from "@/services/ufc/fight-iq";
+import { americanOddsToImpliedProbability, probabilityToAmericanOdds } from "@/services/ufc/fight-iq";
 import { buildUfcFighterSkillProfile, type UfcModelFeatureSnapshot } from "@/services/ufc/fighter-skill-profile";
 import { evaluateUfcMarketAwareFairProbability, type UfcMarketAwareFairProbability } from "@/services/ufc/market-aware-fair-probability";
 import { applyUfcMethodCalibration, buildUfcPromotionGate, getUfcMethodCalibration, type UfcMethodCalibration, type UfcPromotionGate } from "@/services/ufc/method-calibration-gate";
@@ -131,6 +131,13 @@ function marketNumber(value: unknown) {
     return Number.isFinite(parsed) ? Math.round(parsed) : null;
   }
   return null;
+}
+
+export function calculateUfcEdgePct(modelProbability: number | null | undefined, oddsAmerican: number | null | undefined) {
+  if (typeof modelProbability !== "number" || !Number.isFinite(modelProbability)) return null;
+  const marketProbability = americanOddsToImpliedProbability(oddsAmerican);
+  if (marketProbability == null) return null;
+  return Math.max(0, Number(((modelProbability - marketProbability) * 100).toFixed(2)));
 }
 
 function normalizeDbInt(value: number, fallback: number) {

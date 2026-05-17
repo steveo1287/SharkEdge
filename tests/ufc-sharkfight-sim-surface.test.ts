@@ -40,7 +40,8 @@ function feedFight(overrides: Partial<UfcOperationalFeedCard> = {}): UfcOperatio
     generatedAt: overrides.generatedAt ?? "2026-05-31T18:00:00.000Z",
     pathSummary: overrides.pathSummary ?? (hasPrediction ? ["A has the cleaner pressure and control profile."] : []),
     dangerFlags: overrides.dangerFlags ?? [],
-    shadowStatus: overrides.shadowStatus ?? (hasPrediction ? "PENDING" : null)
+    shadowStatus: overrides.shadowStatus ?? (hasPrediction ? "PENDING" : null),
+    predictionJson: overrides.predictionJson
   };
 }
 
@@ -93,8 +94,9 @@ const detail: UfcFightIqDetail = {
   roundFinishProbabilities: { R1: 0.1, R2: 0.14, R3: 0.08 },
   pathSummary: ["A has the stronger decision path."],
   dangerFlags: [],
-  activeEnsembleWeights: { source: "learned", weights: { skillMarkov: 0.6, exchangeMonteCarlo: 0.4 } },
+  activeEnsembleWeights: { source: "learned", weights: { skillMarkov: 0.6, exchangeMonteCarlo: 0.4, roundByRound: 0, styleMatchup: 0 } },
   sourceOutputs: { skillMarkov: { fighterAWinProbability: 0.62 }, exchangeMonteCarlo: { fighterAWinProbability: 0.66 } },
+  styleGenome: null,
   dataQualityGrade: "B",
   confidenceGrade: "HIGH",
   shadowStatus: "PENDING"

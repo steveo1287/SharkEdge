@@ -39,7 +39,8 @@ const pendingFight: UfcOperationalFeedCard = {
   generatedAt: "2026-06-15T12:00:00.000Z",
   pathSummary: [],
   dangerFlags: [],
-  shadowStatus: null
+  shadowStatus: null,
+  predictionJson: undefined
 };
 
 const cards = buildUfcCardSummaries([pendingFight]);
@@ -74,6 +75,7 @@ const detail: UfcFightIqDetail = {
   dangerFlags: [],
   activeEnsembleWeights: null,
   sourceOutputs: null,
+  styleGenome: null,
   dataQualityGrade: null,
   confidenceGrade: null,
   shadowStatus: null
