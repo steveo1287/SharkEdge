@@ -27,6 +27,13 @@ assert.equal(futureLeakPayload.fights.length, 0);
 assert.equal(futureLeakPayload.quarantine.length, 1);
 assert.equal(futureLeakPayload.quarantine[0]?.quality.reasons.includes("future_data_snapshot_after_fight_start"), true);
 
+const identicalFighterPayload = validateUfcWarehousePayload({
+  ...validPayload,
+  fights: [{ ...validPayload.fights[0], eventLabel: "Tap In vs Tap In", fighterAKey: "a", fighterBKey: "a" }]
+});
+assert.equal(identicalFighterPayload.fights.length, 0);
+assert.equal(identicalFighterPayload.quarantine[0]?.quality.reasons.includes("identical_fighter_keys"), true);
+
 assert.throws(() => validateUfcWarehousePayload({
   ...validPayload,
   predictions: [{ ...validPayload.predictions[0], fighterAWinProbability: 0.55, fighterBWinProbability: 0.5 }]

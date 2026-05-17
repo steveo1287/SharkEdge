@@ -207,6 +207,10 @@ function normalizeWarehousePayload(raw: unknown): NormalizedPayload {
     const combatSport = payloadSport(fight.payload) ?? payloadSport(event?.payload);
     const quality = evaluateUfcMatchupQuality({ sourceKey, eventName: event?.eventName ?? null, eventLabel: fight.eventLabel, fighterAName: fighterA?.fullName ?? fight.fighterAKey, fighterBName: fighterB?.fullName ?? fight.fighterBKey, combatSport, sourceStatus: fight.sourceStatus });
     const fightKey = fight.id ?? fight.externalFightId ?? fight.eventLabel;
+    if (fight.fighterAKey === fight.fighterBKey) {
+      quarantine.push({ type: "fight", key: fightKey, label: fight.eventLabel, quality: { ...quality, status: "FAKE_NAVIGATION", valid: false, fakeNavigation: true, questionable: false, reasons: [...quality.reasons, "identical_fighter_keys"] } });
+      return [];
+    }
     if (quality.fakeNavigation) {
       quarantine.push({ type: "fight", key: fightKey, label: fight.eventLabel, quality });
       return [];

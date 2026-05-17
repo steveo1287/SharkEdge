@@ -68,6 +68,7 @@ const NAVIGATION_TERMS = new Set([
   "schedule",
   "shop",
   "skip to main content",
+  "tap in",
   "tickets",
   "ufc",
   "ufc apex",
