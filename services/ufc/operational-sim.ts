@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 
 import { prisma } from "@/lib/db/prisma";
 import { getProfileFeatureSignalReport, type MmaProfileFeatureSignal } from "@/services/simulation/profile-feature-signals";
-import { runUfcEnsembleSimFromFeatures } from "@/services/ufc/ensemble-sim";
+import { runUfcEnsembleSimFromFeatures, type UfcEnsembleSimResult } from "@/services/ufc/ensemble-sim";
 import { resolveUfcEnsembleWeights, type UfcResolvedEnsembleWeights } from "@/services/ufc/ensemble-weight-store";
 import { probabilityToAmericanOdds } from "@/services/ufc/fight-iq";
 import { buildUfcFighterSkillProfile, type UfcModelFeatureSnapshot } from "@/services/ufc/fighter-skill-profile";
@@ -61,6 +61,7 @@ export type UfcOperationalSimResult = {
   rawMethodProbabilities: { KO_TKO: number; SUBMISSION: number; DECISION: number };
   roundFinishProbabilities: Record<string, number>;
   transitionProbabilities: Record<string, number>;
+  styleGenome: UfcEnsembleSimResult["styleGenome"];
   pathSummary: string[];
   activeEnsembleWeights: UfcResolvedEnsembleWeights;
 };
@@ -109,7 +110,7 @@ type ResolvedMarketOdds = {
 
 const DEFAULT_MODEL_VERSION = "ufc-fight-iq-v1";
 const DEFAULT_SIMULATIONS = 25_000;
-const OPERATIONAL_SIM_CACHE_VERSION = "market-aware-input-audit-style-matchup-truth-intelligence-v1";
+const OPERATIONAL_SIM_CACHE_VERSION = "market-aware-input-audit-style-genome-v1";
 
 function stableId(prefix: string, value: string) { return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`; }
 function toIso(value: Date | string) { return value instanceof Date ? value.toISOString() : new Date(value).toISOString(); }
@@ -118,6 +119,9 @@ function weakerGrade(left: string, right: string) { return gradeRank(left) <= gr
 function confidenceRank(grade: string) { if (grade === "HIGH") return 4; if (grade === "MEDIUM_HIGH") return 3; if (grade === "MEDIUM") return 2; return 1; }
 function weakerConfidence(left: string, right: string) { return confidenceRank(left) <= confidenceRank(right) ? left : right; }
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
+function withStyleGenome(feature: UfcModelFeatureSnapshot, styleGenome: UfcEnsembleSimResult["styleGenome"]["fighterA"]): UfcModelFeatureSnapshot {
+  return { ...feature, feature: { ...asRecord(feature.feature), styleGenome } };
+}
 function marketNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return Math.round(value);
   if (typeof value === "string" && value.trim()) {
@@ -262,11 +266,35 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
   const intelligenceGrade = weakerGrade(aIntelligenceBridge.readinessGrade ?? "D", bIntelligenceBridge.readinessGrade ?? "D");
   const dataQualityGrade = weakerGrade(weakerGrade(weakerGrade(profileDataQualityGrade, simInputAudit.grade), combinedTruthGrade), intelligenceGrade);
   const sim = runUfcEnsembleSimFromFeatures(aSnapshot, bSnapshot, { simulations, seed, scheduledRounds: fight.scheduled_rounds === 5 ? 5 : 3, weights: activeEnsembleWeights.weights });
+  const styleFeatureSnapshots = {
+    fighterA: withStyleGenome(aSnapshot, sim.styleGenome.fighterA),
+    fighterB: withStyleGenome(bSnapshot, sim.styleGenome.fighterB)
+  };
+  if (sim.styleGenome.fighterA) {
+    await prisma.$executeRaw`
+      UPDATE ufc_model_features
+      SET feature_json = jsonb_set(COALESCE(feature_json, '{}'::jsonb), '{styleGenome}', ${JSON.stringify(sim.styleGenome.fighterA)}::jsonb, true), updated_at = now()
+      WHERE fight_id = ${fightId} AND fighter_id = ${fight.fighter_a_id} AND model_version = ${modelVersion}
+    `;
+  }
+  if (sim.styleGenome.fighterB) {
+    await prisma.$executeRaw`
+      UPDATE ufc_model_features
+      SET feature_json = jsonb_set(COALESCE(feature_json, '{}'::jsonb), '{styleGenome}', ${JSON.stringify(sim.styleGenome.fighterB)}::jsonb, true), updated_at = now()
+      WHERE fight_id = ${fightId} AND fighter_id = ${fight.fighter_b_id} AND model_version = ${modelVersion}
+    `;
+  }
   const calibratedMethodProbabilities = applyUfcMethodCalibration(sim.methodProbabilities, methodCalibration);
   const enrichedPriorBridge = { fighterA: stripBridgeFeature(aPriorBridge), fighterB: stripBridgeFeature(bPriorBridge) };
   const profileIntelligenceBridge = { fighterA: stripIntelligenceFeature(aIntelligenceBridge), fighterB: stripIntelligenceFeature(bIntelligenceBridge) };
   const priorPathSummary = enrichedPriorPathSummary({ fighterAId: fight.fighter_a_id, fighterBId: fight.fighter_b_id, a: aPriorBridge, b: bPriorBridge });
   const intelligencePathSummary = profileIntelligencePathSummary({ fighterAId: fight.fighter_a_id, fighterBId: fight.fighter_b_id, a: aIntelligenceBridge, b: bIntelligenceBridge });
+  const stylePathSummary = [
+    ...(sim.styleGenome.fighterA ? [`Fighter A style genome: ${sim.styleGenome.fighterA.archetype.primary} confidence=${Math.round(sim.styleGenome.fighterA.archetype.confidence * 100)}%.`] : []),
+    ...(sim.styleGenome.fighterB ? [`Fighter B style genome: ${sim.styleGenome.fighterB.archetype.primary} confidence=${Math.round(sim.styleGenome.fighterB.archetype.confidence * 100)}%.`] : []),
+    ...(sim.styleGenome.clash ? [`Style clash pace=${sim.styleGenome.clash.paceProjection}/100 finishVolatility=${sim.styleGenome.clash.finishVolatility}/100 decisionReliability=${sim.styleGenome.clash.decisionReliability}/100.`] : []),
+    ...(sim.styleGenome.clash?.styleWarnings ?? []).slice(0, 4)
+  ];
   const rawPickProbability = Math.max(sim.fighterAWinProbability, sim.fighterBWinProbability);
   const intelligenceColdStart = aIntelligenceBridge.blockers.length > 0 || bIntelligenceBridge.blockers.length > 0;
   const confidenceBeforeProfileCap = confidenceGrade(rawPickProbability, dataQualityGrade, aProfile.prospect.coldStartActive || bProfile.prospect.coldStartActive || simInputAudit.fighterA.coldStartActive || simInputAudit.fighterB.coldStartActive || intelligenceColdStart);
@@ -336,7 +364,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     profileFeatureSignal,
     enrichedPriorBridge,
     fighterSkillProfiles: { fighterA: aProfile, fighterB: bProfile },
-    featureSnapshots: { fighterA: aSnapshot, fighterB: bSnapshot },
+    featureSnapshots: styleFeatureSnapshots,
     marketOddsSnapshot: resolvedMarketOdds.marketOddsSnapshot,
     cacheVersion: OPERATIONAL_SIM_CACHE_VERSION
   };
@@ -360,7 +388,7 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     shadowPredictionId = stableId("ufcsh", `${predictionId}:shadow`);
     await prisma.$executeRaw`
       INSERT INTO ufc_shadow_predictions (id, fight_id, prediction_id, model_version, recorded_at, market_odds_a_open, market_odds_b_open, market_odds_a_close, market_odds_b_close, fighter_a_win_probability, fighter_b_win_probability, pick_fighter_id, data_quality_grade, confidence_grade, status, payload_json, updated_at)
-      VALUES (${shadowPredictionId}, ${fightId}, ${predictionId}, ${modelVersion}, now(), ${resolvedMarketOdds.marketOddsAOpen ?? null}, ${resolvedMarketOdds.marketOddsBOpen ?? null}, ${resolvedMarketOdds.marketOddsAClose ?? null}, ${resolvedMarketOdds.marketOddsBClose ?? null}, ${marketAware.blendedProbabilityA}, ${marketAware.blendedProbabilityB}, ${pickFighterId}, ${promotionGate.grade}, ${promotionGate.confidenceCap}, ${promotionGate.status === "PROMOTABLE" ? "PENDING" : "SHADOW_ONLY"}, ${JSON.stringify({ sim: predictionPayload, pathSummary: [...priorPathSummary, ...intelligencePathSummary, `Truth audit ${combinedTruthGrade}: A=${aTruthAudit.score}/100, B=${bTruthAudit.score}/100.`, ...aTruthAudit.reasonCodes.map((item) => `A ${item}`), ...bTruthAudit.reasonCodes.map((item) => `B ${item}`), `Input audit ${simInputAudit.grade} (${simInputAudit.score}/100).`, ...simInputAudit.blockers, ...simInputAudit.warnings, ...promotionGate.reasons, ...sim.pathSummary], dangerFlags: [...sim.dangerFlags, ...marketAware.reasonCodes, ...auditReasonCodes], profileFeatureSignal, profileTruthAudit, profileIntelligenceBridge, enrichedPriorBridge, methodCalibration, promotionGate, marketAware, simInputAudit, marketOddsSnapshot: resolvedMarketOdds.marketOddsSnapshot })}::jsonb, now())
+      VALUES (${shadowPredictionId}, ${fightId}, ${predictionId}, ${modelVersion}, now(), ${resolvedMarketOdds.marketOddsAOpen ?? null}, ${resolvedMarketOdds.marketOddsBOpen ?? null}, ${resolvedMarketOdds.marketOddsAClose ?? null}, ${resolvedMarketOdds.marketOddsBClose ?? null}, ${marketAware.blendedProbabilityA}, ${marketAware.blendedProbabilityB}, ${pickFighterId}, ${promotionGate.grade}, ${promotionGate.confidenceCap}, ${promotionGate.status === "PROMOTABLE" ? "PENDING" : "SHADOW_ONLY"}, ${JSON.stringify({ sim: predictionPayload, styleGenome: sim.styleGenome, pathSummary: [...stylePathSummary, ...priorPathSummary, ...intelligencePathSummary, `Truth audit ${combinedTruthGrade}: A=${aTruthAudit.score}/100, B=${bTruthAudit.score}/100.`, ...aTruthAudit.reasonCodes.map((item) => `A ${item}`), ...bTruthAudit.reasonCodes.map((item) => `B ${item}`), `Input audit ${simInputAudit.grade} (${simInputAudit.score}/100).`, ...simInputAudit.blockers, ...simInputAudit.warnings, ...promotionGate.reasons, ...sim.pathSummary], dangerFlags: [...sim.dangerFlags, ...marketAware.reasonCodes, ...auditReasonCodes], profileFeatureSignal, profileTruthAudit, profileIntelligenceBridge, enrichedPriorBridge, methodCalibration, promotionGate, marketAware, simInputAudit, marketOddsSnapshot: resolvedMarketOdds.marketOddsSnapshot })}::jsonb, now())
       ON CONFLICT (id) DO UPDATE SET fighter_a_win_probability = EXCLUDED.fighter_a_win_probability, fighter_b_win_probability = EXCLUDED.fighter_b_win_probability, payload_json = EXCLUDED.payload_json, confidence_grade = EXCLUDED.confidence_grade, data_quality_grade = EXCLUDED.data_quality_grade, status = EXCLUDED.status, updated_at = now()
     `;
   }
@@ -393,8 +421,10 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
     rawMethodProbabilities: sim.methodProbabilities,
     roundFinishProbabilities: sim.roundFinishProbabilities,
     transitionProbabilities: sim.transitionProbabilities,
+    styleGenome: sim.styleGenome,
     pathSummary: [
       ...(profileFeatureSignal ? [`MMA profile feature signal ${profileFeatureSignal.status} (${profileFeatureSignal.score}/100) capped confidence at ${Math.round(profileFeatureSignal.confidenceCap * 100)}%.`] : []),
+      ...stylePathSummary,
       `Profile truth audit ${combinedTruthGrade}: fighterA=${aTruthAudit.score}/100 official=${Math.round(aTruthAudit.officialShare * 100)}% estimated=${Math.round(aTruthAudit.estimatedShare * 100)}%; fighterB=${bTruthAudit.score}/100 official=${Math.round(bTruthAudit.officialShare * 100)}% estimated=${Math.round(bTruthAudit.estimatedShare * 100)}%.`,
       ...aTruthAudit.reasonCodes.map((item) => `Fighter A truth flag: ${item}`),
       ...bTruthAudit.reasonCodes.map((item) => `Fighter B truth flag: ${item}`),
