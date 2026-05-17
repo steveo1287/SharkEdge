@@ -146,10 +146,14 @@ export function validateProviderSnapshot(snapshot: UfcRealDataSnapshot) {
   return { ok: errors.length === 0, errors };
 }
 
+function hasOddsApiKey(env: Record<string, string | undefined>) {
+  return Boolean(env.THE_ODDS_API_KEY || env.ODDS_API_KEY || env.ODDS_API_IO_KEY || env.ODDSAPI_IO_KEY);
+}
+
 export function getUfcProviderReadiness(env: Record<string, string | undefined> = process.env): UfcProviderHealth[] {
-  const oddsMissing = ["ODDS_API_KEY"].filter((key) => !env[key]);
+  const oddsReady = hasOddsApiKey(env);
   return [
-    { provider: "odds-api", configured: oddsMissing.length === 0, ready: oddsMissing.length === 0, missing: oddsMissing, notes: ["Used for MMA/UFC moneyline odds and market-implied probability."] },
+    { provider: "odds-api", configured: oddsReady, ready: oddsReady, missing: oddsReady ? [] : ["THE_ODDS_API_KEY or ODDS_API_KEY or ODDS_API_IO_KEY"], notes: ["Used for MMA/UFC moneyline odds and market-implied probability.", "UFC events are fetched from mma_mixed_martial_arts and bridged onto ufc_fights.marketOdds for the sim."] },
     { provider: "ufcstats", configured: true, ready: true, missing: [], notes: ["Adapter accepts structured fighter stat snapshots. Add source fetcher separately if scraping/API is approved."] },
     { provider: "fightmatrix", configured: true, ready: true, missing: [], notes: ["Adapter accepts imported opponent-strength snapshots."] },
     { provider: "manual-scouting", configured: true, ready: true, missing: [], notes: ["Manual prospect scouting import is supported for cold-start fighters."] }
