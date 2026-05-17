@@ -20,6 +20,7 @@ type FightProfileRow = {
 type CompleteProfile = {
   fighterId?: string;
   fullName?: string;
+  modelVersion?: string;
   confidence?: number;
   dataQuality?: string;
   sourceSummary?: Record<string, number>;
