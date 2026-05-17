@@ -27,6 +27,11 @@ function scopeFromPath(pathname: string | null) {
   return "GLOBAL" as const;
 }
 
+function scopeCopy(scopeLabel: string, isGlobal: boolean) {
+  if (isGlobal) return "Global mode evaluates every active lane. Sport-specific research pages use their own scoped gate, so a broken sport cannot dominate another sport's card view.";
+  return `${scopeLabel} mode evaluates only the ${scopeLabel} lane plus live odds readiness. Other sports may still be unhealthy globally, but they do not block this card's research state.`;
+}
+
 export default async function SimLayout({ children }: { children: React.ReactNode }) {
   const headerList = await headers();
   const pathname = headerList.get("x-pathname") ?? headerList.get("x-invoke-path") ?? headerList.get("next-url");
@@ -36,19 +41,18 @@ export default async function SimLayout({ children }: { children: React.ReactNod
   const topBlockers = dataTower.blockers.slice(0, 3);
   const topWarnings = dataTower.warnings.slice(0, 3);
   const scopeLabel = dataTower.scope === "GLOBAL" ? "Global" : dataTower.scope;
+  const isGlobal = dataTower.scope === "GLOBAL";
 
   return (
     <div className="space-y-5">
       <section className={`panel px-5 py-4 ${panelTone(dataTower.status, allowed)}`}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-aqua/70">{scopeLabel} sim data gate</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-aqua/70">{scopeLabel} scoped sim data gate</div>
             <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight text-white">
               {allowed ? `${scopeLabel} promotion is data-cleared.` : `${scopeLabel} promotion is data-blocked.`}
             </h2>
-            <p className="mt-2 max-w-4xl text-xs leading-5 text-slate-400">
-              SimHub is downstream of the Data Control Tower. This view uses the active sport scope unless global mode is explicitly requested, so MLB blockers do not lock MMA research cards.
-            </p>
+            <p className="mt-2 max-w-4xl text-xs leading-5 text-slate-400">{scopeCopy(scopeLabel, isGlobal)}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {smallPill(tone(dataTower.status), `Data ${dataTower.status}`)}
@@ -65,15 +69,15 @@ export default async function SimLayout({ children }: { children: React.ReactNod
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-xl border border-white/[0.06] bg-black/20 px-3 py-2">
-            <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-600">Tower score</div>
+            <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-600">{scopeLabel} score</div>
             <div className="mt-1 font-display text-2xl font-bold tracking-tight text-white">{dataTower.score}</div>
           </div>
           <div className="rounded-xl border border-white/[0.06] bg-black/20 px-3 py-2">
-            <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-600">Blockers</div>
+            <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-600">Scoped blockers</div>
             <div className={`mt-1 font-display text-2xl font-bold tracking-tight ${dataTower.blockers.length ? "text-crimson" : "text-mint"}`}>{dataTower.blockers.length}</div>
           </div>
           <div className="rounded-xl border border-white/[0.06] bg-black/20 px-3 py-2">
-            <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-600">Warnings</div>
+            <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-600">Scoped warnings</div>
             <div className={`mt-1 font-display text-2xl font-bold tracking-tight ${dataTower.warnings.length ? "text-amber-300" : "text-mint"}`}>{dataTower.warnings.length}</div>
           </div>
           <div className="rounded-xl border border-white/[0.06] bg-black/20 px-3 py-2">
@@ -85,13 +89,13 @@ export default async function SimLayout({ children }: { children: React.ReactNod
         {(topBlockers.length || topWarnings.length) ? (
           <div className="mt-4 grid gap-3 lg:grid-cols-2">
             <div className="rounded-xl border border-crimson/15 bg-black/20 px-3 py-2">
-              <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-crimson">Top blockers</div>
+              <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-crimson">Top {scopeLabel} blockers</div>
               <div className="mt-2 space-y-1 text-xs leading-5 text-crimson/80">
                 {topBlockers.length ? topBlockers.map((item) => <p key={item}>• {item}</p>) : <p className="text-slate-500">No hard blockers.</p>}
               </div>
             </div>
             <div className="rounded-xl border border-amber-400/15 bg-black/20 px-3 py-2">
-              <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-amber-300">Top warnings</div>
+              <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-amber-300">Top {scopeLabel} warnings</div>
               <div className="mt-2 space-y-1 text-xs leading-5 text-amber-100/75">
                 {topWarnings.length ? topWarnings.map((item) => <p key={item}>• {item}</p>) : <p className="text-slate-500">No warnings.</p>}
               </div>
