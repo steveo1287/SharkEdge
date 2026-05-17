@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { ensureInternalApiAccess } from "@/lib/utils/internal-api";
+import { runOddsApiSnapshotPull } from "@/services/odds/the-odds-api-budget-service";
 import { buildEliteUfcFighterProfiles } from "@/services/ufc/elite-fighter-profile-builder";
 import { getUfcOperationalFeed } from "@/services/ufc/operational-feed";
 import { runUfcUpcomingToSimPipeline } from "@/services/ufc/upcoming-to-sim-pipeline";
@@ -29,6 +30,20 @@ function countActions(candidates: Array<{ action: string; featureSource: string 
   }, { actions: {} as Record<string, number>, featureSources: {} as Record<string, number> });
 }
 
+function compactOddsRefresh(result: Awaited<ReturnType<typeof runOddsApiSnapshotPull>> | null) {
+  if (!result) return null;
+  return {
+    ok: result.ok,
+    skipped: result.skipped,
+    reason: result.reason,
+    budget: result.budget,
+    daily: result.daily,
+    ingest: result.ingest,
+    ufcMarketOdds: result.ufcMarketOdds,
+    sports: result.snapshot?.meta?.sports ?? []
+  };
+}
+
 export async function GET(request: Request) {
   const authError = ensureInternalApiAccess(request);
   if (authError) return authError;
@@ -44,7 +59,8 @@ export async function GET(request: Request) {
   const includeTapology = parseBool(url.searchParams.get("includeTapology"), true);
   const includeUfcCom = parseBool(url.searchParams.get("includeUfcCom"), true);
   const allowFallbackFeatures = parseBool(url.searchParams.get("allowFallbackFeatures"), true);
-  const forceRegenerate = parseBool(url.searchParams.get("forceRegenerate"), false);
+  const forceRegenerate = parseBool(url.searchParams.get("forceRegenerate"), true);
+  const refreshOdds = parseBool(url.searchParams.get("refreshOdds"), true);
   const runWikimedia = parseBool(url.searchParams.get("runWikimedia"), true);
   const rebuildProfiles = parseBool(url.searchParams.get("rebuildProfiles"), true);
   const recordShadow = parseBool(url.searchParams.get("recordShadow"), true);
@@ -53,6 +69,10 @@ export async function GET(request: Request) {
   const profileLimit = parseIntParam(url.searchParams.get("profileLimit"), 2500, 1, 5000);
 
   const startedAt = new Date().toISOString();
+  const oddsRefresh = refreshOdds && !dryRun
+    ? await runOddsApiSnapshotPull({ mode: "manual", sportsCsv: "mma_mixed_martial_arts" }).catch((error) => ({ ok: false, skipped: false, reason: error instanceof Error ? error.message : String(error), budget: null, daily: null, ingest: null, ufcMarketOdds: null, snapshot: null } as any))
+    : null;
+
   const wikimedia = runWikimedia
     ? await runWikimediaFighterEnrichment({ limit: wikimediaLimit, offset: wikimediaOffset, dryRun, rebuildProfiles: false, modelVersion, horizonDays }).catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }))
     : null;
@@ -97,14 +117,16 @@ export async function GET(request: Request) {
       fighterBFeatureCount: candidate.fighterBFeatureCount
     }));
 
-  const ok = Boolean(sim.ok) && (!profiles || Boolean((profiles as any).ok)) && (!wikimedia || Boolean((wikimedia as any).ok));
+  const oddsOk = !oddsRefresh || Boolean((oddsRefresh as any).ok) || Boolean((oddsRefresh as any).skipped);
+  const ok = Boolean(sim.ok) && oddsOk && (!profiles || Boolean((profiles as any).ok)) && (!wikimedia || Boolean((wikimedia as any).ok));
   return NextResponse.json({
     ok,
     mode: dryRun ? "dry-run" : "precompute-upcoming-sims",
     startedAt,
     finishedAt: new Date().toISOString(),
     modelVersion,
-    params: { horizonDays, limit, simulations, allowFallbackFeatures, forceRegenerate, recordShadow, runWikimedia, rebuildProfiles, includeMvp, includeEspn, includeTapology, includeUfcCom },
+    params: { horizonDays, limit, simulations, allowFallbackFeatures, forceRegenerate, refreshOdds, recordShadow, runWikimedia, rebuildProfiles, includeMvp, includeEspn, includeTapology, includeUfcCom },
+    oddsRefresh: compactOddsRefresh(oddsRefresh as any),
     wikimedia,
     profiles,
     simSummary: {
