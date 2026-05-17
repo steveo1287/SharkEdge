@@ -5,6 +5,7 @@ import { buildEliteUfcFighterProfiles } from "@/services/ufc/elite-fighter-profi
 import { persistUfcCalibrationSnapshot } from "@/services/ufc/calibration";
 import { persistUfcStatsFightStatsFromDetail, type UfcFightStatPersistenceResult } from "@/services/ufc/fight-stat-extractor";
 import { applyUfcOutcomeSkillLearning } from "@/services/ufc/outcome-skill-adjuster";
+import { persistUfcStyleCalibrationSnapshot } from "@/services/ufc/style-calibration-store";
 import { discoverCompletedUfcStatsEvents } from "@/services/ufc/ufcstats-event-discovery";
 import { fetchUfcStatsSnapshotWithDiagnostics } from "@/services/ufc/ufcstats-fetcher";
 
@@ -278,6 +279,7 @@ export async function runUfcResultSettlement(options: Options = {}) {
   const ratings = await updateRatingsFromCompletedResults();
   const outcomeLearning = await applyUfcOutcomeSkillLearning({ limit: options.learningLimit ?? 100 }).catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }));
   const calibration = await persistUfcCalibrationSnapshot(modelVersion, "result-settlement").catch((error) => ({ error: error instanceof Error ? error.message : String(error) }));
+  const styleCalibration = await persistUfcStyleCalibrationSnapshot(modelVersion, "style-calibration").catch((error) => ({ error: error instanceof Error ? error.message : String(error) }));
   const profileRebuild = options.rebuildProfiles
     ? await buildEliteUfcFighterProfiles({ modelVersion, limit: options.profileLimit ?? 2500, horizonDays: options.horizonDays ?? 180 }).catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }))
     : null;
@@ -295,6 +297,7 @@ export async function runUfcResultSettlement(options: Options = {}) {
     ratings,
     outcomeLearning,
     calibration,
+    styleCalibration,
     profileRebuild,
     synced,
     statsPersistence,
