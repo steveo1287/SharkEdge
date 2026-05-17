@@ -25,6 +25,23 @@ const REDIRECTS: [string, string][] = [
   ["/simhub/logs", "/sim"]
 ];
 
+function requestHeadersWithPathname(request: NextRequest) {
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-pathname", request.nextUrl.pathname);
+  requestHeaders.set("x-search", request.nextUrl.search);
+  return requestHeaders;
+}
+
+function nextWithPathname(request: NextRequest) {
+  return NextResponse.next({ request: { headers: requestHeadersWithPathname(request) } });
+}
+
+function rewriteWithPathname(request: NextRequest, pathname: string) {
+  const url = request.nextUrl.clone();
+  url.pathname = pathname;
+  return NextResponse.rewrite(url, { request: { headers: requestHeadersWithPathname(request) } });
+}
+
 function applyRedirect(request: NextRequest, from: string, to: string) {
   const { pathname, search } = request.nextUrl;
   const exact = pathname === from;
@@ -46,9 +63,7 @@ function applyRedirect(request: NextRequest, from: string, to: string) {
 
 function rewriteFrozenSimHub(request: NextRequest) {
   if (request.nextUrl.pathname !== "/sim") return null;
-  const url = request.nextUrl.clone();
-  url.pathname = "/sim-fast";
-  return NextResponse.rewrite(url);
+  return rewriteWithPathname(request, "/sim-fast");
 }
 
 export function middleware(request: NextRequest) {
@@ -59,12 +74,12 @@ export function middleware(request: NextRequest) {
     const response = applyRedirect(request, from, to);
     if (response) return response;
   }
-  return NextResponse.next();
+  return nextWithPathname(request);
 }
 
 export const config = {
   matcher: [
-    "/sim",
+    "/sim", "/sim/:path*",
     "/board", "/board/:path*",
     "/props", "/props/:path*",
     "/leagues", "/leagues/:path*",
