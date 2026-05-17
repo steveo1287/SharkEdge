@@ -1,57 +1,85 @@
-import { buildEventGameRatingsPrior } from "@/services/simulation/game-ratings-prior";
-import { bradleyTerryWinProbability } from "@/services/simulation/probability-models";
+type FighterRole = "COMPETITOR_A" | "COMPETITOR_B";
 
-type FighterSignal = {
-  strikingOffense: number;
-  strikingDefense: number;
-  grapplingOffense: number;
-  grapplingDefense: number;
-  takedownAccuracy: number;
-  takedownDefense: number;
-  submissionThreat: number;
-  knockdownThreat: number;
-  controlPressure: number;
-  cardio: number;
-  durability: number;
-  fightIQ: number;
-  pace: number;
+type MarketAnchor = {
+  fighterAWinProb: number | null;
+};
+
+type UfcFighterWarehouseRow = {
+  id: string;
+  full_name: string;
+  stance: string | null;
+  height_inches: number | null;
+  reach_inches: number | null;
+  combat_base: string | null;
+  payload_json: unknown;
+};
+
+type FighterMetric = {
+  key: string;
+  label: string;
+  value: number | null;
+  unit: string;
+  direction: "higher" | "lower";
+  rankScore: number | null;
+  rankBand: "ELITE" | "PLUS" | "AVERAGE" | "BELOW_AVERAGE" | "MISSING";
 };
 
 type FighterProfile = {
   competitorId: string;
+  fighterId: string | null;
   fighterName: string;
-  role: "COMPETITOR_A" | "COMPETITOR_B";
-  confidence: number;
-  sampleSize: number;
-  amateurRankScore: number;
-  campScore: number;
-  trainingPartnerScore: number;
-  formScore: number;
-  opponentAdjustedFormScore: number;
-  videoGameOverall: number | null;
-  styleTag: "STRIKER" | "GRAPPLER" | "MIXED";
+  matchedWarehouseName: string | null;
+  role: FighterRole;
+  source: "ufc_fighters.eliteProfile" | "ufc_fighters.stats" | "player_game_stats" | "missing";
+  dataQuality: "A" | "B" | "C" | "D";
+  readyForSimulation: boolean;
+  missingCritical: string[];
+  sample: {
+    proFights: number | null;
+    ufcFights: number | null;
+    wins: number | null;
+    losses: number | null;
+    roundsFought: number | null;
+  };
+  background: {
+    stance: string | null;
+    heightInches: number | null;
+    reachInches: number | null;
+    combatBase: string | null;
+    camp: string | null;
+  };
+  stats: {
+    slpm: number | null;
+    sapm: number | null;
+    strikingDifferential: number | null;
+    sigStrikeAccuracyPct: number | null;
+    sigStrikeDefensePct: number | null;
+    knockdownsPer15: number | null;
+    takedownsPer15: number | null;
+    takedownAccuracyPct: number | null;
+    takedownDefensePct: number | null;
+    submissionAttemptsPer15: number | null;
+    submissionDefensePct: number | null;
+    controlTimePct: number | null;
+    controlEscapePct: number | null;
+    finishRate: number | null;
+    koLossRate: number | null;
+    submissionLossRate: number | null;
+    daysSinceLastFight: number | null;
+  };
+  statRankings: FighterMetric[];
+  skillScores: {
+    striking: number | null;
+    wrestling: number | null;
+    grappling: number | null;
+    durability: number | null;
+    cardio: number | null;
+    fightIq: number | null;
+    overall: number | null;
+  };
   strengths: string[];
   weaknesses: string[];
-  context: {
-    daysRest: number | null;
-    recentWinRate: number | null;
-    recentMargin: number | null;
-    travelProxyScore: number | null;
-    revengeSpot: boolean;
-  };
-  signal: FighterSignal;
   notes: string[];
-};
-
-type OptionalEnrichment = {
-  amateurRank?: number | null;
-  campTier?: number | null;
-  trainingPartnerTier?: number | null;
-  metadata?: Record<string, unknown>;
-};
-
-type MarketAnchor = {
-  homeWinProb: number | null;
 };
 
 type FightSimulationSummary = {
@@ -64,58 +92,114 @@ type FightSimulationSummary = {
   submissionProbA: number;
   submissionProbB: number;
   decisionProb: number;
-  expectedDamageA: number;
-  expectedDamageB: number;
-  expectedControlA: number;
-  expectedControlB: number;
-  expectedPace: number;
   confidence: number;
-  roundsEstimated: number;
-  upsetRisk: number;
-};
-
-type UfcMatchupBreakdown = {
-  fighterAName: string;
-  fighterBName: string;
-  styleA: FighterProfile["styleTag"];
-  styleB: FighterProfile["styleTag"];
-  components: {
-    strikingEdge: number;
-    grapplingEdge: number;
-    tacticalEdge: number;
-    formEdge: number;
-    prepEdge: number;
-    gameRatingEdge: number;
-    styleEdge: number;
-    weaknessExposureEdge: number;
-    contextEdge: number;
-    totalEdge: number;
-  };
-  notes: string[];
-};
-
-const DEFAULT_SIGNAL: FighterSignal = {
-  strikingOffense: 50,
-  strikingDefense: 50,
-  grapplingOffense: 50,
-  grapplingDefense: 50,
-  takedownAccuracy: 50,
-  takedownDefense: 50,
-  submissionThreat: 50,
-  knockdownThreat: 50,
-  controlPressure: 50,
-  cardio: 50,
-  durability: 50,
-  fightIQ: 50,
-  pace: 50
+  dataQuality: "A" | "B" | "C" | "D";
+  noPickReason: string | null;
 };
 
 function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
+  return Math.max(min, Math.min(max, Number.isFinite(value) ? value : min));
 }
 
 function round(value: number, digits = 4) {
   return Number(value.toFixed(digits));
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function toNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const cleaned = value.replace(/[%,$]/g, "").replace(/[^0-9.+-]/g, "").trim();
+    if (!cleaned) return null;
+    const parsed = Number(cleaned);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function firstNumber(...values: unknown[]) {
+  for (const value of values) {
+    const parsed = toNumber(value);
+    if (typeof parsed === "number") return parsed;
+  }
+  return null;
+}
+
+function firstString(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function nestedNumber(payload: Record<string, unknown>, keys: string[]) {
+  const sources = [
+    payload,
+    asRecord(payload.eliteProfile),
+    asRecord(asRecord(payload.eliteProfile).sample),
+    asRecord(asRecord(payload.eliteProfile).careerStats),
+    asRecord(asRecord(payload.eliteProfile).background),
+    asRecord(payload.careerStats),
+    asRecord(payload.stats),
+    asRecord(payload.spiderSkills),
+    asRecord(payload.background),
+    asRecord(payload.profile),
+    asRecord(payload.rawPayload)
+  ];
+
+  for (const source of sources) {
+    for (const key of keys) {
+      const value = toNumber(source[key]);
+      if (typeof value === "number") return value;
+    }
+  }
+  return null;
+}
+
+function nestedString(payload: Record<string, unknown>, keys: string[]) {
+  const sources = [
+    payload,
+    asRecord(payload.eliteProfile),
+    asRecord(asRecord(payload.eliteProfile).background),
+    asRecord(payload.background),
+    asRecord(payload.profile),
+    asRecord(payload.camp),
+    asRecord(payload.rawPayload)
+  ];
+
+  for (const source of sources) {
+    for (const key of keys) {
+      const value = firstString(source[key]);
+      if (value) return value;
+    }
+  }
+  return null;
+}
+
+function normalizePercent(value: number | null) {
+  if (typeof value !== "number") return null;
+  return value > 1 ? value : value * 100;
+}
+
+function metricRankScore(value: number | null, baseline: number, spread: number, direction: "higher" | "lower") {
+  if (typeof value !== "number") return null;
+  const signed = direction === "higher" ? value - baseline : baseline - value;
+  return round(clamp(50 + signed * spread, 1, 99), 1);
+}
+
+function rankBand(score: number | null): FighterMetric["rankBand"] {
+  if (score == null) return "MISSING";
+  if (score >= 75) return "ELITE";
+  if (score >= 60) return "PLUS";
+  if (score >= 42) return "AVERAGE";
+  return "BELOW_AVERAGE";
+}
+
+function metric(args: Omit<FighterMetric, "rankBand">): FighterMetric {
+  return { ...args, rankBand: rankBand(args.rankScore) };
 }
 
 function average(values: Array<number | null | undefined>) {
@@ -123,352 +207,316 @@ function average(values: Array<number | null | undefined>) {
   return usable.length ? usable.reduce((sum, value) => sum + value, 0) / usable.length : null;
 }
 
-function weightedAverage(values: Array<number | null | undefined>, decay = 0.88) {
-  let weighted = 0;
-  let total = 0;
-  for (let index = 0; index < values.length; index += 1) {
-    const value = values[index];
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-      continue;
-    }
-    const weight = decay ** index;
-    weighted += value * weight;
-    total += weight;
-  }
-  return total ? weighted / total : null;
+function qualityRank(grade: FighterProfile["dataQuality"]) {
+  if (grade === "A") return 4;
+  if (grade === "B") return 3;
+  if (grade === "C") return 2;
+  return 1;
 }
 
-function toNumber(value: unknown) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string") {
-    const cleaned = value.replace(/[^0-9.+-]/g, "").trim();
-    if (!cleaned) return null;
-    const parsed = Number(cleaned);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return null;
+function weakerQuality(left: FighterProfile["dataQuality"], right: FighterProfile["dataQuality"]): FighterProfile["dataQuality"] {
+  return qualityRank(left) <= qualityRank(right) ? left : right;
 }
 
-function readBoolean(source: unknown, keys: string[]) {
-  if (!source || typeof source !== "object" || Array.isArray(source)) {
-    return null;
-  }
-  const record = source as Record<string, unknown>;
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "boolean") return value;
-    if (typeof value === "number") return value !== 0;
-    if (typeof value === "string") {
-      const normalized = value.trim().toLowerCase();
-      if (["true", "1", "yes", "y"].includes(normalized)) return true;
-      if (["false", "0", "no", "n"].includes(normalized)) return false;
-    }
-  }
-  return null;
+function logistic(value: number) {
+  return 1 / (1 + Math.exp(-value));
 }
 
-function readStat(source: unknown, keys: string[]) {
-  if (!source || typeof source !== "object" || Array.isArray(source)) {
-    return null;
-  }
-  const record = source as Record<string, unknown>;
-  for (const key of keys) {
-    const value = toNumber(record[key]);
-    if (typeof value === "number") {
-      return value;
-    }
-  }
-  return null;
+function probabilityToScore(probability: number) {
+  return clamp(probability * 100, 0, 100);
 }
 
-function normalize0100(raw: number | null, baseline: number, scale: number, min = 10, max = 95) {
-  if (typeof raw !== "number" || !Number.isFinite(raw)) {
-    return 50;
-  }
-  return clamp(50 + (raw - baseline) * scale, min, max);
-}
-
-function normalizePercent(raw: number | null, baseline: number, scale: number) {
-  if (typeof raw !== "number" || !Number.isFinite(raw)) return 50;
-  const normalized = raw > 1 ? raw / 100 : raw;
-  return clamp(50 + (normalized - baseline) * scale, 10, 95);
-}
-
-function toStyleTag(signal: FighterSignal): FighterProfile["styleTag"] {
-  const strikingTilt = signal.strikingOffense + signal.knockdownThreat - signal.controlPressure * 0.25;
-  const grapplingTilt = signal.grapplingOffense + signal.submissionThreat + signal.controlPressure * 0.35;
-  if (strikingTilt - grapplingTilt >= 8) return "STRIKER";
-  if (grapplingTilt - strikingTilt >= 8) return "GRAPPLER";
-  return "MIXED";
-}
-
-function inferStrengths(signal: FighterSignal) {
-  const strengths: string[] = [];
-  if (signal.strikingOffense >= 64) strengths.push("High-output striking offense");
-  if (signal.knockdownThreat >= 62) strengths.push("Knockdown power threat");
-  if (signal.grapplingOffense >= 62) strengths.push("Strong grappling entries");
-  if (signal.submissionThreat >= 60) strengths.push("Live submission chain threat");
-  if (signal.takedownDefense >= 63) strengths.push("Reliable takedown defense");
-  if (signal.cardio >= 60) strengths.push("Sustained cardio pace");
-  if (signal.fightIQ >= 60) strengths.push("Disciplined fight IQ");
-  return strengths.length > 0 ? strengths.slice(0, 4) : ["Balanced profile without a dominant axis"];
-}
-
-function inferWeaknesses(signal: FighterSignal) {
-  const weaknesses: string[] = [];
-  if (signal.strikingDefense <= 43) weaknesses.push("Absorbs significant strike volume");
-  if (signal.durability <= 44) weaknesses.push("Durability/chin risk under pressure");
-  if (signal.grapplingDefense <= 44) weaknesses.push("Vulnerable in defensive grappling");
-  if (signal.takedownDefense <= 45) weaknesses.push("Can be controlled by takedown pressure");
-  if (signal.cardio <= 44) weaknesses.push("Cardio dropoff in later rounds");
-  if (signal.fightIQ <= 44) weaknesses.push("Lower tactical discipline in exchanges");
-  return weaknesses.length > 0 ? weaknesses.slice(0, 4) : ["No obvious structural weakness from current sample"];
-}
-
-function styleCompatibilityEdge(profile: FighterProfile, opponent: FighterProfile) {
-  let edge = 0;
-  if (profile.styleTag === "STRIKER" && opponent.styleTag === "GRAPPLER") {
-    edge += (profile.signal.takedownDefense > opponent.signal.takedownAccuracy ? 3.2 : -2.8);
-  } else if (profile.styleTag === "GRAPPLER" && opponent.styleTag === "STRIKER") {
-    edge += (profile.signal.takedownAccuracy > opponent.signal.takedownDefense ? 3.2 : -2.8);
-  } else if (profile.styleTag === opponent.styleTag) {
-    edge += (profile.signal.fightIQ - opponent.signal.fightIQ) * 0.08;
-  }
-  return { edge };
-}
-
-function calculateWeaknessExposureEdge(profile: FighterProfile, opponent: FighterProfile) {
-  const strikeExposure =
-    (100 - opponent.signal.strikingDefense) * (profile.signal.strikingOffense / 100) * 0.08 +
-    (100 - opponent.signal.durability) * (profile.signal.knockdownThreat / 100) * 0.09;
-  const grappleExposure =
-    (100 - opponent.signal.grapplingDefense) * (profile.signal.grapplingOffense / 100) * 0.08 +
-    (100 - opponent.signal.takedownDefense) * (profile.signal.takedownAccuracy / 100) * 0.07 +
-    (100 - opponent.signal.cardio) * (profile.signal.controlPressure / 100) * 0.05;
-  return strikeExposure + grappleExposure;
-}
-
-function contextEdge(profile: FighterProfile, opponent: FighterProfile) {
-  const restDelta = (profile.context.daysRest ?? 1) - (opponent.context.daysRest ?? 1);
-  const formDelta = (profile.context.recentWinRate ?? 0.5) - (opponent.context.recentWinRate ?? 0.5);
-  const marginDelta = (profile.context.recentMargin ?? 0) - (opponent.context.recentMargin ?? 0);
-  const travelDelta = (opponent.context.travelProxyScore ?? 0) - (profile.context.travelProxyScore ?? 0);
-  const revengeBoost = profile.context.revengeSpot ? 0.9 : 0;
-  return clamp(
-    restDelta * 0.7 + formDelta * 7.2 + marginDelta * 0.16 + travelDelta * 1.1 + revengeBoost,
-    -6.2,
-    6.2
-  );
-}
-
-function seededRandom(seed: number) {
-  let state = seed >>> 0;
-  return () => {
-    state = Math.imul(1664525, state) + 1013904223;
-    return (state >>> 0) / 4294967296;
-  };
-}
-
-function randomNormal(rand: () => number) {
-  let u = 0;
-  let v = 0;
-  while (u === 0) u = rand();
-  while (v === 0) v = rand();
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-}
-
-async function fetchOptionalEnrichment(url: string, lookupKey: string) {
-  const normalized = url.trim();
-  if (!normalized) return null;
-  const endpoint = `${normalized.replace(/\/$/, "")}?fighter=${encodeURIComponent(lookupKey)}`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2500);
-  try {
-    const response = await fetch(endpoint, {
-      headers: { "User-Agent": "SharkEdge-UFC-Sim/1.0" },
-      signal: controller.signal,
-      cache: "no-store"
-    });
-    if (!response.ok) return null;
-    const payload = (await response.json()) as unknown;
-    if (!payload || typeof payload !== "object") return null;
-    const record = payload as Record<string, unknown>;
-    return {
-      amateurRank: toNumber(record.amateurRank ?? record.amateurRankScore ?? record.amateur_rank),
-      campTier: toNumber(record.campTier ?? record.campScore ?? record.camp_tier),
-      trainingPartnerTier: toNumber(record.trainingPartnerTier ?? record.trainingPartnerScore ?? record.training_partner_tier),
-      metadata: record
-    } satisfies OptionalEnrichment;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
+function impliedProbability(americanOdds: number) {
+  return americanOdds > 0 ? 100 / (americanOdds + 100) : Math.abs(americanOdds) / (Math.abs(americanOdds) + 100);
 }
 
 function buildMarketAnchor(states: Array<{ marketType: string; period: string; bestHomeOddsAmerican: number | null; bestAwayOddsAmerican: number | null }>): MarketAnchor {
   const moneyline = states.find((state) => state.marketType === "fight_winner" || state.marketType === "moneyline");
   if (!moneyline || typeof moneyline.bestHomeOddsAmerican !== "number" || typeof moneyline.bestAwayOddsAmerican !== "number") {
-    return { homeWinProb: null };
+    return { fighterAWinProb: null };
   }
-
-  const homePrice = moneyline.bestHomeOddsAmerican;
-  const awayPrice = moneyline.bestAwayOddsAmerican;
-  const homeProb = homePrice > 0 ? 100 / (homePrice + 100) : Math.abs(homePrice) / (Math.abs(homePrice) + 100);
-  const awayProb = awayPrice > 0 ? 100 / (awayPrice + 100) : Math.abs(awayPrice) / (Math.abs(awayPrice) + 100);
-  const noVig = homeProb + awayProb;
-  if (noVig <= 0) return { homeWinProb: null };
-  return { homeWinProb: homeProb / noVig };
+  const a = impliedProbability(moneyline.bestHomeOddsAmerican);
+  const b = impliedProbability(moneyline.bestAwayOddsAmerican);
+  const total = a + b;
+  return { fighterAWinProb: total > 0 ? a / total : null };
 }
 
-function computeSignalFromRows(rows: Array<{ statsJson: unknown }>): FighterSignal {
-  const strikingOffenseRaw = weightedAverage(rows.map((row) => readStat(row.statsJson, ["sig_strikes_landed_per_min", "slpm", "sigStrikesLandedPerMinute", "significantStrikesLandedPerMinute"])));
-  const strikingDefenseRaw = weightedAverage(rows.map((row) => readStat(row.statsJson, ["sig_strikes_absorbed_per_min", "sapm", "sigStrikesAbsorbedPerMinute"])));
-  const grapplingOffenseRaw = weightedAverage(rows.map((row) => readStat(row.statsJson, ["takedowns_per_15", "td_avg", "takedownAverage"])));
-  const takedownAccuracyRaw = weightedAverage(rows.map((row) => readStat(row.statsJson, ["takedown_accuracy", "td_acc", "takedownAccuracy"])));
-  const takedownDefenseRaw = weightedAverage(rows.map((row) => readStat(row.statsJson, ["takedown_defense", "td_def", "takedownDefense"])));
-  const submissionThreatRaw = weightedAverage(rows.map((row) => readStat(row.statsJson, ["sub_attempts_per_15", "sub_avg", "submissionAverage"])));
-  const knockdownThreatRaw = weightedAverage(rows.map((row) => readStat(row.statsJson, ["knockdowns_per_15", "kd_avg", "knockdownAverage"])));
-  const controlRaw = weightedAverage(rows.map((row) => readStat(row.statsJson, ["control_time_ratio", "control_share", "ground_control_pct"])));
-  const cardioRaw = weightedAverage(rows.map((row) => readStat(row.statsJson, ["late_round_output", "round3_sig_strike_ratio", "cardio_index"])));
-  const durabilityRaw = weightedAverage(rows.map((row) => readStat(row.statsJson, ["chin_rating", "durability", "finish_defense"])));
-  const iqRaw = weightedAverage(rows.map((row) => readStat(row.statsJson, ["fight_iq", "fightIQ", "decision_quality"])));
-  const paceRaw = weightedAverage(rows.map((row) => readStat(row.statsJson, ["pace", "engagement_rate", "attempts_per_minute"])));
-  const grapplingDefenseRaw = weightedAverage(rows.map((row) => readStat(row.statsJson, ["grappling_defense", "wrestling_defense", "scramble_defense"])));
+function buildStatRankings(stats: FighterProfile["stats"]): FighterMetric[] {
+  const strikeDiff = typeof stats.strikingDifferential === "number"
+    ? stats.strikingDifferential
+    : typeof stats.slpm === "number" && typeof stats.sapm === "number"
+      ? round(stats.slpm - stats.sapm, 3)
+      : null;
 
-  const strikingAbsorbedScore = normalize0100(strikingDefenseRaw, 3.1, -11);
+  return [
+    metric({ key: "slpm", label: "Significant strikes landed/min", value: stats.slpm, unit: "per min", direction: "higher", rankScore: metricRankScore(stats.slpm, 3.7, 11.5, "higher") }),
+    metric({ key: "sapm", label: "Significant strikes absorbed/min", value: stats.sapm, unit: "per min", direction: "lower", rankScore: metricRankScore(stats.sapm, 3.1, 12, "lower") }),
+    metric({ key: "strikingDifferential", label: "Striking differential", value: strikeDiff, unit: "per min", direction: "higher", rankScore: metricRankScore(strikeDiff, 0, 18, "higher") }),
+    metric({ key: "sigStrikeAccuracyPct", label: "Significant strike accuracy", value: stats.sigStrikeAccuracyPct, unit: "%", direction: "higher", rankScore: metricRankScore(stats.sigStrikeAccuracyPct, 44, 1.35, "higher") }),
+    metric({ key: "sigStrikeDefensePct", label: "Significant strike defense", value: stats.sigStrikeDefensePct, unit: "%", direction: "higher", rankScore: metricRankScore(stats.sigStrikeDefensePct, 54, 1.35, "higher") }),
+    metric({ key: "knockdownsPer15", label: "Knockdowns/15", value: stats.knockdownsPer15, unit: "per 15", direction: "higher", rankScore: metricRankScore(stats.knockdownsPer15, 0.25, 75, "higher") }),
+    metric({ key: "takedownsPer15", label: "Takedowns/15", value: stats.takedownsPer15, unit: "per 15", direction: "higher", rankScore: metricRankScore(stats.takedownsPer15, 1.2, 14, "higher") }),
+    metric({ key: "takedownAccuracyPct", label: "Takedown accuracy", value: stats.takedownAccuracyPct, unit: "%", direction: "higher", rankScore: metricRankScore(stats.takedownAccuracyPct, 35, 1.15, "higher") }),
+    metric({ key: "takedownDefensePct", label: "Takedown defense", value: stats.takedownDefensePct, unit: "%", direction: "higher", rankScore: metricRankScore(stats.takedownDefensePct, 62, 1.15, "higher") }),
+    metric({ key: "submissionAttemptsPer15", label: "Submission attempts/15", value: stats.submissionAttemptsPer15, unit: "per 15", direction: "higher", rankScore: metricRankScore(stats.submissionAttemptsPer15, 0.45, 32, "higher") }),
+    metric({ key: "submissionDefensePct", label: "Submission defense", value: stats.submissionDefensePct, unit: "%", direction: "higher", rankScore: metricRankScore(stats.submissionDefensePct, 62, 1.1, "higher") }),
+    metric({ key: "controlTimePct", label: "Control time", value: stats.controlTimePct, unit: "%", direction: "higher", rankScore: metricRankScore(stats.controlTimePct, 18, 1.45, "higher") }),
+    metric({ key: "controlEscapePct", label: "Control escape", value: stats.controlEscapePct, unit: "%", direction: "higher", rankScore: metricRankScore(stats.controlEscapePct, 50, 1.1, "higher") }),
+    metric({ key: "finishRate", label: "Finish rate", value: stats.finishRate != null ? round(stats.finishRate * 100, 2) : null, unit: "%", direction: "higher", rankScore: metricRankScore(stats.finishRate != null ? stats.finishRate * 100 : null, 52, 0.95, "higher") }),
+    metric({ key: "koLossRate", label: "KO/TKO loss rate", value: stats.koLossRate != null ? round(stats.koLossRate * 100, 2) : null, unit: "%", direction: "lower", rankScore: metricRankScore(stats.koLossRate != null ? stats.koLossRate * 100 : null, 12, 1.5, "lower") })
+  ];
+}
+
+function skillFromRankings(rankings: FighterMetric[], keys: string[]) {
+  return average(keys.map((key) => rankings.find((item) => item.key === key)?.rankScore ?? null));
+}
+
+function inferStrengths(rankings: FighterMetric[]) {
+  const strengths = rankings
+    .filter((item) => item.rankScore != null && item.rankScore >= 63)
+    .sort((a, b) => (b.rankScore ?? 0) - (a.rankScore ?? 0))
+    .slice(0, 4)
+    .map((item) => `${item.label}: ${item.value}${item.unit ? ` ${item.unit}` : ""} (${item.rankBand})`);
+  return strengths.length ? strengths : ["No plus skill verified by current real profile data"];
+}
+
+function inferWeaknesses(rankings: FighterMetric[]) {
+  const weaknesses = rankings
+    .filter((item) => item.rankScore != null && item.rankScore < 42)
+    .sort((a, b) => (a.rankScore ?? 100) - (b.rankScore ?? 100))
+    .slice(0, 4)
+    .map((item) => `${item.label}: ${item.value}${item.unit ? ` ${item.unit}` : ""} (${item.rankBand})`);
+  return weaknesses.length ? weaknesses : ["No major weakness verified by current real profile data"];
+}
+
+function buildProfileFromWarehouse(args: {
+  competitorId: string;
+  displayName: string;
+  role: FighterRole;
+  row: UfcFighterWarehouseRow | null;
+}): FighterProfile {
+  const payload = asRecord(args.row?.payload_json);
+  const elite = asRecord(payload.eliteProfile);
+  const sample = asRecord(elite.sample);
+  const career = asRecord(elite.careerStats);
+  const background = asRecord(elite.background);
+  const statsPayload = asRecord(payload.stats);
+  const hasElite = Object.keys(elite).length > 0;
+  const hasStatsPayload = Object.keys(statsPayload).length > 0;
+
+  const proFights = nestedNumber(payload, ["proFights", "pro_fights"]);
+  const ufcFights = nestedNumber(payload, ["ufcFights", "ufc_fights"]);
+  const wins = nestedNumber(payload, ["wins", "recordWins", "record_wins"]);
+  const losses = nestedNumber(payload, ["losses", "recordLosses", "record_losses"]);
+  const roundsFought = nestedNumber(payload, ["roundsFought", "rounds_fought"]);
+
+  const slpm = nestedNumber(payload, ["slpm", "sigStrikesLandedPerMin", "sig_strikes_landed_per_min"]);
+  const sapm = nestedNumber(payload, ["sapm", "sigStrikesAbsorbedPerMin", "sig_strikes_absorbed_per_min"]);
+  const strikingDifferential = nestedNumber(payload, ["strikingDifferential", "striking_differential"])
+    ?? (typeof slpm === "number" && typeof sapm === "number" ? round(slpm - sapm, 3) : null);
+  const sigStrikeAccuracyPct = normalizePercent(nestedNumber(payload, ["sigStrikeAccuracyPct", "strikeAccuracyPct", "sig_strike_accuracy_pct"]));
+  const sigStrikeDefensePct = normalizePercent(nestedNumber(payload, ["sigStrikeDefensePct", "strikeDefensePct", "sig_strike_defense_pct"]));
+  const takedownsPer15 = nestedNumber(payload, ["takedownsPer15", "tdAvg", "td_avg", "takedowns_per_15"]);
+  const takedownAccuracyPct = normalizePercent(nestedNumber(payload, ["takedownAccuracyPct", "tdAccuracy", "takedown_accuracy_pct"]));
+  const takedownDefensePct = normalizePercent(nestedNumber(payload, ["takedownDefensePct", "tdDefense", "takedown_defense_pct"]));
+  const submissionAttemptsPer15 = nestedNumber(payload, ["submissionAttemptsPer15", "subAvg", "submissionAverage", "submission_attempts_per_15"]);
+  const submissionDefensePct = normalizePercent(nestedNumber(payload, ["submissionDefensePct", "subDefense", "submission_defense_pct"]));
+  const controlTimePct = normalizePercent(nestedNumber(payload, ["controlTimePct", "control_time_pct"]));
+  const controlEscapePct = normalizePercent(nestedNumber(payload, ["controlEscapePct", "escapePct", "control_escape_pct"]));
+  const finishRate = firstNumber(career.finishRate, payload.finishRate, statsPayload.finishRate);
+  const koLossRate = firstNumber(career.koLossRate, payload.koLossRate, statsPayload.koLossRate);
+  const submissionLossRate = firstNumber(career.submissionLossRate, payload.submissionLossRate, statsPayload.submissionLossRate);
+  const knockdownsPer15 = nestedNumber(payload, ["knockdownsPer15", "knockdowns_per_15", "kdAvg"]);
+  const daysSinceLastFight = nestedNumber(payload, ["daysSinceLastFight", "days_since_last_fight"]);
+
+  const stats: FighterProfile["stats"] = {
+    slpm,
+    sapm,
+    strikingDifferential,
+    sigStrikeAccuracyPct,
+    sigStrikeDefensePct,
+    knockdownsPer15,
+    takedownsPer15,
+    takedownAccuracyPct,
+    takedownDefensePct,
+    submissionAttemptsPer15,
+    submissionDefensePct,
+    controlTimePct,
+    controlEscapePct,
+    finishRate,
+    koLossRate,
+    submissionLossRate,
+    daysSinceLastFight
+  };
+
+  const statRankings = buildStatRankings(stats);
+  const critical = [
+    ["SLpM", slpm],
+    ["SApM", sapm],
+    ["Significant strike defense", sigStrikeDefensePct],
+    ["Takedowns/15", takedownsPer15],
+    ["Takedown defense", takedownDefensePct],
+    ["Submission attempts/15", submissionAttemptsPer15]
+  ] as const;
+  const missingCritical = critical.filter(([, value]) => typeof value !== "number").map(([label]) => label);
+  const presentCritical = critical.length - missingCritical.length;
+  const realSample = (proFights ?? 0) > 0 || (ufcFights ?? 0) > 0 || (wins ?? 0) + (losses ?? 0) > 0;
+  const readyForSimulation = Boolean(args.row && realSample && presentCritical >= 4);
+
+  const payloadQuality = firstString(payload.dataQuality, elite.dataQuality) as FighterProfile["dataQuality"] | null;
+  const dataQuality: FighterProfile["dataQuality"] = payloadQuality && ["A", "B", "C", "D"].includes(payloadQuality)
+    ? payloadQuality
+    : !args.row || !realSample || presentCritical < 3
+      ? "D"
+      : presentCritical >= 6 && (ufcFights ?? proFights ?? 0) >= 8
+        ? "A"
+        : presentCritical >= 5 && (ufcFights ?? proFights ?? 0) >= 4
+          ? "B"
+          : "C";
+
+  const striking = skillFromRankings(statRankings, ["slpm", "sapm", "strikingDifferential", "sigStrikeAccuracyPct", "sigStrikeDefensePct", "knockdownsPer15"]);
+  const wrestling = skillFromRankings(statRankings, ["takedownsPer15", "takedownAccuracyPct", "takedownDefensePct", "controlTimePct", "controlEscapePct"]);
+  const grappling = skillFromRankings(statRankings, ["submissionAttemptsPer15", "submissionDefensePct", "controlTimePct", "controlEscapePct"]);
+  const durability = skillFromRankings(statRankings, ["sapm", "sigStrikeDefensePct", "koLossRate"]);
+  const cardio = nestedNumber(payload, ["staminaScore", "lateRoundPerformance", "paceScore"]);
+  const fightIq = nestedNumber(payload, ["fightIqScore", "fightIQ", "gamePlanScore"]);
+  const overall = average([striking, wrestling, grappling, durability, cardio, fightIq]);
+
+  const source: FighterProfile["source"] = hasElite
+    ? "ufc_fighters.eliteProfile"
+    : hasStatsPayload
+      ? "ufc_fighters.stats"
+      : args.row
+        ? "player_game_stats"
+        : "missing";
 
   return {
-    strikingOffense: normalize0100(strikingOffenseRaw, 3.7, 12),
-    strikingDefense: strikingAbsorbedScore,
-    grapplingOffense: normalize0100(grapplingOffenseRaw, 1.3, 18),
-    grapplingDefense: normalize0100(grapplingDefenseRaw ?? takedownDefenseRaw, 58, 0.42),
-    takedownAccuracy: normalizePercent(takedownAccuracyRaw, 0.42, 80),
-    takedownDefense: normalizePercent(takedownDefenseRaw, 0.58, 70),
-    submissionThreat: normalize0100(submissionThreatRaw, 0.45, 35),
-    knockdownThreat: normalize0100(knockdownThreatRaw, 0.24, 42),
-    controlPressure: normalize0100(controlRaw, 0.26, 95),
-    cardio: normalize0100(cardioRaw, 1, 42),
-    durability: normalize0100(durabilityRaw, 55, 0.5),
-    fightIQ: normalize0100(iqRaw, 58, 0.45),
-    pace: normalize0100(paceRaw, 1, 46)
+    competitorId: args.competitorId,
+    fighterId: args.row?.id ?? null,
+    fighterName: args.displayName,
+    matchedWarehouseName: args.row?.full_name ?? null,
+    role: args.role,
+    source,
+    dataQuality,
+    readyForSimulation,
+    missingCritical,
+    sample: { proFights, ufcFights, wins, losses, roundsFought },
+    background: {
+      stance: args.row?.stance ?? nestedString(payload, ["stance"]),
+      heightInches: args.row?.height_inches ?? nestedNumber(payload, ["heightInches", "height_inches"]),
+      reachInches: args.row?.reach_inches ?? nestedNumber(payload, ["reachInches", "reach_inches"]),
+      combatBase: args.row?.combat_base ?? nestedString(payload, ["combatBase", "combat_base", "base"]),
+      camp: nestedString(payload, ["camp", "gym", "team", "trainingCamp"])
+    },
+    stats,
+    statRankings,
+    skillScores: { striking, wrestling, grappling, durability, cardio, fightIq, overall },
+    strengths: inferStrengths(statRankings),
+    weaknesses: inferWeaknesses(statRankings),
+    notes: [
+      args.row ? `Matched real warehouse profile: ${args.row.full_name}.` : "No real warehouse profile matched this fighter name.",
+      readyForSimulation ? "Profile passed real-data simulation gate." : `Profile blocked from confident simulation; missing ${missingCritical.join(", ") || "real fight sample"}.`,
+      hasElite ? "Elite profile payload applied." : hasStatsPayload ? "UFCStats payload applied." : "No elite/UFCStats payload found."
+    ]
   };
 }
 
-function buildFormScore(rows: Array<{ statsJson: unknown }>) {
-  const resultValues = rows.map((row) => readStat(row.statsJson, ["result_value", "resultValue", "won", "win"]));
-  const scoreValues = resultValues.map((value, index) => {
-    if (typeof value !== "number") return null;
-    const normalized = value > 1 ? (value > 0 ? 1 : 0) : value;
-    const recencyWeight = 1 - Math.min(0.35, index * 0.05);
-    return normalized * recencyWeight;
-  });
-  const avg = average(scoreValues);
-  if (typeof avg !== "number") return 50;
-  return clamp(35 + avg * 52, 18, 92);
+async function findWarehouseFighter(prisma: any, fighterName: string): Promise<UfcFighterWarehouseRow | null> {
+  const rows = await prisma.$queryRaw<UfcFighterWarehouseRow[]>`
+    SELECT id, full_name, stance, height_inches, reach_inches, combat_base, payload_json
+    FROM ufc_fighters
+    WHERE regexp_replace(lower(full_name), '[^a-z0-9]+', '', 'g') = regexp_replace(lower(${fighterName}), '[^a-z0-9]+', '', 'g')
+       OR lower(full_name) = lower(${fighterName})
+    ORDER BY
+      CASE WHEN payload_json ? 'eliteProfile' THEN 0 WHEN payload_json ? 'stats' THEN 1 ELSE 2 END,
+      updated_at DESC
+    LIMIT 1
+  `;
+  return rows[0] ?? null;
 }
 
-function buildOpponentAdjustedForm(rows: Array<{ statsJson: unknown }>) {
-  const values = rows.map((row) => {
-    const resultValue = readStat(row.statsJson, ["result_value", "resultValue", "won", "win"]);
-    const opponentQuality = readStat(row.statsJson, ["opponent_quality", "opponentQuality", "opponentElo", "opponent_rating"]);
-    if (typeof resultValue !== "number") return null;
-    const normalizedResult = resultValue > 1 ? (resultValue > 0 ? 1 : 0) : resultValue;
-    const qualityScale = typeof opponentQuality === "number" ? clamp(opponentQuality / 100, 0.65, 1.35) : 1;
-    return normalizedResult * qualityScale;
-  });
-  const avg = average(values);
-  if (typeof avg !== "number") return 50;
-  return clamp(34 + avg * 51, 16, 93);
+function profilePower(profile: FighterProfile, opponent: FighterProfile) {
+  const strikeEdge = ((profile.skillScores.striking ?? 50) - (opponent.skillScores.striking ?? 50)) * 0.24;
+  const wrestlingEdge = ((profile.skillScores.wrestling ?? 50) - (opponent.skillScores.wrestling ?? 50)) * 0.19;
+  const grapplingEdge = ((profile.skillScores.grappling ?? 50) - (opponent.skillScores.grappling ?? 50)) * 0.17;
+  const durabilityEdge = ((profile.skillScores.durability ?? 50) - (opponent.skillScores.durability ?? 50)) * 0.12;
+  const cardioEdge = ((profile.skillScores.cardio ?? 50) - (opponent.skillScores.cardio ?? 50)) * 0.09;
+  const iqEdge = ((profile.skillScores.fightIq ?? 50) - (opponent.skillScores.fightIq ?? 50)) * 0.08;
+  const reachEdge = ((profile.background.reachInches ?? 72) - (opponent.background.reachInches ?? 72)) * 0.18;
+  const experienceEdge = ((profile.sample.ufcFights ?? profile.sample.proFights ?? 0) - (opponent.sample.ufcFights ?? opponent.sample.proFights ?? 0)) * 0.12;
+  return strikeEdge + wrestlingEdge + grapplingEdge + durabilityEdge + cardioEdge + iqEdge + reachEdge + experienceEdge;
 }
 
-function buildProfileConfidence(args: {
-  sampleSize: number;
-  enrichmentCount: number;
-  gameRatingSeen: boolean;
-}) {
-  return clamp(
-    26 + args.sampleSize * 5 + args.enrichmentCount * 10 + (args.gameRatingSeen ? 8 : 0),
-    24,
-    95
-  );
+function simulateFight(args: { fighterA: FighterProfile; fighterB: FighterProfile; marketAnchor: MarketAnchor }): FightSimulationSummary {
+  const dataQuality = weakerQuality(args.fighterA.dataQuality, args.fighterB.dataQuality);
+  const missing = [
+    !args.fighterA.readyForSimulation ? `Fighter A ${args.fighterA.fighterName} profile incomplete` : null,
+    !args.fighterB.readyForSimulation ? `Fighter B ${args.fighterB.fighterName} profile incomplete` : null
+  ].filter((item): item is string => Boolean(item));
+
+  if (missing.length) {
+    return {
+      winProbA: 0.5,
+      winProbB: 0.5,
+      finishProbA: 0,
+      finishProbB: 0,
+      koTkoProbA: 0,
+      koTkoProbB: 0,
+      submissionProbA: 0,
+      submissionProbB: 0,
+      decisionProb: 0,
+      confidence: 0,
+      dataQuality: "D",
+      noPickReason: missing.join("; ")
+    };
+  }
+
+  const edge = profilePower(args.fighterA, args.fighterB) - profilePower(args.fighterB, args.fighterA);
+  const modelProbA = clamp(logistic(edge / 24), 0.08, 0.92);
+  const marketProbA = args.marketAnchor.fighterAWinProb;
+  const blendedA = typeof marketProbA === "number" ? modelProbA * 0.82 + marketProbA * 0.18 : modelProbA;
+  const winProbA = clamp(blendedA, 0.08, 0.92);
+
+  const finishA = clamp(((args.fighterA.stats.finishRate ?? 0.48) * 0.62) + ((100 - (args.fighterB.skillScores.durability ?? 50)) / 100) * 0.22, 0.05, 0.72);
+  const finishB = clamp(((args.fighterB.stats.finishRate ?? 0.48) * 0.62) + ((100 - (args.fighterA.skillScores.durability ?? 50)) / 100) * 0.22, 0.05, 0.72);
+  const koShareA = clamp(((args.fighterA.statRankings.find((item) => item.key === "knockdownsPer15")?.rankScore ?? 50) / 100) * 0.68, 0.22, 0.82);
+  const koShareB = clamp(((args.fighterB.statRankings.find((item) => item.key === "knockdownsPer15")?.rankScore ?? 50) / 100) * 0.68, 0.22, 0.82);
+  const finishProbA = winProbA * finishA;
+  const finishProbB = (1 - winProbA) * finishB;
+  const qualityConfidence = dataQuality === "A" ? 0.88 : dataQuality === "B" ? 0.76 : dataQuality === "C" ? 0.58 : 0.35;
+  const probabilitySeparation = Math.abs(winProbA - 0.5) * 1.15;
+
+  return {
+    winProbA: round(winProbA, 4),
+    winProbB: round(1 - winProbA, 4),
+    finishProbA: round(finishProbA, 4),
+    finishProbB: round(finishProbB, 4),
+    koTkoProbA: round(finishProbA * koShareA, 4),
+    koTkoProbB: round(finishProbB * koShareB, 4),
+    submissionProbA: round(finishProbA * (1 - koShareA), 4),
+    submissionProbB: round(finishProbB * (1 - koShareB), 4),
+    decisionProb: round(clamp(1 - finishProbA - finishProbB, 0, 1), 4),
+    confidence: round(clamp(qualityConfidence + probabilitySeparation, 0.1, 0.95), 3),
+    dataQuality,
+    noPickReason: null
+  };
 }
 
-function profileToPower(profile: FighterProfile, opponent: FighterProfile) {
-  const strikingEdge =
-    (profile.signal.strikingOffense - opponent.signal.strikingDefense) * 0.22 +
-    (profile.signal.knockdownThreat - opponent.signal.durability) * 0.18;
-  const grapplingEdge =
-    (profile.signal.grapplingOffense - opponent.signal.grapplingDefense) * 0.2 +
-    (profile.signal.takedownAccuracy - opponent.signal.takedownDefense) * 0.16 +
-    (profile.signal.submissionThreat - opponent.signal.grapplingDefense) * 0.14 +
-    (profile.signal.controlPressure - opponent.signal.cardio) * 0.1;
-  const tacticalEdge = (profile.signal.fightIQ - opponent.signal.fightIQ) * 0.12;
-  const formEdge = (profile.opponentAdjustedFormScore - opponent.opponentAdjustedFormScore) * 0.11;
-  const prepEdge =
-    (profile.campScore - opponent.campScore) * 0.08 +
-    (profile.trainingPartnerScore - opponent.trainingPartnerScore) * 0.05 +
-    (profile.amateurRankScore - opponent.amateurRankScore) * 0.03;
-  const gameRatingEdge =
-    ((profile.videoGameOverall ?? 50) - (opponent.videoGameOverall ?? 50)) * 0.07;
-  const styleMatch = styleCompatibilityEdge(profile, opponent).edge;
-  const weaknessExposure = calculateWeaknessExposureEdge(profile, opponent) - calculateWeaknessExposureEdge(opponent, profile);
-  const situationalEdge = contextEdge(profile, opponent);
-
-  return strikingEdge + grapplingEdge + tacticalEdge + formEdge + prepEdge + gameRatingEdge + styleMatch + weaknessExposure * 0.28 + situationalEdge;
-}
-
-function buildMatchupBreakdown(fighterA: FighterProfile, fighterB: FighterProfile): UfcMatchupBreakdown {
-  const strikingEdge =
-    (fighterA.signal.strikingOffense - fighterB.signal.strikingDefense) * 0.22 +
-    (fighterA.signal.knockdownThreat - fighterB.signal.durability) * 0.18;
-  const grapplingEdge =
-    (fighterA.signal.grapplingOffense - fighterB.signal.grapplingDefense) * 0.2 +
-    (fighterA.signal.takedownAccuracy - fighterB.signal.takedownDefense) * 0.16 +
-    (fighterA.signal.submissionThreat - fighterB.signal.grapplingDefense) * 0.14 +
-    (fighterA.signal.controlPressure - fighterB.signal.cardio) * 0.1;
-  const tacticalEdge = (fighterA.signal.fightIQ - fighterB.signal.fightIQ) * 0.12;
-  const formEdge = (fighterA.opponentAdjustedFormScore - fighterB.opponentAdjustedFormScore) * 0.11;
-  const prepEdge =
-    (fighterA.campScore - fighterB.campScore) * 0.08 +
-    (fighterA.trainingPartnerScore - fighterB.trainingPartnerScore) * 0.05 +
-    (fighterA.amateurRankScore - fighterB.amateurRankScore) * 0.03;
-  const gameRatingEdge =
-    ((fighterA.videoGameOverall ?? 50) - (fighterB.videoGameOverall ?? 50)) * 0.07;
-  const styleEdge = styleCompatibilityEdge(fighterA, fighterB).edge;
-  const weaknessExposureComponent =
-    (calculateWeaknessExposureEdge(fighterA, fighterB) - calculateWeaknessExposureEdge(fighterB, fighterA)) * 0.28;
-  const contextComponent = contextEdge(fighterA, fighterB);
-  const totalEdge =
-    strikingEdge +
-    grapplingEdge +
-    tacticalEdge +
-    formEdge +
-    prepEdge +
-    gameRatingEdge +
-    styleEdge +
-    weaknessExposureComponent +
-    contextComponent;
-
+function matchupBreakdown(fighterA: FighterProfile, fighterB: FighterProfile) {
+  const components = {
+    strikingEdge: round(((fighterA.skillScores.striking ?? 50) - (fighterB.skillScores.striking ?? 50)) * 0.24, 4),
+    wrestlingEdge: round(((fighterA.skillScores.wrestling ?? 50) - (fighterB.skillScores.wrestling ?? 50)) * 0.19, 4),
+    grapplingEdge: round(((fighterA.skillScores.grappling ?? 50) - (fighterB.skillScores.grappling ?? 50)) * 0.17, 4),
+    durabilityEdge: round(((fighterA.skillScores.durability ?? 50) - (fighterB.skillScores.durability ?? 50)) * 0.12, 4),
+    cardioEdge: round(((fighterA.skillScores.cardio ?? 50) - (fighterB.skillScores.cardio ?? 50)) * 0.09, 4),
+    fightIqEdge: round(((fighterA.skillScores.fightIq ?? 50) - (fighterB.skillScores.fightIq ?? 50)) * 0.08, 4),
+    reachEdge: round(((fighterA.background.reachInches ?? 72) - (fighterB.background.reachInches ?? 72)) * 0.18, 4)
+  };
+  const totalEdge = Object.values(components).reduce((sum, value) => sum + value, 0);
   return {
     fighterAName: fighterA.fighterName,
     fighterBName: fighterB.fighterName,
-    styleA: fighterA.styleTag,
-    styleB: fighterB.styleTag,
-    components: {
-      strikingEdge: round(strikingEdge, 4),
-      grapplingEdge: round(grapplingEdge, 4),
-      tacticalEdge: round(tacticalEdge, 4),
-      formEdge: round(formEdge, 4),
-      prepEdge: round(prepEdge, 4),
-      gameRatingEdge: round(gameRatingEdge, 4),
-      styleEdge: round(styleEdge, 4),
-      weaknessExposureEdge: round(weaknessExposureComponent, 4),
-      contextEdge: round(contextComponent, 4),
-      totalEdge: round(totalEdge, 4)
-    },
+    components: { ...components, totalEdge: round(totalEdge, 4) },
     notes: [
       `A strengths: ${fighterA.strengths.join("; ")}`,
       `A weaknesses: ${fighterA.weaknesses.join("; ")}`,
@@ -476,122 +524,6 @@ function buildMatchupBreakdown(fighterA: FighterProfile, fighterB: FighterProfil
       `B weaknesses: ${fighterB.weaknesses.join("; ")}`
     ]
   };
-}
-
-function simulateFight(args: {
-  fighterA: FighterProfile;
-  fighterB: FighterProfile;
-  marketAnchor: MarketAnchor;
-  seed: number;
-  samples: number;
-}) {
-  const random = seededRandom(args.seed);
-  const homeWins: number[] = [];
-  const finishesA: number[] = [];
-  const finishesB: number[] = [];
-  const koA: number[] = [];
-  const koB: number[] = [];
-  const subA: number[] = [];
-  const subB: number[] = [];
-  const decisions: number[] = [];
-  const damageA: number[] = [];
-  const damageB: number[] = [];
-  const controlA: number[] = [];
-  const controlB: number[] = [];
-  const paceIndex: number[] = [];
-
-  const baseEdge = profileToPower(args.fighterA, args.fighterB);
-  const marketNudge = typeof args.marketAnchor.homeWinProb === "number"
-    ? (args.marketAnchor.homeWinProb - 0.5) * 18
-    : 0;
-  const confidenceDrag = (args.fighterA.confidence + args.fighterB.confidence) / 2;
-
-  for (let i = 0; i < args.samples; i += 1) {
-    const variance = randomNormal(random) * (11 - confidenceDrag * 0.07);
-    const edge = baseEdge + marketNudge + variance;
-    const pA = clamp(bradleyTerryWinProbability(edge, 0, 24), 0.06, 0.94);
-    const winnerA = random() < pA;
-    homeWins.push(winnerA ? 1 : 0);
-
-    const finishPressureA =
-      (args.fighterA.signal.knockdownThreat * 0.38 +
-        args.fighterA.signal.submissionThreat * 0.26 +
-        args.fighterA.signal.strikingOffense * 0.18 +
-        args.fighterA.signal.grapplingOffense * 0.18) / 100;
-    const finishPressureB =
-      (args.fighterB.signal.knockdownThreat * 0.38 +
-        args.fighterB.signal.submissionThreat * 0.26 +
-        args.fighterB.signal.strikingOffense * 0.18 +
-        args.fighterB.signal.grapplingOffense * 0.18) / 100;
-
-    const defenseA = (args.fighterA.signal.durability * 0.55 + args.fighterA.signal.cardio * 0.45) / 100;
-    const defenseB = (args.fighterB.signal.durability * 0.55 + args.fighterB.signal.cardio * 0.45) / 100;
-
-    const finishChanceA = clamp(finishPressureA - defenseB * 0.34 + 0.08, 0.06, 0.74);
-    const finishChanceB = clamp(finishPressureB - defenseA * 0.34 + 0.08, 0.06, 0.74);
-    const finishRoll = random();
-    const isFinishA = winnerA && finishRoll < finishChanceA;
-    const isFinishB = !winnerA && finishRoll < finishChanceB;
-    const koShareA = clamp(
-      (args.fighterA.signal.knockdownThreat * 0.55 + args.fighterA.signal.strikingOffense * 0.25 - args.fighterB.signal.grapplingDefense * 0.1) / 100,
-      0.2,
-      0.82
-    );
-    const koShareB = clamp(
-      (args.fighterB.signal.knockdownThreat * 0.55 + args.fighterB.signal.strikingOffense * 0.25 - args.fighterA.signal.grapplingDefense * 0.1) / 100,
-      0.2,
-      0.82
-    );
-    const methodRoll = random();
-    const isKoA = isFinishA && methodRoll < koShareA;
-    const isSubA = isFinishA && !isKoA;
-    const isKoB = isFinishB && methodRoll < koShareB;
-    const isSubB = isFinishB && !isKoB;
-
-    finishesA.push(isFinishA ? 1 : 0);
-    finishesB.push(isFinishB ? 1 : 0);
-    koA.push(isKoA ? 1 : 0);
-    koB.push(isKoB ? 1 : 0);
-    subA.push(isSubA ? 1 : 0);
-    subB.push(isSubB ? 1 : 0);
-    decisions.push(!isFinishA && !isFinishB ? 1 : 0);
-
-    damageA.push(clamp(args.fighterA.signal.strikingOffense * 0.8 + randomNormal(random) * 7, 8, 95));
-    damageB.push(clamp(args.fighterB.signal.strikingOffense * 0.8 + randomNormal(random) * 7, 8, 95));
-    controlA.push(clamp(args.fighterA.signal.controlPressure * 0.9 + randomNormal(random) * 8, 4, 95));
-    controlB.push(clamp(args.fighterB.signal.controlPressure * 0.9 + randomNormal(random) * 8, 4, 95));
-    paceIndex.push(clamp((args.fighterA.signal.pace + args.fighterB.signal.pace) / 2 + randomNormal(random) * 5, 20, 90));
-  }
-
-  const winProbA = average(homeWins) ?? 0.5;
-  const confidence = clamp((args.fighterA.confidence + args.fighterB.confidence) / 2, 20, 95);
-  const winSkew = Math.abs((winProbA - 0.5) * 2);
-  const upsetRisk = clamp((1 - winSkew) * (1 - confidence / 100), 0.04, 0.62);
-  const roundsEstimated = clamp(
-    2.1 + (average(decisions) ?? 0) * 1.7 + (confidence / 100) * 0.5,
-    1,
-    5
-  );
-
-  return {
-    winProbA: round(winProbA, 4),
-    winProbB: round(1 - winProbA, 4),
-    finishProbA: round(average(finishesA) ?? 0, 4),
-    finishProbB: round(average(finishesB) ?? 0, 4),
-    koTkoProbA: round(average(koA) ?? 0, 4),
-    koTkoProbB: round(average(koB) ?? 0, 4),
-    submissionProbA: round(average(subA) ?? 0, 4),
-    submissionProbB: round(average(subB) ?? 0, 4),
-    decisionProb: round(average(decisions) ?? 0, 4),
-    expectedDamageA: round(average(damageA) ?? 0, 3),
-    expectedDamageB: round(average(damageB) ?? 0, 3),
-    expectedControlA: round(average(controlA) ?? 0, 3),
-    expectedControlB: round(average(controlB) ?? 0, 3),
-    expectedPace: round(average(paceIndex) ?? 0, 3),
-    confidence: round(confidence, 2),
-    roundsEstimated: round(roundsEstimated, 2),
-    upsetRisk: round(upsetRisk, 4)
-  } satisfies FightSimulationSummary;
 }
 
 export async function buildUfcEventProjection(eventId: string) {
@@ -603,21 +535,9 @@ export async function buildUfcEventProjection(eventId: string) {
       league: true,
       participants: {
         include: {
-          competitor: {
-            include: {
-              player: {
-                include: {
-                  playerGameStats: {
-                    orderBy: { createdAt: "desc" },
-                    take: 12
-                  }
-                }
-              }
-            }
-          }
+          competitor: true
         }
       },
-      participantContexts: true,
       currentMarketStates: {
         select: {
           marketType: true,
@@ -635,124 +555,25 @@ export async function buildUfcEventProjection(eventId: string) {
 
   const compA = event.participants.find((participant) => participant.role === "COMPETITOR_A") ?? event.participants[0] ?? null;
   const compB = event.participants.find((participant) => participant.role === "COMPETITOR_B") ?? event.participants[1] ?? null;
-  if (!compA || !compB) {
-    return null;
-  }
+  if (!compA || !compB) return null;
 
-  const ratingsPrior = buildEventGameRatingsPrior({
-    leagueKey: "UFC",
-    homePlayers: compA.competitor.player ? [{
-      id: compA.competitor.player.id,
-      name: compA.competitor.player.name,
-      position: compA.competitor.player.position,
-      recentStats: compA.competitor.player.playerGameStats.map((row) => row.statsJson)
-    }] : [],
-    awayPlayers: compB.competitor.player ? [{
-      id: compB.competitor.player.id,
-      name: compB.competitor.player.name,
-      position: compB.competitor.player.position,
-      recentStats: compB.competitor.player.playerGameStats.map((row) => row.statsJson)
-    }] : []
-  });
+  const [warehouseA, warehouseB] = await Promise.all([
+    findWarehouseFighter(prisma, compA.competitor.name).catch(() => null),
+    findWarehouseFighter(prisma, compB.competitor.name).catch(() => null)
+  ]);
 
-  const buildProfile = async (participant: typeof compA, role: "COMPETITOR_A" | "COMPETITOR_B") => {
-    const rowStats = participant.competitor.player?.playerGameStats ?? [];
-    const signal = computeSignalFromRows(rowStats);
-    const styleTag = toStyleTag(signal);
-    const strengths = inferStrengths(signal);
-    const weaknesses = inferWeaknesses(signal);
-    const formScore = buildFormScore(rowStats);
-    const opponentAdjustedFormScore = buildOpponentAdjustedForm(rowStats);
-    const contextRow = event.participantContexts.find((context) => context.competitorId === participant.competitorId) ?? null;
-    const latestStats = rowStats[0]?.statsJson;
-    const lookupKey = participant.competitor.player?.name ?? participant.competitor.name;
-    const amateurEnrichment = await fetchOptionalEnrichment(process.env.UFC_AMATEUR_PROFILE_URL ?? "", lookupKey);
-    const campEnrichment = await fetchOptionalEnrichment(process.env.UFC_FIGHT_CAMP_PROFILE_URL ?? "", lookupKey);
-    const campTier = campEnrichment?.campTier ?? readStat(latestStats, ["camp_tier", "campScore", "camp_quality"]) ?? 50;
-    const trainingTier =
-      campEnrichment?.trainingPartnerTier ??
-      readStat(latestStats, ["training_partner_tier", "trainingPartnerScore", "sparring_partner_score"]) ??
-      50;
-    const amateurRank =
-      amateurEnrichment?.amateurRank ??
-      readStat(latestStats, ["amateur_rank_score", "amateurRankScore", "amateur_ranking"]) ??
-      50;
-    const gameOverall = readStat(latestStats, ["ufc_game_rating", "ea_ufc_overall", "overall", "ovr"]);
-    const restOverride = readStat(latestStats, ["days_rest", "daysRest"]);
-    const winRateOverride = readStat(latestStats, ["recent_win_rate", "recentWinRate"]);
-    const marginOverride = readStat(latestStats, ["recent_margin", "recentMargin"]);
-    const travelOverride = readStat(latestStats, ["travel_proxy_score", "travelProxyScore"]);
-    const revengeOverride = readBoolean(latestStats, ["revenge_spot", "revengeSpot"]);
-    const enrichmentCount = [amateurEnrichment, campEnrichment, typeof gameOverall === "number" ? 1 : null].filter(Boolean).length;
-    const confidence = buildProfileConfidence({
-      sampleSize: rowStats.length,
-      enrichmentCount,
-      gameRatingSeen: typeof gameOverall === "number"
-    });
-
-    const notes = [
-      rowStats.length > 0
-        ? `Recent sample uses ${rowStats.length} fights.`
-        : "No fighter stat rows found; profile uses neutral priors.",
-      styleTag === "STRIKER"
-        ? "Primary style inference: striker-led offense."
-        : styleTag === "GRAPPLER"
-          ? "Primary style inference: grappling-led offense."
-          : "Primary style inference: mixed style.",
-      typeof amateurRank === "number" ? "Amateur ranking signal applied." : "Amateur ranking signal missing.",
-      typeof campTier === "number" ? "Fight camp signal applied." : "Fight camp signal missing.",
-      typeof trainingTier === "number" ? "Training partner signal applied." : "Training partner signal missing.",
-      typeof gameOverall === "number"
-        ? "UFC video-game overall ingested as a bounded prior."
-        : "No UFC video-game rating detected in profile feed."
-    ];
-
-    return {
-      competitorId: participant.competitorId,
-      fighterName: participant.competitor.name,
-      role,
-      confidence,
-      sampleSize: rowStats.length,
-      amateurRankScore: clamp(amateurRank, 10, 98),
-      campScore: clamp(campTier, 10, 98),
-      trainingPartnerScore: clamp(trainingTier, 10, 98),
-      formScore,
-      opponentAdjustedFormScore,
-      videoGameOverall: typeof gameOverall === "number" ? clamp(gameOverall, 40, 99) : null,
-      styleTag,
-      strengths,
-      weaknesses,
-      context: {
-        daysRest: typeof restOverride === "number" ? restOverride : contextRow?.daysRest ?? null,
-        recentWinRate: typeof winRateOverride === "number" ? winRateOverride : contextRow?.recentWinRate ?? null,
-        recentMargin: typeof marginOverride === "number" ? marginOverride : contextRow?.recentMargin ?? null,
-        travelProxyScore: typeof travelOverride === "number" ? travelOverride : contextRow?.travelProxyScore ?? null,
-        revengeSpot: typeof revengeOverride === "boolean" ? revengeOverride : contextRow?.revengeSpot ?? false
-      },
-      signal,
-      notes
-    } satisfies FighterProfile;
-  };
-
-  const fighterA = await buildProfile(compA, "COMPETITOR_A");
-  const fighterB = await buildProfile(compB, "COMPETITOR_B");
+  const fighterA = buildProfileFromWarehouse({ competitorId: compA.competitorId, displayName: compA.competitor.name, role: "COMPETITOR_A", row: warehouseA });
+  const fighterB = buildProfileFromWarehouse({ competitorId: compB.competitorId, displayName: compB.competitor.name, role: "COMPETITOR_B", row: warehouseB });
   const marketAnchor = buildMarketAnchor(event.currentMarketStates);
-  const matchupBreakdown = buildMatchupBreakdown(fighterA, fighterB);
-  const sim = simulateFight({
-    fighterA,
-    fighterB,
-    marketAnchor,
-    seed: event.id.length * 53 + event.startTime.getUTCDate() * 101,
-    samples: 6000
-  });
+  const sim = simulateFight({ fighterA, fighterB, marketAnchor });
+  const breakdown = matchupBreakdown(fighterA, fighterB);
 
-  const qualityGap = profileToPower(fighterA, fighterB);
-  const projectedScoreA = clamp(50 + qualityGap * 0.45, 8, 92);
-  const projectedScoreB = clamp(100 - projectedScoreA, 8, 92);
+  const projectedScoreA = sim.noPickReason ? 50 : probabilityToScore(sim.winProbA);
+  const projectedScoreB = sim.noPickReason ? 50 : probabilityToScore(sim.winProbB);
 
   return {
     modelKey: "ufc-fight-sim",
-    modelVersion: "v1-opponent-adjusted",
+    modelVersion: "v2-real-profile-gated",
     eventId: event.id,
     projectedHomeScore: round(projectedScoreA, 3),
     projectedAwayScore: round(projectedScoreB, 3),
@@ -767,18 +588,22 @@ export async function buildUfcEventProjection(eventId: string) {
       eventType: event.eventType,
       fighterA,
       fighterB,
-      matchupBreakdown,
+      matchupBreakdown: breakdown,
       marketAnchor,
-      ratingsPrior,
       simulation: sim,
+      promotion: {
+        allowed: !sim.noPickReason && sim.dataQuality !== "D" && sim.confidence >= 0.55,
+        noPickReason: sim.noPickReason,
+        dataQuality: sim.dataQuality,
+        confidence: sim.confidence
+      },
       pipeline: {
-        coreStatsSource: "player_game_stats.statsJson",
-        optionalAmateurSource: process.env.UFC_AMATEUR_PROFILE_URL ? "UFC_AMATEUR_PROFILE_URL" : "not_configured",
-        optionalCampSource: process.env.UFC_FIGHT_CAMP_PROFILE_URL ? "UFC_FIGHT_CAMP_PROFILE_URL" : "not_configured",
+        coreStatsSource: "ufc_fighters.payload_json.eliteProfile || ufc_fighters.payload_json.stats",
+        neutralFallbacksAllowed: false,
         notes: [
-          "Opponent-adjusted form blends fight outcome quality with opponent strength signals.",
-          "Camp/training/amateur/game-rating priors are bounded so they guide but do not overpower fight metrics.",
-          "Market moneyline anchor is used as a light nudge when available."
+          "This path refuses to build a confident fighter profile from empty neutral priors.",
+          "Profile stats are matched from the UFC warehouse by fighter name and carry source, quality, missing-critical, and stat-ranking diagnostics.",
+          "When real fighter profiles are incomplete, the projection returns a no-pick 50/50 shell instead of fake generated advantages."
         ]
       }
     }
