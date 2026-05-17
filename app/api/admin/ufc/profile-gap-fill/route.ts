@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { syncCompleteUfcProfilesToSimFeatures } from "@/services/ufc/complete-profile-feature-sync";
+import { aggregateUfcHistoryStatsIntoProfiles } from "@/services/ufc/fighter-history-stat-aggregates";
 import { backfillUfcFighterHistoryAccuracy } from "@/services/ufc/fighter-history-accuracy-backfill";
 import { fillUfcFighterProfileGaps } from "@/services/ufc/fighter-profile-gap-fill";
 
@@ -32,20 +33,23 @@ export async function GET(request: Request) {
   const upcomingOnly = yes(url.searchParams.get("upcomingOnly"), true);
   const writeFightFeatures = yes(url.searchParams.get("writeFightFeatures"), true);
   const skipHistory = yes(url.searchParams.get("skipHistory"));
+  const skipAggregate = yes(url.searchParams.get("skipAggregate"));
   const skipSync = yes(url.searchParams.get("skipSync"));
   const horizonDays = intParam(url.searchParams.get("horizonDays"), 180, 1, 365);
   const limit = intParam(url.searchParams.get("limit"), 300, 1, 5000);
   const historyLimit = intParam(url.searchParams.get("historyLimit"), Math.min(limit, 40), 1, 200);
   const maxFightsPerFighter = intParam(url.searchParams.get("maxFightsPerFighter"), 12, 1, 50);
+  const minAggregateRows = intParam(url.searchParams.get("minAggregateRows"), 1, 1, 20);
   const modelVersion = url.searchParams.get("modelVersion") || "ufc-fight-iq-v1";
   const startedAt = new Date().toISOString();
 
   try {
     const history = skipHistory ? null : await backfillUfcFighterHistoryAccuracy({ dryRun, upcomingOnly, horizonDays, limit: historyLimit, maxFightsPerFighter });
+    const aggregate = skipAggregate ? null : await aggregateUfcHistoryStatsIntoProfiles({ dryRun, limit, minRows: minAggregateRows });
     const gapFill = await fillUfcFighterProfileGaps({ dryRun, upcomingOnly, writeFightFeatures, horizonDays, limit });
     const sync = skipSync ? null : await syncCompleteUfcProfilesToSimFeatures({ dryRun, horizonDays, limit: Math.min(limit, 500), modelVersion });
-    const ok = (!history || Boolean(history.ok)) && Boolean(gapFill.ok) && (!sync || Boolean(sync.ok));
-    return NextResponse.json({ ok, startedAt, finishedAt: new Date().toISOString(), config: { dryRun, upcomingOnly, writeFightFeatures, skipHistory, skipSync, horizonDays, limit, historyLimit, maxFightsPerFighter, modelVersion }, history, gapFill, sync }, { status: ok ? 200 : 500 });
+    const ok = (!history || Boolean(history.ok)) && (!aggregate || Boolean(aggregate.ok)) && Boolean(gapFill.ok) && (!sync || Boolean(sync.ok));
+    return NextResponse.json({ ok, startedAt, finishedAt: new Date().toISOString(), config: { dryRun, upcomingOnly, writeFightFeatures, skipHistory, skipAggregate, skipSync, horizonDays, limit, historyLimit, maxFightsPerFighter, minAggregateRows, modelVersion }, history, aggregate, gapFill, sync }, { status: ok ? 200 : 500 });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String(error), startedAt, finishedAt: new Date().toISOString() }, { status: 500 });
   }
