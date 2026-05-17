@@ -61,6 +61,41 @@ function bounded(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, Number.isFinite(value) ? value : min));
 }
 
+function diagnosticNumber(diagnostics: Record<string, unknown>, key: string) {
+  const value = numeric(diagnostics[key]);
+  return value == null ? 0 : value;
+}
+
+function diagnosticCounts(feature: Record<string, unknown>) {
+  const diagnostics = asRecord(feature.profileDiagnostics);
+  const seconds = diagnosticNumber(diagnostics, "seconds");
+  const fightCount = diagnosticNumber(diagnostics, "fightCount");
+  const amateurCount = diagnosticNumber(diagnostics, "amateurCount");
+  const ratingCount = diagnosticNumber(diagnostics, "ratingCount");
+  const dataQuality = typeof diagnostics.dataQuality === "string" ? diagnostics.dataQuality : null;
+  const hasHistoryStats = seconds > 0 || fightCount > 0;
+  const hasRatings = ratingCount > 0;
+  const hasAmateur = amateurCount > 0;
+
+  return {
+    official: hasHistoryStats ? Math.min(14, 6 + Math.floor(Math.min(seconds, 5400) / 900) + Math.min(fightCount, 4)) : 0,
+    derived: (hasHistoryStats ? 8 : 0) + (hasRatings ? 3 : 0) + (hasAmateur ? 2 : 0),
+    estimated: dataQuality === "D" ? 8 : dataQuality === "C" ? 5 : dataQuality === "B" ? 2 : 0,
+    hasHistoryStats,
+    dataQuality
+  };
+}
+
+function isHistoryDerivedSource(source: unknown, profileAccuracy: Record<string, unknown>, historyDerivedStats: Record<string, unknown>, diagnostics: ReturnType<typeof diagnosticCounts>) {
+  return source === "complete-profile-feature-sync"
+    || source === "fighter-profile-gap-fill"
+    || source === "upcoming-feature-hydration"
+    || source === "elite-fighter-profile-builder"
+    || source === "elite-fighter-profile-builder-fight-snapshot"
+    || Boolean(profileAccuracy.source === "ufc_fight_stats_rounds" || historyDerivedStats.source === "ufc_fight_stats_rounds_history_aggregate")
+    || diagnostics.hasHistoryStats;
+}
+
 export function auditUfcProfileTruth(featureJson: unknown): UfcProfileTruthAudit {
   const feature = asRecord(featureJson);
   const sourceSummary = asRecord(feature.sourceSummary);
@@ -70,31 +105,36 @@ export function auditUfcProfileTruth(featureJson: unknown): UfcProfileTruthAudit
   const profileAccuracy = asRecord(feature.profileAccuracy);
   const historyDerivedStats = asRecord(feature.historyDerivedStats);
   const sourceMapCounts = countSourceMap(statSourceMap);
+  const diagnostics = diagnosticCounts(feature);
 
   const officialCount = Math.max(
     numeric(sourceSummary.official) ?? 0,
     sourceMapCounts.official,
-    asArray(completeAudit.officialFields).length
+    asArray(completeAudit.officialFields).length,
+    diagnostics.official
   );
   const derivedCount = Math.max(
     numeric(sourceSummary.derived) ?? 0,
     sourceMapCounts.derived,
-    asArray(completeAudit.derivedFields).length
+    asArray(completeAudit.derivedFields).length,
+    diagnostics.derived
   );
   const estimatedFields = Array.from(new Set([
     ...asArray(feature.estimatedFields),
-    ...asArray(completeAudit.estimatedFields)
+    ...asArray(completeAudit.estimatedFields),
+    ...(diagnostics.estimated > 0 ? ["elite_profile_estimated_fallbacks"] : [])
   ]));
-  const estimatedCount = Math.max(numeric(sourceSummary.scoutedEstimate) ?? 0, sourceMapCounts.scoutedEstimate, estimatedFields.length);
+  const estimatedCount = Math.max(numeric(sourceSummary.scoutedEstimate) ?? 0, sourceMapCounts.scoutedEstimate, estimatedFields.length, diagnostics.estimated);
   const totalCount = Math.max(1, officialCount + derivedCount + estimatedCount);
   const officialShare = officialCount / totalCount;
   const estimatedShare = estimatedCount / totalCount;
-  const historyDerived = feature.source === "complete-profile-feature-sync" || feature.source === "fighter-profile-gap-fill" || feature.source === "upcoming-feature-hydration" || Boolean(profileAccuracy.source === "ufc_fight_stats_rounds" || historyDerivedStats.source === "ufc_fight_stats_rounds_history_aggregate");
-  const noMissingData = feature.noMissingData === true || completeProfile.noMissingData === true;
-  const dataQuality = typeof feature.dataQuality === "string" ? feature.dataQuality : typeof completeProfile.dataQuality === "string" ? completeProfile.dataQuality : null;
+  const historyDerived = isHistoryDerivedSource(feature.source, profileAccuracy, historyDerivedStats, diagnostics);
+  const noMissingData = feature.noMissingData === true || completeProfile.noMissingData === true || (diagnostics.hasHistoryStats && estimatedShare <= 0.28);
+  const dataQuality = typeof feature.dataQuality === "string" ? feature.dataQuality : typeof completeProfile.dataQuality === "string" ? completeProfile.dataQuality : diagnostics.dataQuality;
 
-  const baseScore = officialShare * 56 + (derivedCount / totalCount) * 31 + (historyDerived ? 10 : 0) + (noMissingData ? 3 : 0) - estimatedShare * 35;
-  const score = Math.round(bounded(baseScore, 1, 99));
+  const sourceScore = officialShare * 58 + (derivedCount / totalCount) * 32 + (historyDerived ? 10 : 0) + (noMissingData ? 3 : 0) - estimatedShare * 38;
+  const qualityPenalty = dataQuality === "D" ? 16 : dataQuality === "C" ? 7 : 0;
+  const score = Math.round(bounded(sourceScore - qualityPenalty, 1, 99));
   const reasonCodes: string[] = [];
   if (!historyDerived) reasonCodes.push("NO_HISTORY_DERIVED_PROFILE_STATS");
   if (estimatedShare > 0.5) reasonCodes.push("PROFILE_MOSTLY_ESTIMATED");
@@ -102,6 +142,7 @@ export function auditUfcProfileTruth(featureJson: unknown): UfcProfileTruthAudit
   if (officialShare < 0.2) reasonCodes.push("LOW_OFFICIAL_STAT_SHARE");
   if (!noMissingData) reasonCodes.push("PROFILE_HAS_MISSING_FIELDS");
   if (dataQuality === "D") reasonCodes.push("PROFILE_DECLARED_D_QUALITY");
+  if (feature.source === "elite-fighter-profile-builder" || feature.source === "elite-fighter-profile-builder-fight-snapshot") reasonCodes.push("ELITE_PROFILE_BUILDER_AUDITED");
 
   return {
     score,
