@@ -1,5 +1,7 @@
 import { buildExchangeStatsFromUfcFeature, runUfcExchangeMonteCarlo, type UfcExchangeMonteCarloResult } from "@/services/ufc/exchange-monte-carlo";
 import { buildUfcFighterSkillProfile, type UfcModelFeatureSnapshot } from "@/services/ufc/fighter-skill-profile";
+import { buildUfcFighterStyleGenome, type UfcFighterStyleGenome } from "@/services/ufc/fighter-style-genome";
+import { buildUfcMatchupStyleClash, type UfcMatchupStyleClash } from "@/services/ufc/matchup-style-clash";
 import { runUfcRoundByRoundFightEngine, type UfcRoundByRoundFightResult } from "@/services/ufc/round-by-round-fight-engine";
 import { runUfcSkillMarkovSim, type UfcSkillMarkovResult } from "@/services/ufc/skill-markov-sim";
 import { runUfcStyleMatchupEngine, type UfcStyleMatchupResult } from "@/services/ufc/style-matchup-engine";
@@ -33,6 +35,7 @@ export type UfcEnsembleSimResult = {
   roundEngineDiagnostics: UfcRoundByRoundFightResult["diagnosticProbabilities"];
   styleMatchup: UfcStyleMatchupResult["style"];
   stylePathWins: UfcStyleMatchupResult["pathWins"];
+  styleGenome: { fighterA: UfcFighterStyleGenome | null; fighterB: UfcFighterStyleGenome | null; clash: UfcMatchupStyleClash | null };
   averageFightLengthSeconds: number;
   averageDamage: UfcExchangeMonteCarloResult["averageDamage"];
   averageControlSeconds: UfcExchangeMonteCarloResult["averageControlSeconds"];
@@ -51,6 +54,10 @@ const DEFAULT_SIMULATIONS = 25_000;
 const DEFAULT_WEIGHTS: UfcEnsembleWeights = { skillMarkov: 0.34, exchangeMonteCarlo: 0.28, roundByRound: 0.2, styleMatchup: 0.18 };
 
 function round(value: number, digits = 4) { return Number(value.toFixed(digits)); }
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
 
 function normalizeWeights(input?: Partial<UfcEnsembleWeights>): UfcEnsembleWeights {
   const skill = input?.skillMarkov ?? DEFAULT_WEIGHTS.skillMarkov;
@@ -102,6 +109,7 @@ function dangerFlags(skill: UfcSkillMarkovResult, exchange: UfcExchangeMonteCarl
   if (skill.deltas.upsetRisk >= 0.35) flags.push("high-upset-risk");
   if (exchange.methodProbabilities.KO_TKO >= 0.35 || roundEngine.methodProbabilities.KO_TKO >= 0.42 || style.methodProbabilities.KO_TKO >= 0.34) flags.push("finish-volatility");
   if (style.dangerFlags.includes("style-engine-high-input-volatility")) flags.push("style-input-volatility");
+  for (const warning of skill.styleClash?.styleWarnings ?? []) flags.push(`style-clash:${warning}`);
   return [...new Set([...flags, ...roundEngine.dangerFlags, ...style.dangerFlags])];
 }
 
@@ -113,7 +121,8 @@ function pathSummary(skill: UfcSkillMarkovResult, exchange: UfcExchangeMonteCarl
   if (exchange.averageKnockdowns.fighterB > exchange.averageKnockdowns.fighterA + 0.05) summary.push("Exchange Monte Carlo gives Fighter B the stronger knockdown lane.");
   summary.push(...roundEngine.pathSummary);
   summary.push(...style.pathSummary);
-  return [...new Set(summary)].slice(0, 10);
+  if (skill.styleGenomeA && skill.styleGenomeB) summary.push(`Style genome: A=${skill.styleGenomeA.archetype.primary}, B=${skill.styleGenomeB.archetype.primary}.`);
+  return [...new Set(summary)].slice(0, 12);
 }
 
 export function blendUfcSimOutputs(args: { skillMarkov: UfcSkillMarkovResult; exchangeMonteCarlo: UfcExchangeMonteCarloResult; roundByRound: UfcRoundByRoundFightResult; styleMatchup: UfcStyleMatchupResult; weights?: Partial<UfcEnsembleWeights> }): UfcEnsembleSimResult {
@@ -143,6 +152,7 @@ export function blendUfcSimOutputs(args: { skillMarkov: UfcSkillMarkovResult; ex
     roundEngineDiagnostics: args.roundByRound.diagnosticProbabilities,
     styleMatchup: args.styleMatchup.style,
     stylePathWins: args.styleMatchup.pathWins,
+    styleGenome: { fighterA: args.skillMarkov.styleGenomeA ?? null, fighterB: args.skillMarkov.styleGenomeB ?? null, clash: args.skillMarkov.styleClash ?? null },
     averageFightLengthSeconds: round(args.exchangeMonteCarlo.averageFightLengthSeconds * (1 - physicalRoundWeight) + args.roundByRound.averageFightLengthSeconds * physicalRoundWeight, 1),
     averageDamage: averagePair(args.exchangeMonteCarlo.averageDamage, args.roundByRound.averageDamage, physicalRoundWeight),
     averageControlSeconds: averagePair(args.exchangeMonteCarlo.averageControlSeconds, args.roundByRound.averageControlSeconds, physicalRoundWeight),
@@ -159,7 +169,12 @@ export function runUfcEnsembleSimFromFeatures(fighterAFeature: UfcModelFeatureSn
   const scheduledRounds = options.scheduledRounds ?? 3;
   const fighterAProfile = buildUfcFighterSkillProfile({ feature: fighterAFeature });
   const fighterBProfile = buildUfcFighterSkillProfile({ feature: fighterBFeature });
-  const skillMarkov = runUfcSkillMarkovSim(fighterAProfile, fighterBProfile, { simulations, seed, scheduledRounds });
+  const fighterAFeatureRoot = asRecord(fighterAFeature.feature);
+  const fighterBFeatureRoot = asRecord(fighterBFeature.feature);
+  const styleGenomeA = buildUfcFighterStyleGenome({ fighterId: fighterAProfile.fighterId, skillProfile: fighterAProfile, feature: fighterAFeature, profileIntelligence: asRecord(fighterAFeatureRoot.profileIntelligence), completeProfile: asRecord(fighterAFeatureRoot.completeProfile) });
+  const styleGenomeB = buildUfcFighterStyleGenome({ fighterId: fighterBProfile.fighterId, skillProfile: fighterBProfile, feature: fighterBFeature, profileIntelligence: asRecord(fighterBFeatureRoot.profileIntelligence), completeProfile: asRecord(fighterBFeatureRoot.completeProfile) });
+  const styleClash = buildUfcMatchupStyleClash(styleGenomeA, styleGenomeB);
+  const skillMarkov = runUfcSkillMarkovSim(fighterAProfile, fighterBProfile, { simulations, seed, scheduledRounds, styleGenomeA, styleGenomeB, styleClash });
   const exchangeMonteCarlo = runUfcExchangeMonteCarlo(buildExchangeStatsFromUfcFeature(fighterAFeature), buildExchangeStatsFromUfcFeature(fighterBFeature), { simulations, seed: seed + 17, scheduledRounds, exchangeSeconds: 5 });
   const roundByRound = runUfcRoundByRoundFightEngine(fighterAProfile, fighterBProfile, { simulations, seed: seed + 31, scheduledRounds });
   const styleMatchup = runUfcStyleMatchupEngine(fighterAProfile, fighterBProfile, { simulations, seed: seed + 47, scheduledRounds });
