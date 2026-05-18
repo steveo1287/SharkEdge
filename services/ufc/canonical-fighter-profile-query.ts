@@ -8,6 +8,18 @@ type FighterProfileRow = {
   updated_at: Date | string | null;
 };
 
+export type CanonicalFighterTendencySummary = {
+  archetype: string | null;
+  confidence: number | null;
+  sourceQuality: string | null;
+  fallbackUsed: boolean;
+  missingSignals: string[];
+  topTendencies: Array<{ key: string; value: number }>;
+  preferredWinConditions: string[];
+  dangerZones: string[];
+  opponentTriggers: string[];
+};
+
 export type CanonicalFighterProfileSummary = {
   fighterId: string;
   fullName: string;
@@ -34,6 +46,7 @@ export type CanonicalFighterProfileSummary = {
     cardio: number | null;
     fightIq: number | null;
   };
+  tendencies: CanonicalFighterTendencySummary;
 };
 
 export type CanonicalFighterProfileDetail = CanonicalFighterProfileSummary & {
@@ -42,6 +55,9 @@ export type CanonicalFighterProfileDetail = CanonicalFighterProfileSummary & {
   eras: unknown[];
   sources: Record<string, unknown> | null;
   completeness: Record<string, unknown> | null;
+  fighterTendencies: Record<string, unknown> | null;
+  styleGenome: Record<string, unknown> | null;
+  tendencyProfile: Record<string, unknown> | null;
 };
 
 export type CanonicalFighterProfileReport = {
@@ -50,8 +66,11 @@ export type CanonicalFighterProfileReport = {
   total: number;
   statusCounts: Record<string, number>;
   archetypeCounts: Record<string, number>;
+  tendencyArchetypeCounts: Record<string, number>;
   whatIfReadyCount: number;
   needsRepairCount: number;
+  tendencyFilledCount: number;
+  tendencyFallbackCount: number;
   items: CanonicalFighterProfileSummary[];
 };
 
@@ -73,6 +92,10 @@ function asNumber(value: unknown, fallback: number | null = null) {
 
 function asString(value: unknown, fallback: string | null = null) {
   return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function asBoolean(value: unknown, fallback = false) {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function toIso(value: Date | string | null | undefined) {
@@ -105,6 +128,40 @@ function ratingsFromProfile(profile: Record<string, unknown>) {
   };
 }
 
+function topTendencies(tendencies: Record<string, unknown>) {
+  return Object.entries(tendencies)
+    .map(([key, value]) => ({ key, value: asNumber(value) }))
+    .filter((item): item is { key: string; value: number } => item.value != null)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8);
+}
+
+function tendencySummary(payload: Record<string, unknown>): CanonicalFighterTendencySummary {
+  const stored = asRecord(payload.fighterTendencies);
+  const genome = asRecord(payload.styleGenome);
+  const tendencyProfile = asRecord(payload.tendencyProfile);
+  const genomeArchetype = asRecord(genome.archetype);
+  const storedArchetype = asRecord(stored.archetype);
+  const tacticalRules = asRecord(stored.tacticalRules);
+  const genomeRules = asRecord(genome.tacticalRules);
+  const evidence = asRecord(stored.evidence);
+  const genomeEvidence = asRecord(genome.evidence);
+  const tendencies = asRecord(stored.tendencies);
+  const genomeTendencies = asRecord(genome.tendencies);
+  const archetype = asString(tendencyProfile.archetype) ?? asString(storedArchetype.primary) ?? asString(genomeArchetype.primary);
+  return {
+    archetype,
+    confidence: asNumber(tendencyProfile.confidence) ?? asNumber(storedArchetype.confidence) ?? asNumber(genomeArchetype.confidence),
+    sourceQuality: asString(tendencyProfile.sourceQuality) ?? asString(evidence.sourceQuality) ?? asString(genomeEvidence.sourceQuality),
+    fallbackUsed: asBoolean(tendencyProfile.fallbackUsed, asBoolean(evidence.fallbackUsed, asBoolean(genomeEvidence.fallbackUsed))),
+    missingSignals: asStringArray(tendencyProfile.missingSignals).length ? asStringArray(tendencyProfile.missingSignals) : asStringArray(evidence.missingSignals).length ? asStringArray(evidence.missingSignals) : asStringArray(genomeEvidence.missingSignals),
+    topTendencies: topTendencies(Object.keys(tendencies).length ? tendencies : genomeTendencies),
+    preferredWinConditions: asStringArray(tacticalRules.preferredWinConditions).length ? asStringArray(tacticalRules.preferredWinConditions) : asStringArray(genomeRules.preferredWinConditions),
+    dangerZones: asStringArray(tacticalRules.dangerZones).length ? asStringArray(tacticalRules.dangerZones) : asStringArray(genomeRules.dangerZones),
+    opponentTriggers: asStringArray(tacticalRules.opponentTriggers).length ? asStringArray(tacticalRules.opponentTriggers) : asStringArray(genomeRules.opponentTriggers)
+  };
+}
+
 function mapSummary(row: FighterProfileRow): CanonicalFighterProfileSummary {
   const payload = asRecord(row.payload_json);
   const profile = asRecord(payload.canonicalProfile);
@@ -129,7 +186,8 @@ function mapSummary(row: FighterProfileRow): CanonicalFighterProfileSummary {
     evidenceFlags: asStringArray(completeness.evidenceFlags),
     supportedWeightClasses: asStringArray(fantasySim.supportedWeightClasses),
     blockingReasons: asStringArray(fantasySim.blockingReasons),
-    ratings: ratingsFromProfile(profile)
+    ratings: ratingsFromProfile(profile),
+    tendencies: tendencySummary(payload)
   };
 }
 
@@ -148,7 +206,7 @@ export async function getCanonicalUfcFighterProfiles(options: { limit?: number; 
   const limit = Math.max(1, Math.min(1000, Math.round(options.limit ?? 250)));
   const status = options.status && options.status !== "all" ? options.status : null;
   const q = normalizeQuery(options.q);
-  if (!hasUsableServerDatabaseUrl()) return { ok: false, checkedAt: new Date().toISOString(), total: 0, statusCounts: {}, archetypeCounts: {}, whatIfReadyCount: 0, needsRepairCount: 0, items: [] };
+  if (!hasUsableServerDatabaseUrl()) return { ok: false, checkedAt: new Date().toISOString(), total: 0, statusCounts: {}, archetypeCounts: {}, tendencyArchetypeCounts: {}, whatIfReadyCount: 0, needsRepairCount: 0, tendencyFilledCount: 0, tendencyFallbackCount: 0, items: [] };
   const rows = await prisma.$queryRaw<FighterProfileRow[]>`
     SELECT id AS fighter_id, full_name, nickname, payload_json, updated_at
     FROM ufc_fighters
@@ -173,8 +231,11 @@ export async function getCanonicalUfcFighterProfiles(options: { limit?: number; 
     total: items.length,
     statusCounts: countBy(items.map((item) => item.status)),
     archetypeCounts: countBy(items.map((item) => item.archetype)),
+    tendencyArchetypeCounts: countBy(items.map((item) => item.tendencies.archetype ?? "NO_TENDENCY")),
     whatIfReadyCount: items.filter((item) => item.whatIfReady).length,
     needsRepairCount: items.filter((item) => item.status === "NEEDS_REPAIR" || item.status === "NO_CANONICAL_PROFILE").length,
+    tendencyFilledCount: items.filter((item) => Boolean(item.tendencies.archetype)).length,
+    tendencyFallbackCount: items.filter((item) => item.tendencies.fallbackUsed).length,
     items
   };
 }
@@ -199,6 +260,9 @@ export async function getCanonicalUfcFighterProfile(fighterId: string): Promise<
     careerStats: canonicalProfile ? asRecord(canonicalProfile.careerStats) : null,
     eras: canonicalProfile ? asArray(canonicalProfile.eras) : [],
     sources: canonicalProfile ? asRecord(canonicalProfile.sources) : null,
-    completeness: canonicalProfile ? asRecord(canonicalProfile.completeness) : null
+    completeness: canonicalProfile ? asRecord(canonicalProfile.completeness) : null,
+    fighterTendencies: Object.keys(asRecord(payload.fighterTendencies)).length ? asRecord(payload.fighterTendencies) : null,
+    styleGenome: Object.keys(asRecord(payload.styleGenome)).length ? asRecord(payload.styleGenome) : null,
+    tendencyProfile: Object.keys(asRecord(payload.tendencyProfile)).length ? asRecord(payload.tendencyProfile) : null
   };
 }
