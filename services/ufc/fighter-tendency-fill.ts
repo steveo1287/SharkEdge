@@ -1,6 +1,7 @@
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
+import { findUfcCredentialPriors } from "@/services/ufc/fighter-credential-priors";
 import { buildUfcFighterSkillProfile, type UfcModelFeatureSnapshot } from "@/services/ufc/fighter-skill-profile";
-import { buildUfcFighterStyleGenome, type UfcFighterStyleGenome } from "@/services/ufc/fighter-style-genome";
+import { buildUfcFighterStyleGenome, type UfcFighterStyleGenome, type UfcStyleArchetype } from "@/services/ufc/fighter-style-genome";
 
 type TendencyRow = {
   fighter_id: string;
@@ -61,6 +62,10 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function asStringArray(value: unknown) {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
 }
 
 function toIso(value: Date | string | null | undefined, fallback = new Date().toISOString()) {
@@ -164,12 +169,76 @@ function completeProfile(row: TendencyRow) {
   return Object.keys(asRecord(feature.completeProfile)).length ? asRecord(feature.completeProfile) : Object.keys(asRecord(payload.completeProfile)).length ? asRecord(payload.completeProfile) : null;
 }
 
-function tendencyPayload(genome: UfcFighterStyleGenome, source: string) {
+function archetypeFromPrior(value: unknown): UfcStyleArchetype | null {
+  const text = String(value ?? "").toLowerCase();
+  if (!text) return null;
+  if (text.includes("counter")) return "Power Counterstriker";
+  if (text.includes("kickbox") || text.includes("muay")) return "Volume Kickboxer";
+  if (text.includes("wrestl")) return "Chain Wrestler";
+  if (text.includes("control")) return "Control Grappler";
+  if (text.includes("submission")) return "Submission Hunter";
+  if (text.includes("box")) return "Pressure Boxer";
+  return null;
+}
+
+function conditionFromText(value: string): UfcFighterStyleGenome["tacticalRules"]["preferredWinConditions"][number] | null {
+  const text = value.toLowerCase();
+  if (text.includes("ko") || text.includes("tko") || text.includes("counter")) return "KO_TKO";
+  if (text.includes("submission") || text.includes("sub")) return "SUBMISSION";
+  if (text.includes("control") || text.includes("wrestl")) return "DECISION_CONTROL";
+  if (text.includes("volume") || text.includes("decision")) return "DECISION_VOLUME";
+  return null;
+}
+
+function applyNamedTendencyPriors(genome: UfcFighterStyleGenome, snapshot: UfcModelFeatureSnapshot, payloadRecord: Record<string, unknown>) {
+  const priors = findUfcCredentialPriors({ feature: snapshot, payloadRecord });
+  const named = priors
+    .map((prior) => ({ prior, tendencyPrior: asRecord(prior.metadata?.tendencyPrior) }))
+    .filter((item) => Object.keys(item.tendencyPrior).length > 0);
+  if (!named.length) return { genome, sourceSuffix: "", priorIds: [] as string[] };
+
+  let next: UfcFighterStyleGenome = { ...genome, tendencies: { ...genome.tendencies }, tacticalRules: { ...genome.tacticalRules, simModifiers: { ...genome.tacticalRules.simModifiers } }, evidence: { ...genome.evidence, statsUsed: [...genome.evidence.statsUsed], missingSignals: [...genome.evidence.missingSignals] }, archetype: { ...genome.archetype, secondary: [...genome.archetype.secondary] } };
+  const priorIds: string[] = [];
+  for (const item of named) {
+    priorIds.push(item.prior.id);
+    for (const key of Object.keys(next.tendencies) as Array<keyof UfcFighterStyleGenome["tendencies"]>) {
+      const value = asNumber(item.tendencyPrior[key]);
+      if (value != null) next.tendencies[key] = value;
+    }
+    const primary = archetypeFromPrior(item.tendencyPrior.archetype ?? item.prior.metadata?.styleOverride);
+    if (primary) {
+      const secondary = ["Low Output Technician", "Wild Finisher", "Pressure Boxer"].filter((value): value is UfcStyleArchetype => value !== primary);
+      next.archetype = { primary, secondary: [...new Set([...secondary, ...next.archetype.secondary])].slice(0, 3), confidence: Math.max(next.archetype.confidence, 0.91) };
+    }
+    const conditions = asStringArray(item.tendencyPrior.preferredWinConditions).map(conditionFromText).filter((value): value is NonNullable<ReturnType<typeof conditionFromText>> => Boolean(value));
+    if (conditions.length) next.tacticalRules.preferredWinConditions = [...new Set([...conditions, ...next.tacticalRules.preferredWinConditions])];
+    const dangerZones = asStringArray(item.tendencyPrior.dangerZones);
+    if (dangerZones.length) next.tacticalRules.dangerZones = [...new Set([...dangerZones, ...next.tacticalRules.dangerZones])];
+    const opponentTriggers = asStringArray(item.tendencyPrior.opponentTriggers);
+    if (opponentTriggers.length) next.tacticalRules.opponentTriggers = [...new Set([...opponentTriggers, ...next.tacticalRules.opponentTriggers])];
+  }
+  next.tacticalRules.simModifiers = {
+    ...next.tacticalRules.simModifiers,
+    namedPriorBoost: 0.2,
+    counterStrikeVolatility: Math.max(next.tacticalRules.simModifiers.koVolatility ?? 0, 0.38),
+    lateFade: Math.max(next.tacticalRules.simModifiers.lateFade ?? 0, (next.tendencies.paceCrashRisk - 50) / 120)
+  };
+  next.evidence = {
+    sourceQuality: "A",
+    statsUsed: [...new Set([...next.evidence.statsUsed, ...priorIds.map((id) => `named tendency prior:${id}`)])],
+    missingSignals: next.evidence.missingSignals.filter((signal) => signal !== "profile intelligence"),
+    fallbackUsed: false
+  };
+  return { genome: next, sourceSuffix: "+named-tendency-prior", priorIds };
+}
+
+function tendencyPayload(genome: UfcFighterStyleGenome, source: string, priorIds: string[] = []) {
   return {
     fighterTendencies: {
       version: "ufc-fighter-tendencies-v1",
       generatedAt: genome.generatedAt,
       source,
+      namedPriorIds: priorIds,
       archetype: genome.archetype,
       tendencies: genome.tendencies,
       tacticalRules: genome.tacticalRules,
@@ -183,7 +252,8 @@ function tendencyPayload(genome: UfcFighterStyleGenome, source: string) {
       confidence: genome.archetype.confidence,
       sourceQuality: genome.evidence.sourceQuality,
       fallbackUsed: genome.evidence.fallbackUsed,
-      missingSignals: genome.evidence.missingSignals
+      missingSignals: genome.evidence.missingSignals,
+      namedPriorIds: priorIds
     }
   };
 }
@@ -257,8 +327,8 @@ function inc(map: Record<string, number>, key: string) {
   map[key] = (map[key] ?? 0) + 1;
 }
 
-async function updateTendencies(row: TendencyRow, genome: UfcFighterStyleGenome, source: string, modelVersion: string) {
-  const payload = tendencyPayload(genome, source);
+async function updateTendencies(row: TendencyRow, genome: UfcFighterStyleGenome, source: string, modelVersion: string, priorIds: string[] = []) {
+  const payload = tendencyPayload(genome, source, priorIds);
   await prisma.$executeRaw`
     UPDATE ufc_fighters
     SET payload_json = COALESCE(payload_json, '{}'::jsonb) || ${JSON.stringify(payload)}::jsonb,
@@ -301,10 +371,13 @@ export async function fillUfcFighterTendencies(options: { modelVersion?: string;
       const skillProfile = buildUfcFighterSkillProfile({ feature: snapshot });
       const intelligence = profileIntelligence(row);
       const complete = completeProfile(row);
-      const genome = buildUfcFighterStyleGenome({ fighterId: row.fighter_id, skillProfile, profileIntelligence: intelligence, completeProfile: complete, feature: snapshot });
+      const baseGenome = buildUfcFighterStyleGenome({ fighterId: row.fighter_id, skillProfile, profileIntelligence: intelligence, completeProfile: complete, feature: snapshot });
+      const priorApplied = applyNamedTendencyPriors(baseGenome, snapshot, asRecord(row.payload_json));
+      const genome = priorApplied.genome;
       const blockedByData = skillProfile.profileCompleteness?.isGenericAvatar === true || skillProfile.profileCompleteness?.score === 0;
-      const source = complete ? "complete-profile-style-genome" : row.feature_json ? "feature-derived-style-genome" : "payload-derived-style-genome";
-      if (!dryRun) await updateTendencies(row, genome, source, modelVersion);
+      const baseSource = complete ? "complete-profile-style-genome" : row.feature_json ? "feature-derived-style-genome" : "payload-derived-style-genome";
+      const source = `${baseSource}${priorApplied.sourceSuffix}`;
+      if (!dryRun) await updateTendencies(row, genome, source, modelVersion, priorApplied.priorIds);
       filled += 1;
       if (blockedByData) blocked += 1;
       inc(sourceCounts, source);
