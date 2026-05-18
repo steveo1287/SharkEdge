@@ -1,5 +1,6 @@
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import { ACTIVE_UFC_NAMED_FIGHTER_PRIOR_BATCH_1 } from "@/services/ufc/active-named-fighter-prior-batch1";
+import { ACTIVE_UFC_NAMED_FIGHTER_PRIOR_BATCH_1B } from "@/services/ufc/active-named-fighter-prior-batch1b";
 
 export type NamedUfcFighterEraPrior = {
   id: string;
@@ -181,7 +182,8 @@ const MAX_HOLLOWAY_ACTIVE_PRIOR: NamedUfcFighterEraPrior = {
 
 export const NAMED_UFC_FIGHTER_ERA_PRIORS: NamedUfcFighterEraPrior[] = [
   MAX_HOLLOWAY_ACTIVE_PRIOR,
-  ...ACTIVE_UFC_NAMED_FIGHTER_PRIOR_BATCH_1
+  ...ACTIVE_UFC_NAMED_FIGHTER_PRIOR_BATCH_1,
+  ...ACTIVE_UFC_NAMED_FIGHTER_PRIOR_BATCH_1B
 ];
 
 function matchPrior(row: FighterRow, only?: string | null) {
