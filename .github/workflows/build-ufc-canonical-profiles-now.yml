@@ -1,0 +1,102 @@
+name: Build UFC canonical profiles now
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Number of fighters to build"
+        required: false
+        default: "500"
+      only_needing_repair:
+        description: "Only build profiles not already WHAT_IF_READY"
+        required: false
+        default: "true"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-ufc-canonical-profiles-now.yml"
+
+jobs:
+  build-canonical-profiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Choose internal token
+        id: token
+        shell: bash
+        env:
+          INTERNAL_API_KEY: ${{ secrets.INTERNAL_API_KEY }}
+          INTERNAL_API_KEY2: ${{ secrets.INTERNAL_API_KEY2 }}
+          TRENDS_REFRESH_TOKEN: ${{ secrets.TRENDS_REFRESH_TOKEN }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          TOKEN="${INTERNAL_API_KEY:-}"
+          if [ -z "$TOKEN" ]; then TOKEN="${INTERNAL_API_KEY2:-}"; fi
+          if [ -z "$TOKEN" ]; then TOKEN="${TRENDS_REFRESH_TOKEN:-}"; fi
+          if [ -z "$TOKEN" ]; then TOKEN="${CRON_SECRET:-}"; fi
+          if [ -z "$TOKEN" ]; then
+            echo "No internal API token secret found. Add INTERNAL_API_KEY, INTERNAL_API_KEY2, TRENDS_REFRESH_TOKEN, or CRON_SECRET as a GitHub repository secret." >&2
+            exit 1
+          fi
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Set parameters
+        id: params
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "limit=${{ github.event.inputs.limit || '500' }}" >> "$GITHUB_OUTPUT"
+          echo "only_needing_repair=${{ github.event.inputs.only_needing_repair || 'true' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build canonical profiles
+        shell: bash
+        env:
+          TOKEN: ${{ steps.token.outputs.token }}
+          LIMIT: ${{ steps.params.outputs.limit }}
+          ONLY_NEEDING_REPAIR: ${{ steps.params.outputs.only_needing_repair }}
+        run: |
+          set -euo pipefail
+          URL="https://sharkedge.vercel.app/api/admin/ufc/build-canonical-profiles?dryRun=false&limit=${LIMIT}&onlyNeedingRepair=${ONLY_NEEDING_REPAIR}"
+          echo "Building UFC canonical profiles: limit=${LIMIT}, onlyNeedingRepair=${ONLY_NEEDING_REPAIR}"
+          HTTP_CODE=$(curl --silent --show-error --location --max-time 220 --retry 2 --retry-delay 10 \
+            --output /tmp/ufc-canonical-build.json \
+            --write-out "%{http_code}" \
+            -H "x-api-key: ${TOKEN}" \
+            "$URL")
+          echo "HTTP ${HTTP_CODE}"
+          cat /tmp/ufc-canonical-build.json
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            exit 1
+          fi
+
+      - name: Verify canonical fighter profiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://sharkedge.vercel.app/api/ufc/canonical-fighters?limit=25"
+          echo "Checking ${URL}"
+          HTTP_CODE=$(curl --silent --show-error --location --max-time 60 --retry 3 --retry-delay 10 \
+            --output /tmp/ufc-canonical-verify.json \
+            --write-out "%{http_code}" \
+            "$URL")
+          echo "HTTP ${HTTP_CODE}"
+          cat /tmp/ufc-canonical-verify.json
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            exit 1
+          fi
+          node - <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/ufc-canonical-verify.json', 'utf8'));
+          const total = body?.total ?? 0;
+          const whatIfReady = body?.whatIfReadyCount ?? 0;
+          const needsRepair = body?.needsRepairCount ?? 0;
+          console.log(`canonicalTotal=${total}`);
+          console.log(`whatIfReadyCount=${whatIfReady}`);
+          console.log(`needsRepairCount=${needsRepair}`);
+          if (!(total > 0)) {
+            console.error('No canonical fighter profiles found after build.');
+            process.exit(1);
+          }
+          NODE
