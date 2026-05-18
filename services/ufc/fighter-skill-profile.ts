@@ -1,3 +1,5 @@
+import { auditUfcFighterProfileCompleteness, reliabilityFromCompleteness, type UfcFighterProfileCompleteness } from "@/services/ufc/fighter-profile-completeness";
+
 export type UfcSampleQuality = "A" | "B" | "C" | "D";
 
 export type UfcModelFeatureSnapshot = {
@@ -67,82 +69,17 @@ export type UfcFighterSkillProfile = {
   stance: string | null;
   sampleQuality: UfcSampleQuality;
   sampleReliability: number;
+  profileCompleteness?: UfcFighterProfileCompleteness;
   leakageSafe: true;
-  striking: {
-    offense: number;
-    defense: number;
-    power: number;
-    volume: number;
-    accuracy: number;
-    damageAbsorption: number;
-    pressure: number;
-    distanceManagement: number;
-    clinchStriking: number;
-  };
-  kicking: {
-    offense: number;
-    defense: number;
-    legKicks: number;
-    bodyKicks: number;
-    headKicks: number;
-    accuracy: number;
-    kickingVolume: number;
-  };
-  wrestling: {
-    takedownOffense: number;
-    takedownDefense: number;
-    control: number;
-    getUps: number;
-    scramble: number;
-    clinchControl: number;
-  };
-  grappling: {
-    submissionThreat: number;
-    submissionDefense: number;
-    grapplingOffense: number;
-    grapplingDefense: number;
-    topGame: number;
-    bottomSurvival: number;
-    reversals: number;
-    guardGame: number;
-  };
-  durability: {
-    koResistance: number;
-    submissionResistance: number;
-    damageTrend: number;
-    chin: number;
-    recovery: number;
-    heart: number;
-  };
-  cardio: {
-    earlyPace: number;
-    latePace: number;
-    round3: number;
-    championshipRounds: number;
-    stamina: number;
-    paceSustain: number;
-  };
-  intangibles: {
-    fightIq: number;
-    gamePlan: number;
-    experience: number;
-    recentForm: number;
-    layoffRisk: number;
-    shortNoticeRisk: number;
-  };
-  physical: {
-    ageCurve: number;
-    reach: number;
-    height: number;
-    reachAdvantagePotential: number;
-  };
-  prospect: {
-    coldStartActive: boolean;
-    amateurSignal: number;
-    promotionTierSignal: number;
-    opponentStrengthSignal: number;
-    confidenceCap: number | null;
-  };
+  striking: { offense: number; defense: number; power: number; volume: number; accuracy: number; damageAbsorption: number; pressure: number; distanceManagement: number; clinchStriking: number };
+  kicking: { offense: number; defense: number; legKicks: number; bodyKicks: number; headKicks: number; accuracy: number; kickingVolume: number };
+  wrestling: { takedownOffense: number; takedownDefense: number; control: number; getUps: number; scramble: number; clinchControl: number };
+  grappling: { submissionThreat: number; submissionDefense: number; grapplingOffense: number; grapplingDefense: number; topGame: number; bottomSurvival: number; reversals: number; guardGame: number };
+  durability: { koResistance: number; submissionResistance: number; damageTrend: number; chin: number; recovery: number; heart: number };
+  cardio: { earlyPace: number; latePace: number; round3: number; championshipRounds: number; stamina: number; paceSustain: number };
+  intangibles: { fightIq: number; gamePlan: number; experience: number; recentForm: number; layoffRisk: number; shortNoticeRisk: number };
+  physical: { ageCurve: number; reach: number; height: number; reachAdvantagePotential: number };
+  prospect: { coldStartActive: boolean; amateurSignal: number; promotionTierSignal: number; opponentStrengthSignal: number; confidenceCap: number | null };
 };
 
 export type UfcDivisionSkillBaseline = {
@@ -233,13 +170,12 @@ const BASE: UfcDivisionSkillBaseline = {
 
 const NUMERIC_KEYS: Array<keyof UfcModelFeatureSnapshot> = [
   "age", "reachInches", "heightInches", "daysSinceLastFight", "proFights", "ufcFights", "roundsFought",
-  "sigStrikesLandedPerMin", "sigStrikesAbsorbedPerMin", "strikingDifferential", "sigStrikeAccuracyPct",
-  "sigStrikeDefensePct", "knockdownsPer15", "takedownsPer15", "takedownAccuracyPct", "takedownDefensePct",
-  "submissionAttemptsPer15", "submissionDefensePct", "controlTimePct", "controlEscapePct", "getUpRate",
-  "reversalsPer15", "sweepRate", "legKicksLandedPer15", "bodyKicksLandedPer15", "headKicksLandedPer15",
-  "kickingAccuracyPct", "kickingDefensePct", "clinchStrikingScore", "pressureScore", "distanceManagementScore",
-  "recentFormScore", "finishRate", "lateRoundPerformance", "heartScore", "staminaScore", "paceScore", "chinScore",
-  "recoveryScore", "fightIqScore", "gamePlanScore", "shortNoticePenalty", "injuryLayoffRisk", "opponentAdjustedStrength"
+  "sigStrikesLandedPerMin", "sigStrikesAbsorbedPerMin", "strikingDifferential", "sigStrikeAccuracyPct", "sigStrikeDefensePct",
+  "knockdownsPer15", "takedownsPer15", "takedownAccuracyPct", "takedownDefensePct", "submissionAttemptsPer15", "submissionDefensePct",
+  "controlTimePct", "controlEscapePct", "getUpRate", "reversalsPer15", "sweepRate", "legKicksLandedPer15", "bodyKicksLandedPer15",
+  "headKicksLandedPer15", "kickingAccuracyPct", "kickingDefensePct", "clinchStrikingScore", "pressureScore", "distanceManagementScore",
+  "recentFormScore", "finishRate", "lateRoundPerformance", "heartScore", "staminaScore", "paceScore", "chinScore", "recoveryScore",
+  "fightIqScore", "gamePlanScore", "shortNoticePenalty", "injuryLayoffRisk", "opponentAdjustedStrength"
 ];
 
 const FEATURE_ALIASES: Partial<Record<keyof UfcModelFeatureSnapshot, string[]>> = {
@@ -315,6 +251,10 @@ function normalize(value: number, min: number, max: number) {
   return max <= min ? 50 : clampSkill(((value - min) / (max - min)) * 100);
 }
 
+function avg(...values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+}
+
 function toTime(value: string) {
   const time = new Date(value).getTime();
   if (Number.isNaN(time)) throw new Error(`Invalid UFC skill timestamp: ${value}`);
@@ -327,21 +267,24 @@ function assertPreFight(feature: UfcModelFeatureSnapshot) {
   }
 }
 
-function sampleReliability(feature: UfcModelFeatureSnapshot) {
+function rawSampleReliability(feature: UfcModelFeatureSnapshot) {
   const raw = num(feature.ufcFights, 0) * 0.11 + num(feature.proFights, 0) * 0.025 + num(feature.roundsFought, 0) / 55;
-  return Math.max(0.22, Math.min(1, Number(raw.toFixed(3))));
+  return Math.max(0.03, Math.min(1, Number(raw.toFixed(3))));
 }
 
-function sampleQuality(reliability: number): UfcSampleQuality {
-  if (reliability >= 0.85) return "A";
-  if (reliability >= 0.62) return "B";
-  if (reliability >= 0.38) return "C";
+function sampleQuality(reliability: number, completeness: UfcFighterProfileCompleteness): UfcSampleQuality {
+  if (completeness.isGenericAvatar || reliability < 0.22) return "D";
+  if (reliability >= 0.85 && completeness.grade === "A") return "A";
+  if (reliability >= 0.62 && (completeness.grade === "A" || completeness.grade === "B")) return "B";
+  if (reliability >= 0.38 && completeness.grade !== "D") return "C";
   return "D";
 }
 
-function coldStartCap(feature: UfcModelFeatureSnapshot) {
+function coldStartCap(feature: UfcModelFeatureSnapshot, completeness: UfcFighterProfileCompleteness) {
+  if (completeness.isGenericAvatar) return 50;
   const ufc = num(feature.ufcFights, 0);
   const pro = num(feature.proFights, 0);
+  if (completeness.credentialPriorApplied && completeness.score >= 55) return 66;
   if (ufc === 0) return 58;
   if (ufc < 3) return 62;
   if (pro < 8) return 64;
@@ -354,7 +297,7 @@ function weightedFeature(current: UfcModelFeatureSnapshot, history: UfcModelFeat
     .filter((item) => toTime(item.snapshotAt) <= toTime(current.fightDate))
     .sort((a, b) => toTime(b.snapshotAt) - toTime(a.snapshotAt))
     .slice(0, 8);
-  const out: UfcModelFeatureSnapshot = { ...current };
+  const out: UfcModelFeatureSnapshot = { ...current, feature: { ...record(current.feature) } };
   for (const key of NUMERIC_KEYS) {
     let sum = 0;
     let weightTotal = 0;
@@ -370,9 +313,10 @@ function weightedFeature(current: UfcModelFeatureSnapshot, history: UfcModelFeat
   return out;
 }
 
-function prospectSignal(feature: UfcModelFeatureSnapshot, key: string) {
+function prospectSignal(feature: UfcModelFeatureSnapshot, key: string, completeness: UfcFighterProfileCompleteness) {
   const value = feature.feature?.[key];
-  return typeof value === "number" && Number.isFinite(value) ? clampSkill(value) : 50;
+  if (typeof value === "number" && Number.isFinite(value)) return clampSkill(value);
+  return completeness.credentialPriorApplied ? 62 : 50;
 }
 
 function opponentSignal(feature: UfcModelFeatureSnapshot, baseline: UfcDivisionSkillBaseline) {
@@ -402,7 +346,8 @@ export function buildUfcFighterSkillProfile(input: UfcSkillProfileInput): UfcFig
   for (const item of input.featureHistory ?? []) assertPreFight(item);
   const baseline = { ...BASE, ...(input.divisionBaseline ?? {}) };
   const feature = weightedFeature(input.feature, input.featureHistory ?? []);
-  const reliability = sampleReliability(feature);
+  const completeness = auditUfcFighterProfileCompleteness(feature);
+  const reliability = reliabilityFromCompleteness({ baseReliability: rawSampleReliability(feature), completeness });
   const finalSkill = (raw: number) => adjustedSkill(raw, feature, reliability, baseline);
 
   const slpm = featureNumber(feature, "sigStrikesLandedPerMin", baseline.sigStrikesLandedPerMin);
@@ -454,22 +399,19 @@ export function buildUfcFighterSkillProfile(input: UfcSkillProfileInput): UfcFig
   const pressure = normalize(pressureRaw, 20, 85) * 0.58 + volume * 0.28 + normalize(paceRaw, 25, 85) * 0.14;
   const distanceManagement = normalize(distanceRaw, 20, 88) * 0.6 + defense * 0.25 + normalize(reach, 62, 82) * 0.15;
   const clinchStriking = normalize(clinchRaw, 20, 85) * 0.58 + offense * 0.22 + normalize(controlPct, 0, 55) * 0.2;
-
   const kickingVolume = normalize(legKicks + bodyKicks + headKicks * 1.4, 0, 26);
   const kickingAccuracy = normalize(kickAcc, 25, 66);
   const kickingDefense = normalize(kickDef, 30, 78) * 0.72 + distanceManagement * 0.28;
   const legKickScore = normalize(legKicks, 0, 22);
   const bodyKickScore = normalize(bodyKicks, 0, 13);
   const headKickScore = normalize(headKicks, 0, 3.2) * 0.72 + power * 0.28;
-  const kickingOffense = kickingVolume * 0.34 + kickingAccuracy * 0.26 + legKickScore * 0.16 + bodyKickScore * 0.12 + headKickScore * 0.12;
-
+  const kickingOffense = avg(kickingVolume, kickingAccuracy, legKickScore, bodyKickScore, headKickScore);
   const takedownOffense = normalize(td15, 0, 5) * 0.5 + normalize(tdAcc, 15, 65) * 0.36 + normalize(clinchRaw, 20, 85) * 0.14;
   const takedownDefense = normalize(tdDef, 30, 92);
   const control = normalize(controlPct, 0, 55);
   const getUps = normalize(getUpRaw, 15, 90) * 0.45 + takedownDefense * 0.28 + normalize(escapePct, 20, 90) * 0.27;
-  const scramble = takedownDefense * 0.32 + getUps * 0.28 + normalize(reversals, 0, 1.6) * 0.2 + normalize(sweepRate, 0, 1.2) * 0.2;
+  const scramble = avg(takedownDefense, getUps, normalize(reversals, 0, 1.6), normalize(sweepRate, 0, 1.2));
   const clinchControl = control * 0.38 + takedownOffense * 0.28 + normalize(clinchRaw, 20, 85) * 0.34;
-
   const submissionThreat = normalize(sub15, 0, 2.6) * 0.52 + control * 0.2 + takedownOffense * 0.12 + normalize(sweepRate, 0, 1.2) * 0.16;
   const submissionDefense = normalize(subDef, 30, 92) * 0.44 + takedownDefense * 0.2 + getUps * 0.2 + normalize(featureNumber(feature, "roundsFought", 8), 0, 55) * 0.16;
   const grapplingOffense = submissionThreat * 0.36 + control * 0.3 + takedownOffense * 0.22 + normalize(reversals, 0, 1.6) * 0.12;
@@ -478,7 +420,6 @@ export function buildUfcFighterSkillProfile(input: UfcSkillProfileInput): UfcFig
   const bottomSurvival = getUps * 0.36 + submissionDefense * 0.34 + scramble * 0.18 + normalize(sweepRate, 0, 1.2) * 0.12;
   const reversalsScore = normalize(reversals, 0, 1.6) * 0.58 + scramble * 0.42;
   const guardGame = submissionDefense * 0.26 + submissionThreat * 0.24 + bottomSurvival * 0.28 + normalize(sweepRate, 0, 1.2) * 0.22;
-
   const agePenalty = Math.max(0, age - 34) * 2.2;
   const chin = normalize(chinRaw, 20, 85) * 0.6 + damageAbsorption * 0.25 + defense * 0.15;
   const recovery = normalize(recoveryRaw, 20, 85) * 0.54 + normalize(heartRaw, 20, 90) * 0.28 + normalize(staminaRaw, 20, 90) * 0.18;
@@ -486,14 +427,12 @@ export function buildUfcFighterSkillProfile(input: UfcSkillProfileInput): UfcFig
   const koResistance = damageAbsorption * 0.46 + defense * 0.2 + chin * 0.22 + recovery * 0.12 - agePenalty;
   const submissionResistance = submissionDefense * 0.48 + bottomSurvival * 0.28 + heart * 0.12 + recovery * 0.12;
   const damageTrend = 100 - normalize(sapm - strikeDiff, 0, 7);
-
   const stamina = normalize(staminaRaw, 20, 90) * 0.5 + normalize(lateRound, 25, 78) * 0.28 + normalize(featureNumber(feature, "roundsFought", 8), 0, 70) * 0.22;
   const earlyPace = volume * 0.42 + normalize(paceRaw, 20, 88) * 0.34 + normalize(recentForm, 0, 100) * 0.24;
   const latePace = normalize(lateRound, 25, 78) * 0.42 + stamina * 0.38 + normalize(heartRaw, 20, 92) * 0.2;
   const round3 = latePace * 0.52 + stamina * 0.26 + damageTrend * 0.22;
   const championshipRounds = normalize(featureNumber(feature, "roundsFought", 8), 0, 80) * 0.3 + latePace * 0.42 + stamina * 0.28;
   const paceSustain = earlyPace * 0.28 + latePace * 0.44 + stamina * 0.28;
-
   const experience = normalize(featureNumber(feature, "ufcFights", 0) * 1.8 + featureNumber(feature, "proFights", 0) * 0.6 + featureNumber(feature, "roundsFought", 0) * 0.18, 0, 70);
   const layoffPenalty = riskPenalty(layoffRisk) + Math.max(0, featureNumber(feature, "daysSinceLastFight", 180) - 420) / 18;
   const shortNoticeRisk = riskPenalty(shortNotice);
@@ -504,7 +443,7 @@ export function buildUfcFighterSkillProfile(input: UfcSkillProfileInput): UfcFig
   const reachScore = normalize(reach, 62, 82);
   const heightScore = normalize(height, 62, 80);
   const reachAdvantagePotential = reachScore * 0.55 + distanceManagement * 0.3 + kickingDefense * 0.15;
-  const coldStartActive = Boolean(feature.coldStartActive) || num(feature.ufcFights, 0) < 3 || num(feature.proFights, 0) < 8;
+  const coldStartActive = completeness.isGenericAvatar || Boolean(feature.coldStartActive) || (num(feature.ufcFights, 0) < 3 || num(feature.proFights, 0) < 8) && !completeness.credentialPriorApplied;
 
   return {
     fighterId: feature.fighterId,
@@ -514,83 +453,24 @@ export function buildUfcFighterSkillProfile(input: UfcSkillProfileInput): UfcFig
     modelVersion: feature.modelVersion,
     weightClass: feature.weightClass ?? null,
     stance: feature.stance ?? null,
-    sampleQuality: sampleQuality(reliability),
+    sampleQuality: sampleQuality(reliability, completeness),
     sampleReliability: reliability,
+    profileCompleteness: completeness,
     leakageSafe: true,
-    striking: {
-      offense: finalSkill(offense),
-      defense: finalSkill(defense),
-      power: finalSkill(power),
-      volume: finalSkill(volume),
-      accuracy: finalSkill(accuracy),
-      damageAbsorption: finalSkill(damageAbsorption),
-      pressure: finalSkill(pressure),
-      distanceManagement: finalSkill(distanceManagement),
-      clinchStriking: finalSkill(clinchStriking)
-    },
-    kicking: {
-      offense: finalSkill(kickingOffense),
-      defense: finalSkill(kickingDefense),
-      legKicks: finalSkill(legKickScore),
-      bodyKicks: finalSkill(bodyKickScore),
-      headKicks: finalSkill(headKickScore),
-      accuracy: finalSkill(kickingAccuracy),
-      kickingVolume: finalSkill(kickingVolume)
-    },
-    wrestling: {
-      takedownOffense: finalSkill(takedownOffense),
-      takedownDefense: finalSkill(takedownDefense),
-      control: finalSkill(control),
-      getUps: finalSkill(getUps),
-      scramble: finalSkill(scramble),
-      clinchControl: finalSkill(clinchControl)
-    },
-    grappling: {
-      submissionThreat: finalSkill(submissionThreat),
-      submissionDefense: finalSkill(submissionDefense),
-      grapplingOffense: finalSkill(grapplingOffense),
-      grapplingDefense: finalSkill(grapplingDefense),
-      topGame: finalSkill(topGame),
-      bottomSurvival: finalSkill(bottomSurvival),
-      reversals: finalSkill(reversalsScore),
-      guardGame: finalSkill(guardGame)
-    },
-    durability: {
-      koResistance: finalSkill(koResistance),
-      submissionResistance: finalSkill(submissionResistance),
-      damageTrend: finalSkill(damageTrend),
-      chin: finalSkill(chin),
-      recovery: finalSkill(recovery),
-      heart: finalSkill(heart)
-    },
-    cardio: {
-      earlyPace: finalSkill(earlyPace),
-      latePace: finalSkill(latePace),
-      round3: finalSkill(round3),
-      championshipRounds: finalSkill(championshipRounds),
-      stamina: finalSkill(stamina),
-      paceSustain: finalSkill(paceSustain)
-    },
-    intangibles: {
-      fightIq: finalSkill(fightIq),
-      gamePlan: finalSkill(gamePlan),
-      experience: finalSkill(experience),
-      recentForm: finalSkill(form),
-      layoffRisk: clampSkill(layoffPenalty),
-      shortNoticeRisk: clampSkill(shortNoticeRisk)
-    },
-    physical: {
-      ageCurve: finalSkill(ageCurve),
-      reach: finalSkill(reachScore),
-      height: finalSkill(heightScore),
-      reachAdvantagePotential: finalSkill(reachAdvantagePotential)
-    },
+    striking: { offense: finalSkill(offense), defense: finalSkill(defense), power: finalSkill(power), volume: finalSkill(volume), accuracy: finalSkill(accuracy), damageAbsorption: finalSkill(damageAbsorption), pressure: finalSkill(pressure), distanceManagement: finalSkill(distanceManagement), clinchStriking: finalSkill(clinchStriking) },
+    kicking: { offense: finalSkill(kickingOffense), defense: finalSkill(kickingDefense), legKicks: finalSkill(legKickScore), bodyKicks: finalSkill(bodyKickScore), headKicks: finalSkill(headKickScore), accuracy: finalSkill(kickingAccuracy), kickingVolume: finalSkill(kickingVolume) },
+    wrestling: { takedownOffense: finalSkill(takedownOffense), takedownDefense: finalSkill(takedownDefense), control: finalSkill(control), getUps: finalSkill(getUps), scramble: finalSkill(scramble), clinchControl: finalSkill(clinchControl) },
+    grappling: { submissionThreat: finalSkill(submissionThreat), submissionDefense: finalSkill(submissionDefense), grapplingOffense: finalSkill(grapplingOffense), grapplingDefense: finalSkill(grapplingDefense), topGame: finalSkill(topGame), bottomSurvival: finalSkill(bottomSurvival), reversals: finalSkill(reversalsScore), guardGame: finalSkill(guardGame) },
+    durability: { koResistance: finalSkill(koResistance), submissionResistance: finalSkill(submissionResistance), damageTrend: finalSkill(damageTrend), chin: finalSkill(chin), recovery: finalSkill(recovery), heart: finalSkill(heart) },
+    cardio: { earlyPace: finalSkill(earlyPace), latePace: finalSkill(latePace), round3: finalSkill(round3), championshipRounds: finalSkill(championshipRounds), stamina: finalSkill(stamina), paceSustain: finalSkill(paceSustain) },
+    intangibles: { fightIq: finalSkill(fightIq), gamePlan: finalSkill(gamePlan), experience: finalSkill(experience), recentForm: finalSkill(form), layoffRisk: clampSkill(layoffPenalty), shortNoticeRisk: clampSkill(shortNoticeRisk) },
+    physical: { ageCurve: finalSkill(ageCurve), reach: finalSkill(reachScore), height: finalSkill(heightScore), reachAdvantagePotential: finalSkill(reachAdvantagePotential) },
     prospect: {
       coldStartActive,
-      amateurSignal: prospectSignal(feature, "amateurSignal"),
-      promotionTierSignal: prospectSignal(feature, "promotionTierSignal"),
+      amateurSignal: prospectSignal(feature, "amateurSignal", completeness),
+      promotionTierSignal: prospectSignal(feature, "promotionTierSignal", completeness),
       opponentStrengthSignal: opponentSignal(feature, baseline),
-      confidenceCap: coldStartCap(feature)
+      confidenceCap: coldStartCap(feature, completeness)
     }
   };
 }
