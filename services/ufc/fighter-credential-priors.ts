@@ -168,6 +168,104 @@ function blendCredential(current: number | null, prior: number, key: string, wei
 
 export const UFC_CREDENTIAL_PRIORS: UfcCredentialPrior[] = [
   {
+    id: "conor-mcgregor-prime-counterstriker",
+    aliases: ["conor-mcgregor", "conor-anthony-mcgregor", "the-notorious", "notorious-conor-mcgregor"],
+    confidence: "A",
+    sourceUrl: "manual:fighter-era-priors/conor-mcgregor-prime-145-155",
+    evidence: [
+      "Prime McGregor is modeled as a southpaw precision counter-striker with elite left-hand power, range traps, and early-round finishing danger.",
+      "Known weaknesses are sustained wrestling pressure, lower offensive grappling, and pace/cardio decay when forced beyond early rounds.",
+      "Use era split: prime 145/155 is not the same as current comeback/welterweight profile."
+    ],
+    priors: {
+      sigStrikesLandedPerMin: 5.1,
+      sigStrikesAbsorbedPerMin: 3.9,
+      strikingDifferential: 1.2,
+      sigStrikeAccuracyPct: 50,
+      sigStrikeDefensePct: 56,
+      knockdownsPer15: 0.95,
+      takedownsPer15: 0.35,
+      takedownAccuracyPct: 38,
+      takedownDefensePct: 68,
+      submissionAttemptsPer15: 0.12,
+      submissionDefensePct: 54,
+      controlTimePct: 12,
+      controlEscapePct: 62,
+      getUpRate: 69,
+      reversalsPer15: 0.16,
+      sweepRate: 0.12,
+      legKicksLandedPer15: 5.8,
+      bodyKicksLandedPer15: 4.1,
+      headKicksLandedPer15: 0.8,
+      kickingAccuracyPct: 47,
+      kickingDefensePct: 57,
+      clinchStrikingScore: 57,
+      pressureScore: 72,
+      distanceManagementScore: 88,
+      recentFormScore: 54,
+      heartScore: 61,
+      staminaScore: 56,
+      paceScore: 60,
+      chinScore: 61,
+      recoveryScore: 58,
+      fightIqScore: 84,
+      gamePlanScore: 78,
+      opponentAdjustedStrength: 82,
+      amateurSignal: 74,
+      promotionTierSignal: 96
+    },
+    metadata: {
+      combatBase: "southpaw_precision_boxing",
+      projectedWeightClass: "Lightweight",
+      styleOverride: "southpaw_precision_counterstriker",
+      eraProfiles: [
+        {
+          id: "prime_145_155",
+          label: "Prime featherweight/lightweight McGregor",
+          status: "WHAT_IF_READY",
+          weightClasses: ["Featherweight", "Lightweight"],
+          strengths: ["left hand counter", "range control", "early KO power", "southpaw traps", "body-head shot selection"],
+          weaknesses: ["sustained wrestling pressure", "cardio beyond round two", "limited offensive grappling"]
+        },
+        {
+          id: "current_170",
+          label: "Current comeback/welterweight McGregor",
+          status: "RESEARCH_ONLY",
+          weightClasses: ["Welterweight"],
+          adjustments: ["lower speed trust", "higher layoff risk", "higher injury risk", "reduced cardio confidence"]
+        }
+      ],
+      tendencyPrior: {
+        archetype: "southpaw_precision_counterstriker",
+        pressure: 72,
+        counterStriking: 95,
+        volume: 58,
+        powerHunting: 88,
+        legKickUsage: 55,
+        bodyWork: 68,
+        headKickThreat: 60,
+        takedownInitiation: 28,
+        chainWrestling: 20,
+        cageControl: 35,
+        topControlPreference: 25,
+        groundAndPound: 24,
+        submissionHunting: 22,
+        backTakeHunting: 18,
+        getUpUrgency: 72,
+        scrambleChaos: 55,
+        earlyRoundUrgency: 86,
+        roundThreeDurability: 55,
+        championshipRoundTrust: 48,
+        comebackRiskTaking: 70,
+        safeLeadManagement: 62,
+        paceCrashRisk: 68,
+        preferredWinConditions: ["round_1_or_2_ko", "southpaw_left_counter", "range_trap_boxing_exchange"],
+        dangerZones: ["extended_wrestling_clinch", "bottom_position", "high_pace_round_3_plus"],
+        opponentTriggers: ["orthodox_pressure_entry", "wide_overhand_entry", "slow_reset_after_kick"]
+      }
+    }
+  },
+  {
     id: "gable-steveson",
     aliases: ["gable-steveson", "gable-stevenson", "gable-dan-steveson"],
     confidence: "A",
@@ -351,5 +449,5 @@ export function calculateUfcCredentialPriorApplications(input: MatchInput): UfcC
 }
 
 export function summarizeUfcCredentialPriorCatalog() {
-  return UFC_CREDENTIAL_PRIORS.map((prior) => ({ id: prior.id, confidence: prior.confidence, sourceUrl: prior.sourceUrl, evidence: prior.evidence, keys: Object.keys(prior.priors) }));
+  return UFC_CREDENTIAL_PRIORS.map((prior) => ({ id: prior.id, confidence: prior.confidence, sourceUrl: prior.sourceUrl, evidence: prior.evidence, keys: Object.keys(prior.priors), metadata: prior.metadata ?? {} }));
 }
