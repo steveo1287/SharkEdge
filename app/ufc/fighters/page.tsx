@@ -75,6 +75,24 @@ function FighterCard({ fighter }: { fighter: CanonicalFighterProfileSummary }) {
         <Mini label="Car" value={fighter.ratings.cardio ?? "—"} />
         <Mini label="IQ" value={fighter.ratings.fightIq ?? "—"} />
       </div>
+      <div className="mt-4 rounded-2xl border border-cyan-300/15 bg-cyan-300/[0.04] p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-300">Tendency profile</div>
+            <div className="mt-1 text-sm font-bold text-white">{fighter.tendencies.archetype ?? "No tendency profile"}</div>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            {fighter.tendencies.confidence != null ? <span className={pill("cyan")}>conf {fighter.tendencies.confidence}</span> : null}
+            {fighter.tendencies.sourceQuality ? <span className={pill(fighter.tendencies.sourceQuality === "A" || fighter.tendencies.sourceQuality === "B" ? "green" : fighter.tendencies.sourceQuality === "C" ? "amber" : "red")}>source {fighter.tendencies.sourceQuality}</span> : null}
+            {fighter.tendencies.fallbackUsed ? <span className={pill("red")}>fallback</span> : null}
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {fighter.tendencies.topTendencies.slice(0, 5).map((item) => <span key={item.key} className={pill("slate")}>{item.key}: {item.value}</span>)}
+          {!fighter.tendencies.topTendencies.length ? <span className="text-xs text-slate-500">Run tendency fill to populate style data.</span> : null}
+        </div>
+        {fighter.tendencies.preferredWinConditions.length ? <div className="mt-2 flex flex-wrap gap-2">{fighter.tendencies.preferredWinConditions.slice(0, 4).map((item) => <span key={item} className={pill("green")}>{item}</span>)}</div> : null}
+      </div>
       {fighter.blockingReasons.length || fighter.genericDefaultFields.length ? (
         <div className="mt-4 flex flex-wrap gap-2">
           {[...fighter.blockingReasons, ...fighter.genericDefaultFields.map((item) => `generic:${item}`)].slice(0, 8).map((item) => <span key={item} className={pill("red")}>{item}</span>)}
@@ -117,11 +135,12 @@ export default async function UfcFightersPage({ searchParams }: PageProps) {
         </div>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <Stat label="Profiles" value={report.total} note="Canonical fighter profiles returned by the current filter." />
         <Stat label="What-if ready" value={report.whatIfReadyCount} note="Can be reused outside scheduled fights." />
         <Stat label="Needs repair" value={report.needsRepairCount} note="Blocked by missing or generic profile data." />
-        <Stat label="Status mix" value={Object.keys(report.statusCounts).length} note="Distinct canonical profile states." />
+        <Stat label="Tendencies" value={report.tendencyFilledCount} note="Profiles with stored style/tendency data." />
+        <Stat label="Fallback style" value={report.tendencyFallbackCount} note="Tendencies built with missing signals or fallback sources." />
       </section>
 
       <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4">
