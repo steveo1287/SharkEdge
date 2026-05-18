@@ -26,7 +26,8 @@ export async function GET(request: Request) {
     modelVersion: url.searchParams.get("modelVersion") ?? undefined,
     limit: parseIntParam(url.searchParams.get("limit"), 500, 1, 5000),
     dryRun: parseBool(url.searchParams.get("dryRun"), true),
-    only: url.searchParams.get("only")
+    only: url.searchParams.get("only"),
+    activeOnly: parseBool(url.searchParams.get("activeOnly"), true)
   });
   return NextResponse.json(result, { status: result.ok ? 200 : 500 });
 }
