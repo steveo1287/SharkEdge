@@ -47,6 +47,53 @@ function JsonBlock({ title, value }: { title: string; value: unknown }) {
   );
 }
 
+function TendencyBlock({ profile }: { profile: Awaited<ReturnType<typeof getCanonicalUfcFighterProfile>> }) {
+  if (!profile) return null;
+  return (
+    <section className="rounded-[1.5rem] border border-cyan-300/15 bg-cyan-300/[0.04] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Fighter tendencies</div>
+          <div className="mt-2 text-2xl font-black text-white">{profile.tendencies.archetype ?? "No tendency profile"}</div>
+          <div className="mt-1 text-sm text-slate-400">How this fighter tends to fight, separate from raw skill rating.</div>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          {profile.tendencies.confidence != null ? <span className={pill("cyan")}>confidence {profile.tendencies.confidence}</span> : null}
+          {profile.tendencies.sourceQuality ? <span className={pill(profile.tendencies.sourceQuality === "A" || profile.tendencies.sourceQuality === "B" ? "green" : profile.tendencies.sourceQuality === "C" ? "amber" : "red")}>source {profile.tendencies.sourceQuality}</span> : null}
+          {profile.tendencies.fallbackUsed ? <span className={pill("red")}>fallback used</span> : null}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2 md:grid-cols-4 xl:grid-cols-8">
+        {profile.tendencies.topTendencies.map((item) => <Mini key={item.key} label={item.key} value={item.value} />)}
+        {!profile.tendencies.topTendencies.length ? <div className="text-sm text-slate-400">Run tendency fill to populate style data.</div> : null}
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        <RuleList title="Preferred win conditions" items={profile.tendencies.preferredWinConditions} tone="green" />
+        <RuleList title="Danger zones" items={profile.tendencies.dangerZones} tone="red" />
+        <RuleList title="Opponent triggers" items={profile.tendencies.opponentTriggers} tone="cyan" />
+      </div>
+      {profile.tendencies.missingSignals.length ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {profile.tendencies.missingSignals.map((signal) => <span key={signal} className={pill("amber")}>missing {signal}</span>)}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function RuleList({ title, items, tone }: { title: string; items: string[]; tone: "green" | "red" | "cyan" }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-3">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{title}</div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {items.length ? items.map((item) => <span key={item} className={pill(tone)}>{item}</span>) : <span className="text-xs text-slate-500">None listed.</span>}
+      </div>
+    </div>
+  );
+}
+
 export default async function UfcFighterDetailPage({ params }: PageProps) {
   const { fighterId } = await params;
   const profile = await getCanonicalUfcFighterProfile(decodeURIComponent(fighterId));
@@ -79,6 +126,8 @@ export default async function UfcFighterDetailPage({ params }: PageProps) {
         <Mini label="Fight IQ" value={profile.ratings.fightIq} />
       </section>
 
+      <TendencyBlock profile={profile} />
+
       <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/70 p-4">
         <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">What-if readiness</div>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -100,6 +149,10 @@ export default async function UfcFighterDetailPage({ params }: PageProps) {
       <section className="grid gap-4 lg:grid-cols-2">
         <JsonBlock title="Completeness" value={profile.completeness} />
         <JsonBlock title="Sources" value={profile.sources} />
+      </section>
+      <section className="grid gap-4 lg:grid-cols-2">
+        <JsonBlock title="Fighter tendencies raw" value={profile.fighterTendencies} />
+        <JsonBlock title="Style genome raw" value={profile.styleGenome} />
       </section>
       <JsonBlock title="Canonical profile raw" value={profile.canonicalProfile} />
     </main>
