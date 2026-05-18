@@ -1,4 +1,5 @@
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
+import { ACTIVE_UFC_NAMED_FIGHTER_PRIOR_BATCH_1 } from "@/services/ufc/active-named-fighter-prior-batch1";
 
 export type NamedUfcFighterEraPrior = {
   id: string;
@@ -92,102 +93,95 @@ function isActiveUfcFighter(row: FighterRow) {
   return signals.includes("upcoming_ufc_fight") || signals.some((signal) => signal.startsWith("recent_ufc_fight")) || signals.includes("payload_active_flag") || signals.includes("roster_active_flag") || signals.includes("contract_active_flag");
 }
 
-export const NAMED_UFC_FIGHTER_ERA_PRIORS: NamedUfcFighterEraPrior[] = [
-  {
-    id: "max-holloway-prime-volume-boxer",
-    aliases: ["max-holloway", "jerome-max-keli-i-holloway", "blessed", "max-blessed-holloway"],
-    confidence: "A",
-    label: "Active UFC Max Holloway volume-boxer profile",
-    sourceUrl: "manual:active-ufc-fighter-era-priors/max-holloway-volume-boxer",
-    evidence: [
-      "Holloway is modeled as an elite high-volume pressure boxer with layered combinations, body-head work, and exceptional pace durability.",
-      "Core strengths are striking volume, cardio, durability, anti-wrestling survivability, round-to-round pressure, and decision/late-fight reliability.",
-      "Known limitations are lower one-shot KO volatility than pure power punchers, limited offensive wrestling, and exposure to elite calf-kick/range-control game plans."
-    ],
-    profile: {
-      sigStrikesLandedPerMin: 7.15,
-      sigStrikesAbsorbedPerMin: 4.8,
-      strikingDifferential: 2.35,
-      sigStrikeAccuracyPct: 49,
-      sigStrikeDefensePct: 59,
-      knockdownsPer15: 0.34,
-      takedownsPer15: 0.32,
-      takedownAccuracyPct: 42,
-      takedownDefensePct: 84,
-      submissionAttemptsPer15: 0.08,
-      submissionDefensePct: 75,
-      controlTimePct: 10,
-      controlEscapePct: 78,
-      getUpRate: 82,
-      reversalsPer15: 0.18,
-      sweepRate: 0.12,
-      legKicksLandedPer15: 6.1,
-      bodyKicksLandedPer15: 3.3,
-      headKicksLandedPer15: 0.55,
-      kickingAccuracyPct: 45,
-      kickingDefensePct: 57,
-      clinchStrikingScore: 70,
-      pressureScore: 91,
-      distanceManagementScore: 79,
-      recentFormScore: 82,
-      heartScore: 94,
-      staminaScore: 96,
-      paceScore: 97,
-      chinScore: 89,
-      recoveryScore: 86,
-      fightIqScore: 88,
-      gamePlanScore: 86,
-      opponentAdjustedStrength: 91,
-      amateurSignal: 78,
-      promotionTierSignal: 98
-    },
-    metadata: {
-      combatBase: "elite_volume_boxing",
-      projectedWeightClass: "Featherweight",
-      styleOverride: "elite_pressure_volume_boxer",
-      activeUfcOnly: true,
-      eraProfiles: [
-        {
-          id: "active_145_155",
-          label: "Active UFC Holloway featherweight/lightweight version",
-          status: "WHAT_IF_READY",
-          activeUfcOnly: true,
-          weightClasses: ["Featherweight", "Lightweight"],
-          strengths: ["historic striking volume", "elite cardio", "durability", "anti-wrestling survival", "late-round pace", "combination boxing"],
-          weaknesses: ["limited offensive wrestling", "not a pure one-shot power profile", "can be touched in exchanges", "calf-kick/range-control vulnerability"]
-        }
-      ],
-      tendencyPrior: {
-        archetype: "elite_pressure_volume_boxer",
-        pressure: 92,
-        counterStriking: 70,
-        volume: 98,
-        powerHunting: 59,
-        legKickUsage: 55,
-        bodyWork: 87,
-        headKickThreat: 44,
-        takedownInitiation: 22,
-        chainWrestling: 18,
-        clinchEngagement: 55,
-        cageControl: 42,
-        topControlPreference: 18,
-        groundAndPound: 22,
-        submissionHunting: 16,
-        backTakeHunting: 12,
-        getUpUrgency: 88,
-        scrambleChaos: 65,
-        earlyRoundUrgency: 78,
-        roundThreeDurability: 96,
-        championshipRoundTrust: 95,
-        comebackRiskTaking: 82,
-        safeLeadManagement: 84,
-        paceCrashRisk: 18,
-        preferredWinConditions: ["DECISION_VOLUME", "late_round_tko", "attritional_boxing_pressure"],
-        dangerZones: ["low-kick attrition", "elite distance kicker", "one-shot power exchange", "wrestling-heavy control if trapped cold"],
-        opponentTriggers: ["opponent low cardio", "opponent shells on fence", "opponent cannot match combination volume", "opponent backs up in straight lines"]
-      }
+const MAX_HOLLOWAY_ACTIVE_PRIOR: NamedUfcFighterEraPrior = {
+  id: "max-holloway-prime-volume-boxer",
+  aliases: ["max-holloway", "jerome-max-keli-i-holloway", "blessed", "max-blessed-holloway"],
+  confidence: "A",
+  label: "Active UFC Max Holloway volume-boxer profile",
+  sourceUrl: "manual:active-ufc-fighter-era-priors/max-holloway-volume-boxer",
+  evidence: [
+    "Holloway is modeled as an elite high-volume pressure boxer with layered combinations, body-head work, and exceptional pace durability.",
+    "Core strengths are striking volume, cardio, durability, anti-wrestling survivability, round-to-round pressure, and decision/late-fight reliability.",
+    "Known limitations are lower one-shot KO volatility than pure power punchers, limited offensive wrestling, and exposure to elite calf-kick/range-control game plans."
+  ],
+  profile: {
+    sigStrikesLandedPerMin: 7.15,
+    sigStrikesAbsorbedPerMin: 4.8,
+    strikingDifferential: 2.35,
+    sigStrikeAccuracyPct: 49,
+    sigStrikeDefensePct: 59,
+    knockdownsPer15: 0.34,
+    takedownsPer15: 0.32,
+    takedownAccuracyPct: 42,
+    takedownDefensePct: 84,
+    submissionAttemptsPer15: 0.08,
+    submissionDefensePct: 75,
+    controlTimePct: 10,
+    controlEscapePct: 78,
+    getUpRate: 82,
+    reversalsPer15: 0.18,
+    sweepRate: 0.12,
+    legKicksLandedPer15: 6.1,
+    bodyKicksLandedPer15: 3.3,
+    headKicksLandedPer15: 0.55,
+    kickingAccuracyPct: 45,
+    kickingDefensePct: 57,
+    clinchStrikingScore: 70,
+    pressureScore: 91,
+    distanceManagementScore: 79,
+    recentFormScore: 82,
+    heartScore: 94,
+    staminaScore: 96,
+    paceScore: 97,
+    chinScore: 89,
+    recoveryScore: 86,
+    fightIqScore: 88,
+    gamePlanScore: 86,
+    opponentAdjustedStrength: 91,
+    amateurSignal: 78,
+    promotionTierSignal: 98
+  },
+  metadata: {
+    combatBase: "elite_volume_boxing",
+    projectedWeightClass: "Featherweight",
+    styleOverride: "elite_pressure_volume_boxer",
+    activeUfcOnly: true,
+    eraProfiles: [{ id: "active_145_155", label: "Active UFC Holloway featherweight/lightweight version", status: "WHAT_IF_READY", activeUfcOnly: true, weightClasses: ["Featherweight", "Lightweight"] }],
+    tendencyPrior: {
+      archetype: "elite_pressure_volume_boxer",
+      pressure: 92,
+      counterStriking: 70,
+      volume: 98,
+      powerHunting: 59,
+      legKickUsage: 55,
+      bodyWork: 87,
+      headKickThreat: 44,
+      takedownInitiation: 22,
+      chainWrestling: 18,
+      clinchEngagement: 55,
+      cageControl: 42,
+      topControlPreference: 18,
+      groundAndPound: 22,
+      submissionHunting: 16,
+      backTakeHunting: 12,
+      getUpUrgency: 88,
+      scrambleChaos: 65,
+      earlyRoundUrgency: 78,
+      roundThreeDurability: 96,
+      championshipRoundTrust: 95,
+      comebackRiskTaking: 82,
+      safeLeadManagement: 84,
+      paceCrashRisk: 18,
+      preferredWinConditions: ["DECISION_VOLUME", "late_round_tko", "attritional_boxing_pressure"],
+      dangerZones: ["low-kick attrition", "elite distance kicker", "one-shot power exchange", "wrestling-heavy control if trapped cold"],
+      opponentTriggers: ["opponent low cardio", "opponent shells on fence", "opponent cannot match combination volume", "opponent backs up in straight lines"]
     }
   }
+};
+
+export const NAMED_UFC_FIGHTER_ERA_PRIORS: NamedUfcFighterEraPrior[] = [
+  MAX_HOLLOWAY_ACTIVE_PRIOR,
+  ...ACTIVE_UFC_NAMED_FIGHTER_PRIOR_BATCH_1
 ];
 
 function matchPrior(row: FighterRow, only?: string | null) {
@@ -206,20 +200,7 @@ function tendencyPayload(prior: NamedUfcFighterEraPrior, signals: string[]) {
   const dangerZones = Array.isArray(tendencyPrior.dangerZones) ? tendencyPrior.dangerZones : [];
   const opponentTriggers = Array.isArray(tendencyPrior.opponentTriggers) ? tendencyPrior.opponentTriggers : [];
   return {
-    namedFighterPriors: {
-      [prior.id]: {
-        id: prior.id,
-        label: prior.label,
-        scope: "active_ufc_only",
-        activeSignals: signals,
-        confidence: prior.confidence,
-        sourceUrl: prior.sourceUrl,
-        evidence: prior.evidence,
-        profile: prior.profile,
-        metadata: prior.metadata,
-        appliedAt: generatedAt
-      }
-    },
+    namedFighterPriors: { [prior.id]: { id: prior.id, label: prior.label, scope: "active_ufc_only", activeSignals: signals, confidence: prior.confidence, sourceUrl: prior.sourceUrl, evidence: prior.evidence, profile: prior.profile, metadata: prior.metadata, appliedAt: generatedAt } },
     fighterTendencies: {
       version: "ufc-fighter-tendencies-v1",
       generatedAt,
@@ -231,29 +212,11 @@ function tendencyPayload(prior: NamedUfcFighterEraPrior, signals: string[]) {
         preferredWinConditions,
         dangerZones,
         opponentTriggers,
-        simModifiers: {
-          exchangeVolume: 0.48,
-          attritionalPressure: 0.42,
-          latePaceBoost: 0.38,
-          koVolatility: 0.12,
-          takedownPressure: -0.22,
-          lateFade: -0.27,
-          decisionVolume: 0.44
-        }
+        simModifiers: { exchangeVolume: 0.48, attritionalPressure: 0.42, latePaceBoost: 0.38, koVolatility: 0.12, takedownPressure: -0.22, lateFade: -0.27, decisionVolume: 0.44 }
       },
       evidence: { sourceQuality: "A", statsUsed: [`active UFC named fighter era prior:${prior.id}`], activeSignals: signals, missingSignals: [], fallbackUsed: false }
     },
-    tendencyProfile: {
-      source: "active-ufc-named-fighter-era-prior",
-      generatedAt,
-      archetype: String(tendencyPrior.archetype ?? prior.metadata.styleOverride),
-      confidence: 0.94,
-      sourceQuality: "A",
-      fallbackUsed: false,
-      missingSignals: [],
-      namedPriorIds: [prior.id],
-      activeSignals: signals
-    }
+    tendencyProfile: { source: "active-ufc-named-fighter-era-prior", generatedAt, archetype: String(tendencyPrior.archetype ?? prior.metadata.styleOverride), confidence: 0.94, sourceQuality: "A", fallbackUsed: false, missingSignals: [], namedPriorIds: [prior.id], activeSignals: signals }
   };
 }
 
@@ -263,24 +226,8 @@ function featureJsonPayload(prior: NamedUfcFighterEraPrior, signals: string[]) {
     ...prior.profile,
     combatBase: prior.metadata.combatBase,
     weightClass: prior.metadata.projectedWeightClass,
-    namedFighterPrior: {
-      id: prior.id,
-      label: prior.label,
-      scope: "active_ufc_only",
-      activeSignals: signals,
-      confidence: prior.confidence,
-      sourceUrl: prior.sourceUrl,
-      evidence: prior.evidence,
-      metadata: prior.metadata,
-      appliedAt: generatedAt
-    },
-    eliteCombatCredentialPrior: {
-      source: "active-ufc-named-fighter-era-prior",
-      confidence: prior.confidence,
-      sourceUrl: prior.sourceUrl,
-      appliedPriors: [{ id: prior.id, confidence: prior.confidence, sourceUrl: prior.sourceUrl, appliedWeight: 1, changedKeys: Object.keys(prior.profile), evidence: prior.evidence, metadata: prior.metadata, activeSignals: signals }],
-      evidence: prior.evidence
-    }
+    namedFighterPrior: { id: prior.id, label: prior.label, scope: "active_ufc_only", activeSignals: signals, confidence: prior.confidence, sourceUrl: prior.sourceUrl, evidence: prior.evidence, metadata: prior.metadata, appliedAt: generatedAt },
+    eliteCombatCredentialPrior: { source: "active-ufc-named-fighter-era-prior", confidence: prior.confidence, sourceUrl: prior.sourceUrl, appliedPriors: [{ id: prior.id, confidence: prior.confidence, sourceUrl: prior.sourceUrl, appliedWeight: 1, changedKeys: Object.keys(prior.profile), evidence: prior.evidence, metadata: prior.metadata, activeSignals: signals }], evidence: prior.evidence }
   };
 }
 
