@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { buildUfcFighterSkillProfile, type UfcFighterSkillProfile, type UfcModelFeatureSnapshot } from "@/services/ufc/fighter-skill-profile";
+import type { UfcIndividualFighterProfile } from "@/services/ufc/individual-fighter-profile";
 import { getUfcOperationalFeed, type UfcOperationalFeedCard } from "@/services/ufc/operational-feed";
 
 export type UfcCardSummary = {
@@ -50,6 +51,10 @@ export type UfcFightIqDetail = {
   fighterProfiles?: {
     fighterA: UfcFighterSkillProfile | null;
     fighterB: UfcFighterSkillProfile | null;
+  };
+  individualFighterProfiles?: {
+    fighterA: UfcIndividualFighterProfile | null;
+    fighterB: UfcIndividualFighterProfile | null;
   };
   featureSnapshots?: {
     fighterA: UfcModelFeatureSnapshot | null;
@@ -317,6 +322,10 @@ function detailFromFeedOnly(fightId: string, feed: UfcOperationalFeedCard[]): Uf
       fighterA: predictionJson.fighterSkillProfiles?.fighterA ?? null,
       fighterB: predictionJson.fighterSkillProfiles?.fighterB ?? null
     },
+    individualFighterProfiles: {
+      fighterA: predictionJson.individualFighterProfiles?.fighterA ?? null,
+      fighterB: predictionJson.individualFighterProfiles?.fighterB ?? null
+    },
     featureSnapshots: {
       fighterA: predictionJson.featureSnapshots?.fighterA ?? null,
       fighterB: predictionJson.featureSnapshots?.fighterB ?? null
@@ -426,6 +435,10 @@ export async function getUfcFightIqDetail(fightId: string, options: { modelVersi
       fighterProfiles: {
         fighterA: aProfile,
         fighterB: bProfile
+      },
+      individualFighterProfiles: {
+        fighterA: predictionJson.individualFighterProfiles?.fighterA ?? null,
+        fighterB: predictionJson.individualFighterProfiles?.fighterB ?? null
       },
       featureSnapshots: {
         fighterA: aSnapshot,
