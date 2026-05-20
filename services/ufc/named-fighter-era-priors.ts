@@ -52,7 +52,6 @@ const DB_KEY_MAP: Record<string, string> = {
   sigStrikesAbsorbedPerMin: "sig_strikes_absorbed_per_min",
   strikingDifferential: "striking_differential",
   takedownsPer15: "takedowns_per_15",
-  takedownAccuracyPct: "takedown_accuracy_pct",
   takedownDefensePct: "takedown_defense_pct",
   submissionAttemptsPer15: "submission_attempts_per_15",
   controlTimePct: "control_time_pct",
@@ -250,7 +249,7 @@ async function queryRows(limit: number, only?: string | null) {
       FROM participation
       GROUP BY fighter_id
     )
-    SELECT f.id AS fighter_id, f.full_name, f.nickname, f.payload_json,
+    SELECT f.id AS fighter_id, f.full_name, COALESCE(f.payload_json->>'nickname', f.payload_json->>'nickName') AS nickname, f.payload_json,
       COALESCE(a.has_upcoming_ufc_fight, false) AS has_upcoming_ufc_fight,
       COALESCE(a.has_recent_ufc_fight, false) AS has_recent_ufc_fight,
       a.recent_ufc_fight_date,
@@ -259,7 +258,7 @@ async function queryRows(limit: number, only?: string | null) {
     LEFT JOIN activity a ON a.fighter_id = f.id
     WHERE ${q}::text = ''
       OR lower(regexp_replace(f.full_name, '[^a-zA-Z0-9]+', '-', 'g')) = ${q}
-      OR lower(regexp_replace(COALESCE(f.nickname, ''), '[^a-zA-Z0-9]+', '-', 'g')) = ${q}
+      OR lower(regexp_replace(COALESCE(f.payload_json->>'nickname', f.payload_json->>'nickName', ''), '[^a-zA-Z0-9]+', '-', 'g')) = ${q}
       OR f.id = ${q}
     ORDER BY f.full_name ASC
     LIMIT ${Math.max(1, Math.min(5000, limit))}
@@ -283,7 +282,6 @@ async function applyPrior(row: FighterRow, prior: NamedUfcFighterEraPrior, model
         sig_strikes_absorbed_per_min = COALESCE(${db.sig_strikes_absorbed_per_min ?? null}, sig_strikes_absorbed_per_min),
         striking_differential = COALESCE(${db.striking_differential ?? null}, striking_differential),
         takedowns_per_15 = COALESCE(${db.takedowns_per_15 ?? null}, takedowns_per_15),
-        takedown_accuracy_pct = COALESCE(${db.takedown_accuracy_pct ?? null}, takedown_accuracy_pct),
         takedown_defense_pct = COALESCE(${db.takedown_defense_pct ?? null}, takedown_defense_pct),
         submission_attempts_per_15 = COALESCE(${db.submission_attempts_per_15 ?? null}, submission_attempts_per_15),
         control_time_pct = COALESCE(${db.control_time_pct ?? null}, control_time_pct),

@@ -1,0 +1,65 @@
+name: Apply UFC named fighter priors now
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Number of fighters to scan"
+        required: false
+        default: "500"
+      only:
+        description: "Optional fighter/prior slug"
+        required: false
+        default: ""
+      active_only:
+        description: "Only apply when active UFC evidence exists"
+        required: false
+        default: "true"
+
+jobs:
+  apply-named-priors:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Choose internal token
+        id: token
+        shell: bash
+        env:
+          INTERNAL_API_KEY: ${{ secrets.INTERNAL_API_KEY }}
+          INTERNAL_API_KEY2: ${{ secrets.INTERNAL_API_KEY2 }}
+          TRENDS_REFRESH_TOKEN: ${{ secrets.TRENDS_REFRESH_TOKEN }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          TOKEN="${INTERNAL_API_KEY:-}"
+          if [ -z "$TOKEN" ]; then TOKEN="${INTERNAL_API_KEY2:-}"; fi
+          if [ -z "$TOKEN" ]; then TOKEN="${TRENDS_REFRESH_TOKEN:-}"; fi
+          if [ -z "$TOKEN" ]; then TOKEN="${CRON_SECRET:-}"; fi
+          if [ -z "$TOKEN" ]; then
+            echo "No internal API token secret found." >&2
+            exit 1
+          fi
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Apply active named fighter priors
+        shell: bash
+        env:
+          TOKEN: ${{ steps.token.outputs.token }}
+          LIMIT: ${{ github.event.inputs.limit || '500' }}
+          ONLY: ${{ github.event.inputs.only || '' }}
+          ACTIVE_ONLY: ${{ github.event.inputs.active_only || 'true' }}
+        run: |
+          set -euo pipefail
+          URL="https://sharkedge.vercel.app/api/admin/ufc/apply-named-fighter-priors?dryRun=false&limit=${LIMIT}&activeOnly=${ACTIVE_ONLY}"
+          if [ -n "$ONLY" ]; then URL="${URL}&only=${ONLY}"; fi
+          echo "Applying active UFC named priors: limit=${LIMIT}, only=${ONLY:-all}, activeOnly=${ACTIVE_ONLY}"
+          HTTP_CODE=$(curl --silent --show-error --location --max-time 180 --retry 2 --retry-delay 10 \
+            --output /tmp/ufc-named-priors.json \
+            --write-out "%{http_code}" \
+            -H "x-api-key: ${TOKEN}" \
+            "$URL")
+          echo "HTTP ${HTTP_CODE}"
+          cat /tmp/ufc-named-priors.json
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            exit 1
+          fi

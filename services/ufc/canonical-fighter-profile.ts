@@ -1,4 +1,5 @@
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
+import { evaluateActiveUfcRosterStatus } from "@/services/ufc/active-roster";
 import { auditUfcFighterProfileCompleteness } from "@/services/ufc/fighter-profile-completeness";
 import { buildUfcFighterSkillProfile, type UfcModelFeatureSnapshot } from "@/services/ufc/fighter-skill-profile";
 import { findUfcCredentialPriors } from "@/services/ufc/fighter-credential-priors";
@@ -26,6 +27,10 @@ type FighterRow = {
   opponent_adjusted_strength: number | null;
   cold_start_active: boolean | null;
   feature_updated_at: Date | string | null;
+  has_upcoming_ufc_fight: boolean | null;
+  has_recent_ufc_fight: boolean | null;
+  recent_ufc_fight_date: Date | string | null;
+  ufc_activity_count: number | null;
 };
 
 export type CanonicalProfileResult = {
@@ -57,6 +62,15 @@ function iso(value: Date | string | null | undefined) {
   return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
 }
 
+function preFightSnapshotAt(featureUpdatedAt: Date | string | null | undefined, fightDate: Date | string | null | undefined) {
+  const fightMs = fightDate ? new Date(fightDate).getTime() : NaN;
+  const featureMs = featureUpdatedAt ? new Date(featureUpdatedAt).getTime() : NaN;
+  if (Number.isFinite(fightMs) && Number.isFinite(featureMs)) return new Date(Math.min(featureMs, fightMs)).toISOString();
+  if (Number.isFinite(fightMs)) return new Date(fightMs).toISOString();
+  if (Number.isFinite(featureMs)) return new Date(featureMs).toISOString();
+  return new Date().toISOString();
+}
+
 function featureValue(row: FighterRow, key: string) {
   const feature = asRecord(row.feature_json);
   const history = asRecord(asRecord(row.payload_json).historyDerivedStats);
@@ -74,7 +88,7 @@ function buildSnapshot(row: FighterRow, modelVersion: string): UfcModelFeatureSn
     fightDate: iso(row.latest_fight_date),
     fighterId: row.fighter_id,
     opponentFighterId: "canonical-opponent",
-    snapshotAt: iso(row.feature_updated_at ?? row.latest_fight_date),
+    snapshotAt: preFightSnapshotAt(row.feature_updated_at, row.latest_fight_date),
     modelVersion,
     age: featureValue(row, "age"),
     reachInches: featureValue(row, "reachInches"),
@@ -164,7 +178,16 @@ function buildCanonicalProfile(row: FighterRow, modelVersion: string) {
   const credentials = findUfcCredentialPriors({ feature: snapshot, payloadRecord: payload });
   const credentialIds = credentials.map((credential) => credential.id);
   const archetype = archetypeFrom(skill, credentialIds);
-  const whatIfReady = completeness.score >= 72 && !completeness.isGenericAvatar;
+  const activeRoster = evaluateActiveUfcRosterStatus({
+    payload,
+    hasUpcomingUfcFight: row.has_upcoming_ufc_fight,
+    hasRecentUfcFight: row.has_recent_ufc_fight,
+    recentUfcFightDate: row.recent_ufc_fight_date,
+    ufcActivityCount: row.ufc_activity_count
+  });
+  // What-if profiles are intentionally active-roster only. We keep inactive or
+  // unproven fighters research-only instead of letting generic priors drive sims.
+  const whatIfReady = activeRoster.active && completeness.score >= 72 && !completeness.isGenericAvatar;
   const blocked = completeness.isGenericAvatar || completeness.score < 55;
   const careerStats = asRecord(payload.historyDerivedStats).source ? asRecord(payload.historyDerivedStats) : asRecord(payload.careerStats).source ? asRecord(payload.careerStats) : asRecord(payload.stats);
   return {
@@ -179,6 +202,7 @@ function buildCanonicalProfile(row: FighterRow, modelVersion: string) {
     },
     status: blocked ? "NEEDS_REPAIR" : whatIfReady ? "WHAT_IF_READY" : "RESEARCH_ONLY",
     whatIfReady,
+    activeRoster,
     archetype,
     sources: {
       careerStats: typeof careerStats.source === "string" ? careerStats.source : null,
@@ -196,8 +220,14 @@ function buildCanonicalProfile(row: FighterRow, modelVersion: string) {
     fantasySim: {
       canUseAsStandaloneFighter: whatIfReady,
       blockingReasons: blocked ? [...completeness.missingCore.map((key) => `missing:${key}`), ...completeness.genericDefaultFields.map((key) => `generic:${key}`)].slice(0, 20) : [],
+      activeRosterOnly: true,
+      activeRosterBlockers: activeRoster.blockers,
       supportedWeightClasses: [skill.weightClass].filter(Boolean),
-      notes: blocked ? "Canonical profile blocked because the underlying data is still generic or incomplete." : "Canonical profile can be reused outside a scheduled fight snapshot."
+      notes: blocked
+        ? "Canonical profile blocked because the underlying data is still generic or incomplete."
+        : whatIfReady
+          ? "Canonical profile can be reused for active-roster what-if sims."
+          : "Canonical profile is research-only until active UFC roster evidence is present."
     }
   };
 }
@@ -217,7 +247,7 @@ async function queryRows(modelVersion: string, limit: number, onlyNeedingRepair:
         mf.sig_strikes_absorbed_per_min,
         mf.striking_differential,
         mf.takedowns_per_15,
-        mf.takedown_accuracy_pct,
+        NULL::double precision AS takedown_accuracy_pct,
         mf.takedown_defense_pct,
         mf.submission_attempts_per_15,
         mf.control_time_pct,
@@ -239,11 +269,24 @@ async function queryRows(modelVersion: string, limit: number, onlyNeedingRepair:
       ) p
       JOIN ufc_fights f ON f.id = p.fight_id
       ORDER BY p.fighter_id, f.fight_date DESC NULLS LAST
+    ), activity AS (
+      SELECT
+        fighter_id,
+        BOOL_OR(fight_date >= now() - interval '12 hours' AND COALESCE(status, '') NOT IN ('CANCELED', 'VOID')) AS has_upcoming_ufc_fight,
+        BOOL_OR(fight_date >= now() - interval '24 months' AND fight_date < now() AND COALESCE(status, '') NOT IN ('CANCELED', 'VOID')) AS has_recent_ufc_fight,
+        MAX(CASE WHEN fight_date < now() AND COALESCE(status, '') NOT IN ('CANCELED', 'VOID') THEN fight_date ELSE NULL END) AS recent_ufc_fight_date,
+        COUNT(*)::int AS ufc_activity_count
+      FROM (
+        SELECT fighter_a_id AS fighter_id, fight_date, status FROM ufc_fights
+        UNION ALL
+        SELECT fighter_b_id AS fighter_id, fight_date, status FROM ufc_fights
+      ) p
+      GROUP BY fighter_id
     )
     SELECT
       f.id AS fighter_id,
       f.full_name,
-      f.nickname,
+      COALESCE(f.payload_json->>'nickname', f.payload_json->>'nickName') AS nickname,
       f.payload_json,
       COALESCE(lf.fight_id, lft.fight_id) AS latest_fight_id,
       lft.fight_date AS latest_fight_date,
@@ -262,10 +305,15 @@ async function queryRows(modelVersion: string, limit: number, onlyNeedingRepair:
       lf.control_time_pct,
       lf.opponent_adjusted_strength,
       lf.cold_start_active,
-      lf.updated_at AS feature_updated_at
+      lf.updated_at AS feature_updated_at,
+      COALESCE(a.has_upcoming_ufc_fight, false) AS has_upcoming_ufc_fight,
+      COALESCE(a.has_recent_ufc_fight, false) AS has_recent_ufc_fight,
+      a.recent_ufc_fight_date,
+      COALESCE(a.ufc_activity_count, 0) AS ufc_activity_count
     FROM ufc_fighters f
     LEFT JOIN latest_features lf ON lf.fighter_id = f.id
     LEFT JOIN latest_fights lft ON lft.fighter_id = f.id
+    LEFT JOIN activity a ON a.fighter_id = f.id
     WHERE (${onlyNeedingRepair} = false OR COALESCE(f.payload_json->'canonicalProfile'->>'status', 'NEEDS_REPAIR') <> 'WHAT_IF_READY')
     ORDER BY COALESCE(lf.updated_at, f.updated_at) DESC NULLS LAST, f.full_name ASC
     LIMIT ${Math.max(1, Math.min(5000, limit))}
@@ -301,5 +349,5 @@ export async function buildCanonicalUfcFighterProfiles(options: { modelVersion?:
       errors.push(`${row.full_name}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  return { ok: errors.length === 0, dryRun, modelVersion, scanned: rows.length, updated, blockedGeneric, items: items.slice(0, 100), errors: errors.slice(0, 50) };
+  return { ok: updated > 0 || errors.length === 0, dryRun, modelVersion, scanned: rows.length, updated, blockedGeneric, items: items.slice(0, 100), errors: errors.slice(0, 50) };
 }

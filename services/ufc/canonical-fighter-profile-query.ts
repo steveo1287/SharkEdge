@@ -38,6 +38,12 @@ export type CanonicalFighterProfileSummary = {
   evidenceFlags: string[];
   supportedWeightClasses: string[];
   blockingReasons: string[];
+  activeRoster: {
+    active: boolean;
+    confidence: string | null;
+    signals: string[];
+    blockers: string[];
+  };
   ratings: {
     striking: number | null;
     wrestling: number | null;
@@ -167,6 +173,7 @@ function mapSummary(row: FighterProfileRow): CanonicalFighterProfileSummary {
   const profile = asRecord(payload.canonicalProfile);
   const completeness = asRecord(profile.completeness);
   const fantasySim = asRecord(profile.fantasySim);
+  const activeRoster = asRecord(profile.activeRoster);
   const ratings = asRecord(profile.ratings);
   return {
     fighterId: row.fighter_id,
@@ -186,6 +193,12 @@ function mapSummary(row: FighterProfileRow): CanonicalFighterProfileSummary {
     evidenceFlags: asStringArray(completeness.evidenceFlags),
     supportedWeightClasses: asStringArray(fantasySim.supportedWeightClasses),
     blockingReasons: asStringArray(fantasySim.blockingReasons),
+    activeRoster: {
+      active: asBoolean(activeRoster.active),
+      confidence: asString(activeRoster.confidence),
+      signals: asStringArray(activeRoster.signals),
+      blockers: asStringArray(activeRoster.blockers)
+    },
     ratings: ratingsFromProfile(profile),
     tendencies: tendencySummary(payload)
   };
@@ -208,11 +221,11 @@ export async function getCanonicalUfcFighterProfiles(options: { limit?: number; 
   const q = normalizeQuery(options.q);
   if (!hasUsableServerDatabaseUrl()) return { ok: false, checkedAt: new Date().toISOString(), total: 0, statusCounts: {}, archetypeCounts: {}, tendencyArchetypeCounts: {}, whatIfReadyCount: 0, needsRepairCount: 0, tendencyFilledCount: 0, tendencyFallbackCount: 0, items: [] };
   const rows = await prisma.$queryRaw<FighterProfileRow[]>`
-    SELECT id AS fighter_id, full_name, nickname, payload_json, updated_at
+    SELECT id AS fighter_id, full_name, COALESCE(payload_json->>'nickname', payload_json->>'nickName') AS nickname, payload_json, updated_at
     FROM ufc_fighters
     WHERE payload_json ? 'canonicalProfile'
       AND (${status}::text IS NULL OR payload_json->'canonicalProfile'->>'status' = ${status})
-      AND (${q}::text = '' OR lower(full_name) LIKE '%' || ${q}::text || '%' OR lower(COALESCE(nickname, '')) LIKE '%' || ${q}::text || '%')
+      AND (${q}::text = '' OR lower(full_name) LIKE '%' || ${q}::text || '%' OR lower(COALESCE(payload_json->>'nickname', payload_json->>'nickName', '')) LIKE '%' || ${q}::text || '%')
     ORDER BY
       CASE payload_json->'canonicalProfile'->>'status'
         WHEN 'WHAT_IF_READY' THEN 0
@@ -243,7 +256,7 @@ export async function getCanonicalUfcFighterProfiles(options: { limit?: number; 
 export async function getCanonicalUfcFighterProfile(fighterId: string): Promise<CanonicalFighterProfileDetail | null> {
   if (!hasUsableServerDatabaseUrl()) return null;
   const rows = await prisma.$queryRaw<FighterProfileRow[]>`
-    SELECT id AS fighter_id, full_name, nickname, payload_json, updated_at
+    SELECT id AS fighter_id, full_name, COALESCE(payload_json->>'nickname', payload_json->>'nickName') AS nickname, payload_json, updated_at
     FROM ufc_fighters
     WHERE id = ${fighterId} OR lower(full_name) = lower(${fighterId}) OR lower(regexp_replace(full_name, '[^a-zA-Z0-9]+', '-', 'g')) = lower(${fighterId})
     ORDER BY updated_at DESC NULLS LAST
