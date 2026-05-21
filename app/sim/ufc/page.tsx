@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { ActiveUfcWhatIfPanel } from "@/components/ufc/active-what-if-panel";
 import { UfcPipelineStatusPanel } from "@/components/ufc/pipeline-status-panel";
 import { SharkFightsHeader } from "@/components/ufc/sharkfights-ufc";
 import type { UfcCardSummary } from "@/services/ufc/card-feed";
@@ -353,6 +354,7 @@ export default async function UfcFightLabPage() {
           subtitle="The SharkEdge fight-sim workspace: UFC and MVP fight cards, style matchups, method probabilities, fight-path reasoning, source audits, and pipeline readiness."
         />
         <ProductRail cards={cards} />
+        <ActiveUfcWhatIfPanel />
         <TrustGate status={status} />
         <UfcPipelineStatusPanel status={status} />
         <DiscoveryPanel discovery={discovery} />
