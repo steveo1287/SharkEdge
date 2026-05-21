@@ -232,7 +232,7 @@ function mapCalibration(row: CalibrationRaw | undefined): UfcCalibrationSnapshot
 
 export async function getUfcSettledLedger(options: { modelVersion?: string; limit?: number } = {}): Promise<UfcSettledLedgerSummary> {
   const modelVersion = options.modelVersion ?? "ufc-fight-iq-v1";
-  const limit = Math.max(1, Math.min(250, Math.floor(options.limit ?? 100)));
+  const limit = Math.max(1, Math.min(5000, Math.floor(options.limit ?? 100)));
   const generatedAt = new Date().toISOString();
 
   try {
