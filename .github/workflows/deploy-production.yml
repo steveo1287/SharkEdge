@@ -14,9 +14,14 @@ env:
   NODE_VERSION: '20'
   RAILWAY_ENVIRONMENT: ${{ vars.RAILWAY_ENVIRONMENT || 'production' }}
   RAILWAY_WEB_SERVICE: ${{ vars.RAILWAY_WEB_SERVICE || 'sharkedge-web' }}
-  RAILWAY_WORKER_ODDS_SERVICE: ${{ vars.RAILWAY_WORKER_ODDS_SERVICE || 'odds-worker' }}
+  RAILWAY_SIM_WORKER_SERVICE: ${{ vars.RAILWAY_SIM_WORKER_SERVICE || 'sharkedge-sim-worker' }}
+  RAILWAY_MLB_ODDS_WORKER_SERVICE: ${{ vars.RAILWAY_MLB_ODDS_WORKER_SERVICE || 'sharkedge-mlb-odds-worker' }}
+  RAILWAY_UFC_WORKER_SERVICE: ${{ vars.RAILWAY_UFC_WORKER_SERVICE || 'sharkedge-ufc-worker' }}
+  RAILWAY_MAINTENANCE_WORKER_SERVICE: ${{ vars.RAILWAY_MAINTENANCE_WORKER_SERVICE || 'sharkedge-maintenance-worker' }}
+  RAILWAY_WORKER_ODDS_SERVICE: ${{ vars.RAILWAY_WORKER_ODDS_SERVICE || '' }}
   RAILWAY_WORKER_TRENDS_SERVICE: ${{ vars.RAILWAY_WORKER_TRENDS_SERVICE || '' }}
   ENABLE_TRENDS_WORKER_DEPLOY: ${{ vars.ENABLE_TRENDS_WORKER_DEPLOY || 'false' }}
+  ENABLE_LEGACY_ODDS_WORKER_DEPLOY: ${{ vars.ENABLE_LEGACY_ODDS_WORKER_DEPLOY || 'false' }}
   RAILWAY_WORKER_ODDSHARVESTER_SERVICE: ${{ vars.RAILWAY_WORKER_ODDSHARVESTER_SERVICE || '' }}
 
 jobs:
@@ -100,7 +105,16 @@ jobs:
           fi
 
           railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_WEB_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
-          railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_WORKER_ODDS_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
+          railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_SIM_WORKER_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
+          railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_MLB_ODDS_WORKER_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
+          railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_UFC_WORKER_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
+          railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_MAINTENANCE_WORKER_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
+
+          if [ "${ENABLE_LEGACY_ODDS_WORKER_DEPLOY:-false}" = "true" ] && [ -n "${RAILWAY_WORKER_ODDS_SERVICE:-}" ]; then
+            railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_WORKER_ODDS_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
+          else
+            echo "Legacy odds recompute worker deploy skipped. Set ENABLE_LEGACY_ODDS_WORKER_DEPLOY=true to deploy it."
+          fi
 
           if [ "${ENABLE_TRENDS_WORKER_DEPLOY:-false}" = "true" ] && [ -n "${RAILWAY_WORKER_TRENDS_SERVICE:-}" ]; then
             railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_WORKER_TRENDS_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
@@ -189,6 +203,10 @@ jobs:
           echo "Deployment completed for commit $GITHUB_SHA"
           echo "Environment: $RAILWAY_ENVIRONMENT"
           echo "Web service: $RAILWAY_WEB_SERVICE"
-          echo "Odds worker: $RAILWAY_WORKER_ODDS_SERVICE"
+          echo "Sim worker: $RAILWAY_SIM_WORKER_SERVICE"
+          echo "MLB odds worker: $RAILWAY_MLB_ODDS_WORKER_SERVICE"
+          echo "UFC worker: $RAILWAY_UFC_WORKER_SERVICE"
+          echo "Maintenance worker: $RAILWAY_MAINTENANCE_WORKER_SERVICE"
+          echo "Legacy odds worker: ${RAILWAY_WORKER_ODDS_SERVICE:-<skipped>} (enabled=${ENABLE_LEGACY_ODDS_WORKER_DEPLOY:-false})"
           echo "Trends worker: ${RAILWAY_WORKER_TRENDS_SERVICE:-<skipped>} (enabled=${ENABLE_TRENDS_WORKER_DEPLOY:-false})"
           echo "OddsHarvester worker: ${RAILWAY_WORKER_ODDSHARVESTER_SERVICE:-<skipped>}"

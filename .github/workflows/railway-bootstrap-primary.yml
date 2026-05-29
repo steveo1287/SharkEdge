@@ -1,0 +1,148 @@
+name: Bootstrap Railway Primary Services
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_after_create:
+        description: Deploy services after bootstrap
+        required: false
+        default: "true"
+      generate_web_domain:
+        description: Generate a Railway domain for sharkedge-web
+        required: false
+        default: "true"
+
+concurrency:
+  group: railway-bootstrap-primary
+  cancel-in-progress: false
+
+env:
+  RAILWAY_ENVIRONMENT: ${{ vars.RAILWAY_ENVIRONMENT || 'production' }}
+  RAILWAY_WEB_SERVICE: ${{ vars.RAILWAY_WEB_SERVICE || 'sharkedge-web' }}
+  RAILWAY_SIM_WORKER_SERVICE: ${{ vars.RAILWAY_SIM_WORKER_SERVICE || 'sharkedge-sim-worker' }}
+  RAILWAY_MLB_ODDS_WORKER_SERVICE: ${{ vars.RAILWAY_MLB_ODDS_WORKER_SERVICE || 'sharkedge-mlb-odds-worker' }}
+  RAILWAY_UFC_WORKER_SERVICE: ${{ vars.RAILWAY_UFC_WORKER_SERVICE || 'sharkedge-ufc-worker' }}
+  RAILWAY_MAINTENANCE_WORKER_SERVICE: ${{ vars.RAILWAY_MAINTENANCE_WORKER_SERVICE || 'sharkedge-maintenance-worker' }}
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Create primary Railway services
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RAILWAY_TOKEN:-}" ]; then
+            echo "RAILWAY_TOKEN secret is required"
+            exit 1
+          fi
+
+          if [ -z "${RAILWAY_PROJECT_ID:-}" ]; then
+            echo "RAILWAY_PROJECT_ID secret is required"
+            exit 1
+          fi
+
+          railway link -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT"
+
+          create_service() {
+            local service="$1"
+            local mode="$2"
+            echo "Ensuring service exists: $service ($mode)"
+            railway add --service "$service" --repo "steveo1287/SharkEdge" \
+              --variables "SHARKEDGE_SERVICE_MODE=$mode" \
+              --variables "NODE_ENV=production" \
+              --variables "RAILWAY_WEB_INTERNAL_URL=http://${RAILWAY_WEB_SERVICE}:3000" \
+              --variables "SHARKEDGE_ALLOW_DEGRADED_BOOT=true" \
+              --json || true
+
+            railway variable set \
+              --service "$service" \
+              --environment "$RAILWAY_ENVIRONMENT" \
+              --skip-deploys \
+              "SHARKEDGE_SERVICE_MODE=$mode" \
+              "NODE_ENV=production" \
+              "RAILWAY_WEB_INTERNAL_URL=http://${RAILWAY_WEB_SERVICE}:3000" \
+              "SHARKEDGE_ALLOW_DEGRADED_BOOT=true"
+          }
+
+          create_service "$RAILWAY_WEB_SERVICE" "web"
+          create_service "$RAILWAY_SIM_WORKER_SERVICE" "sim-worker"
+          create_service "$RAILWAY_MLB_ODDS_WORKER_SERVICE" "mlb-odds-worker"
+          create_service "$RAILWAY_UFC_WORKER_SERVICE" "ufc-worker"
+          create_service "$RAILWAY_MAINTENANCE_WORKER_SERVICE" "maintenance-worker"
+
+          railway variable set \
+            --service "$RAILWAY_SIM_WORKER_SERVICE" \
+            --environment "$RAILWAY_ENVIRONMENT" \
+            --skip-deploys \
+            "SIM_REFRESH_INTERVAL_SECONDS=1800" \
+            "SIM_MARKET_REFRESH_INTERVAL_SECONDS=600"
+
+          railway variable set \
+            --service "$RAILWAY_MLB_ODDS_WORKER_SERVICE" \
+            --environment "$RAILWAY_ENVIRONMENT" \
+            --skip-deploys \
+            "ODDS_API_IO_EVENT_LIMIT=20" \
+            "MLB_ODDS_REFRESH_INTERVAL_SECONDS=600" \
+            "MLB_ODDS_ACTIVE_UTC_HOURS=0,1,2,3,4,5,6,15,16,17,18,19,20,21,22,23"
+
+          railway variable set \
+            --service "$RAILWAY_UFC_WORKER_SERVICE" \
+            --environment "$RAILWAY_ENVIRONMENT" \
+            --skip-deploys \
+            "UFC_AUTOPILOT_INTERVAL_SECONDS=21600"
+
+          railway variable set \
+            --service "$RAILWAY_MAINTENANCE_WORKER_SERVICE" \
+            --environment "$RAILWAY_ENVIRONMENT" \
+            --skip-deploys \
+            "DB_SPACE_REPAIR_INTERVAL_SECONDS=86400" \
+            "SETTLE_SIM_INTERVAL_SECONDS=3600"
+
+      - name: Deploy primary services
+        if: ${{ inputs.deploy_after_create == 'true' }}
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_WEB_SERVICE" -m "Bootstrap deploy ${GITHUB_SHA}"
+          railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_SIM_WORKER_SERVICE" -m "Bootstrap deploy ${GITHUB_SHA}"
+          railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_MLB_ODDS_WORKER_SERVICE" -m "Bootstrap deploy ${GITHUB_SHA}"
+          railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_UFC_WORKER_SERVICE" -m "Bootstrap deploy ${GITHUB_SHA}"
+          railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_MAINTENANCE_WORKER_SERVICE" -m "Bootstrap deploy ${GITHUB_SHA}"
+
+      - name: Generate web Railway domain
+        if: ${{ inputs.generate_web_domain == 'true' }}
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          railway domain --service "$RAILWAY_WEB_SERVICE" --port 3000 --json || true
+
+      - name: Summary
+        run: |
+          echo "Railway primary bootstrap requested."
+          echo "Web: $RAILWAY_WEB_SERVICE"
+          echo "Sim worker: $RAILWAY_SIM_WORKER_SERVICE"
+          echo "MLB odds worker: $RAILWAY_MLB_ODDS_WORKER_SERVICE"
+          echo "UFC worker: $RAILWAY_UFC_WORKER_SERVICE"
+          echo "Maintenance worker: $RAILWAY_MAINTENANCE_WORKER_SERVICE"
