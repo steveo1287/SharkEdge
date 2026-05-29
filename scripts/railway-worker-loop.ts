@@ -1,0 +1,170 @@
+type WorkerTask = {
+  name: string;
+  path: string;
+  intervalSeconds: number;
+  runImmediately: boolean;
+  activeUtcHours?: Set<number>;
+};
+
+export {};
+
+const DEFAULT_WEB_INTERNAL_URL = "http://sharkedge-web:3000";
+
+function intEnv(name: string, fallback: number, min: number, max: number) {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) ? Math.max(min, Math.min(max, Math.round(parsed))) : fallback;
+}
+
+function boolEnv(name: string, fallback = false) {
+  const raw = process.env[name];
+  if (raw == null) return fallback;
+  return !["0", "false", "no", "off"].includes(raw.trim().toLowerCase());
+}
+
+function csvSetEnv(name: string) {
+  const raw = process.env[name]?.trim();
+  if (!raw) return null;
+  return new Set(
+    raw
+      .split(",")
+      .map((item) => Number(item.trim()))
+      .filter((value) => Number.isInteger(value) && value >= 0 && value <= 23)
+  );
+}
+
+function serviceBaseUrl() {
+  return (
+    process.env.RAILWAY_WEB_INTERNAL_URL?.trim() ||
+    process.env.SHARKEDGE_INTERNAL_URL?.trim() ||
+    process.env.SHARKEDGE_BACKEND_URL?.trim() ||
+    DEFAULT_WEB_INTERNAL_URL
+  ).replace(/\/+$/, "");
+}
+
+function authSecret() {
+  return process.env.CRON_SECRET?.trim() || process.env.INTERNAL_API_KEY?.trim() || process.env.INTERNAL_API_KEY2?.trim() || "";
+}
+
+function taskUrl(baseUrl: string, path: string) {
+  return `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function shouldRun(task: WorkerTask, date = new Date()) {
+  if (!task.activeUtcHours?.size) return true;
+  return task.activeUtcHours.has(date.getUTCHours());
+}
+
+function simTasks(): WorkerTask[] {
+  return [
+    {
+      name: "sim-refresh",
+      path: process.env.RAILWAY_SIM_REFRESH_PATH?.trim() || "/api/cron/sim-refresh?statsPreflight=1&runMlb=1&runUfc=0",
+      intervalSeconds: intEnv("SIM_REFRESH_INTERVAL_SECONDS", 1800, 300, 21600),
+      runImmediately: boolEnv("SIM_REFRESH_RUN_IMMEDIATELY", true)
+    },
+    {
+      name: "sim-market-refresh",
+      path: process.env.RAILWAY_SIM_MARKET_REFRESH_PATH?.trim() || "/api/cron/sim-market-refresh",
+      intervalSeconds: intEnv("SIM_MARKET_REFRESH_INTERVAL_SECONDS", 600, 120, 7200),
+      runImmediately: boolEnv("SIM_MARKET_RUN_IMMEDIATELY", true)
+    }
+  ];
+}
+
+function mlbOddsTasks(): WorkerTask[] {
+  return [
+    {
+      name: "mlb-odds-api-io",
+      path:
+        process.env.RAILWAY_MLB_ODDS_PATH?.trim() ||
+        `/api/cron/odds-api-io/mlb?eventLimit=${intEnv("ODDS_API_IO_EVENT_LIMIT", 20, 1, 40)}`,
+      intervalSeconds: intEnv("MLB_ODDS_REFRESH_INTERVAL_SECONDS", 600, 300, 21600),
+      runImmediately: boolEnv("MLB_ODDS_RUN_IMMEDIATELY", true),
+      activeUtcHours: csvSetEnv("MLB_ODDS_ACTIVE_UTC_HOURS") ?? new Set([0, 1, 2, 3, 4, 5, 6, 15, 16, 17, 18, 19, 20, 21, 22, 23])
+    }
+  ];
+}
+
+function ufcTasks(): WorkerTask[] {
+  return [
+    {
+      name: "ufc-autopilot",
+      path:
+        process.env.RAILWAY_UFC_AUTOPILOT_PATH?.trim() ||
+        "/api/internal/cron/ufc-autopilot?autoBuildFeatures=1&hydrate=1&simulate=1&allowFallbackFeatures=0&includeMvp=1&includeEspn=0&includeTapology=0&includeUfcCom=0&limit=40&horizonDays=180&simulations=10000",
+      intervalSeconds: intEnv("UFC_AUTOPILOT_INTERVAL_SECONDS", 21600, 1800, 86400),
+      runImmediately: boolEnv("UFC_AUTOPILOT_RUN_IMMEDIATELY", true)
+    }
+  ];
+}
+
+function maintenanceTasks(): WorkerTask[] {
+  return [
+    {
+      name: "db-space-repair",
+      path: process.env.RAILWAY_DB_SPACE_REPAIR_PATH?.trim() || "/api/internal/cron/db-space-repair",
+      intervalSeconds: intEnv("DB_SPACE_REPAIR_INTERVAL_SECONDS", 86400, 3600, 604800),
+      runImmediately: boolEnv("DB_SPACE_REPAIR_RUN_IMMEDIATELY", false)
+    },
+    {
+      name: "settle-sim-predictions",
+      path: process.env.RAILWAY_SETTLE_SIM_PATH?.trim() || "/api/internal/cron/settle-sim-predictions",
+      intervalSeconds: intEnv("SETTLE_SIM_INTERVAL_SECONDS", 3600, 600, 86400),
+      runImmediately: boolEnv("SETTLE_SIM_RUN_IMMEDIATELY", false)
+    }
+  ];
+}
+
+function tasksForKind(kind: string): WorkerTask[] {
+  if (kind === "sim-worker") return simTasks();
+  if (kind === "mlb-odds-worker") return mlbOddsTasks();
+  if (kind === "ufc-worker") return ufcTasks();
+  if (kind === "maintenance-worker") return maintenanceTasks();
+  if (kind === "all") return [...simTasks(), ...mlbOddsTasks(), ...ufcTasks(), ...maintenanceTasks()];
+  throw new Error(`Unknown Railway worker kind '${kind}'. Use sim-worker, mlb-odds-worker, ufc-worker, maintenance-worker, or all.`);
+}
+
+async function callTask(task: WorkerTask, baseUrl: string, secret: string) {
+  if (!shouldRun(task)) {
+    console.info(`[railway-worker] skip ${task.name}: outside active UTC hours`);
+    return;
+  }
+
+  const startedAt = Date.now();
+  const url = taskUrl(baseUrl, task.path);
+  try {
+    const response = await fetch(url, {
+      headers: secret ? { authorization: `Bearer ${secret}`, "x-cron-secret": secret } : {},
+      cache: "no-store"
+    });
+    const text = await response.text();
+    const sample = text.length > 700 ? `${text.slice(0, 700)}...` : text;
+    console.info(`[railway-worker] ${task.name} status=${response.status} elapsedMs=${Date.now() - startedAt} body=${sample}`);
+  } catch (error) {
+    console.error(`[railway-worker] ${task.name} failed elapsedMs=${Date.now() - startedAt}`, error instanceof Error ? error.message : error);
+  }
+}
+
+async function runTaskLoop(task: WorkerTask, baseUrl: string, secret: string) {
+  if (task.runImmediately) await callTask(task, baseUrl, secret);
+  setInterval(() => {
+    void callTask(task, baseUrl, secret);
+  }, task.intervalSeconds * 1000);
+}
+
+async function main() {
+  const kind = process.env.RAILWAY_WORKER_KIND?.trim() || process.argv[2]?.trim() || process.env.SHARKEDGE_SERVICE_MODE?.trim() || "sim-worker";
+  const baseUrl = serviceBaseUrl();
+  const secret = authSecret();
+  const tasks = tasksForKind(kind);
+
+  console.info(`[railway-worker] start kind=${kind} baseUrl=${baseUrl} tasks=${tasks.map((task) => `${task.name}:${task.intervalSeconds}s`).join(",")}`);
+  if (!secret) console.warn("[railway-worker] CRON_SECRET/INTERNAL_API_KEY is missing; protected endpoints will return 401.");
+
+  await Promise.all(tasks.map((task) => runTaskLoop(task, baseUrl, secret)));
+}
+
+main().catch((error) => {
+  console.error("[railway-worker] fatal", error instanceof Error ? error.message : error);
+  process.exit(1);
+});

@@ -7,6 +7,8 @@
 const BASE_URL = process.env.SHARKEDGE_BACKEND_URL || "http://localhost:3000";
 const API_KEY = process.env.INTERNAL_API_KEY || "test-key";
 
+export {};
+
 interface OddsHarvesterPayload {
   sport: string;
   sportKey: string;

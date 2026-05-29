@@ -12,7 +12,7 @@ COPY . .
 RUN npm run build
 
 ENV NODE_ENV=production
-# web | odds-worker
+# web | odds-worker | sim-worker | mlb-odds-worker | ufc-worker | maintenance-worker
 ENV SHARKEDGE_SERVICE_MODE=web
 
-CMD ["sh", "-lc", "npx prisma migrate deploy && if [ \"$SHARKEDGE_SERVICE_MODE\" = \"odds-worker\" ]; then npm run worker:odds-refresh; else npm run start -- -p ${PORT:-3000}; fi"]
+CMD ["sh", "-lc", "case \"$SHARKEDGE_SERVICE_MODE\" in odds-worker) npm run worker:odds-refresh ;; sim-worker) npm run worker:railway:sim ;; mlb-odds-worker) npm run worker:railway:mlb-odds ;; ufc-worker) npm run worker:railway:ufc ;; maintenance-worker) npm run worker:railway:maintenance ;; *) npx prisma migrate deploy && npm run start -- -p ${PORT:-3000} ;; esac"]

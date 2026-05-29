@@ -1,0 +1,15 @@
+FROM node:20-bookworm-slim
+
+WORKDIR /app
+
+COPY package*.json ./
+COPY prisma ./prisma
+COPY scripts ./scripts
+RUN npm ci --include=dev
+
+COPY . .
+
+ENV NODE_ENV=production
+ENV RAILWAY_WORKER_KIND=mlb-odds-worker
+
+CMD ["npm", "run", "worker:railway:mlb-odds"]
