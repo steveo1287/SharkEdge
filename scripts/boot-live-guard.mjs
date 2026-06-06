@@ -3,6 +3,13 @@ import path from 'node:path';
 
 const mode = process.argv[2] ?? 'dev';
 const passthroughArgs = process.argv.slice(3).filter((arg) => arg !== '--skip-guard');
+const railwayWorkerScripts = {
+  'sim-worker': 'worker:railway:sim',
+  'mlb-odds-worker': 'worker:railway:mlb-odds',
+  'ufc-worker': 'worker:railway:ufc',
+  'maintenance-worker': 'worker:railway:maintenance',
+  'odds-worker': 'worker:odds-refresh'
+};
 
 function flagEnabled(value) {
   if (!value) {
@@ -86,7 +93,30 @@ function runNext(targetArgs) {
   });
 }
 
+function runNpmScript(scriptName) {
+  const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  return new Promise((resolve, reject) => {
+    const child = spawn(npmCommand, ['run', scriptName], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: 'inherit'
+    });
+
+    child.on('exit', (code) => resolve(code ?? 1));
+    child.on('error', reject);
+  });
+}
+
 async function main() {
+  const serviceMode = process.env.SHARKEDGE_SERVICE_MODE?.trim();
+  const workerScript = serviceMode ? railwayWorkerScripts[serviceMode] : null;
+  if (mode === 'start' && workerScript) {
+    console.info(`[boot] detected SHARKEDGE_SERVICE_MODE=${serviceMode}; running ${workerScript}`);
+    const exitCode = await runNpmScript(workerScript);
+    process.exit(exitCode);
+    return;
+  }
+
   const skipGuard =
     process.argv.includes('--skip-guard') ||
     flagEnabled(process.env.SHARKEDGE_ALLOW_DEGRADED_BOOT) ||
