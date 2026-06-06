@@ -42,13 +42,19 @@ jobs:
       - name: Create primary Railway services
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         shell: bash
         run: |
           set -euo pipefail
 
-          if [ -z "${RAILWAY_TOKEN:-}" ]; then
-            echo "RAILWAY_TOKEN secret is required"
+          if [ -n "${RAILWAY_API_TOKEN:-}" ]; then
+            unset RAILWAY_TOKEN
+            echo "Using RAILWAY_API_TOKEN for Railway CLI auth"
+          elif [ -n "${RAILWAY_TOKEN:-}" ]; then
+            echo "Using RAILWAY_TOKEN for Railway CLI auth"
+          else
+            echo "RAILWAY_API_TOKEN or RAILWAY_TOKEN secret is required"
             exit 1
           fi
 
@@ -118,10 +124,14 @@ jobs:
         if: ${{ inputs.deploy_after_create == 'true' }}
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         shell: bash
         run: |
           set -euo pipefail
+          if [ -n "${RAILWAY_API_TOKEN:-}" ]; then
+            unset RAILWAY_TOKEN
+          fi
           railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_WEB_SERVICE" -m "Bootstrap deploy ${GITHUB_SHA}"
           railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_SIM_WORKER_SERVICE" -m "Bootstrap deploy ${GITHUB_SHA}"
           railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_MLB_ODDS_WORKER_SERVICE" -m "Bootstrap deploy ${GITHUB_SHA}"
@@ -132,10 +142,14 @@ jobs:
         if: ${{ inputs.generate_web_domain == 'true' }}
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         shell: bash
         run: |
           set -euo pipefail
+          if [ -n "${RAILWAY_API_TOKEN:-}" ]; then
+            unset RAILWAY_TOKEN
+          fi
           railway domain --service "$RAILWAY_WEB_SERVICE" --port 3000 --json || true
 
       - name: Summary
