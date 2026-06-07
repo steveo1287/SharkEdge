@@ -6,6 +6,7 @@ import {
   classifyMlbHitterRole,
   classifyMlbStarterRole
 } from "@/services/simulation/mlb-roster-intelligence";
+import { buildMlbAutoRosterIntelligenceId } from "@/services/simulation/mlb-roster-intelligence-auto-builder";
 
 const eliteBat = calculateMlbHitterOverall({
   contact: 88,
@@ -42,5 +43,14 @@ assert.equal(classifyMlbStarterRole(eliteStarter), "ACE");
 assert.equal(classifyMlbStarterRole(78), "TOP_ROTATION");
 assert.equal(classifyMlbStarterRole(70), "MID_ROTATION");
 assert.equal(classifyMlbStarterRole(57), "BACK_END");
+
+assert.equal(
+  buildMlbAutoRosterIntelligenceId("hitter", [2026, "Player 123"]),
+  "auto:hitter:2026:player-123"
+);
+assert.equal(
+  buildMlbAutoRosterIntelligenceId("lineup", ["game id", "New York Yankees"]),
+  "auto:lineup:game-id:new-york-yankees"
+);
 
 console.log("mlb-roster-intelligence.test.ts passed");

@@ -73,6 +73,22 @@ function safeJson(value: unknown) {
   return JSON.stringify(value ?? null);
 }
 
+function keyPart(value: unknown) {
+  return String(value ?? "unknown").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "unknown";
+}
+
+export function buildMlbAutoRosterIntelligenceId(kind: "hitter" | "pitcher" | "lineup", parts: unknown[]) {
+  return `auto:${kind}:${parts.map(keyPart).join(":")}`;
+}
+
+function staleSourceWarning(label: string, latestAt: Date | string | null, maxAgeDays: number) {
+  if (!latestAt) return `${label} source rows are missing.`;
+  const ms = latestAt instanceof Date ? latestAt.getTime() : new Date(latestAt).getTime();
+  if (!Number.isFinite(ms)) return `${label} source row freshness is unreadable.`;
+  const ageDays = Math.floor((Date.now() - ms) / 86_400_000);
+  return ageDays > maxAgeDays ? `${label} source rows are stale (${ageDays} days old).` : null;
+}
+
 function pitcherLike(row: PlayerStatRow, stats: JsonRecord) {
   const pos = String(row.position ?? stats.position ?? stats.primaryPosition ?? "").toUpperCase();
   return pos.includes("P") || ["outsPitched", "inningsPitched", "pitchesThrown", "pitchingStrikeouts", "era", "fip", "xera", "xERA"].some((key) => stats[key] != null);
@@ -182,16 +198,35 @@ async function insertHitter(row: PlayerStatRow, input: MlbHitterSkillInput) {
   const team = row.teamAbbr ?? "UNKNOWN";
   const overall = calculateMlbHitterOverall(input);
   const roleTier = classifyMlbHitterRole(overall);
+  const id = buildMlbAutoRosterIntelligenceId("hitter", [season(), row.playerId]);
   await prisma.$executeRaw`
     INSERT INTO mlb_player_ratings (
       id, player_id, player_name, team, season, primary_position, role_tier,
       contact, power, discipline, vs_lhp, vs_rhp, baserunning, fielding, current_form, overall,
       metrics_json, source, snapshot_at
     ) VALUES (
-      ${crypto.randomUUID()}, ${row.playerId}, ${row.playerName}, ${team}, ${season()}, ${row.position ?? null}, ${roleTier},
+      ${id}, ${row.playerId}, ${row.playerName}, ${team}, ${season()}, ${row.position ?? null}, ${roleTier},
       ${input.contact}, ${input.power}, ${input.discipline}, ${input.vsLhp}, ${input.vsRhp}, ${input.baserunning}, ${input.fielding}, ${input.currentForm}, ${overall},
       ${safeJson({ autoBuiltFrom: "player_game_stats", sourceUpdatedAt: row.updatedAt, raw: stats })}::jsonb, 'auto-player-game-stats', now()
-    );
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      player_name = EXCLUDED.player_name,
+      team = EXCLUDED.team,
+      primary_position = EXCLUDED.primary_position,
+      role_tier = EXCLUDED.role_tier,
+      contact = EXCLUDED.contact,
+      power = EXCLUDED.power,
+      discipline = EXCLUDED.discipline,
+      vs_lhp = EXCLUDED.vs_lhp,
+      vs_rhp = EXCLUDED.vs_rhp,
+      baserunning = EXCLUDED.baserunning,
+      fielding = EXCLUDED.fielding,
+      current_form = EXCLUDED.current_form,
+      overall = EXCLUDED.overall,
+      metrics_json = EXCLUDED.metrics_json,
+      source = EXCLUDED.source,
+      snapshot_at = EXCLUDED.snapshot_at,
+      updated_at = now();
   `;
   return { playerId: row.playerId, name: row.playerName, team, overall, roleTier };
 }
@@ -201,16 +236,35 @@ async function insertPitcher(row: PlayerStatRow, input: MlbPitcherSkillInput) {
   const team = row.teamAbbr ?? "UNKNOWN";
   const overall = calculateMlbPitcherOverall(input);
   const roleTier = classifyMlbStarterRole(overall);
+  const id = buildMlbAutoRosterIntelligenceId("pitcher", [season(), row.playerId]);
   await prisma.$executeRaw`
     INSERT INTO mlb_pitcher_ratings (
       id, pitcher_id, pitcher_name, team, season, role_tier,
       xera_quality, fip_quality, k_bb, hr_risk, groundball_rate, platoon_split, stamina, recent_workload, arsenal_quality, overall,
       metrics_json, source, snapshot_at
     ) VALUES (
-      ${crypto.randomUUID()}, ${row.playerId}, ${row.playerName}, ${team}, ${season()}, ${roleTier},
+      ${id}, ${row.playerId}, ${row.playerName}, ${team}, ${season()}, ${roleTier},
       ${input.xeraQuality}, ${input.fipQuality}, ${input.kBb}, ${input.hrRisk}, ${input.groundballRate}, ${input.platoonSplit}, ${input.stamina}, ${input.recentWorkload}, ${input.arsenalQuality}, ${overall},
       ${safeJson({ autoBuiltFrom: "player_game_stats", sourceUpdatedAt: row.updatedAt, raw: stats })}::jsonb, 'auto-player-game-stats', now()
-    );
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      pitcher_name = EXCLUDED.pitcher_name,
+      team = EXCLUDED.team,
+      role_tier = EXCLUDED.role_tier,
+      xera_quality = EXCLUDED.xera_quality,
+      fip_quality = EXCLUDED.fip_quality,
+      k_bb = EXCLUDED.k_bb,
+      hr_risk = EXCLUDED.hr_risk,
+      groundball_rate = EXCLUDED.groundball_rate,
+      platoon_split = EXCLUDED.platoon_split,
+      stamina = EXCLUDED.stamina,
+      recent_workload = EXCLUDED.recent_workload,
+      arsenal_quality = EXCLUDED.arsenal_quality,
+      overall = EXCLUDED.overall,
+      metrics_json = EXCLUDED.metrics_json,
+      source = EXCLUDED.source,
+      snapshot_at = EXCLUDED.snapshot_at,
+      updated_at = now();
   `;
   return { pitcherId: row.playerId, name: row.playerName, team, overall, roleTier };
 }
@@ -223,12 +277,14 @@ async function insertLineup(row: TeamStatRow) {
   const availableRelievers = Array.isArray(stats.availableRelievers) ? stats.availableRelievers : [];
   const unavailableRelievers = Array.isArray(stats.unavailableRelievers) ? stats.unavailableRelievers : [];
   const injuries = Array.isArray(stats.injuries) ? stats.injuries : [];
+  const team = row.teamAbbr ?? "UNKNOWN";
+  const id = buildMlbAutoRosterIntelligenceId("lineup", [row.gameId, team]);
   await prisma.$executeRaw`
     INSERT INTO mlb_lineup_snapshots (
       id, game_id, team, confirmed, batting_order_json, bench_json, starting_pitcher_id, starting_pitcher_name,
       available_relievers_json, unavailable_relievers_json, injuries_json, source, captured_at
     ) VALUES (
-      ${crypto.randomUUID()}, ${row.gameId}, ${row.teamAbbr ?? "UNKNOWN"}, ${Boolean(stats.confirmedLineup ?? stats.lineupConfirmed)},
+      ${id}, ${row.gameId}, ${team}, ${Boolean(stats.confirmedLineup ?? stats.lineupConfirmed)},
       ${safeJson(battingOrder)}::jsonb,
       ${safeJson(Array.isArray(stats.bench) ? stats.bench : [])}::jsonb,
       ${probablePitcherId}, ${probablePitcherName},
@@ -236,9 +292,21 @@ async function insertLineup(row: TeamStatRow) {
       ${safeJson(unavailableRelievers)}::jsonb,
       ${safeJson(injuries)}::jsonb,
       'auto-team-game-stats', now()
-    );
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      confirmed = EXCLUDED.confirmed,
+      batting_order_json = EXCLUDED.batting_order_json,
+      bench_json = EXCLUDED.bench_json,
+      starting_pitcher_id = EXCLUDED.starting_pitcher_id,
+      starting_pitcher_name = EXCLUDED.starting_pitcher_name,
+      available_relievers_json = EXCLUDED.available_relievers_json,
+      unavailable_relievers_json = EXCLUDED.unavailable_relievers_json,
+      injuries_json = EXCLUDED.injuries_json,
+      source = EXCLUDED.source,
+      captured_at = EXCLUDED.captured_at,
+      updated_at = now();
   `;
-  return { gameId: row.gameId, team: row.teamAbbr ?? "UNKNOWN", confirmed: Boolean(stats.confirmedLineup ?? stats.lineupConfirmed) };
+  return { gameId: row.gameId, team, confirmed: Boolean(stats.confirmedLineup ?? stats.lineupConfirmed) };
 }
 
 export async function buildMlbRosterIntelligenceFromStats(options: { lookbackDays?: number; limit?: number; includeLineups?: boolean } = {}) {
@@ -247,6 +315,10 @@ export async function buildMlbRosterIntelligenceFromStats(options: { lookbackDay
   const lookbackDays = Math.max(1, Math.min(365, Math.round(options.lookbackDays ?? 45)));
   const limit = Math.max(50, Math.min(5000, Math.round(options.limit ?? 1500)));
   const rows = await latestPlayerStats(lookbackDays, limit);
+  const latestPlayerUpdatedAt = rows.reduce<Date | string | null>((latest, row) => {
+    if (!latest) return row.updatedAt;
+    return new Date(row.updatedAt).getTime() > new Date(latest).getTime() ? row.updatedAt : latest;
+  }, null);
   const hitterResults = [];
   const pitcherResults = [];
   for (const row of rows) {
@@ -255,16 +327,29 @@ export async function buildMlbRosterIntelligenceFromStats(options: { lookbackDay
     else hitterResults.push(await insertHitter(row, hitterInput(stats)));
   }
   const lineupRows = options.includeLineups === false ? [] : await latestTeamStats(lookbackDays, Math.min(3000, limit));
+  const latestTeamUpdatedAt = lineupRows.reduce<Date | string | null>((latest, row) => {
+    if (!latest) return row.updatedAt;
+    return new Date(row.updatedAt).getTime() > new Date(latest).getTime() ? row.updatedAt : latest;
+  }, null);
   const lineupResults = [];
   for (const row of lineupRows) lineupResults.push(await insertLineup(row));
+  const warnings = [
+    staleSourceWarning("MLB player stat", latestPlayerUpdatedAt, 3),
+    staleSourceWarning("MLB team stat", latestTeamUpdatedAt, 3),
+    rows.length < 300 ? `Only ${rows.length} distinct recent MLB player rows were available for roster intelligence.` : null,
+    options.includeLineups !== false && lineupRows.length < 30 ? `Only ${lineupRows.length} recent MLB team/game rows were available for lineup snapshots.` : null
+  ].filter((warning): warning is string => Boolean(warning));
   return {
     ok: true,
     source: "auto-player-team-game-stats",
     lookbackDays,
     inputRows: rows.length,
+    latestPlayerUpdatedAt,
+    latestTeamUpdatedAt,
     hitters: hitterResults.length,
     pitchers: pitcherResults.length,
     lineups: lineupResults.length,
+    warnings,
     hitterResults: hitterResults.slice(0, 20),
     pitcherResults: pitcherResults.slice(0, 20),
     lineupResults: lineupResults.slice(0, 20)

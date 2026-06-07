@@ -164,45 +164,160 @@ function normalizeCount(value: unknown) {
   return 0;
 }
 
+function toIso(value: Date | string | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function ageDays(value: Date | string | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return Math.max(0, Math.floor((Date.now() - date.getTime()) / 86_400_000));
+}
+
+function sourceFreshnessWarning(label: string, latestAt: Date | string | null | undefined, maxAgeDays: number) {
+  const age = ageDays(latestAt);
+  if (age == null) return `${label} source rows are missing.`;
+  return age > maxAgeDays ? `${label} source rows are stale (${age} days old).` : null;
+}
+
 export async function getMlbRosterIntelligenceSummary() {
   const databaseReady = await ensureMlbRosterIntelligenceTables();
   if (!databaseReady) return { ok: false, databaseReady, error: "No usable server database URL is configured." };
 
-  const [hitterTotals, pitcherTotals, lineupTotals, hitterRoles, pitcherRoles] = await Promise.all([
-    prisma.$queryRaw<Array<{ total: bigint; teams: bigint }>>`SELECT COUNT(*)::bigint AS total, COUNT(DISTINCT team)::bigint AS teams FROM mlb_player_ratings;`,
-    prisma.$queryRaw<Array<{ total: bigint; teams: bigint }>>`SELECT COUNT(*)::bigint AS total, COUNT(DISTINCT team)::bigint AS teams FROM mlb_pitcher_ratings;`,
-    prisma.$queryRaw<Array<{ total: bigint; confirmed: bigint }>>`SELECT COUNT(*)::bigint AS total, SUM(CASE WHEN confirmed THEN 1 ELSE 0 END)::bigint AS confirmed FROM mlb_lineup_snapshots;`,
+  const [hitterTotals, pitcherTotals, lineupTotals, hitterRoles, pitcherRoles, sourceFreshness] = await Promise.all([
+    prisma.$queryRaw<Array<{ total: bigint; latest: bigint; teams: bigint; latest_snapshot_at: Date | null }>>`
+      WITH latest AS (
+        SELECT DISTINCT ON (player_id) player_id, team, snapshot_at
+        FROM mlb_player_ratings
+        ORDER BY player_id, snapshot_at DESC
+      )
+      SELECT
+        (SELECT COUNT(*)::bigint FROM mlb_player_ratings) AS total,
+        COUNT(*)::bigint AS latest,
+        COUNT(DISTINCT team)::bigint AS teams,
+        MAX(snapshot_at) AS latest_snapshot_at
+      FROM latest;
+    `,
+    prisma.$queryRaw<Array<{ total: bigint; latest: bigint; teams: bigint; latest_snapshot_at: Date | null }>>`
+      WITH latest AS (
+        SELECT DISTINCT ON (pitcher_id) pitcher_id, team, snapshot_at
+        FROM mlb_pitcher_ratings
+        ORDER BY pitcher_id, snapshot_at DESC
+      )
+      SELECT
+        (SELECT COUNT(*)::bigint FROM mlb_pitcher_ratings) AS total,
+        COUNT(*)::bigint AS latest,
+        COUNT(DISTINCT team)::bigint AS teams,
+        MAX(snapshot_at) AS latest_snapshot_at
+      FROM latest;
+    `,
+    prisma.$queryRaw<Array<{ total: bigint; latest: bigint; confirmed: bigint; latest_captured_at: Date | null }>>`
+      WITH latest AS (
+        SELECT DISTINCT ON (game_id, team) game_id, team, confirmed, captured_at
+        FROM mlb_lineup_snapshots
+        ORDER BY game_id, team, captured_at DESC
+      )
+      SELECT
+        (SELECT COUNT(*)::bigint FROM mlb_lineup_snapshots) AS total,
+        COUNT(*)::bigint AS latest,
+        SUM(CASE WHEN confirmed THEN 1 ELSE 0 END)::bigint AS confirmed,
+        MAX(captured_at) AS latest_captured_at
+      FROM latest;
+    `,
     prisma.$queryRaw<Array<{ role_tier: string; count: bigint; avg_overall: number | null }>>`
+      WITH latest AS (
+        SELECT DISTINCT ON (player_id) role_tier, overall
+        FROM mlb_player_ratings
+        ORDER BY player_id, snapshot_at DESC
+      )
       SELECT role_tier, COUNT(*)::bigint AS count, AVG(overall) AS avg_overall
-      FROM mlb_player_ratings
+      FROM latest
       GROUP BY role_tier
       ORDER BY count DESC;
     `,
     prisma.$queryRaw<Array<{ role_tier: string; count: bigint; avg_overall: number | null }>>`
+      WITH latest AS (
+        SELECT DISTINCT ON (pitcher_id) role_tier, overall
+        FROM mlb_pitcher_ratings
+        ORDER BY pitcher_id, snapshot_at DESC
+      )
       SELECT role_tier, COUNT(*)::bigint AS count, AVG(overall) AS avg_overall
-      FROM mlb_pitcher_ratings
+      FROM latest
       GROUP BY role_tier
       ORDER BY count DESC;
+    `,
+    prisma.$queryRaw<Array<{ player_rows: bigint; latest_player_stat_at: Date | null; team_rows: bigint; latest_team_stat_at: Date | null }>>`
+      SELECT
+        (SELECT COUNT(*)::bigint
+          FROM player_game_stats pgs
+          JOIN players p ON p.id = pgs."playerId"
+          JOIN leagues l ON l.id = p."leagueId"
+          WHERE l.key = 'MLB') AS player_rows,
+        (SELECT MAX(pgs."updatedAt")
+          FROM player_game_stats pgs
+          JOIN players p ON p.id = pgs."playerId"
+          JOIN leagues l ON l.id = p."leagueId"
+          WHERE l.key = 'MLB') AS latest_player_stat_at,
+        (SELECT COUNT(*)::bigint
+          FROM team_game_stats tgs
+          JOIN teams t ON t.id = tgs."teamId"
+          JOIN leagues l ON l.id = t."leagueId"
+          WHERE l.key = 'MLB') AS team_rows,
+        (SELECT MAX(tgs."updatedAt")
+          FROM team_game_stats tgs
+          JOIN teams t ON t.id = tgs."teamId"
+          JOIN leagues l ON l.id = t."leagueId"
+          WHERE l.key = 'MLB') AS latest_team_stat_at;
     `
   ]);
+  const sourceRow = sourceFreshness[0];
+  const warnings = [
+    sourceFreshnessWarning("MLB player stat", sourceRow?.latest_player_stat_at, 3),
+    sourceFreshnessWarning("MLB team stat", sourceRow?.latest_team_stat_at, 3),
+    normalizeCount(lineupTotals[0]?.confirmed) === 0 ? "No confirmed MLB lineup snapshots are available; lineup effects are inferred/probable only." : null
+  ].filter((warning): warning is string => Boolean(warning));
 
   return {
     ok: true,
     databaseReady,
     hitters: {
-      total: normalizeCount(hitterTotals[0]?.total),
+      total: normalizeCount(hitterTotals[0]?.latest),
+      latest: normalizeCount(hitterTotals[0]?.latest),
+      totalSnapshots: normalizeCount(hitterTotals[0]?.total),
+      duplicateSnapshots: Math.max(0, normalizeCount(hitterTotals[0]?.total) - normalizeCount(hitterTotals[0]?.latest)),
       teams: normalizeCount(hitterTotals[0]?.teams),
+      latestSnapshotAt: toIso(hitterTotals[0]?.latest_snapshot_at),
       roles: hitterRoles.map((row) => ({ role: row.role_tier, count: normalizeCount(row.count), avgOverall: row.avg_overall == null ? null : round(row.avg_overall) }))
     },
     pitchers: {
-      total: normalizeCount(pitcherTotals[0]?.total),
+      total: normalizeCount(pitcherTotals[0]?.latest),
+      latest: normalizeCount(pitcherTotals[0]?.latest),
+      totalSnapshots: normalizeCount(pitcherTotals[0]?.total),
+      duplicateSnapshots: Math.max(0, normalizeCount(pitcherTotals[0]?.total) - normalizeCount(pitcherTotals[0]?.latest)),
       teams: normalizeCount(pitcherTotals[0]?.teams),
+      latestSnapshotAt: toIso(pitcherTotals[0]?.latest_snapshot_at),
       roles: pitcherRoles.map((row) => ({ role: row.role_tier, count: normalizeCount(row.count), avgOverall: row.avg_overall == null ? null : round(row.avg_overall) }))
     },
     lineupSnapshots: {
-      total: normalizeCount(lineupTotals[0]?.total),
-      confirmed: normalizeCount(lineupTotals[0]?.confirmed)
+      total: normalizeCount(lineupTotals[0]?.latest),
+      latest: normalizeCount(lineupTotals[0]?.latest),
+      totalSnapshots: normalizeCount(lineupTotals[0]?.total),
+      duplicateSnapshots: Math.max(0, normalizeCount(lineupTotals[0]?.total) - normalizeCount(lineupTotals[0]?.latest)),
+      confirmed: normalizeCount(lineupTotals[0]?.confirmed),
+      latestCapturedAt: toIso(lineupTotals[0]?.latest_captured_at)
     },
+    sourceFreshness: {
+      playerRows: normalizeCount(sourceRow?.player_rows),
+      latestPlayerStatAt: toIso(sourceRow?.latest_player_stat_at),
+      playerStatAgeDays: ageDays(sourceRow?.latest_player_stat_at),
+      teamRows: normalizeCount(sourceRow?.team_rows),
+      latestTeamStatAt: toIso(sourceRow?.latest_team_stat_at),
+      teamStatAgeDays: ageDays(sourceRow?.latest_team_stat_at)
+    },
+    warnings,
     targetSchema: {
       hitters: ["contact", "power", "discipline", "vs_lhp", "vs_rhp", "baserunning", "fielding", "current_form", "overall", "role_tier"],
       pitchers: ["xera_quality", "fip_quality", "k_bb", "hr_risk", "groundball_rate", "platoon_split", "stamina", "recent_workload", "arsenal_quality", "overall", "role_tier"],

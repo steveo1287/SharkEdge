@@ -57,6 +57,14 @@ function shouldRun(task: WorkerTask, date = new Date()) {
 function simTasks(): WorkerTask[] {
   return [
     {
+      name: "mlb-stats-ingest",
+      path:
+        process.env.RAILWAY_MLB_STATS_INGEST_PATH?.trim() ||
+        `/api/internal/cron/stats-ingest?includeNba=0&lookbackDays=${intEnv("MLB_STATS_LOOKBACK_DAYS", 3, 1, 14)}&advancedLookbackDays=${intEnv("MLB_ADVANCED_STATS_LOOKBACK_DAYS", 7, 1, 14)}`,
+      intervalSeconds: intEnv("MLB_STATS_INGEST_INTERVAL_SECONDS", 21600, 1800, 86400),
+      runImmediately: boolEnv("MLB_STATS_INGEST_RUN_IMMEDIATELY", true)
+    },
+    {
       name: "sim-refresh",
       path: process.env.RAILWAY_SIM_REFRESH_PATH?.trim() || "/api/cron/sim-refresh?statsPreflight=1&runMlb=1&runUfc=0",
       intervalSeconds: intEnv("SIM_REFRESH_INTERVAL_SECONDS", 1800, 300, 21600),
