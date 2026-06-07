@@ -5,7 +5,6 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import type { LeagueKey } from "@/lib/types/domain";
-import { cn } from "@/lib/utils/cn";
 import {
   readSimCache,
   SIM_CACHE_KEYS,
