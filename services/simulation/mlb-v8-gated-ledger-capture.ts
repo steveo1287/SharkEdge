@@ -3,6 +3,8 @@ import type { LeagueKey } from "@/lib/types/domain";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { ensureMlbIntelV7Ledgers } from "@/services/simulation/mlb-intel-v7-ledgers";
 import type { MlbIntelV7ProbabilityResult } from "@/services/simulation/mlb-intel-v7-probability";
+import { buildMlbCalibratedPlayerMarketSurface, type MlbCalibratedPlayerMarketSurface } from "@/services/simulation/mlb-calibrated-player-market-surface";
+import { getActiveMlbPlayerMarketCalibrationProfile } from "@/services/simulation/mlb-player-prop-inning-calibration";
 import {
   buildMlbInningProjectionRows,
   buildMlbPlayerPropProjectionRows,
@@ -29,6 +31,7 @@ type SimGame = {
 type RuntimePlayerImpact = {
   playerStatProjections?: MlbPlayerStatProjectionGame | null;
   inningProjection?: MlbInningMarketProjection | null;
+  playerMarketSurface?: MlbCalibratedPlayerMarketSurface | null;
 };
 
 type RuntimeMlbIntel = NonNullable<Awaited<ReturnType<typeof buildMainSimProjection>>["mlbIntel"]> & {
@@ -168,16 +171,20 @@ async function capturePropAndInningRows(args: { game: SimGame; playerImpact: Run
 export async function captureCurrentMlbV8GatedLedgers(windowDays = 180, options: V8GatedCaptureOptions = {}) {
   const databaseReady = await ensureMlbIntelV7Ledgers();
   if (!databaseReady) {
-    return { ok: false, databaseReady, capturedSnapshots: 0, officialPicks: 0, propRows: 0, inningRows: 0, gateBlocked: 0, premiumBlocked: 0, shadowBlocked: 0, skipped: 0, error: "No usable server database URL is configured." };
+    return { ok: false, databaseReady, capturedSnapshots: 0, officialPicks: 0, propRows: 0, inningRows: 0, promotedPlayerMarkets: 0, gateBlocked: 0, premiumBlocked: 0, shadowBlocked: 0, skipped: 0, error: "No usable server database URL is configured." };
   }
   await ensureMlbPlayerPropInningLedgers();
 
-  const gate = await getMlbV8PromotionGate(windowDays);
+  const [gate, playerMarketCalibrationProfile] = await Promise.all([
+    getMlbV8PromotionGate(windowDays),
+    getActiveMlbPlayerMarketCalibrationProfile().catch(() => null)
+  ]);
   const games = await fetchMlbGames();
   let capturedSnapshots = 0;
   let officialPicks = 0;
   let propRows = 0;
   let inningRows = 0;
+  let promotedPlayerMarkets = 0;
   let gateBlocked = 0;
   let premiumBlocked = 0;
   let shadowBlocked = 0;
@@ -197,6 +204,21 @@ export async function captureCurrentMlbV8GatedLedgers(windowDays = 180, options:
       skipped += 1;
       continue;
     }
+
+    const playerMarketSurface = mlbIntel?.playerImpact
+      ? buildMlbCalibratedPlayerMarketSurface({
+        gameId: game.id,
+        eventLabel: game.label,
+        startTime: game.startTime,
+        playerStatProjections: mlbIntel.playerImpact.playerStatProjections ?? null,
+        inningProjection: mlbIntel.playerImpact.inningProjection ?? null,
+        profile: playerMarketCalibrationProfile
+      })
+      : null;
+    promotedPlayerMarkets += playerMarketSurface?.promotedCount ?? 0;
+    const playerImpact = mlbIntel?.playerImpact
+      ? { ...mlbIntel.playerImpact, playerMarketSurface }
+      : null;
 
     const gatedPolicy = applyMlbV8PromotionGateToPremiumPolicy(premiumPolicy, gate);
     const snapshotSide: "HOME" | "AWAY" = v7.finalHomeWinPct >= 0.5 ? "HOME" : "AWAY";
@@ -219,7 +241,7 @@ export async function captureCurrentMlbV8GatedLedgers(windowDays = 180, options:
       mlbIntel: {
         modelVersion: mlbIntel?.modelVersion ?? null,
         dataSource: mlbIntel?.dataSource ?? null,
-        playerImpact: mlbIntel?.playerImpact ?? null,
+        playerImpact,
         premiumPolicy,
         gatedPolicy,
         market: mlbIntel?.market ?? null,
@@ -235,7 +257,7 @@ export async function captureCurrentMlbV8GatedLedgers(windowDays = 180, options:
 
     await insertSnapshot({ game, side: snapshotSide, rawSideProbability, calibratedSideProbability, marketSideProbability, edge, predictionJson });
     capturedSnapshots += 1;
-    const captured = await capturePropAndInningRows({ game, playerImpact: mlbIntel?.playerImpact });
+    const captured = await capturePropAndInningRows({ game, playerImpact });
     propRows += captured.playerPropRows;
     inningRows += captured.inningRows;
 
@@ -267,6 +289,7 @@ export async function captureCurrentMlbV8GatedLedgers(windowDays = 180, options:
     officialPicks,
     propRows,
     inningRows,
+    promotedPlayerMarkets,
     gateBlocked,
     premiumBlocked,
     shadowBlocked,
