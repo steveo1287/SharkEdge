@@ -50,14 +50,14 @@ export type MlbV8MicroTendencyResult = {
   warnings: string[];
 };
 
-type MicroFeedCache = {
+export type MlbV8MicroFeedCache = {
   source: string;
   loadedAt: string;
   batters: MlbBatterMicroTendency[];
   pitchers: MlbPitcherMicroTendency[];
 };
 
-let cachedFeed: MicroFeedCache | null = null;
+let cachedFeed: MlbV8MicroFeedCache | null = null;
 
 function configuredPath(envName: string, fallback: string) {
   const value = process.env[envName];
@@ -75,7 +75,7 @@ export function resetMlbV8MicroTendencyFeedCache() {
   cachedFeed = null;
 }
 
-export function loadMlbV8MicroTendencyFeed(): MicroFeedCache {
+export function loadMlbV8MicroTendencyFeed(): MlbV8MicroFeedCache {
   if (cachedFeed) return cachedFeed;
   const batterPath = configuredPath("MLB_BATTER_MICRO_TENDENCIES_PATH", "data/mlb/micro/batter-micro-tendencies.json");
   const pitcherPath = configuredPath("MLB_PITCHER_MICRO_TENDENCIES_PATH", "data/mlb/micro/pitcher-micro-tendencies.json");
