@@ -1,8 +1,7 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 
 import { ensureInternalApiAccess } from "@/lib/utils/internal-api";
-import { settleSimPredictions } from "@/services/simulation/sim-settlement-service";
-import { settleMlbSimPredictionSnapshots } from "@/services/simulation/mlb-snapshot-settlement";
+import { backfillMlbCandidatePickLedger } from "@/services/simulation/mlb-candidate-pick-ledger";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -33,25 +32,14 @@ async function run(request: Request) {
 
   const url = new URL(request.url);
   const body = request.method === "POST" ? await parseBody(request) : {};
-  const league = String(url.searchParams.get("league") ?? body.league ?? "ALL").toUpperCase();
-  const limit = intParam(url.searchParams.get("limit") ?? body.limit, 500, 1, 1000);
+  const limit = intParam(url.searchParams.get("limit") ?? body.limit, 5000, 1, 10000);
   const dryRun = boolParam(url.searchParams.get("dryRun") ?? body.dryRun);
 
   try {
-    if (league === "MLB") {
-      const result = await settleMlbSimPredictionSnapshots({ limit, dryRun });
-      return NextResponse.json({ ok: result.ok, league, result }, { status: result.ok ? 200 : 500 });
-    }
-
-    const result = await settleSimPredictions();
-    return NextResponse.json({
-      ok: true,
-      league,
-      message: `Settled ${result.settledCount} of ${result.totalOpen} open prop predictions`,
-      result
-    });
+    const result = await backfillMlbCandidatePickLedger({ limit, dryRun });
+    return NextResponse.json({ ok: result.ok, result }, { status: result.ok ? 200 : 500 });
   } catch (error) {
-    console.error("Settlement job failed:", error);
+    console.error("MLB candidate pick ledger backfill failed:", error);
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }

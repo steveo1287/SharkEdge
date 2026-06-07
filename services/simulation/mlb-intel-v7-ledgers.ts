@@ -292,6 +292,10 @@ export async function ensureMlbIntelV7Ledgers() {
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS mlb_model_snapshot_ledger_model_idx ON mlb_model_snapshot_ledger (model_version, market, captured_at DESC);`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS mlb_official_pick_ledger_game_idx ON mlb_official_pick_ledger (game_id, released_at DESC);`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS mlb_official_pick_ledger_model_idx ON mlb_official_pick_ledger (model_version, market, released_at DESC);`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE mlb_official_pick_ledger ADD COLUMN IF NOT EXISTS gate_status TEXT;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE mlb_official_pick_ledger ADD COLUMN IF NOT EXISTS gate_blockers JSONB;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE mlb_official_pick_ledger ADD COLUMN IF NOT EXISTS current_american_odds DOUBLE PRECISION;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE mlb_official_pick_ledger ADD COLUMN IF NOT EXISTS closing_american_odds DOUBLE PRECISION;`);
   return true;
 }
 

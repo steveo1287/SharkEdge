@@ -1,5 +1,6 @@
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import { ensureMlbIntelV7Ledgers } from "@/services/simulation/mlb-intel-v7-ledgers";
+import { buildMlbCalibrationRecommendations } from "@/services/simulation/mlb-calibration-recommendations";
 
 export type MlbCalibrationMetricSet = {
   count: number;
@@ -33,6 +34,7 @@ export type MlbCalibrationLabReport = {
   windowDays: number;
   modelVersion: string;
   officialPicks: MlbCalibrationMetricSet;
+  candidatePicks: MlbCalibrationMetricSet;
   snapshots: MlbCalibrationMetricSet;
   buckets: {
     probability: MlbCalibrationBucket[];
@@ -41,6 +43,13 @@ export type MlbCalibrationLabReport = {
     tier: MlbCalibrationBucket[];
     playerImpact: MlbCalibrationBucket[];
     profileStatus: MlbCalibrationBucket[];
+    candidateProbability: MlbCalibrationBucket[];
+    candidateEdge: MlbCalibrationBucket[];
+    candidateHomeAway: MlbCalibrationBucket[];
+    candidateFavoriteUnderdog: MlbCalibrationBucket[];
+    candidateOdds: MlbCalibrationBucket[];
+    candidateMarketSource: MlbCalibrationBucket[];
+    candidateClv: MlbCalibrationBucket[];
   };
   verdict: {
     status: "GREEN" | "YELLOW" | "RED" | "INSUFFICIENT_DATA";
@@ -49,6 +58,7 @@ export type MlbCalibrationLabReport = {
     warnings: string[];
     recommendations: string[];
   };
+  recommendations: string[];
   baselines: {
     neutralBrier: number;
     neutralLogLoss: number;
@@ -57,11 +67,15 @@ export type MlbCalibrationLabReport = {
 
 type LedgerRow = {
   id: string;
-  source: "official" | "snapshot";
+  source: "official" | "candidate" | "snapshot";
+  side?: string | null;
   result: "WIN" | "LOSS";
   raw_probability: number | null;
   calibrated_probability: number | null;
   market_no_vig_probability: number | null;
+  market_open_odds?: number | null;
+  current_american_odds?: number | null;
+  gate_status?: string | null;
   edge: number | null;
   brier: number | null;
   log_loss: number | null;
@@ -259,6 +273,33 @@ function profileStatusBucket(row: LedgerRow) {
   return String(playerImpact?.profileStatus ?? "unknown");
 }
 
+function homeAwayBucket(row: LedgerRow) {
+  if (row.side === "HOME" || row.side === "OVER") return row.side.toLowerCase();
+  if (row.side === "AWAY" || row.side === "UNDER") return row.side.toLowerCase();
+  return "unknown";
+}
+
+function favoriteUnderdogBucket(row: LedgerRow) {
+  const odds = safeNumber(row.current_american_odds ?? row.market_open_odds);
+  if (odds == null) return "odds_missing";
+  return odds < 0 ? "favorite" : "underdog";
+}
+
+function oddsBucket(row: LedgerRow) {
+  const odds = safeNumber(row.current_american_odds ?? row.market_open_odds);
+  if (odds == null) return "odds_missing";
+  if (odds < -200) return "fav_over_200";
+  if (odds < -150) return "fav_150_200";
+  if (odds < -110) return "fav_110_150";
+  if (odds <= 120) return "near_pickem";
+  if (odds <= 170) return "dog_120_170";
+  return "dog_over_170";
+}
+
+function marketSourceBucket(row: LedgerRow) {
+  return safeNumber(row.current_american_odds ?? row.market_open_odds) == null ? "fallback_or_missing" : "actual_odds";
+}
+
 function verdictFor(metrics: MlbCalibrationMetricSet, officialRows: LedgerRow[]) {
   const blockers: string[] = [];
   const warnings: string[] = [];
@@ -292,20 +333,34 @@ function verdictFor(metrics: MlbCalibrationMetricSet, officialRows: LedgerRow[])
   return { status, summary, blockers, warnings, recommendations } as MlbCalibrationLabReport["verdict"];
 }
 
-async function readRows(windowDays: number, source: "official" | "snapshot") {
+async function readRows(windowDays: number, source: "official" | "candidate" | "snapshot") {
   const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
   if (source === "official") {
     return prisma.$queryRaw<LedgerRow[]>`
-      SELECT id, 'official' AS source, result, raw_probability, calibrated_probability, market_no_vig_probability, edge, brier, log_loss, clv, roi, prediction_json
+      SELECT id, 'official' AS source, side, result, raw_probability, calibrated_probability, market_no_vig_probability, market_open_odds, current_american_odds, gate_status, edge, brier, log_loss, clv, roi, prediction_json
       FROM mlb_official_pick_ledger
-      WHERE result IN ('WIN', 'LOSS') AND released_at >= ${since}
+      WHERE result IN ('WIN', 'LOSS')
+        AND released_at >= ${since}
+        AND COALESCE(gate_status, 'official') NOT LIKE 'candidate%'
       ORDER BY released_at DESC
       LIMIT 5000;
     `;
   }
 
+  if (source === "candidate") {
+    return prisma.$queryRaw<LedgerRow[]>`
+      SELECT id, 'candidate' AS source, side, result, raw_probability, calibrated_probability, market_no_vig_probability, market_open_odds, current_american_odds, gate_status, edge, brier, log_loss, clv, roi, prediction_json
+      FROM mlb_official_pick_ledger
+      WHERE result IN ('WIN', 'LOSS')
+        AND released_at >= ${since}
+        AND COALESCE(gate_status, '') LIKE 'candidate%'
+      ORDER BY released_at DESC
+      LIMIT 10000;
+    `;
+  }
+
   return prisma.$queryRaw<LedgerRow[]>`
-    SELECT id, 'snapshot' AS source, result, raw_probability, calibrated_probability, market_no_vig_probability, edge, brier, log_loss, clv, roi, prediction_json
+    SELECT id, 'snapshot' AS source, side, result, raw_probability, calibrated_probability, market_no_vig_probability, market_open_odds, NULL::DOUBLE PRECISION AS current_american_odds, NULL::TEXT AS gate_status, edge, brier, log_loss, clv, roi, prediction_json
     FROM mlb_model_snapshot_ledger
     WHERE result IN ('WIN', 'LOSS') AND captured_at >= ${since}
     ORDER BY captured_at DESC
@@ -326,8 +381,9 @@ export async function getMlbV8CalibrationLabReport(windowDays = 180): Promise<Ml
       windowDays: safeWindowDays,
       modelVersion: "mlb-intel-v8-player-impact+v7-calibration",
       officialPicks: empty,
+      candidatePicks: empty,
       snapshots: empty,
-      buckets: { probability: [], edge: [], clv: [], tier: [], playerImpact: [], profileStatus: [] },
+      buckets: { probability: [], edge: [], clv: [], tier: [], playerImpact: [], profileStatus: [], candidateProbability: [], candidateEdge: [], candidateHomeAway: [], candidateFavoriteUnderdog: [], candidateOdds: [], candidateMarketSource: [], candidateClv: [] },
       verdict: {
         status: "RED",
         summary: "Database unavailable; calibration cannot be scored.",
@@ -335,16 +391,29 @@ export async function getMlbV8CalibrationLabReport(windowDays = 180): Promise<Ml
         warnings: [],
         recommendations: ["Restore database access before trusting MLB calibration status."]
       },
+      recommendations: ["Restore database access before trusting MLB calibration status."],
       baselines: { neutralBrier: NEUTRAL_BRIER, neutralLogLoss: NEUTRAL_LOG_LOSS }
     };
   }
 
-  const [officialRows, snapshotRows] = await Promise.all([
+  const [officialRows, candidateRows, snapshotRows] = await Promise.all([
     readRows(safeWindowDays, "official"),
+    readRows(safeWindowDays, "candidate"),
     readRows(safeWindowDays, "snapshot")
   ]);
   const officialPicks = summarizeMlbCalibrationRows(officialRows);
+  const candidatePicks = summarizeMlbCalibrationRows(candidateRows);
   const snapshots = summarizeMlbCalibrationRows(snapshotRows);
+  const verdict = verdictFor(officialPicks, officialRows);
+  const recommendations = buildMlbCalibrationRecommendations({
+    officialPicks,
+    candidatePicks,
+    snapshots,
+    probabilityBuckets: probabilityBuckets(candidateRows.length ? candidateRows : officialRows),
+    edgeBuckets: edgeBuckets(candidateRows.length ? candidateRows : officialRows),
+    playerImpactBuckets: bucketRows(candidateRows.length ? candidateRows : officialRows, playerImpactBucket),
+    clvBuckets: clvBuckets(candidateRows.length ? candidateRows : officialRows)
+  });
 
   return {
     ok: true,
@@ -353,6 +422,7 @@ export async function getMlbV8CalibrationLabReport(windowDays = 180): Promise<Ml
     windowDays: safeWindowDays,
     modelVersion: "mlb-intel-v8-player-impact+v7-calibration",
     officialPicks,
+    candidatePicks,
     snapshots,
     buckets: {
       probability: probabilityBuckets(officialRows),
@@ -360,9 +430,17 @@ export async function getMlbV8CalibrationLabReport(windowDays = 180): Promise<Ml
       clv: clvBuckets(officialRows),
       tier: bucketRows(officialRows, tierBucket),
       playerImpact: bucketRows(officialRows, playerImpactBucket),
-      profileStatus: bucketRows(officialRows, profileStatusBucket)
+      profileStatus: bucketRows(officialRows, profileStatusBucket),
+      candidateProbability: probabilityBuckets(candidateRows),
+      candidateEdge: edgeBuckets(candidateRows),
+      candidateHomeAway: bucketRows(candidateRows, homeAwayBucket),
+      candidateFavoriteUnderdog: bucketRows(candidateRows, favoriteUnderdogBucket),
+      candidateOdds: bucketRows(candidateRows, oddsBucket),
+      candidateMarketSource: bucketRows(candidateRows, marketSourceBucket),
+      candidateClv: clvBuckets(candidateRows)
     },
-    verdict: verdictFor(officialPicks, officialRows),
+    verdict,
+    recommendations,
     baselines: { neutralBrier: NEUTRAL_BRIER, neutralLogLoss: NEUTRAL_LOG_LOSS }
   };
 }
