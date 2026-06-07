@@ -4,11 +4,14 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MlbFranchiseTabs } from "@/components/sim/mlb-franchise-tabs";
 import { getMlbFranchiseGameStats, statText, type FranchisePlayerRow } from "@/services/simulation/mlb-franchise-game-stats";
+import type { MlbPlayerStatProjectionGame } from "@/services/simulation/mlb-player-stat-inning-engine";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type PageProps = { params: Promise<{ gameId: string }> };
+type HitterProjection = MlbPlayerStatProjectionGame["awayHitters"][number];
+type StarterProjection = NonNullable<MlbPlayerStatProjectionGame["awayStarter"]>;
 
 function one(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—";
@@ -28,7 +31,7 @@ function Cell({ children }: { children: string }) {
   return <div className="tabular-nums text-sm text-slate-300">{children}</div>;
 }
 
-function HitterTable({ title, hitters }: { title: string; hitters: NonNullable<NonNullable<Awaited<ReturnType<typeof getMlbFranchiseGameStats>>>["playerStats"]>["awayHitters"] }) {
+function HitterTable({ title, hitters }: { title: string; hitters: HitterProjection[] }) {
   return (
     <Card className="surface-panel overflow-hidden p-5">
       <div className="mb-4 font-display text-2xl font-semibold text-white">{title}</div>
@@ -57,8 +60,8 @@ function HitterTable({ title, hitters }: { title: string; hitters: NonNullable<N
   );
 }
 
-function StarterTable({ title, starters }: { title: string; starters: NonNullable<NonNullable<Awaited<ReturnType<typeof getMlbFranchiseGameStats>>>["playerStats"]>["awayStarter"][] }) {
-  const clean = starters.filter(Boolean);
+function StarterTable({ title, starters }: { title: string; starters: Array<StarterProjection | null | undefined> }) {
+  const clean = starters.filter((starter): starter is StarterProjection => Boolean(starter));
   if (!clean.length) return null;
   return (
     <Card className="surface-panel overflow-hidden p-5">
@@ -68,18 +71,18 @@ function StarterTable({ title, starters }: { title: string; starters: NonNullabl
       </div>
       <div className="divide-y divide-white/8">
         {clean.map((pitcher) => (
-          <div key={pitcher!.pitcherId} className="grid grid-cols-[2fr_repeat(7,0.65fr)] gap-3 py-3">
+          <div key={pitcher.pitcherId} className="grid grid-cols-[2fr_repeat(7,0.65fr)] gap-3 py-3">
             <div>
-              <div className="truncate text-sm font-semibold text-white">{pitcher!.pitcherName}</div>
-              <div className="text-[11px] text-slate-500">{pitcher!.team}</div>
+              <div className="truncate text-sm font-semibold text-white">{pitcher.pitcherName}</div>
+              <div className="text-[11px] text-slate-500">{pitcher.team}</div>
             </div>
-            <Cell>{one(pitcher!.expectedInningsPitched)}</Cell>
-            <Cell>{one(pitcher!.expectedOuts)}</Cell>
-            <Cell>{one(pitcher!.expectedStrikeouts)}</Cell>
-            <Cell>{one(pitcher!.expectedEarnedRuns)}</Cell>
-            <Cell>{one(pitcher!.expectedHitsAllowed)}</Cell>
-            <Cell>{one(pitcher!.expectedWalksAllowed)}</Cell>
-            <Cell>{one(pitcher!.expectedHomeRunsAllowed)}</Cell>
+            <Cell>{one(pitcher.expectedInningsPitched)}</Cell>
+            <Cell>{one(pitcher.expectedOuts)}</Cell>
+            <Cell>{one(pitcher.expectedStrikeouts)}</Cell>
+            <Cell>{one(pitcher.expectedEarnedRuns)}</Cell>
+            <Cell>{one(pitcher.expectedHitsAllowed)}</Cell>
+            <Cell>{one(pitcher.expectedWalksAllowed)}</Cell>
+            <Cell>{one(pitcher.expectedHomeRunsAllowed)}</Cell>
           </div>
         ))}
       </div>
