@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
+import { getMlbPlayerMarketOpportunities, type MlbPlayerMarketOpportunity } from "@/services/simulation/mlb-player-market-opportunities";
 import type { BoardSportSectionView, LeagueKey, ScoreboardPreviewView } from "@/lib/types/domain";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +48,26 @@ function parseMatchup(label: string) {
   };
 }
 
+function pct(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function signedPct(value: number) {
+  const formatted = `${Math.round(value * 100)}%`;
+  return value >= 0 ? `+${formatted}` : formatted;
+}
+
+function formatLine(value: number | null) {
+  if (value == null) return "ML";
+  return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
+}
+
+function decisionTone(decision: MlbPlayerMarketOpportunity["decision"]) {
+  if (decision === "PROMOTE") return "success" as const;
+  if (decision === "WATCH") return "warning" as const;
+  return "muted" as const;
+}
+
 type SlateGame = ScoreboardPreviewView & {
   leagueKey: LeagueKey;
   leagueLabel: string;
@@ -61,6 +82,97 @@ function flattenScoreboardGames(sections: BoardSportSectionView[]) {
       leagueLabel: section.leagueLabel,
       adapterState: section.adapterState
     }))
+  );
+}
+
+function PlayerMarketOpportunityCard({ market }: { market: MlbPlayerMarketOpportunity }) {
+  return (
+    <Card className="surface-panel h-full p-4 transition hover:border-emerald-300/25 hover:bg-white/[0.035]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 text-[0.64rem] uppercase tracking-[0.2em] text-slate-500">
+            <span>{market.source === "inning_market" ? "F5 / NRFI" : "Player"}</span>
+            <span>·</span>
+            <span>{market.market.replaceAll("_", " ")}</span>
+          </div>
+          <div className="mt-2 line-clamp-2 font-display text-xl font-semibold tracking-tight text-white">
+            {market.label}
+          </div>
+        </div>
+        <Badge tone={decisionTone(market.decision)}>{market.decision}</Badge>
+      </div>
+
+      <div className="mt-3 text-sm leading-6 text-slate-400">
+        <div className="text-slate-300">{market.snapshotEventLabel}</div>
+        <div>{formatStartTime(market.startTime)}</div>
+        {market.playerName ? <div>{market.team} · {market.playerName}</div> : null}
+      </div>
+
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <div className="rounded-2xl border border-white/8 bg-slate-950/55 p-3">
+          <div className="text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">Prob</div>
+          <div className="mt-1 text-lg font-semibold text-white">{pct(market.calibratedProbability)}</div>
+          <div className="text-[0.68rem] text-slate-500">raw {pct(market.rawProbability)}</div>
+        </div>
+        <div className="rounded-2xl border border-white/8 bg-slate-950/55 p-3">
+          <div className="text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">Edge</div>
+          <div className="mt-1 text-lg font-semibold text-white">{signedPct(market.edgeVsBaseline)}</div>
+          <div className="text-[0.68rem] text-slate-500">min {pct(market.minEdgeRequired)}</div>
+        </div>
+        <div className="rounded-2xl border border-white/8 bg-slate-950/55 p-3">
+          <div className="text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">Line</div>
+          <div className="mt-1 text-lg font-semibold text-white">{formatLine(market.line)}</div>
+          <div className="text-[0.68rem] text-slate-500">conf {pct(market.confidence)}</div>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-[1rem] border border-white/8 bg-slate-950/45 px-3 py-2 text-xs leading-5 text-slate-400">
+        {market.reason}
+      </div>
+    </Card>
+  );
+}
+
+function PlayerMarketOpportunitiesRail({ feed }: { feed: Awaited<ReturnType<typeof getMlbPlayerMarketOpportunities>> }) {
+  const topMarkets = feed.opportunities.slice(0, 6);
+  const hasMarkets = topMarkets.length > 0;
+
+  return (
+    <section className="grid gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <SectionTitle
+          eyebrow="MLB player market desk"
+          title="Player / F5 / NRFI opportunities"
+          description="Calibrated markets promoted from saved MLB simulations, player-stat projections, inning projections, and graded historical ledger performance."
+        />
+        <div className="flex flex-wrap gap-2">
+          <Badge tone={feed.ok ? "success" : "danger"}>{feed.ok ? "feed online" : "feed offline"}</Badge>
+          <Badge tone={feed.promotedCount ? "success" : "muted"}>{feed.promotedCount} promoted</Badge>
+          <Badge tone={feed.watchCount ? "warning" : "muted"}>{feed.watchCount} watch</Badge>
+        </div>
+      </div>
+
+      {hasMarkets ? (
+        <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+          {topMarkets.map((market) => (
+            <PlayerMarketOpportunityCard
+              key={`${market.snapshotGameId}-${market.source}-${market.market}-${market.playerId ?? "game"}-${market.side}-${market.line ?? "ml"}`}
+              market={market}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-[1.35rem] border border-white/8 bg-white/[0.025] p-5 text-sm leading-6 text-slate-400">
+          No promoted or watch player markets are available yet. Run the v8 capture, player prop grader, and player market calibration workers to populate this rail.
+        </div>
+      )}
+
+      {feed.warnings.length ? (
+        <div className="rounded-[1.1rem] border border-amber-300/15 bg-amber-300/5 px-4 py-3 text-xs leading-5 text-amber-100/80">
+          {feed.warnings[0]}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -158,7 +270,10 @@ function LeagueLane({ section }: { section: BoardSportSectionView }) {
 }
 
 export default async function GamesPage() {
-  const sections = await buildBoardSportSections({ selectedLeague: "ALL", gamesByLeague: {} });
+  const [sections, playerMarketFeed] = await Promise.all([
+    buildBoardSportSections({ selectedLeague: "ALL", gamesByLeague: {} }),
+    getMlbPlayerMarketOpportunities({ limit: 12, lookaheadHours: 96, lookbackHours: 6 })
+  ]);
   const games = flattenScoreboardGames(sections);
   const liveGames = games.filter((game) => game.status === "LIVE");
   const upcomingGames = games.filter((game) => game.status !== "LIVE" && game.status !== "FINAL");
@@ -214,6 +329,8 @@ export default async function GamesPage() {
           </div>
         </div>
       </section>
+
+      <PlayerMarketOpportunitiesRail feed={playerMarketFeed} />
 
       <section className="grid gap-4">
         <SectionTitle
