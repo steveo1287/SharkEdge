@@ -4,11 +4,13 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MlbFranchiseTabs } from "@/components/sim/mlb-franchise-tabs";
 import { getMlbFranchiseGameStats } from "@/services/simulation/mlb-franchise-game-stats";
+import type { MlbInningMarketProjection } from "@/services/simulation/mlb-player-stat-inning-engine";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type PageProps = { params: Promise<{ gameId: string }> };
+type InningRow = MlbInningMarketProjection["innings"][number];
 
 function one(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—";
@@ -30,7 +32,7 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
   );
 }
 
-function InningRows({ innings }: { innings: NonNullable<Awaited<ReturnType<typeof getMlbFranchiseGameStats>>>["inningStats"]["innings"] }) {
+function InningRows({ innings }: { innings: InningRow[] }) {
   return (
     <Card className="surface-panel overflow-hidden p-5">
       <div className="mb-4 font-display text-2xl font-semibold text-white">Inning shape</div>
