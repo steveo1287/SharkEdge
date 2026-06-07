@@ -2,6 +2,12 @@ import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import { getProfileFeatureSignalReport, type MlbProfileFeatureSignal } from "@/services/simulation/profile-feature-signals";
 import { ensureMlbRosterIntelligenceTables } from "@/services/simulation/mlb-roster-intelligence";
 import {
+  projectMlbInningMarkets,
+  projectMlbPlayerStatsForGame,
+  type MlbInningMarketProjection,
+  type MlbPlayerStatProjectionGame
+} from "@/services/simulation/mlb-player-stat-inning-engine";
+import {
   DEFAULT_MLB_V8_PLAYER_IMPACT_PROFILE,
   getActiveMlbV8PlayerImpactProfile,
   type MlbV8PlayerImpactProfile,
@@ -101,6 +107,8 @@ export type MlbV8PlayerImpactResult = {
   homeBullpenScore: number;
   awayRunDelta: number;
   homeRunDelta: number;
+  playerStatProjections: MlbPlayerStatProjectionGame | null;
+  inningProjection: MlbInningMarketProjection | null;
   reasons: string[];
 };
 
@@ -133,7 +141,7 @@ function logit(probability: number) {
 }
 
 function invLogit(value: number) {
-  return 1 / (1 + Math.exp(-value));
+  return 1 / (1 + Math.exp(value * -1));
 }
 
 function bayesianShrink(raw: number, reliability: number, prior = DEFAULT_SKILL) {
@@ -370,6 +378,8 @@ export function calculateMlbV8PlayerImpact(args: {
       homeBullpenScore: DEFAULT_SKILL,
       awayRunDelta: 0,
       homeRunDelta: 0,
+      playerStatProjections: null,
+      inningProjection: null,
       reasons: [`MLB v8 player-impact skipped: ${args.context.reason ?? "roster intelligence unavailable"}.`]
     };
   }
@@ -390,6 +400,28 @@ export function calculateMlbV8PlayerImpact(args: {
   const confidenceBeforeProfileCap = clamp(dataPieces / 6, 0.2, 0.85);
   const confidence = clamp(Math.min(confidenceBeforeProfileCap, profileFeatureSignal?.confidenceCap ?? 0.85), 0.2, 0.85);
   const adjustedHomeWinPct = blendProbability(rawHomeWinPct, adjustedAwayRuns, adjustedHomeRuns, confidence, weights);
+  const playerStatProjections = projectMlbPlayerStatsForGame({
+    away: args.context.away,
+    home: args.context.home,
+    awayRuns: adjustedAwayRuns,
+    homeRuns: adjustedHomeRuns,
+    awayOffenseScore: awayOffense,
+    homeOffenseScore: homeOffense,
+    awayWinProbability: 1 - adjustedHomeWinPct,
+    homeWinProbability: adjustedHomeWinPct
+  });
+  const inningProjection = projectMlbInningMarkets({
+    awayTeam: args.context.awayTeam,
+    homeTeam: args.context.homeTeam,
+    awayRuns: adjustedAwayRuns,
+    homeRuns: adjustedHomeRuns,
+    awayOffenseScore: awayOffense,
+    homeOffenseScore: homeOffense,
+    awayStarterScore,
+    homeStarterScore,
+    awayBullpenScore: awayPen,
+    homeBullpenScore: homePen
+  });
 
   return {
     modelVersion: "mlb-intel-v8-player-impact",
@@ -416,12 +448,15 @@ export function calculateMlbV8PlayerImpact(args: {
     homeBullpenScore: round(homePen, 2),
     awayRunDelta: round(awayDelta, 3),
     homeRunDelta: round(homeDelta, 3),
+    playerStatProjections,
+    inningProjection,
     reasons: [
       `MLB v8 player-impact applied with ${(confidence * 100).toFixed(1)}% capped data confidence using ${profile.status} profile (${profile.sampleSize} samples).`,
       profileFeatureSignal ? `Profile feature signal ${profileFeatureSignal.status} (${profileFeatureSignal.score}/100) capped confidence at ${(profileFeatureSignal.confidenceCap * 100).toFixed(1)}%.` : "Profile feature signal unavailable; default confidence cap used.",
       `Away offense ${awayOffense.toFixed(1)} vs home starter ${homeStarterScore.toFixed(1)} and bullpen ${homePen.toFixed(1)} moved away runs ${awayDelta >= 0 ? "+" : ""}${awayDelta.toFixed(2)}.`,
       `Home offense ${homeOffense.toFixed(1)} vs away starter ${awayStarterScore.toFixed(1)} and bullpen ${awayPen.toFixed(1)} moved home runs ${homeDelta >= 0 ? "+" : ""}${homeDelta.toFixed(2)}.`,
-      `Run-derived probability was blended with raw home probability ${rawHomeWinPct.toFixed(3)} to produce ${adjustedHomeWinPct.toFixed(3)} before v7 market calibration.`
+      `Run-derived probability was blended with raw home probability ${rawHomeWinPct.toFixed(3)} to produce ${adjustedHomeWinPct.toFixed(3)} before v7 market calibration.`,
+      `Player stat and inning market projections generated for hitter props, baserunning, starting-pitcher props, F5, and NRFI review.`
     ]
   };
 }
