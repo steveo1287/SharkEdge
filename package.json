@@ -78,7 +78,6 @@
     "nba:warehouse:fetch:nba-api": "python scripts/fetch-nba-api-current.py",
     "nba:warehouse:fetch:pbpstats": "python scripts/fetch-pbpstats-nba.py",
     "nba:warehouse:enrich:nba-api": "tsx scripts/enrich-nba-warehouse-with-nba-api.ts",
-    "test:disabled-sports": "tsx tests/nba-api-feed-fixture.test.ts && tsx tests/pbp-feed-fixture.test.ts && tsx tests/kaggle-feed-fixture.test.ts && tsx tests/nba-matchup-smoke.test.ts && tsx tests/nba-market-calibration.test.ts && tsx tests/nba-sim-backtest-diagnostics.test.ts && tsx tests/nba-sim-health-policy.test.ts && tsx tests/nba-lineup-truth.test.ts && tsx tests/nba-lineup-truth-route-contract.test.ts && tsx tests/nba-player-impact-feed-health.test.ts && tsx tests/nba-player-stat-projection.test.ts && tsx tests/nba-prop-calibration.test.ts && tsx tests/nba-elite-player-prop-wrapper.test.ts && tsx tests/nba-verdict-safety.test.ts && tsx tests/nba-guarded-verdict-wrapper.test.ts && tsx tests/ufc-fight-iq.test.ts && tsx tests/ufc-fighter-skill-profile.test.ts && tsx tests/ufc-skill-markov-sim.test.ts && tsx tests/ufc-warehouse-ingestion.test.ts && tsx tests/ufc-operational-proof.test.ts && tsx tests/ufc-real-data-ingestion.test.ts && tsx tests/ufc-card-runner.test.ts && tsx tests/ufc-provider-adapters.test.ts && tsx tests/ufc-exchange-monte-carlo.test.ts",
     "mlb:backfill-pick-ledger": "tsx scripts/backfill-mlb-official-pick-ledger.ts"
   },
   "dependencies": {
@@ -97,7 +96,7 @@
     "@types/react-dom": "^19.0.4",
     "@types/ws": "^8.18.1",
     "autoprefixer": "^10.4.21",
-    "postcss": "^5.3",
+    "postcss": "^8.5.3",
     "prisma": "^6.7.0",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.3",
