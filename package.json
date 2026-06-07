@@ -80,7 +80,8 @@
     "nba:warehouse:fetch:nba-api": "python scripts/fetch-nba-api-current.py",
     "nba:warehouse:fetch:pbpstats": "python scripts/fetch-pbpstats-nba.py",
     "nba:warehouse:enrich:nba-api": "tsx scripts/enrich-nba-warehouse-with-nba-api.ts",
-    "mlb:backfill-pick-ledger": "tsx scripts/backfill-mlb-official-pick-ledger.ts"
+    "mlb:backfill-pick-ledger": "tsx scripts/backfill-mlb-official-pick-ledger.ts",
+    "mlb:daily-roster-ratings": "tsx scripts/build-daily-mlb-roster-rating-snapshots.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.7.0",
