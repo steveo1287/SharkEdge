@@ -2,7 +2,6 @@ import { notFound } from "next/navigation";
 
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
-import { SectionTitle } from "@/components/ui/section-title";
 import { MlbFranchiseTabs } from "@/components/sim/mlb-franchise-tabs";
 import { getMlbFranchiseGameStats, statText, type FranchiseTeamRow } from "@/services/simulation/mlb-franchise-game-stats";
 
