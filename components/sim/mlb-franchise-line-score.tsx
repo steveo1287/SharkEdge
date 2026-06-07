@@ -4,7 +4,7 @@ import type { MlbInningMarketProjection } from "@/services/simulation/mlb-player
 type TeamLine = {
   team: string;
   total: number;
-  inningRuns: number[];
+  inningRuns: Array<number | null>;
 };
 
 function one(value: number | null | undefined) {
@@ -12,12 +12,16 @@ function one(value: number | null | undefined) {
   return value.toFixed(1);
 }
 
+function fiveInnings(values: number[]) {
+  return Array.from({ length: 5 }, (_, index) => values[index] ?? null);
+}
+
 function lineForTeam(team: string, total: number, innings: MlbInningMarketProjection["innings"], side: "away" | "home"): TeamLine {
-  const key = side === "away" ? "awayExpectedRuns" : "homeExpectedRuns";
+  const values = innings.slice(0, 5).map((inning) => side === "away" ? inning.awayExpectedRuns : inning.homeExpectedRuns);
   return {
     team,
     total,
-    inningRuns: innings.slice(0, 5).map((inning) => inning[key])
+    inningRuns: fiveInnings(values)
   };
 }
 
