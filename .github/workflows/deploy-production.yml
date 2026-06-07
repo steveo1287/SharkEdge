@@ -91,6 +91,7 @@ jobs:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          ODDS_API_IO_KEY: ${{ secrets.ODDS_API_IO_KEY }}
         shell: bash
         run: |
           set -euo pipefail
@@ -108,6 +109,16 @@ jobs:
           if [ -z "${RAILWAY_PROJECT_ID:-}" ]; then
             echo "RAILWAY_PROJECT_ID secret is required"
             exit 1
+          fi
+
+          if [ -n "${ODDS_API_IO_KEY:-}" ]; then
+            railway variable set \
+              --service "$RAILWAY_WEB_SERVICE" \
+              --environment "$RAILWAY_ENVIRONMENT" \
+              --skip-deploys \
+              "ODDS_API_IO_KEY=$ODDS_API_IO_KEY"
+          else
+            echo "ODDS_API_IO_KEY secret not set; odds-api.io Railway variable sync skipped."
           fi
 
           railway up -d -p "$RAILWAY_PROJECT_ID" -e "$RAILWAY_ENVIRONMENT" -s "$RAILWAY_WEB_SERVICE" -m "GitHub deploy ${GITHUB_SHA}"
