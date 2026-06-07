@@ -73,6 +73,14 @@ function simTasks(): WorkerTask[] {
       runImmediately: boolEnv("MLB_PLAYER_PROP_GRADE_RUN_IMMEDIATELY", false)
     },
     {
+      name: "mlb-player-market-calibration",
+      path:
+        process.env.RAILWAY_MLB_PLAYER_MARKET_CALIBRATION_PATH?.trim() ||
+        `/api/internal/cron/mlb-player-market-calibration?limit=${intEnv("MLB_PLAYER_MARKET_CALIBRATION_LIMIT", 25000, 100, 100000)}`,
+      intervalSeconds: intEnv("MLB_PLAYER_MARKET_CALIBRATION_INTERVAL_SECONDS", 21600, 3600, 604800),
+      runImmediately: boolEnv("MLB_PLAYER_MARKET_CALIBRATION_RUN_IMMEDIATELY", false)
+    },
+    {
       name: "sim-refresh",
       path: process.env.RAILWAY_SIM_REFRESH_PATH?.trim() || "/api/cron/sim-refresh?statsPreflight=1&runMlb=1&runUfc=0",
       intervalSeconds: intEnv("SIM_REFRESH_INTERVAL_SECONDS", 1800, 300, 21600),
