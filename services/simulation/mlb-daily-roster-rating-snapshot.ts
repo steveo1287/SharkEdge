@@ -19,6 +19,7 @@ export type MlbDailyRosterSnapshotOptions = {
   minPitcherBattersFaced?: number;
   fetchConcurrency?: number;
   statsApiBaseUrl?: string;
+  snapshotDate?: string;
 };
 
 export type MlbDailyRosterPlayer = {
@@ -40,6 +41,7 @@ export type MlbDailyRosterRatingSnapshotReport = {
   season: number;
   rosterType: string;
   generatedAt: string;
+  snapshotDate: string;
   persisted: boolean;
   teamsExpected: number;
   teamsCovered: number;
@@ -170,21 +172,18 @@ function num(stat: Record<string, unknown>, keys: string[], fallback: number | n
   return fallback;
 }
 
-function pct(value: number | null) {
-  if (value == null) return null;
-  return value > 1.5 ? value / 100 : value;
-}
-
-function round(value: number, digits = 4) {
-  return Number(value.toFixed(digits));
-}
-
 function safeJson(value: unknown) {
   return JSON.stringify(value ?? null);
 }
 
-function snapshotId(kind: "hitter" | "pitcher", season: number, playerId: string) {
-  return `daily:${kind}:${season}:${playerId}`;
+function normalizeSnapshotDate(value: string | undefined, generatedAt: string) {
+  const candidate = value?.trim() || generatedAt.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return generatedAt.slice(0, 10);
+  return candidate;
+}
+
+function snapshotId(kind: "hitter" | "pitcher", snapshotDate: string, season: number, playerId: string) {
+  return `daily:${kind}:${snapshotDate}:${season}:${playerId}`;
 }
 
 function statsApiBase(options: MlbDailyRosterSnapshotOptions) {
@@ -350,7 +349,7 @@ function teamContextRows(teams: Array<{ id: number; abbr: string }>): MlbEliteTe
   return teams.map((team) => ({ team: team.abbr }));
 }
 
-async function persistRatings(ratings: MlbEliteRatingBuild, roster: MlbDailyRosterPlayer[], season: number) {
+async function persistRatings(ratings: MlbEliteRatingBuild, roster: MlbDailyRosterPlayer[], season: number, snapshotDate: string, generatedAt: string) {
   const rosterById = new Map(roster.map((player) => [player.mlbId, player]));
   for (const row of ratings.hitters) {
     const player = rosterById.get(row.id);
@@ -360,9 +359,9 @@ async function persistRatings(ratings: MlbEliteRatingBuild, roster: MlbDailyRost
         contact, power, discipline, vs_lhp, vs_rhp, baserunning, fielding, current_form, overall,
         metrics_json, source, snapshot_at
       ) VALUES (
-        ${snapshotId("hitter", season, row.id)}, ${row.id}, ${row.name}, ${row.team ?? player?.team ?? "UNKNOWN"}, ${season}, ${player?.primaryPosition ?? null}, ${row.role_tier ?? "UNKNOWN"},
+        ${snapshotId("hitter", snapshotDate, season, row.id)}, ${row.id}, ${row.name}, ${row.team ?? player?.team ?? "UNKNOWN"}, ${season}, ${player?.primaryPosition ?? null}, ${row.role_tier ?? "UNKNOWN"},
         ${row.contact ?? null}, ${row.power ?? null}, ${row.discipline ?? null}, ${row.vs_lhp ?? null}, ${row.vs_rhp ?? null}, ${row.baserunning ?? null}, ${row.fielding ?? null}, ${row.current_form ?? null}, ${row.overall ?? null},
-        ${safeJson({ ...(row.metrics_json ?? {}), snapshotSource: "mlb-daily-roster-rating-snapshot-v1", roster: player ?? null })}::jsonb, 'mlb-daily-roster-rating-snapshot-v1', now()
+        ${safeJson({ ...(row.metrics_json ?? {}), snapshotSource: "mlb-daily-roster-rating-snapshot-v1", snapshotDate, roster: player ?? null })}::jsonb, 'mlb-daily-roster-rating-snapshot-v1', CAST(${generatedAt} AS timestamptz)
       )
       ON CONFLICT (id) DO UPDATE SET
         player_name = EXCLUDED.player_name,
@@ -392,9 +391,9 @@ async function persistRatings(ratings: MlbEliteRatingBuild, roster: MlbDailyRost
         xera_quality, fip_quality, k_bb, hr_risk, groundball_rate, platoon_split, stamina, recent_workload, arsenal_quality, overall,
         metrics_json, source, snapshot_at
       ) VALUES (
-        ${snapshotId("pitcher", season, row.id)}, ${row.id}, ${row.name}, ${row.team ?? player?.team ?? "UNKNOWN"}, ${season}, ${row.role_tier ?? "UNKNOWN"},
+        ${snapshotId("pitcher", snapshotDate, season, row.id)}, ${row.id}, ${row.name}, ${row.team ?? player?.team ?? "UNKNOWN"}, ${season}, ${row.role_tier ?? "UNKNOWN"},
         ${row.xera_quality ?? null}, ${row.fip_quality ?? null}, ${row.k_bb ?? null}, ${row.hr_risk ?? null}, ${row.groundball_rate ?? null}, ${row.platoon_split ?? null}, ${row.stamina ?? null}, ${row.recent_workload ?? null}, ${row.arsenal_quality ?? null}, ${row.overall ?? null},
-        ${safeJson({ ...(row.metrics_json ?? {}), snapshotSource: "mlb-daily-roster-rating-snapshot-v1", roster: player ?? null })}::jsonb, 'mlb-daily-roster-rating-snapshot-v1', now()
+        ${safeJson({ ...(row.metrics_json ?? {}), snapshotSource: "mlb-daily-roster-rating-snapshot-v1", snapshotDate, roster: player ?? null })}::jsonb, 'mlb-daily-roster-rating-snapshot-v1', CAST(${generatedAt} AS timestamptz)
       )
       ON CONFLICT (id) DO UPDATE SET
         pitcher_name = EXCLUDED.pitcher_name,
@@ -422,6 +421,7 @@ export async function buildDailyMlbRosterRatingSnapshots(options: MlbDailyRoster
   const season = options.season ?? seasonYear();
   const rosterType = options.rosterType ?? "active";
   const generatedAt = new Date().toISOString();
+  const snapshotDate = normalizeSnapshotDate(options.snapshotDate, generatedAt);
   const teams = await fetchMlbTeams({ ...options, season, rosterType });
   const concurrency = Math.max(1, Math.min(12, Math.round(options.fetchConcurrency ?? 6)));
   const rosterByTeam = await mapLimit(teams, concurrency, (team) => fetchTeamRoster(team, { ...options, season, rosterType }));
@@ -455,7 +455,7 @@ export async function buildDailyMlbRosterRatingSnapshots(options: MlbDailyRoster
     if (!hasUsableServerDatabaseUrl()) warnings.push("No usable database URL; snapshot was built but not persisted.");
     else {
       await ensureMlbRosterIntelligenceTables();
-      await persistRatings(ratings, roster, season);
+      await persistRatings(ratings, roster, season, snapshotDate, generatedAt);
     }
   }
 
@@ -483,6 +483,7 @@ export async function buildDailyMlbRosterRatingSnapshots(options: MlbDailyRoster
     season,
     rosterType,
     generatedAt,
+    snapshotDate,
     persisted: persist && hasUsableServerDatabaseUrl(),
     teamsExpected: 30,
     teamsCovered: reportTeams.filter((team) => team.rosterComplete).length,
