@@ -149,6 +149,12 @@ function PlayerMarketOpportunitiesRail({ feed }: { feed: Awaited<ReturnType<type
           <Badge tone={feed.ok ? "success" : "danger"}>{feed.ok ? "feed online" : "feed offline"}</Badge>
           <Badge tone={feed.promotedCount ? "success" : "muted"}>{feed.promotedCount} promoted</Badge>
           <Badge tone={feed.watchCount ? "premium" : "muted"}>{feed.watchCount} watch</Badge>
+          <Link
+            href="/mlb/player-markets"
+            className="rounded-sm border border-sky-400/25 bg-sky-500/10 px-2 py-1 text-[10.5px] font-semibold uppercase leading-none tracking-[0.08em] text-sky-100 transition hover:border-sky-300/45 hover:bg-sky-500/15"
+          >
+            Open desk
+          </Link>
         </div>
       </div>
 
