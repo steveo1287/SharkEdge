@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -90,6 +91,15 @@ function lineText(value: number | null) {
   return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
 }
 
+type Filters = {
+  decision: DecisionFilter;
+  group: GroupFilter;
+  calibration: CalibrationFilter;
+  minConfidence: number;
+  minEdge: number;
+  includePass: boolean;
+};
+
 function buildHref(current: Filters, patch: Partial<Filters>) {
   const next = { ...current, ...patch };
   const params = new URLSearchParams();
@@ -102,16 +112,7 @@ function buildHref(current: Filters, patch: Partial<Filters>) {
   return params.size ? `/mlb/player-markets?${params.toString()}` : "/mlb/player-markets";
 }
 
-type Filters = {
-  decision: DecisionFilter;
-  group: GroupFilter;
-  calibration: CalibrationFilter;
-  minConfidence: number;
-  minEdge: number;
-  includePass: boolean;
-};
-
-function FilterLink({ href, active, children }: { href: string; active: boolean; children: React.ReactNode }) {
+function FilterLink({ href, active, children }: { href: string; active: boolean; children: ReactNode }) {
   return (
     <Link
       href={href}
@@ -121,6 +122,16 @@ function FilterLink({ href, active, children }: { href: string; active: boolean;
     >
       {children}
     </Link>
+  );
+}
+
+function Metric({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <div className="rounded-2xl border border-white/8 bg-slate-950/55 p-3">
+      <div className="text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div className="mt-1 text-lg font-semibold text-white">{value}</div>
+      <div className="text-[0.68rem] text-slate-500">{sub}</div>
+    </div>
   );
 }
 
@@ -161,16 +172,6 @@ function MarketCard({ market }: { market: MlbPlayerMarketOpportunity }) {
         {market.reason}
       </div>
     </Card>
-  );
-}
-
-function Metric({ label, value, sub }: { label: string; value: string; sub: string }) {
-  return (
-    <div className="rounded-2xl border border-white/8 bg-slate-950/55 p-3">
-      <div className="text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">{label}</div>
-      <div className="mt-1 text-lg font-semibold text-white">{value}</div>
-      <div className="text-[0.68rem] text-slate-500">{sub}</div>
-    </div>
   );
 }
 
