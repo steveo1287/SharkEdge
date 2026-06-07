@@ -52,11 +52,6 @@ function pct(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-function signedPct(value: number) {
-  const formatted = `${Math.round(value * 100)}%`;
-  return value >= 0 ? `+${formatted}` : formatted;
-}
-
 function formatLine(value: number | null) {
   if (value == null) return "ML";
   return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
@@ -90,16 +85,14 @@ function PlayerMarketOpportunityCard({ market }: { market: MlbPlayerMarketOpport
     <Card className="surface-panel h-full p-4 transition hover:border-emerald-300/25 hover:bg-white/[0.035]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-[0.64rem] uppercase tracking-[0.2em] text-slate-500">
-            <span>{market.source === "inning_market" ? "F5 / NRFI" : "Player"}</span>
-            <span>·</span>
-            <span>{market.market.replaceAll("_", " ")}</span>
+          <div className="text-[0.64rem] uppercase tracking-[0.2em] text-slate-500">
+            {market.source === "inning_market" ? "F5 / NRFI" : "Player"}
           </div>
           <div className="mt-2 line-clamp-2 font-display text-xl font-semibold tracking-tight text-white">
             {market.label}
           </div>
         </div>
-        <Badge tone={decisionTone(market.decision)}>{market.decision}</Badge>
+        <Badge tone={decisionTone(market.decision)}>{market.decision === "PROMOTE" ? "BEST" : market.decision}</Badge>
       </div>
 
       <div className="mt-3 text-sm leading-6 text-slate-400">
@@ -110,19 +103,16 @@ function PlayerMarketOpportunityCard({ market }: { market: MlbPlayerMarketOpport
 
       <div className="mt-4 grid grid-cols-3 gap-2">
         <div className="rounded-2xl border border-white/8 bg-slate-950/55 p-3">
-          <div className="text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">Prob</div>
+          <div className="text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">Chance</div>
           <div className="mt-1 text-lg font-semibold text-white">{pct(market.calibratedProbability)}</div>
-          <div className="text-[0.68rem] text-slate-500">raw {pct(market.rawProbability)}</div>
         </div>
         <div className="rounded-2xl border border-white/8 bg-slate-950/55 p-3">
-          <div className="text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">Edge</div>
-          <div className="mt-1 text-lg font-semibold text-white">{signedPct(market.edgeVsBaseline)}</div>
-          <div className="text-[0.68rem] text-slate-500">min {pct(market.minEdgeRequired)}</div>
+          <div className="text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">Conf</div>
+          <div className="mt-1 text-lg font-semibold text-white">{pct(market.confidence)}</div>
         </div>
         <div className="rounded-2xl border border-white/8 bg-slate-950/55 p-3">
           <div className="text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">Line</div>
           <div className="mt-1 text-lg font-semibold text-white">{formatLine(market.line)}</div>
-          <div className="text-[0.68rem] text-slate-500">conf {pct(market.confidence)}</div>
         </div>
       </div>
 
@@ -143,12 +133,11 @@ function PlayerMarketOpportunitiesRail({ feed }: { feed: Awaited<ReturnType<type
         <SectionTitle
           eyebrow="MLB player market desk"
           title="Player / F5 / NRFI opportunities"
-          description="Calibrated markets promoted from saved MLB simulations, player-stat projections, inning projections, and graded historical ledger performance."
+          description="Simple view: market, chance, confidence, and reason."
         />
         <div className="flex flex-wrap gap-2">
-          <Badge tone={feed.ok ? "success" : "danger"}>{feed.ok ? "feed online" : "feed offline"}</Badge>
-          <Badge tone={feed.promotedCount ? "success" : "muted"}>{feed.promotedCount} promoted</Badge>
-          <Badge tone={feed.watchCount ? "premium" : "muted"}>{feed.watchCount} watch</Badge>
+          <Badge tone={feed.ok ? "success" : "danger"}>{feed.ok ? "online" : "offline"}</Badge>
+          <Badge tone={feed.promotedCount ? "success" : "muted"}>{feed.promotedCount} best</Badge>
           <Link
             href="/mlb/player-markets"
             className="rounded-sm border border-sky-400/25 bg-sky-500/10 px-2 py-1 text-[10.5px] font-semibold uppercase leading-none tracking-[0.08em] text-sky-100 transition hover:border-sky-300/45 hover:bg-sky-500/15"
@@ -169,15 +158,9 @@ function PlayerMarketOpportunitiesRail({ feed }: { feed: Awaited<ReturnType<type
         </div>
       ) : (
         <div className="rounded-[1.35rem] border border-white/8 bg-white/[0.025] p-5 text-sm leading-6 text-slate-400">
-          No promoted or watch player markets are available yet. Run the v8 capture, player prop grader, and player market calibration workers to populate this rail.
+          No player-market opportunities are available yet.
         </div>
       )}
-
-      {feed.warnings.length ? (
-        <div className="rounded-[1.1rem] border border-amber-300/15 bg-amber-300/5 px-4 py-3 text-xs leading-5 text-amber-100/80">
-          {feed.warnings[0]}
-        </div>
-      ) : null}
     </section>
   );
 }
