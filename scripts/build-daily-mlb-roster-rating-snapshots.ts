@@ -20,11 +20,13 @@ function numberArg(name: string, fallback: number) {
 async function main() {
   const season = numberArg("season", new Date().getUTCFullYear());
   const rosterType = (argValue("rosterType") || "active") as "active" | "40Man" | "fullSeason";
-  const outPath = argValue("out") || path.join(process.cwd(), "data", "mlb", `daily-roster-rating-snapshot-${season}.json`);
+  const snapshotDate = argValue("snapshotDate") || new Date().toISOString().slice(0, 10);
+  const outPath = argValue("out") || path.join(process.cwd(), "data", "mlb", `daily-roster-rating-snapshot-${snapshotDate}.json`);
   const persist = !hasFlag("dryRun");
   const report = await buildDailyMlbRosterRatingSnapshots({
     season,
     rosterType,
+    snapshotDate,
     persist,
     includeStatsApiStats: !hasFlag("rosterOnly"),
     fetchConcurrency: numberArg("concurrency", 6),
@@ -40,6 +42,7 @@ async function main() {
     modelVersion: report.modelVersion,
     season: report.season,
     rosterType: report.rosterType,
+    snapshotDate: report.snapshotDate,
     persisted: report.persisted,
     teamsCovered: `${report.teamsCovered}/${report.teamsExpected}`,
     playersSeen: report.playersSeen,
