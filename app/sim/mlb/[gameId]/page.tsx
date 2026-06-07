@@ -112,11 +112,11 @@ function cleanReasons(projection: ProjectionView, lock?: Lock | null) {
     ...(projection.mlbIntel?.governor?.reasons ?? []),
     ...(lock?.notes ?? []),
     projection.read
-  ].filter(Boolean);
+  ].filter((reason): reason is string => typeof reason === "string" && reason.trim().length > 0);
   const seen = new Set<string>();
   return raw.filter((reason) => {
     const key = reason.trim().toLowerCase();
-    if (!key || seen.has(key)) return false;
+    if (seen.has(key)) return false;
     seen.add(key);
     return true;
   }).slice(0, 4);
