@@ -13,8 +13,12 @@ import {
   type MlbV8PlayerImpactProfile,
   type MlbV8PlayerImpactWeights
 } from "@/services/simulation/mlb-v8-player-impact-profile";
+import {
+  applyMlbV8MicroTendencyAdjustment,
+  type MlbV8MicroTendencyResult
+} from "@/services/simulation/mlb-v8-micro-tendency-integration";
 
-type ProjectionLike = {
+ type ProjectionLike = {
   matchup?: { away: string; home: string };
   distribution: {
     avgAway: number;
@@ -107,6 +111,7 @@ export type MlbV8PlayerImpactResult = {
   homeBullpenScore: number;
   awayRunDelta: number;
   homeRunDelta: number;
+  microTendencyAdjustment: MlbV8MicroTendencyResult | null;
   playerStatProjections: MlbPlayerStatProjectionGame | null;
   inningProjection: MlbInningMarketProjection | null;
   reasons: string[];
@@ -378,6 +383,7 @@ export function calculateMlbV8PlayerImpact(args: {
       homeBullpenScore: DEFAULT_SKILL,
       awayRunDelta: 0,
       homeRunDelta: 0,
+      microTendencyAdjustment: null,
       playerStatProjections: null,
       inningProjection: null,
       reasons: [`MLB v8 player-impact skipped: ${args.context.reason ?? "roster intelligence unavailable"}.`]
@@ -394,11 +400,27 @@ export function calculateMlbV8PlayerImpact(args: {
   const homePen = bullpenScore(args.context.home, weights);
   const awayDelta = runDeltaFor(awayOffense, homeStarterScore, homePen, weights);
   const homeDelta = runDeltaFor(homeOffense, awayStarterScore, awayPen, weights);
-  const adjustedAwayRuns = clamp(baseAway + awayDelta, 1.5, 9.5);
-  const adjustedHomeRuns = clamp(baseHome + homeDelta, 1.5, 9.5);
+  const skillAdjustedAwayRuns = clamp(baseAway + awayDelta, 1.5, 9.5);
+  const skillAdjustedHomeRuns = clamp(baseHome + homeDelta, 1.5, 9.5);
+  const microTendencyAdjustment = applyMlbV8MicroTendencyAdjustment({
+    gameId: args.context.gameId,
+    awayTeam: { team: args.context.awayTeam, lineup: args.context.away.lineup },
+    homeTeam: { team: args.context.homeTeam, lineup: args.context.home.lineup },
+    baseAwayRuns: skillAdjustedAwayRuns,
+    baseHomeRuns: skillAdjustedHomeRuns,
+    awayOffenseScore: awayOffense,
+    homeOffenseScore: homeOffense,
+    awayStarterScore,
+    homeStarterScore,
+    awayBullpenScore: awayPen,
+    homeBullpenScore: homePen
+  });
+  const adjustedAwayRuns = clamp(microTendencyAdjustment.awayRuns, 1.5, 9.5);
+  const adjustedHomeRuns = clamp(microTendencyAdjustment.homeRuns, 1.5, 9.5);
   const dataPieces = [args.context.away.hitters.length >= 9, args.context.home.hitters.length >= 9, Boolean(awayStarter), Boolean(homeStarter), Boolean(args.context.away.lineup), Boolean(args.context.home.lineup)].filter(Boolean).length;
   const confidenceBeforeProfileCap = clamp(dataPieces / 6, 0.2, 0.85);
-  const confidence = clamp(Math.min(confidenceBeforeProfileCap, profileFeatureSignal?.confidenceCap ?? 0.85), 0.2, 0.85);
+  const microConfidenceCap = microTendencyAdjustment.applied ? 0.85 : 0.68;
+  const confidence = clamp(Math.min(confidenceBeforeProfileCap, profileFeatureSignal?.confidenceCap ?? 0.85, microConfidenceCap), 0.2, 0.85);
   const adjustedHomeWinPct = blendProbability(rawHomeWinPct, adjustedAwayRuns, adjustedHomeRuns, confidence, weights);
   const playerStatProjections = projectMlbPlayerStatsForGame({
     away: args.context.away,
@@ -446,15 +468,19 @@ export function calculateMlbV8PlayerImpact(args: {
     homeStarterScore: round(homeStarterScore, 2),
     awayBullpenScore: round(awayPen, 2),
     homeBullpenScore: round(homePen, 2),
-    awayRunDelta: round(awayDelta, 3),
-    homeRunDelta: round(homeDelta, 3),
+    awayRunDelta: round(adjustedAwayRuns - baseAway, 3),
+    homeRunDelta: round(adjustedHomeRuns - baseHome, 3),
+    microTendencyAdjustment,
     playerStatProjections,
     inningProjection,
     reasons: [
       `MLB v8 player-impact applied with ${(confidence * 100).toFixed(1)}% capped data confidence using ${profile.status} profile (${profile.sampleSize} samples).`,
       profileFeatureSignal ? `Profile feature signal ${profileFeatureSignal.status} (${profileFeatureSignal.score}/100) capped confidence at ${(profileFeatureSignal.confidenceCap * 100).toFixed(1)}%.` : "Profile feature signal unavailable; default confidence cap used.",
-      `Away offense ${awayOffense.toFixed(1)} vs home starter ${homeStarterScore.toFixed(1)} and bullpen ${homePen.toFixed(1)} moved away runs ${awayDelta >= 0 ? "+" : ""}${awayDelta.toFixed(2)}.`,
-      `Home offense ${homeOffense.toFixed(1)} vs away starter ${awayStarterScore.toFixed(1)} and bullpen ${awayPen.toFixed(1)} moved home runs ${homeDelta >= 0 ? "+" : ""}${homeDelta.toFixed(2)}.`,
+      `Away offense ${awayOffense.toFixed(1)} vs home starter ${homeStarterScore.toFixed(1)} and bullpen ${homePen.toFixed(1)} moved away runs ${awayDelta >= 0 ? "+" : ""}${awayDelta.toFixed(2)} before micro tendencies.`,
+      `Home offense ${homeOffense.toFixed(1)} vs away starter ${awayStarterScore.toFixed(1)} and bullpen ${awayPen.toFixed(1)} moved home runs ${homeDelta >= 0 ? "+" : ""}${homeDelta.toFixed(2)} before micro tendencies.`,
+      microTendencyAdjustment.applied
+        ? `Micro tendencies applied from ${microTendencyAdjustment.batterCount} batters and ${microTendencyAdjustment.pitcherCount} pitchers; data quality ${microTendencyAdjustment.dataQuality.toFixed(1)}/100.`
+        : `Micro tendencies skipped: ${microTendencyAdjustment.reason}; data quality ${microTendencyAdjustment.dataQuality.toFixed(1)}/100.`,
       `Run-derived probability was blended with raw home probability ${rawHomeWinPct.toFixed(3)} to produce ${adjustedHomeWinPct.toFixed(3)} before v7 market calibration.`,
       `Player stat and inning market projections generated for hitter props, baserunning, starting-pitcher props, F5, and NRFI review.`
     ]
