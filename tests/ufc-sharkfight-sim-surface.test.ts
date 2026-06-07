@@ -78,6 +78,13 @@ assert.equal(cardSurface.resolvedShadowCount, 1);
 assert.equal(cardSurface.dominantMethod, "DECISION");
 assert.equal(cardSurface.averagePickProbability, 0.595);
 
+const predictionJson = {
+  averageFightLengthSeconds: 770.5,
+  averageDamage: { fighterA: 41.2, fighterB: 36.4 },
+  averageControlSeconds: { fighterA: 132.8, fighterB: 78.1 },
+  averageKnockdowns: { fighterA: 0.32, fighterB: 0.14 }
+};
+
 const detail: UfcFightIqDetail = {
   fightId: "fight-1",
   eventId: "event-1",
@@ -85,7 +92,7 @@ const detail: UfcFightIqDetail = {
   fightDate: "2026-06-01T02:00:00.000Z",
   scheduledRounds: 3,
   fighters: { fighterA: { id: "a", name: "A" }, fighterB: { id: "b", name: "B" } },
-  prediction: feedFight(),
+  prediction: feedFight({ predictionJson, dangerFlags: ["finish-volatility"] }),
   featureComparison: [
     { label: "SLpM", fighterA: 4.2, fighterB: 3.1 },
     { label: "SApM", fighterA: 2.9, fighterB: null }
@@ -93,9 +100,14 @@ const detail: UfcFightIqDetail = {
   methodProbabilities: { KO_TKO: 0.22, SUBMISSION: 0.18, DECISION: 0.6 },
   roundFinishProbabilities: { R1: 0.1, R2: 0.14, R3: 0.08 },
   pathSummary: ["A has the stronger decision path."],
-  dangerFlags: [],
+  dangerFlags: ["finish-volatility"],
   activeEnsembleWeights: { source: "learned", weights: { skillMarkov: 0.6, exchangeMonteCarlo: 0.4, roundByRound: 0, styleMatchup: 0 } },
-  sourceOutputs: { skillMarkov: { fighterAWinProbability: 0.62 }, exchangeMonteCarlo: { fighterAWinProbability: 0.66 } },
+  sourceOutputs: {
+    skillMarkov: { fighterAWinProbability: 0.62 },
+    exchangeMonteCarlo: { fighterAWinProbability: 0.66 },
+    roundByRound: { fighterAWinProbability: 0.58 },
+    styleMatchup: { fighterAWinProbability: 0.61 }
+  },
   styleGenome: null,
   dataQualityGrade: "B",
   confidenceGrade: "HIGH",
@@ -106,10 +118,18 @@ const detailSurface = buildSharkFightDetailSimSurface(detail);
 assert.equal(detailSurface.pickProbability, 0.64);
 assert.equal(detailSurface.pickSide, "A");
 assert.equal(detailSurface.engineAgreement, "agreement");
+assert.equal(detailSurface.engineVoteCount, 4);
+assert.equal(detailSurface.engineSpreadPct, 0.08);
 assert.equal(detailSurface.methodLean, "DECISION");
 assert.equal(detailSurface.methodLeanProbability, 0.6);
+assert.equal(detailSurface.finishProbability, 0.4);
 assert.equal(detailSurface.topRoundOutcome, "R2");
 assert.equal(detailSurface.topRoundProbability, 0.14);
+assert.equal(detailSurface.averageFightLengthSeconds, 770.5);
+assert.deepEqual(detailSurface.averageDamage, { fighterA: 41.2, fighterB: 36.4 });
+assert.deepEqual(detailSurface.averageControlSeconds, { fighterA: 132.8, fighterB: 78.1 });
+assert.deepEqual(detailSurface.averageKnockdowns, { fighterA: 0.32, fighterB: 0.14 });
+assert.equal(detailSurface.topDangerFlag, "finish-volatility");
 assert.equal(detailSurface.dataCompletenessPct, 75);
 assert.equal(detailSurface.dataMissingCount, 1);
 
@@ -117,6 +137,8 @@ const pendingDetail = buildSharkFightDetailSimSurface({ ...detail, prediction: f
 assert.equal(pendingDetail.pickProbability, null);
 assert.equal(pendingDetail.pickSide, null);
 assert.equal(pendingDetail.engineAgreement, "agreement");
+assert.equal(pendingDetail.engineVoteCount, 0);
 assert.equal(pendingDetail.methodLean, null);
+assert.equal(pendingDetail.finishProbability, null);
 
 console.log("ufc-sharkfight-sim-surface tests passed");
