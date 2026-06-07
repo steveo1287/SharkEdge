@@ -5,6 +5,7 @@ import {
   buildMlbMicroTendencyFeedsFromStatcast,
   parseMlbStatcastCsv
 } from "@/services/simulation/mlb-statcast-micro-feed-builder";
+import { normalizeMlbStatcastRowsForMicroFeed } from "@/services/simulation/mlb-statcast-row-normalizer";
 
 function argValue(name: string) {
   const prefix = `--${name}=`;
@@ -24,7 +25,7 @@ async function main() {
   }
 
   const csv = await readFile(inputPath, "utf8");
-  const rows = parseMlbStatcastCsv(csv);
+  const rows = normalizeMlbStatcastRowsForMicroFeed(parseMlbStatcastCsv(csv));
   const feed = buildMlbMicroTendencyFeedsFromStatcast(rows, {
     sourceLabel,
     minBatterPitches,
