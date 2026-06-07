@@ -11,6 +11,22 @@ function pctRaw(value: number | null | undefined) {
   return `${Math.round(value)}%`;
 }
 
+function num(value: number | null | undefined, digits = 1) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return value.toFixed(digits);
+}
+
+function seconds(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  const minutes = Math.floor(value / 60);
+  const remaining = Math.round(value % 60).toString().padStart(2, "0");
+  return `${minutes}:${remaining}`;
+}
+
+function pair(left: number | null | undefined, right: number | null | undefined, digits = 1) {
+  return `${num(left, digits)} / ${num(right, digits)}`;
+}
+
 function odds(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
   return value > 0 ? `+${Math.round(value)}` : String(Math.round(value));
@@ -130,12 +146,19 @@ export function SharkFightDetailRibbon({ fight }: { fight: UfcFightIqDetail | nu
           <span className={pill(surface.engineAgreement === "agreement" ? "green" : surface.engineAgreement === "disagreement" ? "amber" : "slate")}>engine {surface.engineAgreement}</span>
           <span className={pill(surface.dataCompletenessPct >= 80 ? "green" : surface.dataCompletenessPct >= 60 ? "amber" : "red")}>{pctRaw(surface.dataCompletenessPct)} data complete</span>
           <span className={pill("aqua")}>weights: {source}</span>
+          {surface.topDangerFlag ? <span className={pill("amber")}>{surface.topDangerFlag}</span> : null}
         </div>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <SimMetric label="Pick probability" value={pct(surface.pickProbability)} sub={surface.pickSide ? `fighter ${surface.pickSide}` : "pending pick"} />
           <SimMetric label="Method lane" value={surface.methodLean ?? "--"} sub={pct(surface.methodLeanProbability)} />
           <SimMetric label="Top round lane" value={surface.topRoundOutcome ?? "--"} sub={pct(surface.topRoundProbability)} />
           <SimMetric label="Weight split" value={`${pct(skillWeight)} / ${pct(exchangeWeight)}`} sub="Markov / Exchange Monte Carlo" />
+          <SimMetric label="Engine votes" value={`${surface.engineVoteCount}/4`} sub={`spread ${pct(surface.engineSpreadPct)}`} />
+          <SimMetric label="Finish pressure" value={pct(surface.finishProbability)} sub="KO/TKO + submission" />
+          <SimMetric label="Fight length" value={seconds(surface.averageFightLengthSeconds)} sub="ensemble average" />
+          <SimMetric label="Damage A / B" value={pair(surface.averageDamage.fighterA, surface.averageDamage.fighterB)} sub="mean damage units" />
+          <SimMetric label="Control A / B" value={pair(surface.averageControlSeconds.fighterA, surface.averageControlSeconds.fighterB, 0)} sub="average seconds" />
+          <SimMetric label="KD A / B" value={pair(surface.averageKnockdowns.fighterA, surface.averageKnockdowns.fighterB, 2)} sub="average knockdowns" />
         </div>
       </section>
     </div>
