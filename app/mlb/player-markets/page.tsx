@@ -141,7 +141,11 @@ function filterMarkets(markets: MlbPlayerMarketOpportunity[], filters: Filters) 
   });
 }
 
-export default async function MlbPlayerMarketsPage({ searchParams }: { searchParams?: Promise<SearchParams> | SearchParams }) {
+type PageProps = {
+  searchParams?: Promise<SearchParams>;
+};
+
+export default async function MlbPlayerMarketsPage({ searchParams }: PageProps) {
   const params = searchParams ? await searchParams : {};
   const filters: Filters = {
     decision: decisionParam(params),

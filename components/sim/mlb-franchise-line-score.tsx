@@ -1,67 +1,50 @@
-import { Card } from "@/components/ui/card";
-import type { MlbInningMarketProjection } from "@/services/simulation/mlb-player-stat-inning-engine";
+import { SimSignalCard } from "@/components/sim/sim-ui";
 
-type TeamLine = {
-  team: string;
-  total: number;
-  inningRuns: Array<number | null>;
+export type FranchiseLineScoreTeam = {
+  name: string;
+  runs: number | null;
+  innings: number[];
+  hits?: number | null;
+  errors?: number | null;
 };
 
-function one(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
-  return value.toFixed(1);
+function fmt(value: number | null | undefined, digits = 1) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return value.toFixed(digits);
 }
 
-function fiveInnings(values: number[]) {
-  return Array.from({ length: 5 }, (_, index) => values[index] ?? null);
-}
-
-function lineForTeam(team: string, total: number, innings: MlbInningMarketProjection["innings"], side: "away" | "home"): TeamLine {
-  const values = innings.slice(0, 5).map((inning) => side === "away" ? inning.awayExpectedRuns : inning.homeExpectedRuns);
-  return {
-    team,
-    total,
-    inningRuns: fiveInnings(values)
-  };
-}
-
-function Row({ line }: { line: TeamLine }) {
+export function MlbFranchiseLineScore({ away, home }: { away: FranchiseLineScoreTeam; home: FranchiseLineScoreTeam }) {
+  const innings = Array.from({ length: 9 }, (_, index) => index + 1);
   return (
-    <div className="grid grid-cols-[1.4fr_repeat(5,0.5fr)_0.65fr] gap-3 border-t border-white/8 py-3 text-sm">
-      <div className="truncate font-semibold text-white">{line.team}</div>
-      {line.inningRuns.map((runs, index) => (
-        <div key={`${line.team}:${index}`} className="tabular-nums text-slate-300">{one(runs)}</div>
-      ))}
-      <div className="tabular-nums font-semibold text-white">{one(line.total)}</div>
-    </div>
-  );
-}
-
-export function MlbProjectedLineScore({ awayTeam, homeTeam, awayRuns, homeRuns, inningStats }: {
-  awayTeam: string;
-  homeTeam: string;
-  awayRuns: number;
-  homeRuns: number;
-  inningStats?: MlbInningMarketProjection | null;
-}) {
-  const innings = inningStats?.innings ?? [];
-  const awayLine = lineForTeam(awayTeam, awayRuns, innings, "away");
-  const homeLine = lineForTeam(homeTeam, homeRuns, innings, "home");
-
-  return (
-    <Card className="surface-panel overflow-hidden p-5">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">Projected line score</div>
-          <div className="mt-1 font-display text-2xl font-semibold text-white">First five shape + full-game total</div>
-        </div>
-        <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Projection</div>
+    <SimSignalCard className="overflow-hidden p-0">
+      <div className="border-b border-white/10 px-5 py-4">
+        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Projected Line Score</div>
+        <div className="mt-1 text-[11px] text-slate-500">Inning shape is projection-only until official box-score tracking lands.</div>
       </div>
-      <div className="grid grid-cols-[1.4fr_repeat(5,0.5fr)_0.65fr] gap-3 pb-2 text-[0.58rem] uppercase tracking-[0.16em] text-slate-500">
-        <div>Team</div><div>1</div><div>2</div><div>3</div><div>4</div><div>5</div><div>R</div>
+      <div className="overflow-x-auto">
+        <table className="min-w-[760px] w-full text-sm">
+          <thead className="bg-white/[0.025] text-[10px] uppercase tracking-[0.14em] text-slate-600">
+            <tr>
+              <th className="px-4 py-3 text-left">Team</th>
+              {innings.map((inning) => <th key={inning} className="px-2 py-3 text-center">{inning}</th>)}
+              <th className="px-3 py-3 text-center text-white">R</th>
+              <th className="px-3 py-3 text-center">H</th>
+              <th className="px-3 py-3 text-center">E</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/[0.06]">
+            {[away, home].map((team) => (
+              <tr key={team.name}>
+                <td className="px-4 py-3 font-semibold text-white">{team.name}</td>
+                {team.innings.map((runs, index) => <td key={`${team.name}:${index}`} className="px-2 py-3 text-center font-mono text-slate-300">{fmt(runs, 1)}</td>)}
+                <td className="px-3 py-3 text-center font-mono font-bold text-aqua">{fmt(team.runs, 1)}</td>
+                <td className="px-3 py-3 text-center font-mono text-slate-300">{fmt(team.hits, 1)}</td>
+                <td className="px-3 py-3 text-center font-mono text-slate-500">{team.errors ?? 0}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      <Row line={awayLine} />
-      <Row line={homeLine} />
-    </Card>
+    </SimSignalCard>
   );
 }

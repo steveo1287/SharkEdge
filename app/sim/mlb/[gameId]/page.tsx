@@ -1,373 +1,138 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
-import { EmptyState } from "@/components/ui/empty-state";
-import { SectionTitle } from "@/components/ui/section-title";
+import { MlbFranchiseImpactPlayers } from "@/components/sim/mlb-franchise-impact-players";
+import { MlbFranchiseLineScore } from "@/components/sim/mlb-franchise-line-score";
+import { FranchiseEmptyState, FranchiseStat } from "@/components/sim/mlb-franchise-primitives";
 import { MlbFranchiseTabs } from "@/components/sim/mlb-franchise-tabs";
-import { MlbImpactPlayers } from "@/components/sim/mlb-franchise-impact-players";
-import { MlbProjectedLineScore } from "@/components/sim/mlb-franchise-line-score";
-import { buildBoardSportSections } from "@/services/events/live-score-service";
-import { cacheAgeLabel, readCachedMlbGameDetail } from "@/services/simulation/mlb-game-detail-cache";
-import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
-import { buildMainSimProjection as buildSimProjection } from "@/services/simulation/main-sim-brain";
-import type { MlbInningMarketProjection, MlbPlayerStatProjectionGame } from "@/services/simulation/mlb-player-stat-inning-engine";
-
-type LiveProjection = Awaited<ReturnType<typeof buildSimProjection>>;
-type ProjectionView = Pick<LiveProjection, "matchup" | "distribution" | "read" | "statSheet" | "realityIntel" | "mlbIntel" | "nbaIntel">;
-type EdgeResult = Awaited<ReturnType<typeof buildMlbEdges>>["edges"][number];
-type Lock = NonNullable<NonNullable<ProjectionView["mlbIntel"]>["lock"]>;
-type PlayerImpactPayload = { playerStatProjections?: MlbPlayerStatProjectionGame | null; inningProjection?: MlbInningMarketProjection | null };
-
-type PageProps = { params: Promise<{ gameId: string }> };
-type DecisionTier = "attack" | "watch" | "lean" | "pass";
+import { SimDecisionBadge, SimSignalCard, SimWorkspaceHeader } from "@/components/sim/sim-ui";
+import { getMlbFranchiseGameCenter } from "@/services/simulation/mlb-franchise-game-stats";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function pct(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
-  return `${Math.round(value * 100)}%`;
+type PageProps = { params: Promise<{ gameId: string }> };
+
+function pct(value: number | null | undefined, digits = 1) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return `${(value * 100).toFixed(digits)}%`;
 }
 
-function one(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
-  return value.toFixed(1);
+function num(value: number | null | undefined, digits = 1) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return value.toFixed(digits);
 }
 
 function formatTime(value: string) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Time TBD";
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Chicago",
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short"
-  }).format(date);
+  if (Number.isNaN(date.getTime())) return "TBD";
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(date);
 }
 
-function formatOdds(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
-  const rounded = Math.round(value);
-  return rounded > 0 ? `+${rounded}` : String(rounded);
+function pickLabel(game: NonNullable<Awaited<ReturnType<typeof getMlbFranchiseGameCenter>>>) {
+  const home = game.projection.distribution.homeWinPct;
+  const away = game.projection.distribution.awayWinPct;
+  return home >= away ? game.teams.home.name : game.teams.away.name;
 }
 
-function edgeSignal(edge: EdgeResult | null | undefined) {
-  return edge && "signal" in edge ? edge.signal : null;
+function marketLean(game: NonNullable<Awaited<ReturnType<typeof getMlbFranchiseGameCenter>>>) {
+  const signal = game.edge?.signal;
+  if (signal?.market) return String(signal.market).replace(/_/g, " ").toUpperCase();
+  const total = game.edge?.edges?.totalRuns;
+  if (typeof total === "number" && Number.isFinite(total)) return total >= 0 ? "OVER" : "UNDER";
+  return "No matched line";
 }
 
-function edgeTotals(edge: EdgeResult | null | undefined) {
-  return edge && "edges" in edge ? edge.edges : null;
-}
-
-function winLean(projection: ProjectionView) {
-  const home = projection.distribution.homeWinPct;
-  const away = projection.distribution.awayWinPct;
-  return home >= away
-    ? { team: projection.matchup.home, pct: home, side: "HOME" as const }
-    : { team: projection.matchup.away, pct: away, side: "AWAY" as const };
-}
-
-function projectedTotal(projection: ProjectionView) {
-  return projection.mlbIntel?.projectedTotal
-    ?? (projection.distribution.avgAway + projection.distribution.avgHome);
-}
-
-function playerImpact(projection: ProjectionView) {
-  const impact = projection.mlbIntel?.playerImpact as PlayerImpactPayload | null | undefined;
-  return {
-    playerStats: impact?.playerStatProjections ?? null,
-    inningStats: impact?.inningProjection ?? null
-  };
-}
-
-function decisionTier(projection: ProjectionView, edge?: EdgeResult | null): DecisionTier {
-  const governor = projection.mlbIntel?.governor;
-  if (!projection.mlbIntel || governor?.noBet || governor?.tier === "pass") return "pass";
-  if (governor?.tier === "attack") return "attack";
-  if (governor?.tier === "watch") return "watch";
-  const signal = edgeSignal(edge);
-  if (signal?.strength === "strong") return "watch";
-  return "lean";
-}
-
-function decisionLabel(tier: DecisionTier) {
-  if (tier === "attack") return "BEST";
-  if (tier === "watch") return "WATCH";
-  if (tier === "lean") return "LEAN";
-  return "PASS";
-}
-
-function decisionTone(tier: DecisionTier) {
-  if (tier === "attack") return "success" as const;
-  if (tier === "watch" || tier === "lean") return "premium" as const;
-  return "muted" as const;
-}
-
-function marketLabel(projection: ProjectionView, edge?: EdgeResult | null) {
-  const signal = edgeSignal(edge);
-  if (signal?.market === "home_ml") return `${projection.matchup.home} ML`;
-  if (signal?.market === "away_ml") return `${projection.matchup.away} ML`;
-  if (signal?.market === "over") return "Over";
-  if (signal?.market === "under") return "Under";
-
-  const runEdge = edgeTotals(edge)?.totalRuns;
-  if (typeof runEdge === "number") return runEdge >= 0 ? "Over lean" : "Under lean";
-  return "No market lean";
-}
-
-function cleanReasons(projection: ProjectionView, lock?: Lock | null) {
-  const raw = [
-    ...(projection.mlbIntel?.governor?.reasons ?? []),
-    ...(lock?.notes ?? []),
-    projection.read
-  ].filter((reason): reason is string => typeof reason === "string" && reason.trim().length > 0);
-  const seen = new Set<string>();
-  return raw.filter((reason) => {
-    const key = reason.trim().toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  }).slice(0, 4);
-}
-
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="rounded-2xl border border-white/8 bg-slate-950/55 p-3">
-      <div className="text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">{label}</div>
-      <div className="mt-1 text-lg font-semibold text-white">{value}</div>
-      {sub ? <div className="mt-1 text-[0.68rem] text-slate-500">{sub}</div> : null}
-    </div>
-  );
-}
-
-function WinChart({ projection }: { projection: ProjectionView }) {
-  const awayPct = projection.distribution.awayWinPct;
-  const homePct = projection.distribution.homeWinPct;
-  const awayWidth = Math.max(5, Math.min(95, Math.round(awayPct * 100)));
-  const homeWidth = Math.max(5, 100 - awayWidth);
-
-  return (
-    <Card className="surface-panel p-4">
-      <div className="mb-2 flex items-center justify-between text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">
-        <span>Win chance</span>
-        <span>{pct(awayPct)} / {pct(homePct)}</span>
-      </div>
-      <div className="flex h-3 overflow-hidden rounded-full bg-white/8">
-        <div className="bg-sky-400/75" style={{ width: `${awayWidth}%` }} />
-        <div className="bg-emerald-400/75" style={{ width: `${homeWidth}%` }} />
-      </div>
-      <div className="mt-2 flex justify-between gap-3 text-[11px] text-slate-400">
-        <span className="truncate">{projection.matchup.away}</span>
-        <span className="truncate text-right">{projection.matchup.home}</span>
-      </div>
-    </Card>
-  );
-}
-
-function RunsChart({ projection }: { projection: ProjectionView }) {
-  const away = projection.distribution.avgAway;
-  const home = projection.distribution.avgHome;
-  const max = Math.max(away, home, 1);
-  return (
-    <Card className="surface-panel p-4">
-      <div className="mb-3 text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">Projected runs</div>
-      {[
-        { team: projection.matchup.away, runs: away },
-        { team: projection.matchup.home, runs: home }
-      ].map((item) => (
-        <div key={item.team} className="mb-3 last:mb-0">
-          <div className="mb-1 flex items-center justify-between gap-3 text-xs text-slate-400">
-            <span className="truncate">{item.team}</span>
-            <span className="tabular-nums text-white">{one(item.runs)}</span>
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-white/8">
-            <div className="h-full rounded-full bg-aqua/70" style={{ width: `${Math.max(8, Math.round((item.runs / max) * 100))}%` }} />
-          </div>
-        </div>
-      ))}
-    </Card>
-  );
-}
-
-function PitcherCard({ label, team, name, throws }: { label: string; team: string; name?: string | null; throws?: string | null }) {
-  return (
-    <Card className="surface-panel p-4">
-      <div className="text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">{label}</div>
-      <div className="mt-2 text-sm text-slate-400">{team}</div>
-      <div className="mt-1 font-display text-xl font-semibold text-white">{name ?? "Starter TBD"}</div>
-      {throws ? <div className="mt-1 text-xs uppercase tracking-[0.14em] text-slate-500">Throws {throws}</div> : null}
-    </Card>
-  );
-}
-
-function PitchersSection({ projection, lock }: { projection: ProjectionView; lock?: Lock | null }) {
-  if (!lock) return null;
-  return (
-    <section className="grid gap-4">
-      <SectionTitle title="Pitchers" description="Only the starting pitcher context needed for the read." />
-      <div className="grid gap-4 md:grid-cols-2">
-        <PitcherCard label="Away starter" team={projection.matchup.away} name={lock.awayStarterName} throws={lock.awayStarterThrows} />
-        <PitcherCard label="Home starter" team={projection.matchup.home} name={lock.homeStarterName} throws={lock.homeStarterThrows} />
-      </div>
-      {(!lock.startersConfirmed || !lock.lineupsConfirmed) ? (
-        <div className="rounded-2xl border border-amber-300/15 bg-amber-300/5 px-4 py-3 text-xs leading-5 text-amber-100/80">
-          Starters or lineups are not fully confirmed yet. Treat the read as movable until lineups lock.
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function WhySection({ reasons }: { reasons: string[] }) {
-  return (
-    <section className="grid gap-4">
-      <SectionTitle title="Why" description="The short version. No factor dump." />
-      <div className="grid gap-2">
-        {(reasons.length ? reasons : ["No clean reason available yet."]).map((reason) => (
-          <div key={reason} className="rounded-xl border border-white/8 bg-white/[0.025] px-4 py-3 text-sm leading-6 text-slate-300">
-            {reason}
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function AdvancedDetails({ projection, edge, cacheLabel }: { projection: ProjectionView; edge?: EdgeResult | null; cacheLabel: string }) {
-  const factors = [...(projection.mlbIntel?.factors ?? [])]
-    .sort((left, right) => Math.abs(right.value) - Math.abs(left.value))
-    .slice(0, 6);
-
-  return (
-    <details className="group rounded-2xl border border-white/8 bg-white/[0.02] p-4">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 marker:hidden hover:text-slate-300">
-        <span>Advanced details</span>
-        <span className="group-open:hidden">Show</span>
-        <span className="hidden group-open:inline">Hide</span>
-      </summary>
-      <div className="mt-4 grid gap-3 text-sm text-slate-400 lg:grid-cols-3">
-        <Stat label="Cache" value={cacheLabel} />
-        <Stat label="Book" value={edge?.market?.sportsbook ?? "—"} />
-        <Stat label="Market total" value={edge?.market?.total != null ? one(edge.market.total) : "—"} />
-        <Stat label="Away ML" value={formatOdds(edge?.market?.awayMoneyline)} />
-        <Stat label="Home ML" value={formatOdds(edge?.market?.homeMoneyline)} />
-        <Stat label="Volatility" value={projection.mlbIntel?.volatilityIndex != null ? one(projection.mlbIntel.volatilityIndex) : "—"} />
-      </div>
-      {factors.length ? (
-        <div className="mt-4 grid gap-2">
-          {factors.map((factor) => (
-            <div key={factor.label} className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-slate-950/45 px-3 py-2 text-xs">
-              <span className="truncate text-slate-300">{factor.label}</span>
-              <span className="tabular-nums text-slate-400">{factor.value > 0 ? "+" : ""}{factor.value.toFixed(2)}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </details>
-  );
-}
-
-async function buildLiveFallback(gameId: string) {
-  const [sections, edgeData] = await Promise.all([
-    buildBoardSportSections({ selectedLeague: "MLB", gamesByLeague: {}, maxScoreboardGames: null }),
-    buildMlbEdges().catch(() => ({ edges: [] as EdgeResult[] }))
-  ]);
-  const game = sections
-    .flatMap((section) => section.scoreboard.map((item) => ({ ...item, leagueKey: section.leagueKey, leagueLabel: section.leagueLabel })))
-    .find((item) => item.id === gameId);
-  if (!game) return null;
-
-  const projection = await buildSimProjection(game);
-  return {
-    game,
-    projection: projection as ProjectionView,
-    edge: edgeData.edges.find((item) => item.gameId === gameId) ?? null,
-    cacheLabel: "live fallback"
-  };
-}
-
-export default async function MlbGameDetailPage({ params }: PageProps) {
+export default async function MlbGameSummaryPage({ params }: PageProps) {
   const { gameId } = await params;
-  const decodedId = decodeURIComponent(gameId);
-  const cached = await readCachedMlbGameDetail(decodedId);
-  const detail = cached
-    ? {
-      game: cached.row.game,
-      projection: cached.row.projection as ProjectionView,
-      edge: cached.edge as EdgeResult | null,
-      cacheLabel: `${cacheAgeLabel(cached.generatedAt)}${cached.stale ? " · stale" : ""}`
-    }
-    : await buildLiveFallback(decodedId);
+  const game = await getMlbFranchiseGameCenter(decodeURIComponent(gameId));
+  if (!game) notFound();
 
-  if (!detail) notFound();
-
-  const { game, projection, edge, cacheLabel } = detail;
-  const lean = winLean(projection);
-  const tier = decisionTier(projection, edge);
-  const total = projectedTotal(projection);
-  const lock = projection.mlbIntel?.lock;
-  const reasons = cleanReasons(projection, lock);
-  const impact = playerImpact(projection);
+  const governor = game.projection.mlbIntel?.governor;
+  const why = governor?.reasons?.[0] ?? game.projection.read;
 
   return (
-    <div className="grid gap-6">
-      <MlbFranchiseTabs gameId={decodedId} active="summary" />
-
-      <section className="surface-panel-strong p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="section-kicker">MLB game sim</div>
-            <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight text-white">
-              {projection.matchup.away} @ {projection.matchup.home}
-            </h1>
-            <p className="mt-3 text-sm leading-6 text-slate-400">
-              {formatTime(game.startTime)} · simple read first, details only when opened.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Badge tone={decisionTone(tier)}>{decisionLabel(tier)}</Badge>
-            <Link href="/sim/mlb" className="rounded-sm border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-slate-300 hover:border-sky-400/25 hover:text-white">
-              MLB sim
-            </Link>
-          </div>
+    <div className="space-y-5">
+      <SimWorkspaceHeader
+        eyebrow="MLB Game Center"
+        title={`${game.teams.away.name} @ ${game.teams.home.name}`}
+        description={`${formatTime(game.game.startTime)} - ${game.cacheLabel}`}
+        actions={[{ href: "/sim/mlb", label: "MLB Board", tone: "primary" }, { href: "/sim", label: "Sim Hub" }]}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <SimDecisionBadge tier={governor?.tier ?? "pass"} label={governor?.tier === "attack" ? "Best" : governor?.tier === "watch" ? "Watch" : governor?.tier === "thin" ? "Lean" : "Pass"} />
+          {governor?.noBet ? <span className="rounded-sm border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-300">No bet</span> : null}
+          {game.stale ? <span className="rounded-sm border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-300">Stale snapshot</span> : null}
         </div>
+      </SimWorkspaceHeader>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-4">
-          <Stat label="Pick" value={lean.team} sub={pct(lean.pct)} />
-          <Stat label="Score" value={`${one(projection.distribution.avgAway)}-${one(projection.distribution.avgHome)}`} sub="away-home" />
-          <Stat label="Total" value={one(total)} sub="projected runs" />
-          <Stat label="Market" value={marketLabel(projection, edge)} />
-        </div>
+      <MlbFranchiseTabs gameId={game.gameId} active="summary" />
+
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <FranchiseStat label="Pick" value={pickLabel(game)} sub={`${pct(Math.max(game.projection.distribution.homeWinPct, game.projection.distribution.awayWinPct))} win chance`} />
+        <FranchiseStat label="Projected Score" value={`${num(game.teams.away.projectedRuns)}-${num(game.teams.home.projectedRuns)}`} sub="away / home runs" />
+        <FranchiseStat label="Projected Total" value={num(game.projection.mlbIntel?.projectedTotal ?? ((game.teams.away.projectedRuns ?? 0) + (game.teams.home.projectedRuns ?? 0)))} sub="full game" />
+        <FranchiseStat label="Market Lean" value={marketLean(game)} sub={game.edge?.market?.sportsbook ?? "line match pending"} />
+        <FranchiseStat label="Confidence" value={pct(governor?.confidence, 0)} sub={governor?.noBet ? "blocked" : "active read"} />
       </section>
+
+      <SimSignalCard>
+        <div className="grid gap-4 lg:grid-cols-[1fr_1.3fr_1fr] lg:items-center">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">Away Win</div>
+            <div className="mt-1 font-mono text-4xl font-bold text-cyan-300">{pct(game.projection.distribution.awayWinPct)}</div>
+            <div className="mt-1 text-sm text-slate-400">{game.teams.away.name}</div>
+          </div>
+          <div>
+            <div className="mb-2 flex justify-between text-[10px] uppercase tracking-[0.16em] text-slate-600"><span>Away</span><span>Home</span></div>
+            <div className="flex h-4 overflow-hidden rounded-full bg-slate-800">
+              <div className="bg-cyan-400" style={{ width: `${game.projection.distribution.awayWinPct * 100}%` }} />
+              <div className="bg-violet-400" style={{ width: `${game.projection.distribution.homeWinPct * 100}%` }} />
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <FranchiseStat label="Away Runs" value={num(game.teams.away.projectedRuns)} />
+              <FranchiseStat label="Home Runs" value={num(game.teams.home.projectedRuns)} />
+            </div>
+          </div>
+          <div className="text-right lg:text-left">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">Home Win</div>
+            <div className="mt-1 font-mono text-4xl font-bold text-violet-300">{pct(game.projection.distribution.homeWinPct)}</div>
+            <div className="mt-1 text-sm text-slate-400">{game.teams.home.name}</div>
+          </div>
+        </div>
+      </SimSignalCard>
+
+      <MlbFranchiseLineScore away={game.lineScore.away} home={game.lineScore.home} />
+      <MlbFranchiseImpactPlayers players={game.impactPlayers} />
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <WinChart projection={projection} />
-        <RunsChart projection={projection} />
+        <SimSignalCard>
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Starting Pitchers</div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {[game.teams.away, game.teams.home].map((team) => team.starter ? (
+              <div key={team.side} className="rounded-xl border border-white/10 bg-white/[0.025] p-4">
+                <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500">{team.name}</div>
+                <div className="mt-2 font-semibold text-white">{team.starter.name}</div>
+                <div className="mt-2 text-xs text-slate-400">{num(team.starter.innings)} IP - {num(team.starter.strikeouts)} K - {num(team.starter.earnedRuns)} ER</div>
+              </div>
+            ) : <FranchiseEmptyState key={team.side} title={`${team.name} starter TBD`} description="Probable starter is not tracked yet for this cached game." />)}
+          </div>
+        </SimSignalCard>
+        <SimSignalCard>
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Why</div>
+          <p className="mt-3 text-sm leading-6 text-slate-300">{why}</p>
+          {game.warnings.length ? (
+            <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.05] p-3 text-xs leading-5 text-amber-200/80">
+              {game.warnings[0]}
+            </div>
+          ) : null}
+          <details className="mt-4">
+            <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-300">Advanced details</summary>
+            <div className="mt-3 grid gap-2 text-xs text-slate-500">
+              {(governor?.reasons ?? []).slice(1, 5).map((reason) => <div key={reason} className="rounded-lg border border-white/10 bg-white/[0.02] p-3">{reason}</div>)}
+            </div>
+          </details>
+        </SimSignalCard>
       </section>
-
-      <MlbProjectedLineScore
-        awayTeam={projection.matchup.away}
-        homeTeam={projection.matchup.home}
-        awayRuns={projection.distribution.avgAway}
-        homeRuns={projection.distribution.avgHome}
-        inningStats={impact.inningStats}
-      />
-      <MlbImpactPlayers stats={impact.playerStats} />
-      <PitchersSection projection={projection} lock={lock} />
-      <WhySection reasons={reasons} />
-      <AdvancedDetails projection={projection} edge={edge} cacheLabel={cacheLabel} />
-
-      {!projection.mlbIntel ? (
-        <EmptyState
-          title="MLB intelligence unavailable"
-          description="The basic projection loaded, but the MLB intelligence payload is missing for this game."
-        />
-      ) : null}
     </div>
   );
 }

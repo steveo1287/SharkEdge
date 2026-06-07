@@ -1,30 +1,34 @@
 import Link from "next/link";
 
+import { cn } from "@/lib/utils/cn";
+
 const TABS = [
-  { key: "summary", label: "Summary", path: "" },
-  { key: "team-stats", label: "Team Stats", path: "/team-stats" },
-  { key: "box-score", label: "Box Score", path: "/box-score" },
-  { key: "nrfi-f5", label: "NRFI / F5", path: "/nrfi-f5" }
+  { key: "summary", label: "Summary", suffix: "" },
+  { key: "team-stats", label: "Team Stats", suffix: "/team-stats" },
+  { key: "box-score", label: "Box Score", suffix: "/box-score" },
+  { key: "nrfi-f5", label: "NRFI / F5", suffix: "/nrfi-f5" }
 ] as const;
 
-export function MlbFranchiseTabs({ gameId, active }: { gameId: string; active: typeof TABS[number]["key"] }) {
+export type MlbFranchiseTabKey = (typeof TABS)[number]["key"];
+
+export function MlbFranchiseTabs({ gameId, active }: { gameId: string; active: MlbFranchiseTabKey }) {
+  const base = `/sim/mlb/${encodeURIComponent(gameId)}`;
   return (
-    <nav className="flex flex-wrap gap-2 rounded-2xl border border-white/8 bg-white/[0.025] p-2">
-      {TABS.map((tab) => {
-        const href = `/sim/mlb/${encodeURIComponent(gameId)}${tab.path}`;
-        const selected = active === tab.key;
-        return (
-          <Link
-            key={tab.key}
-            href={href}
-            className={selected
-              ? "rounded-xl border border-sky-400/35 bg-sky-500/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-sky-100"
-              : "rounded-xl border border-white/8 bg-slate-950/35 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 transition hover:border-sky-400/25 hover:text-white"}
-          >
-            {tab.label}
-          </Link>
-        );
-      })}
+    <nav className="flex gap-2 overflow-x-auto rounded-2xl border border-white/10 bg-slate-950/50 p-2">
+      {TABS.map((tab) => (
+        <Link
+          key={tab.key}
+          href={`${base}${tab.suffix}`}
+          className={cn(
+            "shrink-0 rounded-xl px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition",
+            active === tab.key
+              ? "bg-aqua/15 text-aqua shadow-[0_0_24px_rgba(34,211,238,0.08)]"
+              : "text-slate-500 hover:bg-white/[0.04] hover:text-slate-200"
+          )}
+        >
+          {tab.label}
+        </Link>
+      ))}
     </nav>
   );
 }
