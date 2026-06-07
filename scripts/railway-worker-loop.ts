@@ -65,6 +65,14 @@ function simTasks(): WorkerTask[] {
       runImmediately: boolEnv("MLB_STATS_INGEST_RUN_IMMEDIATELY", true)
     },
     {
+      name: "mlb-player-prop-inning-grade",
+      path:
+        process.env.RAILWAY_MLB_PLAYER_PROP_GRADE_PATH?.trim() ||
+        `/api/internal/cron/mlb-player-prop-inning-grade?limit=${intEnv("MLB_PLAYER_PROP_GRADE_LIMIT", 2000, 1, 5000)}`,
+      intervalSeconds: intEnv("MLB_PLAYER_PROP_GRADE_INTERVAL_SECONDS", 3600, 900, 86400),
+      runImmediately: boolEnv("MLB_PLAYER_PROP_GRADE_RUN_IMMEDIATELY", false)
+    },
+    {
       name: "sim-refresh",
       path: process.env.RAILWAY_SIM_REFRESH_PATH?.trim() || "/api/cron/sim-refresh?statsPreflight=1&runMlb=1&runUfc=0",
       intervalSeconds: intEnv("SIM_REFRESH_INTERVAL_SECONDS", 1800, 300, 21600),
