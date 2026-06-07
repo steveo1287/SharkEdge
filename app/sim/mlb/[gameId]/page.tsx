@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
+import { MlbFranchiseTabs } from "@/components/sim/mlb-franchise-tabs";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { cacheAgeLabel, readCachedMlbGameDetail } from "@/services/simulation/mlb-game-detail-cache";
 import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
@@ -302,6 +303,8 @@ export default async function MlbGameDetailPage({ params }: PageProps) {
 
   return (
     <div className="grid gap-6">
+      <MlbFranchiseTabs gameId={decodedId} active="summary" />
+
       <section className="surface-panel-strong p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
