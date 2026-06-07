@@ -1,0 +1,53 @@
+name: MLB Daily Roster Ratings
+
+on:
+  workflow_dispatch:
+    inputs:
+      season:
+        description: MLB season year
+        required: false
+        type: string
+      rosterType:
+        description: MLB roster type
+        required: false
+        default: active
+        type: choice
+        options:
+          - active
+          - 40Man
+          - fullSeason
+  schedule:
+    - cron: "15 13 * * *"
+
+jobs:
+  build-mlb-daily-roster-ratings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      MLB_STATS_API_BASE_URL: https://statsapi.mlb.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build and persist daily MLB roster ratings
+        run: |
+          SEASON="${{ inputs.season }}"
+          ROSTER_TYPE="${{ inputs.rosterType }}"
+          if [ -z "$SEASON" ]; then SEASON=$(date -u +%Y); fi
+          if [ -z "$ROSTER_TYPE" ]; then ROSTER_TYPE=active; fi
+          npm run mlb:daily-roster-ratings -- \
+            --season="$SEASON" \
+            --rosterType="$ROSTER_TYPE" \
+            --snapshotDate="$(date -u +%F)" \
+            --concurrency=6
+      - name: Upload daily roster rating report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mlb-daily-roster-rating-report
+          path: data/mlb/daily-roster-rating-snapshot-*.json
+          if-no-files-found: ignore
