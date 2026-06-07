@@ -1,20 +1,11 @@
 import Link from "next/link";
 
-import {
-  SimDataQualityBadges,
-  SimDecisionBadge,
-  SimMetricTile,
-  SimSignalCard,
-  SimStatusBadge,
-  SimWorkspaceHeader
-} from "@/components/sim/sim-ui";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
-import { formatLongDate } from "@/lib/formatters/date";
 import type { LeagueKey } from "@/lib/types/domain";
-import { getCachedMlbCalibrationConformal } from "@/services/simulation/mlb-calibration-conformal";
-import { getCachedMlbMlModel } from "@/services/simulation/mlb-ml-training-engine";
-import { getSimModelScorecard } from "@/services/sim/model-scorecard";
+import { cn } from "@/lib/utils/cn";
 import {
   readSimCache,
   SIM_CACHE_KEYS,
@@ -31,18 +22,28 @@ type SimGame = { id: string; label: string; startTime: string; status: string; l
 type Projection = CachedSimProjection;
 type EdgeResult = SimMarketSnapshot["edges"][number];
 type Row = { game: SimGame; projection: Projection; edge?: EdgeResult | null };
+type DecisionTier = "attack" | "watch" | "pass" | "thin";
 
-type DecisionTier = "attack" | "watch" | "thin" | "pass";
+function pct(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return `${Math.round(value * 100)}%`;
+}
 
-function formatTime(value: string) { return formatLongDate(value); }
-function pct(value: number | null | undefined, digits = 1) { if (typeof value !== "number" || !Number.isFinite(value)) return "--"; return `${(value * 100).toFixed(digits)}%`; }
-function num(value: number | null | undefined, digits = 2) { if (typeof value !== "number" || !Number.isFinite(value)) return "--"; return value.toFixed(digits); }
-function plus(value: number | null | undefined, digits = 2) { if (typeof value !== "number" || !Number.isFinite(value)) return "--"; return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`; }
-function tierRank(tier: DecisionTier | string | undefined) { if (tier === "attack") return 4; if (tier === "watch") return 3; if (tier === "thin") return 2; return 1; }
-function factorTeamLabel(row: Row, value: number) { if (Math.abs(value) < 0.01) return "neutral"; return value > 0 ? `favors ${row.projection.matchup.home}` : `favors ${row.projection.matchup.away}`; }
+function one(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return value.toFixed(1);
+}
 
-function edgeMarket(edge: EdgeResult | null | undefined) {
-  return edge && "market" in edge ? edge.market : null;
+function formatTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Time TBD";
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
 }
 
 function edgeSignal(edge: EdgeResult | null | undefined) {
@@ -54,12 +55,15 @@ function edgeTotals(edge: EdgeResult | null | undefined) {
 }
 
 function bestMarket(row: Row) {
-  const edge = row.edge;
-  const signal = edgeSignal(edge);
+  const signal = edgeSignal(row.edge);
   if (signal) return signal;
-  const total = edgeTotals(edge)?.totalRuns;
+  const total = edgeTotals(row.edge)?.totalRuns;
   if (typeof total === "number") {
-    return { market: total > 0 ? "over" : "under", team: null, edge: Math.abs(total), strength: Math.abs(total) >= 1 ? "strong" : Math.abs(total) >= 0.45 ? "watch" : "thin" };
+    return {
+      market: total > 0 ? "over" : "under",
+      edge: Math.abs(total),
+      strength: Math.abs(total) >= 1 ? "strong" : Math.abs(total) >= 0.45 ? "watch" : "thin"
+    };
   }
   return null;
 }
@@ -74,30 +78,41 @@ function decisionTier(row: Row): DecisionTier {
   return "thin";
 }
 
+function tierRank(tier: DecisionTier) {
+  if (tier === "attack") return 4;
+  if (tier === "watch") return 3;
+  if (tier === "thin") return 2;
+  return 1;
+}
+
+function decisionLabel(tier: DecisionTier) {
+  if (tier === "attack") return "BEST";
+  if (tier === "watch") return "WATCH";
+  if (tier === "thin") return "LEAN";
+  return "PASS";
+}
+
+function decisionTone(tier: DecisionTier) {
+  if (tier === "attack") return "success" as const;
+  if (tier === "watch" || tier === "thin") return "premium" as const;
+  return "muted" as const;
+}
+
 function winLean(projection: Projection) {
   const home = projection.distribution.homeWinPct;
   const away = projection.distribution.awayWinPct;
-  return home >= away ? { team: projection.matchup.home, side: "HOME", pct: home, edge: home - away } : { team: projection.matchup.away, side: "AWAY", pct: away, edge: away - home };
+  return home >= away
+    ? { team: projection.matchup.home, pct: home, otherTeam: projection.matchup.away, otherPct: away }
+    : { team: projection.matchup.away, pct: away, otherTeam: projection.matchup.home, otherPct: home };
 }
 
-function dataSourceBadges(row: Row) {
-  const source = row.projection.mlbIntel?.dataSource ?? "unknown";
-  const playerMatch = source.match(/player-model:([^+]+)/);
-  const playerSource = playerMatch?.[1] ?? "unknown";
-  const player =
-    playerSource === "real/real" ? ("real" as const) :
-    playerSource.includes("estimated") ? ("estimated" as const) :
-    playerSource.includes("synthetic") ? ("synthetic" as const) :
-    ("unknown" as const);
-  return {
-    player,
-    lines: edgeMarket(row.edge) ? ("matched" as const) : ("missing" as const),
-    calibration: row.projection.mlbIntel?.calibration?.ece == null ? ("pending" as const) : ("calibrated" as const)
-  };
-}
-
-function topFactors(row: Row, limit = 4) {
-  return [...(row.projection.mlbIntel?.factors ?? [])].sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).slice(0, limit);
+function reasons(row: Row) {
+  const governorReasons = row.projection.mlbIntel?.governor?.reasons ?? [];
+  const read = row.projection.read ? [row.projection.read] : [];
+  return [...governorReasons, ...read]
+    .filter(Boolean)
+    .filter((reason, index, arr) => arr.indexOf(reason) === index)
+    .slice(0, 3);
 }
 
 function sortRows(rows: Row[]) {
@@ -105,104 +120,163 @@ function sortRows(rows: Row[]) {
     const leftTier = tierRank(decisionTier(left));
     const rightTier = tierRank(decisionTier(right));
     if (leftTier !== rightTier) return rightTier - leftTier;
-    const leftEdge = Math.abs(left.projection.mlbIntel?.homeEdge ?? 0) + Math.abs(edgeTotals(left.edge)?.totalRuns ?? 0) * 0.25;
-    const rightEdge = Math.abs(right.projection.mlbIntel?.homeEdge ?? 0) + Math.abs(edgeTotals(right.edge)?.totalRuns ?? 0) * 0.25;
-    return rightEdge - leftEdge;
+    const leftChance = winLean(left.projection).pct;
+    const rightChance = winLean(right.projection).pct;
+    return rightChance - leftChance;
   });
 }
 
-function RowSummary({ row }: { row: Row }) {
-  const lean = winLean(row.projection);
-  const tier = decisionTier(row);
+function marketLabel(row: Row) {
   const market = bestMarket(row);
-  const badges = dataSourceBadges(row);
-  const factors = topFactors(row, 3);
+  if (!market) return "No market signal";
+  const name = String(market.market).replaceAll("_", " ").toUpperCase();
+  if (name === "OVER" || name === "UNDER") return name;
+  if (name === "HOME ML") return `${row.projection.matchup.home} ML`;
+  if (name === "AWAY ML") return `${row.projection.matchup.away} ML`;
+  return name;
+}
+
+function projectedTotal(row: Row) {
+  return row.projection.mlbIntel?.projectedTotal
+    ?? (row.projection.distribution.avgAway + row.projection.distribution.avgHome);
+}
+
+function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-2xl border border-white/8 bg-slate-950/55 p-3">
+      <div className="text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div className="mt-1 text-lg font-semibold text-white">{value}</div>
+      {sub ? <div className="mt-1 text-[0.68rem] text-slate-500">{sub}</div> : null}
+    </div>
+  );
+}
+
+function WinChart({ row }: { row: Row }) {
+  const homePct = row.projection.distribution.homeWinPct;
+  const awayPct = row.projection.distribution.awayWinPct;
+  const homeWidth = Math.max(5, Math.min(95, Math.round(homePct * 100)));
+  const awayWidth = Math.max(5, 100 - homeWidth);
 
   return (
-    <SimSignalCard className="group h-full transition hover:border-aqua/35 hover:bg-aqua/[0.045]">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-slate-500">
-            <span>{formatTime(row.game.startTime)}</span>
-            <SimStatusBadge status={row.game.status} />
+    <div className="rounded-2xl border border-white/8 bg-slate-950/45 p-3">
+      <div className="mb-2 flex items-center justify-between text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">
+        <span>Win chart</span>
+        <span>{pct(awayPct)} / {pct(homePct)}</span>
+      </div>
+      <div className="flex h-3 overflow-hidden rounded-full bg-white/8">
+        <div className="bg-sky-400/75" style={{ width: `${awayWidth}%` }} />
+        <div className="bg-emerald-400/75" style={{ width: `${homeWidth}%` }} />
+      </div>
+      <div className="mt-2 flex justify-between text-[11px] text-slate-400">
+        <span>{row.projection.matchup.away}</span>
+        <span>{row.projection.matchup.home}</span>
+      </div>
+    </div>
+  );
+}
+
+function RunsChart({ row }: { row: Row }) {
+  const away = row.projection.distribution.avgAway;
+  const home = row.projection.distribution.avgHome;
+  const max = Math.max(away, home, 1);
+
+  return (
+    <div className="rounded-2xl border border-white/8 bg-slate-950/45 p-3">
+      <div className="mb-3 text-[0.58rem] uppercase tracking-[0.18em] text-slate-500">Projected runs</div>
+      {[
+        { team: row.projection.matchup.away, runs: away },
+        { team: row.projection.matchup.home, runs: home }
+      ].map((item) => (
+        <div key={item.team} className="mb-2 last:mb-0">
+          <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+            <span className="truncate pr-2">{item.team}</span>
+            <span className="tabular-nums text-white">{one(item.runs)}</span>
           </div>
-          <div className="mt-2 font-display text-xl font-semibold tracking-tight text-white">{row.projection.matchup.away} @ {row.projection.matchup.home}</div>
+          <div className="h-2 overflow-hidden rounded-full bg-white/8">
+            <div className="h-full rounded-full bg-aqua/70" style={{ width: `${Math.max(8, Math.round((item.runs / max) * 100))}%` }} />
+          </div>
         </div>
-        <SimDecisionBadge tier={tier} />
+      ))}
+    </div>
+  );
+}
+
+function GameCard({ row, compact = false }: { row: Row; compact?: boolean }) {
+  const tier = decisionTier(row);
+  const lean = winLean(row.projection);
+  const why = reasons(row);
+  const total = projectedTotal(row);
+
+  return (
+    <Card className="surface-panel h-full p-5 transition hover:border-aqua/25 hover:bg-white/[0.03]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 text-[0.64rem] uppercase tracking-[0.18em] text-slate-500">
+            <span>{formatTime(row.game.startTime)}</span>
+            <span>·</span>
+            <span>{row.game.status}</span>
+          </div>
+          <div className="mt-2 font-display text-2xl font-semibold tracking-tight text-white">
+            {row.projection.matchup.away} @ {row.projection.matchup.home}
+          </div>
+        </div>
+        <Badge tone={decisionTone(tier)}>{decisionLabel(tier)}</Badge>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <SimMetricTile label="Lean" value={lean.team} sub={pct(lean.pct)} emphasis={tier === "attack" ? "strong" : "normal"} />
-        <SimMetricTile label="Score" value={`${num(row.projection.distribution.avgAway, 1)}-${num(row.projection.distribution.avgHome, 1)}`} sub="away / home" />
-        <SimMetricTile label="Model edge" value={plus(row.projection.mlbIntel?.homeEdge)} sub="home-side delta" />
-        <SimMetricTile label="Market" value={market ? String(market.market).toUpperCase() : "--"} sub={market ? `edge ${num(market.edge)}` : "no matched signal"} />
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <Stat label="Pick" value={lean.team} sub={pct(lean.pct)} />
+        <Stat label="Score" value={`${one(row.projection.distribution.avgAway)}-${one(row.projection.distribution.avgHome)}`} sub="away-home" />
+        <Stat label="Market" value={marketLabel(row)} sub={`total ${one(total)}`} />
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-1.5">
-        <SimDataQualityBadges playerSource={badges.player} marketSource={badges.lines} calibrationSource={badges.calibration} />
-      </div>
+      {!compact ? (
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <WinChart row={row} />
+          <RunsChart row={row} />
+        </div>
+      ) : null}
 
       <div className="mt-4 grid gap-2">
-        {factors.length ? factors.map((factor) => (
-          <div key={`${row.game.id}:${factor.label}`} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs">
-            <div className="min-w-0">
-              <div className="truncate text-slate-300">{factor.label}</div>
-              <div className="mt-0.5 text-[10px] uppercase tracking-[0.12em] text-slate-500">{factorTeamLabel(row, factor.value)}</div>
-            </div>
-            <span className={factor.value >= 0 ? "font-mono text-emerald-300" : "font-mono text-red-300"}>{plus(factor.value)}</span>
+        {(why.length ? why : ["No clean reason available yet."]).map((reason) => (
+          <div key={reason} className="rounded-xl border border-white/8 bg-white/[0.025] px-3 py-2 text-xs leading-5 text-slate-400">
+            {reason}
           </div>
-        )) : <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs text-slate-500">No factor stack available.</div>}
+        ))}
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-4">
-        <div className="line-clamp-2 text-xs leading-5 text-slate-500">{row.projection.mlbIntel?.governor?.reasons?.[0] ?? row.projection.read}</div>
-        <Link href={`/sim/mlb/${encodeURIComponent(row.game.id)}`} className="shrink-0 rounded-full border border-aqua/35 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-aqua hover:bg-aqua/15">Open</Link>
+      <div className="mt-4 flex justify-end border-t border-white/8 pt-4">
+        <Link
+          href={`/sim/mlb/${encodeURIComponent(row.game.id)}`}
+          className="rounded-full border border-aqua/30 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-aqua transition hover:bg-aqua/15"
+        >
+          Open details
+        </Link>
       </div>
-    </SimSignalCard>
+    </Card>
   );
 }
 
-function PriorityStack({ rows }: { rows: Row[] }) {
-  const ordered = sortRows(rows).slice(0, 6);
-  if (!ordered.length) return null;
+function CompactRow({ row }: { row: Row }) {
+  const tier = decisionTier(row);
+  const lean = winLean(row.projection);
   return (
-    <section className="grid gap-4">
-      <SectionTitle title="Priority stack" description="The page leads with the highest-quality reads, while the full slate remains available in the ledger below." />
-      <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-        {ordered.map((row) => <RowSummary key={row.game.id} row={row} />)}
+    <Link
+      href={`/sim/mlb/${encodeURIComponent(row.game.id)}`}
+      className="grid gap-3 border-b border-white/8 px-4 py-3 text-sm transition last:border-none hover:bg-white/[0.03] md:grid-cols-[1.4fr_0.7fr_0.6fr_0.6fr_auto] md:items-center"
+    >
+      <div>
+        <div className="font-semibold text-white">{row.projection.matchup.away} @ {row.projection.matchup.home}</div>
+        <div className="mt-1 text-[11px] text-slate-500">{formatTime(row.game.startTime)}</div>
       </div>
-    </section>
+      <div className="text-slate-300">{lean.team}</div>
+      <div className="tabular-nums text-white">{pct(lean.pct)}</div>
+      <div className="tabular-nums text-slate-300">{one(row.projection.distribution.avgAway)}-{one(row.projection.distribution.avgHome)}</div>
+      <div className="md:justify-self-end"><Badge tone={decisionTone(tier)}>{decisionLabel(tier)}</Badge></div>
+    </Link>
   );
 }
 
-function CompactLedger({ rows }: { rows: Row[] }) {
-  const ordered = sortRows(rows);
-  return (
-    <section className="grid gap-4">
-      <SectionTitle title="Full slate ledger" description="Every MLB game returned by the cached sim board or live scoreboard fallback. No display cap." />
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/40">
-        {ordered.map((row) => {
-          const lean = winLean(row.projection);
-          const tier = decisionTier(row);
-          return (
-            <Link key={`ledger:${row.game.id}`} href={`/sim/mlb/${encodeURIComponent(row.game.id)}`} className="grid gap-3 border-b border-white/10 px-4 py-3 transition last:border-none hover:bg-aqua/[0.045] md:grid-cols-[1.4fr_0.8fr_0.7fr_0.7fr_auto] md:items-center">
-              <div>
-                <div className="font-semibold text-white">{row.projection.matchup.away} @ {row.projection.matchup.home}</div>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.14em] text-slate-500"><span>{formatTime(row.game.startTime)}</span><SimStatusBadge status={row.game.status} /></div>
-              </div>
-              <div className="text-sm text-slate-300"><span className="text-slate-500">Lean</span> {lean.team}</div>
-              <div className="font-mono text-sm text-aqua">{pct(lean.pct)}</div>
-              <div className="font-mono text-sm text-slate-300">{plus(row.projection.mlbIntel?.homeEdge)}</div>
-              <div className="justify-self-start md:justify-self-end"><SimDecisionBadge tier={tier} /></div>
-            </Link>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-async function readCachedRows() {
+async function loadMlbRows() {
   const [mlbBoard, market] = await Promise.all([
     readSimCache<SimBoardSnapshot>(SIM_CACHE_KEYS.mlbBoard),
     readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market)
@@ -216,73 +290,73 @@ async function readCachedRows() {
   };
 }
 
-async function loadMlbRows() {
-  // Cache boundary: the MLB sim page is read-only. Cron/manual refresh owns
-  // projection and edge rebuilds so a page view cannot burn provider/database time.
-  const cached = await readCachedRows();
-  if (cached.rows.length) return cached;
-
-  return { rows: [] as Row[], source: "missing-cache" as const };
-}
-
 export default async function MlbSimPage() {
-  const [{ rows, source }, mlModel, calibration, scorecard] = await Promise.all([
-    loadMlbRows(),
-    getCachedMlbMlModel(),
-    getCachedMlbCalibrationConformal(),
-    getSimModelScorecard({ league: "MLB", windowDays: 90 }).catch(() => null)
-  ]);
-
-  const attack = rows.filter((row) => decisionTier(row) === "attack").length;
-  const watch = rows.filter((row) => decisionTier(row) === "watch").length;
-  const pass = rows.filter((row) => decisionTier(row) === "pass").length;
-  const lineCount = rows.filter((row) => edgeMarket(row.edge)).length;
-  const realPlayerGames = rows.filter((row) => dataSourceBadges(row).player === "real").length;
-  const topRow = sortRows(rows)[0] ?? null;
-  const topLean = topRow ? winLean(topRow.projection) : null;
+  const { rows, source } = await loadMlbRows();
+  const ordered = sortRows(rows);
+  const best = ordered.filter((row) => decisionTier(row) === "attack");
+  const watch = ordered.filter((row) => decisionTier(row) === "watch" || decisionTier(row) === "thin");
+  const top = best[0] ?? watch[0] ?? ordered[0] ?? null;
+  const mainCards = (best.length ? best : watch.length ? watch : ordered).slice(0, 6);
 
   return (
     <div className="space-y-6">
-      <SimWorkspaceHeader
-        eyebrow="MLB Command Desk"
-        title="Kill the spreadsheet. Surface the side, total, pitcher context, market match, and data quality first."
-        description="MLB reads the warmed sim cache only. Slow providers and projection rebuilds run in cron/manual refresh jobs so this page stays fast and predictable."
-        actions={[{ href: "/sim", label: "Sim Hub" }, { href: "/board#MLB", label: "MLB Board", tone: "primary" }, { href: "/mlb-edge", label: "Edge Lab" }]}
-      >
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <SimMetricTile label="Games" value={String(rows.length)} sub={`MLB slate · ${source}`} emphasis={rows.length ? "strong" : "normal"} />
-          <SimMetricTile label="Attack" value={String(attack)} sub="Governor cleared" emphasis="strong" />
-          <SimMetricTile label="Watch" value={String(watch)} sub={`Pass ${pass} · filtered`} />
-          <SimMetricTile
-            label="Model ROI"
-            value={scorecard?.totals.roi != null ? `${scorecard.totals.roi > 0 ? "+" : ""}${scorecard.totals.roi.toFixed(1)}%` : "—"}
-            sub={scorecard?.totals.unitsNet != null ? `${scorecard.totals.unitsNet > 0 ? "+" : ""}${scorecard.totals.unitsNet.toFixed(1)}u · ${scorecard.totals.winCount}W–${scorecard.totals.lossCount}L` : "No settled picks"}
-            emphasis={scorecard?.totals.roi != null && scorecard.totals.roi > 0 ? "strong" : "normal"}
-          />
-          <SimMetricTile label="Lines" value={`${lineCount}/${rows.length}`} sub="Matched markets" />
-          <SimMetricTile label="Data" value={`${realPlayerGames}/${rows.length}`} sub={`ML rows ${mlModel?.rows ?? 0}${calibration?.ok ? ` · ECE ${calibration.ece.toFixed(3)}` : ""}`} />
-        </div>
-      </SimWorkspaceHeader>
+      <section className="surface-panel-strong p-6">
+        <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr] xl:items-end">
+          <div>
+            <div className="section-kicker">MLB sim</div>
+            <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight text-white xl:text-5xl">
+              Simple reads. No clutter.
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
+              The sim board shows the pick, win chance, projected score, two small charts, and the short reason. Full model detail stays behind the game page.
+            </p>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <Link href="/games" className="rounded-full bg-sky-500 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-400">
+                Games
+              </Link>
+              <Link href="/mlb/player-markets" className="rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-white transition hover:border-sky-400/25">
+                Player markets
+              </Link>
+            </div>
+          </div>
 
-      {topRow && topLean ? (
-        <section className="rounded-[1.75rem] border border-aqua/25 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.14),transparent_28rem),rgba(7,17,29,0.92)] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.24)]">
-          <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr] xl:items-end">
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-aqua">Top MLB read</div>
-              <h2 className="mt-2 font-display text-3xl font-semibold tracking-tight text-white">{topRow.projection.matchup.away} @ {topRow.projection.matchup.home}</h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{topRow.projection.mlbIntel?.governor?.reasons?.[0] ?? topRow.projection.read}</p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-4 xl:grid-cols-2">
-              <SimMetricTile label="Lean" value={topLean.team} sub={pct(topLean.pct)} emphasis="strong" />
-              <SimMetricTile label="Model edge" value={plus(topRow.projection.mlbIntel?.homeEdge)} sub="home-side delta" />
-              <SimMetricTile label="Total" value={num(topRow.projection.mlbIntel?.projectedTotal)} sub={`edge ${plus(edgeTotals(topRow.edge)?.totalRuns)}`} />
-              <SimMetricTile label="Tier" value={<SimDecisionBadge tier={decisionTier(topRow)} />} sub={formatTime(topRow.game.startTime)} />
-            </div>
+          <div className="grid grid-cols-3 gap-3 rounded-[1.55rem] border border-white/8 bg-[#09131f]/85 p-5">
+            <Stat label="Games" value={String(rows.length)} sub={source.replace("-", " ")} />
+            <Stat label="Best" value={String(best.length)} sub="green-light" />
+            <Stat label="Watch" value={String(watch.length)} sub="near edge" />
+          </div>
+        </div>
+      </section>
+
+      {top ? (
+        <section className="grid gap-4">
+          <SectionTitle title="Top read" description="Start here. This is the cleanest current MLB sim read." />
+          <GameCard row={top} />
+        </section>
+      ) : null}
+
+      {mainCards.length ? (
+        <section className="grid gap-4">
+          <SectionTitle title="Best current reads" description="Only the useful card-level information: pick, probability, score, market, and reason." />
+          <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+            {mainCards.map((row) => <GameCard key={row.game.id} row={row} compact />)}
           </div>
         </section>
       ) : null}
 
-      {rows.length ? <><PriorityStack rows={rows} /><CompactLedger rows={rows} /></> : <EmptyState title="No MLB games available" description="Cached MLB rows were missing, repair did not rebuild them, and the live scoreboard fallback returned zero MLB games. Check /api/sim/health and the sim-refresh logs." />}
+      {ordered.length ? (
+        <section className="grid gap-4">
+          <SectionTitle title="Full slate" description="Compact list for scanning the rest. Open a game only when you need more." />
+          <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/40">
+            {ordered.map((row) => <CompactRow key={`row:${row.game.id}`} row={row} />)}
+          </div>
+        </section>
+      ) : (
+        <EmptyState
+          title="No MLB sim rows available"
+          description="The MLB sim cache is empty. Run the Railway sim refresh worker and reload this page."
+        />
+      )}
     </div>
   );
 }
