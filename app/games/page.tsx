@@ -64,7 +64,7 @@ function formatLine(value: number | null) {
 
 function decisionTone(decision: MlbPlayerMarketOpportunity["decision"]) {
   if (decision === "PROMOTE") return "success" as const;
-  if (decision === "WATCH") return "warning" as const;
+  if (decision === "WATCH") return "premium" as const;
   return "muted" as const;
 }
 
@@ -148,7 +148,7 @@ function PlayerMarketOpportunitiesRail({ feed }: { feed: Awaited<ReturnType<type
         <div className="flex flex-wrap gap-2">
           <Badge tone={feed.ok ? "success" : "danger"}>{feed.ok ? "feed online" : "feed offline"}</Badge>
           <Badge tone={feed.promotedCount ? "success" : "muted"}>{feed.promotedCount} promoted</Badge>
-          <Badge tone={feed.watchCount ? "warning" : "muted"}>{feed.watchCount} watch</Badge>
+          <Badge tone={feed.watchCount ? "premium" : "muted"}>{feed.watchCount} watch</Badge>
         </div>
       </div>
 
