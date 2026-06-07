@@ -239,7 +239,8 @@ const context: MlbV8PlayerImpactContext = {
 const impact = calculateMlbV8PlayerImpact({ projection, context });
 assert.equal(impact.modelVersion, "mlb-intel-v8-player-impact");
 assert.equal(impact.applied, true);
-assert.equal(impact.microTendencyAdjustment?.applied, true);
+assert.ok(impact.microTendencyAdjustment);
+assert.equal(impact.microTendencyAdjustment.applied, true);
 assert.ok(impact.microTendencyAdjustment.dataQuality > 55);
 assert.ok(impact.confidence > 0.7);
 assert.ok(impact.homeOffenseScore > impact.awayOffenseScore);
