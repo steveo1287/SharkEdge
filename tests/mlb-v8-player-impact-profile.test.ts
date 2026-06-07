@@ -26,9 +26,18 @@ assert.ok(DEFAULT_MLB_V8_PLAYER_IMPACT_WEIGHTS.runDeltaCap <= 1);
 function trainingRow(index: number): MlbV8PlayerImpactTrainingRow {
   const side: "HOME" | "AWAY" = index % 2 === 0 ? "HOME" : "AWAY";
   const won = index % 5 !== 0;
+  const strength = won ? 1 : 0.25;
   const homeFavoredByRoster = side === "HOME";
   const rawHome = homeFavoredByRoster ? 0.52 : 0.48;
-  const adjustedHome = homeFavoredByRoster ? 0.64 : 0.36;
+  const adjustedHome = homeFavoredByRoster ? 0.52 + 0.12 * strength : 0.48 - 0.12 * strength;
+  const favoredOffense = 70 + 12 * strength;
+  const underdogOffense = 70 - 3 * strength;
+  const favoredStarter = 70 + 14 * strength;
+  const underdogStarter = 70 - 4 * strength;
+  const favoredBullpen = 70 + 9 * strength;
+  const underdogBullpen = 70 - 3 * strength;
+  const favoredDelta = 0.08 + 0.36 * strength;
+  const underdogDelta = -0.04 - 0.16 * strength;
   return {
     rowSource: index % 3 === 0 ? "official" : "snapshot",
     result: won ? "WIN" : "LOSS",
@@ -41,14 +50,14 @@ function trainingRow(index: number): MlbV8PlayerImpactTrainingRow {
       mlbIntel: {
         playerImpact: {
           confidence: 0.82,
-          awayOffenseScore: homeFavoredByRoster ? 66 : 78,
-          homeOffenseScore: homeFavoredByRoster ? 80 : 65,
-          awayStarterScore: homeFavoredByRoster ? 64 : 80,
-          homeStarterScore: homeFavoredByRoster ? 82 : 63,
-          awayBullpenScore: homeFavoredByRoster ? 65 : 76,
-          homeBullpenScore: homeFavoredByRoster ? 77 : 66,
-          awayRunDelta: homeFavoredByRoster ? -0.2 : 0.42,
-          homeRunDelta: homeFavoredByRoster ? 0.44 : -0.24,
+          awayOffenseScore: homeFavoredByRoster ? underdogOffense : favoredOffense,
+          homeOffenseScore: homeFavoredByRoster ? favoredOffense : underdogOffense,
+          awayStarterScore: homeFavoredByRoster ? underdogStarter : favoredStarter,
+          homeStarterScore: homeFavoredByRoster ? favoredStarter : underdogStarter,
+          awayBullpenScore: homeFavoredByRoster ? underdogBullpen : favoredBullpen,
+          homeBullpenScore: homeFavoredByRoster ? favoredBullpen : underdogBullpen,
+          awayRunDelta: homeFavoredByRoster ? underdogDelta : favoredDelta,
+          homeRunDelta: homeFavoredByRoster ? favoredDelta : underdogDelta,
           rawHomeWinPct: rawHome,
           adjustedHomeWinPct: adjustedHome
         }
@@ -72,6 +81,7 @@ assert.equal(learned.metrics.source, "historical-ledger-roster-accuracy");
 assert.equal(learned.metrics.rosterHelped, true);
 assert.ok(Number(learned.metrics.rosterAdjustedBrier) < Number(learned.metrics.rawBrier));
 assert.ok(Number(learned.metrics.rosterDirectionHitRate) > 0.7);
+assert.ok(Number(learned.metrics.starterCorr) > 0);
 assert.ok(learned.weights.probabilityBlendMax >= DEFAULT_MLB_V8_PLAYER_IMPACT_WEIGHTS.probabilityBlendMax);
 assert.ok(learned.weights.starterRunWeight >= DEFAULT_MLB_V8_PLAYER_IMPACT_WEIGHTS.starterRunWeight);
 
