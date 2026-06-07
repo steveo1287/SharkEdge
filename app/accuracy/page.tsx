@@ -1,278 +1,278 @@
 import Link from "next/link";
 
-import { getSimModelScorecard } from "@/services/sim/mlb-moneyline-scorecard";
-import { getUfcSettledLedger } from "@/services/ufc/settled-ledger";
+import { getAccuracyDashboard, type AccuracyDashboardPick, type AccuracyRecord, type AccuracyWindowSummary } from "@/services/accuracy/accuracy-dashboard";
 
-export const revalidate = 3600;
-
-type ProofTone = "ready" | "partial" | "shadow";
-
-type MlbProofSummary = {
-  ok: boolean;
-  settledCount: number;
-  predictionCount: number;
-  winCount: number;
-  lossCount: number;
-  winRate: number | null;
-  unitsNet: number | null;
-  brierScoreAvg: number | null;
-  actualOddsCount: number;
-  fallbackOddsCount: number;
-};
-
-type MmaProofSummary = {
-  ok: boolean;
-  settledCount: number;
-  predictionCount: number;
-  pendingCount: number;
-  winCount: number;
-  lossCount: number;
-  accuracyPct: number | null;
-  avgBrier: number | null;
-  avgClvPct: number | null;
-  clvCoveragePct: number | null;
-  warnings: string[];
-};
+export const revalidate = 300;
 
 function pct(value: number | null | undefined, digits = 1) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
   return `${(value * 100).toFixed(digits)}%`;
 }
 
+function pctRaw(value: number | null | undefined, digits = 1) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return `${value > 0 ? "+" : ""}${value.toFixed(digits)}%`;
+}
+
 function units(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
   return `${value > 0 ? "+" : ""}${value.toFixed(1)}u`;
 }
 
-function num(value: number | null | undefined, digits = 4) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
-  return value.toFixed(digits);
+function odds(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  const rounded = Math.round(value);
+  return rounded > 0 ? `+${rounded}` : String(rounded);
 }
 
-function record(wins: number, losses: number) {
-  return `${wins}-${losses}`;
+function record(stats: AccuracyRecord) {
+  return stats.pushes ? `${stats.wins}-${stats.losses}-${stats.pushes}` : `${stats.wins}-${stats.losses}`;
 }
 
-function proofTone(args: { settledCount: number; actualOddsCount?: number; brier?: number | null; clvCoveragePct?: number | null }): ProofTone {
-  if (args.settledCount >= 100 && (args.actualOddsCount ?? 100) >= 80 && (args.brier != null || (args.clvCoveragePct ?? 0) >= 0.8)) return "ready";
-  if (args.settledCount >= 20) return "partial";
-  return "shadow";
+function when(value: string | null | undefined) {
+  if (!value) return "--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--";
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(date);
 }
 
-function toneClasses(tone: ProofTone) {
-  if (tone === "ready") return "border-emerald-300/25 bg-emerald-300/10 text-emerald-100";
-  if (tone === "partial") return "border-amber-300/25 bg-amber-300/10 text-amber-100";
-  return "border-rose-300/25 bg-rose-300/10 text-rose-100";
+function barWidth(value: number | null | undefined, maxAbs: number) {
+  if (typeof value !== "number" || !Number.isFinite(value) || maxAbs <= 0) return "0%";
+  return `${Math.min(100, Math.abs(value) / maxAbs * 100).toFixed(1)}%`;
 }
 
-function pill(tone: "cyan" | "green" | "amber" | "red" | "slate" = "slate") {
-  const tones = {
-    cyan: "border-cyan-300/25 bg-cyan-300/10 text-cyan-200",
-    green: "border-emerald-300/25 bg-emerald-300/10 text-emerald-200",
-    amber: "border-amber-300/25 bg-amber-300/10 text-amber-200",
-    red: "border-rose-300/25 bg-rose-300/10 text-rose-200",
-    slate: "border-white/10 bg-white/[0.04] text-slate-300"
-  };
-  return `rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${tones[tone]}`;
-}
-
-function Tile({ label, value, sub }: { label: string; value: string | number; sub: string }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-      <div className="text-[9px] font-black uppercase tracking-[0.16em] opacity-70">{label}</div>
-      <div className="mt-2 font-display text-2xl font-black tracking-[-0.05em] text-white">{value}</div>
-      <p className="mt-1 text-[11px] leading-4 opacity-75">{sub}</p>
-    </div>
-  );
-}
-
-function ProofCard({ href, sport, title, body, tone, children }: { href: string; sport: string; title: string; body: string; tone: ProofTone; children: React.ReactNode }) {
-  const label = tone === "ready" ? "proof-ready" : tone === "partial" ? "building proof" : "shadow / thin";
-  return (
-    <Link href={href} className={`group rounded-[1.5rem] border p-5 transition hover:-translate-y-0.5 ${toneClasses(tone)}`}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-[10px] font-black uppercase tracking-[0.22em] opacity-80">{sport}</div>
-          <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.06em] text-white">{title}</h2>
-        </div>
-        <span className={pill(tone === "ready" ? "green" : tone === "partial" ? "amber" : "red")}>{label}</span>
-      </div>
-      <p className="mt-3 text-sm leading-6 opacity-80">{body}</p>
-      <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{children}</div>
-      <div className="mt-5 border-t border-white/10 pt-4 text-[11px] font-black uppercase tracking-[0.14em] opacity-80 group-hover:text-white">Open proof room →</div>
-    </Link>
-  );
-}
-
-function DecisionDisciplineCard() {
-  return (
-    <Link href="/accuracy/verdicts" className="group rounded-[1.5rem] border border-cyan-300/20 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.14),transparent_18rem),rgba(2,6,12,0.92)] p-5 transition hover:-translate-y-0.5 hover:border-cyan-300/35">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-[10px] font-black uppercase tracking-[0.22em] text-cyan-300/80">Official verdict engine</div>
-          <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.06em] text-white">Predictions are not picks.</h2>
-        </div>
-        <span className={pill("cyan")}>decision discipline</span>
-      </div>
-      <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-400">
-        The verdict engine is the promotion gate between raw model output and user-facing action. It splits every graded row into PLAY, LEAN, WATCH, PASS, or DATA_NOT_READY so SharkEdge stays selective instead of becoming a pick spammer.
-      </p>
-      <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-        <Tile label="PLAY" value="Strict" sub="Only rows that clear data, market, edge, and confidence gates." />
-        <Tile label="LEAN" value="Useful" sub="Model sees value, but not enough for official promotion." />
-        <Tile label="WATCH" value="Observe" sub="Interesting setup without enough trust to act." />
-        <Tile label="PASS" value="Saved" sub="A real product must avoid bad or thin spots." />
-        <Tile label="DATA" value="Gated" sub="Missing market, stale feed, or unresolved proof blocks action." />
-      </div>
-      <div className="mt-5 border-t border-white/10 pt-4 text-[11px] font-black uppercase tracking-[0.14em] text-cyan-200/80 group-hover:text-cyan-100">Open verdict dashboard →</div>
-    </Link>
-  );
-}
-
-function CalibrationTruthCard() {
-  return (
-    <Link href="/accuracy/calibration" className="group rounded-[1.5rem] border border-emerald-300/20 bg-[radial-gradient(circle_at_top_left,rgba(52,211,153,0.13),transparent_18rem),rgba(2,6,12,0.92)] p-5 transition hover:-translate-y-0.5 hover:border-emerald-300/35">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-300/80">Calibration proof</div>
-          <h2 className="mt-2 font-display text-3xl font-black tracking-[-0.06em] text-white">Probability has to earn trust.</h2>
-        </div>
-        <span className={pill("green")}>probability truth</span>
-      </div>
-      <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-400">
-        Win rate is not enough. Calibration checks whether 55%, 60%, 65%, and 70% predictions actually win near those rates, then flags thin or miscalibrated buckets before they are promoted as official plays.
-      </p>
-      <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-        <Tile label="50-55" value="Base" sub="Coin-flip range must stay disciplined." />
-        <Tile label="55-60" value="Lean" sub="Useful only when market edge also agrees." />
-        <Tile label="60-65" value="Core" sub="Should become the main official-play proving range." />
-        <Tile label="65-70" value="Strong" sub="Must be monitored for overconfidence." />
-        <Tile label="70+" value="Elite" sub="High confidence only works if it stays calibrated." />
-      </div>
-      <div className="mt-5 border-t border-white/10 pt-4 text-[11px] font-black uppercase tracking-[0.14em] text-emerald-200/80 group-hover:text-emerald-100">Open calibration room →</div>
-    </Link>
-  );
-}
-
-function OperatingRule({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.035] p-4">
-      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-300">{title}</div>
-      <p className="mt-2 text-sm leading-6 text-slate-400">{body}</p>
-    </div>
-  );
-}
-
-async function readMlbSummary(): Promise<MlbProofSummary> {
-  try {
-    const card = await getSimModelScorecard({ league: "MLB", market: "ALL", modelVersion: "ALL", windowDays: 365 });
-    return {
-      ok: true,
-      settledCount: Number(card.totals?.settledCount ?? 0),
-      predictionCount: Number(card.totals?.predictionCount ?? 0),
-      winCount: Number(card.totals?.winCount ?? 0),
-      lossCount: Number(card.totals?.lossCount ?? 0),
-      winRate: typeof card.totals?.winRate === "number" ? card.totals.winRate : null,
-      unitsNet: typeof card.totals?.unitsNet === "number" ? card.totals.unitsNet : null,
-      brierScoreAvg: typeof card.totals?.brierScoreAvg === "number" ? card.totals.brierScoreAvg : null,
-      actualOddsCount: Number(card.totals?.actualOddsCount ?? 0),
-      fallbackOddsCount: Number(card.totals?.fallbackOddsCount ?? 0)
-    };
-  } catch {
-    return { ok: false, settledCount: 0, predictionCount: 0, winCount: 0, lossCount: 0, winRate: null, unitsNet: null, brierScoreAvg: null, actualOddsCount: 0, fallbackOddsCount: 0 };
-  }
-}
-
-async function readMmaSummary(): Promise<MmaProofSummary> {
-  const ledger = await getUfcSettledLedger({ limit: 150 });
+function winLossWidths(stats: AccuracyRecord) {
+  const total = Math.max(1, stats.wins + stats.losses + stats.pushes);
   return {
-    ok: ledger.ok,
-    settledCount: ledger.settledCount,
-    predictionCount: ledger.predictionCount,
-    pendingCount: ledger.pendingCount,
-    winCount: ledger.winCount,
-    lossCount: ledger.lossCount,
-    accuracyPct: ledger.accuracyPct,
-    avgBrier: ledger.avgBrier,
-    avgClvPct: ledger.avgClvPct,
-    clvCoveragePct: ledger.clvCoveragePct,
-    warnings: ledger.warnings
+    win: `${(stats.wins / total * 100).toFixed(1)}%`,
+    loss: `${(stats.losses / total * 100).toFixed(1)}%`,
+    push: `${(stats.pushes / total * 100).toFixed(1)}%`
   };
 }
 
-export default async function AccuracyCommandCenterPage() {
-  const [mlb, mma] = await Promise.all([readMlbSummary(), readMmaSummary()]);
-  const mlbTone = proofTone({ settledCount: mlb.settledCount, actualOddsCount: mlb.actualOddsCount, brier: mlb.brierScoreAvg });
-  const mmaTone = proofTone({ settledCount: mma.settledCount, clvCoveragePct: mma.clvCoveragePct, brier: mma.avgBrier });
+function MetricCard({ label, value, note, tone = "slate" }: { label: string; value: string; note: string; tone?: "slate" | "green" | "cyan" | "amber" }) {
+  const tones = {
+    slate: "border-white/10 bg-white/[0.035]",
+    green: "border-emerald-300/20 bg-emerald-300/[0.07]",
+    cyan: "border-cyan-300/20 bg-cyan-300/[0.07]",
+    amber: "border-amber-300/20 bg-amber-300/[0.07]"
+  };
+  return (
+    <div className={`rounded-2xl border p-4 ${tones[tone]}`}>
+      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div className="mt-2 font-display text-3xl font-black tracking-[-0.06em] text-white">{value}</div>
+      <div className="mt-2 text-xs leading-5 text-slate-400">{note}</div>
+    </div>
+  );
+}
+
+function SegmentSummary({ title, subtitle, stats, tone }: { title: string; subtitle: string; stats: AccuracyRecord; tone: "green" | "cyan" }) {
+  return (
+    <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/75 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">{title}</div>
+          <h2 className="mt-1 font-display text-4xl font-black tracking-[-0.07em] text-white">{record(stats)}</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-400">{subtitle}</p>
+        </div>
+        {stats.sampleWarning ? <span className="rounded-full border border-amber-300/25 bg-amber-300/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-amber-200">{stats.sampleWarning}</span> : null}
+      </div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <MetricCard label="Win rate" value={pct(stats.winRate)} note={`${stats.graded} graded, ${stats.pending} pending`} tone={tone} />
+        <MetricCard label="Units" value={units(stats.units)} note="Flat 1u stake per graded pick" />
+        <MetricCard label="ROI" value={pctRaw(stats.roi)} note={`${stats.actualOddsCount} actual odds, ${stats.fallbackOddsCount} fallback`} />
+      </div>
+    </section>
+  );
+}
+
+function RoiChart({ windows }: { windows: AccuracyWindowSummary[] }) {
+  const maxAbs = Math.max(10, ...windows.flatMap((window) => [Math.abs(window.topPlays.roi ?? 0), Math.abs(window.everyPick.roi ?? 0)]));
+  return (
+    <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/75 p-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">ROI chart</div>
+          <h2 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">Top plays vs every pick</h2>
+        </div>
+        <div className="text-xs text-slate-500">Green is top plays. Blue is every tracked pick.</div>
+      </div>
+      <div className="mt-5 grid gap-4">
+        {windows.map((window) => (
+          <div key={window.key} className="grid gap-2 md:grid-cols-[7rem_1fr_4rem] md:items-center">
+            <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">{window.label}</div>
+            <div className="grid gap-2">
+              <div className="h-3 overflow-hidden rounded-full bg-white/[0.06]"><div className={`h-full rounded-full ${window.topPlays.roi != null && window.topPlays.roi < 0 ? "bg-rose-400" : "bg-emerald-400"}`} style={{ width: barWidth(window.topPlays.roi, maxAbs) }} /></div>
+              <div className="h-3 overflow-hidden rounded-full bg-white/[0.06]"><div className={`h-full rounded-full ${window.everyPick.roi != null && window.everyPick.roi < 0 ? "bg-rose-400" : "bg-cyan-400"}`} style={{ width: barWidth(window.everyPick.roi, maxAbs) }} /></div>
+            </div>
+            <div className="text-right font-mono text-xs text-slate-300">{pctRaw(window.topPlays.roi)} / {pctRaw(window.everyPick.roi)}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function WinLossChart({ windows }: { windows: AccuracyWindowSummary[] }) {
+  return (
+    <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/75 p-5">
+      <div>
+        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">Record chart</div>
+        <h2 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">Win/loss split by window</h2>
+      </div>
+      <div className="mt-5 grid gap-4">
+        {windows.map((window) => {
+          const widths = winLossWidths(window.everyPick);
+          return (
+            <div key={window.key}>
+              <div className="mb-2 flex justify-between text-xs text-slate-400">
+                <span>{window.label}</span>
+                <span>{record(window.everyPick)} - {pct(window.everyPick.winRate)}</span>
+              </div>
+              <div className="flex h-4 overflow-hidden rounded-full bg-white/[0.06]">
+                <div className="bg-emerald-400" style={{ width: widths.win }} />
+                <div className="bg-rose-400" style={{ width: widths.loss }} />
+                <div className="bg-slate-500" style={{ width: widths.push }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function WindowTable({ windows }: { windows: AccuracyWindowSummary[] }) {
+  return (
+    <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/75 p-5">
+      <div>
+        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">History windows</div>
+        <h2 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">Weekly, bi-weekly, monthly, all-time</h2>
+      </div>
+      <div className="mt-5 overflow-x-auto rounded-2xl border border-white/10">
+        <table className="min-w-full text-left text-xs">
+          <thead className="border-b border-white/10 bg-white/[0.04] text-slate-400">
+            <tr>
+              <th className="px-3 py-3">Window</th>
+              <th className="px-3 py-3">Lane</th>
+              <th className="px-3 py-3 text-right">Record</th>
+              <th className="px-3 py-3 text-right">Win %</th>
+              <th className="px-3 py-3 text-right">Units</th>
+              <th className="px-3 py-3 text-right">ROI</th>
+              <th className="px-3 py-3 text-right">Avg Odds</th>
+            </tr>
+          </thead>
+          <tbody>
+            {windows.flatMap((window) => [
+              { window, label: "Top plays", stats: window.topPlays },
+              { window, label: "Every pick", stats: window.everyPick }
+            ]).map((row) => (
+              <tr key={`${row.window.key}-${row.label}`} className="border-b border-white/5 last:border-none">
+                <td className="px-3 py-3 font-semibold text-white">{row.window.label}</td>
+                <td className="px-3 py-3 text-slate-300">{row.label}</td>
+                <td className="px-3 py-3 text-right font-mono text-white">{record(row.stats)}</td>
+                <td className="px-3 py-3 text-right font-mono text-sky-200">{pct(row.stats.winRate)}</td>
+                <td className="px-3 py-3 text-right font-mono text-emerald-200">{units(row.stats.units)}</td>
+                <td className="px-3 py-3 text-right font-mono text-emerald-200">{pctRaw(row.stats.roi)}</td>
+                <td className="px-3 py-3 text-right font-mono text-slate-300">{odds(row.stats.avgOddsAmerican)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function RecentTable({ title, rows }: { title: string; rows: AccuracyDashboardPick[] }) {
+  return (
+    <section className="rounded-[1.5rem] border border-white/10 bg-slate-950/75 p-5">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">Recent ledger</div>
+          <h2 className="mt-1 font-display text-2xl font-black tracking-[-0.05em] text-white">{title}</h2>
+        </div>
+      </div>
+      <div className="mt-5 overflow-x-auto rounded-2xl border border-white/10">
+        <table className="min-w-full text-left text-xs">
+          <thead className="border-b border-white/10 bg-white/[0.04] text-slate-400">
+            <tr><th className="px-3 py-3">Pick</th><th className="px-3 py-3">Side</th><th className="px-3 py-3 text-right">Odds</th><th className="px-3 py-3 text-right">Result</th><th className="px-3 py-3 text-right">Date</th></tr>
+          </thead>
+          <tbody>
+            {rows.length ? rows.map((row) => (
+              <tr key={row.id} className="border-b border-white/5 last:border-none">
+                <td className="px-3 py-3"><div className="font-semibold text-white">{row.label}</div><div className="mt-1 text-[10px] uppercase tracking-[0.12em] text-slate-500">{row.league} - {row.market.replace("_", " ")}</div></td>
+                <td className="px-3 py-3 text-slate-300">{row.side}</td>
+                <td className="px-3 py-3 text-right font-mono text-emerald-200">{odds(row.oddsAmerican)}</td>
+                <td className="px-3 py-3 text-right font-mono text-white">{row.result}</td>
+                <td className="px-3 py-3 text-right font-mono text-slate-400">{when(row.predictionTime)}</td>
+              </tr>
+            )) : <tr><td colSpan={5} className="px-3 py-8 text-center text-slate-500">No rows yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+export default async function AccuracyPage() {
+  const dashboard = await getAccuracyDashboard();
+  const allTime = dashboard.windows.find((window) => window.key === "allTime") ?? dashboard.windows[dashboard.windows.length - 1];
+  const monthly = dashboard.windows.find((window) => window.key === "monthly") ?? allTime;
 
   return (
-    <main className="min-h-screen bg-[#02060b] px-3 py-4 text-white sm:px-5">
+    <main className="min-h-screen bg-[#02060b] px-3 py-5 text-white sm:px-6">
       <div className="mx-auto grid max-w-7xl gap-5">
-        <section className="rounded-[1.75rem] border border-cyan-300/15 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.16),transparent_20rem),rgba(2,6,12,0.94)] p-5 shadow-[0_0_80px_rgba(14,165,233,0.08)]">
+        <section className="rounded-[1.75rem] border border-cyan-300/15 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.16),transparent_22rem),rgba(2,6,12,0.95)] p-5 shadow-[0_0_80px_rgba(14,165,233,0.08)]">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <div className="text-[10px] font-black uppercase tracking-[0.28em] text-cyan-300/75">Proof command center</div>
-              <h1 className="mt-2 font-display text-4xl font-black tracking-[-0.07em] text-white sm:text-5xl">Accuracy is the product.</h1>
+              <div className="text-[10px] font-black uppercase tracking-[0.28em] text-cyan-300/75">Accuracy scoreboard</div>
+              <h1 className="mt-2 font-display text-4xl font-black tracking-[-0.07em] text-white sm:text-5xl">Keep it simple: record, ROI, proof.</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-                SharkEdge only becomes elite if it proves what is proven, labels what is still shadow-mode, and refuses to sell confidence without settled results.
+                Top plays are separated from every tracked pick, with the same weekly, bi-weekly, monthly, and all-time windows across the whole ledger.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Link href="/accuracy/calibration" className={pill("green")}>Calibration</Link>
-              <Link href="/accuracy/verdicts" className={pill("cyan")}>Verdicts</Link>
-              <Link href="/accuracy/autopsy" className={pill("amber")}>Autopsy</Link>
-              <Link href="/sim" className={pill("slate")}>SimHub</Link>
-              <Link href="/baseball/readiness" className={pill("slate")}>MLB readiness</Link>
-              <Link href="/sim/ufc" className={pill("slate")}>MMA lab</Link>
+            <div className="flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-[0.14em]">
+              <Link href="/accuracy/mlb" className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-slate-300 hover:text-white">MLB detail</Link>
+              <Link href="/accuracy/mma" className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-slate-300 hover:text-white">MMA detail</Link>
+              <Link href="/accuracy/calibration" className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-slate-300 hover:text-white">Calibration</Link>
+              <Link href="/sim" className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-cyan-100">SimHub</Link>
             </div>
           </div>
         </section>
 
-        <DecisionDisciplineCard />
-        <CalibrationTruthCard />
-
-        <section className="grid gap-4 lg:grid-cols-2">
-          <ProofCard
-            href="/accuracy/mlb"
-            sport="MLB"
-            title="MLB proof ledger"
-            tone={mlbTone}
-            body="The active proof lane. Tracks settled predictions, record, units, odds coverage, Brier score, moneyline rows, and totals rows."
-          >
-            <Tile label="Record" value={record(mlb.winCount, mlb.lossCount)} sub="Settled MLB rows" />
-            <Tile label="Win rate" value={pct(mlb.winRate)} sub={`${mlb.settledCount}/${mlb.predictionCount} settled`} />
-            <Tile label="Units" value={units(mlb.unitsNet)} sub="Actual/fallback odds aware" />
-            <Tile label="Brier" value={num(mlb.brierScoreAvg)} sub={`${mlb.actualOddsCount} actual odds rows`} />
-          </ProofCard>
-
-          <ProofCard
-            href="/accuracy/mma"
-            sport="MMA"
-            title="MMA proof ledger"
-            tone={mmaTone}
-            body="The new fight proof lane. Reads shadow predictions, resolved winners, CLV, Brier, calibration snapshots, and pass-discipline warnings."
-          >
-            <Tile label="Record" value={record(mma.winCount, mma.lossCount)} sub="Settled fight rows" />
-            <Tile label="Accuracy" value={pct(mma.accuracyPct)} sub={`${mma.pendingCount} pending fights`} />
-            <Tile label="Brier" value={num(mma.avgBrier)} sub="Fight probability calibration" />
-            <Tile label="Avg CLV" value={pct(mma.avgClvPct)} sub={`${pct(mma.clvCoveragePct)} CLV coverage`} />
-          </ProofCard>
-        </section>
-
-        <section className="grid gap-3 md:grid-cols-3">
-          <OperatingRule title="No proof, no promotion" body="A model can generate projections before it is promoted. Official plays need settled proof, not just a sharp-looking UI." />
-          <OperatingRule title="Pass is a feature" body="Bad data, stale odds, thin samples, and weak calibration should turn into pass/watch labels instead of forced action." />
-          <OperatingRule title="Calibrate or cut" body="Calibration buckets and postgame autopsy close the loop, so every probability range and every miss teaches the product what to restrict next." />
-        </section>
-
-        {mma.warnings.length ? (
-          <section className="rounded-[1.35rem] border border-amber-300/15 bg-amber-300/[0.05] p-4">
-            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-200">MMA proof warnings</div>
-            <div className="mt-3 grid gap-2">
-              {mma.warnings.slice(0, 4).map((warning) => <div key={warning} className="rounded-xl border border-amber-300/15 bg-black/20 px-3 py-2 text-xs leading-5 text-amber-100/80">{warning}</div>)}
+        {dashboard.warnings.length ? (
+          <section className="rounded-[1.25rem] border border-amber-300/20 bg-amber-300/[0.07] p-4 text-sm text-amber-100">
+            <div className="font-black uppercase tracking-[0.16em]">Data notes</div>
+            <div className="mt-2 grid gap-1 text-xs leading-5 text-amber-100/80">
+              {dashboard.warnings.slice(0, 4).map((warning) => <div key={warning}>- {warning}</div>)}
             </div>
           </section>
         ) : null}
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <SegmentSummary title="Top play record" subtitle="Only promoted/high-confidence plays. This is the number that should matter most." stats={allTime.topPlays} tone="green" />
+          <SegmentSummary title="Every pick record" subtitle="Every tracked model pick, including lower-confidence rows, so we can see the whole machine." stats={allTime.everyPick} tone="cyan" />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="Monthly top plays" value={record(monthly.topPlays)} note={`${pct(monthly.topPlays.winRate)} - ${units(monthly.topPlays.units)} - ${pctRaw(monthly.topPlays.roi)} ROI`} tone="green" />
+          <MetricCard label="Monthly every pick" value={record(monthly.everyPick)} note={`${pct(monthly.everyPick.winRate)} - ${units(monthly.everyPick.units)} - ${pctRaw(monthly.everyPick.roi)} ROI`} tone="cyan" />
+          <MetricCard label="All-time top ROI" value={pctRaw(allTime.topPlays.roi)} note={`${allTime.topPlays.graded} graded top plays`} tone="green" />
+          <MetricCard label="All-time all-pick ROI" value={pctRaw(allTime.everyPick.roi)} note={`${allTime.everyPick.graded} graded tracked picks`} tone="cyan" />
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <RoiChart windows={dashboard.windows} />
+          <WinLossChart windows={dashboard.windows} />
+        </div>
+
+        <WindowTable windows={dashboard.windows} />
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <RecentTable title="Latest top plays" rows={dashboard.recentTopPlays} />
+          <RecentTable title="Latest every-pick rows" rows={dashboard.recentEveryPick} />
+        </div>
       </div>
     </main>
   );
