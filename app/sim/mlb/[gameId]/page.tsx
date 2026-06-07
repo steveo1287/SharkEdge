@@ -6,15 +6,19 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { MlbFranchiseTabs } from "@/components/sim/mlb-franchise-tabs";
+import { MlbImpactPlayers } from "@/components/sim/mlb-franchise-impact-players";
+import { MlbProjectedLineScore } from "@/components/sim/mlb-franchise-line-score";
 import { buildBoardSportSections } from "@/services/events/live-score-service";
 import { cacheAgeLabel, readCachedMlbGameDetail } from "@/services/simulation/mlb-game-detail-cache";
 import { buildMlbEdges } from "@/services/simulation/mlb-edge-detector";
 import { buildMainSimProjection as buildSimProjection } from "@/services/simulation/main-sim-brain";
+import type { MlbInningMarketProjection, MlbPlayerStatProjectionGame } from "@/services/simulation/mlb-player-stat-inning-engine";
 
 type LiveProjection = Awaited<ReturnType<typeof buildSimProjection>>;
 type ProjectionView = Pick<LiveProjection, "matchup" | "distribution" | "read" | "statSheet" | "realityIntel" | "mlbIntel" | "nbaIntel">;
 type EdgeResult = Awaited<ReturnType<typeof buildMlbEdges>>["edges"][number];
 type Lock = NonNullable<NonNullable<ProjectionView["mlbIntel"]>["lock"]>;
+type PlayerImpactPayload = { playerStatProjections?: MlbPlayerStatProjectionGame | null; inningProjection?: MlbInningMarketProjection | null };
 
 type PageProps = { params: Promise<{ gameId: string }> };
 type DecisionTier = "attack" | "watch" | "lean" | "pass";
@@ -71,6 +75,14 @@ function winLean(projection: ProjectionView) {
 function projectedTotal(projection: ProjectionView) {
   return projection.mlbIntel?.projectedTotal
     ?? (projection.distribution.avgAway + projection.distribution.avgHome);
+}
+
+function playerImpact(projection: ProjectionView) {
+  const impact = projection.mlbIntel?.playerImpact as PlayerImpactPayload | null | undefined;
+  return {
+    playerStats: impact?.playerStatProjections ?? null,
+    inningStats: impact?.inningProjection ?? null
+  };
 }
 
 function decisionTier(projection: ProjectionView, edge?: EdgeResult | null): DecisionTier {
@@ -300,6 +312,7 @@ export default async function MlbGameDetailPage({ params }: PageProps) {
   const total = projectedTotal(projection);
   const lock = projection.mlbIntel?.lock;
   const reasons = cleanReasons(projection, lock);
+  const impact = playerImpact(projection);
 
   return (
     <div className="grid gap-6">
@@ -337,6 +350,14 @@ export default async function MlbGameDetailPage({ params }: PageProps) {
         <RunsChart projection={projection} />
       </section>
 
+      <MlbProjectedLineScore
+        awayTeam={projection.matchup.away}
+        homeTeam={projection.matchup.home}
+        awayRuns={projection.distribution.avgAway}
+        homeRuns={projection.distribution.avgHome}
+        inningStats={impact.inningStats}
+      />
+      <MlbImpactPlayers stats={impact.playerStats} />
       <PitchersSection projection={projection} lock={lock} />
       <WhySection reasons={reasons} />
       <AdvancedDetails projection={projection} edge={edge} cacheLabel={cacheLabel} />
