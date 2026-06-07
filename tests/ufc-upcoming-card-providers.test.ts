@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { parseGenericUpcomingEventPage, parseMvpEventPage, parseMvpUpcomingEventsList, parseUfcStatsUpcomingEventsList } from "@/services/ufc/upcoming-card-providers";
+import { fetchGenericUpcomingProvider, parseGenericUpcomingEventLinks, parseGenericUpcomingEventPage, parseMvpEventPage, parseMvpUpcomingEventsList, parseUfcStatsUpcomingEventsList } from "@/services/ufc/upcoming-card-providers";
 
 const listHtml = `
 <table>
@@ -41,6 +41,38 @@ assert.equal(event.fights[0].isMainEvent, true);
 assert.equal(event.fights[0].scheduledRounds, 5);
 assert.equal(event.fights[1].scheduledRounds, 3);
 
+const graphJsonLdPage = `
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    { "@type": "BreadcrumbList", "name": "ignore me" },
+    {
+      "@type": "SportsEvent",
+      "name": "UFC Graph Card",
+      "startDate": "2026-07-11T23:00:00Z",
+      "url": "https://www.ufc.com/event/ufc-graph-card"
+    }
+  ]
+}
+</script>`;
+const graphEvent = parseGenericUpcomingEventPage(graphJsonLdPage, "ufc.com", "https://www.ufc.com/events");
+assert.equal(graphEvent.eventName, "UFC Graph Card");
+assert.equal(graphEvent.eventDate, "2026-07-11T23:00:00Z");
+assert.equal(graphEvent.sourceEventId, "ufc.com-event-ufc-graph-card");
+
+const noDatePage = `<h1>UFC Broken Date</h1><a>Fighter A</a><a>Fighter B</a>`;
+const noDateEvent = parseGenericUpcomingEventPage(noDatePage, "ufc.com", "https://www.ufc.com/event/broken-date");
+assert.equal(noDateEvent.eventDate, "UNPARSED_EVENT_DATE");
+assert.equal(noDateEvent.sourceStatus, "MANUAL_REVIEW");
+
+const linksPage = `
+<a href="/event/ufc-alpha">Alpha</a>
+<a href="https://www.ufc.com/event/ufc-beta">Beta</a>
+<a href="/news/not-an-event">Ignore</a>`;
+const linkedEvents = parseGenericUpcomingEventLinks(linksPage, "ufc.com", "https://www.ufc.com/events");
+assert.deepEqual(linkedEvents, ["https://www.ufc.com/event/ufc-alpha", "https://www.ufc.com/event/ufc-beta"]);
+
 const mvpList = `
 <a href="/event/rousey-vs-carano-16-05-2026/">See Event Info</a>
 <a href="https://www.mostvaluablepromotions.com/event/han-vs-holm-30052026/">See Event Info</a>`;
@@ -80,5 +112,26 @@ assert.equal(mvpEvent.fights[0].fighterAName, "Ronda Rousey");
 assert.equal(mvpEvent.fights[0].fighterBName, "Gina Carano");
 assert.equal(mvpEvent.fights[0].scheduledRounds, 5);
 assert.equal(mvpEvent.fights[0].payload?.promotionName, "Most Valuable Promotions");
+
+const providerFetch = async (url: string) => {
+  if (url === "https://www.ufc.com/events") {
+    return new Response(`<a href="/event/ufc-alpha">Alpha</a><a href="/event/ufc-no-date">No Date</a>`, { status: 200 });
+  }
+  if (url === "https://www.ufc.com/event/ufc-alpha") {
+    return new Response(`
+      <script type="application/ld+json">{"@type":"Event","name":"UFC Alpha","startDate":"2026-08-01T23:00:00Z","url":"https://www.ufc.com/event/ufc-alpha"}</script>
+      <a>Alpha A</a><a>Alpha B</a>`, { status: 200 });
+  }
+  if (url === "https://www.ufc.com/event/ufc-no-date") {
+    return new Response(`<h1>UFC No Date</h1><a>Ghost A</a><a>Ghost B</a>`, { status: 200 });
+  }
+  return new Response("missing", { status: 404 });
+};
+const providerResult = await fetchGenericUpcomingProvider("ufc.com", ["https://www.ufc.com/events"], providerFetch as typeof fetch);
+assert.equal(providerResult.events.length, 1);
+assert.equal(providerResult.events[0].eventName, "UFC Alpha");
+assert.equal(providerResult.events[0].eventDate, "2026-08-01T23:00:00Z");
+assert.equal(providerResult.events[0].fights.length, 1);
+assert.ok(providerResult.warnings.some((warning) => warning.includes("unparsed date")));
 
 console.log("ufc-upcoming-card-providers tests passed");
