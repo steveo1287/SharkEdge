@@ -36,6 +36,9 @@ export type MlbBatterPropEdgeBoardPlayer = {
   team: string;
   battingOrder: number;
   quoteCount: number;
+  hitterArchetype: string;
+  pitcherArchetype: string;
+  matchupClusterKey: string;
   edgeReport: MlbBatterPropEdgeReport;
   projectionSummary: {
     expectedPlateAppearances: number;
@@ -82,6 +85,26 @@ function hitterKeys(hitter: MlbHitterPerGameProjection) {
     `name-team:${playerKey(hitter.playerName)}:${playerKey(hitter.team)}`,
     `name:${playerKey(hitter.playerName)}`
   ];
+}
+
+function hitterArchetype(hitter: MlbHitterPerGameProjection) {
+  if (hitter.expectedHomeRuns >= 0.18 || hitter.batterStatProfile.iso >= 0.22) return "POWER";
+  if (hitter.expectedHits >= 1.08 && hitter.expectedStrikeouts <= 0.9) return "CONTACT";
+  if (hitter.expectedWalks >= 0.48) return "DISCIPLINE";
+  if (hitter.statDistribution.homeRunProbability >= 0.11 || hitter.statDistribution.totalBases4PlusProbability >= 0.2) return "VOLATILE_POWER";
+  return "BALANCED";
+}
+
+function pitcherArchetype(hitter: MlbHitterPerGameProjection) {
+  if (hitter.plateAppearanceOutcome.pitcherSuppressionScore >= 8) return "SUPPRESSOR";
+  if (hitter.plateAppearanceOutcome.pitcherSuppressionScore <= -8) return "VULNERABLE";
+  if (hitter.plateAppearanceOutcome.strikeoutRate >= 0.27) return "WHIFF";
+  if (hitter.plateAppearanceOutcome.homeRunRate >= 0.055) return "HR_RISK";
+  return "NEUTRAL";
+}
+
+function matchupClusterKey(hitter: MlbHitterPerGameProjection) {
+  return `${hitterArchetype(hitter)}_vs_${pitcherArchetype(hitter)}`;
 }
 
 function toPlainQuote(quote: MlbBatterBookPropQuoteWithPlayer): MlbBatterBookPropQuote {
@@ -144,11 +167,20 @@ export function buildMlbBatterPropEdgeBoard(args: {
     }
     if (!playerQuotes.length) return [];
 
+    const ha = hitterArchetype(hitter);
+    const pa = pitcherArchetype(hitter);
+    const cluster = `${ha}_vs_${pa}`;
     const edgeReport = evaluateMlbBatterPropEdges({
       surface: hitter.propSurface,
       quotes: playerQuotes.map(toPlainQuote),
       config: args.config,
-      calibration: args.calibration
+      calibration: args.calibration,
+      calibrationContext: {
+        playerId: hitter.playerId,
+        hitterArchetype: ha,
+        pitcherArchetype: pa,
+        matchupClusterKey: cluster
+      }
     });
     warnings.push(...edgeReport.warnings.map((warning) => `${hitter.playerName}: ${warning}`));
 
@@ -158,6 +190,9 @@ export function buildMlbBatterPropEdgeBoard(args: {
       team: hitter.team,
       battingOrder: hitter.battingOrder,
       quoteCount: playerQuotes.length,
+      hitterArchetype: ha,
+      pitcherArchetype: pa,
+      matchupClusterKey: cluster,
       edgeReport,
       projectionSummary: {
         expectedPlateAppearances: hitter.expectedPlateAppearances,
