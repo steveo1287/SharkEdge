@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     const boxScore = result.projection ? buildMlbSimulatedBoxScore(result.projection) : null;
     return NextResponse.json({
       ok: Boolean(result.projection),
-      modelVersion: "mlb-simulated-box-score-v1",
+      modelVersion: "mlb-simulated-box-score-v2",
       boxScore,
       projection: result.projection,
       diagnostics: result.diagnostics,
@@ -29,7 +29,7 @@ export async function GET(request: Request) {
   } catch (error) {
     return NextResponse.json({
       ok: false,
-      modelVersion: "mlb-simulated-box-score-v1",
+      modelVersion: "mlb-simulated-box-score-v2",
       boxScore: null,
       projection: null,
       diagnostics: null,
