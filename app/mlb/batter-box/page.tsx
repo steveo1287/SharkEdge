@@ -20,7 +20,7 @@ function num(value: number | null | undefined, digits = 2) {
   return value.toFixed(digits);
 }
 
-function title(value: string) {
+function titleCase(value: string) {
   return value.toLowerCase().replace(/_/g, " ");
 }
 
@@ -222,7 +222,7 @@ function HitterCard({ hitter }: { hitter: MlbSimulatedHitterBoxScore }) {
           <h3 className="mt-1 font-display text-2xl font-black tracking-tight text-white">{hitter.playerName}</h3>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
-          <Pill label={title(hitter.tier)} tone={toneForTier(hitter.tier)} />
+          <Pill label={titleCase(hitter.tier)} tone={toneForTier(hitter.tier)} />
           <Pill label={`${Math.round(hitter.confidence * 100)} conf`} tone={confidenceTone(hitter.confidence)} />
         </div>
       </div>
@@ -274,17 +274,18 @@ function HitterCard({ hitter }: { hitter: MlbSimulatedHitterBoxScore }) {
   );
 }
 
-function HitterStrip({ title, hitters, empty }: { title: string; hitters: MlbSimulatedHitterBoxScore[]; empty: string }) {
+function HitterStrip({ sectionTitle, hitters, empty }: { sectionTitle: string; hitters: MlbSimulatedHitterBoxScore[]; empty: string }) {
+  const alphaSection = sectionTitle === "Alpha bats";
   return (
     <section className="rounded-[1.35rem] border border-white/10 bg-white/[0.035] p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <div className="text-[10px] font-black uppercase tracking-[0.2em] text-aqua">Elite grouping</div>
-          <h2 className="font-display text-2xl font-black tracking-tight text-white">{title}</h2>
+          <h2 className="font-display text-2xl font-black tracking-tight text-white">{sectionTitle}</h2>
         </div>
         <Pill label={`${hitters.length} hitters`} />
       </div>
-      {hitters.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">{hitters.slice(0, 8).map((hitter) => <div key={`${title}-${hitter.playerId}`} className="rounded-2xl border border-white/10 bg-black/20 p-3"><div className="flex items-center justify-between gap-2"><div className="font-semibold text-white">{hitter.playerName}</div><Pill label={title === "Alpha bats" ? title(hitter.tier) : hitter.volatilityLabel} tone={title === "Alpha bats" ? toneForTier(hitter.tier) : toneForLabel(hitter.volatilityLabel)} /></div><div className="mt-1 text-xs text-slate-400">{hitter.team} · {lineText(hitter)}</div><div className="mt-1 text-xs text-slate-500">{rangeText(hitter)}</div></div>)}</div> : <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-slate-400">{empty}</div>}
+      {hitters.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">{hitters.slice(0, 8).map((hitter) => <div key={`${sectionTitle}-${hitter.playerId}`} className="rounded-2xl border border-white/10 bg-black/20 p-3"><div className="flex items-center justify-between gap-2"><div className="font-semibold text-white">{hitter.playerName}</div><Pill label={alphaSection ? titleCase(hitter.tier) : hitter.volatilityLabel} tone={alphaSection ? toneForTier(hitter.tier) : toneForLabel(hitter.volatilityLabel)} /></div><div className="mt-1 text-xs text-slate-400">{hitter.team} · {lineText(hitter)}</div><div className="mt-1 text-xs text-slate-500">{rangeText(hitter)}</div></div>)}</div> : <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-slate-400">{empty}</div>}
     </section>
   );
 }
@@ -311,7 +312,7 @@ function TeamTable({ team }: { team: MlbSimulatedTeamBoxScore }) {
               <tr key={hitter.playerId} className="border-b border-white/[0.06] text-slate-300">
                 <td className="py-2.5 pr-3 font-mono text-slate-500">{hitter.battingOrder}</td>
                 <td className="py-2.5 pr-3 font-semibold text-white">{hitter.playerName}</td>
-                <td className="py-2.5 pr-3"><Pill label={title(hitter.tier)} tone={toneForTier(hitter.tier)} /></td>
+                <td className="py-2.5 pr-3"><Pill label={titleCase(hitter.tier)} tone={toneForTier(hitter.tier)} /></td>
                 <td className="py-2.5 pr-3 text-slate-400">{lineText(hitter)}</td>
                 <td className="py-2.5 pr-3 text-slate-500">{rangeText(hitter)}</td>
                 <td className="py-2.5 pr-3 text-right font-mono">{num(hitter.expected.plateAppearances, 2)}</td>
@@ -374,8 +375,8 @@ export default async function MlbBatterBoxPage({ searchParams }: BatterBoxPagePr
               <TeamSummary team={boxScore.awayTeam} />
               <TeamSummary team={boxScore.homeTeam} />
             </section>
-            <HitterStrip title="Alpha bats" hitters={boxScore.alphaHitters} empty="No alpha/plus hitters in this simulation." />
-            <HitterStrip title="Volatile ceiling bats" hitters={boxScore.volatileCeilingHitters} empty="No high-volatility ceiling hitters in this simulation." />
+            <HitterStrip sectionTitle="Alpha bats" hitters={boxScore.alphaHitters} empty="No alpha/plus hitters in this simulation." />
+            <HitterStrip sectionTitle="Volatile ceiling bats" hitters={boxScore.volatileCeilingHitters} empty="No high-volatility ceiling hitters in this simulation." />
             <section className="grid gap-4 lg:grid-cols-2">
               {boxScore.topProjectedHitters.slice(0, 6).map((hitter) => <HitterCard key={`leader-${hitter.playerId}`} hitter={hitter} />)}
             </section>
