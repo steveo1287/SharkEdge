@@ -81,6 +81,17 @@ function simTasks(): WorkerTask[] {
       activeUtcHours: csvSetEnv("MLB_STATS_INGEST_ACTIVE_UTC_HOURS") ?? new Set([11, 23])
     },
     {
+      name: "mlb-populate-feed",
+      path:
+        process.env.RAILWAY_MLB_POPULATE_FEED_PATH?.trim() ||
+        `/api/internal/cron/mlb-populate-feed?season=${intEnv("MLB_ROSTER_RATING_SEASON", new Date().getUTCFullYear(), 2020, 2035)}&rosterType=${process.env.MLB_ROSTER_RATING_TYPE?.trim() || "active"}&includeStatsApiStats=1&includeStatcastMicro=${boolEnv("MLB_POPULATE_STATCAST_MICRO", false) ? 1 : 0}`,
+      // Daily active-roster/player rating refresh. This is DB-backed and intentionally
+      // decoupled from page renders so game centers read real persisted intelligence.
+      intervalSeconds: intEnv("MLB_POPULATE_FEED_INTERVAL_SECONDS", 21600, 3600, 86400),
+      runImmediately: boolEnv("MLB_POPULATE_FEED_RUN_IMMEDIATELY", true),
+      activeUtcHours: csvSetEnv("MLB_POPULATE_FEED_ACTIVE_UTC_HOURS") ?? new Set([14, 20])
+    },
+    {
       name: "mlb-player-prop-inning-grade",
       path:
         process.env.RAILWAY_MLB_PLAYER_PROP_GRADE_PATH?.trim() ||
