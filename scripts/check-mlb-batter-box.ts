@@ -1,5 +1,6 @@
 import { loadMlbBatterBoxProjection } from "@/services/simulation/mlb-batter-box-loader";
 import { buildMlbSimulatedBoxScore } from "@/services/simulation/mlb-simulated-box-score";
+import { buildMlbSimulatedPitchingBoxScores } from "@/services/simulation/mlb-simulated-pitching-box-score";
 
 function argValue(name: string) {
   const prefix = `--${name}=`;
@@ -16,6 +17,29 @@ async function main() {
   const result = await loadMlbBatterBoxProjection(params);
   const projection = result.projection;
   const boxScore = projection ? buildMlbSimulatedBoxScore(projection) : null;
+  const pitching = projection && boxScore ? buildMlbSimulatedPitchingBoxScores({
+    projection,
+    awayOffense: {
+      team: boxScore.awayTeam.team,
+      projectedRuns: boxScore.awayTeam.totals.projectedRuns,
+      plateAppearances: boxScore.awayTeam.totals.plateAppearances,
+      hits: boxScore.awayTeam.totals.hits,
+      totalBases: boxScore.awayTeam.totals.totalBases,
+      homeRuns: boxScore.awayTeam.totals.homeRuns,
+      walks: boxScore.awayTeam.totals.walks,
+      strikeouts: boxScore.awayTeam.totals.strikeouts
+    },
+    homeOffense: {
+      team: boxScore.homeTeam.team,
+      projectedRuns: boxScore.homeTeam.totals.projectedRuns,
+      plateAppearances: boxScore.homeTeam.totals.plateAppearances,
+      hits: boxScore.homeTeam.totals.hits,
+      totalBases: boxScore.homeTeam.totals.totalBases,
+      homeRuns: boxScore.homeTeam.totals.homeRuns,
+      walks: boxScore.homeTeam.totals.walks,
+      strikeouts: boxScore.homeTeam.totals.strikeouts
+    }
+  }) : null;
   const payload = {
     ok: Boolean(projection),
     command: "check-mlb-batter-box",
@@ -34,6 +58,12 @@ async function main() {
     awayTeam: projection?.awayTeam ?? null,
     homeTeam: projection?.homeTeam ?? null,
     gameScript: boxScore?.gameScript ?? null,
+    pitching: pitching ? {
+      awayPitching: pitching.awayPitching,
+      homePitching: pitching.homePitching,
+      pitchingMatchup: pitching.pitchingMatchup,
+      reconciliation: pitching.reconciliation
+    } : null,
     simulatedTotals: boxScore ? {
       awayTeam: boxScore.awayTeam.team,
       homeTeam: boxScore.homeTeam.team,
