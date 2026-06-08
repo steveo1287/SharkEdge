@@ -29,6 +29,9 @@ type RequestBody = {
     minExpectedValue?: number;
     minConfidence?: number;
     maxCandidates?: number;
+    requireCalibration?: boolean;
+    minCalibrationSampleSize?: number;
+    minCalibrationReliability?: number;
   };
 };
 
