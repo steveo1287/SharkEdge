@@ -1,4 +1,5 @@
 import { deriveMlbBatterAdvancedMatchup, type MlbBatterAdvancedMatchup } from "@/services/simulation/mlb-batter-advanced-matchup";
+import { buildMlbBatterStatDistribution, type MlbBatterStatDistribution } from "@/services/simulation/mlb-batter-stat-distribution";
 import { deriveMlbBatterStatProfile, type MlbBatterStatProfile } from "@/services/simulation/mlb-batter-stat-profile";
 
 export type MlbProjectionRating = {
@@ -66,6 +67,7 @@ export type MlbHitterPerGameProjection = {
   confidence: number;
   batterStatProfile: MlbBatterStatProfile;
   advancedMatchup: MlbBatterAdvancedMatchup;
+  statDistribution: MlbBatterStatDistribution;
   reasons: string[];
 };
 
@@ -290,10 +292,24 @@ function projectHitter(args: {
   const expectedHits = pa * hitRate;
   const expectedWalks = pa * walkRate;
   const expectedHr = pa * hrRate;
+  const expectedStrikeouts = pa * strikeoutRate;
   const expectedTotalBases = expectedHits * totalBasePerHit + expectedHr * 0.65;
   const expectedRuns = args.teamRuns * runShare * clamp(onBase / 0.31, 0.72, 1.32);
   const expectedRbi = args.teamRuns * rbiShare * clamp((hitRate * totalBasePerHit) / 0.34, 0.72, 1.38);
   const confidence = clamp((args.confirmedLineup ? 0.18 : 0) + batterStats.confidence * 0.22 + advancedMatchup.confidence * 0.16 + (args.opponentStarter ? 0.18 : 0) + 0.28, 0.35, 0.95);
+  const statDistribution = buildMlbBatterStatDistribution({
+    expectedHits,
+    expectedTotalBases,
+    expectedHomeRuns: expectedHr,
+    expectedWalks,
+    expectedStrikeouts,
+    expectedPlateAppearances: pa,
+    powerMultiplier: advancedMatchup.powerMultiplier,
+    contactMultiplier: advancedMatchup.contactMultiplier,
+    statConfidence: batterStats.confidence,
+    advancedConfidence: advancedMatchup.confidence,
+    drivers: [...batterStats.drivers, ...advancedMatchup.drivers]
+  });
 
   return {
     playerId: args.row.id,
@@ -301,24 +317,26 @@ function projectHitter(args: {
     team: args.team,
     battingOrder: args.battingOrder,
     expectedPlateAppearances: round(pa, 2),
-    hitProbability: round(1 - Math.exp(-expectedHits), 4),
+    hitProbability: statDistribution.hit1PlusProbability,
     expectedHits: round(expectedHits, 3),
     expectedTotalBases: round(expectedTotalBases, 3),
     expectedHomeRuns: round(expectedHr, 3),
     expectedRuns: round(expectedRuns, 3),
     expectedRbi: round(expectedRbi, 3),
     expectedWalks: round(expectedWalks, 3),
-    expectedStrikeouts: round(pa * strikeoutRate, 3),
+    expectedStrikeouts: round(expectedStrikeouts, 3),
     stealAttemptProbability: round(1 - Math.exp(-pa * onBase * stealAttemptRate), 4),
     stolenBaseProbability: round((1 - Math.exp(-pa * onBase * stealAttemptRate)) * stealSuccessRate, 4),
     confidence: round(confidence, 3),
     batterStatProfile: batterStats,
     advancedMatchup,
+    statDistribution,
     reasons: [
       `Projected ${pa.toFixed(1)} PA from batting slot ${args.battingOrder}.`,
       `Batter stats blended at ${(statWeight * 100).toFixed(0)}% confidence: xAVG ${batterStats.xAvg.toFixed(3)}, xSLG ${batterStats.xSlug.toFixed(3)}, xwOBA ${batterStats.xWoba.toFixed(3)}.`,
       `Advanced matchup multipliers: contact ${advancedMatchup.contactMultiplier.toFixed(3)}, power ${advancedMatchup.powerMultiplier.toFixed(3)}, K ${advancedMatchup.strikeoutMultiplier.toFixed(3)}, BB ${advancedMatchup.walkMultiplier.toFixed(3)}.`,
       `Stat-driven rates: H/PA ${hitRate.toFixed(3)}, BB/PA ${walkRate.toFixed(3)}, K/PA ${strikeoutRate.toFixed(3)}, HR/PA ${hrRate.toFixed(3)}, TB/H ${totalBasePerHit.toFixed(2)}.`,
+      `Distribution: 1+ hit ${(statDistribution.hit1PlusProbability * 100).toFixed(1)}%, 2+ hit ${(statDistribution.hit2PlusProbability * 100).toFixed(1)}%, 2+ TB ${(statDistribution.totalBases2PlusProbability * 100).toFixed(1)}%, HR ${(statDistribution.homeRunProbability * 100).toFixed(1)}%.`,
       `Split-adjusted hitter skill ${skill.toFixed(1)} vs ${pitcherHand}HP and opposing starter skill ${opponentPitch.toFixed(1)}.`,
       `Batter drivers: ${batterStats.drivers.join(", ")}; advanced drivers: ${advancedMatchup.drivers.join(", ")}.`
     ]
