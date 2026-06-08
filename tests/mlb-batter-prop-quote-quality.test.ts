@@ -104,9 +104,13 @@ assert.equal(report.mappedCount, 3);
 assert.equal(report.duplicateCount, 1);
 assert.equal(report.staleCount, 1);
 assert.equal(report.unmatchedCount, 1);
-assert.ok(report.qualityScore < 100);
+assert.equal(report.minQualityScore, 70);
+assert.equal(report.qualityGatePassed, false);
+assert.ok(report.qualityGateReason?.includes("below required"));
+assert.ok(report.qualityScore < 70);
 assert.ok(report.warnings.some((warning) => warning.includes("stale")));
 assert.ok(report.warnings.some((warning) => warning.includes("could not be mapped")));
+assert.ok(report.warnings.some((warning) => warning.includes("below required")));
 assert.ok(report.issues.some((issue) => issue.reason.includes("Duplicate quote collapsed")));
 assert.ok(report.issues.some((issue) => issue.reason.includes("Thin prop market")) === false);
 
@@ -120,10 +124,20 @@ assert.equal(acceptedOver!.americanOdds, -138);
 const permissive = qualityGateMlbBatterPropQuotes({
   projection,
   quotes: [quotes[4]],
-  config: { now: "2026-06-08T12:10:00Z", requirePlayerMapping: false }
+  config: { now: "2026-06-08T12:10:00Z", requirePlayerMapping: false, minQualityScore: 1 }
 });
 assert.equal(permissive.acceptedCount, 1);
 assert.equal(permissive.unmatchedCount, 1);
 assert.ok(permissive.issues.some((issue) => issue.severity === "WARN"));
+assert.equal(permissive.qualityGatePassed, true);
+
+const cleanReport = qualityGateMlbBatterPropQuotes({
+  projection,
+  quotes: [quotes[1], quotes[2]],
+  config: { now: "2026-06-08T12:10:00Z", minQualityScore: 70 }
+});
+assert.equal(cleanReport.qualityGatePassed, true);
+assert.equal(cleanReport.qualityGateReason, null);
+assert.equal(cleanReport.qualityScore, 100);
 
 console.log("mlb-batter-prop-quote-quality.test.ts passed");
