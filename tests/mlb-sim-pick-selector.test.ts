@@ -54,18 +54,23 @@ const edges = [edge("g1", 8), edge("g2", 7.5), edge("g3", 7.5), edge("g4", 8.5)]
 
 const board = buildMlbDailySimPickBoard({ games, edges, generatedAt: "2026-06-09T00:00:00.000Z" });
 
-assert.equal(board.modelVersion, "mlb-sim-pick-selector-v1");
+assert.equal(board.modelVersion, "mlb-sim-pick-selector-v2-sim-first");
 assert.equal(board.summary.gameCount, 4);
 assert.ok(board.allPicks.some((pick) => pick.market === "MONEYLINE"));
 assert.ok(board.allPicks.some((pick) => pick.market === "OVER_UNDER"));
 assert.ok(board.allPicks.some((pick) => pick.market === "F5_MONEYLINE"));
 assert.ok(board.allPicks.some((pick) => pick.market === "F5_TOTAL"));
 assert.ok(board.allPicks.some((pick) => pick.market === "NRFI"));
+assert.ok(board.allPicks.every((pick) => pick.expectedValue === null));
+assert.ok(board.allPicks.every((pick) => pick.projectedScore));
+assert.ok(board.allPicks.every((pick) => pick.projectedTotal > 0));
+assert.ok(board.allPicks.every((pick) => pick.warnings.length === 0));
 assert.ok(board.officialPlays.length + board.qualifiedLeans.length + board.watchlist.length > 0);
 assert.ok(board.pick3Parlays.length > 0);
 assert.equal(board.pick3Parlays[0].legs.length, 3);
 assert.equal(new Set(board.pick3Parlays[0].legs.map((leg) => leg.gameId)).size, 3);
 assert.ok(board.pick3Parlays[0].modelProbability > 0 && board.pick3Parlays[0].modelProbability < 1);
 assert.ok(Number.isFinite(board.pick3Parlays[0].fairAmericanOdds));
+assert.equal(board.pick3Parlays[0].warnings.length, 0);
 
 console.log("mlb-sim-pick-selector.test.ts passed");
