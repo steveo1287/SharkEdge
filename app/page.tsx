@@ -192,7 +192,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         <header className="rounded-[1.35rem] border border-white/10 bg-[#06101b]/88 p-4 shadow-[0_18px_70px_rgba(0,0,0,0.30)] backdrop-blur-xl">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Link href="/" className="flex items-center gap-2"><span className="grid size-9 place-items-center rounded-2xl border border-aqua/30 bg-aqua/10 font-display text-lg font-black text-aqua">S</span><span><span className="block text-[10px] font-black uppercase tracking-[0.28em] text-aqua">SharkEdge</span><span className="block text-[11px] text-slate-500">simulation command center</span></span></Link>
-            <div className="flex flex-wrap items-center gap-2"><Pill label={home.deskStatusLabel} tone={home.deskStatusState === "HEALTHY" ? "good" : "warn"} /><Link href="/sim" className="rounded-full border border-aqua/25 bg-aqua/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-aqua">SimHub</Link><Link href="/accuracy" className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-slate-300 hover:text-aqua">Accuracy</Link></div>
+            <div className="flex flex-wrap items-center gap-2"><Pill label={home.deskStatusLabel} tone={home.deskStatusState === "HEALTHY" ? "good" : "warn"} /><Link href="/sim" className="rounded-full border border-aqua/25 bg-aqua/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-aqua">SimHub</Link><Link href="/mlb/batter-box" className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-slate-300 hover:text-aqua">Batter Box</Link><Link href="/accuracy" className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-slate-300 hover:text-aqua">Accuracy</Link></div>
           </div>
         </header>
 
@@ -210,7 +210,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <QuickAction href="/baseball" label="MLB" title="MLB Sim Lab" body="Sides, totals, pitcher factors, bullpen fatigue, and calibration history." />
               <QuickAction href="/sim/mlb" label="Slate" title="MLB Detail Sims" body="Drill into each matchup with factor stacks, market sanity, and no-bet gates." />
-              <QuickAction href="/sim/ufc" label="UFC" title="UFC Fight Lab" body="Fight card, path to victory, finish probability, method lane, and danger flags." />
+              <QuickAction href="/mlb/batter-box" label="Players" title="Batter Box Score" body="Expected PA, hits, total bases, HR, walks, strikeouts, distributions, and prop surfaces." />
               <QuickAction href="/accuracy" label="Proof" title="Sim Accuracy" body="Records, model versions, calibration, and honest empty states." />
             </div>
           </div>
@@ -232,7 +232,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="grid gap-4"><SectionHeader eyebrow="Live slate" title="Upcoming verified games" href="/sim" /><div className="grid gap-2 md:grid-cols-2">{slate.length ? slate.map((game, index) => <SlateCard key={game.id ?? index} game={game} />) : <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.035] p-6 text-sm leading-6 text-slate-400">No verified slate rows returned for this filter.</div>}</div></div>
-          <aside className="grid gap-3"><SectionHeader eyebrow="Clean routes" title="Where each thing lives" /><QuickAction href="/baseball" label="MLB" title="MLB Sim Lab" body="The main baseball product surface: projections, factors, totals, and calibration." /><QuickAction href="/sim/ufc" label="UFC" title="UFC Fight Lab" body="Low-volume, high-depth fight modeling with method paths, danger flags, and source audit." /><QuickAction href="/sharktrends" label="Paused" title="SharkTrends Lab" body="Trend mining is preserved for later, but no longer drives the product or background spend." /></aside>
+          <aside className="grid gap-3"><SectionHeader eyebrow="Clean routes" title="Where each thing lives" /><QuickAction href="/baseball" label="MLB" title="MLB Sim Lab" body="The main baseball product surface: projections, factors, totals, and calibration." /><QuickAction href="/mlb/batter-box" label="Players" title="Batter Box Score" body="Projected hitter box score and prop probability surface for loaded MLB games." /><QuickAction href="/sim/ufc" label="UFC" title="UFC Fight Lab" body="Low-volume, high-depth fight modeling with method paths, danger flags, and source audit." /><QuickAction href="/sharktrends" label="Paused" title="SharkTrends Lab" body="Trend mining is preserved for later, but no longer drives the product or background spend." /></aside>
         </section>
 
         <section className="rounded-[1.35rem] border border-white/10 bg-white/[0.035] p-4 text-xs leading-6 text-slate-500"><span className="font-black uppercase tracking-[0.16em] text-slate-300">Data note:</span> {home.deskSourceNote}</section>
