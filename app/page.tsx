@@ -88,60 +88,36 @@ function Pill({ label, tone = "neutral" }: { label: string; tone?: "neutral" | "
   return <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${cls}`}>{label}</span>;
 }
 
-function SectionHeader({ eyebrow, title, href }: { eyebrow: string; title: string; href?: string }) {
+function SectionHeader({ title, href }: { title: string; href?: string }) {
   return (
-    <div className="flex items-end justify-between gap-3">
-      <div>
-        <div className="text-[10px] font-black uppercase tracking-[0.22em] text-aqua">{eyebrow}</div>
-        <h2 className="mt-1 font-display text-2xl font-black tracking-[-0.04em] text-white">{title}</h2>
-      </div>
+    <div className="flex items-center justify-between gap-3">
+      <h2 className="font-display text-2xl font-black tracking-[-0.04em] text-white">{title}</h2>
       {href ? <Link href={href} className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500 hover:text-aqua">Open</Link> : null}
     </div>
   );
 }
 
-function QuickAction({ href, label, title, body }: { href: string; label: string; title: string; body: string }) {
-  return (
-    <Link href={href} className="rounded-[1.25rem] border border-white/10 bg-white/[0.04] p-4 transition hover:border-aqua/35 hover:bg-aqua/[0.055]">
-      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">{label}</div>
-      <div className="mt-2 font-display text-lg font-black tracking-tight text-white">{title}</div>
-      <p className="mt-2 text-xs leading-5 text-slate-500">{body}</p>
-    </Link>
-  );
-}
-
-function ProofCard({ label, title, body }: { label: string; title: string; body: string }) {
-  return (
-    <div className="rounded-[1.15rem] border border-white/10 bg-black/20 p-3">
-      <div className="text-[9px] font-black uppercase tracking-[0.16em] text-aqua">{label}</div>
-      <div className="mt-1 font-display text-lg font-black tracking-tight text-white">{title}</div>
-      <p className="mt-1 text-xs leading-5 text-slate-500">{body}</p>
-    </div>
-  );
+function NavButton({ href, label, active = false }: { href: string; label: string; active?: boolean }) {
+  return <Link href={href} className={active ? "rounded-full border border-aqua/25 bg-aqua/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-aqua" : "rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-slate-300 hover:text-aqua"}>{label}</Link>;
 }
 
 function TopPlayCard({ signal, rank }: { signal: HomeSignal; rank: number }) {
-  const risks = Array.isArray(signal.whatCouldKillIt) ? signal.whatCouldKillIt.slice(0, 2) : [];
   const confidence = signal.edgeScore?.score ?? signal.confidence;
-
   return (
-    <Link href={signalHref(signal)} className="group block h-full">
-      <article className="h-full rounded-[1.35rem] border border-white/10 bg-[#06101b]/82 p-4 transition hover:-translate-y-0.5 hover:border-aqua/35 hover:bg-aqua/[0.045]">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">Top Play #{rank}</div>
-            <div className="mt-2 font-display text-xl font-black tracking-tight text-white">{text(signal.selectionLabel, "Model signal pending")}</div>
-          </div>
-          <Pill label={text(signal.league ?? signal.leagueKey, "EDGE")} tone="good" />
+    <Link href={signalHref(signal)} className="rounded-[1.2rem] border border-white/10 bg-[#06101b]/82 p-4 transition hover:border-aqua/35 hover:bg-aqua/[0.045]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">#{rank}</div>
+          <div className="mt-1 font-display text-xl font-black tracking-tight text-white">{text(signal.selectionLabel, "Model signal pending")}</div>
         </div>
-        <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
-          <div className="rounded-2xl border border-white/10 bg-black/20 p-3"><div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Market</div><div className="mt-1 truncate font-semibold text-white">{text(signal.marketLabel, "Play")}</div></div>
-          <div className="rounded-2xl border border-white/10 bg-black/20 p-3"><div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Confidence</div><div className="mt-1 font-mono font-semibold text-aqua">{pct(confidence)}</div></div>
-          <div className="rounded-2xl border border-white/10 bg-black/20 p-3"><div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Grade</div><div className="mt-1 font-semibold text-white">{text(signal.edgeScore?.label, "Review")}</div></div>
-        </div>
-        <p className="mt-4 line-clamp-3 text-sm leading-6 text-slate-400">{text(signal.reasonSummary, "Open SimHub for model factors, market context, and stale-data checks.")}</p>
-        <div className="mt-4 flex flex-wrap gap-2">{risks.length ? risks.map((risk) => <Pill key={risk} label={risk} tone="warn" />) : <Pill label="Model version required" />}</div>
-      </article>
+        <Pill label={text(signal.league ?? signal.leagueKey, "EDGE")} tone="good" />
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+        <div className="rounded-2xl border border-white/10 bg-black/20 p-3"><div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Market</div><div className="mt-1 truncate font-semibold text-white">{text(signal.marketLabel, "Play")}</div></div>
+        <div className="rounded-2xl border border-white/10 bg-black/20 p-3"><div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Conf</div><div className="mt-1 font-mono font-semibold text-aqua">{pct(confidence)}</div></div>
+        <div className="rounded-2xl border border-white/10 bg-black/20 p-3"><div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Grade</div><div className="mt-1 font-semibold text-white">{text(signal.edgeScore?.label, "Review")}</div></div>
+      </div>
+      <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-400">{text(signal.reasonSummary, "Open the sim for model factors and context.")}</p>
     </Link>
   );
 }
@@ -162,7 +138,7 @@ function SlateCard({ game }: { game: HomeGame }) {
 
 function FilterStrip({ selectedLeague, selectedDate }: { selectedLeague: string; selectedDate: string }) {
   return (
-    <div className="grid gap-3 rounded-[1.35rem] border border-white/10 bg-white/[0.04] p-3">
+    <div className="grid gap-3 rounded-[1.15rem] border border-white/10 bg-white/[0.035] p-3">
       <div className="flex gap-2 overflow-x-auto pb-1">
         {HOME_LEAGUE_ITEMS.map((league) => (
           <Link key={league.key} href={`/?league=${league.key}&date=${selectedDate}`} className={selectedLeague === league.key ? "shrink-0 rounded-full border border-aqua/45 bg-aqua/15 px-3.5 py-2 text-[11px] font-black uppercase tracking-[0.14em] text-aqua" : "shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 hover:border-aqua/35 hover:text-aqua"}>{league.label}</Link>
@@ -182,60 +158,36 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const home = await getSafeHomeCommandData(resolvedSearch);
   const topPlays = uniqueSignals([...(home.decisionWindows as HomeSignal[]), ...(home.topActionables as HomeSignal[])]).slice(0, 6);
   const slate = (home.verifiedGames as HomeGame[]).slice(0, 8);
-  const alerts = [...(home.traps as HomeSignal[]), ...(home.movementGames as HomeSignal[])];
   const selectedDateLabel = formatHomeDateLabel(home.selectedDate as Parameters<typeof formatHomeDateLabel>[0]);
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#02060b] text-white">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(0,210,255,0.18),transparent_24rem),radial-gradient(circle_at_100%_10%,rgba(45,212,191,0.10),transparent_18rem),linear-gradient(180deg,#02060b_0%,#050b13_55%,#02060b_100%)]" />
-      <div className="relative mx-auto grid max-w-7xl gap-5 px-3 pb-24 pt-3 sm:px-5 md:pb-10">
-        <header className="rounded-[1.35rem] border border-white/10 bg-[#06101b]/88 p-4 shadow-[0_18px_70px_rgba(0,0,0,0.30)] backdrop-blur-xl">
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(0,210,255,0.12),transparent_22rem),linear-gradient(180deg,#02060b_0%,#050b13_65%,#02060b_100%)]" />
+      <div className="relative mx-auto grid max-w-7xl gap-4 px-3 pb-24 pt-3 sm:px-5 md:pb-10">
+        <header className="rounded-[1.15rem] border border-white/10 bg-[#06101b]/88 p-3 backdrop-blur-xl">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <Link href="/" className="flex items-center gap-2"><span className="grid size-9 place-items-center rounded-2xl border border-aqua/30 bg-aqua/10 font-display text-lg font-black text-aqua">S</span><span><span className="block text-[10px] font-black uppercase tracking-[0.28em] text-aqua">SharkEdge</span><span className="block text-[11px] text-slate-500">simulation command center</span></span></Link>
-            <div className="flex flex-wrap items-center gap-2"><Pill label={home.deskStatusLabel} tone={home.deskStatusState === "HEALTHY" ? "good" : "warn"} /><Link href="/sim" className="rounded-full border border-aqua/25 bg-aqua/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-aqua">SimHub</Link><Link href="/mlb/batter-box" className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-slate-300 hover:text-aqua">Batter Box</Link><Link href="/accuracy" className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-slate-300 hover:text-aqua">Accuracy</Link></div>
+            <Link href="/" className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-xl border border-aqua/30 bg-aqua/10 font-display text-base font-black text-aqua">S</span><span><span className="block text-[10px] font-black uppercase tracking-[0.28em] text-aqua">SharkEdge</span><span className="block text-[11px] text-slate-500">simple sim dashboard</span></span></Link>
+            <div className="flex flex-wrap items-center gap-2"><NavButton href="/sim" label="SimHub" active /><NavButton href="/sim/mlb" label="MLB" /><NavButton href="/sim/ufc" label="UFC" /><NavButton href="/accuracy" label="Accuracy" /></div>
           </div>
         </header>
 
-        <section className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_360px]">
-          <div className="rounded-[1.75rem] border border-aqua/25 bg-[radial-gradient(circle_at_top_left,rgba(0,210,255,0.20),transparent_18rem),linear-gradient(135deg,rgba(5,18,32,0.98),rgba(2,7,13,0.98))] p-5 shadow-[0_28px_100px_rgba(0,0,0,0.36)]">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div><div className="text-[10px] font-black uppercase tracking-[0.24em] text-aqua">Simulator-first command center</div><h1 className="mt-3 max-w-3xl font-display text-4xl font-black leading-[0.95] tracking-[-0.06em] text-white sm:text-6xl">Sim the game. Show the proof. Cut the noise.</h1><p className="mt-4 max-w-3xl text-sm leading-7 text-slate-400">SharkEdge is focused on MLB simulation, UFC fight modeling, odds-aware calibration, and honest model history. Every recommendation should explain the edge, the danger flags, and why a pass is acceptable.</p></div>
-              <Pill label={selectedDateLabel} />
-            </div>
-            <div className="mt-5 grid gap-3 md:grid-cols-3">
-              <ProofCard label="Trust" title="No blind picks" body="Cards need model output, market context, data freshness, and a visible reason path before they deserve attention." />
-              <ProofCard label="Proof" title="Accuracy first" body="Settled records and calibration matter more than a crowded board of unverified edges." />
-              <ProofCard label="Discipline" title="Pass is allowed" body="Low-quality lines, stale inputs, or thin books should surface as warnings instead of forced action." />
-            </div>
-            <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <QuickAction href="/baseball" label="MLB" title="MLB Sim Lab" body="Sides, totals, pitcher factors, bullpen fatigue, and calibration history." />
-              <QuickAction href="/sim/mlb" label="Slate" title="MLB Detail Sims" body="Drill into each matchup with factor stacks, market sanity, and no-bet gates." />
-              <QuickAction href="/mlb/batter-box" label="Players" title="Batter Box Score" body="Expected PA, hits, total bases, HR, walks, strikeouts, distributions, and prop surfaces." />
-              <QuickAction href="/accuracy" label="Proof" title="Sim Accuracy" body="Records, model versions, calibration, and honest empty states." />
-            </div>
+        <section className="grid gap-3 rounded-[1.25rem] border border-white/10 bg-white/[0.035] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><h1 className="font-display text-3xl font-black tracking-[-0.05em] text-white">Today’s sims</h1><p className="mt-1 text-sm text-slate-500">Best looks, slate, and direct links. No debug clutter.</p></div>
+            <Pill label={selectedDateLabel} />
           </div>
-
-          <div className="grid gap-3">
-            <FilterStrip selectedLeague={home.selectedLeague} selectedDate={home.selectedDate} />
-            <div className="grid grid-cols-3 gap-2">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><div className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-500">Top Plays</div><div className="mt-1 font-display text-2xl font-black text-white">{topPlays.length}</div></div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><div className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-500">Slate</div><div className="mt-1 font-display text-2xl font-black text-white">{slate.length}</div></div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><div className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-500">Alerts</div><div className="mt-1 font-display text-2xl font-black text-amber-200">{alerts.length}</div></div>
-            </div>
-          </div>
+          <FilterStrip selectedLeague={home.selectedLeague} selectedDate={home.selectedDate} />
         </section>
 
         <section className="grid gap-4">
-          <SectionHeader eyebrow="Top plays" title="Best model looks right now" href="/sim" />
-          {topPlays.length ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{topPlays.map((signal, index) => <TopPlayCard key={signal.id ?? signal.eventId ?? index} signal={signal} rank={index + 1} />)}</div> : <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.035] p-6 text-sm leading-6 text-slate-400">No top plays are cleared yet. Use SimHub for raw model output and Accuracy for settled proof.</div>}
+          <SectionHeader title="Best model looks" href="/sim" />
+          {topPlays.length ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{topPlays.map((signal, index) => <TopPlayCard key={signal.id ?? signal.eventId ?? index} signal={signal} rank={index + 1} />)}</div> : <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.035] p-5 text-sm leading-6 text-slate-400">No top plays cleared yet.</div>}
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="grid gap-4"><SectionHeader eyebrow="Live slate" title="Upcoming verified games" href="/sim" /><div className="grid gap-2 md:grid-cols-2">{slate.length ? slate.map((game, index) => <SlateCard key={game.id ?? index} game={game} />) : <div className="rounded-[1.35rem] border border-white/10 bg-white/[0.035] p-6 text-sm leading-6 text-slate-400">No verified slate rows returned for this filter.</div>}</div></div>
-          <aside className="grid gap-3"><SectionHeader eyebrow="Clean routes" title="Where each thing lives" /><QuickAction href="/baseball" label="MLB" title="MLB Sim Lab" body="The main baseball product surface: projections, factors, totals, and calibration." /><QuickAction href="/mlb/batter-box" label="Players" title="Batter Box Score" body="Projected hitter box score and prop probability surface for loaded MLB games." /><QuickAction href="/sim/ufc" label="UFC" title="UFC Fight Lab" body="Low-volume, high-depth fight modeling with method paths, danger flags, and source audit." /><QuickAction href="/sharktrends" label="Paused" title="SharkTrends Lab" body="Trend mining is preserved for later, but no longer drives the product or background spend." /></aside>
+        <section className="grid gap-4">
+          <SectionHeader title="Upcoming slate" href="/sim" />
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">{slate.length ? slate.map((game, index) => <SlateCard key={game.id ?? index} game={game} />) : <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.035] p-5 text-sm leading-6 text-slate-400">No verified slate rows returned for this filter.</div>}</div>
         </section>
-
-        <section className="rounded-[1.35rem] border border-white/10 bg-white/[0.035] p-4 text-xs leading-6 text-slate-500"><span className="font-black uppercase tracking-[0.16em] text-slate-300">Data note:</span> {home.deskSourceNote}</section>
       </div>
     </main>
   );
