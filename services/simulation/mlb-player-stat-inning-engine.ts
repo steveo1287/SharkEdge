@@ -1,4 +1,5 @@
 import { deriveMlbBatterAdvancedMatchup, type MlbBatterAdvancedMatchup } from "@/services/simulation/mlb-batter-advanced-matchup";
+import { buildMlbBatterPropSurface, type MlbBatterPropSurface } from "@/services/simulation/mlb-batter-prop-surface";
 import { buildMlbBatterStatDistribution, type MlbBatterStatDistribution } from "@/services/simulation/mlb-batter-stat-distribution";
 import { deriveMlbBatterStatProfile, type MlbBatterStatProfile } from "@/services/simulation/mlb-batter-stat-profile";
 
@@ -68,6 +69,7 @@ export type MlbHitterPerGameProjection = {
   batterStatProfile: MlbBatterStatProfile;
   advancedMatchup: MlbBatterAdvancedMatchup;
   statDistribution: MlbBatterStatDistribution;
+  propSurface: MlbBatterPropSurface;
   reasons: string[];
 };
 
@@ -310,6 +312,7 @@ function projectHitter(args: {
     advancedConfidence: advancedMatchup.confidence,
     drivers: [...batterStats.drivers, ...advancedMatchup.drivers]
   });
+  const propSurface = buildMlbBatterPropSurface(statDistribution);
 
   return {
     playerId: args.row.id,
@@ -331,12 +334,14 @@ function projectHitter(args: {
     batterStatProfile: batterStats,
     advancedMatchup,
     statDistribution,
+    propSurface,
     reasons: [
       `Projected ${pa.toFixed(1)} PA from batting slot ${args.battingOrder}.`,
       `Batter stats blended at ${(statWeight * 100).toFixed(0)}% confidence: xAVG ${batterStats.xAvg.toFixed(3)}, xSLG ${batterStats.xSlug.toFixed(3)}, xwOBA ${batterStats.xWoba.toFixed(3)}.`,
       `Advanced matchup multipliers: contact ${advancedMatchup.contactMultiplier.toFixed(3)}, power ${advancedMatchup.powerMultiplier.toFixed(3)}, K ${advancedMatchup.strikeoutMultiplier.toFixed(3)}, BB ${advancedMatchup.walkMultiplier.toFixed(3)}.`,
       `Stat-driven rates: H/PA ${hitRate.toFixed(3)}, BB/PA ${walkRate.toFixed(3)}, K/PA ${strikeoutRate.toFixed(3)}, HR/PA ${hrRate.toFixed(3)}, TB/H ${totalBasePerHit.toFixed(2)}.`,
       `Distribution: 1+ hit ${(statDistribution.hit1PlusProbability * 100).toFixed(1)}%, 2+ hit ${(statDistribution.hit2PlusProbability * 100).toFixed(1)}%, 2+ TB ${(statDistribution.totalBases2PlusProbability * 100).toFixed(1)}%, HR ${(statDistribution.homeRunProbability * 100).toFixed(1)}%.`,
+      `Prop surface strongest: ${propSurface.strongest.slice(0, 3).map((row) => `${row.market} ${row.side} ${row.line} ${row.fairAmerican}`).join("; ")}.`,
       `Split-adjusted hitter skill ${skill.toFixed(1)} vs ${pitcherHand}HP and opposing starter skill ${opponentPitch.toFixed(1)}.`,
       `Batter drivers: ${batterStats.drivers.join(", ")}; advanced drivers: ${advancedMatchup.drivers.join(", ")}.`
     ]
