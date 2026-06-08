@@ -1,4 +1,5 @@
 import { loadMlbBatterBoxProjection } from "@/services/simulation/mlb-batter-box-loader";
+import { buildMlbSimulatedBoxScore } from "@/services/simulation/mlb-simulated-box-score";
 
 function argValue(name: string) {
   const prefix = `--${name}=`;
@@ -14,6 +15,7 @@ async function main() {
 
   const result = await loadMlbBatterBoxProjection(params);
   const projection = result.projection;
+  const boxScore = projection ? buildMlbSimulatedBoxScore(projection) : null;
   const payload = {
     ok: Boolean(projection),
     command: "check-mlb-batter-box",
@@ -31,21 +33,33 @@ async function main() {
     hitterCount: projection ? projection.awayHitters.length + projection.homeHitters.length : 0,
     awayTeam: projection?.awayTeam ?? null,
     homeTeam: projection?.homeTeam ?? null,
-    topHitters: projection ? [...projection.awayHitters, ...projection.homeHitters]
-      .sort((a, b) => b.expectedTotalBases - a.expectedTotalBases)
-      .slice(0, 10)
-      .map((hitter) => ({
-        playerId: hitter.playerId,
-        playerName: hitter.playerName,
-        team: hitter.team,
-        battingOrder: hitter.battingOrder,
-        expectedHits: hitter.expectedHits,
-        expectedTotalBases: hitter.expectedTotalBases,
-        homeRunProbability: hitter.statDistribution.homeRunProbability,
-        confidence: hitter.confidence
-      })) : [],
+    simulatedTotals: boxScore ? {
+      awayTeam: boxScore.awayTeam.team,
+      homeTeam: boxScore.homeTeam.team,
+      awayRuns: boxScore.awayTeam.totals.projectedRuns,
+      homeRuns: boxScore.homeTeam.totals.projectedRuns,
+      projectedHits: boxScore.gameTotals.projectedHits,
+      projectedTotalBases: boxScore.gameTotals.projectedTotalBases,
+      projectedHomeRuns: boxScore.gameTotals.projectedHomeRuns,
+      projectedWalks: boxScore.gameTotals.projectedWalks,
+      projectedStrikeouts: boxScore.gameTotals.projectedStrikeouts
+    } : null,
+    topSimulatedLines: boxScore ? boxScore.topProjectedHitters.slice(0, 10).map((hitter) => ({
+      playerId: hitter.playerId,
+      playerName: hitter.playerName,
+      team: hitter.team,
+      battingOrder: hitter.battingOrder,
+      likelyLine: hitter.likelyLine,
+      expected: hitter.expected,
+      probabilities: hitter.probabilities,
+      impactScore: hitter.impactScore,
+      volatility: hitter.volatility,
+      confidence: hitter.confidence,
+      summary: hitter.summary
+    })) : [],
     warnings: result.diagnostics.warnings,
     projectionWarnings: projection?.warnings ?? [],
+    boxScoreNotes: boxScore?.notes ?? [],
     error: result.error
   };
 
