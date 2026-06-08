@@ -23,10 +23,22 @@ function hitter(id: string, name: string, overall: number, overrides: Partial<Ml
     current_form: overall,
     overall,
     metrics_json: {
+      plateAppearances: 520,
+      avg: 0.255 + (overall - 70) * 0.002,
+      obp: 0.325 + (overall - 70) * 0.002,
+      slg: 0.42 + (overall - 70) * 0.004,
+      xba: 0.252 + (overall - 70) * 0.002,
+      xslg: 0.415 + (overall - 70) * 0.004,
+      xwoba: 0.325 + (overall - 70) * 0.0025,
+      iso: 0.16 + (overall - 70) * 0.003,
       hitRate: 0.23 + (overall - 70) * 0.002,
       walkRate: 0.08,
       strikeoutRate: 0.22 - (overall - 70) * 0.001,
-      homeRunRate: 0.03 + (overall - 70) * 0.001,
+      hrRate: 0.03 + (overall - 70) * 0.001,
+      barrelRate: 0.08 + (overall - 70) * 0.001,
+      hardHitRate: 0.4 + (overall - 70) * 0.002,
+      avgExitVelo: 88.5 + (overall - 70) * 0.12,
+      totalBasesPerHit: 1.5 + (overall - 70) * 0.008,
       stealAttemptRate: 0.035,
       stealSuccessRate: 0.73
     },
@@ -97,6 +109,10 @@ assert.equal(playerProjection.homeHitters.length, 9);
 assert.ok(playerProjection.homeHitters[0].expectedPlateAppearances > playerProjection.homeHitters[8].expectedPlateAppearances);
 assert.ok(playerProjection.homeHitters[0].expectedHits > 0.8);
 assert.ok(playerProjection.homeHitters[0].stolenBaseProbability > 0);
+assert.ok(playerProjection.homeHitters[0].batterStatProfile.confidence > 0.75);
+assert.ok(playerProjection.homeHitters[0].batterStatProfile.xWoba > playerProjection.awayHitters[0].batterStatProfile.xWoba);
+assert.ok(playerProjection.homeHitters[0].batterStatProfile.drivers.length > 0);
+assert.ok(playerProjection.homeHitters[0].reasons.some((reason) => reason.includes("Batter stats blended")));
 assert.ok(playerProjection.homeStarter);
 assert.ok(playerProjection.homeStarter!.expectedOuts > 15);
 assert.ok(playerProjection.homeStarter!.expectedStrikeouts > 4);
