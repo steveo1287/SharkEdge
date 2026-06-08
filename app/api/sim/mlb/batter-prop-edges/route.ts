@@ -4,6 +4,7 @@ import { buildMlbBatterPropEdgeBoard } from "@/services/simulation/mlb-batter-pr
 import { normalizeMlbBatterPropQuotes } from "@/services/simulation/mlb-batter-prop-quote-normalizer";
 import { qualityGateMlbBatterPropQuotes, type MlbBatterPropQuoteQualityConfig } from "@/services/simulation/mlb-batter-prop-quote-quality";
 import { buildMlbBatterPropProbabilityCalibration, type MlbSettledBatterPropProbabilityRow } from "@/services/simulation/mlb-batter-prop-probability-calibration";
+import { fetchPersistedMlbPlayerPropCalibrationRows } from "@/services/simulation/mlb-player-prop-calibration-persistence";
 import { loadMlbBatterBoxProjection } from "@/services/simulation/mlb-batter-box-loader";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,10 @@ type RequestBody = {
   homeWinProbability?: number;
   quotes?: unknown;
   settledCalibrationRows?: MlbSettledBatterPropProbabilityRow[];
+  usePersistedCalibration?: boolean;
+  calibrationLookbackDays?: number;
+  calibrationRowLimit?: number;
+  minCalibrationBinSample?: number;
   quoteQuality?: MlbBatterPropQuoteQualityConfig;
   config?: {
     minProbabilityEdge?: number;
@@ -75,6 +80,46 @@ function normalizeCalibrationRows(value: unknown): MlbSettledBatterPropProbabili
   });
 }
 
+async function buildProbabilityCalibration(body: RequestBody) {
+  const directRows = normalizeCalibrationRows(body.settledCalibrationRows);
+  const minBinSample = numberOr(body.minCalibrationBinSample, 25, 5, 500);
+  if (directRows.length) {
+    return {
+      source: "request" as const,
+      rows: directRows,
+      calibration: buildMlbBatterPropProbabilityCalibration({ rows: directRows, minBinSample }),
+      warnings: [] as string[]
+    };
+  }
+  if (body.usePersistedCalibration === false) {
+    return {
+      source: "disabled" as const,
+      rows: [] as MlbSettledBatterPropProbabilityRow[],
+      calibration: null,
+      warnings: ["Persisted calibration disabled by request."]
+    };
+  }
+  try {
+    const rows = await fetchPersistedMlbPlayerPropCalibrationRows({
+      lookbackDays: numberOr(body.calibrationLookbackDays, 365, 1, 2000),
+      limit: numberOr(body.calibrationRowLimit, 20000, 1, 100000)
+    });
+    return {
+      source: "database" as const,
+      rows,
+      calibration: rows.length ? buildMlbBatterPropProbabilityCalibration({ rows, minBinSample }) : null,
+      warnings: rows.length ? [] : ["No persisted player prop calibration rows available."]
+    };
+  } catch (error) {
+    return {
+      source: "database_error" as const,
+      rows: [] as MlbSettledBatterPropProbabilityRow[],
+      calibration: null,
+      warnings: [`Failed to load persisted calibration rows: ${error instanceof Error ? error.message : String(error)}`]
+    };
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json() as RequestBody;
@@ -84,8 +129,8 @@ export async function POST(request: Request) {
     const awayProjectedRuns = numberOr(body.awayProjectedRuns, 4.3, 1.5, 9.5);
     const homeProjectedRuns = numberOr(body.homeProjectedRuns, 4.5, 1.5, 9.5);
     const quoteNormalization = normalizeMlbBatterPropQuotes(body.quotes ?? []);
-    const settledCalibrationRows = normalizeCalibrationRows(body.settledCalibrationRows);
-    const probabilityCalibration = settledCalibrationRows.length ? buildMlbBatterPropProbabilityCalibration({ rows: settledCalibrationRows }) : null;
+    const calibrationBuild = await buildProbabilityCalibration(body);
+    const probabilityCalibration = calibrationBuild.calibration;
 
     const projectionLoad = await loadMlbBatterBoxProjection({
       gameId,
@@ -107,6 +152,8 @@ export async function POST(request: Request) {
         awayTeam,
         homeTeam,
         quoteNormalization,
+        calibrationSource: calibrationBuild.source,
+        calibrationWarnings: calibrationBuild.warnings,
         probabilityCalibration,
         diagnostics: projectionLoad.diagnostics,
         reason: projectionLoad.error ?? "roster intelligence unavailable",
@@ -120,12 +167,22 @@ export async function POST(request: Request) {
       config: body.quoteQuality
     });
 
+    const boardQuotes = quoteQuality.qualityGatePassed ? quoteQuality.quotes : [];
     const board = buildMlbBatterPropEdgeBoard({
       projection: projectionLoad.projection,
-      quotes: quoteQuality.quotes,
+      quotes: boardQuotes,
       config: body.config,
       calibration: probabilityCalibration
     });
+    const boardWarnings = [
+      ...board.warnings,
+      ...calibrationBuild.warnings,
+      ...quoteQuality.warnings
+    ];
+    const finalBoard = {
+      ...board,
+      warnings: [...new Set(boardWarnings)]
+    };
 
     return NextResponse.json({
       ok: true,
@@ -138,13 +195,16 @@ export async function POST(request: Request) {
       rawQuoteCount: Array.isArray(body.quotes) ? body.quotes.length : 0,
       normalizedQuoteCount: quoteNormalization.quotes.length,
       acceptedQuoteCount: quoteQuality.acceptedCount,
-      settledCalibrationRowCount: settledCalibrationRows.length,
+      edgeEligibleQuoteCount: boardQuotes.length,
+      settledCalibrationRowCount: calibrationBuild.rows.length,
+      calibrationSource: calibrationBuild.source,
+      calibrationWarnings: calibrationBuild.warnings,
       quoteNormalization,
       quoteQuality,
       probabilityCalibration,
       diagnostics: projectionLoad.diagnostics,
       projection: projectionLoad.projection,
-      board
+      board: finalBoard
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown MLB batter prop edge API error";
