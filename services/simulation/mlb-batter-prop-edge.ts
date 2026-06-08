@@ -27,6 +27,7 @@ export type MlbBatterPropEdgeCandidate = {
   calibrationApplied: boolean;
   calibrationSampleSize: number;
   calibrationReliability: number;
+  proofGatePassed: boolean;
   grade: "PASS" | "WATCH" | "EDGE" | "STRONG_EDGE";
   reasons: string[];
 };
@@ -43,6 +44,9 @@ export type MlbBatterPropEdgeConfig = {
   minExpectedValue?: number;
   minConfidence?: number;
   maxCandidates?: number;
+  requireCalibration?: boolean;
+  minCalibrationSampleSize?: number;
+  minCalibrationReliability?: number;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -68,7 +72,24 @@ function key(row: Pick<MlbPropSurfaceOutcome, "market" | "line" | "side">) {
   return `${row.market}:${row.line}:${row.side}`;
 }
 
-function grade(args: { probabilityEdge: number; expectedValue: number; confidence: number }) : MlbBatterPropEdgeCandidate["grade"] {
+function proofGate(args: {
+  calibrationApplied: boolean;
+  calibrationSampleSize: number;
+  calibrationReliability: number;
+  config?: MlbBatterPropEdgeConfig;
+}) {
+  const requireCalibration = args.config?.requireCalibration ?? false;
+  const minCalibrationSampleSize = args.config?.minCalibrationSampleSize ?? 0;
+  const minCalibrationReliability = args.config?.minCalibrationReliability ?? 0;
+  const reasons: string[] = [];
+  if (requireCalibration && !args.calibrationApplied) reasons.push("Calibration required but not available.");
+  if (args.calibrationSampleSize < minCalibrationSampleSize) reasons.push(`Calibration sample ${args.calibrationSampleSize} below required ${minCalibrationSampleSize}.`);
+  if (args.calibrationReliability < minCalibrationReliability) reasons.push(`Calibration reliability ${args.calibrationReliability.toFixed(2)} below required ${minCalibrationReliability.toFixed(2)}.`);
+  return { passed: reasons.length === 0, reasons };
+}
+
+function grade(args: { probabilityEdge: number; expectedValue: number; confidence: number; proofGatePassed: boolean }) : MlbBatterPropEdgeCandidate["grade"] {
+  if (!args.proofGatePassed) return "PASS";
   if (args.confidence < 0.42 || args.probabilityEdge < 0.015 || args.expectedValue < 0.015) return "PASS";
   if (args.probabilityEdge >= 0.08 && args.expectedValue >= 0.1 && args.confidence >= 0.62) return "STRONG_EDGE";
   if (args.probabilityEdge >= 0.045 && args.expectedValue >= 0.055 && args.confidence >= 0.5) return "EDGE";
@@ -103,14 +124,21 @@ export function evaluateMlbBatterPropEdges(args: {
     const decimal = decimalOdds(quote.americanOdds);
     const expectedValue = model.probability * (decimal - 1) - (1 - model.probability);
     const probabilityEdge = model.probability - bookProbability;
-    const candidateGrade = grade({ probabilityEdge, expectedValue, confidence: model.confidence });
+    const proof = proofGate({
+      calibrationApplied: model.calibrationApplied,
+      calibrationSampleSize: model.calibrationSampleSize,
+      calibrationReliability: model.calibrationReliability,
+      config: args.config
+    });
+    const candidateGrade = grade({ probabilityEdge, expectedValue, confidence: model.confidence, proofGatePassed: proof.passed });
     const reasons = [
       `Model probability ${(model.probability * 100).toFixed(1)}% vs book implied ${(bookProbability * 100).toFixed(1)}%.`,
       model.calibrationApplied ? `Probability calibration applied from ${model.calibrationSampleSize} settled samples; raw model ${(model.rawProbability * 100).toFixed(1)}%.` : "No probability calibration applied; using raw model probability.",
+      proof.passed ? "Proof gate passed." : `Proof gate failed: ${proof.reasons.join(" ")}`,
       `Fair price ${model.fairAmerican}; book price ${quote.americanOdds}.`,
       `EV/unit ${expectedValue.toFixed(3)} with confidence ${model.confidence.toFixed(2)}.`
     ];
-    if (candidateGrade === "PASS") reasons.push("Did not clear probability, EV, or confidence gate.");
+    if (candidateGrade === "PASS") reasons.push("Did not clear probability, EV, confidence, or proof gate.");
     return [{
       book: quote.book,
       market: quote.market,
@@ -127,6 +155,7 @@ export function evaluateMlbBatterPropEdges(args: {
       calibrationApplied: model.calibrationApplied,
       calibrationSampleSize: model.calibrationSampleSize,
       calibrationReliability: model.calibrationReliability,
+      proofGatePassed: proof.passed,
       grade: candidateGrade,
       reasons
     }];
@@ -134,6 +163,7 @@ export function evaluateMlbBatterPropEdges(args: {
 
   const passes = candidates
     .filter((candidate) =>
+      candidate.proofGatePassed &&
       candidate.grade !== "PASS" &&
       candidate.probabilityEdge >= minProbabilityEdge &&
       candidate.expectedValuePerUnit >= minExpectedValue &&
