@@ -1,3 +1,5 @@
+import { deriveMlbBatterStatProfile, type MlbBatterStatProfile } from "@/services/simulation/mlb-batter-stat-profile";
+
 export type MlbProjectionRating = {
   id: string;
   name: string;
@@ -61,6 +63,7 @@ export type MlbHitterPerGameProjection = {
   stealAttemptProbability: number;
   stolenBaseProbability: number;
   confidence: number;
+  batterStatProfile: MlbBatterStatProfile;
   reasons: string[];
 };
 
@@ -251,15 +254,23 @@ function projectHitter(args: {
   const baserunning = safeNumber(args.row.baserunning);
   const split = pitcherHand === "L" ? safeNumber(args.row.vs_lhp) : safeNumber(args.row.vs_rhp);
   const pitcherPressure = opponentPitch - DEFAULT_SKILL;
+  const batterStats = deriveMlbBatterStatProfile(args.row, pitcherHand);
+  const statWeight = clamp(batterStats.confidence, 0.22, 0.88);
 
-  const hitRate = clamp(metric(args.row, "hitRate", 0.225) + (contact - 70) * 0.0018 + (split - 70) * 0.001 + (skill - 70) * 0.0008 - pitcherPressure * 0.0011, 0.13, 0.36);
-  const walkRate = clamp(metric(args.row, "walkRate", 0.083) + (discipline - 70) * 0.0011 - pitcherPressure * 0.0004, 0.035, 0.18);
-  const strikeoutRate = clamp(metric(args.row, "strikeoutRate", 0.225) - (contact - 70) * 0.0017 + pitcherPressure * 0.0014, 0.09, 0.38);
-  const hrRate = clamp(metric(args.row, "homeRunRate", 0.031) + (power - 70) * 0.00105 - pitcherPressure * 0.0005, 0.004, 0.095);
-  const totalBasePerHit = clamp(metric(args.row, "totalBasesPerHit", 1.52) + (power - 70) * 0.007, 1.08, 2.35);
+  const skillHitRate = clamp(0.225 + (contact - 70) * 0.0018 + (split - 70) * 0.001 + (skill - 70) * 0.0008 - pitcherPressure * 0.0011, 0.13, 0.36);
+  const skillWalkRate = clamp(0.083 + (discipline - 70) * 0.0011 - pitcherPressure * 0.0004, 0.035, 0.18);
+  const skillStrikeoutRate = clamp(0.225 - (contact - 70) * 0.0017 + pitcherPressure * 0.0014, 0.09, 0.38);
+  const skillHrRate = clamp(0.031 + (power - 70) * 0.00105 - pitcherPressure * 0.0005, 0.004, 0.095);
+  const skillTbPerHit = clamp(1.52 + (power - 70) * 0.007, 1.08, 2.35);
+
+  const hitRate = clamp(batterStats.hitRate * statWeight + skillHitRate * (1 - statWeight), 0.12, 0.38);
+  const walkRate = clamp(batterStats.walkRate * statWeight + skillWalkRate * (1 - statWeight), 0.03, 0.19);
+  const strikeoutRate = clamp(batterStats.strikeoutRate * statWeight + skillStrikeoutRate * (1 - statWeight), 0.07, 0.4);
+  const hrRate = clamp(batterStats.hrRate * statWeight + skillHrRate * (1 - statWeight), 0.003, 0.105);
+  const totalBasePerHit = clamp(batterStats.tbPerHit * statWeight + skillTbPerHit * (1 - statWeight), 1.05, 2.55);
   const stealAttemptRate = clamp(metric(args.row, "stealAttemptRate", 0.035) + (baserunning - 70) * 0.0017 + (orderIndex <= 1 ? 0.012 : 0), 0.002, 0.16);
   const stealSuccessRate = clamp(metric(args.row, "stealSuccessRate", 0.72) + (baserunning - 70) * 0.002, 0.42, 0.9);
-  const onBase = clamp(hitRate + walkRate, 0.18, 0.48);
+  const onBase = clamp(hitRate + walkRate, 0.18, 0.5);
   const runShare = LINEUP_RUN_SHARE[orderIndex] ?? 0.1;
   const rbiShare = LINEUP_RBI_SHARE[orderIndex] ?? 0.1;
   const expectedHits = pa * hitRate;
@@ -268,7 +279,7 @@ function projectHitter(args: {
   const expectedTotalBases = expectedHits * totalBasePerHit + expectedHr * 0.65;
   const expectedRuns = args.teamRuns * runShare * clamp(onBase / 0.31, 0.72, 1.32);
   const expectedRbi = args.teamRuns * rbiShare * clamp((hitRate * totalBasePerHit) / 0.34, 0.72, 1.38);
-  const confidence = clamp((args.confirmedLineup ? 0.18 : 0) + (args.row.metrics_json ? 0.2 : 0) + (args.opponentStarter ? 0.18 : 0) + 0.44, 0.35, 0.92);
+  const confidence = clamp((args.confirmedLineup ? 0.18 : 0) + batterStats.confidence * 0.28 + (args.opponentStarter ? 0.18 : 0) + 0.34, 0.35, 0.94);
 
   return {
     playerId: args.row.id,
@@ -287,10 +298,13 @@ function projectHitter(args: {
     stealAttemptProbability: round(1 - Math.exp(-pa * onBase * stealAttemptRate), 4),
     stolenBaseProbability: round((1 - Math.exp(-pa * onBase * stealAttemptRate)) * stealSuccessRate, 4),
     confidence: round(confidence, 3),
+    batterStatProfile: batterStats,
     reasons: [
       `Projected ${pa.toFixed(1)} PA from batting slot ${args.battingOrder}.`,
+      `Batter stats blended at ${(statWeight * 100).toFixed(0)}% confidence: xAVG ${batterStats.xAvg.toFixed(3)}, xSLG ${batterStats.xSlug.toFixed(3)}, xwOBA ${batterStats.xWoba.toFixed(3)}.`,
+      `Stat-driven rates: H/PA ${hitRate.toFixed(3)}, BB/PA ${walkRate.toFixed(3)}, K/PA ${strikeoutRate.toFixed(3)}, HR/PA ${hrRate.toFixed(3)}, TB/H ${totalBasePerHit.toFixed(2)}.`,
       `Split-adjusted hitter skill ${skill.toFixed(1)} vs ${pitcherHand}HP and opposing starter skill ${opponentPitch.toFixed(1)}.`,
-      `Team run environment ${args.teamRuns.toFixed(2)} drives run/RBI shares.`
+      `Batter drivers: ${batterStats.drivers.join(", ")}.`
     ]
   };
 }
