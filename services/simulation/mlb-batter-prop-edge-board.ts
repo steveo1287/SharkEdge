@@ -5,6 +5,7 @@ import {
   type MlbBatterPropEdgeConfig,
   type MlbBatterPropEdgeReport
 } from "@/services/simulation/mlb-batter-prop-edge";
+import type { MlbBatterPropProbabilityCalibration } from "@/services/simulation/mlb-batter-prop-probability-calibration";
 import type {
   MlbHitterPerGameProjection,
   MlbPlayerStatProjectionGame
@@ -53,6 +54,8 @@ export type MlbBatterPropEdgeBoard = {
   homeTeam: string;
   evaluatedPlayers: number;
   quoteCount: number;
+  calibrationApplied: boolean;
+  calibrationSampleSize: number;
   players: MlbBatterPropEdgeBoardPlayer[];
   candidates: MlbBatterPropEdgeBoardCandidate[];
   passes: MlbBatterPropEdgeBoardCandidate[];
@@ -113,6 +116,7 @@ export function buildMlbBatterPropEdgeBoard(args: {
   projection: MlbPlayerStatProjectionGame;
   quotes: MlbBatterBookPropQuoteWithPlayer[];
   config?: MlbBatterPropEdgeConfig;
+  calibration?: MlbBatterPropProbabilityCalibration | null;
 }): MlbBatterPropEdgeBoard {
   const warnings: string[] = [];
   const hitters = [...args.projection.awayHitters, ...args.projection.homeHitters];
@@ -143,7 +147,8 @@ export function buildMlbBatterPropEdgeBoard(args: {
     const edgeReport = evaluateMlbBatterPropEdges({
       surface: hitter.propSurface,
       quotes: playerQuotes.map(toPlainQuote),
-      config: args.config
+      config: args.config,
+      calibration: args.calibration
     });
     warnings.push(...edgeReport.warnings.map((warning) => `${hitter.playerName}: ${warning}`));
 
@@ -193,6 +198,8 @@ export function buildMlbBatterPropEdgeBoard(args: {
     homeTeam: args.projection.homeTeam,
     evaluatedPlayers: players.length,
     quoteCount: args.quotes.length,
+    calibrationApplied: Boolean(args.calibration && args.calibration.sampleSize > 0),
+    calibrationSampleSize: args.calibration?.sampleSize ?? 0,
     players,
     candidates,
     passes,
