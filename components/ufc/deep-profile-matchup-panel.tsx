@@ -1,5 +1,7 @@
 import { buildUfcDeepFighterProfileV2FromFeature } from "@/services/ufc/deep-fighter-profile-v2";
 import { buildUfcDeepProfileMatchupEngine, type UfcDeepPhaseEdge, type UfcDeepProfileMatchup } from "@/services/ufc/deep-profile-matchup-engine";
+import { applyUfcDeepProfileLearnedWeights, type UfcDeepProfileAdjustedSimInput } from "@/services/ufc/deep-profile-sim-adjuster";
+import { loadUfcDeepProfileLearnedWeightsFromDb, type UfcDeepProfileLearnedWeights } from "@/services/ufc/deep-profile-weight-store";
 import type { UfcFightIqDetail } from "@/services/ufc/card-feed";
 
 function num(value: number | null | undefined, digits = 1) {
@@ -56,6 +58,15 @@ function buildMatchup(fight: UfcFightIqDetail | null): UfcDeepProfileMatchup | n
   }
 }
 
+async function loadLearnedWeightsSafe(): Promise<UfcDeepProfileLearnedWeights | null> {
+  try {
+    const weights = await loadUfcDeepProfileLearnedWeightsFromDb(500);
+    return weights.reportCount > 0 ? weights : null;
+  } catch {
+    return null;
+  }
+}
+
 function MiniStat({ title, value, sub }: { title: string; value: string | number; sub?: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
@@ -86,7 +97,31 @@ function PhaseRow({ edge }: { edge: UfcDeepPhaseEdge }) {
   );
 }
 
-export function UfcDeepProfileMatchupPanel({ fight, matchup = buildMatchup(fight) }: { fight: UfcFightIqDetail | null; matchup?: UfcDeepProfileMatchup | null }) {
+function LearnedWeightStrip({ adjusted, weights }: { adjusted: UfcDeepProfileAdjustedSimInput; weights: UfcDeepProfileLearnedWeights }) {
+  return (
+    <div className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.06] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-[9px] font-black uppercase tracking-[0.16em] text-emerald-200">Learned calibration applied</div>
+          <div className="mt-1 text-xs leading-5 text-emerald-100/80">{adjusted.summary}</div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span className={pill("green")}>{weights.reportCount} reports</span>
+          <span className={pill("green")}>weight conf {pct(weights.confidence)}</span>
+          <span className={pill(adjusted.confidenceCap < 0.82 ? "amber" : "green")}>cap {pct(adjusted.confidenceCap)}</span>
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <MiniStat title="KO/TKO prior" value={pct(adjusted.methodPriors.koTko)} />
+        <MiniStat title="Sub prior" value={pct(adjusted.methodPriors.submission)} />
+        <MiniStat title="Decision prior" value={pct(adjusted.methodPriors.decision)} />
+      </div>
+      {adjusted.warnings.length ? <div className="mt-3 flex flex-wrap gap-2">{adjusted.warnings.map((warning) => <span key={warning} className={pill("amber")}>{warning}</span>)}</div> : null}
+    </div>
+  );
+}
+
+export async function UfcDeepProfileMatchupPanel({ fight, matchup = buildMatchup(fight) }: { fight: UfcFightIqDetail | null; matchup?: UfcDeepProfileMatchup | null }) {
   if (!fight) return null;
   if (!matchup) {
     return (
@@ -97,29 +132,36 @@ export function UfcDeepProfileMatchupPanel({ fight, matchup = buildMatchup(fight
       </section>
     );
   }
-  const leaderName = matchup.overallEdge.leader === "A" ? matchup.fighterA.fighterName : matchup.overallEdge.leader === "B" ? matchup.fighterB.fighterName : "Even";
+  const learnedWeights = await loadLearnedWeightsSafe();
+  const adjusted = learnedWeights ? applyUfcDeepProfileLearnedWeights(matchup, learnedWeights) : null;
+  const overallEdge = adjusted?.adjustedOverallEdge ?? matchup.overallEdge;
+  const topPhaseEdges = adjusted?.adjustedPhaseEdges ?? matchup.topPhaseEdges;
+  const winPaths = adjusted?.adjustedWinPaths ?? matchup.winConditionPaths;
+  const leaderName = overallEdge.leader === "A" ? matchup.fighterA.fighterName : overallEdge.leader === "B" ? matchup.fighterB.fighterName : "Even";
   return (
     <section className="rounded-[1.35rem] border border-aqua/20 bg-[radial-gradient(circle_at_top_left,rgba(0,210,255,0.14),transparent_18rem),rgba(255,255,255,0.04)] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-[10px] font-black uppercase tracking-[0.2em] text-aqua">Deep profile matchup</div>
           <h2 className="mt-1 font-display text-3xl font-black tracking-[-0.06em] text-white">Phase Edge Matrix</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{matchup.summary}</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{adjusted?.summary ?? matchup.summary}</p>
         </div>
         <div className="rounded-[1.1rem] border border-white/10 bg-black/25 p-3 text-right">
           <div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Overall leader</div>
           <div className="mt-1 font-display text-2xl font-black text-white">{leaderName ?? "Even"}</div>
-          <div className="mt-1 text-xs text-slate-500">edge {num(Math.abs(matchup.overallEdge.edge), 1)} · conf {pct(matchup.overallEdge.confidence)}</div>
+          <div className="mt-1 text-xs text-slate-500">edge {num(Math.abs(overallEdge.edge), 1)} · conf {pct(overallEdge.confidence)}</div>
+          {adjusted ? <div className="mt-1 text-[10px] font-black uppercase tracking-[0.14em] text-emerald-200">adjusted</div> : <div className="mt-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">raw</div>}
         </div>
       </div>
+      {adjusted && learnedWeights ? <LearnedWeightStrip adjusted={adjusted} weights={learnedWeights} /> : null}
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {matchup.topPhaseEdges.slice(0, 4).map((edge) => <PhaseRow key={edge.phase} edge={edge} />)}
+        {topPhaseEdges.slice(0, 4).map((edge) => <PhaseRow key={edge.phase} edge={edge} />)}
       </div>
       <div className="mt-4 grid gap-3 lg:grid-cols-3">
         <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
           <div className="mb-2 text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Best win paths</div>
           <div className="grid gap-2">
-            {matchup.winConditionPaths.slice(0, 4).map((path) => <div key={`${path.fighter}-${path.condition}`} className="flex items-center justify-between gap-3 text-xs"><span className="font-semibold text-white">{path.fighterName ?? `Side ${path.fighter}`}</span><span className="text-slate-400">{label(path.condition)} · {num(path.score, 1)}</span></div>)}
+            {winPaths.slice(0, 4).map((path) => <div key={`${path.fighter}-${path.condition}`} className="flex items-center justify-between gap-3 text-xs"><span className="font-semibold text-white">{path.fighterName ?? `Side ${path.fighter}`}</span><span className="text-slate-400">{label(path.condition)} · {num(path.score, 1)}</span></div>)}
           </div>
         </div>
         <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
