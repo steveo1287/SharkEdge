@@ -40,14 +40,14 @@ function hitter(id: string, name: string, team: string, order: number, boost = 0
     },
     advancedMatchup: {
       modelVersion: "mlb-advanced-matchup-v1",
-      contactMultiplier: 1.02,
-      powerMultiplier: 1.04,
+      contactMultiplier: 1.02 + boost * 0.05,
+      powerMultiplier: 1.04 + boost * 0.08,
       walkMultiplier: 1,
-      strikeoutMultiplier: 0.98,
-      pitchTypeScore: 3,
-      rollingFormScore: 2,
-      environmentScore: 1,
-      pitcherSuppressionScore: -2,
+      strikeoutMultiplier: 0.98 - boost * 0.05,
+      pitchTypeScore: 3 + boost * 5,
+      rollingFormScore: 2 + boost * 4,
+      environmentScore: 1 + boost * 3,
+      pitcherSuppressionScore: -2 - boost * 4,
       confidence: 0.66,
       drivers: ["test matchup"]
     },
@@ -125,29 +125,43 @@ const projection: MlbPlayerStatProjectionGame = {
   modelVersion: "mlb-player-stat-projection-v1",
   awayTeam: "CHC",
   homeTeam: "STL",
-  awayHitters: Array.from({ length: 9 }, (_, index) => hitter(`a${index + 1}`, `Away ${index + 1}`, "CHC", index + 1, index === 2 ? 0.24 : 0.02)),
-  homeHitters: Array.from({ length: 9 }, (_, index) => hitter(`h${index + 1}`, `Home ${index + 1}`, "STL", index + 1, index === 0 ? 0.3 : 0.03)),
+  awayHitters: Array.from({ length: 9 }, (_, index) => hitter(`a${index + 1}`, `Away ${index + 1}`, "CHC", index + 1, index === 2 ? 0.32 : 0.02)),
+  homeHitters: Array.from({ length: 9 }, (_, index) => hitter(`h${index + 1}`, `Home ${index + 1}`, "STL", index + 1, index === 0 ? 0.36 : 0.03)),
   awayStarter: null,
   homeStarter: null,
   warnings: []
 };
 
 const boxScore = buildMlbSimulatedBoxScore(projection);
-assert.equal(boxScore.modelVersion, "mlb-simulated-box-score-v1");
+assert.equal(boxScore.modelVersion, "mlb-simulated-box-score-v2");
 assert.equal(boxScore.awayTeam.team, "CHC");
 assert.equal(boxScore.homeTeam.team, "STL");
 assert.equal(boxScore.awayTeam.hitters.length, 9);
 assert.equal(boxScore.homeTeam.hitters.length, 9);
 assert.ok(boxScore.awayTeam.totals.hits > 0);
 assert.ok(boxScore.homeTeam.totals.totalBases > boxScore.homeTeam.totals.hits);
+assert.ok(boxScore.awayTeam.profile.averageConfidence > 0);
+assert.ok(["HIGH", "MEDIUM", "LOW"].includes(boxScore.awayTeam.profile.powerGrade));
+assert.ok(boxScore.awayTeam.profile.gameScript.includes("CHC"));
 assert.ok(boxScore.gameTotals.projectedRuns > 0);
 assert.ok(boxScore.gameTotals.projectedHits > 0);
 assert.ok(boxScore.gameTotals.projectedStrikeouts > 0);
-assert.ok(boxScore.topProjectedHitters.length === 10);
+assert.ok(boxScore.gameScript.summary.includes("CHC @ STL"));
+assert.ok(["HIGH", "MEDIUM", "LOW"].includes(boxScore.gameScript.scoringEnvironment));
+assert.equal(boxScore.topProjectedHitters.length, 10);
 assert.ok(boxScore.topProjectedHitters[0].impactScore >= boxScore.topProjectedHitters[1].impactScore);
 assert.ok(boxScore.topProjectedHitters[0].likelyLine.plateAppearances >= 3);
 assert.ok(boxScore.topProjectedHitters[0].summary.length > 0);
 assert.ok(boxScore.topProjectedHitters[0].reasons.length > 0);
+assert.ok(["ALPHA", "PLUS", "STABLE", "VOLATILE", "LOW_SIGNAL"].includes(boxScore.topProjectedHitters[0].tier));
+assert.ok(["HIGH", "MEDIUM", "LOW"].includes(boxScore.topProjectedHitters[0].confidenceLabel));
+assert.ok(["HIGH", "MEDIUM", "LOW"].includes(boxScore.topProjectedHitters[0].volatilityLabel));
+assert.ok(Number.isFinite(boxScore.topProjectedHitters[0].matchupEdge));
+assert.ok(boxScore.topProjectedHitters[0].range.ceiling.totalBases >= boxScore.topProjectedHitters[0].range.median.totalBases);
+assert.ok(boxScore.alphaHitters.length > 0);
+assert.ok(boxScore.alphaHitters.every((row) => row.tier === "ALPHA" || row.tier === "PLUS"));
+assert.ok(boxScore.volatileCeilingHitters.every((row) => row.tier === "VOLATILE" || row.volatilityLabel === "HIGH"));
 assert.ok(boxScore.notes.some((note) => note.includes("No sportsbook prop odds")));
+assert.ok(boxScore.notes.some((note) => note.includes("Floor/median/ceiling")));
 
 console.log("mlb-simulated-box-score.test.ts passed");
