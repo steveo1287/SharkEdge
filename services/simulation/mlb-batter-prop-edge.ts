@@ -1,5 +1,5 @@
 import type { MlbBatterPropSurface, MlbPropSurfaceOutcome } from "@/services/simulation/mlb-batter-prop-surface";
-import { applyMlbBatterPropProbabilityCalibration, type MlbBatterPropProbabilityCalibration } from "@/services/simulation/mlb-batter-prop-probability-calibration";
+import { applyMlbBatterPropProbabilityCalibration, type MlbBatterPropProbabilityCalibration, type MlbCalibrationScopeType } from "@/services/simulation/mlb-batter-prop-probability-calibration";
 
 export type MlbBatterBookPropQuote = {
   book: string;
@@ -9,6 +9,13 @@ export type MlbBatterBookPropQuote = {
   americanOdds: number;
   available?: boolean | null;
   updatedAt?: string | null;
+};
+
+export type MlbBatterPropCalibrationContext = {
+  playerId?: string | null;
+  hitterArchetype?: string | null;
+  pitcherArchetype?: string | null;
+  matchupClusterKey?: string | null;
 };
 
 export type MlbBatterPropEdgeCandidate = {
@@ -25,6 +32,8 @@ export type MlbBatterPropEdgeCandidate = {
   expectedValuePerUnit: number;
   confidence: number;
   calibrationApplied: boolean;
+  calibrationScopeType: MlbCalibrationScopeType | "NONE";
+  calibrationScopeKey: string | null;
   calibrationSampleSize: number;
   calibrationReliability: number;
   proofGatePassed: boolean;
@@ -64,27 +73,18 @@ function impliedProbability(americanOdds: number) {
 }
 
 function decimalOdds(americanOdds: number) {
-  if (americanOdds < 0) return 1 + 100 / Math.abs(americanOdds);
-  return 1 + americanOdds / 100;
+  return americanOdds < 0 ? 1 + 100 / Math.abs(americanOdds) : 1 + americanOdds / 100;
 }
 
 function key(row: Pick<MlbPropSurfaceOutcome, "market" | "line" | "side">) {
   return `${row.market}:${row.line}:${row.side}`;
 }
 
-function proofGate(args: {
-  calibrationApplied: boolean;
-  calibrationSampleSize: number;
-  calibrationReliability: number;
-  config?: MlbBatterPropEdgeConfig;
-}) {
-  const requireCalibration = args.config?.requireCalibration ?? false;
-  const minCalibrationSampleSize = args.config?.minCalibrationSampleSize ?? 0;
-  const minCalibrationReliability = args.config?.minCalibrationReliability ?? 0;
+function proofGate(args: { calibrationApplied: boolean; calibrationSampleSize: number; calibrationReliability: number; config?: MlbBatterPropEdgeConfig }) {
   const reasons: string[] = [];
-  if (requireCalibration && !args.calibrationApplied) reasons.push("Calibration required but not available.");
-  if (args.calibrationSampleSize < minCalibrationSampleSize) reasons.push(`Calibration sample ${args.calibrationSampleSize} below required ${minCalibrationSampleSize}.`);
-  if (args.calibrationReliability < minCalibrationReliability) reasons.push(`Calibration reliability ${args.calibrationReliability.toFixed(2)} below required ${minCalibrationReliability.toFixed(2)}.`);
+  if ((args.config?.requireCalibration ?? false) && !args.calibrationApplied) reasons.push("Calibration required but not available.");
+  if (args.calibrationSampleSize < (args.config?.minCalibrationSampleSize ?? 0)) reasons.push(`Calibration sample ${args.calibrationSampleSize} below required ${args.config?.minCalibrationSampleSize ?? 0}.`);
+  if (args.calibrationReliability < (args.config?.minCalibrationReliability ?? 0)) reasons.push(`Calibration reliability ${args.calibrationReliability.toFixed(2)} below required ${(args.config?.minCalibrationReliability ?? 0).toFixed(2)}.`);
   return { passed: reasons.length === 0, reasons };
 }
 
@@ -101,6 +101,7 @@ export function evaluateMlbBatterPropEdges(args: {
   quotes: MlbBatterBookPropQuote[];
   config?: MlbBatterPropEdgeConfig;
   calibration?: MlbBatterPropProbabilityCalibration | null;
+  calibrationContext?: MlbBatterPropCalibrationContext;
 }): MlbBatterPropEdgeReport {
   const warnings: string[] = [];
   const byKey = new Map(args.surface.outcomes.map((outcome) => [key(outcome), outcome]));
@@ -115,7 +116,14 @@ export function evaluateMlbBatterPropEdges(args: {
       warnings.push(`No model surface outcome for ${quote.market} ${quote.side} ${quote.line} at ${quote.book}.`);
       return [];
     }
-    const model = applyMlbBatterPropProbabilityCalibration({ outcome: rawModel, calibration: args.calibration });
+    const model = applyMlbBatterPropProbabilityCalibration({
+      outcome: rawModel,
+      calibration: args.calibration,
+      playerId: args.calibrationContext?.playerId,
+      hitterArchetype: args.calibrationContext?.hitterArchetype,
+      pitcherArchetype: args.calibrationContext?.pitcherArchetype,
+      matchupClusterKey: args.calibrationContext?.matchupClusterKey
+    });
     const bookProbability = impliedProbability(quote.americanOdds);
     if (bookProbability === null) {
       warnings.push(`Invalid odds for ${quote.market} ${quote.side} ${quote.line} at ${quote.book}.`);
@@ -124,18 +132,13 @@ export function evaluateMlbBatterPropEdges(args: {
     const decimal = decimalOdds(quote.americanOdds);
     const expectedValue = model.probability * (decimal - 1) - (1 - model.probability);
     const probabilityEdge = model.probability - bookProbability;
-    const proof = proofGate({
-      calibrationApplied: model.calibrationApplied,
-      calibrationSampleSize: model.calibrationSampleSize,
-      calibrationReliability: model.calibrationReliability,
-      config: args.config
-    });
+    const proof = proofGate({ calibrationApplied: model.calibrationApplied, calibrationSampleSize: model.calibrationSampleSize, calibrationReliability: model.calibrationReliability, config: args.config });
     const candidateGrade = grade({ probabilityEdge, expectedValue, confidence: model.confidence, proofGatePassed: proof.passed });
     const reasons = [
       `Model probability ${(model.probability * 100).toFixed(1)}% vs book implied ${(bookProbability * 100).toFixed(1)}%.`,
-      model.calibrationApplied ? `Probability calibration applied from ${model.calibrationSampleSize} settled samples; raw model ${(model.rawProbability * 100).toFixed(1)}%.` : "No probability calibration applied; using raw model probability.",
+      model.calibrationApplied ? `Probability calibration applied from ${model.calibrationSampleSize} settled samples using ${model.calibrationScopeType} scope; raw model ${(model.rawProbability * 100).toFixed(1)}%.` : "No probability calibration applied; using raw model probability.",
       proof.passed ? "Proof gate passed." : `Proof gate failed: ${proof.reasons.join(" ")}`,
-      `Fair price ${model.fairAmerican}; book price ${quote.americanOdds}.`,
+      `Fair price ${model.fairAmerican}; offered price ${quote.americanOdds}.`,
       `EV/unit ${expectedValue.toFixed(3)} with confidence ${model.confidence.toFixed(2)}.`
     ];
     if (candidateGrade === "PASS") reasons.push("Did not clear probability, EV, confidence, or proof gate.");
@@ -153,6 +156,8 @@ export function evaluateMlbBatterPropEdges(args: {
       expectedValuePerUnit: round(expectedValue, 4),
       confidence: round(model.confidence, 3),
       calibrationApplied: model.calibrationApplied,
+      calibrationScopeType: model.calibrationScopeType,
+      calibrationScopeKey: model.calibrationScopeKey,
       calibrationSampleSize: model.calibrationSampleSize,
       calibrationReliability: model.calibrationReliability,
       proofGatePassed: proof.passed,
@@ -162,23 +167,12 @@ export function evaluateMlbBatterPropEdges(args: {
   });
 
   const passes = candidates
-    .filter((candidate) =>
-      candidate.proofGatePassed &&
-      candidate.grade !== "PASS" &&
-      candidate.probabilityEdge >= minProbabilityEdge &&
-      candidate.expectedValuePerUnit >= minExpectedValue &&
-      candidate.confidence >= minConfidence
-    )
+    .filter((candidate) => candidate.proofGatePassed && candidate.grade !== "PASS" && candidate.probabilityEdge >= minProbabilityEdge && candidate.expectedValuePerUnit >= minExpectedValue && candidate.confidence >= minConfidence)
     .sort((a, b) => (b.expectedValuePerUnit * b.confidence) - (a.expectedValuePerUnit * a.confidence))
     .slice(0, maxCandidates);
 
   if (!args.quotes.length) warnings.push("No book quotes supplied for prop edge evaluation.");
   if (!passes.length) warnings.push("No batter prop candidate cleared the configured edge gates.");
 
-  return {
-    modelVersion: "mlb-batter-prop-edge-v1",
-    candidates,
-    passes,
-    warnings
-  };
+  return { modelVersion: "mlb-batter-prop-edge-v1", candidates, passes, warnings };
 }
