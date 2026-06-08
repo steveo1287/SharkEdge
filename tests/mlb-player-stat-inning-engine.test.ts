@@ -84,6 +84,10 @@ function pitcher(id: string, name: string, overall: number, overrides: Partial<M
         changeup: 0.14,
         curveball: 0.08
       },
+      whiffRate: 0.132,
+      zoneRate: 0.49,
+      hardHitAllowedRate: 0.36,
+      barrelAllowedRate: 0.066,
       inningsPerStart: 5.9,
       strikeoutsPer9: 9.2,
       walksPer9: 2.4,
@@ -124,6 +128,8 @@ const playerProjection = projectMlbPlayerStatsForGame({
 });
 
 const topHomeHitter = playerProjection.homeHitters[0];
+const paOutcome = topHomeHitter.plateAppearanceOutcome;
+const paOutcomeSum = paOutcome.walkRate + paOutcome.strikeoutRate + paOutcome.homeRunRate + paOutcome.singleRate + paOutcome.extraBaseHitRate + paOutcome.ballInPlayOutRate;
 assert.equal(playerProjection.modelVersion, "mlb-player-stat-projection-v1");
 assert.equal(playerProjection.awayHitters.length, 9);
 assert.equal(playerProjection.homeHitters.length, 9);
@@ -139,6 +145,18 @@ assert.ok(topHomeHitter.advancedMatchup.powerMultiplier > 1);
 assert.ok(topHomeHitter.advancedMatchup.pitchTypeScore > 0);
 assert.ok(topHomeHitter.advancedMatchup.rollingFormScore > 0);
 assert.ok(topHomeHitter.advancedMatchup.drivers.some((driver) => driver.includes("pitch") || driver.includes("form") || driver.includes("environment")));
+assert.equal(paOutcome.modelVersion, "mlb-plate-appearance-outcome-v1");
+assert.ok(Math.abs(paOutcomeSum - 1) < 0.025);
+assert.ok(paOutcome.hitRate > paOutcome.homeRunRate);
+assert.ok(paOutcome.singleRate > 0);
+assert.ok(paOutcome.extraBaseHitRate > 0);
+assert.ok(paOutcome.ballInPlayOutRate > 0);
+assert.ok(paOutcome.expectedTotalBasesPerPa > 0);
+assert.ok(paOutcome.expectedTotalBasesPerHit >= 1.05);
+assert.ok(paOutcome.outcomeConfidence > 0.55);
+assert.ok(paOutcome.drivers.length > 0);
+assert.ok(Math.abs(topHomeHitter.expectedHits - topHomeHitter.expectedPlateAppearances * paOutcome.hitRate) < 0.02);
+assert.ok(Math.abs(topHomeHitter.expectedTotalBases - topHomeHitter.expectedPlateAppearances * paOutcome.expectedTotalBasesPerPa) < 0.02);
 assert.ok(topHomeHitter.statDistribution.hit1PlusProbability > topHomeHitter.statDistribution.hit2PlusProbability);
 assert.ok(topHomeHitter.statDistribution.hit2PlusProbability > topHomeHitter.statDistribution.hit3PlusProbability);
 assert.ok(topHomeHitter.statDistribution.totalBases2PlusProbability > topHomeHitter.statDistribution.totalBases4PlusProbability);
@@ -156,6 +174,8 @@ assert.ok(topHomeHitter.propSurface.strongest.every((outcome) => Number.isFinite
 assert.ok(topHomeHitter.propSurface.notes.some((note) => note.includes("no-vig model prices")));
 assert.ok(topHomeHitter.reasons.some((reason) => reason.includes("Batter stats blended")));
 assert.ok(topHomeHitter.reasons.some((reason) => reason.includes("Advanced matchup multipliers")));
+assert.ok(topHomeHitter.reasons.some((reason) => reason.includes("PA outcome tree")));
+assert.ok(topHomeHitter.reasons.some((reason) => reason.includes("Quality contact")));
 assert.ok(topHomeHitter.reasons.some((reason) => reason.includes("Distribution:")));
 assert.ok(topHomeHitter.reasons.some((reason) => reason.includes("Prop surface strongest")));
 assert.ok(playerProjection.homeStarter);
