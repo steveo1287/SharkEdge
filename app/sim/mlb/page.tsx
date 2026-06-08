@@ -5,16 +5,12 @@ import {
   SimDecisionBadge,
   SimMetricTile,
   SimSignalCard,
-  SimStatusBadge,
-  SimWorkspaceHeader
+  SimStatusBadge
 } from "@/components/sim/sim-ui";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { formatLongDate } from "@/lib/formatters/date";
 import type { LeagueKey } from "@/lib/types/domain";
-import { getCachedMlbCalibrationConformal } from "@/services/simulation/mlb-calibration-conformal";
-import { getCachedMlbMlModel } from "@/services/simulation/mlb-ml-training-engine";
-import { getSimModelScorecard } from "@/services/sim/model-scorecard";
 import {
   readSimCache,
   SIM_CACHE_KEYS,
@@ -156,7 +152,7 @@ function RowSummary({ row }: { row: Row }) {
 
       <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-4">
         <div className="line-clamp-2 text-xs leading-5 text-slate-500">{row.projection.mlbIntel?.governor?.reasons?.[0] ?? row.projection.read}</div>
-        <Link href={`/sim/mlb/${encodeURIComponent(row.game.id)}`} className="shrink-0 rounded-full border border-aqua/35 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-aqua hover:bg-aqua/15">Open game center</Link>
+        <Link href={`/sim/mlb/${encodeURIComponent(row.game.id)}`} className="shrink-0 rounded-full border border-aqua/35 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-aqua hover:bg-aqua/15">Open</Link>
       </div>
     </SimSignalCard>
   );
@@ -167,7 +163,7 @@ function PriorityStack({ rows }: { rows: Row[] }) {
   if (!ordered.length) return null;
   return (
     <section className="grid gap-4">
-      <SectionTitle title="Priority stack" description="The page leads with the highest-quality reads, while the full slate remains available in the ledger below." />
+      <SectionTitle title="Best MLB reads" description="Highest-quality games from the cached MLB sim board." />
       <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
         {ordered.map((row) => <RowSummary key={row.game.id} row={row} />)}
       </div>
@@ -179,7 +175,7 @@ function CompactLedger({ rows }: { rows: Row[] }) {
   const ordered = sortRows(rows);
   return (
     <section className="grid gap-4">
-      <SectionTitle title="Full slate ledger" description="Every MLB game returned by the cached sim board or live scoreboard fallback. No display cap." />
+      <SectionTitle title="Full MLB slate" description="Every cached MLB game." />
       <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/40">
         {ordered.map((row) => {
           const lean = winLean(row.projection);
@@ -217,73 +213,37 @@ async function readCachedRows() {
 }
 
 async function loadMlbRows() {
-  // Cache boundary: the MLB sim page is read-only. Cron/manual refresh owns
-  // projection and edge rebuilds so a page view cannot burn provider/database time.
   const cached = await readCachedRows();
   if (cached.rows.length) return cached;
-
   return { rows: [] as Row[], source: "missing-cache" as const };
 }
 
-export default async function MlbSimPage() {
-  const [{ rows, source }, mlModel, calibration, scorecard] = await Promise.all([
-    loadMlbRows(),
-    getCachedMlbMlModel(),
-    getCachedMlbCalibrationConformal(),
-    getSimModelScorecard({ league: "MLB", windowDays: 90 }).catch(() => null)
-  ]);
+function navClass(active = false) {
+  return active ? "rounded-full border border-aqua/30 bg-aqua/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-aqua" : "rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-slate-300 hover:text-aqua";
+}
 
+function Badge({ label, tone = "slate" }: { label: string; tone?: "slate" | "aqua" | "green" | "amber" }) {
+  const cls = tone === "green" ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-200" : tone === "amber" ? "border-amber-400/25 bg-amber-400/10 text-amber-200" : tone === "aqua" ? "border-aqua/25 bg-aqua/10 text-aqua" : "border-white/10 bg-white/[0.04] text-slate-300";
+  return <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${cls}`}>{label}</span>;
+}
+
+export default async function MlbSimPage() {
+  const { rows, source } = await loadMlbRows();
   const attack = rows.filter((row) => decisionTier(row) === "attack").length;
   const watch = rows.filter((row) => decisionTier(row) === "watch").length;
-  const pass = rows.filter((row) => decisionTier(row) === "pass").length;
   const lineCount = rows.filter((row) => edgeMarket(row.edge)).length;
-  const realPlayerGames = rows.filter((row) => dataSourceBadges(row).player === "real").length;
-  const topRow = sortRows(rows)[0] ?? null;
-  const topLean = topRow ? winLean(topRow.projection) : null;
 
   return (
-    <div className="space-y-6">
-      <SimWorkspaceHeader
-        eyebrow="MLB Command Desk"
-        title="Kill the spreadsheet. Surface the side, total, pitcher context, market match, and data quality first."
-        description="MLB reads the warmed sim cache only. Slow providers and projection rebuilds run in cron/manual refresh jobs so this page stays fast and predictable."
-        actions={[{ href: "/sim", label: "Sim Hub" }, { href: "/board#MLB", label: "MLB Board", tone: "primary" }, { href: "/mlb-edge", label: "Edge Lab" }]}
-      >
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <SimMetricTile label="Games" value={String(rows.length)} sub={`MLB slate Â· ${source}`} emphasis={rows.length ? "strong" : "normal"} />
-          <SimMetricTile label="Attack" value={String(attack)} sub="Governor cleared" emphasis="strong" />
-          <SimMetricTile label="Watch" value={String(watch)} sub={`Pass ${pass} Â· filtered`} />
-          <SimMetricTile
-            label="Model ROI"
-            value={scorecard?.totals.roi != null ? `${scorecard.totals.roi > 0 ? "+" : ""}${scorecard.totals.roi.toFixed(1)}%` : "â€”"}
-            sub={scorecard?.totals.unitsNet != null ? `${scorecard.totals.unitsNet > 0 ? "+" : ""}${scorecard.totals.unitsNet.toFixed(1)}u Â· ${scorecard.totals.winCount}Wâ€“${scorecard.totals.lossCount}L` : "No settled picks"}
-            emphasis={scorecard?.totals.roi != null && scorecard.totals.roi > 0 ? "strong" : "normal"}
-          />
-          <SimMetricTile label="Lines" value={`${lineCount}/${rows.length}`} sub="Matched markets" />
-          <SimMetricTile label="Data" value={`${realPlayerGames}/${rows.length}`} sub={`ML rows ${mlModel?.rows ?? 0}${calibration?.ok ? ` Â· ECE ${calibration.ece.toFixed(3)}` : ""}`} />
+    <div className="space-y-5">
+      <section className="rounded-[1.2rem] border border-white/10 bg-white/[0.035] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h1 className="font-display text-3xl font-black tracking-[-0.05em] text-white">MLB Sim</h1><p className="mt-1 text-sm text-slate-500">Best reads and full slate. Open a game for details.</p></div>
+          <div className="flex flex-wrap gap-2"><Link href="/sim" className={navClass()}>SimHub</Link><Link href="/sim/mlb" className={navClass(true)}>MLB</Link><Link href="/mlb/batter-box" className={navClass()}>Batter Box</Link><Link href="/accuracy/mlb" className={navClass()}>Accuracy</Link></div>
         </div>
-      </SimWorkspaceHeader>
+        <div className="mt-4 flex flex-wrap gap-2"><Badge label={`${rows.length} games`} tone={rows.length ? "green" : "slate"} /><Badge label={`${attack} attack`} tone={attack ? "green" : "slate"} /><Badge label={`${watch} watch`} tone={watch ? "amber" : "slate"} /><Badge label={`${lineCount} lines`} tone={lineCount ? "aqua" : "slate"} /><Badge label={source} /></div>
+      </section>
 
-      {topRow && topLean ? (
-        <section className="rounded-[1.75rem] border border-aqua/25 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.14),transparent_28rem),rgba(7,17,29,0.92)] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.24)]">
-          <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr] xl:items-end">
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-aqua">Top MLB read</div>
-              <h2 className="mt-2 font-display text-3xl font-semibold tracking-tight text-white">{topRow.projection.matchup.away} @ {topRow.projection.matchup.home}</h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{topRow.projection.mlbIntel?.governor?.reasons?.[0] ?? topRow.projection.read}</p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-4 xl:grid-cols-2">
-              <SimMetricTile label="Lean" value={topLean.team} sub={pct(topLean.pct)} emphasis="strong" />
-              <SimMetricTile label="Model edge" value={plus(topRow.projection.mlbIntel?.homeEdge)} sub="home-side delta" />
-              <SimMetricTile label="Total" value={num(topRow.projection.mlbIntel?.projectedTotal)} sub={`edge ${plus(edgeTotals(topRow.edge)?.totalRuns)}`} />
-              <SimMetricTile label="Tier" value={<SimDecisionBadge tier={decisionTier(topRow)} />} sub={formatTime(topRow.game.startTime)} />
-            </div>
-          </div>
-        </section>
-      ) : null}
-
-      {rows.length ? <><PriorityStack rows={rows} /><CompactLedger rows={rows} /></> : <EmptyState title="No MLB games available" description="Cached MLB rows were missing, repair did not rebuild them, and the live scoreboard fallback returned zero MLB games. Check /api/sim/health and the sim-refresh logs." />}
+      {rows.length ? <><PriorityStack rows={rows} /><CompactLedger rows={rows} /></> : <EmptyState title="No MLB games available" description="Cached MLB rows are missing. Run the sim refresh job if the slate should be populated." />}
     </div>
   );
 }
-
