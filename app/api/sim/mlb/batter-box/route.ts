@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { loadMlbBatterBoxProjection } from "@/services/simulation/mlb-batter-box-loader";
 import { buildMlbBaseStateRunRbiEngine } from "@/services/simulation/mlb-base-state-run-rbi-engine";
+import { buildMlbEliteBatterIntelligenceScore } from "@/services/simulation/mlb-elite-batter-intelligence-score";
 import { buildMlbMatchupTraitEngine } from "@/services/simulation/mlb-matchup-trait-engine";
 import { buildMlbPlateAppearanceGameScript } from "@/services/simulation/mlb-plate-appearance-game-script";
 import { buildMlbPaWindowRanking } from "@/services/simulation/mlb-pa-window-ranking";
@@ -46,24 +47,21 @@ export async function GET(request: Request) {
         strikeouts: boxScore.homeTeam.totals.strikeouts
       }
     }) : null;
-    const plateAppearanceScript = result.projection && boxScore && pitching ? buildMlbPlateAppearanceGameScript({
-      projection: result.projection,
-      boxScore,
-      awayPitching: pitching.awayPitching,
-      homePitching: pitching.homePitching
-    }) : null;
+    const plateAppearanceScript = result.projection && boxScore && pitching ? buildMlbPlateAppearanceGameScript({ projection: result.projection, boxScore, awayPitching: pitching.awayPitching, homePitching: pitching.homePitching }) : null;
     const paWindowRanking = boxScore && plateAppearanceScript ? buildMlbPaWindowRanking({ boxScore, plateAppearanceScript }) : null;
     const baseStateContext = boxScore && plateAppearanceScript ? buildMlbBaseStateRunRbiEngine({ boxScore, plateAppearanceScript }) : null;
     const matchupTraitContext = result.projection && boxScore ? buildMlbMatchupTraitEngine({ projection: result.projection, boxScore }) : null;
+    const eliteBatterScore = boxScore && plateAppearanceScript && paWindowRanking && baseStateContext && matchupTraitContext ? buildMlbEliteBatterIntelligenceScore({ boxScore, plateAppearanceScript, paWindowRanking, baseStateContext, matchupTraitContext }) : null;
     return NextResponse.json({
       ok: Boolean(result.projection),
-      modelVersion: "mlb-simulated-box-score-v2-plus-pitching-v1-plus-pa-script-v1-plus-pa-ranking-v1-plus-base-state-v1-plus-matchup-traits-v1",
+      modelVersion: "mlb-simulated-box-score-v2-plus-pitching-v1-plus-pa-script-v1-plus-pa-ranking-v1-plus-base-state-v1-plus-matchup-traits-v1-plus-elite-batter-score-v1",
       boxScore,
       pitching,
       plateAppearanceScript,
       paWindowRanking,
       baseStateContext,
       matchupTraitContext,
+      eliteBatterScore,
       projection: result.projection,
       diagnostics: result.diagnostics,
       error: result.error
@@ -71,13 +69,14 @@ export async function GET(request: Request) {
   } catch (error) {
     return NextResponse.json({
       ok: false,
-      modelVersion: "mlb-simulated-box-score-v2-plus-pitching-v1-plus-pa-script-v1-plus-pa-ranking-v1-plus-base-state-v1-plus-matchup-traits-v1",
+      modelVersion: "mlb-simulated-box-score-v2-plus-pitching-v1-plus-pa-script-v1-plus-pa-ranking-v1-plus-base-state-v1-plus-matchup-traits-v1-plus-elite-batter-score-v1",
       boxScore: null,
       pitching: null,
       plateAppearanceScript: null,
       paWindowRanking: null,
       baseStateContext: null,
       matchupTraitContext: null,
+      eliteBatterScore: null,
       projection: null,
       diagnostics: null,
       error: error instanceof Error ? error.message : String(error)
