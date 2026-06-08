@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { loadMlbBatterBoxProjection } from "@/services/simulation/mlb-batter-box-loader";
+import { buildMlbSimulatedBoxScore } from "@/services/simulation/mlb-simulated-box-score";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -16,9 +17,11 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const result = await loadMlbBatterBoxProjection(searchParamsToRecord(url));
+    const boxScore = result.projection ? buildMlbSimulatedBoxScore(result.projection) : null;
     return NextResponse.json({
       ok: Boolean(result.projection),
-      modelVersion: "mlb-batter-box-loader-v1",
+      modelVersion: "mlb-simulated-box-score-v1",
+      boxScore,
       projection: result.projection,
       diagnostics: result.diagnostics,
       error: result.error
@@ -26,7 +29,8 @@ export async function GET(request: Request) {
   } catch (error) {
     return NextResponse.json({
       ok: false,
-      modelVersion: "mlb-batter-box-loader-v1",
+      modelVersion: "mlb-simulated-box-score-v1",
+      boxScore: null,
       projection: null,
       diagnostics: null,
       error: error instanceof Error ? error.message : String(error)
