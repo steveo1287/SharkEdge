@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
 
-// Build timestamp: 2026-04-27T17:13:00Z - Force Vercel pickup of sim engine fixes
-const BUILD_ID = "prod-2026-04-27-17-13-sim-engine-fixes";
+const BUILD_ID = "railway-prod-2026-06-07-player-intel";
 
 const nextConfig: NextConfig = {
   images: {
