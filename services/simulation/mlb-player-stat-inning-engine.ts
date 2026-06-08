@@ -2,6 +2,7 @@ import { deriveMlbBatterAdvancedMatchup, type MlbBatterAdvancedMatchup } from "@
 import { buildMlbBatterPropSurface, type MlbBatterPropSurface } from "@/services/simulation/mlb-batter-prop-surface";
 import { buildMlbBatterStatDistribution, type MlbBatterStatDistribution } from "@/services/simulation/mlb-batter-stat-distribution";
 import { deriveMlbBatterStatProfile, type MlbBatterStatProfile } from "@/services/simulation/mlb-batter-stat-profile";
+import { deriveMlbEliteHitterContextAdjustment, type MlbEliteHitterContextAdjustment } from "@/services/simulation/mlb-elite-hitter-context-adjustment";
 import { deriveMlbPlateAppearanceOutcomeModel, type MlbPlateAppearanceOutcomeModel } from "@/services/simulation/mlb-plate-appearance-outcome-model";
 
 export type MlbProjectionRating = {
@@ -70,6 +71,7 @@ export type MlbHitterPerGameProjection = {
   batterStatProfile: MlbBatterStatProfile;
   advancedMatchup: MlbBatterAdvancedMatchup;
   plateAppearanceOutcome: MlbPlateAppearanceOutcomeModel;
+  eliteContext: MlbEliteHitterContextAdjustment;
   statDistribution: MlbBatterStatDistribution;
   propSurface: MlbBatterPropSurface;
   reasons: string[];
@@ -245,6 +247,9 @@ function normalOver(mean: number, line: number, sd: number) {
 function projectHitter(args: {
   row: MlbProjectionRating;
   team: string;
+  lineup: MlbProjectionLineup | null | undefined;
+  lineupHitters: MlbProjectionRating[];
+  opponentPitchers: MlbProjectionRating[];
   battingOrder: number;
   opponentStarter: MlbProjectionRating | null;
   teamRuns: number;
@@ -304,14 +309,37 @@ function projectHitter(args: {
   const onBase = clamp(hitRate + walkRate, 0.18, 0.5);
   const runShare = LINEUP_RUN_SHARE[orderIndex] ?? 0.1;
   const rbiShare = LINEUP_RBI_SHARE[orderIndex] ?? 0.1;
-  const expectedHits = pa * hitRate;
-  const expectedWalks = pa * walkRate;
-  const expectedHr = pa * hrRate;
-  const expectedStrikeouts = pa * strikeoutRate;
-  const expectedTotalBases = pa * plateAppearanceOutcome.expectedTotalBasesPerPa;
-  const expectedRuns = args.teamRuns * runShare * clamp(onBase / 0.31, 0.72, 1.32);
-  const expectedRbi = args.teamRuns * rbiShare * clamp((hitRate * totalBasePerHit) / 0.34, 0.72, 1.38);
-  const confidence = clamp((args.confirmedLineup ? 0.16 : 0) + batterStats.confidence * 0.18 + advancedMatchup.confidence * 0.13 + plateAppearanceOutcome.outcomeConfidence * 0.19 + (args.opponentStarter ? 0.18 : 0) + 0.22, 0.35, 0.95);
+  const rawExpectedHits = pa * hitRate;
+  const rawExpectedWalks = pa * walkRate;
+  const rawExpectedHr = pa * hrRate;
+  const rawExpectedStrikeouts = pa * strikeoutRate;
+  const rawExpectedTotalBases = pa * plateAppearanceOutcome.expectedTotalBasesPerPa;
+  const rawExpectedRuns = args.teamRuns * runShare * clamp(onBase / 0.31, 0.72, 1.32);
+  const rawExpectedRbi = args.teamRuns * rbiShare * clamp((hitRate * totalBasePerHit) / 0.34, 0.72, 1.38);
+  const eliteContext = deriveMlbEliteHitterContextAdjustment({
+    batter: args.row,
+    lineup: args.lineup,
+    lineupHitters: args.lineupHitters,
+    opponentStarter: args.opponentStarter,
+    opponentPitchers: args.opponentPitchers,
+    battingOrder: args.battingOrder,
+    expectedPlateAppearances: pa,
+    expectedHits: rawExpectedHits,
+    expectedTotalBases: rawExpectedTotalBases,
+    expectedHomeRuns: rawExpectedHr,
+    expectedWalks: rawExpectedWalks,
+    expectedStrikeouts: rawExpectedStrikeouts,
+    expectedRuns: rawExpectedRuns,
+    expectedRbi: rawExpectedRbi
+  });
+  const expectedHits = eliteContext.calibratedMeans.expectedHits;
+  const expectedWalks = eliteContext.calibratedMeans.expectedWalks;
+  const expectedHr = eliteContext.calibratedMeans.expectedHomeRuns;
+  const expectedStrikeouts = eliteContext.calibratedMeans.expectedStrikeouts;
+  const expectedTotalBases = eliteContext.calibratedMeans.expectedTotalBases;
+  const expectedRuns = eliteContext.calibratedMeans.expectedRuns;
+  const expectedRbi = eliteContext.calibratedMeans.expectedRbi;
+  const confidence = clamp(((args.confirmedLineup ? 0.16 : 0) + batterStats.confidence * 0.18 + advancedMatchup.confidence * 0.13 + plateAppearanceOutcome.outcomeConfidence * 0.19 + (args.opponentStarter ? 0.18 : 0) + 0.22) * eliteContext.multipliers.confidence, 0.25, 0.96);
   const statDistribution = buildMlbBatterStatDistribution({
     expectedHits,
     expectedTotalBases,
@@ -319,11 +347,12 @@ function projectHitter(args: {
     expectedWalks,
     expectedStrikeouts,
     expectedPlateAppearances: pa,
-    powerMultiplier: advancedMatchup.powerMultiplier,
-    contactMultiplier: advancedMatchup.contactMultiplier,
+    powerMultiplier: advancedMatchup.powerMultiplier * eliteContext.multipliers.totalBases,
+    contactMultiplier: advancedMatchup.contactMultiplier * eliteContext.multipliers.hit,
     statConfidence: batterStats.confidence,
-    advancedConfidence: clamp((advancedMatchup.confidence + plateAppearanceOutcome.outcomeConfidence) / 2, 0.2, 0.95),
-    drivers: [...batterStats.drivers, ...advancedMatchup.drivers, ...plateAppearanceOutcome.drivers]
+    advancedConfidence: clamp((advancedMatchup.confidence + plateAppearanceOutcome.outcomeConfidence + Math.max(0.2, eliteContext.multipliers.confidence)) / 3, 0.2, 0.95),
+    marketVolatility: eliteContext.varianceByMarket,
+    drivers: [...batterStats.drivers, ...advancedMatchup.drivers, ...plateAppearanceOutcome.drivers, ...eliteContext.drivers]
   });
   const propSurface = buildMlbBatterPropSurface(statDistribution);
 
@@ -347,6 +376,7 @@ function projectHitter(args: {
     batterStatProfile: batterStats,
     advancedMatchup,
     plateAppearanceOutcome,
+    eliteContext,
     statDistribution,
     propSurface,
     reasons: [
@@ -354,11 +384,13 @@ function projectHitter(args: {
       `Batter stats blended at ${(statWeight * 100).toFixed(0)}% confidence: xAVG ${batterStats.xAvg.toFixed(3)}, xSLG ${batterStats.xSlug.toFixed(3)}, xwOBA ${batterStats.xWoba.toFixed(3)}.`,
       `Advanced matchup multipliers: contact ${advancedMatchup.contactMultiplier.toFixed(3)}, power ${advancedMatchup.powerMultiplier.toFixed(3)}, K ${advancedMatchup.strikeoutMultiplier.toFixed(3)}, BB ${advancedMatchup.walkMultiplier.toFixed(3)}.`,
       `PA outcome tree: 1B ${plateAppearanceOutcome.singleRate.toFixed(3)}, XBH ${plateAppearanceOutcome.extraBaseHitRate.toFixed(3)}, HR ${plateAppearanceOutcome.homeRunRate.toFixed(3)}, BB ${plateAppearanceOutcome.walkRate.toFixed(3)}, K ${plateAppearanceOutcome.strikeoutRate.toFixed(3)}, BIP out ${plateAppearanceOutcome.ballInPlayOutRate.toFixed(3)}.`,
+      `Elite context: historical sample ${eliteContext.historicalErrorCorrection.sampleSize}, umpire ${eliteContext.umpireZoneImpact.umpireId ?? "neutral"}, bullpen PA ${eliteContext.bullpenExposure.expectedBullpenPlateAppearances.toFixed(2)}, lineup ${eliteContext.lineupConfirmation.status}.`,
+      `Market variance: H ${eliteContext.varianceByMarket.hits.toFixed(2)}, TB ${eliteContext.varianceByMarket.totalBases.toFixed(2)}, HR ${eliteContext.varianceByMarket.homeRun.toFixed(2)}, BB ${eliteContext.varianceByMarket.walks.toFixed(2)}, K ${eliteContext.varianceByMarket.strikeouts.toFixed(2)}.`,
       `Quality contact ${plateAppearanceOutcome.qualityOfContactScore.toFixed(1)} and starter suppression ${plateAppearanceOutcome.pitcherSuppressionScore.toFixed(1)} drive ${plateAppearanceOutcome.expectedTotalBasesPerHit.toFixed(2)} TB/H.`,
       `Distribution: 1+ hit ${(statDistribution.hit1PlusProbability * 100).toFixed(1)}%, 2+ hit ${(statDistribution.hit2PlusProbability * 100).toFixed(1)}%, 2+ TB ${(statDistribution.totalBases2PlusProbability * 100).toFixed(1)}%, HR ${(statDistribution.homeRunProbability * 100).toFixed(1)}%.`,
       `Prop surface strongest: ${propSurface.strongest.slice(0, 3).map((row) => `${row.market} ${row.side} ${row.line} ${row.fairAmerican}`).join("; ")}.`,
       `Split-adjusted hitter skill ${skill.toFixed(1)} vs ${pitcherHand}HP and opposing starter skill ${opponentPitch.toFixed(1)}.`,
-      `Batter drivers: ${batterStats.drivers.join(", ")}; advanced drivers: ${advancedMatchup.drivers.join(", ")}; PA drivers: ${plateAppearanceOutcome.drivers.join(", ")}.`
+      `Batter drivers: ${batterStats.drivers.join(", ")}; advanced drivers: ${advancedMatchup.drivers.join(", ")}; PA drivers: ${plateAppearanceOutcome.drivers.join(", ")}; elite drivers: ${eliteContext.drivers.join(", ")}.`
     ]
   };
 }
@@ -427,8 +459,8 @@ export function projectMlbPlayerStatsForGame(args: {
 }): MlbPlayerStatProjectionGame {
   const awayStarter = selectStarter(args.away);
   const homeStarter = selectStarter(args.home);
-  const awayLineup = lineupHitters(args.away, homeStarter);
-  const homeLineup = lineupHitters(args.home, awayStarter);
+  const awayLineup = lineupHitters(args.away, homeStarter).filter((row): row is MlbProjectionRating => Boolean(row));
+  const homeLineup = lineupHitters(args.home, awayStarter).filter((row): row is MlbProjectionRating => Boolean(row));
   const warnings: string[] = [];
   if (!args.away.lineup?.confirmed) warnings.push(`${args.away.team} lineup is not confirmed; hitter PA/order projections are probable.`);
   if (!args.home.lineup?.confirmed) warnings.push(`${args.home.team} lineup is not confirmed; hitter PA/order projections are probable.`);
@@ -439,8 +471,8 @@ export function projectMlbPlayerStatsForGame(args: {
     modelVersion: "mlb-player-stat-projection-v1",
     awayTeam: args.away.team,
     homeTeam: args.home.team,
-    awayHitters: awayLineup.flatMap((row, index) => row ? [projectHitter({ row, team: args.away.team, battingOrder: index + 1, opponentStarter: homeStarter, teamRuns: args.awayRuns, confirmedLineup: Boolean(args.away.lineup?.confirmed) })] : []),
-    homeHitters: homeLineup.flatMap((row, index) => row ? [projectHitter({ row, team: args.home.team, battingOrder: index + 1, opponentStarter: awayStarter, teamRuns: args.homeRuns, confirmedLineup: Boolean(args.home.lineup?.confirmed) })] : []),
+    awayHitters: awayLineup.map((row, index) => projectHitter({ row, team: args.away.team, lineup: args.away.lineup, lineupHitters: awayLineup, opponentPitchers: args.home.pitchers, battingOrder: index + 1, opponentStarter: homeStarter, teamRuns: args.awayRuns, confirmedLineup: Boolean(args.away.lineup?.confirmed) })),
+    homeHitters: homeLineup.map((row, index) => projectHitter({ row, team: args.home.team, lineup: args.home.lineup, lineupHitters: homeLineup, opponentPitchers: args.away.pitchers, battingOrder: index + 1, opponentStarter: awayStarter, teamRuns: args.homeRuns, confirmedLineup: Boolean(args.home.lineup?.confirmed) })),
     awayStarter: projectStarter({ row: awayStarter, team: args.away.team, opponentTeam: args.home.team, opponentRuns: args.homeRuns, opponentOffenseScore: args.homeOffenseScore ?? DEFAULT_SKILL, ownWinProbability: args.awayWinProbability ?? 0.5, confirmedStarter: Boolean(args.away.lineup?.starting_pitcher_id || args.away.lineup?.starting_pitcher_name) }),
     homeStarter: projectStarter({ row: homeStarter, team: args.home.team, opponentTeam: args.away.team, opponentRuns: args.awayRuns, opponentOffenseScore: args.awayOffenseScore ?? DEFAULT_SKILL, ownWinProbability: args.homeWinProbability ?? 0.5, confirmedStarter: Boolean(args.home.lineup?.starting_pitcher_id || args.home.lineup?.starting_pitcher_name) }),
     warnings
