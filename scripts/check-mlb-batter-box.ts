@@ -33,6 +33,7 @@ async function main() {
     hitterCount: projection ? projection.awayHitters.length + projection.homeHitters.length : 0,
     awayTeam: projection?.awayTeam ?? null,
     homeTeam: projection?.homeTeam ?? null,
+    gameScript: boxScore?.gameScript ?? null,
     simulatedTotals: boxScore ? {
       awayTeam: boxScore.awayTeam.team,
       homeTeam: boxScore.homeTeam.team,
@@ -42,19 +43,47 @@ async function main() {
       projectedTotalBases: boxScore.gameTotals.projectedTotalBases,
       projectedHomeRuns: boxScore.gameTotals.projectedHomeRuns,
       projectedWalks: boxScore.gameTotals.projectedWalks,
-      projectedStrikeouts: boxScore.gameTotals.projectedStrikeouts
+      projectedStrikeouts: boxScore.gameTotals.projectedStrikeouts,
+      awayProfile: boxScore.awayTeam.profile,
+      homeProfile: boxScore.homeTeam.profile
     } : null,
+    alphaHitters: boxScore ? boxScore.alphaHitters.map((hitter) => ({
+      playerName: hitter.playerName,
+      team: hitter.team,
+      tier: hitter.tier,
+      likelyLine: hitter.likelyLine,
+      range: hitter.range,
+      impactScore: hitter.impactScore,
+      matchupEdge: hitter.matchupEdge,
+      confidenceLabel: hitter.confidenceLabel,
+      summary: hitter.summary
+    })) : [],
+    volatileCeilingHitters: boxScore ? boxScore.volatileCeilingHitters.map((hitter) => ({
+      playerName: hitter.playerName,
+      team: hitter.team,
+      tier: hitter.tier,
+      likelyLine: hitter.likelyLine,
+      range: hitter.range,
+      volatility: hitter.volatility,
+      volatilityLabel: hitter.volatilityLabel,
+      summary: hitter.summary
+    })) : [],
     topSimulatedLines: boxScore ? boxScore.topProjectedHitters.slice(0, 10).map((hitter) => ({
       playerId: hitter.playerId,
       playerName: hitter.playerName,
       team: hitter.team,
       battingOrder: hitter.battingOrder,
+      tier: hitter.tier,
       likelyLine: hitter.likelyLine,
+      range: hitter.range,
       expected: hitter.expected,
       probabilities: hitter.probabilities,
       impactScore: hitter.impactScore,
+      matchupEdge: hitter.matchupEdge,
       volatility: hitter.volatility,
+      volatilityLabel: hitter.volatilityLabel,
       confidence: hitter.confidence,
+      confidenceLabel: hitter.confidenceLabel,
       summary: hitter.summary
     })) : [],
     warnings: result.diagnostics.warnings,
