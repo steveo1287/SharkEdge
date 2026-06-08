@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { loadMlbBatterBoxProjection } from "@/services/simulation/mlb-batter-box-loader";
+import { buildMlbPlateAppearanceGameScript } from "@/services/simulation/mlb-plate-appearance-game-script";
 import { buildMlbSimulatedBoxScore } from "@/services/simulation/mlb-simulated-box-score";
 import { buildMlbSimulatedPitchingBoxScores } from "@/services/simulation/mlb-simulated-pitching-box-score";
 
@@ -42,11 +43,18 @@ export async function GET(request: Request) {
         strikeouts: boxScore.homeTeam.totals.strikeouts
       }
     }) : null;
+    const plateAppearanceScript = result.projection && boxScore && pitching ? buildMlbPlateAppearanceGameScript({
+      projection: result.projection,
+      boxScore,
+      awayPitching: pitching.awayPitching,
+      homePitching: pitching.homePitching
+    }) : null;
     return NextResponse.json({
       ok: Boolean(result.projection),
-      modelVersion: "mlb-simulated-box-score-v2-plus-pitching-v1",
+      modelVersion: "mlb-simulated-box-score-v2-plus-pitching-v1-plus-pa-script-v1",
       boxScore,
       pitching,
+      plateAppearanceScript,
       projection: result.projection,
       diagnostics: result.diagnostics,
       error: result.error
@@ -54,9 +62,10 @@ export async function GET(request: Request) {
   } catch (error) {
     return NextResponse.json({
       ok: false,
-      modelVersion: "mlb-simulated-box-score-v2-plus-pitching-v1",
+      modelVersion: "mlb-simulated-box-score-v2-plus-pitching-v1-plus-pa-script-v1",
       boxScore: null,
       pitching: null,
+      plateAppearanceScript: null,
       projection: null,
       diagnostics: null,
       error: error instanceof Error ? error.message : String(error)
