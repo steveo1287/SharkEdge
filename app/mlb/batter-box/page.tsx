@@ -20,6 +20,10 @@ function num(value: number | null | undefined, digits = 2) {
   return value.toFixed(digits);
 }
 
+function title(value: string) {
+  return value.toLowerCase().replace(/_/g, " ");
+}
+
 function Pill({ label, tone = "neutral" }: { label: string; tone?: "neutral" | "good" | "warn" | "bad" }) {
   const cls = tone === "good"
     ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
@@ -29,6 +33,19 @@ function Pill({ label, tone = "neutral" }: { label: string; tone?: "neutral" | "
         ? "border-rose-400/25 bg-rose-400/10 text-rose-200"
         : "border-white/10 bg-white/[0.045] text-slate-300";
   return <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${cls}`}>{label}</span>;
+}
+
+function toneForLabel(value: string) {
+  if (value === "HIGH") return "good";
+  if (value === "MEDIUM") return "warn";
+  return "bad";
+}
+
+function toneForTier(value: string) {
+  if (value === "ALPHA" || value === "PLUS") return "good";
+  if (value === "VOLATILE") return "warn";
+  if (value === "LOW_SIGNAL") return "bad";
+  return "neutral";
 }
 
 function StatTile({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -59,6 +76,10 @@ function optionHref(option: { gameId: string; awayTeam: string; homeTeam: string
 
 function lineText(row: MlbSimulatedHitterBoxScore) {
   return `${row.likelyLine.atBats}-${row.likelyLine.hits}, ${row.likelyLine.totalBases} TB, ${row.likelyLine.runs} R, ${row.likelyLine.rbi} RBI, ${row.likelyLine.walks} BB, ${row.likelyLine.strikeouts} K`;
+}
+
+function rangeText(row: MlbSimulatedHitterBoxScore) {
+  return `H ${num(row.range.floor.hits, 1)}-${num(row.range.ceiling.hits, 1)} · TB ${num(row.range.floor.totalBases, 1)}-${num(row.range.ceiling.totalBases, 1)} · HR ${num(row.range.floor.homeRuns, 2)}-${num(row.range.ceiling.homeRuns, 2)}`;
 }
 
 function GameSelector({ diagnostics }: { diagnostics: MlbBatterBoxDiagnostics }) {
@@ -135,11 +156,30 @@ function GameSummary({ boxScore }: { boxScore: MlbSimulatedGameBoxScore }) {
   return (
     <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
       <StatTile label="Projected runs" value={num(boxScore.gameTotals.projectedRuns, 2)} sub={`${boxScore.awayTeam.team} ${num(boxScore.awayTeam.totals.projectedRuns, 2)} · ${boxScore.homeTeam.team} ${num(boxScore.homeTeam.totals.projectedRuns, 2)}`} />
-      <StatTile label="Projected hits" value={num(boxScore.gameTotals.projectedHits, 2)} sub="team hitter totals" />
-      <StatTile label="Total bases" value={num(boxScore.gameTotals.projectedTotalBases, 2)} sub="power environment" />
+      <StatTile label="Projected hits" value={num(boxScore.gameTotals.projectedHits, 2)} sub={`${boxScore.gameScript.contactEnvironment.toLowerCase()} contact`} />
+      <StatTile label="Total bases" value={num(boxScore.gameTotals.projectedTotalBases, 2)} sub={`${boxScore.gameScript.powerEnvironment.toLowerCase()} power`} />
       <StatTile label="Home runs" value={num(boxScore.gameTotals.projectedHomeRuns, 2)} sub="simulation mean" />
       <StatTile label="Walks" value={num(boxScore.gameTotals.projectedWalks, 2)} sub="plate discipline" />
-      <StatTile label="Strikeouts" value={num(boxScore.gameTotals.projectedStrikeouts, 2)} sub="pitcher matchup" />
+      <StatTile label="Strikeouts" value={num(boxScore.gameTotals.projectedStrikeouts, 2)} sub={`${boxScore.gameScript.strikeoutEnvironment.toLowerCase()} K pressure`} />
+    </section>
+  );
+}
+
+function GameScriptPanel({ boxScore }: { boxScore: MlbSimulatedGameBoxScore }) {
+  return (
+    <section className="rounded-[1.35rem] border border-aqua/20 bg-aqua/[0.045] p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-aqua">Game script</div>
+          <h2 className="font-display text-2xl font-black tracking-tight text-white">Simulation Read</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Pill label={`scoring ${boxScore.gameScript.scoringEnvironment}`} tone={toneForLabel(boxScore.gameScript.scoringEnvironment)} />
+          <Pill label={`power ${boxScore.gameScript.powerEnvironment}`} tone={toneForLabel(boxScore.gameScript.powerEnvironment)} />
+          <Pill label={`vol ${boxScore.gameScript.volatilityEnvironment}`} tone={toneForLabel(boxScore.gameScript.volatilityEnvironment)} />
+        </div>
+      </div>
+      <div className="text-sm leading-7 text-slate-300">{boxScore.gameScript.summary}</div>
     </section>
   );
 }
@@ -152,16 +192,17 @@ function TeamSummary({ team }: { team: MlbSimulatedTeamBoxScore }) {
           <div className="text-[10px] font-black uppercase tracking-[0.2em] text-aqua">Projected team line</div>
           <h2 className="font-display text-2xl font-black tracking-tight text-white">{team.team}</h2>
         </div>
-        <Pill label={`${num(team.totals.projectedRuns, 2)} runs`} tone="good" />
+        <Pill label={`${num(team.totals.projectedRuns, 2)} runs`} tone={toneForLabel(team.profile.runEnvironment)} />
       </div>
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-        <StatTile label="H" value={num(team.totals.hits, 2)} />
-        <StatTile label="TB" value={num(team.totals.totalBases, 2)} />
+        <StatTile label="H" value={num(team.totals.hits, 2)} sub={team.profile.contactGrade.toLowerCase()} />
+        <StatTile label="TB" value={num(team.totals.totalBases, 2)} sub={team.profile.powerGrade.toLowerCase()} />
         <StatTile label="HR" value={num(team.totals.homeRuns, 2)} />
         <StatTile label="BB" value={num(team.totals.walks, 2)} />
-        <StatTile label="K" value={num(team.totals.strikeouts, 2)} />
-        <StatTile label="SB" value={num(team.totals.stolenBases, 2)} />
+        <StatTile label="K" value={num(team.totals.strikeouts, 2)} sub={`${team.profile.strikeoutRisk.toLowerCase()} risk`} />
+        <StatTile label="Conf" value={pct(team.profile.averageConfidence)} />
       </div>
+      <div className="mt-3 text-xs leading-6 text-slate-400">{team.profile.gameScript}</div>
       <div className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
         <div>Best hit path: <span className="font-semibold text-white">{team.leaders.bestHitProbability?.playerName ?? "—"}</span></div>
         <div>Best power path: <span className="font-semibold text-white">{team.leaders.bestPower?.playerName ?? "—"}</span></div>
@@ -180,7 +221,10 @@ function HitterCard({ hitter }: { hitter: MlbSimulatedHitterBoxScore }) {
           <div className="text-[10px] font-black uppercase tracking-[0.18em] text-aqua">#{hitter.battingOrder} · {hitter.team}</div>
           <h3 className="mt-1 font-display text-2xl font-black tracking-tight text-white">{hitter.playerName}</h3>
         </div>
-        <Pill label={`${Math.round(hitter.confidence * 100)} conf`} tone={confidenceTone(hitter.confidence)} />
+        <div className="flex flex-wrap justify-end gap-2">
+          <Pill label={title(hitter.tier)} tone={toneForTier(hitter.tier)} />
+          <Pill label={`${Math.round(hitter.confidence * 100)} conf`} tone={confidenceTone(hitter.confidence)} />
+        </div>
       </div>
 
       <div className="mt-3 rounded-2xl border border-aqua/15 bg-aqua/[0.045] p-3">
@@ -198,13 +242,17 @@ function HitterCard({ hitter }: { hitter: MlbSimulatedHitterBoxScore }) {
         <StatTile label="K" value={num(hitter.expected.strikeouts, 3)} sub={`2+ ${pct(hitter.probabilities.strikeout2Plus)}`} />
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+          <div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Floor / ceiling</div>
+          <div className="mt-2 text-xs leading-6 text-slate-300">{rangeText(hitter)}</div>
+        </div>
         <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
           <div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Run impact</div>
           <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-300">
             <div>R <span className="font-mono text-white">{num(hitter.expected.runs, 3)}</span></div>
             <div>RBI <span className="font-mono text-white">{num(hitter.expected.rbi, 3)}</span></div>
-            <div>SB <span className="font-mono text-white">{num(hitter.expected.stolenBases, 3)}</span></div>
+            <div>Edge <span className="font-mono text-white">{num(hitter.matchupEdge, 1)}</span></div>
             <div>Impact <span className="font-mono text-white">{num(hitter.impactScore, 1)}</span></div>
           </div>
         </div>
@@ -212,9 +260,9 @@ function HitterCard({ hitter }: { hitter: MlbSimulatedHitterBoxScore }) {
           <div className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Probability profile</div>
           <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-300">
             <div>2+ H <span className="font-mono text-white">{pct(hitter.probabilities.hit2Plus)}</span></div>
-            <div>3+ H <span className="font-mono text-white">{pct(hitter.probabilities.hit3Plus)}</span></div>
             <div>4+ TB <span className="font-mono text-white">{pct(hitter.probabilities.totalBases4Plus)}</span></div>
-            <div>Vol <span className="font-mono text-white">{num(hitter.volatility, 2)}</span></div>
+            <div>Vol <span className="font-mono text-white">{hitter.volatilityLabel}</span></div>
+            <div>Conf <span className="font-mono text-white">{hitter.confidenceLabel}</span></div>
           </div>
         </div>
       </div>
@@ -223,6 +271,21 @@ function HitterCard({ hitter }: { hitter: MlbSimulatedHitterBoxScore }) {
         {hitter.reasons.length ? hitter.reasons.map((reason) => <Pill key={`${hitter.playerId}-${reason}`} label={reason.replace(/-/g, " ")} />) : <Pill label="neutral simulation profile" />}
       </div>
     </article>
+  );
+}
+
+function HitterStrip({ title, hitters, empty }: { title: string; hitters: MlbSimulatedHitterBoxScore[]; empty: string }) {
+  return (
+    <section className="rounded-[1.35rem] border border-white/10 bg-white/[0.035] p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-aqua">Elite grouping</div>
+          <h2 className="font-display text-2xl font-black tracking-tight text-white">{title}</h2>
+        </div>
+        <Pill label={`${hitters.length} hitters`} />
+      </div>
+      {hitters.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">{hitters.slice(0, 8).map((hitter) => <div key={`${title}-${hitter.playerId}`} className="rounded-2xl border border-white/10 bg-black/20 p-3"><div className="flex items-center justify-between gap-2"><div className="font-semibold text-white">{hitter.playerName}</div><Pill label={title === "Alpha bats" ? title(hitter.tier) : hitter.volatilityLabel} tone={title === "Alpha bats" ? toneForTier(hitter.tier) : toneForLabel(hitter.volatilityLabel)} /></div><div className="mt-1 text-xs text-slate-400">{hitter.team} · {lineText(hitter)}</div><div className="mt-1 text-xs text-slate-500">{rangeText(hitter)}</div></div>)}</div> : <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-slate-400">{empty}</div>}
+    </section>
   );
 }
 
@@ -237,10 +300,10 @@ function TeamTable({ team }: { team: MlbSimulatedTeamBoxScore }) {
         <Pill label={`${team.hitters.length} hitters`} />
       </div>
       <div className="overflow-x-auto">
-        <table className="min-w-[1120px] w-full text-left text-xs">
+        <table className="min-w-[1320px] w-full text-left text-xs">
           <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
             <tr className="border-b border-white/10">
-              <th className="py-2 pr-3">#</th><th className="py-2 pr-3">Player</th><th className="py-2 pr-3">Likely line</th><th className="py-2 pr-3 text-right">PA</th><th className="py-2 pr-3 text-right">AB</th><th className="py-2 pr-3 text-right">H</th><th className="py-2 pr-3 text-right">TB</th><th className="py-2 pr-3 text-right">HR</th><th className="py-2 pr-3 text-right">R</th><th className="py-2 pr-3 text-right">RBI</th><th className="py-2 pr-3 text-right">BB</th><th className="py-2 pr-3 text-right">K</th><th className="py-2 pr-3 text-right">1+H</th><th className="py-2 pr-3 text-right">2+TB</th><th className="py-2 pr-3 text-right">HR%</th><th className="py-2 text-right">Conf</th>
+              <th className="py-2 pr-3">#</th><th className="py-2 pr-3">Player</th><th className="py-2 pr-3">Tier</th><th className="py-2 pr-3">Likely line</th><th className="py-2 pr-3">Range</th><th className="py-2 pr-3 text-right">PA</th><th className="py-2 pr-3 text-right">AB</th><th className="py-2 pr-3 text-right">H</th><th className="py-2 pr-3 text-right">TB</th><th className="py-2 pr-3 text-right">HR</th><th className="py-2 pr-3 text-right">R</th><th className="py-2 pr-3 text-right">RBI</th><th className="py-2 pr-3 text-right">BB</th><th className="py-2 pr-3 text-right">K</th><th className="py-2 pr-3 text-right">1+H</th><th className="py-2 pr-3 text-right">2+TB</th><th className="py-2 pr-3 text-right">HR%</th><th className="py-2 text-right">Conf</th>
             </tr>
           </thead>
           <tbody>
@@ -248,7 +311,9 @@ function TeamTable({ team }: { team: MlbSimulatedTeamBoxScore }) {
               <tr key={hitter.playerId} className="border-b border-white/[0.06] text-slate-300">
                 <td className="py-2.5 pr-3 font-mono text-slate-500">{hitter.battingOrder}</td>
                 <td className="py-2.5 pr-3 font-semibold text-white">{hitter.playerName}</td>
+                <td className="py-2.5 pr-3"><Pill label={title(hitter.tier)} tone={toneForTier(hitter.tier)} /></td>
                 <td className="py-2.5 pr-3 text-slate-400">{lineText(hitter)}</td>
+                <td className="py-2.5 pr-3 text-slate-500">{rangeText(hitter)}</td>
                 <td className="py-2.5 pr-3 text-right font-mono">{num(hitter.expected.plateAppearances, 2)}</td>
                 <td className="py-2.5 pr-3 text-right font-mono">{num(hitter.expected.atBats, 2)}</td>
                 <td className="py-2.5 pr-3 text-right font-mono">{num(hitter.expected.hits, 3)}</td>
@@ -292,9 +357,9 @@ export default async function MlbBatterBoxPage({ searchParams }: BatterBoxPagePr
             <div>
               <div className="text-[10px] font-black uppercase tracking-[0.24em] text-aqua">Simulation-only prediction</div>
               <h1 className="mt-3 max-w-4xl font-display text-4xl font-black leading-[0.95] tracking-[-0.06em] text-white sm:text-6xl">MLB Simulated Box Score</h1>
-              <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-400">Projected player and team stat lines from the simulation engine. No prop odds are required. The screen answers what SharkEdge predicts will happen: hits, total bases, home runs, runs, RBI, walks, strikeouts, probabilities, confidence, and drivers.</p>
+              <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-400">Projected player and team stat lines from the simulation engine. No prop odds are required. Now includes alpha bats, volatile ceiling bats, floor/median/ceiling bands, matchup edge, volatility, confidence, and game-script labels.</p>
             </div>
-            {diagnostics.selectedGame ? <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-right"><div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Selected</div><div className="mt-1 font-display text-2xl font-black text-white">{diagnostics.selectedGame.awayTeam} @ {diagnostics.selectedGame.homeTeam}</div><div className="mt-1 text-xs text-slate-500">{diagnostics.selectedGame.source} · {boxScore ? `${boxScore.topProjectedHitters.length} top hitters ranked` : "not loaded"}</div></div> : null}
+            {diagnostics.selectedGame ? <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-right"><div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Selected</div><div className="mt-1 font-display text-2xl font-black text-white">{diagnostics.selectedGame.awayTeam} @ {diagnostics.selectedGame.homeTeam}</div><div className="mt-1 text-xs text-slate-500">{diagnostics.selectedGame.source} · {boxScore ? `${boxScore.alphaHitters.length} alpha/plus bats` : "not loaded"}</div></div> : null}
           </div>
         </section>
 
@@ -303,11 +368,14 @@ export default async function MlbBatterBoxPage({ searchParams }: BatterBoxPagePr
 
         {boxScore ? (
           <>
+            <GameScriptPanel boxScore={boxScore} />
             <GameSummary boxScore={boxScore} />
             <section className="grid gap-4 lg:grid-cols-2">
               <TeamSummary team={boxScore.awayTeam} />
               <TeamSummary team={boxScore.homeTeam} />
             </section>
+            <HitterStrip title="Alpha bats" hitters={boxScore.alphaHitters} empty="No alpha/plus hitters in this simulation." />
+            <HitterStrip title="Volatile ceiling bats" hitters={boxScore.volatileCeilingHitters} empty="No high-volatility ceiling hitters in this simulation." />
             <section className="grid gap-4 lg:grid-cols-2">
               {boxScore.topProjectedHitters.slice(0, 6).map((hitter) => <HitterCard key={`leader-${hitter.playerId}`} hitter={hitter} />)}
             </section>
