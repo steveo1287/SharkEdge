@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { persistMlbPlayerPropCalibrationRows, type MlbPlayerPropCalibrationPersistRow } from "@/services/simulation/mlb-player-prop-calibration-persistence";
 import type { MarketType } from "@prisma/client";
 
 function extractStat(statsJson: any, propType: MarketType): number | null {
@@ -11,6 +12,7 @@ function extractStat(statsJson: any, propType: MarketType): number | null {
       return statsJson.rebounds ?? null;
     case "player_assists":
       return statsJson.assists ?? null;
+    case "player_pitcher_strikeouts":
     case "player_strikeouts":
       return statsJson.strikeouts ?? null;
     case "player_home_runs":
@@ -48,6 +50,29 @@ function determineResult(
   return "LOSS";
 }
 
+function toMlbMarket(propType: MarketType): MlbPlayerPropCalibrationPersistRow["market"] | null {
+  switch (propType as string) {
+    case "player_hits": return "HITS";
+    case "player_home_runs": return "HOME_RUN";
+    case "player_pitcher_strikeouts":
+    case "player_strikeouts": return "STRIKEOUTS";
+    default: return null;
+  }
+}
+
+function impliedProbability(americanOdds: number) {
+  if (!Number.isFinite(americanOdds) || americanOdds === 0) return null;
+  if (americanOdds < 0) return Math.abs(americanOdds) / (Math.abs(americanOdds) + 100);
+  return 100 / (americanOdds + 100);
+}
+
+function predictionModelProbability(prediction: { side: string; simOverPct: number; simUnderPct: number }) {
+  const side = prediction.side.toUpperCase();
+  if (side === "OVER") return prediction.simOverPct > 1 ? prediction.simOverPct / 100 : prediction.simOverPct;
+  if (side === "UNDER") return prediction.simUnderPct > 1 ? prediction.simUnderPct / 100 : prediction.simUnderPct;
+  return prediction.simOverPct > 1 ? prediction.simOverPct / 100 : prediction.simOverPct;
+}
+
 export async function settleSimPredictions() {
   const openPredictions = await prisma.simPrediction.findMany({
     where: { result: "OPEN" },
@@ -56,6 +81,7 @@ export async function settleSimPredictions() {
   });
 
   const errors: string[] = [];
+  const calibrationRows: MlbPlayerPropCalibrationPersistRow[] = [];
   let settledCount = 0;
 
   for (const prediction of openPredictions) {
@@ -83,10 +109,41 @@ export async function settleSimPredictions() {
       if (actualValue === null) continue;
 
       const result = determineResult(prediction.side, prediction.line, actualValue);
+      const settledAt = new Date();
       await prisma.simPrediction.update({
         where: { id: prediction.id },
-        data: { result, actualValue, settledAt: new Date() }
+        data: { result, actualValue, settledAt }
       });
+
+      const market = toMlbMarket(prediction.propType);
+      if (market && result !== "PUSH") {
+        calibrationRows.push({
+          rowKey: `sim:${prediction.id}`,
+          sourceKey: "SIM_SETTLEMENT",
+          eventId: prediction.eventId,
+          gameId: game?.id ?? null,
+          playerId: prediction.playerId,
+          playerName: prediction.playerName,
+          market,
+          line: prediction.line,
+          side: prediction.side.toUpperCase() as MlbPlayerPropCalibrationPersistRow["side"],
+          modelProbability: predictionModelProbability(prediction),
+          rawModelProbability: predictionModelProbability(prediction),
+          confidence: prediction.confidence,
+          won: result === "WIN",
+          actualValue,
+          book: null,
+          oddsAmerican: prediction.bookOdds,
+          impliedProbability: impliedProbability(prediction.bookOdds),
+          settledAt: settledAt.toISOString(),
+          metadataJson: {
+            simPredictionId: prediction.id,
+            league: prediction.league,
+            edgePct: prediction.edgePct,
+            result
+          }
+        });
+      }
 
       settledCount++;
     } catch (err) {
@@ -94,9 +151,14 @@ export async function settleSimPredictions() {
     }
   }
 
+  const calibrationPersistence = await persistMlbPlayerPropCalibrationRows(calibrationRows);
+  errors.push(...calibrationPersistence.warnings);
+
   return {
     settledCount,
     totalOpen: openPredictions.length,
+    calibrationRowsPersisted: calibrationPersistence.persistedCount,
+    calibrationRowsSkipped: calibrationPersistence.skippedCount,
     errors
   };
 }
