@@ -1,4 +1,5 @@
 import { loadMlbBatterBoxProjection } from "@/services/simulation/mlb-batter-box-loader";
+import { buildMlbPlateAppearanceGameScript } from "@/services/simulation/mlb-plate-appearance-game-script";
 import { buildMlbSimulatedBoxScore } from "@/services/simulation/mlb-simulated-box-score";
 import { buildMlbSimulatedPitchingBoxScores } from "@/services/simulation/mlb-simulated-pitching-box-score";
 
@@ -40,6 +41,12 @@ async function main() {
       strikeouts: boxScore.homeTeam.totals.strikeouts
     }
   }) : null;
+  const plateAppearanceScript = projection && boxScore && pitching ? buildMlbPlateAppearanceGameScript({
+    projection,
+    boxScore,
+    awayPitching: pitching.awayPitching,
+    homePitching: pitching.homePitching
+  }) : null;
   const payload = {
     ok: Boolean(projection),
     command: "check-mlb-batter-box",
@@ -63,6 +70,39 @@ async function main() {
       homePitching: pitching.homePitching,
       pitchingMatchup: pitching.pitchingMatchup,
       reconciliation: pitching.reconciliation
+    } : null,
+    plateAppearanceScript: plateAppearanceScript ? {
+      summary: plateAppearanceScript.summary,
+      awayStarterHandoffInning: plateAppearanceScript.awayTeam.starterHandoffInning,
+      homeStarterHandoffInning: plateAppearanceScript.homeTeam.starterHandoffInning,
+      awayBullpenExposureShare: plateAppearanceScript.awayTeam.bullpenExposureShare,
+      homeBullpenExposureShare: plateAppearanceScript.homeTeam.bullpenExposureShare,
+      awayLatePaCandidates: plateAppearanceScript.awayTeam.latePaCandidates.map((path) => ({
+        playerName: path.playerName,
+        team: path.team,
+        latePaChance: path.latePaChance,
+        bestHitWindow: path.bestHitWindow,
+        bestPowerWindow: path.bestPowerWindow
+      })),
+      homeLatePaCandidates: plateAppearanceScript.homeTeam.latePaCandidates.map((path) => ({
+        playerName: path.playerName,
+        team: path.team,
+        latePaChance: path.latePaChance,
+        bestHitWindow: path.bestHitWindow,
+        bestPowerWindow: path.bestPowerWindow
+      })),
+      topPlateAppearancePaths: plateAppearanceScript.topPlateAppearancePaths.map((path) => ({
+        playerName: path.playerName,
+        team: path.team,
+        battingOrder: path.battingOrder,
+        expectedPlateAppearances: path.expectedPlateAppearances,
+        latePaChance: path.latePaChance,
+        bullpenExposureShare: path.bullpenExposureShare,
+        bestHitWindow: path.bestHitWindow,
+        bestPowerWindow: path.bestPowerWindow,
+        highestStrikeoutRiskWindow: path.highestStrikeoutRiskWindow,
+        summary: path.summary
+      }))
     } : null,
     simulatedTotals: boxScore ? {
       awayTeam: boxScore.awayTeam.team,
