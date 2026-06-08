@@ -9,6 +9,10 @@ type WorkerTask = {
 export {};
 
 const DEFAULT_WEB_INTERNAL_URL = "http://sharkedge-web:3000";
+// MLB useful refresh window: roughly 10am-1am US Central during normal game days.
+// This avoids burning calls overnight while still covering morning board build, line moves,
+// lineups, games, and post-game settlement windows.
+const DEFAULT_MLB_ACTIVE_UTC_HOURS = new Set([0, 1, 2, 3, 4, 5, 6, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
 
 function intEnv(name: string, fallback: number, min: number, max: number) {
   const parsed = Number(process.env[name]);
@@ -30,6 +34,10 @@ function csvSetEnv(name: string) {
       .map((item) => Number(item.trim()))
       .filter((value) => Number.isInteger(value) && value >= 0 && value <= 23)
   );
+}
+
+function mlbActiveUtcHours(name: string) {
+  return csvSetEnv(name) ?? DEFAULT_MLB_ACTIVE_UTC_HOURS;
 }
 
 function serviceBaseUrl() {
@@ -55,42 +63,61 @@ function shouldRun(task: WorkerTask, date = new Date()) {
 }
 
 function simTasks(): WorkerTask[] {
+  const mlbLookbackDays = intEnv("MLB_SIM_PREFLIGHT_LOOKBACK_DAYS", 45, 7, 365);
+  const mlbLimit = intEnv("MLB_SIM_PREFLIGHT_LIMIT", 1500, 100, 5000);
+  const statsGuardMinutes = intEnv("MLB_STATS_PIPELINE_GUARD_MINUTES", 360, 60, 1440);
+  const simActiveHours = mlbActiveUtcHours("SIM_REFRESH_ACTIVE_UTC_HOURS");
+  const marketActiveHours = mlbActiveUtcHours("SIM_MARKET_REFRESH_ACTIVE_UTC_HOURS");
+
   return [
     {
       name: "mlb-stats-ingest",
       path:
         process.env.RAILWAY_MLB_STATS_INGEST_PATH?.trim() ||
         `/api/internal/cron/stats-ingest?includeNba=0&lookbackDays=${intEnv("MLB_STATS_LOOKBACK_DAYS", 3, 1, 14)}&advancedLookbackDays=${intEnv("MLB_ADVANCED_STATS_LOOKBACK_DAYS", 7, 1, 14)}`,
-      intervalSeconds: intEnv("MLB_STATS_INGEST_INTERVAL_SECONDS", 21600, 1800, 86400),
-      runImmediately: boolEnv("MLB_STATS_INGEST_RUN_IMMEDIATELY", true)
+      // Heavy-ish warehouse pull. Twice daily by default; override if needed.
+      intervalSeconds: intEnv("MLB_STATS_INGEST_INTERVAL_SECONDS", 43200, 3600, 86400),
+      runImmediately: boolEnv("MLB_STATS_INGEST_RUN_IMMEDIATELY", false),
+      activeUtcHours: csvSetEnv("MLB_STATS_INGEST_ACTIVE_UTC_HOURS") ?? new Set([11, 23])
     },
     {
       name: "mlb-player-prop-inning-grade",
       path:
         process.env.RAILWAY_MLB_PLAYER_PROP_GRADE_PATH?.trim() ||
         `/api/internal/cron/mlb-player-prop-inning-grade?limit=${intEnv("MLB_PLAYER_PROP_GRADE_LIMIT", 2000, 1, 5000)}`,
-      intervalSeconds: intEnv("MLB_PLAYER_PROP_GRADE_INTERVAL_SECONDS", 3600, 900, 86400),
-      runImmediately: boolEnv("MLB_PLAYER_PROP_GRADE_RUN_IMMEDIATELY", false)
+      // Not needed every hour for sim readiness. Keep it warm every 3 hours in active windows.
+      intervalSeconds: intEnv("MLB_PLAYER_PROP_GRADE_INTERVAL_SECONDS", 10800, 1800, 86400),
+      runImmediately: boolEnv("MLB_PLAYER_PROP_GRADE_RUN_IMMEDIATELY", false),
+      activeUtcHours: mlbActiveUtcHours("MLB_PLAYER_PROP_GRADE_ACTIVE_UTC_HOURS")
     },
     {
       name: "mlb-player-market-calibration",
       path:
         process.env.RAILWAY_MLB_PLAYER_MARKET_CALIBRATION_PATH?.trim() ||
         `/api/internal/cron/mlb-player-market-calibration?limit=${intEnv("MLB_PLAYER_MARKET_CALIBRATION_LIMIT", 25000, 100, 100000)}`,
-      intervalSeconds: intEnv("MLB_PLAYER_MARKET_CALIBRATION_INTERVAL_SECONDS", 21600, 3600, 604800),
-      runImmediately: boolEnv("MLB_PLAYER_MARKET_CALIBRATION_RUN_IMMEDIATELY", false)
+      // Daily calibration is enough unless actively backfilling.
+      intervalSeconds: intEnv("MLB_PLAYER_MARKET_CALIBRATION_INTERVAL_SECONDS", 86400, 21600, 604800),
+      runImmediately: boolEnv("MLB_PLAYER_MARKET_CALIBRATION_RUN_IMMEDIATELY", false),
+      activeUtcHours: csvSetEnv("MLB_PLAYER_MARKET_CALIBRATION_ACTIVE_UTC_HOURS") ?? new Set([9])
     },
     {
       name: "sim-refresh",
-      path: process.env.RAILWAY_SIM_REFRESH_PATH?.trim() || "/api/cron/sim-refresh?statsPreflight=1&runMlb=1&runUfc=0",
-      intervalSeconds: intEnv("SIM_REFRESH_INTERVAL_SECONDS", 1800, 300, 21600),
-      runImmediately: boolEnv("SIM_REFRESH_RUN_IMMEDIATELY", true)
+      path:
+        process.env.RAILWAY_SIM_REFRESH_PATH?.trim() ||
+        `/api/cron/sim-refresh?statsPreflight=1&runMlb=1&runUfc=0&includeLineups=1&statsGuardMinutes=${statsGuardMinutes}&mlbLookbackDays=${mlbLookbackDays}&mlbLimit=${mlbLimit}`,
+      // Main board/projection refresh. Every 30 minutes inside MLB active hours.
+      // The stats preflight has its own 6-hour guard, so this does not rebuild player ratings every run.
+      intervalSeconds: intEnv("SIM_REFRESH_INTERVAL_SECONDS", 1800, 900, 21600),
+      runImmediately: boolEnv("SIM_REFRESH_RUN_IMMEDIATELY", true),
+      activeUtcHours: simActiveHours
     },
     {
       name: "sim-market-refresh",
       path: process.env.RAILWAY_SIM_MARKET_REFRESH_PATH?.trim() || "/api/cron/sim-market-refresh",
-      intervalSeconds: intEnv("SIM_MARKET_REFRESH_INTERVAL_SECONDS", 600, 120, 7200),
-      runImmediately: boolEnv("SIM_MARKET_RUN_IMMEDIATELY", true)
+      // Market context/line overlay. Every 15 minutes inside MLB active hours.
+      intervalSeconds: intEnv("SIM_MARKET_REFRESH_INTERVAL_SECONDS", 900, 300, 7200),
+      runImmediately: boolEnv("SIM_MARKET_RUN_IMMEDIATELY", true),
+      activeUtcHours: marketActiveHours
     }
   ];
 }
@@ -102,9 +129,10 @@ function mlbOddsTasks(): WorkerTask[] {
       path:
         process.env.RAILWAY_MLB_ODDS_PATH?.trim() ||
         `/api/cron/odds-api-io/mlb?eventLimit=${intEnv("ODDS_API_IO_EVENT_LIMIT", 20, 1, 40)}`,
-      intervalSeconds: intEnv("MLB_ODDS_REFRESH_INTERVAL_SECONDS", 600, 300, 21600),
+      // Raw odds/provider pull. Every 15 minutes during MLB active hours.
+      intervalSeconds: intEnv("MLB_ODDS_REFRESH_INTERVAL_SECONDS", 900, 300, 21600),
       runImmediately: boolEnv("MLB_ODDS_RUN_IMMEDIATELY", true),
-      activeUtcHours: csvSetEnv("MLB_ODDS_ACTIVE_UTC_HOURS") ?? new Set([0, 1, 2, 3, 4, 5, 6, 15, 16, 17, 18, 19, 20, 21, 22, 23])
+      activeUtcHours: mlbActiveUtcHours("MLB_ODDS_ACTIVE_UTC_HOURS")
     }
   ];
 }
