@@ -1,11 +1,27 @@
 import { loadMlbBatterBoxProjection } from "@/services/simulation/mlb-batter-box-loader";
 import { buildMlbPlateAppearanceGameScript } from "@/services/simulation/mlb-plate-appearance-game-script";
+import { buildMlbPaWindowRanking } from "@/services/simulation/mlb-pa-window-ranking";
 import { buildMlbSimulatedBoxScore } from "@/services/simulation/mlb-simulated-box-score";
 import { buildMlbSimulatedPitchingBoxScores } from "@/services/simulation/mlb-simulated-pitching-box-score";
 
 function argValue(name: string) {
   const prefix = `--${name}=`;
   return process.argv.find((arg) => arg.startsWith(prefix))?.slice(prefix.length) ?? "";
+}
+
+function compactRank(row: { rank: number; playerName: string; team: string; score: number; bestHitWindow: unknown; bestPowerWindow: unknown; highestStrikeoutRiskWindow: unknown; latePaChance: number; bullpenExposureShare: number; drivers: string[] }) {
+  return {
+    rank: row.rank,
+    playerName: row.playerName,
+    team: row.team,
+    score: row.score,
+    latePaChance: row.latePaChance,
+    bullpenExposureShare: row.bullpenExposureShare,
+    bestHitWindow: row.bestHitWindow,
+    bestPowerWindow: row.bestPowerWindow,
+    highestStrikeoutRiskWindow: row.highestStrikeoutRiskWindow,
+    drivers: row.drivers
+  };
 }
 
 async function main() {
@@ -47,6 +63,7 @@ async function main() {
     awayPitching: pitching.awayPitching,
     homePitching: pitching.homePitching
   }) : null;
+  const paWindowRanking = boxScore && plateAppearanceScript ? buildMlbPaWindowRanking({ boxScore, plateAppearanceScript }) : null;
   const payload = {
     ok: Boolean(projection),
     command: "check-mlb-batter-box",
@@ -77,20 +94,8 @@ async function main() {
       homeStarterHandoffInning: plateAppearanceScript.homeTeam.starterHandoffInning,
       awayBullpenExposureShare: plateAppearanceScript.awayTeam.bullpenExposureShare,
       homeBullpenExposureShare: plateAppearanceScript.homeTeam.bullpenExposureShare,
-      awayLatePaCandidates: plateAppearanceScript.awayTeam.latePaCandidates.map((path) => ({
-        playerName: path.playerName,
-        team: path.team,
-        latePaChance: path.latePaChance,
-        bestHitWindow: path.bestHitWindow,
-        bestPowerWindow: path.bestPowerWindow
-      })),
-      homeLatePaCandidates: plateAppearanceScript.homeTeam.latePaCandidates.map((path) => ({
-        playerName: path.playerName,
-        team: path.team,
-        latePaChance: path.latePaChance,
-        bestHitWindow: path.bestHitWindow,
-        bestPowerWindow: path.bestPowerWindow
-      })),
+      awayLatePaCandidates: plateAppearanceScript.awayTeam.latePaCandidates.map((path) => ({ playerName: path.playerName, team: path.team, latePaChance: path.latePaChance, bestHitWindow: path.bestHitWindow, bestPowerWindow: path.bestPowerWindow })),
+      homeLatePaCandidates: plateAppearanceScript.homeTeam.latePaCandidates.map((path) => ({ playerName: path.playerName, team: path.team, latePaChance: path.latePaChance, bestHitWindow: path.bestHitWindow, bestPowerWindow: path.bestPowerWindow })),
       topPlateAppearancePaths: plateAppearanceScript.topPlateAppearancePaths.map((path) => ({
         playerName: path.playerName,
         team: path.team,
@@ -103,6 +108,16 @@ async function main() {
         highestStrikeoutRiskWindow: path.highestStrikeoutRiskWindow,
         summary: path.summary
       }))
+    } : null,
+    paWindowRanking: paWindowRanking ? {
+      summary: paWindowRanking.summary,
+      overall: paWindowRanking.overall.slice(0, 8).map(compactRank),
+      bestHitWindows: paWindowRanking.bestHitWindows.slice(0, 5).map(compactRank),
+      bestPowerWindows: paWindowRanking.bestPowerWindows.slice(0, 5).map(compactRank),
+      bullpenExposureUpside: paWindowRanking.bullpenExposureUpside.slice(0, 5).map(compactRank),
+      latePaUpside: paWindowRanking.latePaUpside.slice(0, 5).map(compactRank),
+      kRiskTraps: paWindowRanking.kRiskTraps.slice(0, 5).map(compactRank),
+      safestContact: paWindowRanking.safestContact.slice(0, 5).map(compactRank)
     } : null,
     simulatedTotals: boxScore ? {
       awayTeam: boxScore.awayTeam.team,
@@ -117,27 +132,8 @@ async function main() {
       awayProfile: boxScore.awayTeam.profile,
       homeProfile: boxScore.homeTeam.profile
     } : null,
-    alphaHitters: boxScore ? boxScore.alphaHitters.map((hitter) => ({
-      playerName: hitter.playerName,
-      team: hitter.team,
-      tier: hitter.tier,
-      likelyLine: hitter.likelyLine,
-      range: hitter.range,
-      impactScore: hitter.impactScore,
-      matchupEdge: hitter.matchupEdge,
-      confidenceLabel: hitter.confidenceLabel,
-      summary: hitter.summary
-    })) : [],
-    volatileCeilingHitters: boxScore ? boxScore.volatileCeilingHitters.map((hitter) => ({
-      playerName: hitter.playerName,
-      team: hitter.team,
-      tier: hitter.tier,
-      likelyLine: hitter.likelyLine,
-      range: hitter.range,
-      volatility: hitter.volatility,
-      volatilityLabel: hitter.volatilityLabel,
-      summary: hitter.summary
-    })) : [],
+    alphaHitters: boxScore ? boxScore.alphaHitters.map((hitter) => ({ playerName: hitter.playerName, team: hitter.team, tier: hitter.tier, likelyLine: hitter.likelyLine, range: hitter.range, impactScore: hitter.impactScore, matchupEdge: hitter.matchupEdge, confidenceLabel: hitter.confidenceLabel, summary: hitter.summary })) : [],
+    volatileCeilingHitters: boxScore ? boxScore.volatileCeilingHitters.map((hitter) => ({ playerName: hitter.playerName, team: hitter.team, tier: hitter.tier, likelyLine: hitter.likelyLine, range: hitter.range, volatility: hitter.volatility, volatilityLabel: hitter.volatilityLabel, summary: hitter.summary })) : [],
     topSimulatedLines: boxScore ? boxScore.topProjectedHitters.slice(0, 10).map((hitter) => ({
       playerId: hitter.playerId,
       playerName: hitter.playerName,
