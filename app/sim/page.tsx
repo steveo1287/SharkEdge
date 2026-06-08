@@ -73,8 +73,7 @@ async function readData() {
   ]);
   const mlbPriority = mlbOnlyPriority(priority);
   const edgeByGame = new Map((market?.edges ?? []).map((edge) => [edge.gameId, edge]));
-  const games = buildCards(mlbPriority?.rows ?? [], edgeByGame);
-  return { priority: mlbPriority, market, games };
+  return buildCards(mlbPriority?.rows ?? [], edgeByGame);
 }
 
 function buildCards(rows: SimPriorityRow[], edgeByGame: Map<string, MarketEdge>): SimGameCard[] {
@@ -85,10 +84,6 @@ function buildCards(rows: SimPriorityRow[], edgeByGame: Map<string, MarketEdge>)
     if (!existing || rowScore(row) > rowScore(existing.row)) map.set(key, { key, row, edge: edgeByGame.get(row.id) ?? null });
   }
   return [...map.values()].sort((a, b) => rowScore(b.row) - rowScore(a.row));
-}
-
-function navClass(active = false) {
-  return active ? "rounded-full border border-aqua/30 bg-aqua/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-aqua" : "rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-slate-300 hover:text-aqua";
 }
 
 function Badge({ label, tone = "slate" }: { label: string; tone?: "slate" | "aqua" | "green" | "amber" }) {
@@ -120,21 +115,12 @@ function GameCard({ game }: { game: SimGameCard }) {
 }
 
 export default async function SimHubPage() {
-  const { priority, market, games } = await readData();
-  const marketLines = market?.lineCount ?? 0;
+  const games = await readData();
   const top = games.slice(0, 8);
 
-  return (
-    <main className="space-y-4">
-      <section className="rounded-[1.2rem] border border-white/10 bg-white/[0.035] p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div><h1 className="font-display text-3xl font-black tracking-[-0.05em] text-white">SimHub</h1><p className="mt-1 text-sm text-slate-500">Clean slate view. Open a league or game for detail.</p></div>
-          <div className="flex flex-wrap gap-2"><Link href="/sim/mlb" className={navClass()}>MLB</Link><Link href="/sim/ufc" className={navClass()}>UFC</Link><Link href="/mlb/batter-box" className={navClass()}>Batter Box</Link><Link href="/accuracy" className={navClass()}>Accuracy</Link></div>
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2"><Badge label={`${games.length} MLB games`} tone={games.length ? "green" : "slate"} /><Badge label={`${marketLines} market lines`} tone={marketLines ? "aqua" : "slate"} />{priority?.stale ? <Badge label="cached" tone="amber" /> : null}</div>
-      </section>
-
-      {top.length ? <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{top.map((game) => <GameCard key={game.key} game={game} />)}</section> : <EmptyState eyebrow="SimHub" title="No MLB games available" description="Run the sim refresh job if the slate should be populated." />}
+  return top.length ? (
+    <main className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {top.map((game) => <GameCard key={game.key} game={game} />)}
     </main>
-  );
+  ) : <EmptyState eyebrow="SimHub" title="No MLB games available" description="Run the sim refresh job if the slate should be populated." />;
 }
