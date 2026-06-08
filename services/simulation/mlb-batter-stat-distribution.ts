@@ -1,3 +1,5 @@
+import type { MlbPlayerStatMarketVariance } from "@/services/simulation/mlb-elite-hitter-context-adjustment";
+
 export type MlbBatterStatDistribution = {
   hit0Probability: number;
   hit1PlusProbability: number;
@@ -14,6 +16,7 @@ export type MlbBatterStatDistribution = {
   strikeout2PlusProbability: number;
   strikeout3PlusProbability: number;
   volatility: number;
+  marketVolatility: MlbPlayerStatMarketVariance;
   distributionConfidence: number;
   notes: string[];
 };
@@ -46,6 +49,16 @@ function eventProbability(mean: number, volatility = 1) {
   return round(clamp(1 - Math.exp(-Math.max(0, mean) * volatility), 0, 0.98), 4);
 }
 
+function defaultMarketVolatility(): MlbPlayerStatMarketVariance {
+  return {
+    hits: 1,
+    totalBases: 1,
+    homeRun: 1,
+    walks: 1,
+    strikeouts: 1
+  };
+}
+
 export function buildMlbBatterStatDistribution(args: {
   expectedHits: number;
   expectedTotalBases: number;
@@ -57,40 +70,58 @@ export function buildMlbBatterStatDistribution(args: {
   contactMultiplier: number;
   statConfidence: number;
   advancedConfidence: number;
+  marketVolatility?: Partial<MlbPlayerStatMarketVariance> | null;
   drivers: string[];
 }): MlbBatterStatDistribution {
   const powerVol = clamp(args.powerMultiplier, 0.82, 1.28);
   const contactVol = clamp(1.08 - (args.contactMultiplier - 1) * 0.35, 0.88, 1.18);
   const paVol = clamp(args.expectedPlateAppearances / 4.35, 0.82, 1.18);
   const volatility = round(clamp((powerVol * 0.48 + contactVol * 0.32 + paVol * 0.2), 0.78, 1.32), 3);
+  const marketVolatility = {
+    ...defaultMarketVolatility(),
+    ...(args.marketVolatility ?? {})
+  };
   const confidence = round(clamp(args.statConfidence * 0.62 + args.advancedConfidence * 0.38, 0.22, 0.94), 3);
   const hitMean = clamp(args.expectedHits, 0, 3.2);
   const tbMean = clamp(args.expectedTotalBases, 0, 8);
   const kMean = clamp(args.expectedStrikeouts, 0, 5.5);
   const bbMean = clamp(args.expectedWalks, 0, 3.2);
   const hrMean = clamp(args.expectedHomeRuns, 0, 1.2);
+  const hitVol = clamp(volatility * marketVolatility.hits, 0.68, 1.58);
+  const tbVol = clamp(volatility * marketVolatility.totalBases, 0.68, 1.7);
+  const hrVol = clamp(args.powerMultiplier * marketVolatility.homeRun, 0.64, 1.95);
+  const walkVol = clamp(marketVolatility.walks, 0.68, 1.55);
+  const strikeoutVol = clamp(marketVolatility.strikeouts, 0.68, 1.58);
   const notes = [
     `Distribution uses mean stat projection with volatility ${volatility.toFixed(2)}.`,
+    `Market volatility H ${marketVolatility.hits.toFixed(2)}, TB ${marketVolatility.totalBases.toFixed(2)}, HR ${marketVolatility.homeRun.toFixed(2)}, BB ${marketVolatility.walks.toFixed(2)}, K ${marketVolatility.strikeouts.toFixed(2)}.`,
     `Confidence blends batter sample and advanced matchup context at ${confidence.toFixed(2)}.`,
     `Drivers: ${args.drivers.slice(0, 5).join(", ") || "neutral"}.`
   ];
 
   return {
-    hit0Probability: round(poissonCdf(0, hitMean * volatility), 4),
-    hit1PlusProbability: probAtLeast(1, hitMean, volatility),
-    hit2PlusProbability: probAtLeast(2, hitMean, volatility),
-    hit3PlusProbability: probAtLeast(3, hitMean, volatility),
-    totalBases1PlusProbability: probAtLeast(1, tbMean, clamp(volatility * 0.96, 0.78, 1.28)),
-    totalBases2PlusProbability: probAtLeast(2, tbMean, clamp(volatility * 0.98, 0.78, 1.3)),
-    totalBases3PlusProbability: probAtLeast(3, tbMean, clamp(volatility * 1.02, 0.78, 1.34)),
-    totalBases4PlusProbability: probAtLeast(4, tbMean, clamp(volatility * 1.05, 0.78, 1.38)),
-    homeRunProbability: eventProbability(hrMean, clamp(args.powerMultiplier, 0.8, 1.35)),
-    walk1PlusProbability: eventProbability(bbMean, 1),
-    strikeout0Probability: round(poissonCdf(0, kMean), 4),
-    strikeout1PlusProbability: probAtLeast(1, kMean, 1),
-    strikeout2PlusProbability: probAtLeast(2, kMean, 1),
-    strikeout3PlusProbability: probAtLeast(3, kMean, 1),
+    hit0Probability: round(poissonCdf(0, hitMean * hitVol), 4),
+    hit1PlusProbability: probAtLeast(1, hitMean, hitVol),
+    hit2PlusProbability: probAtLeast(2, hitMean, hitVol),
+    hit3PlusProbability: probAtLeast(3, hitMean, hitVol),
+    totalBases1PlusProbability: probAtLeast(1, tbMean, clamp(tbVol * 0.96, 0.68, 1.64)),
+    totalBases2PlusProbability: probAtLeast(2, tbMean, clamp(tbVol * 0.98, 0.68, 1.68)),
+    totalBases3PlusProbability: probAtLeast(3, tbMean, clamp(tbVol * 1.02, 0.68, 1.72)),
+    totalBases4PlusProbability: probAtLeast(4, tbMean, clamp(tbVol * 1.05, 0.68, 1.78)),
+    homeRunProbability: eventProbability(hrMean, hrVol),
+    walk1PlusProbability: eventProbability(bbMean, walkVol),
+    strikeout0Probability: round(poissonCdf(0, kMean * strikeoutVol), 4),
+    strikeout1PlusProbability: probAtLeast(1, kMean, strikeoutVol),
+    strikeout2PlusProbability: probAtLeast(2, kMean, strikeoutVol),
+    strikeout3PlusProbability: probAtLeast(3, kMean, strikeoutVol),
     volatility,
+    marketVolatility: {
+      hits: round(marketVolatility.hits, 3),
+      totalBases: round(marketVolatility.totalBases, 3),
+      homeRun: round(marketVolatility.homeRun, 3),
+      walks: round(marketVolatility.walks, 3),
+      strikeouts: round(marketVolatility.strikeouts, 3)
+    },
     distributionConfidence: confidence,
     notes
   };
