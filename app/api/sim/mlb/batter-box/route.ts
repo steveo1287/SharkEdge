@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { loadMlbBatterBoxProjection } from "@/services/simulation/mlb-batter-box-loader";
 import { buildMlbPlateAppearanceGameScript } from "@/services/simulation/mlb-plate-appearance-game-script";
+import { buildMlbPaWindowRanking } from "@/services/simulation/mlb-pa-window-ranking";
 import { buildMlbSimulatedBoxScore } from "@/services/simulation/mlb-simulated-box-score";
 import { buildMlbSimulatedPitchingBoxScores } from "@/services/simulation/mlb-simulated-pitching-box-score";
 
@@ -49,12 +50,14 @@ export async function GET(request: Request) {
       awayPitching: pitching.awayPitching,
       homePitching: pitching.homePitching
     }) : null;
+    const paWindowRanking = boxScore && plateAppearanceScript ? buildMlbPaWindowRanking({ boxScore, plateAppearanceScript }) : null;
     return NextResponse.json({
       ok: Boolean(result.projection),
-      modelVersion: "mlb-simulated-box-score-v2-plus-pitching-v1-plus-pa-script-v1",
+      modelVersion: "mlb-simulated-box-score-v2-plus-pitching-v1-plus-pa-script-v1-plus-pa-ranking-v1",
       boxScore,
       pitching,
       plateAppearanceScript,
+      paWindowRanking,
       projection: result.projection,
       diagnostics: result.diagnostics,
       error: result.error
@@ -62,10 +65,11 @@ export async function GET(request: Request) {
   } catch (error) {
     return NextResponse.json({
       ok: false,
-      modelVersion: "mlb-simulated-box-score-v2-plus-pitching-v1-plus-pa-script-v1",
+      modelVersion: "mlb-simulated-box-score-v2-plus-pitching-v1-plus-pa-script-v1-plus-pa-ranking-v1",
       boxScore: null,
       pitching: null,
       plateAppearanceScript: null,
+      paWindowRanking: null,
       projection: null,
       diagnostics: null,
       error: error instanceof Error ? error.message : String(error)
