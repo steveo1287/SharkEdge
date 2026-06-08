@@ -91,7 +91,9 @@ What it checks:
 
 It exits non-zero when the board still has zero verified requested-league games, so you can use it as the repo-level smoke command for this rescue pass.
 
-## Safe Production Deploy
+## Railway Production Deploy
+
+Production deploys are Railway-only.
 
 Use:
 
@@ -99,13 +101,30 @@ Use:
 npm run deploy:prod
 ```
 
-This enforces:
+Equivalent commands:
 
-- project link must be `sharkedge`
-- deploy to scope `steveo1287s-projects`
-- alias `sharkedge.vercel.app` to the new deployment
-- post-deploy probes for `/api/v1/board` and `/api/v1/providers/readiness`
-- automatic rollback to previous ready deployment if probes fail
+```bash
+npm run deploy:railway
+railway up
+```
+
+For production database migrations on Railway:
+
+```bash
+npm run railway:migrate
+```
+
+Railway runtime workers remain explicit npm scripts:
+
+```bash
+npm run worker:railway
+npm run worker:railway:sim
+npm run worker:railway:mlb-odds
+npm run worker:railway:ufc
+npm run worker:railway:maintenance
+```
+
+Do not use Vercel as a production deploy path for this repo.
 
 ## Environment Variables
 
