@@ -113,8 +113,9 @@ function projectedScore(game: CachedSimGameProjection) {
   return `${round(game.projection.distribution.avgAway, 1)}-${round(game.projection.distribution.avgHome, 1)}`;
 }
 function dataQuality(game: CachedSimGameProjection, edge: Edge | null | undefined) {
-  const governor = game.projection.mlbIntel?.governor;
-  const confidence = safeNumber(governor?.confidence) ?? game.projection.mlbIntel?.confidence ?? 0.42;
+  const mlbIntel = game.projection.mlbIntel as (NonNullable<typeof game.projection.mlbIntel> & { confidence?: unknown }) | null | undefined;
+  const governor = mlbIntel?.governor;
+  const confidence = safeNumber(governor?.confidence) ?? safeNumber(mlbIntel?.confidence) ?? 0.42;
   const calibration = game.projection.mlbIntel?.calibration?.ece != null ? 8 : 0;
   const marketContext = edge ? 6 : 0;
   return Math.round(clamp(46 + confidence * 42 + calibration + marketContext, 0, 100));

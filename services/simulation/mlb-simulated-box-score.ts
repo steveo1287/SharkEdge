@@ -199,7 +199,7 @@ function matchupEdge(hitter: MlbHitterPerGameProjection) {
     hitter.advancedMatchup.pitchTypeScore * 0.7 +
     hitter.advancedMatchup.rollingFormScore * 0.5 +
     hitter.advancedMatchup.environmentScore * 0.4 -
-    hitter.advancedMatchup.pitcherSuppressionScore * 0.5,
+    hitter.plateAppearanceOutcome.pitcherSuppressionScore * 0.5,
     -25,
     35
   ), 2);

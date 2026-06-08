@@ -749,7 +749,7 @@ export function buildMlbTeamContextFromRealRatings(args: {
       .slice()
       .sort((a, b) => numberOr(b.overall, 0) - numberOr(a.overall, 0))
       .slice(0, 9)
-      .map((row) => ({ playerId: row.id, playerName: row.name }))).map((entry) => ({
+      .map((row) => ({ playerId: row.id, playerName: row.name, name: null }))).map((entry) => ({
         playerId: keyFromId(entry.playerId),
         playerName: entry.playerName ?? entry.name ?? null
       })),
