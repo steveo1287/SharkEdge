@@ -6,6 +6,11 @@ import type { MlbPropSurfaceOutcome } from "@/services/simulation/mlb-batter-pro
 const rows: MlbSettledBatterPropProbabilityRow[] = [];
 for (let index = 0; index < 30; index += 1) {
   rows.push({
+    playerId: "p1",
+    playerName: "Power Hitter",
+    hitterArchetype: "POWER",
+    pitcherArchetype: "VULNERABLE",
+    matchupClusterKey: "POWER_vs_VULNERABLE",
     market: "HITS",
     line: 0.5,
     side: "OVER",
@@ -29,19 +34,27 @@ for (let index = 0; index < 20; index += 1) {
 rows.push({ market: "HITS", line: 0.5, side: "OVER", modelProbability: Number.NaN, won: true });
 
 const calibration = buildMlbBatterPropProbabilityCalibration({ rows, minBinSample: 20 });
-assert.equal(calibration.modelVersion, "mlb-batter-probability-calibration-v1");
+assert.equal(calibration.modelVersion, "mlb-batter-probability-calibration-v2");
 assert.equal(calibration.sampleSize, 50);
 assert.ok(calibration.brierScore > 0);
 assert.ok(calibration.logLoss > 0);
-assert.ok(calibration.bins.length >= 2);
+assert.ok(calibration.bins.length >= 4);
 assert.ok(calibration.warnings.some((warning) => warning.includes("rejected")));
 
-const hitsBin = calibration.bins.find((bin) => bin.market === "HITS" && bin.line === 0.5 && bin.side === "OVER");
+const hitsBin = calibration.bins.find((bin) => bin.market === "HITS" && bin.line === 0.5 && bin.side === "OVER" && bin.scopeType === "MARKET");
 assert.ok(hitsBin);
 assert.ok(hitsBin!.sampleSize >= 20);
 assert.ok(hitsBin!.observedRate > hitsBin!.averagePredicted);
 assert.ok(hitsBin!.probabilityOffset > 0);
 assert.ok(hitsBin!.reliability >= 1);
+
+const playerBin = calibration.bins.find((bin) => bin.scopeType === "PLAYER_MARKET" && bin.scopeKey.includes("p1"));
+assert.ok(playerBin);
+assert.ok(playerBin!.probabilityOffset > 0);
+
+const clusterBin = calibration.bins.find((bin) => bin.scopeType === "MATCHUP_CLUSTER" && bin.scopeKey.includes("POWER_vs_VULNERABLE"));
+assert.ok(clusterBin);
+assert.ok(clusterBin!.probabilityOffset > 0);
 
 const outcome: MlbPropSurfaceOutcome = {
   market: "HITS",
@@ -52,13 +65,24 @@ const outcome: MlbPropSurfaceOutcome = {
   confidence: 0.72
 };
 
-const adjusted = applyMlbBatterPropProbabilityCalibration({ outcome, calibration });
+const adjusted = applyMlbBatterPropProbabilityCalibration({
+  outcome,
+  calibration,
+  playerId: "p1",
+  hitterArchetype: "POWER",
+  pitcherArchetype: "VULNERABLE",
+  matchupClusterKey: "POWER_vs_VULNERABLE"
+});
 assert.equal(adjusted.calibrationApplied, true);
+assert.equal(adjusted.calibrationScopeType, "PLAYER_MARKET");
 assert.ok(adjusted.calibrationSampleSize >= 20);
 assert.ok(adjusted.probability > outcome.probability);
 assert.equal(adjusted.rawProbability, outcome.probability);
 assert.ok(Number.isFinite(adjusted.fairAmerican));
 assert.ok(adjusted.calibrationReliability > 0);
+
+const clusterAdjusted = applyMlbBatterPropProbabilityCalibration({ outcome, calibration, matchupClusterKey: "POWER_vs_VULNERABLE" });
+assert.equal(clusterAdjusted.calibrationScopeType, "MATCHUP_CLUSTER");
 
 const uncalibrated = applyMlbBatterPropProbabilityCalibration({ outcome, calibration: null });
 assert.equal(uncalibrated.calibrationApplied, false);
