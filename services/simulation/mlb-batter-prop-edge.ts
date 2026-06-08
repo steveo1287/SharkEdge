@@ -1,4 +1,5 @@
 import type { MlbBatterPropSurface, MlbPropSurfaceOutcome } from "@/services/simulation/mlb-batter-prop-surface";
+import { applyMlbBatterPropProbabilityCalibration, type MlbBatterPropProbabilityCalibration } from "@/services/simulation/mlb-batter-prop-probability-calibration";
 
 export type MlbBatterBookPropQuote = {
   book: string;
@@ -16,12 +17,16 @@ export type MlbBatterPropEdgeCandidate = {
   line: number;
   side: MlbPropSurfaceOutcome["side"];
   modelProbability: number;
+  rawModelProbability: number;
   bookProbability: number;
   probabilityEdge: number;
   fairAmerican: number;
   bookAmerican: number;
   expectedValuePerUnit: number;
   confidence: number;
+  calibrationApplied: boolean;
+  calibrationSampleSize: number;
+  calibrationReliability: number;
   grade: "PASS" | "WATCH" | "EDGE" | "STRONG_EDGE";
   reasons: string[];
 };
@@ -74,6 +79,7 @@ export function evaluateMlbBatterPropEdges(args: {
   surface: MlbBatterPropSurface;
   quotes: MlbBatterBookPropQuote[];
   config?: MlbBatterPropEdgeConfig;
+  calibration?: MlbBatterPropProbabilityCalibration | null;
 }): MlbBatterPropEdgeReport {
   const warnings: string[] = [];
   const byKey = new Map(args.surface.outcomes.map((outcome) => [key(outcome), outcome]));
@@ -83,11 +89,12 @@ export function evaluateMlbBatterPropEdges(args: {
   const maxCandidates = args.config?.maxCandidates ?? 12;
   const candidates = args.quotes.flatMap((quote) => {
     if (quote.available === false) return [];
-    const model = byKey.get(key(quote));
-    if (!model) {
+    const rawModel = byKey.get(key(quote));
+    if (!rawModel) {
       warnings.push(`No model surface outcome for ${quote.market} ${quote.side} ${quote.line} at ${quote.book}.`);
       return [];
     }
+    const model = applyMlbBatterPropProbabilityCalibration({ outcome: rawModel, calibration: args.calibration });
     const bookProbability = impliedProbability(quote.americanOdds);
     if (bookProbability === null) {
       warnings.push(`Invalid odds for ${quote.market} ${quote.side} ${quote.line} at ${quote.book}.`);
@@ -99,6 +106,7 @@ export function evaluateMlbBatterPropEdges(args: {
     const candidateGrade = grade({ probabilityEdge, expectedValue, confidence: model.confidence });
     const reasons = [
       `Model probability ${(model.probability * 100).toFixed(1)}% vs book implied ${(bookProbability * 100).toFixed(1)}%.`,
+      model.calibrationApplied ? `Probability calibration applied from ${model.calibrationSampleSize} settled samples; raw model ${(model.rawProbability * 100).toFixed(1)}%.` : "No probability calibration applied; using raw model probability.",
       `Fair price ${model.fairAmerican}; book price ${quote.americanOdds}.`,
       `EV/unit ${expectedValue.toFixed(3)} with confidence ${model.confidence.toFixed(2)}.`
     ];
@@ -109,12 +117,16 @@ export function evaluateMlbBatterPropEdges(args: {
       line: quote.line,
       side: quote.side,
       modelProbability: round(model.probability, 4),
+      rawModelProbability: round(model.rawProbability, 4),
       bookProbability: round(bookProbability, 4),
       probabilityEdge: round(probabilityEdge, 4),
       fairAmerican: model.fairAmerican,
       bookAmerican: quote.americanOdds,
       expectedValuePerUnit: round(expectedValue, 4),
       confidence: round(model.confidence, 3),
+      calibrationApplied: model.calibrationApplied,
+      calibrationSampleSize: model.calibrationSampleSize,
+      calibrationReliability: model.calibrationReliability,
       grade: candidateGrade,
       reasons
     }];
