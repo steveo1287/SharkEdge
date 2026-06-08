@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { UfcFighterRosterIntelligencePanel } from "@/components/ufc/fighter-roster-intelligence-panel";
 import { SharkFightCardCockpit, SharkFightDetailRibbon } from "@/components/ufc/sharkfight-sim-surface";
 import { SharkFightsHeader, UfcFightIqPanel, UfcFightList } from "@/components/ufc/sharkfights-ufc";
 import { UfcSourceAuditPanel } from "@/components/ufc/source-audit-panel";
@@ -141,7 +142,7 @@ export default async function UfcFightLabCardPage({ params, searchParams }: Page
   return (
     <main className="min-h-screen bg-[#02060b] px-3 py-4 text-white sm:px-5">
       <div className="mx-auto grid max-w-7xl gap-4">
-        <SharkFightsHeader title={card.eventLabel} subtitle="MMA Fight Lab card detail: fight-by-fight SharkSim picks, cached ensemble output, source confidence, matchup consensus, method lanes, and danger flags." />
+        <SharkFightsHeader title={card.eventLabel} subtitle="MMA Fight Lab card detail: fight-by-fight SharkSim picks, cached ensemble output, source confidence, matchup consensus, method lanes, roster intelligence, and danger flags." />
         <div className="flex flex-wrap gap-2">
           <Link href="/sim/ufc" className={pill("slate")}>Back to MMA Lab</Link>
           <Link href="/sim" className={pill("slate")}>Sim hub</Link>
@@ -152,6 +153,7 @@ export default async function UfcFightLabCardPage({ params, searchParams }: Page
         </div>
         <CardDecisionGate card={card} sourceCount={audit.sourceNames.length} consensusGrade={consensus.overallGrade} />
         <SharkFightCardCockpit card={card} />
+        <UfcFighterRosterIntelligencePanel card={card} />
         <UfcSourceConsensusPanel consensus={consensus} />
         <UfcSourceAuditPanel audit={audit} />
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_430px]">
