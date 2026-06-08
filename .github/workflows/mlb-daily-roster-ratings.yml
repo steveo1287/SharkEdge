@@ -26,7 +26,7 @@ on:
 jobs:
   populate-and-feed-mlb:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       MLB_STATS_API_BASE_URL: https://statsapi.mlb.com
@@ -49,6 +49,18 @@ jobs:
             --rosterType="$ROSTER_TYPE" \
             --snapshotDate="$(date -u +%F)" \
             --concurrency=6
+      - name: Persist enforced team-by-team MLB ratings
+        run: |
+          SEASON="${{ inputs.season }}"
+          ROSTER_TYPE="${{ inputs.rosterType }}"
+          if [ -z "$SEASON" ]; then SEASON=$(date -u +%Y); fi
+          if [ -z "$ROSTER_TYPE" ]; then ROSTER_TYPE=active; fi
+          npm run mlb:elite-upgrade -- \
+            --season="$SEASON" \
+            --rosterType="$ROSTER_TYPE" \
+            --snapshotDate="$(date -u +%F)" \
+            --concurrency=6 \
+            --persist
       - name: Upload MLB populate/feed report
         uses: actions/upload-artifact@v4
         if: always()
@@ -58,4 +70,5 @@ jobs:
             data/mlb/populate-feed-report-*.json
             data/mlb/daily-roster-rating-snapshot-*.json
             data/mlb/micro/*.json
+            data/mlb/quality/*.json
           if-no-files-found: ignore
