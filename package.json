@@ -82,7 +82,8 @@
     "nba:warehouse:enrich:nba-api": "tsx scripts/enrich-nba-warehouse-with-nba-api.ts",
     "mlb:backfill-pick-ledger": "tsx scripts/backfill-mlb-official-pick-ledger.ts",
     "mlb:daily-roster-ratings": "tsx scripts/build-daily-mlb-roster-rating-snapshots.ts",
-    "mlb:populate-feed": "tsx scripts/populate-and-feed-mlb-intelligence.ts"
+    "mlb:populate-feed": "tsx scripts/populate-and-feed-mlb-intelligence.ts",
+    "mlb:elite-upgrade": "tsx scripts/upgrade-mlb-elite-intelligence.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.7.0",
