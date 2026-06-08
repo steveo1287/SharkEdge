@@ -17,6 +17,11 @@ function boolParam(value: string | null, fallback = false) {
   return !["0", "false", "no", "off"].includes(value.toLowerCase());
 }
 
+function numberParam(value: string | null, fallback: number) {
+  const parsed = Number(value ?? fallback);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export async function GET(request: Request) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
@@ -33,6 +38,7 @@ export async function GET(request: Request) {
     source: "cron-sim-refresh",
     force: boolParam(url.searchParams.get("statsForce"), false),
     enabled: boolParam(url.searchParams.get("statsPreflight"), true),
+    minAgeMinutes: numberParam(url.searchParams.get("statsGuardMinutes"), Number(process.env.STATS_PIPELINE_GUARD_MINUTES ?? 360)),
     runMlb: boolParam(url.searchParams.get("runMlb"), true),
     runUfc: boolParam(url.searchParams.get("runUfc"), false),
     includeLineups: boolParam(url.searchParams.get("includeLineups"), true),
