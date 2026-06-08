@@ -42,10 +42,6 @@ const ratings: MlbEliteRatingBuild = {
       contact: 66,
       power: 61,
       discipline: 64,
-      vs_lhp: 63,
-      vs_rhp: 64,
-      baserunning: 58,
-      fielding: 60,
       current_form: 60,
       overall: 63,
       metrics_json: {
@@ -67,7 +63,6 @@ const ratings: MlbEliteRatingBuild = {
       k_bb: 89,
       hr_risk: 23,
       groundball_rate: 78,
-      platoon_split: 82,
       stamina: 85,
       recent_workload: 20,
       arsenal_quality: 90,
@@ -96,9 +91,10 @@ const ratings: MlbEliteRatingBuild = {
   sourceSummary: {
     hitterRows: 2,
     pitcherRows: 1,
-    hitterSplits: 0,
-    pitcherSplits: 0,
-    theShowRatings: 0,
+    hitterSplitRows: 0,
+    pitcherSplitRows: 0,
+    showRatingRows: 0,
+    showPriorWeight: 0,
     hitterTendencyRows: 0,
     pitcherTendencyRows: 0,
     teamContextRows: 0,
@@ -118,20 +114,9 @@ const batterTendencies: MlbBatterMicroTendency[] = [
     pitchTypeRunValue: { FF: 7, SI: 3, FC: 2, SL: 3, ST: 2, CU: 2, KC: 1, CH: 2, FS: 1, SPL: 1, KN: 0, OTHER: 0 },
     pitchTypeWhiffRate: { FF: 0.19, SI: 0.18, FC: 0.2, SL: 0.26, ST: 0.25, CU: 0.23, KC: 0.22, CH: 0.21, FS: 0.22, SPL: 0.22, KN: 0.18, OTHER: 0.24 },
     pitchTypeHardHitRate: { FF: 0.56, SI: 0.52, FC: 0.49, SL: 0.47, ST: 0.46, CU: 0.42, KC: 0.41, CH: 0.45, FS: 0.43, SPL: 0.42, KN: 0.38, OTHER: 0.39 },
-    outcomeByCount: {
-      "0-0": { expectedWoba: 0.37, expectedSlug: 0.54, homeRunRate: 0.052 },
-      "0-1": { expectedWoba: 0.33 },
-      "0-2": { expectedWoba: 0.27 },
-      "1-0": { expectedWoba: 0.39 },
-      "1-1": { expectedWoba: 0.36 },
-      "1-2": { expectedWoba: 0.29, strikeoutRate: 0.28 },
-      "2-0": { expectedWoba: 0.45 },
-      "2-1": { expectedWoba: 0.42 },
-      "2-2": { expectedWoba: 0.34 },
-      "3-0": { expectedWoba: 0.48, walkRate: 0.34 },
-      "3-1": { expectedWoba: 0.46 },
-      "3-2": { expectedWoba: 0.38, walkRate: 0.16 }
-    },
+    outcomeByCount: Object.fromEntries([
+      "0-0", "0-1", "0-2", "1-0", "1-1", "1-2", "2-0", "2-1", "2-2", "3-0", "3-1", "3-2"
+    ].map((count) => [count, { expectedWoba: count.startsWith("2") || count.startsWith("3") ? 0.41 : 0.35, expectedSlug: 0.54, homeRunRate: 0.052 }])) as MlbBatterMicroTendency["outcomeByCount"],
     outcomeByBaseState: {
       empty: { expectedWoba: 0.36 },
       "1--": { expectedWoba: 0.38 },
@@ -165,20 +150,9 @@ const pitcherTendencies: MlbPitcherMicroTendency[] = [
     reliability: 0.9,
     battersFaced: 720,
     pitchMixOverall: { FF: 0.42, SI: 0.12, FC: 0.05, SL: 0.22, ST: 0.02, CU: 0.08, KC: 0.01, CH: 0.08, FS: 0, SPL: 0, KN: 0, OTHER: 0 },
-    pitchMixByCount: {
-      "0-0": { FF: 0.5, SI: 0.13, SL: 0.15, CH: 0.12, CU: 0.1 },
-      "0-1": { FF: 0.38, SL: 0.26, CH: 0.16, CU: 0.12, SI: 0.08 },
-      "0-2": { FF: 0.25, SL: 0.4, CH: 0.2, CU: 0.15 },
-      "1-0": { FF: 0.5, SI: 0.16, SL: 0.14, CH: 0.1, CU: 0.1 },
-      "1-1": { FF: 0.4, SL: 0.25, CH: 0.16, CU: 0.11, SI: 0.08 },
-      "1-2": { FF: 0.28, SL: 0.38, CH: 0.21, CU: 0.13 },
-      "2-0": { FF: 0.61, SI: 0.17, SL: 0.1, CH: 0.07, CU: 0.05 },
-      "2-1": { FF: 0.52, SI: 0.14, SL: 0.18, CH: 0.1, CU: 0.06 },
-      "2-2": { FF: 0.32, SL: 0.36, CH: 0.2, CU: 0.12 },
-      "3-0": { FF: 0.78, SI: 0.12, CH: 0.06, SL: 0.04 },
-      "3-1": { FF: 0.58, SI: 0.13, SL: 0.14, CH: 0.1, CU: 0.05 },
-      "3-2": { FF: 0.48, SL: 0.28, CH: 0.17, CU: 0.07 }
-    },
+    pitchMixByCount: Object.fromEntries([
+      "0-0", "0-1", "0-2", "1-0", "1-1", "1-2", "2-0", "2-1", "2-2", "3-0", "3-1", "3-2"
+    ].map((count) => [count, { FF: count.endsWith("2") ? 0.3 : 0.48, SL: count.endsWith("2") ? 0.38 : 0.22, CH: 0.16, CU: 0.08, SI: 0.08 }])) as MlbPitcherMicroTendency["pitchMixByCount"],
     pitchMixByBatterHand: { L: { FF: 0.38, SL: 0.18, CH: 0.22, CU: 0.1, SI: 0.12 }, R: { FF: 0.44, SL: 0.28, CH: 0.06, CU: 0.08, SI: 0.14 } },
     pitchMixByBaseState: {
       empty: { FF: 0.43, SL: 0.22, CH: 0.08, CU: 0.08, SI: 0.12 },
@@ -207,9 +181,9 @@ assert.equal(result.report.pitcherCount, 1);
 assert.ok(result.report.averageRatingTrust > 0.5);
 assert.ok(result.report.averageTendencyTrust > 0.3);
 assert.ok(result.report.bettablePlayers >= 1);
-assert.ok(result.ratings.hitters[0].metrics_json?.eliteUpgradeModel === "mlb-elite-intelligence-upgrade-v1");
-assert.ok(result.ratings.hitters[0].metrics_json?.highConfidenceEligible === true);
-assert.ok(result.ratings.hitters[1].metrics_json?.highConfidenceEligible === false);
+assert.equal(result.ratings.hitters[0].metrics_json?.eliteUpgradeModel, "mlb-elite-intelligence-upgrade-v1");
+assert.equal(result.ratings.hitters[0].metrics_json?.highConfidenceEligible, true);
+assert.equal(result.ratings.hitters[1].metrics_json?.highConfidenceEligible, false);
 assert.ok(Number(result.ratings.hitters[0].overall) >= Number(ratings.hitters[0].overall) - 2);
 assert.ok(result.report.gates.some((gate) => gate.key === "hitter-micro-coverage"));
 assert.ok(result.report.playerUpgrades.some((row) => row.tier === "ELITE" || row.tier === "BETTABLE"));
