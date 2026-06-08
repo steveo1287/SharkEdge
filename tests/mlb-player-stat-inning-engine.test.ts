@@ -7,6 +7,8 @@ import {
   type MlbProjectionTeamContext
 } from "@/services/simulation/mlb-player-stat-inning-engine";
 
+const STALE_CAPTURED_AT = new Date(Date.now() - 300 * 60 * 1000).toISOString();
+
 function hitter(id: string, name: string, overall: number, overrides: Partial<MlbProjectionRating> = {}): MlbProjectionRating {
   const xwoba = 0.325 + (overall - 70) * 0.0025;
   return {
@@ -258,7 +260,7 @@ assert.ok(inningProjection.firstFiveOver4_5Probability > 0.3);
 assert.ok(Math.abs(inningProjection.fullGameExpectedRuns - 9.1) < 0.001);
 
 const unconfirmed = projectMlbPlayerStatsForGame({
-  away: { ...away, lineup: { ...away.lineup, confirmed: false, captured_at: "2026-01-01T00:00:00Z" } },
+  away: { ...away, lineup: { ...away.lineup, confirmed: false, captured_at: STALE_CAPTURED_AT } },
   home,
   awayRuns: 4,
   homeRuns: 4.2
