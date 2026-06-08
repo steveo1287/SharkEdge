@@ -46,6 +46,7 @@ assert.equal(hitsOver!.fairAmerican, -213);
 assert.equal(hitsOver!.bookAmerican, -145);
 assert.equal(hitsOver!.rawModelProbability, hitsOver!.modelProbability);
 assert.equal(hitsOver!.calibrationApplied, false);
+assert.equal(hitsOver!.proofGatePassed, true);
 assert.ok(hitsOver!.probabilityEdge > 0.08);
 assert.ok(hitsOver!.expectedValuePerUnit > 0.14);
 assert.ok(["EDGE", "STRONG_EDGE"].includes(hitsOver!.grade));
@@ -64,6 +65,7 @@ assert.ok(["WATCH", "EDGE", "PASS"].includes(hrOver!.grade));
 
 assert.ok(report.passes.length >= 2);
 assert.ok(report.passes.every((candidate) => candidate.grade !== "PASS"));
+assert.ok(report.passes.every((candidate) => candidate.proofGatePassed));
 assert.ok(report.passes.every((candidate) => candidate.probabilityEdge >= 0.025));
 assert.ok(report.passes.every((candidate) => candidate.expectedValuePerUnit >= 0.025));
 assert.ok(report.passes.every((candidate) => candidate.confidence >= 0.42));
@@ -78,9 +80,33 @@ const calibratedHitsOver = calibratedReport.candidates.find((candidate) => candi
 assert.ok(calibratedHitsOver);
 assert.equal(calibratedHitsOver!.calibrationApplied, true);
 assert.equal(calibratedHitsOver!.calibrationSampleSize, 30);
+assert.equal(calibratedHitsOver!.proofGatePassed, true);
 assert.ok(calibratedHitsOver!.modelProbability > calibratedHitsOver!.rawModelProbability);
 assert.ok(calibratedHitsOver!.expectedValuePerUnit > hitsOver!.expectedValuePerUnit);
 assert.ok(calibratedHitsOver!.reasons.some((reason) => reason.includes("Probability calibration applied")));
+
+const strictNoCalibration = evaluateMlbBatterPropEdges({
+  surface,
+  quotes,
+  config: { requireCalibration: true, minCalibrationSampleSize: 20, minCalibrationReliability: 0.75 }
+});
+const strictNoCalibrationHits = strictNoCalibration.candidates.find((candidate) => candidate.market === "HITS" && candidate.side === "OVER");
+assert.ok(strictNoCalibrationHits);
+assert.equal(strictNoCalibrationHits!.proofGatePassed, false);
+assert.equal(strictNoCalibrationHits!.grade, "PASS");
+assert.ok(strictNoCalibrationHits!.reasons.some((reason) => reason.includes("Proof gate failed")));
+assert.equal(strictNoCalibration.passes.length, 0);
+
+const strictCalibrated = evaluateMlbBatterPropEdges({
+  surface,
+  quotes,
+  calibration,
+  config: { requireCalibration: true, minCalibrationSampleSize: 20, minCalibrationReliability: 0.75 }
+});
+const strictCalibratedHits = strictCalibrated.candidates.find((candidate) => candidate.market === "HITS" && candidate.side === "OVER");
+assert.ok(strictCalibratedHits);
+assert.equal(strictCalibratedHits!.proofGatePassed, true);
+assert.ok(strictCalibrated.passes.some((candidate) => candidate.market === "HITS" && candidate.side === "OVER"));
 
 const emptyReport = evaluateMlbBatterPropEdges({ surface, quotes: [] });
 assert.equal(emptyReport.candidates.length, 0);
