@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import { evaluateMlbBatterPropEdges, type MlbBatterBookPropQuote } from "@/services/simulation/mlb-batter-prop-edge";
+import { buildMlbBatterPropProbabilityCalibration, type MlbSettledBatterPropProbabilityRow } from "@/services/simulation/mlb-batter-prop-probability-calibration";
 import type { MlbBatterPropSurface } from "@/services/simulation/mlb-batter-prop-surface";
 
 const surface: MlbBatterPropSurface = {
@@ -43,10 +44,13 @@ const hitsOver = report.candidates.find((candidate) => candidate.book === "Draft
 assert.ok(hitsOver);
 assert.equal(hitsOver!.fairAmerican, -213);
 assert.equal(hitsOver!.bookAmerican, -145);
+assert.equal(hitsOver!.rawModelProbability, hitsOver!.modelProbability);
+assert.equal(hitsOver!.calibrationApplied, false);
 assert.ok(hitsOver!.probabilityEdge > 0.08);
 assert.ok(hitsOver!.expectedValuePerUnit > 0.14);
 assert.ok(["EDGE", "STRONG_EDGE"].includes(hitsOver!.grade));
 assert.ok(hitsOver!.reasons.some((reason) => reason.includes("Model probability")));
+assert.ok(hitsOver!.reasons.some((reason) => reason.includes("No probability calibration")));
 
 const totalBasesOver = report.candidates.find((candidate) => candidate.book === "DraftKings" && candidate.market === "TOTAL_BASES");
 assert.ok(totalBasesOver);
@@ -63,6 +67,20 @@ assert.ok(report.passes.every((candidate) => candidate.grade !== "PASS"));
 assert.ok(report.passes.every((candidate) => candidate.probabilityEdge >= 0.025));
 assert.ok(report.passes.every((candidate) => candidate.expectedValuePerUnit >= 0.025));
 assert.ok(report.passes.every((candidate) => candidate.confidence >= 0.42));
+
+const calibrationRows: MlbSettledBatterPropProbabilityRow[] = [];
+for (let index = 0; index < 30; index += 1) {
+  calibrationRows.push({ market: "HITS", line: 0.5, side: "OVER", modelProbability: 0.68, won: index < 26 });
+}
+const calibration = buildMlbBatterPropProbabilityCalibration({ rows: calibrationRows, minBinSample: 20 });
+const calibratedReport = evaluateMlbBatterPropEdges({ surface, quotes, calibration });
+const calibratedHitsOver = calibratedReport.candidates.find((candidate) => candidate.book === "DraftKings" && candidate.market === "HITS" && candidate.side === "OVER");
+assert.ok(calibratedHitsOver);
+assert.equal(calibratedHitsOver!.calibrationApplied, true);
+assert.equal(calibratedHitsOver!.calibrationSampleSize, 30);
+assert.ok(calibratedHitsOver!.modelProbability > calibratedHitsOver!.rawModelProbability);
+assert.ok(calibratedHitsOver!.expectedValuePerUnit > hitsOver!.expectedValuePerUnit);
+assert.ok(calibratedHitsOver!.reasons.some((reason) => reason.includes("Probability calibration applied")));
 
 const emptyReport = evaluateMlbBatterPropEdges({ surface, quotes: [] });
 assert.equal(emptyReport.candidates.length, 0);
