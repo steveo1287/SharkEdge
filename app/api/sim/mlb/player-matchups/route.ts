@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { buildMlbPlayerMatchupDiagnostics } from "@/services/simulation/mlb-player-matchup-diagnostics";
+import { buildMlbPlayerSimulationSpotlight } from "@/services/simulation/mlb-player-simulation-spotlight";
 import { buildMlbV8PlayerImpactContext } from "@/services/simulation/mlb-v8-player-impact-model";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ function parseRequired(value: string | null, key: string) {
   return clean;
 }
 
-function parseRuns(value: string | null, fallback: number) {
+function parseProjectedRuns(value: string | null, fallback: number) {
   const parsed = Number(value ?? fallback);
   return Number.isFinite(parsed) ? Math.max(1.5, Math.min(9.5, parsed)) : fallback;
 }
@@ -24,8 +25,8 @@ export async function GET(request: Request) {
     const gameId = parseRequired(searchParams.get("gameId"), "gameId");
     const awayTeam = parseRequired(searchParams.get("awayTeam"), "awayTeam").toUpperCase();
     const homeTeam = parseRequired(searchParams.get("homeTeam"), "homeTeam").toUpperCase();
-    const awayRuns = parseRuns(searchParams.get("awayRuns"), 4.3);
-    const homeRuns = parseRuns(searchParams.get("homeRuns"), 4.5);
+    const awayProjectedRuns = parseProjectedRuns(searchParams.get("awayProjectedRuns") ?? searchParams.get("awayRuns"), 4.3);
+    const homeProjectedRuns = parseProjectedRuns(searchParams.get("homeProjectedRuns") ?? searchParams.get("homeRuns"), 4.5);
 
     const context = await buildMlbV8PlayerImpactContext({ gameId, awayTeam, homeTeam });
     if (!context.available || !context.away || !context.home) {
@@ -36,25 +37,28 @@ export async function GET(request: Request) {
         awayTeam,
         homeTeam,
         reason: context.reason ?? "roster intelligence unavailable",
-        diagnostics: null
+        diagnostics: null,
+        spotlight: null
       }, { status: 503 });
     }
 
     const diagnostics = buildMlbPlayerMatchupDiagnostics({
       away: context.away,
       home: context.home,
-      awayRuns,
-      homeRuns
+      awayRuns: awayProjectedRuns,
+      homeRuns: homeProjectedRuns
     });
+    const spotlight = buildMlbPlayerSimulationSpotlight(diagnostics);
 
     return NextResponse.json({
       ok: true,
       gameId,
       awayTeam,
       homeTeam,
-      awayRuns,
-      homeRuns,
-      diagnostics
+      awayProjectedRuns,
+      homeProjectedRuns,
+      diagnostics,
+      spotlight
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown player matchup diagnostics error";
