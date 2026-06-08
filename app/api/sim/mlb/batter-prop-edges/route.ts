@@ -4,6 +4,7 @@ import {
   buildMlbBatterPropEdgeBoard,
   type MlbBatterBookPropQuoteWithPlayer
 } from "@/services/simulation/mlb-batter-prop-edge-board";
+import { buildMlbBatterPropProbabilityCalibration, type MlbSettledBatterPropProbabilityRow } from "@/services/simulation/mlb-batter-prop-probability-calibration";
 import { projectMlbPlayerStatsForGame, type MlbProjectionTeamContext } from "@/services/simulation/mlb-player-stat-inning-engine";
 import { buildMlbV8PlayerImpactContext } from "@/services/simulation/mlb-v8-player-impact-model";
 
@@ -22,6 +23,7 @@ type RequestBody = {
   awayWinProbability?: number;
   homeWinProbability?: number;
   quotes?: MlbBatterBookPropQuoteWithPlayer[];
+  settledCalibrationRows?: MlbSettledBatterPropProbabilityRow[];
   config?: {
     minProbabilityEdge?: number;
     minExpectedValue?: number;
@@ -69,6 +71,31 @@ function normalizeQuotes(value: unknown): MlbBatterBookPropQuoteWithPlayer[] {
   });
 }
 
+function normalizeCalibrationRows(value: unknown): MlbSettledBatterPropProbabilityRow[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+    const row = raw as Record<string, unknown>;
+    const market = String(row.market ?? "").trim().toUpperCase();
+    const side = String(row.side ?? "").trim().toUpperCase();
+    const line = Number(row.line);
+    const modelProbability = Number(row.modelProbability ?? row.probability);
+    const won = typeof row.won === "boolean" ? row.won : typeof row.resultWon === "boolean" ? row.resultWon : null;
+    if (!["HITS", "TOTAL_BASES", "HOME_RUN", "WALKS", "STRIKEOUTS"].includes(market)) return [];
+    if (!["OVER", "UNDER"].includes(side)) return [];
+    if (!Number.isFinite(line) || !Number.isFinite(modelProbability) || won === null) return [];
+    return [{
+      market: market as MlbSettledBatterPropProbabilityRow["market"],
+      line,
+      side: side as MlbSettledBatterPropProbabilityRow["side"],
+      modelProbability,
+      won,
+      confidence: typeof row.confidence === "number" ? row.confidence : null,
+      settledAt: typeof row.settledAt === "string" ? row.settledAt : null
+    }];
+  });
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json() as RequestBody;
@@ -78,6 +105,8 @@ export async function POST(request: Request) {
     const awayProjectedRuns = numberOr(body.awayProjectedRuns, 4.3, 1.5, 9.5);
     const homeProjectedRuns = numberOr(body.homeProjectedRuns, 4.5, 1.5, 9.5);
     const quotes = normalizeQuotes(body.quotes);
+    const settledCalibrationRows = normalizeCalibrationRows(body.settledCalibrationRows);
+    const probabilityCalibration = settledCalibrationRows.length ? buildMlbBatterPropProbabilityCalibration({ rows: settledCalibrationRows }) : null;
 
     const context = await buildMlbV8PlayerImpactContext({ gameId, awayTeam, homeTeam });
     if (!context.available || !context.away || !context.home) {
@@ -87,6 +116,7 @@ export async function POST(request: Request) {
         gameId,
         awayTeam,
         homeTeam,
+        probabilityCalibration,
         reason: context.reason ?? "roster intelligence unavailable",
         board: null
       }, { status: 503 });
@@ -106,7 +136,8 @@ export async function POST(request: Request) {
     const board = buildMlbBatterPropEdgeBoard({
       projection,
       quotes,
-      config: body.config
+      config: body.config,
+      calibration: probabilityCalibration
     });
 
     return NextResponse.json({
@@ -118,6 +149,8 @@ export async function POST(request: Request) {
       awayProjectedRuns,
       homeProjectedRuns,
       quoteCount: quotes.length,
+      settledCalibrationRowCount: settledCalibrationRows.length,
+      probabilityCalibration,
       projection,
       board
     });
