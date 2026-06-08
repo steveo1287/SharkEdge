@@ -17,6 +17,9 @@ export type MlbBatterPropQuoteQualityReport = {
   unmatchedCount: number;
   thinMarketCount: number;
   qualityScore: number;
+  minQualityScore: number;
+  qualityGatePassed: boolean;
+  qualityGateReason: string | null;
   quotes: MlbBatterBookPropQuoteWithPlayer[];
   issues: MlbBatterPropQuoteQualityIssue[];
   warnings: string[];
@@ -27,6 +30,7 @@ export type MlbBatterPropQuoteQualityConfig = {
   maxQuoteAgeMinutes?: number;
   requirePlayerMapping?: boolean;
   minBooksPerPlayerMarket?: number;
+  minQualityScore?: number;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -122,6 +126,7 @@ export function qualityGateMlbBatterPropQuotes(args: {
   const maxQuoteAgeMinutes = args.config?.maxQuoteAgeMinutes ?? 20;
   const requirePlayerMapping = args.config?.requirePlayerMapping ?? true;
   const minBooksPerPlayerMarket = args.config?.minBooksPerPlayerMarket ?? 2;
+  const minQualityScore = args.config?.minQualityScore ?? 70;
   const issues: MlbBatterPropQuoteQualityIssue[] = [];
   const accepted: MlbBatterBookPropQuoteWithPlayer[] = [];
   let mappedCount = 0;
@@ -190,12 +195,15 @@ export function qualityGateMlbBatterPropQuotes(args: {
   const rejectCount = issues.filter((issue) => issue.severity === "REJECT").length;
   const warnCount = issues.filter((issue) => issue.severity === "WARN").length;
   const qualityScore = Math.round(clamp(100 - rejectCount * 18 - warnCount * 5 - staleCount * 7 - unmatchedCount * 8 - thinMarketCount * 4, 0, 100));
+  const qualityGatePassed = qualityScore >= minQualityScore && deduped.length > 0;
+  const qualityGateReason = qualityGatePassed ? null : deduped.length ? `Quote quality ${qualityScore}/100 below required ${minQualityScore}/100.` : "No quotes survived player mapping, freshness, and duplicate quality gates.";
   const warnings: string[] = [];
   if (!deduped.length) warnings.push("No quotes survived player mapping, freshness, and duplicate quality gates.");
   if (staleCount) warnings.push(`${staleCount} stale quote(s) rejected.`);
   if (unmatchedCount) warnings.push(`${unmatchedCount} quote(s) could not be mapped to projected hitters.`);
   if (duplicateCount) warnings.push(`${duplicateCount} duplicate quote(s) collapsed.`);
   if (thinMarketCount) warnings.push(`${thinMarketCount} thin player-market bucket(s) detected.`);
+  if (!qualityGatePassed) warnings.push(qualityGateReason ?? "Quote quality gate failed.");
 
   return {
     modelVersion: "mlb-batter-prop-quote-quality-v1",
@@ -207,6 +215,9 @@ export function qualityGateMlbBatterPropQuotes(args: {
     unmatchedCount,
     thinMarketCount,
     qualityScore,
+    minQualityScore,
+    qualityGatePassed,
+    qualityGateReason,
     quotes: deduped,
     issues,
     warnings
