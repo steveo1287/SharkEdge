@@ -8,6 +8,7 @@ import {
 } from "@/services/simulation/mlb-player-stat-inning-engine";
 
 function hitter(id: string, name: string, overall: number, overrides: Partial<MlbProjectionRating> = {}): MlbProjectionRating {
+  const xwoba = 0.325 + (overall - 70) * 0.0025;
   return {
     id,
     name,
@@ -29,7 +30,7 @@ function hitter(id: string, name: string, overall: number, overrides: Partial<Ml
       slg: 0.42 + (overall - 70) * 0.004,
       xba: 0.252 + (overall - 70) * 0.002,
       xslg: 0.415 + (overall - 70) * 0.004,
-      xwoba: 0.325 + (overall - 70) * 0.0025,
+      xwoba,
       iso: 0.16 + (overall - 70) * 0.003,
       hitRate: 0.23 + (overall - 70) * 0.002,
       walkRate: 0.08,
@@ -39,6 +40,19 @@ function hitter(id: string, name: string, overall: number, overrides: Partial<Ml
       hardHitRate: 0.4 + (overall - 70) * 0.002,
       avgExitVelo: 88.5 + (overall - 70) * 0.12,
       totalBasesPerHit: 1.5 + (overall - 70) * 0.008,
+      rolling30Pa: 96,
+      rolling30Xwoba: xwoba + 0.014,
+      rolling14Xwoba: xwoba + 0.022,
+      rolling7Xwoba: xwoba + 0.028,
+      pitchTypeXwoba: {
+        fourSeam: xwoba + 0.045,
+        slider: xwoba + 0.018,
+        changeup: xwoba - 0.005
+      },
+      parkRunFactor: 1.04,
+      parkHrFactor: 1.08,
+      weatherRunFactor: 1.02,
+      weatherHrFactor: 1.07,
       stealAttemptRate: 0.035,
       stealSuccessRate: 0.73
     },
@@ -64,6 +78,12 @@ function pitcher(id: string, name: string, overall: number, overrides: Partial<M
     overall,
     metrics_json: {
       throws: "R",
+      pitchMix: {
+        fourSeam: 0.42,
+        slider: 0.24,
+        changeup: 0.14,
+        curveball: 0.08
+      },
       inningsPerStart: 5.9,
       strikeoutsPer9: 9.2,
       walksPer9: 2.4,
@@ -112,7 +132,14 @@ assert.ok(playerProjection.homeHitters[0].stolenBaseProbability > 0);
 assert.ok(playerProjection.homeHitters[0].batterStatProfile.confidence > 0.75);
 assert.ok(playerProjection.homeHitters[0].batterStatProfile.xWoba > playerProjection.awayHitters[0].batterStatProfile.xWoba);
 assert.ok(playerProjection.homeHitters[0].batterStatProfile.drivers.length > 0);
+assert.ok(playerProjection.homeHitters[0].advancedMatchup.confidence > 0.55);
+assert.ok(playerProjection.homeHitters[0].advancedMatchup.contactMultiplier > 1);
+assert.ok(playerProjection.homeHitters[0].advancedMatchup.powerMultiplier > 1);
+assert.ok(playerProjection.homeHitters[0].advancedMatchup.pitchTypeScore > 0);
+assert.ok(playerProjection.homeHitters[0].advancedMatchup.rollingFormScore > 0);
+assert.ok(playerProjection.homeHitters[0].advancedMatchup.drivers.some((driver) => driver.includes("pitch") || driver.includes("form") || driver.includes("environment")));
 assert.ok(playerProjection.homeHitters[0].reasons.some((reason) => reason.includes("Batter stats blended")));
+assert.ok(playerProjection.homeHitters[0].reasons.some((reason) => reason.includes("Advanced matchup multipliers")));
 assert.ok(playerProjection.homeStarter);
 assert.ok(playerProjection.homeStarter!.expectedOuts > 15);
 assert.ok(playerProjection.homeStarter!.expectedStrikeouts > 4);
