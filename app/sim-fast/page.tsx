@@ -12,10 +12,10 @@ import {
 } from "@/services/simulation/build-sim-card-view-model";
 import { SimHubClient } from "@/app/sim-fast/sim-hub-client";
 
-// ISR: cached HTML served from CDN edge, re-generated in background every 2 min.
 // SimHub is a reader only. Refresh/recompute work must stay in cron or /api/sim/refresh,
 // never in the user page request.
-export const revalidate = 120;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 export const maxDuration = 35;
 
 async function readAll() {
