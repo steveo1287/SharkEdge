@@ -2,6 +2,7 @@ import { deriveMlbBatterAdvancedMatchup, type MlbBatterAdvancedMatchup } from "@
 import { buildMlbBatterPropSurface, type MlbBatterPropSurface } from "@/services/simulation/mlb-batter-prop-surface";
 import { buildMlbBatterStatDistribution, type MlbBatterStatDistribution } from "@/services/simulation/mlb-batter-stat-distribution";
 import { deriveMlbBatterStatProfile, type MlbBatterStatProfile } from "@/services/simulation/mlb-batter-stat-profile";
+import { deriveMlbPlateAppearanceOutcomeModel, type MlbPlateAppearanceOutcomeModel } from "@/services/simulation/mlb-plate-appearance-outcome-model";
 
 export type MlbProjectionRating = {
   id: string;
@@ -68,6 +69,7 @@ export type MlbHitterPerGameProjection = {
   confidence: number;
   batterStatProfile: MlbBatterStatProfile;
   advancedMatchup: MlbBatterAdvancedMatchup;
+  plateAppearanceOutcome: MlbPlateAppearanceOutcomeModel;
   statDistribution: MlbBatterStatDistribution;
   propSurface: MlbBatterPropSurface;
   reasons: string[];
@@ -281,11 +283,22 @@ function projectHitter(args: {
   const baseStrikeoutRate = batterStats.strikeoutRate * statWeight + skillStrikeoutRate * (1 - statWeight);
   const baseHrRate = batterStats.hrRate * statWeight + skillHrRate * (1 - statWeight);
   const baseTotalBasePerHit = batterStats.tbPerHit * statWeight + skillTbPerHit * (1 - statWeight);
-  const hitRate = clamp(baseHitRate * advancedMatchup.contactMultiplier, 0.11, 0.39);
-  const walkRate = clamp(baseWalkRate * advancedMatchup.walkMultiplier, 0.03, 0.2);
-  const strikeoutRate = clamp(baseStrikeoutRate * advancedMatchup.strikeoutMultiplier, 0.065, 0.42);
-  const hrRate = clamp(baseHrRate * advancedMatchup.powerMultiplier, 0.0025, 0.115);
-  const totalBasePerHit = clamp(baseTotalBasePerHit * clamp(advancedMatchup.powerMultiplier, 0.84, 1.22), 1.03, 2.65);
+  const plateAppearanceOutcome = deriveMlbPlateAppearanceOutcomeModel({
+    batter: args.row,
+    opponentStarter: args.opponentStarter,
+    batterStats,
+    advancedMatchup,
+    baseHitRate,
+    baseWalkRate,
+    baseStrikeoutRate,
+    baseHomeRunRate: baseHrRate,
+    baseTotalBasesPerHit: baseTotalBasePerHit
+  });
+  const hitRate = plateAppearanceOutcome.hitRate;
+  const walkRate = plateAppearanceOutcome.walkRate;
+  const strikeoutRate = plateAppearanceOutcome.strikeoutRate;
+  const hrRate = plateAppearanceOutcome.homeRunRate;
+  const totalBasePerHit = plateAppearanceOutcome.expectedTotalBasesPerHit;
   const stealAttemptRate = clamp(metric(args.row, "stealAttemptRate", 0.035) + (baserunning - 70) * 0.0017 + (orderIndex <= 1 ? 0.012 : 0), 0.002, 0.16);
   const stealSuccessRate = clamp(metric(args.row, "stealSuccessRate", 0.72) + (baserunning - 70) * 0.002, 0.42, 0.9);
   const onBase = clamp(hitRate + walkRate, 0.18, 0.5);
@@ -295,10 +308,10 @@ function projectHitter(args: {
   const expectedWalks = pa * walkRate;
   const expectedHr = pa * hrRate;
   const expectedStrikeouts = pa * strikeoutRate;
-  const expectedTotalBases = expectedHits * totalBasePerHit + expectedHr * 0.65;
+  const expectedTotalBases = pa * plateAppearanceOutcome.expectedTotalBasesPerPa;
   const expectedRuns = args.teamRuns * runShare * clamp(onBase / 0.31, 0.72, 1.32);
   const expectedRbi = args.teamRuns * rbiShare * clamp((hitRate * totalBasePerHit) / 0.34, 0.72, 1.38);
-  const confidence = clamp((args.confirmedLineup ? 0.18 : 0) + batterStats.confidence * 0.22 + advancedMatchup.confidence * 0.16 + (args.opponentStarter ? 0.18 : 0) + 0.28, 0.35, 0.95);
+  const confidence = clamp((args.confirmedLineup ? 0.16 : 0) + batterStats.confidence * 0.18 + advancedMatchup.confidence * 0.13 + plateAppearanceOutcome.outcomeConfidence * 0.19 + (args.opponentStarter ? 0.18 : 0) + 0.22, 0.35, 0.95);
   const statDistribution = buildMlbBatterStatDistribution({
     expectedHits,
     expectedTotalBases,
@@ -309,8 +322,8 @@ function projectHitter(args: {
     powerMultiplier: advancedMatchup.powerMultiplier,
     contactMultiplier: advancedMatchup.contactMultiplier,
     statConfidence: batterStats.confidence,
-    advancedConfidence: advancedMatchup.confidence,
-    drivers: [...batterStats.drivers, ...advancedMatchup.drivers]
+    advancedConfidence: clamp((advancedMatchup.confidence + plateAppearanceOutcome.outcomeConfidence) / 2, 0.2, 0.95),
+    drivers: [...batterStats.drivers, ...advancedMatchup.drivers, ...plateAppearanceOutcome.drivers]
   });
   const propSurface = buildMlbBatterPropSurface(statDistribution);
 
@@ -333,17 +346,19 @@ function projectHitter(args: {
     confidence: round(confidence, 3),
     batterStatProfile: batterStats,
     advancedMatchup,
+    plateAppearanceOutcome,
     statDistribution,
     propSurface,
     reasons: [
       `Projected ${pa.toFixed(1)} PA from batting slot ${args.battingOrder}.`,
       `Batter stats blended at ${(statWeight * 100).toFixed(0)}% confidence: xAVG ${batterStats.xAvg.toFixed(3)}, xSLG ${batterStats.xSlug.toFixed(3)}, xwOBA ${batterStats.xWoba.toFixed(3)}.`,
       `Advanced matchup multipliers: contact ${advancedMatchup.contactMultiplier.toFixed(3)}, power ${advancedMatchup.powerMultiplier.toFixed(3)}, K ${advancedMatchup.strikeoutMultiplier.toFixed(3)}, BB ${advancedMatchup.walkMultiplier.toFixed(3)}.`,
-      `Stat-driven rates: H/PA ${hitRate.toFixed(3)}, BB/PA ${walkRate.toFixed(3)}, K/PA ${strikeoutRate.toFixed(3)}, HR/PA ${hrRate.toFixed(3)}, TB/H ${totalBasePerHit.toFixed(2)}.`,
+      `PA outcome tree: 1B ${plateAppearanceOutcome.singleRate.toFixed(3)}, XBH ${plateAppearanceOutcome.extraBaseHitRate.toFixed(3)}, HR ${plateAppearanceOutcome.homeRunRate.toFixed(3)}, BB ${plateAppearanceOutcome.walkRate.toFixed(3)}, K ${plateAppearanceOutcome.strikeoutRate.toFixed(3)}, BIP out ${plateAppearanceOutcome.ballInPlayOutRate.toFixed(3)}.`,
+      `Quality contact ${plateAppearanceOutcome.qualityOfContactScore.toFixed(1)} and starter suppression ${plateAppearanceOutcome.pitcherSuppressionScore.toFixed(1)} drive ${plateAppearanceOutcome.expectedTotalBasesPerHit.toFixed(2)} TB/H.`,
       `Distribution: 1+ hit ${(statDistribution.hit1PlusProbability * 100).toFixed(1)}%, 2+ hit ${(statDistribution.hit2PlusProbability * 100).toFixed(1)}%, 2+ TB ${(statDistribution.totalBases2PlusProbability * 100).toFixed(1)}%, HR ${(statDistribution.homeRunProbability * 100).toFixed(1)}%.`,
       `Prop surface strongest: ${propSurface.strongest.slice(0, 3).map((row) => `${row.market} ${row.side} ${row.line} ${row.fairAmerican}`).join("; ")}.`,
       `Split-adjusted hitter skill ${skill.toFixed(1)} vs ${pitcherHand}HP and opposing starter skill ${opponentPitch.toFixed(1)}.`,
-      `Batter drivers: ${batterStats.drivers.join(", ")}; advanced drivers: ${advancedMatchup.drivers.join(", ")}.`
+      `Batter drivers: ${batterStats.drivers.join(", ")}; advanced drivers: ${advancedMatchup.drivers.join(", ")}; PA drivers: ${plateAppearanceOutcome.drivers.join(", ")}.`
     ]
   };
 }
