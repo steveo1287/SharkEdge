@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { buildDailyMlbRosterRatingSnapshots } from "@/services/simulation/mlb-daily-roster-rating-snapshot";
+import { persistMlbEnforcedTeamByTeamRatings } from "@/services/simulation/mlb-enforced-rating-persistence";
 import { upgradeMlbEliteIntelligence } from "@/services/simulation/mlb-elite-intelligence-upgrade";
 import { enforceMlbTeamByTeamPlayerRatings } from "@/services/simulation/mlb-team-by-team-rating-enforcer";
 import type {
@@ -38,6 +39,8 @@ async function main() {
   const batterPath = argValue("batterMicro") || process.env.MLB_BATTER_MICRO_TENDENCIES_PATH || path.join(process.cwd(), "data", "mlb", "micro", "batter-micro-tendencies.json");
   const pitcherPath = argValue("pitcherMicro") || process.env.MLB_PITCHER_MICRO_TENDENCIES_PATH || path.join(process.cwd(), "data", "mlb", "micro", "pitcher-micro-tendencies.json");
   const rosterOnly = hasFlag("rosterOnly");
+  const persist = hasFlag("persist") && !hasFlag("dryRun");
+  const generatedAt = new Date().toISOString();
 
   const rosterRatings = await buildDailyMlbRosterRatingSnapshots({
     season,
@@ -56,20 +59,31 @@ async function main() {
     batterTendencies,
     pitcherTendencies
   }));
+  const persistence = await persistMlbEnforcedTeamByTeamRatings({
+    result: upgrade,
+    season,
+    snapshotDate,
+    generatedAt,
+    persist
+  });
 
   await mkdir(outDir, { recursive: true });
   const reportPath = path.join(outDir, `elite-intelligence-quality-${snapshotDate}.json`);
   const ratingsPath = path.join(outDir, `elite-ratings-upgraded-${snapshotDate}.json`);
   const teamReportPath = path.join(outDir, `team-by-team-rating-report-${snapshotDate}.json`);
+  const persistencePath = path.join(outDir, `enforced-rating-persistence-${snapshotDate}.json`);
   await writeFile(reportPath, `${JSON.stringify(upgrade.report, null, 2)}\n`, "utf8");
   await writeFile(ratingsPath, `${JSON.stringify(upgrade.ratings, null, 2)}\n`, "utf8");
   await writeFile(teamReportPath, `${JSON.stringify(upgrade.teamByTeamReport, null, 2)}\n`, "utf8");
+  await writeFile(persistencePath, `${JSON.stringify(persistence, null, 2)}\n`, "utf8");
 
   const output = {
-    ok: upgrade.teamByTeamReport.noThinWithMlbSampleCount === 0,
+    ok: upgrade.teamByTeamReport.noThinWithMlbSampleCount === 0 && (!persist || persistence.persisted),
     snapshotDate,
     season,
     rosterType,
+    persisted: persistence.persisted,
+    persistence,
     rosterRatings: {
       teamsCovered: rosterRatings.teamsCovered,
       playersSeen: rosterRatings.playersSeen,
@@ -99,7 +113,7 @@ async function main() {
       noThinWithMlbSampleCount: upgrade.teamByTeamReport.noThinWithMlbSampleCount,
       teams: upgrade.teamByTeamReport.teams
     },
-    outputs: { reportPath, ratingsPath, teamReportPath }
+    outputs: { reportPath, ratingsPath, teamReportPath, persistencePath }
   };
 
   console.log(JSON.stringify(output, null, 2));
