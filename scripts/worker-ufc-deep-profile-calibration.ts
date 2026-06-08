@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 import { prisma } from "@/lib/db/prisma";
 import { getUfcFightIqDetail, type UfcFightIqDetail } from "@/services/ufc/card-feed";
 import { buildUfcDeepFighterProfileV2FromFeature } from "@/services/ufc/deep-fighter-profile-v2";
@@ -15,6 +17,12 @@ type CompletedFightRow = {
   round: number | null;
   fight_time: string | null;
 };
+
+const MODEL_VERSION = "ufc-deep-profile-calibration-v1";
+
+function stableId(prefix: string, value: string) {
+  return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
+}
 
 function argValue(name: string) {
   const prefix = `--${name}=`;
@@ -117,6 +125,37 @@ async function completedFights(fightId: string | null, limit: number): Promise<C
   `;
 }
 
+async function persistReport(row: CompletedFightRow, report: UfcDeepProfileCalibrationReport, generatedAt: string) {
+  const id = stableId("ufcdpcal", `${row.fight_id}:${MODEL_VERSION}`);
+  await prisma.$executeRaw`
+    INSERT INTO ufc_deep_profile_calibration_reports (
+      id, fight_id, model_version, generated_at, actual_winner_fighter_id, actual_method, actual_round,
+      calibration_error, winner_error, method_error, round_error, phase_error, danger_error, confidence_penalty,
+      report_json, adjustment_json, updated_at
+    ) VALUES (
+      ${id}, ${row.fight_id}, ${MODEL_VERSION}, ${generatedAt}::timestamptz, ${row.winner_fighter_id}, ${row.method_kind ?? row.method}, ${row.round},
+      ${report.scores.calibrationError}, ${report.scores.winnerError}, ${report.scores.methodError}, ${report.scores.roundError}, ${report.scores.phaseError}, ${report.scores.dangerError}, ${report.scores.confidencePenalty},
+      ${JSON.stringify(report)}::jsonb, ${JSON.stringify(report.adjustments)}::jsonb, now()
+    )
+    ON CONFLICT (fight_id, model_version) DO UPDATE SET
+      generated_at = EXCLUDED.generated_at,
+      actual_winner_fighter_id = EXCLUDED.actual_winner_fighter_id,
+      actual_method = EXCLUDED.actual_method,
+      actual_round = EXCLUDED.actual_round,
+      calibration_error = EXCLUDED.calibration_error,
+      winner_error = EXCLUDED.winner_error,
+      method_error = EXCLUDED.method_error,
+      round_error = EXCLUDED.round_error,
+      phase_error = EXCLUDED.phase_error,
+      danger_error = EXCLUDED.danger_error,
+      confidence_penalty = EXCLUDED.confidence_penalty,
+      report_json = EXCLUDED.report_json,
+      adjustment_json = EXCLUDED.adjustment_json,
+      updated_at = now()
+  `;
+  return id;
+}
+
 function aggregate(reports: UfcDeepProfileCalibrationReport[]) {
   const adjustmentCounts: Record<string, number> = {};
   for (const report of reports) {
@@ -139,9 +178,11 @@ async function main() {
   const limit = numberArg("limit", 50);
   const generatedAt = argValue("generatedAt") ?? new Date().toISOString();
   const compact = hasFlag("compact");
+  const persist = hasFlag("persist");
   const rows = await completedFights(fightId, limit);
   const reports: UfcDeepProfileCalibrationReport[] = [];
   const skipped: Array<{ fightId: string; reason: string }> = [];
+  const persisted: string[] = [];
   for (const row of rows) {
     try {
       const fight = await getUfcFightIqDetail(row.fight_id);
@@ -151,7 +192,9 @@ async function main() {
       }
       const matchup = buildMatchup(fight);
       const actual = actualFromRow(row);
-      reports.push(buildUfcDeepProfileCalibrationReport({ matchup, actual, generatedAt }));
+      const report = buildUfcDeepProfileCalibrationReport({ matchup, actual, generatedAt });
+      reports.push(report);
+      if (persist) persisted.push(await persistReport(row, report, generatedAt));
     } catch (error) {
       skipped.push({ fightId: row.fight_id, reason: error instanceof Error ? error.message : String(error) });
     }
@@ -159,9 +202,11 @@ async function main() {
   const payload = {
     ok: skipped.length === 0,
     command: "worker-ufc-deep-profile-calibration",
-    dryRun: true,
+    modelVersion: MODEL_VERSION,
+    persist,
     scanned: rows.length,
     calibrated: reports.length,
+    persisted: persisted.length,
     skipped,
     aggregate: aggregate(reports),
     reports: compact ? reports.map((report) => ({ fightId: report.fightId, calibrationError: report.scores.calibrationError, summary: report.summary, adjustments: report.adjustments })) : reports
