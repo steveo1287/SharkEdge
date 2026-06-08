@@ -1,3 +1,4 @@
+import { deriveMlbBatterAdvancedMatchup, type MlbBatterAdvancedMatchup } from "@/services/simulation/mlb-batter-advanced-matchup";
 import { deriveMlbBatterStatProfile, type MlbBatterStatProfile } from "@/services/simulation/mlb-batter-stat-profile";
 
 export type MlbProjectionRating = {
@@ -64,6 +65,7 @@ export type MlbHitterPerGameProjection = {
   stolenBaseProbability: number;
   confidence: number;
   batterStatProfile: MlbBatterStatProfile;
+  advancedMatchup: MlbBatterAdvancedMatchup;
   reasons: string[];
 };
 
@@ -247,7 +249,6 @@ function projectHitter(args: {
   const skill = hitterSkill(args.row, pitcherHand);
   const opponentPitch = pitcherSkill(args.opponentStarter);
   const runEnvironment = clamp(args.teamRuns / 4.45, 0.58, 1.65);
-  const pa = clamp((LINEUP_PA[orderIndex] ?? 4.0) * (0.92 + runEnvironment * 0.08), 2.6, 5.35);
   const contact = safeNumber(args.row.contact);
   const power = safeNumber(args.row.power);
   const discipline = safeNumber(args.row.discipline);
@@ -255,7 +256,15 @@ function projectHitter(args: {
   const split = pitcherHand === "L" ? safeNumber(args.row.vs_lhp) : safeNumber(args.row.vs_rhp);
   const pitcherPressure = opponentPitch - DEFAULT_SKILL;
   const batterStats = deriveMlbBatterStatProfile(args.row, pitcherHand);
+  const advancedMatchup = deriveMlbBatterAdvancedMatchup({
+    batter: args.row,
+    opponentStarter: args.opponentStarter,
+    pitcherHand,
+    battingOrder: args.battingOrder,
+    teamRuns: args.teamRuns
+  });
   const statWeight = clamp(batterStats.confidence, 0.22, 0.88);
+  const pa = clamp((LINEUP_PA[orderIndex] ?? 4.0) * (0.92 + runEnvironment * 0.08) * advancedMatchup.paMultiplier, 2.5, 5.45);
 
   const skillHitRate = clamp(0.225 + (contact - 70) * 0.0018 + (split - 70) * 0.001 + (skill - 70) * 0.0008 - pitcherPressure * 0.0011, 0.13, 0.36);
   const skillWalkRate = clamp(0.083 + (discipline - 70) * 0.0011 - pitcherPressure * 0.0004, 0.035, 0.18);
@@ -263,11 +272,16 @@ function projectHitter(args: {
   const skillHrRate = clamp(0.031 + (power - 70) * 0.00105 - pitcherPressure * 0.0005, 0.004, 0.095);
   const skillTbPerHit = clamp(1.52 + (power - 70) * 0.007, 1.08, 2.35);
 
-  const hitRate = clamp(batterStats.hitRate * statWeight + skillHitRate * (1 - statWeight), 0.12, 0.38);
-  const walkRate = clamp(batterStats.walkRate * statWeight + skillWalkRate * (1 - statWeight), 0.03, 0.19);
-  const strikeoutRate = clamp(batterStats.strikeoutRate * statWeight + skillStrikeoutRate * (1 - statWeight), 0.07, 0.4);
-  const hrRate = clamp(batterStats.hrRate * statWeight + skillHrRate * (1 - statWeight), 0.003, 0.105);
-  const totalBasePerHit = clamp(batterStats.tbPerHit * statWeight + skillTbPerHit * (1 - statWeight), 1.05, 2.55);
+  const baseHitRate = batterStats.hitRate * statWeight + skillHitRate * (1 - statWeight);
+  const baseWalkRate = batterStats.walkRate * statWeight + skillWalkRate * (1 - statWeight);
+  const baseStrikeoutRate = batterStats.strikeoutRate * statWeight + skillStrikeoutRate * (1 - statWeight);
+  const baseHrRate = batterStats.hrRate * statWeight + skillHrRate * (1 - statWeight);
+  const baseTotalBasePerHit = batterStats.tbPerHit * statWeight + skillTbPerHit * (1 - statWeight);
+  const hitRate = clamp(baseHitRate * advancedMatchup.contactMultiplier, 0.11, 0.39);
+  const walkRate = clamp(baseWalkRate * advancedMatchup.walkMultiplier, 0.03, 0.2);
+  const strikeoutRate = clamp(baseStrikeoutRate * advancedMatchup.strikeoutMultiplier, 0.065, 0.42);
+  const hrRate = clamp(baseHrRate * advancedMatchup.powerMultiplier, 0.0025, 0.115);
+  const totalBasePerHit = clamp(baseTotalBasePerHit * clamp(advancedMatchup.powerMultiplier, 0.84, 1.22), 1.03, 2.65);
   const stealAttemptRate = clamp(metric(args.row, "stealAttemptRate", 0.035) + (baserunning - 70) * 0.0017 + (orderIndex <= 1 ? 0.012 : 0), 0.002, 0.16);
   const stealSuccessRate = clamp(metric(args.row, "stealSuccessRate", 0.72) + (baserunning - 70) * 0.002, 0.42, 0.9);
   const onBase = clamp(hitRate + walkRate, 0.18, 0.5);
@@ -279,7 +293,7 @@ function projectHitter(args: {
   const expectedTotalBases = expectedHits * totalBasePerHit + expectedHr * 0.65;
   const expectedRuns = args.teamRuns * runShare * clamp(onBase / 0.31, 0.72, 1.32);
   const expectedRbi = args.teamRuns * rbiShare * clamp((hitRate * totalBasePerHit) / 0.34, 0.72, 1.38);
-  const confidence = clamp((args.confirmedLineup ? 0.18 : 0) + batterStats.confidence * 0.28 + (args.opponentStarter ? 0.18 : 0) + 0.34, 0.35, 0.94);
+  const confidence = clamp((args.confirmedLineup ? 0.18 : 0) + batterStats.confidence * 0.22 + advancedMatchup.confidence * 0.16 + (args.opponentStarter ? 0.18 : 0) + 0.28, 0.35, 0.95);
 
   return {
     playerId: args.row.id,
@@ -299,12 +313,14 @@ function projectHitter(args: {
     stolenBaseProbability: round((1 - Math.exp(-pa * onBase * stealAttemptRate)) * stealSuccessRate, 4),
     confidence: round(confidence, 3),
     batterStatProfile: batterStats,
+    advancedMatchup,
     reasons: [
       `Projected ${pa.toFixed(1)} PA from batting slot ${args.battingOrder}.`,
       `Batter stats blended at ${(statWeight * 100).toFixed(0)}% confidence: xAVG ${batterStats.xAvg.toFixed(3)}, xSLG ${batterStats.xSlug.toFixed(3)}, xwOBA ${batterStats.xWoba.toFixed(3)}.`,
+      `Advanced matchup multipliers: contact ${advancedMatchup.contactMultiplier.toFixed(3)}, power ${advancedMatchup.powerMultiplier.toFixed(3)}, K ${advancedMatchup.strikeoutMultiplier.toFixed(3)}, BB ${advancedMatchup.walkMultiplier.toFixed(3)}.`,
       `Stat-driven rates: H/PA ${hitRate.toFixed(3)}, BB/PA ${walkRate.toFixed(3)}, K/PA ${strikeoutRate.toFixed(3)}, HR/PA ${hrRate.toFixed(3)}, TB/H ${totalBasePerHit.toFixed(2)}.`,
       `Split-adjusted hitter skill ${skill.toFixed(1)} vs ${pitcherHand}HP and opposing starter skill ${opponentPitch.toFixed(1)}.`,
-      `Batter drivers: ${batterStats.drivers.join(", ")}.`
+      `Batter drivers: ${batterStats.drivers.join(", ")}; advanced drivers: ${advancedMatchup.drivers.join(", ")}.`
     ]
   };
 }
