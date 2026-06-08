@@ -25,6 +25,7 @@ function boolParam(value: string | null | undefined, fallback: boolean) {
 }
 
 function intParam(value: string | null | undefined, fallback: number, min: number, max: number) {
+  if (value == null || value.trim() === "") return fallback;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(min, Math.min(max, Math.round(parsed))) : fallback;
 }
@@ -189,6 +190,22 @@ export async function GET(request: Request) {
 
   const allWarnings = [...rosterRatings.warnings, ...warnings, ...microFeeds.warnings];
   const ok = rosterRatings.ok && (dryRun || rosterRatings.persisted) && !warnings.length;
+  const rosterRatingsSummary = {
+    ok: rosterRatings.ok,
+    modelVersion: rosterRatings.modelVersion,
+    season: rosterRatings.season,
+    rosterType: rosterRatings.rosterType,
+    generatedAt: rosterRatings.generatedAt,
+    snapshotDate: rosterRatings.snapshotDate,
+    persisted: rosterRatings.persisted,
+    teamsExpected: rosterRatings.teamsExpected,
+    teamsCovered: rosterRatings.teamsCovered,
+    playersSeen: rosterRatings.playersSeen,
+    hittersRated: rosterRatings.hittersRated,
+    pitchersRated: rosterRatings.pitchersRated,
+    teams: rosterRatings.teams,
+    warnings: rosterRatings.warnings
+  };
 
   return NextResponse.json(
     {
@@ -199,7 +216,7 @@ export async function GET(request: Request) {
       rosterType,
       snapshotDate,
       databasePersistence: rosterRatings.persisted,
-      rosterRatings,
+      rosterRatings: rosterRatingsSummary,
       microFeeds,
       warnings: allWarnings
     },
