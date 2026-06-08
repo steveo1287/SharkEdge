@@ -53,6 +53,33 @@ function hitter(id: string, name: string, overall: number, overrides: Partial<Ml
       parkHrFactor: 1.08,
       weatherRunFactor: 1.02,
       weatherHrFactor: 1.07,
+      historicalErrorCorrection: {
+        sampleSize: 144,
+        hitMeanBias: 0.015,
+        totalBasesMeanBias: 0.02,
+        homeRunMeanBias: 0.002,
+        walkMeanBias: -0.004,
+        strikeoutMeanBias: 0.01
+      },
+      umpire: {
+        id: "UMP-42",
+        sampleSize: 160,
+        strikeZoneBoost: 0.018,
+        walkBoost: -0.006,
+        runFactor: 1.02
+      },
+      marketVariance: {
+        hits: 1.08,
+        totalBases: 1.18,
+        homeRun: 1.26,
+        walks: 0.96,
+        strikeouts: 1.04
+      },
+      settlementFeedback: {
+        sampleSize: 82,
+        calibrationDrift: 0.035,
+        lastUpdated: "2026-06-01T12:00:00Z"
+      },
       stealAttemptRate: 0.035,
       stealSuccessRate: 0.73
     },
@@ -60,12 +87,12 @@ function hitter(id: string, name: string, overall: number, overrides: Partial<Ml
   };
 }
 
-function pitcher(id: string, name: string, overall: number, overrides: Partial<MlbProjectionRating> = {}): MlbProjectionRating {
+function pitcher(id: string, name: string, overall: number, role: string = overall >= 86 ? "ACE" : "TOP_ROTATION", overrides: Partial<MlbProjectionRating> = {}): MlbProjectionRating {
   return {
     id,
     name,
     team: "P",
-    role_tier: overall >= 86 ? "ACE" : "TOP_ROTATION",
+    role_tier: role,
     xera_quality: overall,
     fip_quality: overall,
     k_bb: overall,
@@ -73,11 +100,11 @@ function pitcher(id: string, name: string, overall: number, overrides: Partial<M
     groundball_rate: overall,
     platoon_split: overall,
     stamina: overall,
-    recent_workload: 28,
+    recent_workload: role === "TOP_ROTATION" || role === "ACE" ? 28 : 12,
     arsenal_quality: overall,
     overall,
     metrics_json: {
-      throws: "R",
+      throws: role === "SETUP" ? "L" : "R",
       pitchMix: {
         fourSeam: 0.42,
         slider: 0.24,
@@ -101,16 +128,22 @@ function pitcher(id: string, name: string, overall: number, overrides: Partial<M
 function team(teamName: string, hitterBase: number, starterBase: number): MlbProjectionTeamContext {
   const hitters = Array.from({ length: 9 }, (_, index) => hitter(`${teamName}-h${index + 1}`, `${teamName} H${index + 1}`, hitterBase - index));
   const starter = pitcher(`${teamName}-sp`, `${teamName} Starter`, starterBase);
+  const relievers = [
+    pitcher(`${teamName}-cl`, `${teamName} Closer`, starterBase + 2, "CLOSER"),
+    pitcher(`${teamName}-su`, `${teamName} Setup`, starterBase, "SETUP"),
+    pitcher(`${teamName}-mr`, `${teamName} Middle`, starterBase - 4, "MIDDLE_RELIEF")
+  ];
   return {
     team: teamName,
     lineup: {
       confirmed: true,
+      captured_at: new Date().toISOString(),
       starting_pitcher_id: starter.id,
       starting_pitcher_name: starter.name,
       batting_order_json: hitters.map((row) => ({ playerId: row.id, playerName: row.name }))
     },
     hitters,
-    pitchers: [starter]
+    pitchers: [starter, ...relievers]
   };
 }
 
@@ -129,6 +162,7 @@ const playerProjection = projectMlbPlayerStatsForGame({
 
 const topHomeHitter = playerProjection.homeHitters[0];
 const paOutcome = topHomeHitter.plateAppearanceOutcome;
+const eliteContext = topHomeHitter.eliteContext;
 const paOutcomeSum = paOutcome.walkRate + paOutcome.strikeoutRate + paOutcome.homeRunRate + paOutcome.singleRate + paOutcome.extraBaseHitRate + paOutcome.ballInPlayOutRate;
 assert.equal(playerProjection.modelVersion, "mlb-player-stat-projection-v1");
 assert.equal(playerProjection.awayHitters.length, 9);
@@ -155,15 +189,30 @@ assert.ok(paOutcome.expectedTotalBasesPerPa > 0);
 assert.ok(paOutcome.expectedTotalBasesPerHit >= 1.05);
 assert.ok(paOutcome.outcomeConfidence > 0.55);
 assert.ok(paOutcome.drivers.length > 0);
-assert.ok(Math.abs(topHomeHitter.expectedHits - topHomeHitter.expectedPlateAppearances * paOutcome.hitRate) < 0.02);
-assert.ok(Math.abs(topHomeHitter.expectedTotalBases - topHomeHitter.expectedPlateAppearances * paOutcome.expectedTotalBasesPerPa) < 0.02);
+assert.equal(eliteContext.modelVersion, "mlb-elite-hitter-context-v1");
+assert.ok(eliteContext.historicalErrorCorrection.sampleSize >= 100);
+assert.ok(eliteContext.historicalErrorCorrection.confidence > 0.5);
+assert.equal(eliteContext.umpireZoneImpact.umpireId, "UMP-42");
+assert.ok(eliteContext.umpireZoneImpact.confidence > 0.5);
+assert.ok(eliteContext.bullpenExposure.expectedBullpenPlateAppearances > 0.2);
+assert.ok(eliteContext.bullpenExposure.confidence > 0.2);
+assert.ok(eliteContext.varianceByMarket.totalBases > 1);
+assert.ok(eliteContext.varianceByMarket.homeRun > 1);
+assert.ok(eliteContext.lineupProtection.confidence > 0.5);
+assert.equal(eliteContext.lineupConfirmation.status, "CONFIRMED");
+assert.ok(eliteContext.lineupConfirmation.decayMultiplier <= 1);
+assert.ok(eliteContext.settlementFeedback.sampleSize > 0);
+assert.ok(eliteContext.drivers.some((driver) => driver.includes("historical") || driver.includes("umpire") || driver.includes("bullpen") || driver.includes("settlement")));
+assert.ok(Math.abs(topHomeHitter.expectedHits - eliteContext.calibratedMeans.expectedHits) < 0.001);
+assert.ok(Math.abs(topHomeHitter.expectedTotalBases - eliteContext.calibratedMeans.expectedTotalBases) < 0.001);
 assert.ok(topHomeHitter.statDistribution.hit1PlusProbability > topHomeHitter.statDistribution.hit2PlusProbability);
 assert.ok(topHomeHitter.statDistribution.hit2PlusProbability > topHomeHitter.statDistribution.hit3PlusProbability);
 assert.ok(topHomeHitter.statDistribution.totalBases2PlusProbability > topHomeHitter.statDistribution.totalBases4PlusProbability);
 assert.ok(topHomeHitter.statDistribution.homeRunProbability > 0);
 assert.ok(topHomeHitter.statDistribution.strikeout1PlusProbability > topHomeHitter.statDistribution.strikeout3PlusProbability);
 assert.ok(topHomeHitter.statDistribution.distributionConfidence > 0.55);
-assert.ok(topHomeHitter.statDistribution.notes.some((note) => note.includes("Distribution uses mean stat projection")));
+assert.ok(topHomeHitter.statDistribution.marketVolatility.homeRun > 1);
+assert.ok(topHomeHitter.statDistribution.notes.some((note) => note.includes("Market volatility")));
 assert.equal(topHomeHitter.propSurface.modelVersion, "mlb-batter-prop-surface-v1");
 assert.ok(topHomeHitter.propSurface.outcomes.length >= 20);
 assert.ok(topHomeHitter.propSurface.strongest.length > 0);
@@ -175,6 +224,8 @@ assert.ok(topHomeHitter.propSurface.notes.some((note) => note.includes("no-vig m
 assert.ok(topHomeHitter.reasons.some((reason) => reason.includes("Batter stats blended")));
 assert.ok(topHomeHitter.reasons.some((reason) => reason.includes("Advanced matchup multipliers")));
 assert.ok(topHomeHitter.reasons.some((reason) => reason.includes("PA outcome tree")));
+assert.ok(topHomeHitter.reasons.some((reason) => reason.includes("Elite context")));
+assert.ok(topHomeHitter.reasons.some((reason) => reason.includes("Market variance")));
 assert.ok(topHomeHitter.reasons.some((reason) => reason.includes("Quality contact")));
 assert.ok(topHomeHitter.reasons.some((reason) => reason.includes("Distribution:")));
 assert.ok(topHomeHitter.reasons.some((reason) => reason.includes("Prop surface strongest")));
@@ -207,11 +258,13 @@ assert.ok(inningProjection.firstFiveOver4_5Probability > 0.3);
 assert.ok(Math.abs(inningProjection.fullGameExpectedRuns - 9.1) < 0.001);
 
 const unconfirmed = projectMlbPlayerStatsForGame({
-  away: { ...away, lineup: { ...away.lineup, confirmed: false } },
+  away: { ...away, lineup: { ...away.lineup, confirmed: false, captured_at: "2026-01-01T00:00:00Z" } },
   home,
   awayRuns: 4,
   homeRuns: 4.2
 });
 assert.ok(unconfirmed.warnings.some((warning) => warning.includes("not confirmed")));
+assert.equal(unconfirmed.awayHitters[0].eliteContext.lineupConfirmation.status, "STALE");
+assert.ok(unconfirmed.awayHitters[0].eliteContext.lineupConfirmation.confidencePenalty > 0.1);
 
 console.log("mlb-player-stat-inning-engine.test.ts passed");
