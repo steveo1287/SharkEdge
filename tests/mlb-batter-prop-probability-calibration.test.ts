@@ -56,9 +56,9 @@ const adjusted = applyMlbBatterPropProbabilityCalibration({ outcome, calibration
 assert.equal(adjusted.calibrationApplied, true);
 assert.ok(adjusted.calibrationSampleSize >= 20);
 assert.ok(adjusted.probability > outcome.probability);
-assert.ok(adjusted.rawProbability === outcome.probability);
+assert.equal(adjusted.rawProbability, outcome.probability);
 assert.ok(Number.isFinite(adjusted.fairAmerican));
-assert.ok(adjusted.reasons === undefined);
+assert.ok(adjusted.calibrationReliability > 0);
 
 const uncalibrated = applyMlbBatterPropProbabilityCalibration({ outcome, calibration: null });
 assert.equal(uncalibrated.calibrationApplied, false);
