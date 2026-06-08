@@ -11,6 +11,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SectionTitle } from "@/components/ui/section-title";
 import { formatLongDate } from "@/lib/formatters/date";
 import type { LeagueKey } from "@/lib/types/domain";
+import { buildMlbDataReadinessReport, type MlbDataReadinessReport } from "@/services/simulation/mlb-data-readiness";
+import { buildMlbDailySimPickBoard, type MlbPick3Parlay, type MlbSimPick } from "@/services/simulation/mlb-sim-pick-selector";
 import {
   readSimCache,
   SIM_CACHE_KEYS,
@@ -19,7 +21,6 @@ import {
   type SimBoardSnapshot,
   type SimMarketSnapshot
 } from "@/services/simulation/sim-snapshot-service";
-import { buildMlbDailySimPickBoard, type MlbPick3Parlay, type MlbSimPick } from "@/services/simulation/mlb-sim-pick-selector";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -85,9 +86,29 @@ function Badge({ label, tone = "slate" }: { label: string; tone?: "slate" | "aqu
   const cls = tone === "green" ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-200" : tone === "amber" ? "border-amber-400/25 bg-amber-400/10 text-amber-200" : tone === "red" ? "border-rose-400/25 bg-rose-400/10 text-rose-200" : tone === "aqua" ? "border-aqua/25 bg-aqua/10 text-aqua" : "border-white/10 bg-white/[0.04] text-slate-300";
   return <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${cls}`}>{label}</span>;
 }
+function readinessTone(level: MlbDataReadinessReport["level"]): "green" | "aqua" | "amber" | "red" { return level === "READY" ? "green" : level === "WATCH" ? "aqua" : level === "WEAK" ? "amber" : "red"; }
 function pickTone(pick: MlbSimPick) { return pick.tier === "TOP_SIM" ? "green" : pick.tier === "STRONG_SIM" ? "aqua" : pick.tier === "LEAN" ? "amber" : "slate"; }
 function marketLabel(market: MlbSimPick["market"]) { return market.replace(/_/g, " "); }
 function sourceLabel(source: MlbSimPick["source"]) { return source === "market_context" ? "sim + line context" : "sim projection"; }
+
+function ReadinessStrip({ report }: { report: MlbDataReadinessReport }) {
+  const weak = report.components.filter((component) => component.level === "WEAK" || component.level === "BLOCKED").slice(0, 4);
+  const actions = report.actions.slice(0, 3);
+  return (
+    <section className="rounded-[1.1rem] border border-white/10 bg-white/[0.035] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2"><Badge label={`MLB readiness ${report.score}/100`} tone={readinessTone(report.level)} /><Badge label={report.level} tone={readinessTone(report.level)} /><Badge label={`${report.summary.projectionCount}/${report.summary.gameCount} projections`} /><Badge label={`${report.summary.matchedMarketGames}/${report.summary.gameCount} line context`} /><Badge label={`${report.summary.realOrEstimatedPlayerRows}/${report.summary.gameCount} player model`} /></div>
+        {report.summary.stale ? <Badge label="stale" tone="amber" /> : null}
+      </div>
+      {weak.length || actions.length ? (
+        <div className="mt-3 grid gap-2 text-xs leading-5 text-slate-400 md:grid-cols-2">
+          <div>{weak.length ? weak.map((item) => <div key={item.key}><span className="font-semibold text-white">{item.label}:</span> {item.detail}</div>) : <span className="text-emerald-200">Core MLB data layers are usable.</span>}</div>
+          <div>{actions.length ? <><span className="font-semibold text-white">Next fixes:</span> {actions.join(" · ")}</> : null}</div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
 
 function PickCard({ pick }: { pick: MlbSimPick }) {
   return (
@@ -101,61 +122,34 @@ function PickCard({ pick }: { pick: MlbSimPick }) {
 }
 
 function ParlayCard({ parlay, index }: { parlay: MlbPick3Parlay; index: number }) {
-  return (
-    <div className="rounded-[1.1rem] border border-amber-300/20 bg-amber-300/[0.055] p-4">
-      <div className="flex items-start justify-between gap-3"><div><div className="text-[10px] font-black uppercase tracking-[0.16em] text-amber-200">Pick 3 sim parlay #{index + 1}</div><div className="mt-1 font-display text-xl font-black text-white">Fair {parlay.fairAmericanOdds > 0 ? "+" : ""}{parlay.fairAmericanOdds}</div></div><Badge label={`score ${parlay.score}`} tone="amber" /></div>
-      <div className="mt-3 grid gap-2">{parlay.legs.map((leg) => <div key={leg.id} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs"><div className="font-semibold text-white">{leg.selection}</div><div className="mt-1 text-slate-500">{marketLabel(leg.market)} · {leg.gameLabel} · sim {pct(leg.modelProbability)} · {leg.projectedScore}</div></div>)}</div>
-      <div className="mt-3 flex flex-wrap gap-2"><Badge label={`sim ${pct(parlay.modelProbability)}`} tone="amber" /><Badge label={`avg conf ${pct(parlay.avgConfidence)}`} /></div>
-    </div>
-  );
+  return <div className="rounded-[1.1rem] border border-amber-300/20 bg-amber-300/[0.055] p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-[10px] font-black uppercase tracking-[0.16em] text-amber-200">Pick 3 sim parlay #{index + 1}</div><div className="mt-1 font-display text-xl font-black text-white">Fair {parlay.fairAmericanOdds > 0 ? "+" : ""}{parlay.fairAmericanOdds}</div></div><Badge label={`score ${parlay.score}`} tone="amber" /></div><div className="mt-3 grid gap-2">{parlay.legs.map((leg) => <div key={leg.id} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs"><div className="font-semibold text-white">{leg.selection}</div><div className="mt-1 text-slate-500">{marketLabel(leg.market)} · {leg.gameLabel} · sim {pct(leg.modelProbability)} · {leg.projectedScore}</div></div>)}</div><div className="mt-3 flex flex-wrap gap-2"><Badge label={`sim ${pct(parlay.modelProbability)}`} tone="amber" /><Badge label={`avg conf ${pct(parlay.avgConfidence)}`} /></div></div>;
 }
-
 function MlbPickBoard({ board }: { board: ReturnType<typeof buildMlbDailySimPickBoard> }) {
   const picks = [...board.officialPlays, ...board.qualifiedLeans].slice(0, 6);
-  return (
-    <section className="grid gap-4">
-      <SectionTitle title="MLB Sim Predictions" description="What the sim thinks happens: Moneyline, O/U, F5, NRFI/YRFI and pick-3 combos." />
-      <div className="flex flex-wrap gap-2"><Badge label={`${board.summary.officialCount} top sim`} tone={board.summary.officialCount ? "green" : "slate"} /><Badge label={`${board.summary.qualifiedLeanCount} strong/lean`} tone={board.summary.qualifiedLeanCount ? "aqua" : "slate"} /><Badge label={`${board.summary.pick3Count} pick 3`} tone={board.summary.pick3Count ? "amber" : "slate"} /></div>
-      {picks.length ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{picks.map((pick) => <PickCard key={pick.id} pick={pick} />)}</div> : <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.035] p-5 text-sm leading-6 text-slate-400">No top sim picks cleared. Watchlist only.</div>}
-      {board.pick3Parlays.length ? <div className="grid gap-3 xl:grid-cols-3">{board.pick3Parlays.map((parlay, index) => <ParlayCard key={parlay.id} parlay={parlay} index={index} />)}</div> : null}
-    </section>
-  );
+  return <section className="grid gap-4"><SectionTitle title="MLB Sim Predictions" description="What the sim thinks happens: Moneyline, O/U, F5, NRFI/YRFI and pick-3 combos." /><div className="flex flex-wrap gap-2"><Badge label={`${board.summary.officialCount} top sim`} tone={board.summary.officialCount ? "green" : "slate"} /><Badge label={`${board.summary.qualifiedLeanCount} strong/lean`} tone={board.summary.qualifiedLeanCount ? "aqua" : "slate"} /><Badge label={`${board.summary.pick3Count} pick 3`} tone={board.summary.pick3Count ? "amber" : "slate"} /></div>{picks.length ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{picks.map((pick) => <PickCard key={pick.id} pick={pick} />)}</div> : <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.035] p-5 text-sm leading-6 text-slate-400">No top sim picks cleared. Watchlist only.</div>}{board.pick3Parlays.length ? <div className="grid gap-3 xl:grid-cols-3">{board.pick3Parlays.map((parlay, index) => <ParlayCard key={parlay.id} parlay={parlay} index={index} />)}</div> : null}</section>;
 }
-
 function RowSummary({ row }: { row: Row }) {
-  const lean = winLean(row.projection);
-  const tier = decisionTier(row);
-  const market = bestMarket(row);
-  const badges = dataSourceBadges(row);
-  const factors = topFactors(row, 3);
-  return (
-    <SimSignalCard className="group h-full transition hover:border-aqua/35 hover:bg-aqua/[0.045]">
-      <div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-slate-500"><span>{formatTime(row.game.startTime)}</span><SimStatusBadge status={row.game.status} /></div><div className="mt-2 font-display text-xl font-semibold tracking-tight text-white">{row.projection.matchup.away} @ {row.projection.matchup.home}</div></div><SimDecisionBadge tier={tier} /></div>
-      <div className="mt-4 grid grid-cols-2 gap-3"><SimMetricTile label="Lean" value={lean.team} sub={pct(lean.pct)} emphasis={tier === "attack" ? "strong" : "normal"} /><SimMetricTile label="Score" value={`${num(row.projection.distribution.avgAway, 1)}-${num(row.projection.distribution.avgHome, 1)}`} sub="away / home" /><SimMetricTile label="Model edge" value={plus(row.projection.mlbIntel?.homeEdge)} sub="home-side delta" /><SimMetricTile label="Market" value={market ? String(market.market).toUpperCase() : "--"} sub={market ? `edge ${num(market.edge)}` : "no matched signal"} /></div>
-      <div className="mt-4 flex flex-wrap gap-1.5"><SimDataQualityBadges playerSource={badges.player} marketSource={badges.lines} calibrationSource={badges.calibration} /></div>
-      <div className="mt-4 grid gap-2">{factors.length ? factors.map((factor) => <div key={`${row.game.id}:${factor.label}`} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs"><div className="min-w-0"><div className="truncate text-slate-300">{factor.label}</div><div className="mt-0.5 text-[10px] uppercase tracking-[0.12em] text-slate-500">{factorTeamLabel(row, factor.value)}</div></div><span className={factor.value >= 0 ? "font-mono text-emerald-300" : "font-mono text-red-300"}>{plus(factor.value)}</span></div>) : <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs text-slate-500">No factor stack available.</div>}</div>
-      <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-4"><div className="line-clamp-2 text-xs leading-5 text-slate-500">{row.projection.mlbIntel?.governor?.reasons?.[0] ?? row.projection.read}</div><Link href={`/sim/mlb/${encodeURIComponent(row.game.id)}`} className="shrink-0 rounded-full border border-aqua/35 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-aqua hover:bg-aqua/15">Open</Link></div>
-    </SimSignalCard>
-  );
+  const lean = winLean(row.projection); const tier = decisionTier(row); const market = bestMarket(row); const badges = dataSourceBadges(row); const factors = topFactors(row, 3);
+  return <SimSignalCard className="group h-full transition hover:border-aqua/35 hover:bg-aqua/[0.045]"><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-slate-500"><span>{formatTime(row.game.startTime)}</span><SimStatusBadge status={row.game.status} /></div><div className="mt-2 font-display text-xl font-semibold tracking-tight text-white">{row.projection.matchup.away} @ {row.projection.matchup.home}</div></div><SimDecisionBadge tier={tier} /></div><div className="mt-4 grid grid-cols-2 gap-3"><SimMetricTile label="Lean" value={lean.team} sub={pct(lean.pct)} emphasis={tier === "attack" ? "strong" : "normal"} /><SimMetricTile label="Score" value={`${num(row.projection.distribution.avgAway, 1)}-${num(row.projection.distribution.avgHome, 1)}`} sub="away / home" /><SimMetricTile label="Model edge" value={plus(row.projection.mlbIntel?.homeEdge)} sub="home-side delta" /><SimMetricTile label="Market" value={market ? String(market.market).toUpperCase() : "--"} sub={market ? `edge ${num(market.edge)}` : "no matched signal"} /></div><div className="mt-4 flex flex-wrap gap-1.5"><SimDataQualityBadges playerSource={badges.player} marketSource={badges.lines} calibrationSource={badges.calibration} /></div><div className="mt-4 grid gap-2">{factors.length ? factors.map((factor) => <div key={`${row.game.id}:${factor.label}`} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs"><div className="min-w-0"><div className="truncate text-slate-300">{factor.label}</div><div className="mt-0.5 text-[10px] uppercase tracking-[0.12em] text-slate-500">{factorTeamLabel(row, factor.value)}</div></div><span className={factor.value >= 0 ? "font-mono text-emerald-300" : "font-mono text-red-300"}>{plus(factor.value)}</span></div>) : <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs text-slate-500">No factor stack available.</div>}</div><div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-4"><div className="line-clamp-2 text-xs leading-5 text-slate-500">{row.projection.mlbIntel?.governor?.reasons?.[0] ?? row.projection.read}</div><Link href={`/sim/mlb/${encodeURIComponent(row.game.id)}`} className="shrink-0 rounded-full border border-aqua/35 bg-aqua/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-aqua hover:bg-aqua/15">Open</Link></div></SimSignalCard>;
 }
-
 function PriorityStack({ rows }: { rows: Row[] }) { const ordered = sortRows(rows).slice(0, 6); if (!ordered.length) return null; return <section className="grid gap-4"><SectionTitle title="Best MLB reads" description="Highest-quality games from the cached MLB sim board." /><div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">{ordered.map((row) => <RowSummary key={row.game.id} row={row} />)}</div></section>; }
 function CompactLedger({ rows }: { rows: Row[] }) { const ordered = sortRows(rows); return <section className="grid gap-4"><SectionTitle title="Full MLB slate" description="Every cached MLB game." /><div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/40">{ordered.map((row) => { const lean = winLean(row.projection); const tier = decisionTier(row); return <Link key={`ledger:${row.game.id}`} href={`/sim/mlb/${encodeURIComponent(row.game.id)}`} className="grid gap-3 border-b border-white/10 px-4 py-3 transition last:border-none hover:bg-aqua/[0.045] md:grid-cols-[1.4fr_0.8fr_0.7fr_0.7fr_auto] md:items-center"><div><div className="font-semibold text-white">{row.projection.matchup.away} @ {row.projection.matchup.home}</div><div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.14em] text-slate-500"><span>{formatTime(row.game.startTime)}</span><SimStatusBadge status={row.game.status} /></div></div><div className="text-sm text-slate-300"><span className="text-slate-500">Lean</span> {lean.team}</div><div className="font-mono text-sm text-aqua">{pct(lean.pct)}</div><div className="font-mono text-sm text-slate-300">{plus(row.projection.mlbIntel?.homeEdge)}</div><div className="justify-self-start md:justify-self-end"><SimDecisionBadge tier={tier} /></div></Link>; })}</div></section>; }
 
 async function readCachedRows() {
   const [mlbBoard, market] = await Promise.all([readSimCache<SimBoardSnapshot>(SIM_CACHE_KEYS.mlbBoard), readSimCache<SimMarketSnapshot>(SIM_CACHE_KEYS.market)]);
-  if (!mlbBoard?.games?.length) return { rows: [] as Row[], games: [] as CachedSimGameProjection[], edges: [] as EdgeResult[], source: "missing-cache" as const };
+  if (!mlbBoard?.games?.length) return { rows: [] as Row[], games: [] as CachedSimGameProjection[], edges: [] as EdgeResult[], source: "missing-cache" as const, board: mlbBoard, market };
   const edgeByGame = new Map((market?.edges ?? []).map((edge) => [edge.gameId, edge]));
-  return { rows: mlbBoard.games.map((item) => ({ game: item.game, projection: item.projection, edge: edgeByGame.get(item.game.id) ?? null })), games: mlbBoard.games, edges: market?.edges ?? [], source: mlbBoard.stale ? "stale-cache" as const : "cache" as const };
+  return { rows: mlbBoard.games.map((item) => ({ game: item.game, projection: item.projection, edge: edgeByGame.get(item.game.id) ?? null })), games: mlbBoard.games, edges: market?.edges ?? [], source: mlbBoard.stale ? "stale-cache" as const : "cache" as const, board: mlbBoard, market };
 }
-async function loadMlbRows() { const cached = await readCachedRows(); return cached.rows.length ? cached : { rows: [] as Row[], games: [] as CachedSimGameProjection[], edges: [] as EdgeResult[], source: "missing-cache" as const }; }
+async function loadMlbRows() { const cached = await readCachedRows(); return cached.rows.length ? cached : { rows: [] as Row[], games: [] as CachedSimGameProjection[], edges: [] as EdgeResult[], source: "missing-cache" as const, board: cached.board, market: cached.market }; }
 
 export default async function MlbSimPage() {
-  const { rows, games, edges, source } = await loadMlbRows();
+  const { rows, games, edges, source, board, market } = await loadMlbRows();
   const attack = rows.filter((row) => decisionTier(row) === "attack").length;
   const watch = rows.filter((row) => decisionTier(row) === "watch").length;
   const lineCount = rows.filter((row) => edgeMarket(row.edge)).length;
   const pickBoard = buildMlbDailySimPickBoard({ games, edges });
+  const readiness = buildMlbDataReadinessReport({ board, market, pickBoard });
 
   return (
     <div className="space-y-5">
@@ -163,6 +157,7 @@ export default async function MlbSimPage() {
         <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="font-display text-3xl font-black tracking-[-0.05em] text-white">MLB Sim</h1><p className="mt-1 text-sm text-slate-500">Moneyline, O/U, F5, NRFI/YRFI, pick-3 sim combos, and full slate.</p></div><div className="flex flex-wrap gap-2"><Link href="/sim" className={navClass()}>SimHub</Link><Link href="/sim/mlb" className={navClass(true)}>MLB</Link><Link href="/mlb/batter-box" className={navClass()}>Batter Box</Link><Link href="/accuracy/mlb" className={navClass()}>Accuracy</Link></div></div>
         <div className="mt-4 flex flex-wrap gap-2"><Badge label={`${rows.length} games`} tone={rows.length ? "green" : "slate"} /><Badge label={`${attack} attack`} tone={attack ? "green" : "slate"} /><Badge label={`${watch} watch`} tone={watch ? "amber" : "slate"} /><Badge label={`${lineCount} lines`} tone={lineCount ? "aqua" : "slate"} /><Badge label={source} /></div>
       </section>
+      <ReadinessStrip report={readiness} />
       {rows.length ? <><MlbPickBoard board={pickBoard} /><PriorityStack rows={rows} /><CompactLedger rows={rows} /></> : <EmptyState title="No MLB games available" description="Cached MLB rows are missing. Run the sim refresh job if the slate should be populated." />}
     </div>
   );
