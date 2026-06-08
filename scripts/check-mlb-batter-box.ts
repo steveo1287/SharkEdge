@@ -1,5 +1,6 @@
 import { loadMlbBatterBoxProjection } from "@/services/simulation/mlb-batter-box-loader";
 import { buildMlbBaseStateRunRbiEngine } from "@/services/simulation/mlb-base-state-run-rbi-engine";
+import { buildMlbMatchupTraitEngine } from "@/services/simulation/mlb-matchup-trait-engine";
 import { buildMlbPlateAppearanceGameScript } from "@/services/simulation/mlb-plate-appearance-game-script";
 import { buildMlbPaWindowRanking } from "@/services/simulation/mlb-pa-window-ranking";
 import { buildMlbSimulatedBoxScore } from "@/services/simulation/mlb-simulated-box-score";
@@ -15,22 +16,11 @@ function compactRank(row: { rank: number; playerName: string; team: string; scor
 }
 
 function compactContext(row: { playerName: string; team: string; battingOrder: number; lineupRole: string; rbiOpportunityScore: number; runScoringOpportunityScore: number; lineupProtectionScore: number; expectedRunsBeforeContext: number; expectedRunsAfterContext: number; expectedRbiBeforeContext: number; expectedRbiAfterContext: number; bestRbiWindow: unknown; bestRunWindow: unknown; isRbiTrap: boolean; drivers: string[]; summary: string }) {
-  return {
-    playerName: row.playerName,
-    team: row.team,
-    battingOrder: row.battingOrder,
-    lineupRole: row.lineupRole,
-    rbiOpportunityScore: row.rbiOpportunityScore,
-    runScoringOpportunityScore: row.runScoringOpportunityScore,
-    lineupProtectionScore: row.lineupProtectionScore,
-    runAdjustment: { before: row.expectedRunsBeforeContext, after: row.expectedRunsAfterContext },
-    rbiAdjustment: { before: row.expectedRbiBeforeContext, after: row.expectedRbiAfterContext },
-    bestRbiWindow: row.bestRbiWindow,
-    bestRunWindow: row.bestRunWindow,
-    isRbiTrap: row.isRbiTrap,
-    drivers: row.drivers,
-    summary: row.summary
-  };
+  return { playerName: row.playerName, team: row.team, battingOrder: row.battingOrder, lineupRole: row.lineupRole, rbiOpportunityScore: row.rbiOpportunityScore, runScoringOpportunityScore: row.runScoringOpportunityScore, lineupProtectionScore: row.lineupProtectionScore, runAdjustment: { before: row.expectedRunsBeforeContext, after: row.expectedRunsAfterContext }, rbiAdjustment: { before: row.expectedRbiBeforeContext, after: row.expectedRbiAfterContext }, bestRbiWindow: row.bestRbiWindow, bestRunWindow: row.bestRunWindow, isRbiTrap: row.isRbiTrap, drivers: row.drivers, summary: row.summary };
+}
+
+function compactTrait(row: { playerName: string; team: string; battingOrder: number; traitLabel: string; traitScore: number; batterHand: string; opponentStarterName: string; opponentStarterHand: string; starterTrait: string; batterTrait: string; platoonScore: number; pitchTypeScore: number; contactMultiplier: number; powerMultiplier: number; strikeoutMultiplier: number; adjustedExpected: unknown; deltas: unknown; drivers: string[]; summary: string }) {
+  return { playerName: row.playerName, team: row.team, battingOrder: row.battingOrder, traitLabel: row.traitLabel, traitScore: row.traitScore, batterHand: row.batterHand, opponentStarterName: row.opponentStarterName, opponentStarterHand: row.opponentStarterHand, starterTrait: row.starterTrait, batterTrait: row.batterTrait, platoonScore: row.platoonScore, pitchTypeScore: row.pitchTypeScore, multipliers: { contact: row.contactMultiplier, power: row.powerMultiplier, strikeout: row.strikeoutMultiplier }, adjustedExpected: row.adjustedExpected, deltas: row.deltas, drivers: row.drivers, summary: row.summary };
 }
 
 async function main() {
@@ -43,14 +33,11 @@ async function main() {
   const result = await loadMlbBatterBoxProjection(params);
   const projection = result.projection;
   const boxScore = projection ? buildMlbSimulatedBoxScore(projection) : null;
-  const pitching = projection && boxScore ? buildMlbSimulatedPitchingBoxScores({
-    projection,
-    awayOffense: { team: boxScore.awayTeam.team, projectedRuns: boxScore.awayTeam.totals.projectedRuns, plateAppearances: boxScore.awayTeam.totals.plateAppearances, hits: boxScore.awayTeam.totals.hits, totalBases: boxScore.awayTeam.totals.totalBases, homeRuns: boxScore.awayTeam.totals.homeRuns, walks: boxScore.awayTeam.totals.walks, strikeouts: boxScore.awayTeam.totals.strikeouts },
-    homeOffense: { team: boxScore.homeTeam.team, projectedRuns: boxScore.homeTeam.totals.projectedRuns, plateAppearances: boxScore.homeTeam.totals.plateAppearances, hits: boxScore.homeTeam.totals.hits, totalBases: boxScore.homeTeam.totals.totalBases, homeRuns: boxScore.homeTeam.totals.homeRuns, walks: boxScore.homeTeam.totals.walks, strikeouts: boxScore.homeTeam.totals.strikeouts }
-  }) : null;
+  const pitching = projection && boxScore ? buildMlbSimulatedPitchingBoxScores({ projection, awayOffense: { team: boxScore.awayTeam.team, projectedRuns: boxScore.awayTeam.totals.projectedRuns, plateAppearances: boxScore.awayTeam.totals.plateAppearances, hits: boxScore.awayTeam.totals.hits, totalBases: boxScore.awayTeam.totals.totalBases, homeRuns: boxScore.awayTeam.totals.homeRuns, walks: boxScore.awayTeam.totals.walks, strikeouts: boxScore.awayTeam.totals.strikeouts }, homeOffense: { team: boxScore.homeTeam.team, projectedRuns: boxScore.homeTeam.totals.projectedRuns, plateAppearances: boxScore.homeTeam.totals.plateAppearances, hits: boxScore.homeTeam.totals.hits, totalBases: boxScore.homeTeam.totals.totalBases, homeRuns: boxScore.homeTeam.totals.homeRuns, walks: boxScore.homeTeam.totals.walks, strikeouts: boxScore.homeTeam.totals.strikeouts } }) : null;
   const plateAppearanceScript = projection && boxScore && pitching ? buildMlbPlateAppearanceGameScript({ projection, boxScore, awayPitching: pitching.awayPitching, homePitching: pitching.homePitching }) : null;
   const paWindowRanking = boxScore && plateAppearanceScript ? buildMlbPaWindowRanking({ boxScore, plateAppearanceScript }) : null;
   const baseStateContext = boxScore && plateAppearanceScript ? buildMlbBaseStateRunRbiEngine({ boxScore, plateAppearanceScript }) : null;
+  const matchupTraitContext = projection && boxScore ? buildMlbMatchupTraitEngine({ projection, boxScore }) : null;
   const payload = {
     ok: Boolean(projection),
     command: "check-mlb-batter-box",
@@ -64,23 +51,10 @@ async function main() {
     homeTeam: projection?.homeTeam ?? null,
     gameScript: boxScore?.gameScript ?? null,
     pitching: pitching ? { awayPitching: pitching.awayPitching, homePitching: pitching.homePitching, pitchingMatchup: pitching.pitchingMatchup, reconciliation: pitching.reconciliation } : null,
-    plateAppearanceScript: plateAppearanceScript ? {
-      summary: plateAppearanceScript.summary,
-      awayStarterHandoffInning: plateAppearanceScript.awayTeam.starterHandoffInning,
-      homeStarterHandoffInning: plateAppearanceScript.homeTeam.starterHandoffInning,
-      awayBullpenExposureShare: plateAppearanceScript.awayTeam.bullpenExposureShare,
-      homeBullpenExposureShare: plateAppearanceScript.homeTeam.bullpenExposureShare,
-      topPlateAppearancePaths: plateAppearanceScript.topPlateAppearancePaths.map((path) => ({ playerName: path.playerName, team: path.team, battingOrder: path.battingOrder, expectedPlateAppearances: path.expectedPlateAppearances, latePaChance: path.latePaChance, bullpenExposureShare: path.bullpenExposureShare, bestHitWindow: path.bestHitWindow, bestPowerWindow: path.bestPowerWindow, highestStrikeoutRiskWindow: path.highestStrikeoutRiskWindow, summary: path.summary }))
-    } : null,
+    plateAppearanceScript: plateAppearanceScript ? { summary: plateAppearanceScript.summary, awayStarterHandoffInning: plateAppearanceScript.awayTeam.starterHandoffInning, homeStarterHandoffInning: plateAppearanceScript.homeTeam.starterHandoffInning, awayBullpenExposureShare: plateAppearanceScript.awayTeam.bullpenExposureShare, homeBullpenExposureShare: plateAppearanceScript.homeTeam.bullpenExposureShare, topPlateAppearancePaths: plateAppearanceScript.topPlateAppearancePaths.map((path) => ({ playerName: path.playerName, team: path.team, battingOrder: path.battingOrder, expectedPlateAppearances: path.expectedPlateAppearances, latePaChance: path.latePaChance, bullpenExposureShare: path.bullpenExposureShare, bestHitWindow: path.bestHitWindow, bestPowerWindow: path.bestPowerWindow, highestStrikeoutRiskWindow: path.highestStrikeoutRiskWindow, summary: path.summary })) } : null,
     paWindowRanking: paWindowRanking ? { summary: paWindowRanking.summary, overall: paWindowRanking.overall.slice(0, 8).map(compactRank), bestHitWindows: paWindowRanking.bestHitWindows.slice(0, 5).map(compactRank), bestPowerWindows: paWindowRanking.bestPowerWindows.slice(0, 5).map(compactRank), bullpenExposureUpside: paWindowRanking.bullpenExposureUpside.slice(0, 5).map(compactRank), latePaUpside: paWindowRanking.latePaUpside.slice(0, 5).map(compactRank), kRiskTraps: paWindowRanking.kRiskTraps.slice(0, 5).map(compactRank), safestContact: paWindowRanking.safestContact.slice(0, 5).map(compactRank) } : null,
-    baseStateContext: baseStateContext ? {
-      summary: baseStateContext.summary,
-      bestRbiWindows: baseStateContext.bestRbiWindows.slice(0, 6).map(compactContext),
-      bestRunWindows: baseStateContext.bestRunWindows.slice(0, 6).map(compactContext),
-      lineupProtectionBoosts: baseStateContext.lineupProtectionBoosts.slice(0, 6).map(compactContext),
-      tableSetterBoosts: baseStateContext.tableSetterBoosts.slice(0, 6).map(compactContext),
-      rbiTrapBats: baseStateContext.rbiTrapBats.slice(0, 6).map(compactContext)
-    } : null,
+    baseStateContext: baseStateContext ? { summary: baseStateContext.summary, bestRbiWindows: baseStateContext.bestRbiWindows.slice(0, 6).map(compactContext), bestRunWindows: baseStateContext.bestRunWindows.slice(0, 6).map(compactContext), lineupProtectionBoosts: baseStateContext.lineupProtectionBoosts.slice(0, 6).map(compactContext), tableSetterBoosts: baseStateContext.tableSetterBoosts.slice(0, 6).map(compactContext), rbiTrapBats: baseStateContext.rbiTrapBats.slice(0, 6).map(compactContext) } : null,
+    matchupTraitContext: matchupTraitContext ? { summary: matchupTraitContext.summary, topTraitAdvantages: matchupTraitContext.topTraitAdvantages.slice(0, 8).map(compactTrait), topPowerAdvantages: matchupTraitContext.topPowerAdvantages.slice(0, 5).map(compactTrait), topContactAdvantages: matchupTraitContext.topContactAdvantages.slice(0, 5).map(compactTrait), topPitchMixEdges: matchupTraitContext.topPitchMixEdges.slice(0, 5).map(compactTrait), topPlatoonEdges: matchupTraitContext.topPlatoonEdges.slice(0, 5).map(compactTrait), topStrikeoutRisks: matchupTraitContext.topStrikeoutRisks.slice(0, 5).map(compactTrait), avoidSpots: matchupTraitContext.avoidSpots.slice(0, 5).map(compactTrait) } : null,
     simulatedTotals: boxScore ? { awayTeam: boxScore.awayTeam.team, homeTeam: boxScore.homeTeam.team, awayRuns: boxScore.awayTeam.totals.projectedRuns, homeRuns: boxScore.homeTeam.totals.projectedRuns, projectedHits: boxScore.gameTotals.projectedHits, projectedTotalBases: boxScore.gameTotals.projectedTotalBases, projectedHomeRuns: boxScore.gameTotals.projectedHomeRuns, projectedWalks: boxScore.gameTotals.projectedWalks, projectedStrikeouts: boxScore.gameTotals.projectedStrikeouts, awayProfile: boxScore.awayTeam.profile, homeProfile: boxScore.homeTeam.profile } : null,
     alphaHitters: boxScore ? boxScore.alphaHitters.map((hitter) => ({ playerName: hitter.playerName, team: hitter.team, tier: hitter.tier, likelyLine: hitter.likelyLine, range: hitter.range, impactScore: hitter.impactScore, matchupEdge: hitter.matchupEdge, confidenceLabel: hitter.confidenceLabel, summary: hitter.summary })) : [],
     volatileCeilingHitters: boxScore ? boxScore.volatileCeilingHitters.map((hitter) => ({ playerName: hitter.playerName, team: hitter.team, tier: hitter.tier, likelyLine: hitter.likelyLine, range: hitter.range, volatility: hitter.volatility, volatilityLabel: hitter.volatilityLabel, summary: hitter.summary })) : [],
