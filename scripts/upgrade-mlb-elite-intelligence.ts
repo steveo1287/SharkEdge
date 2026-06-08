@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { buildDailyMlbRosterRatingSnapshots } from "@/services/simulation/mlb-daily-roster-rating-snapshot";
 import { upgradeMlbEliteIntelligence } from "@/services/simulation/mlb-elite-intelligence-upgrade";
+import { enforceMlbTeamByTeamPlayerRatings } from "@/services/simulation/mlb-team-by-team-rating-enforcer";
 import type {
   MlbBatterMicroTendency,
   MlbPitcherMicroTendency
@@ -50,20 +51,22 @@ async function main() {
   });
   const batterTendencies = jsonArray<MlbBatterMicroTendency>(batterPath);
   const pitcherTendencies = jsonArray<MlbPitcherMicroTendency>(pitcherPath);
-  const upgrade = upgradeMlbEliteIntelligence({
+  const upgrade = enforceMlbTeamByTeamPlayerRatings(upgradeMlbEliteIntelligence({
     ratings: rosterRatings.ratings,
     batterTendencies,
     pitcherTendencies
-  });
+  }));
 
   await mkdir(outDir, { recursive: true });
   const reportPath = path.join(outDir, `elite-intelligence-quality-${snapshotDate}.json`);
   const ratingsPath = path.join(outDir, `elite-ratings-upgraded-${snapshotDate}.json`);
+  const teamReportPath = path.join(outDir, `team-by-team-rating-report-${snapshotDate}.json`);
   await writeFile(reportPath, `${JSON.stringify(upgrade.report, null, 2)}\n`, "utf8");
   await writeFile(ratingsPath, `${JSON.stringify(upgrade.ratings, null, 2)}\n`, "utf8");
+  await writeFile(teamReportPath, `${JSON.stringify(upgrade.teamByTeamReport, null, 2)}\n`, "utf8");
 
   const output = {
-    ok: upgrade.report.gates.every((gate) => gate.passed),
+    ok: upgrade.teamByTeamReport.noThinWithMlbSampleCount === 0,
     snapshotDate,
     season,
     rosterType,
@@ -89,7 +92,14 @@ async function main() {
       warnings: upgrade.report.warnings,
       gates: upgrade.report.gates
     },
-    outputs: { reportPath, ratingsPath }
+    teamByTeam: {
+      teamCount: upgrade.teamByTeamReport.teamCount,
+      playerCount: upgrade.teamByTeamReport.playerCount,
+      floorAppliedCount: upgrade.teamByTeamReport.floorAppliedCount,
+      noThinWithMlbSampleCount: upgrade.teamByTeamReport.noThinWithMlbSampleCount,
+      teams: upgrade.teamByTeamReport.teams
+    },
+    outputs: { reportPath, ratingsPath, teamReportPath }
   };
 
   console.log(JSON.stringify(output, null, 2));
