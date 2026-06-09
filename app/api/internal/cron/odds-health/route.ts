@@ -29,10 +29,15 @@ function isAuthorized(request: Request) {
 }
 
 function getOrigin(request: Request) {
+  const configured = process.env.RAILWAY_PUBLIC_DOMAIN?.trim()
+    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN.trim()}`
+    : process.env.NEXT_PUBLIC_APP_URL?.trim()
+      ?? process.env.RAILWAY_WEB_INTERNAL_URL?.trim();
+  if (configured) return configured.replace(/\/$/, "");
   try {
     return new URL(request.url).origin;
   } catch {
-    return process.env.NEXT_PUBLIC_APP_URL?.trim() ?? "https://sharkedge.vercel.app";
+    return "http://localhost:3000";
   }
 }
 
@@ -86,7 +91,6 @@ export async function GET(request: Request) {
   }
 
   const origin = getOrigin(request);
-  // Using OddsHarvester + SportsDataverse for all odds data (removed paid APIs)
   const [board, readiness, inventory, previousState] = await Promise.all([
     fetchJson(`${origin}/api/v1/board?status=all&date=all`),
     fetchJson(`${origin}/api/v1/providers/readiness`),
@@ -171,6 +175,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     ok: status === "ok",
     status,
+    origin,
     issues,
     checks: {
       board: {
