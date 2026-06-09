@@ -114,6 +114,10 @@ function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
 }
 
+function asArray(value: unknown): JsonRecord[] {
+  return Array.isArray(value) ? value.map(asRecord).filter((row) => Object.keys(row).length) : [];
+}
+
 function num(record: JsonRecord, keys: string[]): number | null {
   for (const key of keys) {
     const value = record[key];
@@ -122,6 +126,14 @@ function num(record: JsonRecord, keys: string[]): number | null {
       const parsed = Number(value.replace(/[^0-9.+-]/g, ""));
       if (Number.isFinite(parsed)) return parsed;
     }
+  }
+  return null;
+}
+
+function text(record: JsonRecord, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
   }
   return null;
 }
@@ -215,6 +227,10 @@ function firstFiveFromMetadata(projection: Projection, side: FranchiseTeamSide):
   return round(typeof firstFive[key] === "number" ? firstFive[key] as number : null, 2);
 }
 
+function playerStatProjections(projection: Projection) {
+  return asRecord(asRecord(asRecord(projection.mlbIntel).playerImpact).playerStatProjections);
+}
+
 function buildPitcherFromLock(projection: Projection, side: FranchiseTeamSide, teamName: string): PitcherProjection | null {
   const lock = asRecord(asRecord(projection.mlbIntel).lock);
   const name = side === "home" ? lock.homeStarterName : lock.awayStarterName;
@@ -294,6 +310,63 @@ function buildPitcherProjection(args: {
     homeRuns: round(avg(rows, ["homeRuns", "HR", "home_runs"]) ?? Math.max(0.2, (args.opposingProjectedRuns ?? 4.3) * 0.15), 1),
     actual: args.actual
   };
+}
+
+function buildSimHitterProjection(row: JsonRecord, args: { teamName: string; teamSide: FranchiseTeamSide; order: number; actual: PlayerActualLine | null }): HitterProjection {
+  const id = text(row, ["playerId", "id"]) ?? `${args.teamSide}-sim-hitter-${args.order}`;
+  return {
+    playerId: id,
+    name: text(row, ["playerName", "name"]) ?? `Projected ${args.teamName} hitter ${args.order}`,
+    team: args.teamName,
+    teamSide: args.teamSide,
+    battingOrder: num(row, ["battingOrder", "order"]) ?? args.order,
+    plateAppearances: round(num(row, ["expectedPlateAppearances", "plateAppearances", "pa"]), 1),
+    hits: round(num(row, ["expectedHits", "hits"]), 1),
+    totalBases: round(num(row, ["expectedTotalBases", "totalBases"]), 1),
+    homeRuns: round(num(row, ["expectedHomeRuns", "homeRuns"]), 2),
+    runs: round(num(row, ["expectedRuns", "runs"]), 1),
+    rbi: round(num(row, ["expectedRbi", "expectedRBI", "rbi"]), 1),
+    strikeouts: round(num(row, ["expectedStrikeouts", "strikeouts"]), 1),
+    stolenBaseChance: round(num(row, ["stolenBaseProbability", "stolenBaseChance", "stealAttemptProbability"]), 2),
+    actual: args.actual
+  };
+}
+
+function buildSimPitcherProjection(row: JsonRecord, args: { teamName: string; teamSide: FranchiseTeamSide; actual: PlayerActualLine | null }): PitcherProjection {
+  const id = text(row, ["pitcherId", "playerId", "id"]);
+  const innings = num(row, ["expectedInningsPitched", "innings"]);
+  return {
+    playerId: id,
+    name: text(row, ["pitcherName", "playerName", "name"]) ?? `Projected ${args.teamName} starter`,
+    team: args.teamName,
+    teamSide: args.teamSide,
+    innings: round(innings, 1),
+    outs: round(num(row, ["expectedOuts", "outs"]) ?? (innings == null ? null : innings * 3), 0),
+    strikeouts: round(num(row, ["expectedStrikeouts", "strikeouts"]), 1),
+    earnedRuns: round(num(row, ["expectedEarnedRuns", "earnedRuns"]), 1),
+    hitsAllowed: round(num(row, ["expectedHitsAllowed", "hitsAllowed"]), 1),
+    walks: round(num(row, ["expectedWalksAllowed", "walks"]), 1),
+    homeRuns: round(num(row, ["expectedHomeRunsAllowed", "homeRuns"]), 1),
+    actual: args.actual
+  };
+}
+
+function simHitters(projection: Projection, side: FranchiseTeamSide, teamName: string, actualByPlayer: Map<string, PlayerActualLine>) {
+  const stats = playerStatProjections(projection);
+  const key = side === "home" ? "homeHitters" : "awayHitters";
+  return asArray(stats[key]).slice(0, 9).map((row, index) => {
+    const id = text(row, ["playerId", "id"]);
+    return buildSimHitterProjection(row, { teamName, teamSide: side, order: index + 1, actual: id ? actualByPlayer.get(id) ?? null : null });
+  });
+}
+
+function simStarter(projection: Projection, side: FranchiseTeamSide, teamName: string, actualByPlayer: Map<string, PlayerActualLine>) {
+  const stats = playerStatProjections(projection);
+  const key = side === "home" ? "homeStarter" : "awayStarter";
+  const row = asRecord(stats[key]);
+  if (!Object.keys(row).length) return null;
+  const id = text(row, ["pitcherId", "playerId", "id"]);
+  return buildSimPitcherProjection(row, { teamName, teamSide: side, actual: id ? actualByPlayer.get(id) ?? null : null });
 }
 
 function buildNrfiF5(projection: Projection, awayInnings: number[], homeInnings: number[]): NrfiF5View {
@@ -393,13 +466,23 @@ export async function getMlbFranchiseGameCenter(gameId: string): Promise<MlbFran
 
   const hitters = playerRows.filter((player) => !isPitcher(player.position));
   const pitchers = playerRows.filter((player) => isPitcher(player.position));
-  const awayHitters = hitters.filter((player) => player.teamId === awayTeam?.id).slice(0, 9).map((player, index) => buildProjectedHitter({ player, teamName: awayName, teamSide: "away", order: index + 1, teamProjectedRuns: awayRuns, actual: actualByPlayer.get(player.id) ?? null }));
-  const homeHitters = hitters.filter((player) => player.teamId === homeTeam?.id).slice(0, 9).map((player, index) => buildProjectedHitter({ player, teamName: homeName, teamSide: "home", order: index + 1, teamProjectedRuns: homeRuns, actual: actualByPlayer.get(player.id) ?? null }));
-  const awayPitchers = pitchers.filter((player) => player.teamId === awayTeam?.id).sort((a, b) => b.playerGameStats.filter((row) => row.starter).length - a.playerGameStats.filter((row) => row.starter).length).slice(0, 3).map((player) => buildPitcherProjection({ player, teamName: awayName, teamSide: "away", opposingProjectedRuns: homeRuns, actual: actualByPlayer.get(player.id) ?? null }));
-  const homePitchers = pitchers.filter((player) => player.teamId === homeTeam?.id).sort((a, b) => b.playerGameStats.filter((row) => row.starter).length - a.playerGameStats.filter((row) => row.starter).length).slice(0, 3).map((player) => buildPitcherProjection({ player, teamName: homeName, teamSide: "home", opposingProjectedRuns: awayRuns, actual: actualByPlayer.get(player.id) ?? null }));
+  const linkedAwayHitters = hitters.filter((player) => player.teamId === awayTeam?.id).slice(0, 9).map((player, index) => buildProjectedHitter({ player, teamName: awayName, teamSide: "away", order: index + 1, teamProjectedRuns: awayRuns, actual: actualByPlayer.get(player.id) ?? null }));
+  const linkedHomeHitters = hitters.filter((player) => player.teamId === homeTeam?.id).slice(0, 9).map((player, index) => buildProjectedHitter({ player, teamName: homeName, teamSide: "home", order: index + 1, teamProjectedRuns: homeRuns, actual: actualByPlayer.get(player.id) ?? null }));
+  const simAwayHitters = simHitters(projection, "away", awayName, actualByPlayer);
+  const simHomeHitters = simHitters(projection, "home", homeName, actualByPlayer);
+  const awayHitters = linkedAwayHitters.length >= 5 ? linkedAwayHitters : simAwayHitters.length ? simAwayHitters : linkedAwayHitters;
+  const homeHitters = linkedHomeHitters.length >= 5 ? linkedHomeHitters : simHomeHitters.length ? simHomeHitters : linkedHomeHitters;
 
-  const awayStarter = awayPitchers[0] ?? buildPitcherFromLock(projection, "away", awayName);
-  const homeStarter = homePitchers[0] ?? buildPitcherFromLock(projection, "home", homeName);
+  const linkedAwayPitchers = pitchers.filter((player) => player.teamId === awayTeam?.id).sort((a, b) => b.playerGameStats.filter((row) => row.starter).length - a.playerGameStats.filter((row) => row.starter).length).slice(0, 3).map((player) => buildPitcherProjection({ player, teamName: awayName, teamSide: "away", opposingProjectedRuns: homeRuns, actual: actualByPlayer.get(player.id) ?? null }));
+  const linkedHomePitchers = pitchers.filter((player) => player.teamId === homeTeam?.id).sort((a, b) => b.playerGameStats.filter((row) => row.starter).length - a.playerGameStats.filter((row) => row.starter).length).slice(0, 3).map((player) => buildPitcherProjection({ player, teamName: homeName, teamSide: "home", opposingProjectedRuns: awayRuns, actual: actualByPlayer.get(player.id) ?? null }));
+  const simAwayStarter = simStarter(projection, "away", awayName, actualByPlayer);
+  const simHomeStarter = simStarter(projection, "home", homeName, actualByPlayer);
+
+  const awayStarter = linkedAwayPitchers[0] ?? simAwayStarter ?? buildPitcherFromLock(projection, "away", awayName);
+  const homeStarter = linkedHomePitchers[0] ?? simHomeStarter ?? buildPitcherFromLock(projection, "home", homeName);
+  const awayPitchers = awayStarter ? [awayStarter, ...linkedAwayPitchers.filter((row) => row.playerId !== awayStarter.playerId).slice(0, 2)] : linkedAwayPitchers;
+  const homePitchers = homeStarter ? [homeStarter, ...linkedHomePitchers.filter((row) => row.playerId !== homeStarter.playerId).slice(0, 2)] : linkedHomePitchers;
+
   const impactPlayers = [
     ...awayHitters.slice(0, 2).map((player) => ({ name: player.name, team: player.team, role: `Bat ${player.battingOrder ?? "--"}`, summary: `${player.hits ?? "--"} H, ${player.totalBases ?? "--"} TB projection.`, score: (player.totalBases ?? 0) + (player.homeRuns ?? 0) * 2 })),
     ...homeHitters.slice(0, 2).map((player) => ({ name: player.name, team: player.team, role: `Bat ${player.battingOrder ?? "--"}`, summary: `${player.hits ?? "--"} H, ${player.totalBases ?? "--"} TB projection.`, score: (player.totalBases ?? 0) + (player.homeRuns ?? 0) * 2 })),
@@ -407,7 +490,9 @@ export async function getMlbFranchiseGameCenter(gameId: string): Promise<MlbFran
     ...(homeStarter ? [{ name: homeStarter.name, team: homeStarter.team, role: "Starter", summary: `${homeStarter.innings ?? "--"} IP, ${homeStarter.strikeouts ?? "--"} K projection.`, score: (homeStarter.strikeouts ?? 0) + (homeStarter.outs ?? 0) / 6 }] : [])
   ].sort((left, right) => (right.score ?? 0) - (left.score ?? 0)).slice(0, 6);
 
-  if (!awayHitters.length && !homeHitters.length) warnings.push("Projected hitter box score needs more linked PlayerGameStat rows for this matchup.");
+  if (!linkedAwayHitters.length && simAwayHitters.length) warnings.push(`${awayName} hitter rows are using cached sim player-stat projections because linked PlayerGameStat rows are missing.`);
+  if (!linkedHomeHitters.length && simHomeHitters.length) warnings.push(`${homeName} hitter rows are using cached sim player-stat projections because linked PlayerGameStat rows are missing.`);
+  if (!awayHitters.length && !homeHitters.length) warnings.push("Projected hitter box score needs playerStatProjections in the cached sim or linked PlayerGameStat rows.");
   if (!teamActualRows.length) warnings.push("Actual team box score is not tracked yet for this game.");
 
   return {
@@ -426,7 +511,7 @@ export async function getMlbFranchiseGameCenter(gameId: string): Promise<MlbFran
       home: { name: homeName, runs: homeRuns, innings: homeInnings, hits: projectedHits(homeRuns), errors: 0 }
     },
     hitters: { away: awayHitters, home: homeHitters },
-    pitchers: { away: awayStarter ? [awayStarter, ...awayPitchers.filter((row) => row.playerId !== awayStarter.playerId).slice(0, 2)] : awayPitchers, home: homeStarter ? [homeStarter, ...homePitchers.filter((row) => row.playerId !== homeStarter.playerId).slice(0, 2)] : homePitchers },
+    pitchers: { away: awayPitchers, home: homePitchers },
     impactPlayers,
     nrfiF5: buildNrfiF5(projection, awayInnings, homeInnings),
     warnings
