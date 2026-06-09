@@ -25,6 +25,7 @@ export type MlbRatingCalibrationPlayer = {
   roleTier: string;
   skills: Record<string, number>;
   sourceSnapshotDate: string;
+  rawStats: Record<string, unknown>;
 };
 
 export type MlbRatingCalibrationResult = {
@@ -85,6 +86,11 @@ function dateKey(value: Date | string) {
   return Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 10) : date.toISOString().slice(0, 10);
 }
 
+function iso(value: Date | string) {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+}
+
 function sampleWeight(sample: number | null, stabilizer: number) {
   if (!sample || sample <= 0) return 0.35;
   return clamp(sample / (sample + stabilizer), 0.35, 0.96);
@@ -142,6 +148,52 @@ function latestRows(rows: StatRow[], idKey: "player_id" | "pitcher_id") {
     }
   }
   return [...map.values()];
+}
+
+function rateToPer9(value: number | null) {
+  if (value == null) return null;
+  const pct = value <= 1 ? value : value / 100;
+  return round(pct * 37.5, 2);
+}
+
+function statPack(row: StatRow, keys: readonly string[]) {
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    const value = row.stats_json?.[key];
+    if (value != null) out[key] = value;
+  }
+  return out;
+}
+
+function batterRawStats(row: StatRow) {
+  return {
+    ...statPack(row, BATTER_METRICS),
+    plateAppearances: stat(row, "plateAppearances"),
+    sourceStatSnapshot: row.source,
+    capturedAt: iso(row.captured_at),
+    sourceSnapshotDate: dateKey(row.snapshot_date)
+  };
+}
+
+function pitcherRawStats(row: StatRow) {
+  const innings = stat(row, "innings");
+  const starts = stat(row, "starts");
+  const kRate = stat(row, "kRate");
+  const bbRate = stat(row, "bbRate");
+  const kMinusBbRate = stat(row, "kMinusBbRate") ?? ((kRate ?? 0) - (bbRate ?? 0));
+  return {
+    ...statPack(row, PITCHER_METRICS),
+    reliefAppearances: stat(row, "reliefAppearances"),
+    inningsPerStart: innings != null && starts != null && starts > 0 ? round(innings / starts, 2) : null,
+    strikeoutsPer9: rateToPer9(kRate),
+    walksPer9: rateToPer9(bbRate),
+    kPer9: rateToPer9(kRate),
+    bbPer9: rateToPer9(bbRate),
+    kMinusBbRate,
+    sourceStatSnapshot: row.source,
+    capturedAt: iso(row.captured_at),
+    sourceSnapshotDate: dateKey(row.snapshot_date)
+  };
 }
 
 async function loadBatterRows(season?: number | null) {
@@ -205,7 +257,7 @@ function batterSkills(row: StatRow, league: StatRow[]): MlbRatingCalibrationPlay
   ]), 0.72);
   const skills = { contact, power, discipline, vsLhp, vsRhp, baserunning, fielding, currentForm };
   const overall = calculateMlbHitterOverall(skills);
-  return { playerId: String(row.player_id), playerName: String(row.player_name), team: row.team, role: "BATTER", season: row.season, sampleSize: plateAppearances, sampleWeight: round(weight, 3), overall, roleTier: classifyMlbHitterRole(overall), skills, sourceSnapshotDate: dateKey(row.snapshot_date) };
+  return { playerId: String(row.player_id), playerName: String(row.player_name), team: row.team, role: "BATTER", season: row.season, sampleSize: plateAppearances, sampleWeight: round(weight, 3), overall, roleTier: classifyMlbHitterRole(overall), skills, sourceSnapshotDate: dateKey(row.snapshot_date), rawStats: batterRawStats(row) };
 }
 
 function pitcherSkills(row: StatRow, league: StatRow[]): MlbRatingCalibrationPlayer {
@@ -240,13 +292,24 @@ function pitcherSkills(row: StatRow, league: StatRow[]): MlbRatingCalibrationPla
   const roleTier = starts >= Math.max(1, reliefAppearances * 0.35) || (pitchCountAvg ?? 0) >= 68
     ? classifyMlbStarterRole(overall)
     : classifyMlbReliefRole(overall, clamp((stat(row, "recentWorkload") ?? 25) + arsenalQuality * 0.55));
-  return { playerId: String(row.pitcher_id), playerName: String(row.pitcher_name), team: row.team, role: "PITCHER", season: row.season, sampleSize: innings, sampleWeight: round(weight, 3), overall, roleTier, skills, sourceSnapshotDate: dateKey(row.snapshot_date) };
+  return { playerId: String(row.pitcher_id), playerName: String(row.pitcher_name), team: row.team, role: "PITCHER", season: row.season, sampleSize: innings, sampleWeight: round(weight, 3), overall, roleTier, skills, sourceSnapshotDate: dateKey(row.snapshot_date), rawStats: pitcherRawStats(row) };
+}
+
+function ratingMetrics(player: MlbRatingCalibrationPlayer, source: string) {
+  return {
+    ...player.rawStats,
+    calibrationSource: source,
+    sampleSize: player.sampleSize,
+    sampleWeight: player.sampleWeight,
+    sourceSnapshotDate: player.sourceSnapshotDate,
+    calibrationModel: "percentile-stat-pipe-v2-raw-metrics-preserved"
+  };
 }
 
 async function writeHitter(player: MlbRatingCalibrationPlayer, source: string) {
   await prisma.$executeRaw`
     INSERT INTO mlb_player_ratings (id, player_id, player_name, team, season, primary_position, role_tier, contact, power, discipline, vs_lhp, vs_rhp, baserunning, fielding, current_form, overall, metrics_json, source, snapshot_at, updated_at)
-    VALUES (${`calibrated-hitter-${player.playerId}-${player.season}-${source}`}, ${player.playerId}, ${player.playerName}, ${player.team}, ${player.season}, ${null}, ${player.roleTier}, ${player.skills.contact}, ${player.skills.power}, ${player.skills.discipline}, ${player.skills.vsLhp}, ${player.skills.vsRhp}, ${player.skills.baserunning}, ${player.skills.fielding}, ${player.skills.currentForm}, ${player.overall}, ${JSON.stringify({ calibrationSource: source, sampleSize: player.sampleSize, sampleWeight: player.sampleWeight, sourceSnapshotDate: player.sourceSnapshotDate })}::jsonb, ${source}, now(), now())
+    VALUES (${`calibrated-hitter-${player.playerId}-${player.season}-${source}`}, ${player.playerId}, ${player.playerName}, ${player.team}, ${player.season}, ${null}, ${player.roleTier}, ${player.skills.contact}, ${player.skills.power}, ${player.skills.discipline}, ${player.skills.vsLhp}, ${player.skills.vsRhp}, ${player.skills.baserunning}, ${player.skills.fielding}, ${player.skills.currentForm}, ${player.overall}, ${JSON.stringify(ratingMetrics(player, source))}::jsonb, ${source}, now(), now())
     ON CONFLICT (id) DO UPDATE SET contact = EXCLUDED.contact, power = EXCLUDED.power, discipline = EXCLUDED.discipline, vs_lhp = EXCLUDED.vs_lhp, vs_rhp = EXCLUDED.vs_rhp, baserunning = EXCLUDED.baserunning, fielding = EXCLUDED.fielding, current_form = EXCLUDED.current_form, overall = EXCLUDED.overall, metrics_json = EXCLUDED.metrics_json, snapshot_at = now(), updated_at = now();
   `;
 }
@@ -254,7 +317,7 @@ async function writeHitter(player: MlbRatingCalibrationPlayer, source: string) {
 async function writePitcher(player: MlbRatingCalibrationPlayer, source: string) {
   await prisma.$executeRaw`
     INSERT INTO mlb_pitcher_ratings (id, pitcher_id, pitcher_name, team, season, role_tier, xera_quality, fip_quality, k_bb, hr_risk, groundball_rate, platoon_split, stamina, recent_workload, arsenal_quality, overall, metrics_json, source, snapshot_at, updated_at)
-    VALUES (${`calibrated-pitcher-${player.playerId}-${player.season}-${source}`}, ${player.playerId}, ${player.playerName}, ${player.team}, ${player.season}, ${player.roleTier}, ${player.skills.xeraQuality}, ${player.skills.fipQuality}, ${player.skills.kBb}, ${player.skills.hrRisk}, ${player.skills.groundballRate}, ${player.skills.platoonSplit}, ${player.skills.stamina}, ${player.skills.recentWorkload}, ${player.skills.arsenalQuality}, ${player.overall}, ${JSON.stringify({ calibrationSource: source, sampleSize: player.sampleSize, sampleWeight: player.sampleWeight, sourceSnapshotDate: player.sourceSnapshotDate })}::jsonb, ${source}, now(), now())
+    VALUES (${`calibrated-pitcher-${player.playerId}-${player.season}-${source}`}, ${player.playerId}, ${player.playerName}, ${player.team}, ${player.season}, ${player.roleTier}, ${player.skills.xeraQuality}, ${player.skills.fipQuality}, ${player.skills.kBb}, ${player.skills.hrRisk}, ${player.skills.groundballRate}, ${player.skills.platoonSplit}, ${player.skills.stamina}, ${player.skills.recentWorkload}, ${player.skills.arsenalQuality}, ${player.overall}, ${JSON.stringify(ratingMetrics(player, source))}::jsonb, ${source}, now(), now())
     ON CONFLICT (id) DO UPDATE SET xera_quality = EXCLUDED.xera_quality, fip_quality = EXCLUDED.fip_quality, k_bb = EXCLUDED.k_bb, hr_risk = EXCLUDED.hr_risk, groundball_rate = EXCLUDED.groundball_rate, platoon_split = EXCLUDED.platoon_split, stamina = EXCLUDED.stamina, recent_workload = EXCLUDED.recent_workload, arsenal_quality = EXCLUDED.arsenal_quality, overall = EXCLUDED.overall, metrics_json = EXCLUDED.metrics_json, snapshot_at = now(), updated_at = now();
   `;
 }
@@ -309,5 +372,6 @@ export async function calibrateMlbPlayerRatings(args: { mode?: MlbRatingCalibrat
   if (batterRows.length < 150) warnings.push(`Batter calibration sample is thin: ${batterRows.length} latest rows.`);
   if (pitcherRows.length < 120) warnings.push(`Pitcher calibration sample is thin: ${pitcherRows.length} latest rows.`);
   if (mode === "preview") warnings.push("Preview mode only. Use mode=write to update player-card rating tables.");
+  if (mode === "write") warnings.push("Calibrated ratings now preserve raw stat keys in metrics_json so sim/projection layers do not fall back to generic defaults.");
   return { ok: true, generatedAt: new Date().toISOString(), mode, source, season: args.season ?? null, calibrated: { batters: batters.length, pitchers: pitchers.length, ratingsWritten: written }, leagueContext, topBatters: batters.slice(0, 12), topPitchers: pitchers.slice(0, 12), warnings };
 }
