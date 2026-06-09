@@ -180,6 +180,7 @@ www.sharkedge.com
 After deploy, check:
 
 ```text
+/api/health/railway
 /api/results
 /api/results?market=moneyline
 /api/results?market=nrfi
@@ -196,6 +197,18 @@ After deploy, check:
 /results/nrfi
 /results/props
 /results/trends
+```
+
+Run the smoke script after the Railway web deploy:
+
+```bash
+SHARKEDGE_RAILWAY_URL=https://<railway-web-domain> npm run railway:smoke
+```
+
+Or:
+
+```bash
+npm run railway:smoke -- --url=https://<railway-web-domain>
 ```
 
 Good signs:
