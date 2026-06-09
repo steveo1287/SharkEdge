@@ -166,8 +166,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       <div className="relative mx-auto grid max-w-7xl gap-4 px-3 pb-24 pt-3 sm:px-5 md:pb-10">
         <header className="rounded-[1.15rem] border border-white/10 bg-[#06101b]/88 p-3 backdrop-blur-xl">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <Link href="/" className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-xl border border-aqua/30 bg-aqua/10 font-display text-base font-black text-aqua">S</span><span><span className="block text-[10px] font-black uppercase tracking-[0.28em] text-aqua">SharkEdge</span><span className="block text-[11px] text-slate-500">simple sim dashboard</span></span></Link>
-            <div className="flex flex-wrap items-center gap-2"><NavButton href="/sim" label="SimHub" active /><NavButton href="/sim/mlb" label="MLB" /><NavButton href="/sim/ufc" label="UFC" /><NavButton href="/accuracy" label="Accuracy" /></div>
+            <Link href="/" className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-xl border border-aqua/30 bg-aqua/10 font-display text-base font-black text-aqua">S</span><span><span className="block text-[10px] font-black uppercase tracking-[0.28em] text-aqua">SharkEdge</span><span className="block text-[11px] text-slate-500">Railway command center</span></span></Link>
+            <div className="flex flex-wrap items-center gap-2"><NavButton href="/sim" label="SimHub" active /><NavButton href="/sim/mlb" label="MLB" /><NavButton href="/sim/ufc" label="UFC" /><NavButton href="/results" label="Results" /><NavButton href="/accuracy" label="Accuracy" /></div>
           </div>
         </header>
 
