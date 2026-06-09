@@ -75,6 +75,14 @@ type PitcherRow = {
   snapshot_at: Date | string | null;
 };
 
+type GenericRisk = MlbPitcherDiversityAuditRow["genericRisk"];
+
+type PitcherDiversityScore = {
+  diversityScore: number;
+  genericRisk: GenericRisk;
+  issues: string[];
+};
+
 function n(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && Number.isFinite(Number(value))) return Number(value);
@@ -91,7 +99,13 @@ function iso(value: Date | string | null | undefined) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function scoreRow(row: PitcherRow): { diversityScore: number; genericRisk: MlbPitcherDiversityAuditRow["genericRisk"]; issues: string[] } {
+function riskFromScore(diversityScore: number): GenericRisk {
+  if (diversityScore >= 82) return "LOW";
+  if (diversityScore >= 62) return "MEDIUM";
+  return "HIGH";
+}
+
+function scoreRow(row: PitcherRow): PitcherDiversityScore {
   let score = 100;
   const issues: string[] = [];
   const kRate = metric(row, "kRate");
@@ -108,8 +122,7 @@ function scoreRow(row: PitcherRow): { diversityScore: number; genericRisk: MlbPi
   if (velocity == null && stuffPlus == null) { score -= 14; issues.push("Missing velocity/Stuff+; ace-vs-back-end separation is weaker."); }
   if (row.overall == null || row.k_bb == null || row.stamina == null) { score -= 16; issues.push("Missing compiled rating traits."); }
   const diversityScore = Math.max(0, Math.min(100, Math.round(score)));
-  const genericRisk: MlbPitcherDiversityAuditRow["genericRisk"] = diversityScore >= 82 ? "LOW" : diversityScore >= 62 ? "MEDIUM" : "HIGH";
-  return { diversityScore, genericRisk, issues };
+  return { diversityScore, genericRisk: riskFromScore(diversityScore), issues };
 }
 
 async function rows(source?: string | null, season?: number | null) {
@@ -145,7 +158,7 @@ export async function getMlbPitcherDiversityAudit(args: { source?: string | null
   await ensureMlbPlayerDataPipeTables();
   const source = args.source?.trim() || null;
   const data = await rows(source, args.season ?? null);
-  const mapped = data.map((row) => {
+  const mapped: MlbPitcherDiversityAuditRow[] = data.map((row): MlbPitcherDiversityAuditRow => {
     const scored = scoreRow(row);
     return {
       pitcherId: row.pitcher_id,
@@ -180,7 +193,7 @@ export async function getMlbPitcherDiversityAudit(args: { source?: string | null
       diversityScore: scored.diversityScore,
       genericRisk: scored.genericRisk,
       issues: scored.issues
-    } satisfies MlbPitcherDiversityAuditRow;
+    };
   }).sort((a, b) => a.diversityScore - b.diversityScore || a.pitcherName.localeCompare(b.pitcherName));
   const limited = mapped.slice(0, Math.max(1, Math.min(250, Math.round(args.limit ?? 80))));
   const avg = mapped.length ? Number((mapped.reduce((sum, row) => sum + row.diversityScore, 0) / mapped.length).toFixed(1)) : null;
