@@ -12,6 +12,7 @@ const checks: SmokeCheck[] = [
   { path: "/api/results?market=props", expectJson: true },
   { path: "/api/results?market=trends", expectJson: true },
   { path: "/api/proof", expectJson: true },
+  { path: "/api/audit", expectJson: true },
   { path: "/api/tickets", expectJson: true },
   { path: "/api/tickets/export", expectText: "ticketId" },
   { path: "/results", expectText: "Results" },
@@ -20,6 +21,7 @@ const checks: SmokeCheck[] = [
   { path: "/results/props", expectText: "Results" },
   { path: "/results/trends", expectText: "Results" },
   { path: "/proof", expectText: "Proof Room" },
+  { path: "/audit", expectText: "Proof Audit" },
   { path: "/tickets", expectText: "Locked Tickets" }
 ];
 
