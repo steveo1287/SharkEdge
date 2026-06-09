@@ -89,7 +89,8 @@ runPrismaPostinstall(projectRoot);
 const useTempMirror =
   process.platform === "win32" &&
   projectRoot.toLowerCase().includes("onedrive") &&
-  !process.env.VERCEL;
+  process.env.CI !== "true" &&
+  process.env.RAILWAY_ENVIRONMENT !== "production";
 
 if (!useTempMirror) {
   const result = runNextBuild(projectRoot);
@@ -108,7 +109,7 @@ cpSync(projectRoot, tempRoot, {
     if (normalized.includes(`${path.sep}node_modules`)) return false;
     if (normalized.includes(`${path.sep}.npm-cache`)) return false;
     if (normalized.includes(`${path.sep}.npm-cache-build`)) return false;
-    if (normalized.includes(`${path.sep}.vercel`)) return false;
+    if (normalized.includes(`${path.sep}.railway`)) return false;
     if (normalized.endsWith("build-local.log")) return false;
     if (normalized.endsWith("tsconfig.tsbuildinfo")) return false;
     return true;
