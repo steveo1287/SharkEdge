@@ -1,9 +1,24 @@
+import Link from "next/link";
+
 import { getResultsCenter } from "@/services/results/mlb-results-center";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function valuePct(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(1)}%` : "—";
+}
+
+function valueUnits(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value > 0 ? "+" : ""}${value.toFixed(2)}u` : "—";
+}
+
+function Metric({ label, value, note }: { label: string; value: string; note: string }) {
+  return <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">{label}</div><div className="mt-2 font-display text-3xl font-black tracking-tight text-white">{value}</div><div className="mt-2 text-xs leading-5 text-slate-400">{note}</div></div>;
+}
+
 export default async function ResultsPage() {
   const data = await getResultsCenter("overview");
-  return <main className="min-h-screen bg-[#02060b] p-6 text-white"><h1>{data.title}</h1><p>{data.subtitle}</p></main>;
+  const summary = data.summary;
+  return <main className="min-h-screen bg-[#02060b] px-3 py-4 text-white sm:px-6"><div className="mx-auto grid max-w-7xl gap-5 pb-16"><section className="rounded-[1.75rem] border border-cyan-300/15 bg-slate-950 p-5"><div className="text-[10px] font-black uppercase tracking-[0.28em] text-cyan-300/75">{data.windowLabel}</div><h1 className="mt-2 font-display text-4xl font-black tracking-tight text-white sm:text-5xl">{data.title}</h1><p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">{data.subtitle}</p><div className="mt-5 flex gap-2 overflow-x-auto pb-1">{data.marketCards.map((card) => <Link key={card.key} href={card.href} className={card.key === data.selectedMarket ? "shrink-0 rounded-full border border-cyan-300/45 bg-cyan-300/15 px-3.5 py-2 text-[11px] font-black uppercase tracking-[0.14em] text-cyan-100" : "shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 hover:text-cyan-100"}>{card.label}</Link>)}</div></section><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><Metric label="Hits" value={String(summary.wins)} note={`${summary.pushes} push · ${summary.edgePicks} rows`} /><Metric label="Misses" value={String(summary.losses)} note={`${valuePct(summary.winRatePct)} win rate`} /><Metric label="Pending" value={String(summary.pending)} note="Open rows stay pending until settlement locks." /><Metric label="Units net" value={valueUnits(summary.unitsNet)} note={`${summary.actualOddsCount} actual odds · ${summary.fallbackOddsCount} fallback`} /><Metric label="ROI" value={valuePct(summary.roiPct)} note={`Avg edge ${valuePct(summary.avgEdgePct)} · CLV ${valuePct(summary.avgClvCents)}`} /></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">{data.marketCards.map((card) => <Link key={card.key} href={card.href} className="rounded-[1.15rem] border border-white/10 bg-slate-950/70 p-4"><div className="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-300">{card.label}</div><div className="mt-2 font-display text-2xl font-black tracking-tight text-white">{card.summary.wins}-{card.summary.losses}{card.summary.pushes ? `-${card.summary.pushes}` : ""}</div><div className="mt-2 text-xs text-slate-400">{valueUnits(card.summary.unitsNet)} · {valuePct(card.summary.roiPct)}</div><p className="mt-3 line-clamp-2 text-xs leading-5 text-slate-500">{card.note}</p></Link>)}</div></div></main>;
 }
