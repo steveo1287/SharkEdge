@@ -87,7 +87,7 @@ function isBlank(value: unknown) {
   return value == null || (typeof value === "string" && value.trim() === "");
 }
 
-function isNumber(value: unknown) {
+function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
@@ -100,8 +100,9 @@ function validateRange(kind: PlayerDataRowKind, rowIndex: number, playerId: stri
       issues.push(issue(kind, rowIndex, playerId, playerName, field, "HIGH", `${field} must be numeric.`));
       continue;
     }
-    if (value < min || value > max) {
-      issues.push(issue(kind, rowIndex, playerId, playerName, field, "HIGH", `${field}=${value} is outside expected range ${min}-${max}.`));
+    const numberValue = value;
+    if (numberValue < min || numberValue > max) {
+      issues.push(issue(kind, rowIndex, playerId, playerName, field, "HIGH", `${field}=${numberValue} is outside expected range ${min}-${max}.`));
     }
   }
   return issues;

@@ -197,7 +197,7 @@ async function callTask(task: WorkerTask, baseUrl: string, secret: string) {
   const url = taskUrl(baseUrl, task.path);
   try {
     const response = await fetch(url, {
-      headers: secret ? { authorization: `Bearer ${secret}`, "x-cron-secret": secret } : {},
+      headers: secret ? { authorization: `Bearer ${secret}`, "x-api-key": secret, "x-cron-secret": secret } : {},
       cache: "no-store"
     });
     const text = await response.text();

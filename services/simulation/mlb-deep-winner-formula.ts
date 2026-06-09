@@ -9,7 +9,7 @@ type DistributionLike = {
 type ProjectionLike = {
   distribution: DistributionLike;
   mlbIntel?: {
-    playerImpact?: Record<string, unknown> | null;
+    playerImpact?: unknown;
     market?: { homeNoVigProbability?: number | null; source?: string | null } | null;
     [key: string]: unknown;
   } | null;

@@ -26,9 +26,14 @@ function isAuthorized(request: Request) {
   const bearer = authHeader?.startsWith("Bearer ")
     ? authHeader.slice("Bearer ".length).trim()
     : null;
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret) return false;
-  return bearer === cronSecret;
+  const apiKey = request.headers.get("x-api-key")?.trim();
+  const acceptedSecrets = [
+    process.env.CRON_SECRET?.trim(),
+    process.env.INTERNAL_API_KEY?.trim(),
+    process.env.INTERNAL_API_KEY2?.trim()
+  ].filter((value): value is string => Boolean(value));
+  if (!acceptedSecrets.length) return false;
+  return Boolean((bearer && acceptedSecrets.includes(bearer)) || (apiKey && acceptedSecrets.includes(apiKey)));
 }
 
 export async function GET(request: Request) {

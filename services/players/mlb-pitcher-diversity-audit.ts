@@ -91,7 +91,7 @@ function iso(value: Date | string | null | undefined) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function scoreRow(row: PitcherRow) {
+function scoreRow(row: PitcherRow): { diversityScore: number; genericRisk: MlbPitcherDiversityAuditRow["genericRisk"]; issues: string[] } {
   let score = 100;
   const issues: string[] = [];
   const kRate = metric(row, "kRate");
@@ -108,7 +108,7 @@ function scoreRow(row: PitcherRow) {
   if (velocity == null && stuffPlus == null) { score -= 14; issues.push("Missing velocity/Stuff+; ace-vs-back-end separation is weaker."); }
   if (row.overall == null || row.k_bb == null || row.stamina == null) { score -= 16; issues.push("Missing compiled rating traits."); }
   const diversityScore = Math.max(0, Math.min(100, Math.round(score)));
-  const genericRisk = diversityScore >= 82 ? "LOW" : diversityScore >= 62 ? "MEDIUM" : "HIGH";
+  const genericRisk: MlbPitcherDiversityAuditRow["genericRisk"] = diversityScore >= 82 ? "LOW" : diversityScore >= 62 ? "MEDIUM" : "HIGH";
   return { diversityScore, genericRisk, issues };
 }
 
