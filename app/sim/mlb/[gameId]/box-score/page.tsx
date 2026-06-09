@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { FranchiseEmptyState, FranchiseTable } from "@/components/sim/mlb-franchise-primitives";
 import { MlbFranchiseTabs } from "@/components/sim/mlb-franchise-tabs";
 import { SimWorkspaceHeader } from "@/components/sim/sim-ui";
+import { buildMlbRatingBackedBoxScore } from "@/services/simulation/mlb-box-score-rating-fallback";
 import { getMlbFranchiseGameCenter, type HitterProjection, type PitcherProjection } from "@/services/simulation/mlb-franchise-game-stats";
 
 export const dynamic = "force-dynamic";
@@ -84,7 +85,7 @@ function BoxScoreWarnings({ warnings }: { warnings: string[] }) {
 
 function EliteBatterBoard({ rows }: { rows: HitterProjection[] }) {
   const elite = buildEliteBatters(rows);
-  if (!elite.length) return <FranchiseEmptyState title="Elite Batter Board unavailable" description="No projected hitter rows are available yet from linked player-game rows or cached sim player-stat projections." />;
+  if (!elite.length) return <FranchiseEmptyState title="Elite Batter Board unavailable" description="No projected hitter rows are available yet from linked player-game rows, cached sim player-stat projections, or rating-backed fallback projections." />;
   const core = elite.filter((row) => row.grade === "A+" || row.grade === "A").length;
   const traps = elite.filter((row) => row.warning).length;
   return (
@@ -92,16 +93,7 @@ function EliteBatterBoard({ rows }: { rows: HitterProjection[] }) {
       <table className="min-w-[1040px] w-full text-sm">
         <thead className="bg-emerald-400/[0.04] text-[10px] uppercase tracking-[0.14em] text-slate-500">
           <tr>
-            <th className="px-4 py-3 text-left">Rank</th>
-            <th className="px-4 py-3 text-left">Player</th>
-            <th className="px-3 py-3 text-left">Team</th>
-            <th className="px-3 py-3 text-right">Score</th>
-            <th className="px-3 py-3 text-center">Grade</th>
-            <th className="px-3 py-3 text-right">H</th>
-            <th className="px-3 py-3 text-right">TB</th>
-            <th className="px-3 py-3 text-right">HR</th>
-            <th className="px-3 py-3 text-right">R/RBI</th>
-            <th className="px-3 py-3 text-left">Tags</th>
+            <th className="px-4 py-3 text-left">Rank</th><th className="px-4 py-3 text-left">Player</th><th className="px-3 py-3 text-left">Team</th><th className="px-3 py-3 text-right">Score</th><th className="px-3 py-3 text-center">Grade</th><th className="px-3 py-3 text-right">H</th><th className="px-3 py-3 text-right">TB</th><th className="px-3 py-3 text-right">HR</th><th className="px-3 py-3 text-right">R/RBI</th><th className="px-3 py-3 text-left">Tags</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-white/[0.06]">
@@ -126,9 +118,9 @@ function EliteBatterBoard({ rows }: { rows: HitterProjection[] }) {
 }
 
 function HitterTable({ title, rows }: { title: string; rows: HitterProjection[] }) {
-  if (!rows.length) return <FranchiseEmptyState title={`${title} unavailable`} description="No linked or cached sim hitter projections are available yet for this team." />;
+  if (!rows.length) return <FranchiseEmptyState title={`${title} unavailable`} description="No linked, cached sim, or rating-backed hitter projections are available yet for this team." />;
   return (
-    <FranchiseTable title={title} description="Projected hitter line from the cached MLB sim player-stat projection, falling back to linked player-game rows when available.">
+    <FranchiseTable title={title} description="Projected hitter line from linked player-game rows, cached MLB sim player-stat rows, or rating-backed player cards.">
       <table className="min-w-[900px] w-full text-sm">
         <thead className="bg-white/[0.025] text-[10px] uppercase tracking-[0.14em] text-slate-600"><tr><th className="px-4 py-3 text-left">Player</th><th className="px-3 py-3 text-right">Order</th><th className="px-3 py-3 text-right">PA</th><th className="px-3 py-3 text-right">H</th><th className="px-3 py-3 text-right">TB</th><th className="px-3 py-3 text-right">HR</th><th className="px-3 py-3 text-right">R</th><th className="px-3 py-3 text-right">RBI</th><th className="px-3 py-3 text-right">K</th><th className="px-3 py-3 text-right">SB chance</th></tr></thead>
         <tbody className="divide-y divide-white/[0.06]">
@@ -140,9 +132,9 @@ function HitterTable({ title, rows }: { title: string; rows: HitterProjection[] 
 }
 
 function PitcherTable({ title, rows }: { title: string; rows: PitcherProjection[] }) {
-  if (!rows.length) return <FranchiseEmptyState title={`${title} unavailable`} description="No linked or cached sim pitcher projections are available yet for this team." />;
+  if (!rows.length) return <FranchiseEmptyState title={`${title} unavailable`} description="No linked, cached sim, or rating-backed pitcher projections are available yet for this team." />;
   return (
-    <FranchiseTable title={title} description="Projected pitcher line from cached MLB sim starter diversity or recent linked pitcher stat rows.">
+    <FranchiseTable title={title} description="Projected pitcher line from starter diversity, linked pitcher rows, or rating-backed player cards.">
       <table className="min-w-[760px] w-full text-sm">
         <thead className="bg-white/[0.025] text-[10px] uppercase tracking-[0.14em] text-slate-600"><tr><th className="px-4 py-3 text-left">Pitcher</th><th className="px-3 py-3 text-right">IP</th><th className="px-3 py-3 text-right">Outs</th><th className="px-3 py-3 text-right">K</th><th className="px-3 py-3 text-right">ER</th><th className="px-3 py-3 text-right">H</th><th className="px-3 py-3 text-right">BB</th><th className="px-3 py-3 text-right">HR</th></tr></thead>
         <tbody className="divide-y divide-white/[0.06]">
@@ -157,16 +149,28 @@ export default async function MlbBoxScorePage({ params }: PageProps) {
   const { gameId } = await params;
   const game = await getMlbFranchiseGameCenter(decodeURIComponent(gameId));
   if (!game) notFound();
-  const actualCount = [...game.hitters.away, ...game.hitters.home, ...game.pitchers.away, ...game.pitchers.home].filter((row) => row.actual).length;
+
+  const ratingFallback = await buildMlbRatingBackedBoxScore({
+    away: { name: game.teams.away.name, abbreviation: game.teams.away.abbreviation, projectedRuns: game.teams.away.projectedRuns },
+    home: { name: game.teams.home.name, abbreviation: game.teams.home.abbreviation, projectedRuns: game.teams.home.projectedRuns }
+  }).catch(() => ({ hitters: { away: [], home: [] }, starters: { away: null, home: null }, warnings: ["Rating-backed box-score fallback failed."] }));
+
+  const awayHitters = game.hitters.away.length ? game.hitters.away : ratingFallback.hitters.away as HitterProjection[];
+  const homeHitters = game.hitters.home.length ? game.hitters.home : ratingFallback.hitters.home as HitterProjection[];
+  const awayPitchers = game.pitchers.away.length ? game.pitchers.away : ratingFallback.starters.away ? [ratingFallback.starters.away as PitcherProjection] : [];
+  const homePitchers = game.pitchers.home.length ? game.pitchers.home : ratingFallback.starters.home ? [ratingFallback.starters.home as PitcherProjection] : [];
+  const warnings = Array.from(new Set([...game.warnings, ...ratingFallback.warnings]));
+  const actualCount = [...awayHitters, ...homeHitters, ...awayPitchers, ...homePitchers].filter((row) => row.actual).length;
+
   return (
     <div className="space-y-5">
       <SimWorkspaceHeader eyebrow="MLB Game Center" title="Projected Box Score" description={`${game.teams.away.name} @ ${game.teams.home.name} - ${game.cacheLabel}`} actions={[{ href: `/sim/mlb/${encodeURIComponent(game.gameId)}`, label: "Summary" }, { href: "/sim/mlb", label: "MLB Board", tone: "primary" }]} />
       <MlbFranchiseTabs gameId={game.gameId} active="box-score" />
-      <BoxScoreWarnings warnings={game.warnings} />
-      <PitcherTable title="Starting Pitchers" rows={[...game.pitchers.away.slice(0, 1), ...game.pitchers.home.slice(0, 1)]} />
-      <EliteBatterBoard rows={[...game.hitters.away, ...game.hitters.home]} />
-      <HitterTable title={`${game.teams.away.name} Hitters`} rows={game.hitters.away} />
-      <HitterTable title={`${game.teams.home.name} Hitters`} rows={game.hitters.home} />
+      <BoxScoreWarnings warnings={warnings} />
+      <PitcherTable title="Starting Pitchers" rows={[...awayPitchers.slice(0, 1), ...homePitchers.slice(0, 1)]} />
+      <EliteBatterBoard rows={[...awayHitters, ...homeHitters]} />
+      <HitterTable title={`${game.teams.away.name} Hitters`} rows={awayHitters} />
+      <HitterTable title={`${game.teams.home.name} Hitters`} rows={homeHitters} />
       {actualCount ? <FranchiseEmptyState title="Tracked actuals available" description={`${actualCount} player rows have actual stat tracking linked to this game.`} /> : <FranchiseEmptyState title="Actuals not tracked yet" description="This page is showing projected box-score lines. Official player-game actuals will appear once stat rows are linked to this game." />}
     </div>
   );
