@@ -1,0 +1,14 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "sh -lc 'case \"$SHARKEDGE_SERVICE_MODE\" in odds-worker) npm run worker:odds-refresh ;; sim-worker) npm run worker:railway:sim ;; mlb-odds-worker) npm run worker:railway:mlb-odds ;; ufc-worker) npm run worker:railway:ufc ;; maintenance-worker) npm run worker:railway:maintenance ;; *) npx prisma migrate deploy && npm run start -- -p ${PORT:-3000} ;; esac'",
+    "healthcheckPath": "/api/results",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
