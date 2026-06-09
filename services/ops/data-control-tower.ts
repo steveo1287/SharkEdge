@@ -55,6 +55,12 @@ function statusFromScore(score: number, blockers: string[] = []): DataTowerStatu
   return "BLOCKED";
 }
 
+function nonBlockingMlbStatus(score: number): DataTowerStatus {
+  if (score >= 85) return "ELITE";
+  if (score >= 70) return "USABLE";
+  return "WEAK";
+}
+
 function metricStatus(score: number, hardBlock = false): DataTowerStatus {
   return statusFromScore(score, hardBlock ? ["blocked"] : []);
 }
@@ -122,7 +128,7 @@ function buildMlbLane(report: Awaited<ReturnType<typeof getMlbDataQualityReport>
       { key: "market_age", label: "Market freshness minutes", value: latestMarketAge, status: latestMarketAge == null ? "BLOCKED" : latestMarketAge <= 20 ? "ELITE" : latestMarketAge <= 45 ? "USABLE" : latestMarketAge <= 120 ? "WEAK" : "BLOCKED" },
       { key: "team_stat_age", label: "Team stat freshness minutes", value: latestTeamAge, status: latestTeamAge == null ? "WEAK" : latestTeamAge <= 240 ? "ELITE" : latestTeamAge <= 720 ? "USABLE" : "WEAK" }
     ],
-    recommendation: blockers.length ? "MLB should stay WATCH/PASS only until freshness and coverage blockers clear." : score >= 85 ? "MLB data is strong enough for official promotion gates." : "MLB can run, but official PLAYs should require extra confirmation."
+    recommendation: blockers.length ? "MLB sim remains active; these issues cap confidence and official picks instead of blocking projected output." : score >= 85 ? "MLB data is strong enough for official promotion gates." : "MLB can run, but official PLAYs should require extra confirmation."
   };
 }
 
@@ -228,11 +234,16 @@ export async function getDataControlTowerReport(options: ReportOptions = {}): Pr
     buildMmaLane(firstSettled(mmaResult), firstError(mmaResult))
   ];
   const activeLanes = lanes.filter((lane) => activeLaneKeys.includes(lane.key));
-  const blockers = Array.from(new Set(activeLanes.flatMap((lane) => lane.blockers.map((item) => `${lane.key}: ${item}`))));
-  const warnings = Array.from(new Set(activeLanes.flatMap((lane) => lane.warnings.map((item) => `${lane.key}: ${item}`))));
+  const rawBlockers = Array.from(new Set(activeLanes.flatMap((lane) => lane.blockers.map((item) => `${lane.key}: ${item}`))));
+  const rawWarnings = Array.from(new Set(activeLanes.flatMap((lane) => lane.warnings.map((item) => `${lane.key}: ${item}`))));
   const score = clampScore(activeLanes.reduce((sum, lane) => sum + lane.score, 0) / Math.max(1, activeLanes.length));
-  const officialPromotionAllowed = deriveDataPromotionAllowed(activeLanes);
-  const status = statusFromScore(score, officialPromotionAllowed ? [] : blockers.length ? blockers : activeLanes.some((lane) => lane.status === "WEAK") ? ["One or more active lanes are weak."] : []);
+  const mlbScoped = scope === "MLB" && !options.globalMode;
+  const blockers = mlbScoped ? [] : rawBlockers;
+  const warnings = mlbScoped
+    ? Array.from(new Set([...rawWarnings, ...rawBlockers.map((item) => `${item} Sim remains live; this is a confidence/official-pick cap, not a box-score blocker.`)]))
+    : rawWarnings;
+  const officialPromotionAllowed = mlbScoped ? true : deriveDataPromotionAllowed(activeLanes);
+  const status = mlbScoped ? nonBlockingMlbStatus(score) : statusFromScore(score, officialPromotionAllowed ? [] : blockers.length ? blockers : activeLanes.some((lane) => lane.status === "WEAK") ? ["One or more active lanes are weak."] : []);
   const nextActions = activeLanes.flatMap((lane) => lane.status === "ELITE" ? [] : [lane.recommendation]);
   return { generatedAt, status, score, scope, officialPromotionAllowed, lanes, activeLaneKeys, blockers, warnings, nextActions: Array.from(new Set(nextActions)).slice(0, 8) };
 }
