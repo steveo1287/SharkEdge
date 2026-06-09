@@ -1,6 +1,6 @@
 # Railway Primary Migration
 
-Use this when Vercel is no longer the live SharkEdge host.
+Railway is the only production deploy target for SharkEdge. Do not use Vercel as a production host.
 
 ## Target Services
 
@@ -8,11 +8,11 @@ Create these Railway services from the same GitHub repo:
 
 | Service | Dockerfile | Purpose |
 | --- | --- | --- |
-| `sharkedge-web` | `deploy/railway/Dockerfile.web` | Public Next.js app. Owns Prisma migrate deploy at boot. |
-| `sharkedge-sim-worker` | `deploy/railway/Dockerfile.sim-worker` | Refreshes cached SimHub/MLB snapshots and market overlays. |
-| `sharkedge-mlb-odds-worker` | `deploy/railway/Dockerfile.mlb-odds-worker` | Pulls paced odds-api.io MLB lines. |
-| `sharkedge-ufc-worker` | `deploy/railway/Dockerfile.ufc-worker` | Loads/hydrates/simulates UFC/MVP cards. |
-| `sharkedge-maintenance-worker` | `deploy/railway/Dockerfile.maintenance-worker` | DB space repair and settled prediction jobs. |
+| `sharkedge-web` | `deploy/railway/Dockerfile.web` or root `Dockerfile` with `SHARKEDGE_SERVICE_MODE=web` | Public Next.js app. Owns Prisma migrate deploy at boot. |
+| `sharkedge-sim-worker` | `deploy/railway/Dockerfile.sim-worker` or root `Dockerfile` with `SHARKEDGE_SERVICE_MODE=sim-worker` | Refreshes cached SimHub/MLB snapshots and market overlays. |
+| `sharkedge-mlb-odds-worker` | `deploy/railway/Dockerfile.mlb-odds-worker` or root `Dockerfile` with `SHARKEDGE_SERVICE_MODE=mlb-odds-worker` | Pulls paced odds-api.io MLB lines. |
+| `sharkedge-ufc-worker` | `deploy/railway/Dockerfile.ufc-worker` or root `Dockerfile` with `SHARKEDGE_SERVICE_MODE=ufc-worker` | Loads/hydrates/simulates UFC/MVP cards. |
+| `sharkedge-maintenance-worker` | `deploy/railway/Dockerfile.maintenance-worker` or root `Dockerfile` with `SHARKEDGE_SERVICE_MODE=maintenance-worker` | DB space repair and settled prediction jobs. |
 | `sharkedge-postgres` | Railway Postgres plugin | Primary production database. |
 
 Optional:
@@ -28,10 +28,10 @@ For every service:
 
 - Root directory: repo root
 - Builder: Dockerfile
-- Dockerfile path: the file listed above
+- Dockerfile path: the file listed above, or root `Dockerfile` with the correct `SHARKEDGE_SERVICE_MODE`
 - Attach the same Railway Postgres variables
 
-If Railway ignores service-level Dockerfile paths and uses the root `Dockerfile`, set:
+If Railway uses the root `Dockerfile`, set:
 
 | Service | Variable |
 | --- | --- |
@@ -65,7 +65,7 @@ The worker loop sends both:
 - `Authorization: Bearer $CRON_SECRET`
 - `x-cron-secret: $CRON_SECRET`
 
-So existing protected cron routes keep working off Vercel.
+So existing protected cron routes keep working on Railway.
 
 ## Service Responsibilities
 
@@ -161,6 +161,7 @@ Default jobs:
 https://<railway-web-domain>/sim
 https://<railway-web-domain>/baseball
 https://<railway-web-domain>/sim/ufc
+https://<railway-web-domain>/results
 ```
 
 2. In Railway web service, add custom domain:
@@ -172,24 +173,35 @@ www.sharkedge.com
 
 3. In your DNS provider, point records exactly as Railway instructs.
 
-4. After the domain works, stop treating `sharkedge.vercel.app` as production.
+4. After the domain works, stop treating any former non-Railway host as production.
 
 ## Verification
 
 After deploy, check:
 
 ```text
+/api/results
+/api/results?market=moneyline
+/api/results?market=nrfi
+/api/results?market=props
+/api/results?market=trends
 /api/sim/health
 /api/debug/sim-cache
 /api/debug/odds-quota
 /api/ufc/provider-readiness
 /api/ufc/canonical-fighters?status=WHAT_IF_READY&limit=20
 /baseball/readiness
+/results
+/results/moneyline
+/results/nrfi
+/results/props
+/results/trends
 ```
 
 Good signs:
 
 - Web service returns 200.
+- Results Center returns JSON and renders pages.
 - Sim cache has MLB rows.
 - MLB odds worker logs show 200/207, not 401.
 - UFC worker logs show card/fight counts.
@@ -197,7 +209,7 @@ Good signs:
 
 ## Cost Control
 
-- Keep Trends parked.
+- Keep Trends parked unless intentionally activated.
 - Do not run NBA workers unless you intentionally reactivate NBA.
 - Keep historical backfills manual.
 - Let workers refresh caches; keep pages read-only.
