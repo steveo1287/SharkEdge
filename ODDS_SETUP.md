@@ -2,277 +2,179 @@
 
 ## Current Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     SharkEdge Live Odds                      │
-├─────────────────────────────────────────────────────────────┤
-│                                                               │
-│  Frontend                                                     │
-│  └─> currentOddsProviders (provider registry)               │
-│      ├─> Backend Current Odds Provider                      │
-│      │   └─> GET /api/odds/board (your backend)            │
-│      │       ├─> Flashscore scraper data (if configured)   │
-│      │       └─> OddsHarvester data (historical)           │
-│      │                                                       │
-│      └─> The Rundown Provider                               │
-│          └─> GET https://therundown.io/api/v2/...         │
-│                                                               │
-│  Backend Data Pipeline                                        │
-│  └─> POST /api/ingest-odds ← Flashscore scraper            │
-│      └─> Stores in database/cache                           │
-│          └─> Served via /api/odds/board                    │
-│                                                               │
-│  Scraper                                                      │
-│  └─> live_odds_scraper_optimized.py                        │
-│      ├─> Flashscore (moneyline, spread, total, props)      │
-│      ├─> Resilient error handling (FIXED)                  │
-│      └─> Posts to backend every 2 minutes                  │
-│                                                               │
-└─────────────────────────────────────────────────────────────┘
+SharkEdge production is Railway-only. Do not treat Vercel as a production host.
+
+```text
+Railway web service
+  -> Next.js app and API routes
+  -> reads/writes Railway Postgres
+
+Railway workers
+  -> sim refresh worker
+  -> MLB odds worker
+  -> UFC worker
+  -> maintenance worker
+  -> optional OddsHarvester worker
+
+Railway Postgres
+  -> primary production database
 ```
 
-## Quick Start (5 minutes)
+## Railway-Only Quick Start
 
-### 1. Deploy the Flashscore Scraper
+### 1. Web service
 
-The scraper has been hardened against crashes. Deploy it:
+Use the root `Dockerfile` or the web Dockerfile under `deploy/railway`.
+
+Required service variable:
+
+```env
+SHARKEDGE_SERVICE_MODE=web
+```
+
+Boot path:
 
 ```bash
-cd /home/user/SharkEdge/backend
-
-# Set environment
-export SHARKEDGE_API_KEY="your-ingest-key"
-export SHARKEDGE_INGEST_URL="https://your-backend.app/api/ingest-odds"
-export POLL_INTERVAL_SECONDS="120"
-export HEADLESS="true"
-export CHROME_BIN="/path/to/chrome"
-
-# Run (use process manager for production)
-python live_odds_scraper_optimized.py
+npx prisma migrate deploy && npm run start -- -p ${PORT:-3000}
 ```
 
-**Environment Variables (All Optional - Sensible Defaults)**:
+### 2. MLB odds worker
 
-```
-SHARKEDGE_API_KEY              # Required to authenticate ingest
-SHARKEDGE_INGEST_URL           # Default: https://sharkedge.vercel.app/api/ingest-odds
-POLL_INTERVAL_SECONDS          # Default: 120 (2 min)
-MAX_EVENTS_PER_SPORT           # Default: 20
-SPORTS_TO_SCRAPE               # Default: basketball,baseball,hockey,american-football,ufc,boxing
-HEADLESS                       # Default: true
-PROXY_URL                      # Optional proxy for Flashscore
-CHROME_BIN                     # Path to Chrome binary
-RUN_ONCE                       # Set to true to run once and exit (testing)
-MAX_WORKERS                    # Parallel sports (default: 1 on Railway)
-CACHE_ENABLED                  # Default: true (skip unchanged events)
-PAGE_LOAD_TIMEOUT_SECONDS      # Default: 20
-FEED_TIMEOUT_SECONDS           # Default: 6
-FEED_RETRY_ATTEMPTS            # Default: 2
+Required service variable:
+
+```env
+SHARKEDGE_SERVICE_MODE=mlb-odds-worker
 ```
 
-### 2. Verify Data Flow
-
-Once scraper is running, check that data reaches your backend:
+Worker command:
 
 ```bash
-# Check logs
-tail -f live_odds_optimized.log
-
-# Watch for "Posted" entries
-# Example: "Posted basketball:NBA:Lakers @ Celtics: True"
+npm run worker:railway:mlb-odds
 ```
 
-### 3. Enable in Frontend
+Core variables:
 
-The frontend will automatically use the scraper data if `/api/odds/board` returns it:
-
-```typescript
-// services/current-odds/backend-provider.ts already handles this
-// Data flows through: 
-//   1. Scraper → POST /api/ingest-odds
-//   2. Backend stores data
-//   3. Frontend → GET /api/odds/board (includes scraper data)
+```env
+ODDSAPI_IO_KEY=
+ODDS_API_IO_KEY=
+ODDS_API_IO_EVENT_LIMIT=20
+MLB_ODDS_REFRESH_INTERVAL_SECONDS=600
+MLB_ODDS_ACTIVE_UTC_HOURS=0,1,2,3,4,5,6,15,16,17,18,19,20,21,22,23
 ```
 
-## Current Provider Status
+### 3. Sim worker
 
-| League | Status | Providers | Fallback Chain |
-|--------|--------|-----------|-----------------|
-| **NBA** | ✅ LIVE | Backend + TheRundown | Backend → TheRundown |
-| **NCAAB** | ✅ LIVE | Backend + TheRundown | Backend → TheRundown |
-| **MLB** | ✅ LIVE | Backend + TheRundown | Backend → TheRundown |
-| **NHL** | ✅ LIVE | Backend + TheRundown | Backend → TheRundown |
-| **NFL** | ✅ LIVE | Backend + TheRundown | Backend → TheRundown |
-| **NCAAF** | ✅ LIVE | Backend + TheRundown | Backend → TheRundown |
-| **UFC** | 🔴 GAPS | None | Scraper (moneyline only) |
-| **BOXING** | 🔴 GAPS | None | Scraper (moneyline only) |
+Required service variable:
 
-## Deployment Options
+```env
+SHARKEDGE_SERVICE_MODE=sim-worker
+```
 
-### Option 1: Railway (Recommended for MVP)
+Worker command:
 
 ```bash
-# Add to railway.toml or Procfile
-web: python backend/live_odds_scraper_optimized.py
+npm run worker:railway:sim
 ```
 
-**Pros**: Easy, auto-scaling, integrated with your setup
-**Cons**: Charges for compute
+Core variables:
 
-### Option 2: Heroku/Render
+```env
+SIM_REFRESH_INTERVAL_SECONDS=1800
+SIM_MARKET_REFRESH_INTERVAL_SECONDS=600
+```
+
+### 4. UFC worker
+
+Required service variable:
+
+```env
+SHARKEDGE_SERVICE_MODE=ufc-worker
+```
+
+Worker command:
 
 ```bash
-# Heroku
-heroku config:set SHARKEDGE_API_KEY="your-key"
-heroku ps:scale worker=1
+npm run worker:railway:ufc
 ```
 
-### Option 3: Docker (Self-hosted)
+Core variables:
 
-```dockerfile
-FROM python:3.11-slim
-RUN apt-get update && apt-get install -y chromium
-WORKDIR /app
-COPY backend/requirements.txt .
-RUN pip install -r requirements.txt
-COPY backend/live_odds_scraper_optimized.py .
-CMD ["python", "live_odds_scraper_optimized.py"]
+```env
+UFC_ADMIN_RUN_TOKEN=
+UFC_AUTOPILOT_INTERVAL_SECONDS=21600
 ```
 
-### Option 4: Cron Job (Minimal)
+### 5. Maintenance worker
 
-Run every 2 minutes via cron (not recommended for continuous updates):
+Required service variable:
+
+```env
+SHARKEDGE_SERVICE_MODE=maintenance-worker
+```
+
+Worker command:
 
 ```bash
-*/2 * * * * cd /path && python live_odds_scraper_optimized.py --run-once
+npm run worker:railway:maintenance
 ```
 
-## What's Fixed in the Scraper
+## Shared Railway Variables
 
-**Before**: Random crashes from timeouts, rate limits, WebDriver failures
-**After**: Graceful degradation, per-market error isolation, consecutive failure detection
+Put these on every Railway service that touches the app or database:
 
-### Key Improvements:
-
-1. **Market Failure Isolation** - If moneyline fails, spread and total still fetch
-2. **Rate Limit Handling** - 429s backed off, not retried infinitely
-3. **Timeout Protection** - Individual markets time out, not entire sport
-4. **Driver Cleanup** - No process leaks on error
-5. **Consecutive Failure Detection** - Exits cleanly after 5 failures (doesn't hang)
-6. **Better Logging** - Know exactly what failed and why
-
-## Next Steps (This Week)
-
-### Priority 1: Make Scraper Live ⚡
-- [ ] Deploy scraper to production
-- [ ] Verify data flowing to backend
-- [ ] Monitor logs for 24 hours
-- [ ] Set up alerts for consecutive failures
-
-### Priority 2: Add The Odds API (Free Tier) 
-- [ ] Create `therundown-plus-provider.ts` that layers The Odds API
-- [ ] Fallback: Backend → TheRundown → The Odds API
-- [ ] Covers: NFL, NBA, MLB, NHL (multiple books free)
-- [ ] Est. time: 2 hours
-
-### Priority 3: UFC Coverage
-- [ ] Scraper already covers UFC moneyline
-- [ ] Layer with BetExplorer API for more books
-- [ ] Est. time: 3 hours
-
-### Priority 4: Props Wiring
-- [ ] Connect NBA/NCAAB player props to backend
-- [ ] Connect MLB/NHL/NFL props (missing entirely)
-- [ ] Est. time: 4-6 hours
-
-## Monitoring & Health Checks
-
-### Check Scraper Is Running
-```bash
-# Look for live_odds_optimized.log entries updated in last 2 min
-ls -ltr live_odds_optimized.log
-tail -20 live_odds_optimized.log | grep "Posted\|No events"
+```env
+NODE_ENV=production
+DATABASE_URL=
+DIRECT_URL=
+CRON_SECRET=
+INTERNAL_API_KEY=
+INTERNAL_API_KEY2=
+SHARKEDGE_ALLOW_DEGRADED_BOOT=true
+RAILWAY_WEB_INTERNAL_URL=http://sharkedge-web:3000
 ```
 
-### Check Backend Is Receiving Data
-```bash
-# Query your backend
-curl https://your-backend.app/api/odds/board \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: $SHARKEDGE_API_KEY"
+Use `deploy/railway/env.primary.example` as the full checklist.
 
-# Should return sports with games and odds data
+## Optional OddsHarvester Worker
+
+Only use this if we intentionally keep the Python scraper layer alive. It should post to Railway, not Vercel.
+
+```env
+SHARKEDGE_BACKEND_URL=http://sharkedge-web:3000
+SHARKEDGE_API_KEY=
+POST_TO_BACKEND=true
+ODDSHARVESTER_HEADLESS=true
+POLL_INTERVAL_SECONDS=900
+ENABLED_SPORT_KEYS=baseball_mlb,mma_mixed_martial_arts
 ```
 
-### Check Frontend Is Displaying
-```
-Frontend → Open any league page (NBA/NFL/etc)
-→ Should show current odds + multiple books
-→ Check browser DevTools → Network → /api/odds/board
-```
+## Verification
 
-## Troubleshooting
+After Railway deploy, check:
 
-### Scraper Not Posting
-```
-Check:
-1. SHARKEDGE_API_KEY is set and correct
-2. Backend URL is accessible: curl -I $SHARKEDGE_INGEST_URL
-3. Logs show "Failed to post" - check why (401, 429, timeout, etc)
-4. Backend database has space for writes
-```
-
-### No Data in Frontend
-```
-Check:
-1. Scraper logs show "Posted X" entries
-2. Backend /api/odds/board returns data
-3. Frontend fetching the right endpoint
-4. Check response - is it "configured": true?
+```text
+/api/results
+/api/results?market=moneyline
+/api/sim/health
+/api/debug/sim-cache
+/api/debug/odds-quota
+/api/ufc/provider-readiness
+/baseball/readiness
+/results
+/results/moneyline
+/results/nrfi
+/results/props
+/results/trends
 ```
 
-### High Latency / Timeouts
-```
-Adjust:
-- PAGE_LOAD_TIMEOUT_SECONDS: 20 → 15 (if fast connection)
-- POLL_INTERVAL_SECONDS: 120 → 180 (if rate limited)
-- MAX_WORKERS: 1 → depends on hardware
-- FEED_TIMEOUT_SECONDS: 6 → 8 (if unstable network)
-```
+Good signs:
 
-## Free Open-Source Alternatives (Future)
+- Web service returns 200.
+- `/api/results` returns JSON.
+- Sim cache has MLB rows.
+- MLB odds worker logs show 200/207, not 401.
+- Maintenance worker does not report database space failures.
 
-When you want to layer in more coverage:
+## Operating Rule
 
-| API | Cost | Sports | Setup |
-|-----|------|--------|-------|
-| [The Odds API](https://the-odds-api.com) | Free tier 500/mo | NFL, NBA, MLB, NHL, NCAAB | 2 hours |
-| [BetExplorer](https://betexplorer.com/api) | Free | All + UFC | 3 hours |
-| [Pinnacle](https://www.pinnacle.com) | Free | All + UFC | 1 hour (already have MLB) |
-| [ESPN Public API](https://github.com/pseudo-r/Public-ESPN-API) | Free | 6 sports | Already using for events |
-
-## Architecture Decision Log
-
-**Why Flashscore Scraper?**
-- ✅ No API key needed
-- ✅ Covers all sports including UFC/Boxing
-- ✅ Multiple books per game
-- ✅ Prop markets (player props, method of victory)
-- ❌ Rate limit sensitive (handled now)
-
-**Why The Rundown as Primary?**
-- ✅ Free tier available
-- ✅ Reliable API (not scraping)
-- ✅ Good book coverage
-- ❌ Limited free requests (5 min cache)
-
-**Why Backend Aggregation?**
-- ✅ Single source of truth for frontend
-- ✅ Can combine scraper + API + harvester
-- ✅ Cache layer (skip unchanged events)
-
----
-
-**Last Updated**: 2026-04-23
-**Scraper Reliability**: Fixed (comprehensive error handling added)
-**Next Action**: Deploy scraper to production
+Railway is the production source of truth. If old docs, scripts, or comments mention `sharkedge.vercel.app`, replace them with the Railway web domain or the internal Railway service URL.
