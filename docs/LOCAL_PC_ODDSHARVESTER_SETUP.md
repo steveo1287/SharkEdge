@@ -2,6 +2,14 @@
 
 This path makes your Windows PC the active OddsHarvester worker for SharkEdge instead of EC2.
 
+The remote Railway odds-refresh worker is now disabled by default unless you explicitly set:
+
+```text
+SHARKEDGE_WORKER_MODE=local
+```
+
+on the machine that is supposed to do the heavy lifting.
+
 ## Files
 
 - `scripts/bootstrap_local_oddsharvester.ps1`
@@ -9,6 +17,9 @@ This path makes your Windows PC the active OddsHarvester worker for SharkEdge in
 - `scripts/run_local_oddsharvester_once.ps1`
 - `scripts/run_local_oddsharvester_loop.ps1`
 - `scripts/install_local_oddsharvester_task.ps1`
+- `scripts/run_local_odds_refresh_once.ps1`
+- `scripts/run_local_odds_refresh_loop.ps1`
+- `scripts/install_local_odds_refresh_task.ps1`
 - `.env.local-oddsharvester.example`
 
 ## Default local worker env
@@ -69,6 +80,27 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install_local_oddsharvester_t
 That installs a task named:
 
 - `SharkEdge Local OddsHarvester`
+
+## Install the local odds refresh worker task
+
+This is the lighter server-side refresh loop that keeps the odds/market cache warm without burning Railway usage.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install_local_odds_refresh_task.ps1
+```
+
+That installs a task named:
+
+- `SharkEdge Local Odds Refresh`
+
+## Recommended local worker environment
+
+For the local odds-refresh worker, set these variables in `.env.local-oddsharvester` if they are not already present:
+
+```text
+SHARKEDGE_WORKER_MODE=local
+ALLOW_RAILWAY_HEAVY_WORKER=false
+```
 
 ## Local output
 

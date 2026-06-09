@@ -23,6 +23,25 @@ function getConfiguredNumber(
   return getNumberArg(args, argKey, envFallback);
 }
 
+function shouldRunHeavyWorker() {
+  const mode = (process.env.SHARKEDGE_WORKER_MODE ?? "").trim().toLowerCase();
+  const allowRailway = (process.env.ALLOW_RAILWAY_HEAVY_WORKER ?? "").trim().toLowerCase();
+
+  if (mode === "local" || mode === "pc" || mode === "windows") {
+    return { ok: true as const };
+  }
+
+  if (allowRailway === "true" || allowRailway === "1" || allowRailway === "yes") {
+    return { ok: true as const };
+  }
+
+  return {
+    ok: false as const,
+    message:
+      "Heavy odds refresh is disabled on this worker. Set SHARKEDGE_WORKER_MODE=local on your PC or ALLOW_RAILWAY_HEAVY_WORKER=true if you intentionally want Railway to run it."
+  };
+}
+
 async function getActiveEventIds(lookbackHours: number, lookaheadHours: number) {
   const now = Date.now();
   const events = await prisma.event.findMany({
@@ -68,6 +87,12 @@ async function runRefreshCycle(lookbackHours: number, lookaheadHours: number) {
 }
 
 async function main() {
+  const gate = shouldRunHeavyWorker();
+  if (!gate.ok) {
+    console.log(`[worker] odds-refresh disabled: ${gate.message}`);
+    return;
+  }
+
   const args = parseArgs(process.argv.slice(2));
   const runOnce = getBooleanArg(args, "once");
   const intervalMs = getConfiguredNumber(

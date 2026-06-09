@@ -52,6 +52,7 @@
     "worker:railway:mlb-odds": "tsx scripts/railway-worker-loop.ts mlb-odds-worker",
     "worker:railway:ufc": "tsx scripts/railway-worker-loop.ts ufc-worker",
     "worker:railway:maintenance": "tsx scripts/railway-worker-loop.ts maintenance-worker",
+    "worker:odds-refresh:once": "tsx workers/odds-refresh-worker.ts --once",
     "worker:trends": "tsx scripts/worker-trends.ts",
     "worker:ufc:operational": "tsx scripts/worker-ufc-operational-sim.ts",
     "worker:ufc:deep-calibration": "tsx scripts/worker-ufc-deep-profile-calibration.ts",

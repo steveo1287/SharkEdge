@@ -10,5 +10,6 @@ RUN npm ci --include=dev
 COPY . .
 
 ENV NODE_ENV=production
+ENV SHARKEDGE_WORKER_MODE=disabled
 
 CMD ["npm", "run", "worker:odds-refresh"]
