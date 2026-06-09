@@ -89,7 +89,7 @@ function simTasks(): WorkerTask[] {
       // decoupled from page renders so game centers read real persisted intelligence.
       intervalSeconds: intEnv("MLB_POPULATE_FEED_INTERVAL_SECONDS", 21600, 3600, 86400),
       runImmediately: boolEnv("MLB_POPULATE_FEED_RUN_IMMEDIATELY", true),
-      activeUtcHours: csvSetEnv("MLB_POPULATE_FEED_ACTIVE_UTC_HOURS") ?? new Set([14, 20])
+      activeUtcHours: mlbActiveUtcHours("MLB_POPULATE_FEED_ACTIVE_UTC_HOURS")
     },
     {
       name: "mlb-player-prop-inning-grade",
