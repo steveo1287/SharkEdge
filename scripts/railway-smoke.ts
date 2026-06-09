@@ -11,11 +11,13 @@ const checks: SmokeCheck[] = [
   { path: "/api/results?market=nrfi", expectJson: true },
   { path: "/api/results?market=props", expectJson: true },
   { path: "/api/results?market=trends", expectJson: true },
+  { path: "/api/proof", expectJson: true },
   { path: "/results", expectText: "Results" },
   { path: "/results/moneyline", expectText: "Results" },
   { path: "/results/nrfi", expectText: "Results" },
   { path: "/results/props", expectText: "Results" },
-  { path: "/results/trends", expectText: "Results" }
+  { path: "/results/trends", expectText: "Results" },
+  { path: "/proof", expectText: "Proof Room" }
 ];
 
 function baseUrlFromArgs() {
