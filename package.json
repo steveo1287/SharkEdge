@@ -74,6 +74,7 @@
     "railway:logs": "railway logs",
     "railway:status": "railway status",
     "railway:migrate": "npm run prisma:deploy:railway",
+    "railway:smoke": "tsx scripts/railway-smoke.ts",
     "db:space:repair": "tsx scripts/repair-railway-postgres-space.ts",
     "historical:ingest": "tsx scripts/ingest-historical-odds.ts",
     "historical:backfill": "tsx scripts/backfill-historical-intelligence.ts",
