@@ -1,6 +1,6 @@
 # TOOLS.md - Local Notes
 
-Skills define _how_ tools work. This file is for _your_ specifics — the stuff that's unique to your setup.
+Skills define _how_ tools work. This file is for _your_ specifics — the setup details unique to this workspace.
 
 ## What Goes Here
 
@@ -18,16 +18,16 @@ Things like:
 ```markdown
 ### Cameras
 
-- living-room → Main area, 180° wide angle
-- front-door → Entrance, motion-triggered
+- living-room -> Main area, 180 degree wide angle
+- front-door -> Entrance, motion-triggered
 
 ### SSH
 
-- home-server → 192.168.1.100, user: admin
+- home-server -> 192.168.1.100, user: admin
 
 ### TTS
 
-- Preferred voice: "Nova" (warm, slightly British)
+- Preferred voice: Nova
 - Default speaker: Kitchen HomePod
 ```
 
@@ -43,7 +43,11 @@ Add whatever helps you do your job. This is your cheat sheet.
 
 - Repo root: `C:\Users\krist\OneDrive\Documents\New project\repo`
 - Frontend app: `C:\Users\krist\OneDrive\Documents\New project\repo\frontend`
-- Production site: `https://sharkedge.vercel.app`
+- Production host: Railway only
+- Railway web service mode: `SHARKEDGE_SERVICE_MODE=web`
+- Railway web healthcheck: `/api/health/railway`
+- Results Center: `/results`
+- Results API: `/api/results`
 - Main work priorities:
   - keep league data isolated correctly
   - keep home/bets/trends/performance visually consistent
