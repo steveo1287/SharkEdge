@@ -105,6 +105,16 @@ function weightFor(priority: SimDataHealthPriority) {
   return 1;
 }
 
+function boolEnv(name: string, fallback: boolean) {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (!raw) return fallback;
+  return !["0", "false", "no", "off"].includes(raw);
+}
+
+function includeUfcHealth() {
+  return boolEnv("SIM_HEALTH_INCLUDE_UFC", boolEnv("UFC_SIM_ENABLED", false));
+}
+
 function reportStatus(score: number, blockers: string[]): SimDataHealthStatus {
   if (blockers.length) return "BLOCKED";
   if (score >= 85) return "ELITE";
@@ -165,7 +175,7 @@ async function queryProbe(args: {
 }
 
 async function buildDbProbes() {
-  return Promise.all([
+  const probes: Array<Promise<SimDataHealthProbe>> = [
     queryProbe({
       key: "mlb-player-ratings",
       label: "MLB player ratings",
@@ -191,14 +201,6 @@ async function buildDbProbes() {
       query: () => prisma.$queryRaw<CountLatestRow[]>`SELECT COUNT(*) AS row_count, MAX(captured_at) AS latest_at FROM mlb_lineup_snapshots`
     }),
     queryProbe({
-      key: "ufc-model-features",
-      label: "UFC model features",
-      category: "UFC",
-      priority: "critical",
-      maxFreshMinutes: 720,
-      query: () => prisma.$queryRaw<CountLatestRow[]>`SELECT COUNT(*) AS row_count, MAX(updated_at) AS latest_at FROM ufc_model_features`
-    }),
-    queryProbe({
       key: "market-snapshots",
       label: "Event market snapshots",
       category: "MARKET",
@@ -222,7 +224,22 @@ async function buildDbProbes() {
       maxFreshMinutes: 720,
       query: () => prisma.$queryRaw<CountLatestRow[]>`SELECT COUNT(*) AS row_count, MAX("updatedAt") AS latest_at FROM team_game_stats`
     })
-  ]);
+  ];
+
+  if (includeUfcHealth()) {
+    probes.push(
+      queryProbe({
+        key: "ufc-model-features",
+        label: "UFC model features",
+        category: "UFC",
+        priority: "critical",
+        maxFreshMinutes: 720,
+        query: () => prisma.$queryRaw<CountLatestRow[]>`SELECT COUNT(*) AS row_count, MAX(updated_at) AS latest_at FROM ufc_model_features`
+      })
+    );
+  }
+
+  return Promise.all(probes);
 }
 
 function cacheAgeProbe(args: {
