@@ -14,7 +14,7 @@ export type MlbPremiumPickPolicyResult = {
   noBet: boolean;
   confidence: number;
   pickSide: "HOME" | "AWAY" | null;
-  policyVersion: "mlb-premium-pick-policy-v2";
+  policyVersion: "mlb-premium-pick-policy-v1";
   downgraded: boolean;
   originalTier: MlbIntelV7Tier;
   originalNoBet: boolean;
@@ -33,7 +33,7 @@ export type MlbPremiumPickPolicyResult = {
     lineupsConfirmed: boolean;
     awayRatingsSource: string | null;
     homeRatingsSource: string | null;
-    strictMode: boolean;
+    strictMode?: boolean;
   };
 };
 
@@ -180,8 +180,8 @@ export function applyMlbPremiumPickPolicy(input: MlbPremiumPickPolicyInput): Mlb
   const noBet = finalNoBet(tier, input.v7.noBet, input.v7.pickSide);
   const downgraded = tier !== input.v7.tier || noBet !== input.v7.noBet || confidence < input.v7.confidence;
   const reasons = [
-    `MLB premium policy v2 final tier ${tier.toUpperCase()}, confidence ${(confidence * 100).toFixed(1)}%.`,
-    blockers.length ? "Strict blockers are active. Set SHARKEDGE_MLB_STRICT_PICK_BLOCKERS=false or unset it to keep MLB sim unblocked while still warning." : "No hard MLB sim blockers active; issues are treated as warnings/caps unless strict blocker mode is enabled.",
+    `MLB premium policy v1 blocker-relief final tier ${tier.toUpperCase()}, confidence ${(confidence * 100).toFixed(1)}%.`,
+    blockers.length ? "Strict blockers are active. Unset SHARKEDGE_MLB_STRICT_PICK_BLOCKERS to keep MLB sim unblocked while still warning." : "No hard MLB sim blockers active; issues are treated as warnings/caps unless strict blocker mode is enabled.",
     ...blockers,
     ...warnings
   ];
@@ -191,7 +191,7 @@ export function applyMlbPremiumPickPolicy(input: MlbPremiumPickPolicyInput): Mlb
     noBet,
     confidence,
     pickSide: noBet ? null : input.v7.pickSide,
-    policyVersion: "mlb-premium-pick-policy-v2",
+    policyVersion: "mlb-premium-pick-policy-v1",
     downgraded,
     originalTier: input.v7.tier,
     originalNoBet: input.v7.noBet,
