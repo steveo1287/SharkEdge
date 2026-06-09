@@ -13,6 +13,7 @@ const checks: SmokeCheck[] = [
   { path: "/api/results?market=trends", expectJson: true },
   { path: "/api/proof", expectJson: true },
   { path: "/api/tickets", expectJson: true },
+  { path: "/api/tickets/export", expectText: "ticketId" },
   { path: "/results", expectText: "Results" },
   { path: "/results/moneyline", expectText: "Results" },
   { path: "/results/nrfi", expectText: "Results" },
@@ -40,7 +41,7 @@ async function check(baseUrl: string, item: SmokeCheck) {
   const url = `${baseUrl}${item.path}`;
   const started = Date.now();
   const response = await fetch(url, {
-    headers: { Accept: item.expectJson ? "application/json" : "text/html,application/xhtml+xml" },
+    headers: { Accept: item.expectJson ? "application/json" : "text/html,application/xhtml+xml,text/csv" },
     signal: AbortSignal.timeout(20_000)
   });
   const ms = Date.now() - started;
