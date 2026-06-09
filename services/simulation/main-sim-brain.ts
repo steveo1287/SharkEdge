@@ -3,6 +3,7 @@ import { applySimAccuracyGuardrail, getSimAccuracyGuardrails } from "@/services/
 import { buildGuardedSimProjection } from "@/services/simulation/guarded-sim-projection-engine";
 import { buildMlbIntelV7Probability, type MlbIntelV7Tier } from "@/services/simulation/mlb-intel-v7-probability";
 import { buildMlbPlayerProfileSimFeed } from "@/services/simulation/mlb-player-profile-sim-feed";
+import { applyMlbStarterPropDiversity } from "@/services/simulation/mlb-starter-prop-diversity";
 import { buildMlbPremiumFormulaStack } from "@/services/simulation/mlb-premium-formula-stack";
 import { getActiveMlbPremiumFormulaProfile } from "@/services/simulation/mlb-premium-formula-profile";
 import { applyMlbPremiumPickPolicy } from "@/services/simulation/mlb-premium-pick-policy";
@@ -18,7 +19,7 @@ type MlbIntelWithGovernor = MlbIntel & { governor: MlbGovernor; playerImpact?: u
 
 type MainBrainMetadata = {
   modelVersion: "main-sim-brain-v1";
-  primaryMlbBrain: "mlb-intel-v8-player-impact+player-profile-sim-feed+learned-formula-profile+mlb-intel-v7-calibration+premium-policy";
+  primaryMlbBrain: "mlb-intel-v8-player-impact+starter-prop-diversity+player-profile-sim-feed+learned-formula-profile+mlb-intel-v7-calibration+premium-policy";
   rawHomeWinPct: number;
   v8HomeWinPct: number;
   playerProfileHomeWinPct: number | null;
@@ -87,16 +88,24 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
   ]);
   if (!hasMlbGovernor(v8Projection)) return rawProjection;
 
-  const playerProfileSimFeed = await buildMlbPlayerProfileSimFeed({
+  const v8DiverseProjection = await applyMlbStarterPropDiversity({
+    gameId: input.id,
     awayTeam: rawProjection.matchup.away,
     homeTeam: rawProjection.matchup.home,
     projection: v8Projection
-  }).catch(() => null);
-  const formulaAwayRuns = playerProfileSimFeed?.away.meanRuns ?? v8Projection.distribution.avgAway;
-  const formulaHomeRuns = playerProfileSimFeed?.home.meanRuns ?? v8Projection.distribution.avgHome;
-  const formulaInputHomeWinPct = playerProfileSimFeed?.homeWinPctFromProfiles ?? v8Projection.distribution.homeWinPct;
+  }).catch(() => v8Projection);
+  if (!hasMlbGovernor(v8DiverseProjection)) return rawProjection;
 
-  const mlbIntel = v8Projection.mlbIntel;
+  const playerProfileSimFeed = await buildMlbPlayerProfileSimFeed({
+    awayTeam: rawProjection.matchup.away,
+    homeTeam: rawProjection.matchup.home,
+    projection: v8DiverseProjection
+  }).catch(() => null);
+  const formulaAwayRuns = playerProfileSimFeed?.away.meanRuns ?? v8DiverseProjection.distribution.avgAway;
+  const formulaHomeRuns = playerProfileSimFeed?.home.meanRuns ?? v8DiverseProjection.distribution.avgHome;
+  const formulaInputHomeWinPct = playerProfileSimFeed?.homeWinPctFromProfiles ?? v8DiverseProjection.distribution.homeWinPct;
+
+  const mlbIntel = v8DiverseProjection.mlbIntel;
   const governor = mlbIntel.governor;
   const v7 = buildMlbIntelV7Probability({
     rawHomeWinPct: formulaInputHomeWinPct,
@@ -143,7 +152,7 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
   const profileFeedReasons = playerProfileSimFeed?.reasons ?? [];
   const profileFeedWarnings = playerProfileSimFeed?.warnings.map((warning) => `Player profile sim feed warning: ${warning}`) ?? [];
   const brainReasons = [
-    "Main sim brain active for MLB: v8 player-impact model feeds player-profile sim ranges, learned formula profile, v7 shrinkage, no-vig market anchoring, premium pick policy, and accuracy guardrails.",
+    "Main sim brain active for MLB: v8 player-impact model feeds starter prop diversity, player-profile sim ranges, learned formula profile, v7 shrinkage, no-vig market anchoring, premium pick policy, and accuracy guardrails.",
     ...v8Reasons,
     ...profileFeedReasons,
     ...profileFeedWarnings,
@@ -156,7 +165,7 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
     league: "MLB",
     tier: premiumPolicy.tier,
     probability: leadingProbability({
-      ...v8Projection.distribution,
+      ...v8DiverseProjection.distribution,
       homeWinPct: premiumFormulaStack.finalHomeWinPct,
       awayWinPct: premiumFormulaStack.finalAwayWinPct
     }),
@@ -171,9 +180,9 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
     : guarded.reasons;
   const mainBrain: MainBrainMetadata = {
     modelVersion: "main-sim-brain-v1",
-    primaryMlbBrain: "mlb-intel-v8-player-impact+player-profile-sim-feed+learned-formula-profile+mlb-intel-v7-calibration+premium-policy",
+    primaryMlbBrain: "mlb-intel-v8-player-impact+starter-prop-diversity+player-profile-sim-feed+learned-formula-profile+mlb-intel-v7-calibration+premium-policy",
     rawHomeWinPct: round(rawProjection.distribution.homeWinPct),
-    v8HomeWinPct: round(v8Projection.distribution.homeWinPct),
+    v8HomeWinPct: round(v8DiverseProjection.distribution.homeWinPct),
     playerProfileHomeWinPct: playerProfileSimFeed?.homeWinPctFromProfiles ?? null,
     v7HomeWinPct: v7.finalHomeWinPct,
     formulaHomeWinPct: premiumFormulaStack.finalHomeWinPct,
@@ -192,9 +201,9 @@ export async function buildMlbMainSimBrainProjection(input: SimProjectionInput):
   };
 
   return {
-    ...v8Projection,
+    ...v8DiverseProjection,
     distribution: {
-      ...v8Projection.distribution,
+      ...v8DiverseProjection.distribution,
       avgAway: formulaAwayRuns,
       avgHome: formulaHomeRuns,
       homeWinPct: premiumFormulaStack.finalHomeWinPct,
@@ -225,7 +234,7 @@ export async function buildMainSimProjection(input: SimProjectionInput): Promise
 }
 
 export function mainBrainLabel(leagueKey: LeagueKey) {
-  if (leagueKey === "MLB") return "mlb-intel-v8-player-impact+player-profile-sim-feed+learned-formula-profile+mlb-intel-v7-calibration+premium-policy";
+  if (leagueKey === "MLB") return "mlb-intel-v8-player-impact+starter-prop-diversity+player-profile-sim-feed+learned-formula-profile+mlb-intel-v7-calibration+premium-policy";
   if (leagueKey === "NBA") return "nba-guarded-winner-anchor";
   return "base-sim-projection";
 }
