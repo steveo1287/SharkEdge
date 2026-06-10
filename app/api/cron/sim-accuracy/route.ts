@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { enrichMlbMarketAuditSnapshots } from "@/services/sim/mlb-market-audit-snapshot-enrichment";
+import { settleMlbSimPredictionSnapshots } from "@/services/simulation/mlb-snapshot-settlement";
 import { runSimAccuracyLedgerJob } from "@/services/simulation/sim-accuracy-ledger";
 
 export const dynamic = "force-dynamic";
@@ -19,12 +20,17 @@ export async function GET(req: Request) {
   }
 
   const result = await runSimAccuracyLedgerJob();
+  const mlbSettlement = await settleMlbSimPredictionSnapshots({ limit: 1000, olderThanHours: 1 }).catch((error) => ({
+    ok: false,
+    error: error instanceof Error ? error.message : "MLB snapshot settlement failed."
+  }));
   const marketAuditEnrichment = await enrichMlbMarketAuditSnapshots(150).catch((error) => ({
     ok: false,
     error: error instanceof Error ? error.message : "MLB market audit enrichment failed."
   }));
 
-  return NextResponse.json({ ...result, marketAuditEnrichment }, { status: result.ok ? 200 : 503 });
+  const ok = Boolean(result.ok && mlbSettlement.ok);
+  return NextResponse.json({ ...result, mlbSettlement, marketAuditEnrichment }, { status: ok ? 200 : 503 });
 }
 
 export async function POST(req: Request) {
