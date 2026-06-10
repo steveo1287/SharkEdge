@@ -118,6 +118,10 @@ function arrayValue(value: unknown): Array<Record<string, unknown>> {
 function get(source: unknown, path: string) {
   let current: unknown = source;
   for (const part of path.split(".")) {
+    if (Array.isArray(current) && /^\d+$/.test(part)) {
+      current = current[Number(part)];
+      continue;
+    }
     const object = record(current);
     if (!object) return undefined;
     current = object[part];
@@ -270,14 +274,16 @@ function mapSnapshotToAuditRows(row: SnapshotRow): MlbMarketAuditRow[] {
   const trackedF5 = trackedMarket(prediction, "F5_MONEYLINE");
   const f5HomeProb = numberValue(trackedF5?.modelProbability) ?? numberValue(get(projection, "firstFiveHomeWinProbability"));
   const f5AwayProb = numberValue(get(projection, "firstFiveAwayWinProbability"));
-  const f5Side = String(trackedF5?.side ?? (f5HomeProb != null && f5AwayProb != null ? (f5HomeProb >= f5AwayProb ? "HOME" : "AWAY") : "") || "");
+  const projectedF5Side = f5HomeProb != null && f5AwayProb != null ? (f5HomeProb >= f5AwayProb ? "HOME" : "AWAY") : "";
+  const f5Side = String((trackedF5?.side ?? projectedF5Side) || "");
   const f5Prob = f5Side === "HOME" ? f5HomeProb : f5Side === "AWAY" ? f5AwayProb : null;
   const f5Total = numberValue(get(projection, "firstFiveTotalRuns"));
 
   const trackedNrfi = trackedMarket(prediction, "NRFI_YRFI");
   const nrfiProbability = numberValue(trackedNrfi?.modelProbability) ?? numberValue(get(projection, "nrfiProbability"));
   const yrfiProbability = numberValue(get(projection, "yrfiProbability"));
-  const nrfiSide = String(trackedNrfi?.side ?? (nrfiProbability != null && yrfiProbability != null ? (nrfiProbability >= yrfiProbability ? "NRFI" : "YRFI") : "") || "");
+  const projectedNrfiSide = nrfiProbability != null && yrfiProbability != null ? (nrfiProbability >= yrfiProbability ? "NRFI" : "YRFI") : "";
+  const nrfiSide = String((trackedNrfi?.side ?? projectedNrfiSide) || "");
   const nrfiProb = nrfiSide === "NRFI" ? nrfiProbability : nrfiSide === "YRFI" ? yrfiProbability : null;
 
   return [
