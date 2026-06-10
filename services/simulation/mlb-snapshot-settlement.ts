@@ -32,6 +32,12 @@ type SnapshotRow = {
   model_total: number | string | null;
 };
 
+type InningScore = {
+  inning: number;
+  awayRuns: number;
+  homeRuns: number;
+};
+
 type FinalScore = {
   gameId: string;
   homeTeam: string;
@@ -40,6 +46,7 @@ type FinalScore = {
   homeScore: number;
   awayScore: number;
   final: boolean;
+  innings: InningScore[];
 };
 
 function num(value: unknown) {
@@ -64,8 +71,36 @@ function makeFallbackKey(row: { home_team: string; away_team: string; start_time
   return `${day}:${norm(row.away_team)}:${norm(row.home_team)}`;
 }
 
-function ymd(date: Date) {
-  return date.toISOString().slice(0, 10);
+function parseLinescoreInnings(game: Record<string, any>): InningScore[] {
+  const innings = Array.isArray(game.linescore?.innings) ? game.linescore.innings : [];
+  return innings.flatMap((inning: Record<string, any>, index: number) => {
+    const inningNumber = num(inning.num) ?? index + 1;
+    const awayRuns = num(inning.away?.runs);
+    const homeRuns = num(inning.home?.runs);
+    if (awayRuns == null || homeRuns == null) return [];
+    return [{ inning: inningNumber, awayRuns, homeRuns }];
+  });
+}
+
+function inningResultPayload(final: FinalScore) {
+  const first = final.innings.find((inning) => inning.inning === 1) ?? final.innings[0] ?? null;
+  const firstFive = final.innings
+    .filter((inning) => inning.inning >= 1 && inning.inning <= 5)
+    .reduce<{ away: number; home: number }>((acc, inning) => ({
+      away: acc.away + inning.awayRuns,
+      home: acc.home + inning.homeRuns
+    }), { away: 0, home: 0 });
+  const hasFirstFive = final.innings.filter((inning) => inning.inning >= 1 && inning.inning <= 5).length >= 5;
+
+  return {
+    firstInningAwayRuns: first?.awayRuns ?? null,
+    firstInningHomeRuns: first?.homeRuns ?? null,
+    firstInningRuns: first ? first.awayRuns + first.homeRuns : null,
+    firstFiveAwayRuns: hasFirstFive ? firstFive.away : null,
+    firstFiveHomeRuns: hasFirstFive ? firstFive.home : null,
+    firstFiveRuns: hasFirstFive ? firstFive.away + firstFive.home : null,
+    innings: final.innings
+  };
 }
 
 async function fetchMlbStatsApiFinals(rows: SnapshotRow[]) {
@@ -79,7 +114,7 @@ async function fetchMlbStatsApiFinals(rows: SnapshotRow[]) {
   url.searchParams.set("sportId", "1");
   url.searchParams.set("startDate", start);
   url.searchParams.set("endDate", end);
-  url.searchParams.set("hydrate", "team");
+  url.searchParams.set("hydrate", "team,linescore");
 
   const byGameId = new Map<string, FinalScore>();
   const byFallback = new Map<string, FinalScore[]>();
@@ -98,7 +133,7 @@ async function fetchMlbStatsApiFinals(rows: SnapshotRow[]) {
       const status = String(game.status?.abstractGameState ?? game.status?.detailedState ?? "").toLowerCase();
       const final = status.includes("final") || status.includes("completed");
       if (!gameId || homeScore == null || awayScore == null || !final) continue;
-      const finalScore: FinalScore = { gameId, homeTeam, awayTeam, startTime, homeScore, awayScore, final };
+      const finalScore: FinalScore = { gameId, homeTeam, awayTeam, startTime, homeScore, awayScore, final, innings: parseLinescoreInnings(game) };
       byGameId.set(gameId, finalScore);
       const fallbackKey = makeFallbackKey({ away_team: awayTeam, home_team: homeTeam, start_time: startTime });
       if (fallbackKey) byFallback.set(fallbackKey, [...(byFallback.get(fallbackKey) ?? []), finalScore]);
@@ -132,7 +167,8 @@ async function fetchDatabaseFinals(rows: SnapshotRow[]) {
       startTime: event.startTime.toISOString(),
       homeScore,
       awayScore,
-      final: true
+      final: true,
+      innings: []
     };
     finals.set(event.id, finalScore);
     if (event.externalEventId) finals.set(event.externalEventId, finalScore);
@@ -141,7 +177,7 @@ async function fetchDatabaseFinals(rows: SnapshotRow[]) {
 }
 
 function pickFinal(row: SnapshotRow, dbFinals: Map<string, FinalScore>, api: Awaited<ReturnType<typeof fetchMlbStatsApiFinals>>) {
-  const exact = dbFinals.get(row.game_id) ?? api.byGameId.get(row.game_id);
+  const exact = api.byGameId.get(row.game_id) ?? dbFinals.get(row.game_id);
   if (exact) return { final: exact, ambiguous: false };
   const fallbackKey = makeFallbackKey(row);
   if (!fallbackKey) return { final: null, ambiguous: false };
@@ -155,7 +191,7 @@ export async function settleMlbSimPredictionSnapshots(options: MlbSnapshotSettle
   const databaseReady = hasUsableServerDatabaseUrl();
   const dryRun = options.dryRun === true;
   const limit = Math.max(1, Math.min(1000, Math.round(options.limit ?? 500)));
-  const olderThanHours = Math.max(1, Math.min(168, Math.round(options.olderThanHours ?? 4)));
+  const olderThanHours = Math.max(1, Math.min(168, Math.round(options.olderThanHours ?? 2)));
   const summary: MlbSnapshotSettlementSummary = { ok: databaseReady, databaseReady, dryRun, scanned: 0, matched: 0, settled: 0, skippedNoFinal: 0, skippedAmbiguous: 0, errors: [], samples: [] };
   if (!databaseReady) {
     summary.errors.push("No usable server database URL is configured.");
@@ -202,11 +238,17 @@ export async function settleMlbSimPredictionSnapshots(options: MlbSnapshotSettle
         finalHomeScore: final.homeScore,
         finalAwayScore: final.awayScore
       });
+      const resultPayload = {
+        source: final.innings.length ? "mlb-stats-api-linescore" : "mlb-stats-api-or-db",
+        final,
+        ...inningResultPayload(final)
+      };
 
       if (!dryRun) {
         await prisma.$executeRaw`
           UPDATE sim_prediction_snapshots
-          SET final_home_score = ${final.homeScore},
+          SET status = 'FINAL',
+            final_home_score = ${final.homeScore},
             final_away_score = ${final.awayScore},
             final_margin = ${math.finalMargin},
             final_total = ${math.finalTotal},
@@ -216,7 +258,7 @@ export async function settleMlbSimPredictionSnapshots(options: MlbSnapshotSettle
             spread_error = ${math.spreadError},
             total_error = ${math.totalError},
             calibration_bucket = ${math.calibrationBucket},
-            result_json = ${JSON.stringify({ source: "mlb-stats-api-or-db", final })}::jsonb,
+            result_json = ${JSON.stringify(resultPayload)}::jsonb,
             graded_at = now(),
             updated_at = now()
           WHERE id = ${row.id};
