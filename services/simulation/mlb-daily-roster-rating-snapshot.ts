@@ -1,4 +1,5 @@
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
+import { persistMlbPlayerDataSnapshotsOnly } from "@/services/players/mlb-player-data-pipe";
 import { ensureMlbRosterIntelligenceTables } from "@/services/simulation/mlb-roster-intelligence";
 import {
   buildMlbEliteRatingSystem,
@@ -417,6 +418,67 @@ async function persistRatings(ratings: MlbEliteRatingBuild, roster: MlbDailyRost
   }
 }
 
+function rate(numerator: number | null | undefined, denominator: number | null | undefined) {
+  const top = Number(numerator ?? 0);
+  const bottom = Number(denominator ?? 0);
+  if (!Number.isFinite(top) || !Number.isFinite(bottom) || bottom <= 0) return null;
+  return top / bottom;
+}
+
+function numberOrNull(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  return null;
+}
+
+async function persistPlayerDataPipeSnapshots(args: {
+  hitterStats: MlbRawHitterStatRow[];
+  pitcherStats: MlbRawPitcherStatRow[];
+  season: number;
+  snapshotDate: string;
+  generatedAt: string;
+}) {
+  return persistMlbPlayerDataSnapshotsOnly({
+    source: "mlb-daily-roster-rating-snapshot-v1",
+    capturedAt: args.generatedAt,
+    batters: args.hitterStats.map((row) => ({
+      playerId: String(row.mlbId),
+      playerName: row.name,
+      team: row.team,
+      season: args.season,
+      snapshotDate: args.snapshotDate,
+      primaryPosition: row.position,
+      bats: row.bats,
+      plateAppearances: numberOrNull(row.plateAppearances),
+      avg: numberOrNull(row.avg),
+      obp: numberOrNull(row.obp),
+      slg: numberOrNull(row.slg),
+      iso: numberOrNull(row.iso),
+      kRate: rate(numberOrNull(row.strikeouts), numberOrNull(row.plateAppearances)),
+      bbRate: rate(numberOrNull(row.walks), numberOrNull(row.plateAppearances)),
+      raw: row.raw
+    })),
+    pitchers: args.pitcherStats.map((row) => ({
+      pitcherId: String(row.mlbId),
+      pitcherName: row.name,
+      team: row.team,
+      season: args.season,
+      snapshotDate: args.snapshotDate,
+      throws: row.throws,
+      innings: numberOrNull(row.inningsPitched),
+      starts: numberOrNull(row.gamesStarted),
+      reliefAppearances: Math.max(0, (numberOrNull(row.games) ?? 0) - (numberOrNull(row.gamesStarted) ?? 0)),
+      era: numberOrNull(row.era),
+      fip: numberOrNull(row.fip),
+      kRate: rate(numberOrNull(row.strikeouts), numberOrNull(row.battersFaced)),
+      bbRate: rate(numberOrNull(row.walks), numberOrNull(row.battersFaced)),
+      kMinusBbRate: rate((numberOrNull(row.strikeouts) ?? 0) - (numberOrNull(row.walks) ?? 0), numberOrNull(row.battersFaced)),
+      hrPer9: numberOrNull(row.homeRunsPer9),
+      raw: row.raw
+    }))
+  });
+}
+
 export async function buildDailyMlbRosterRatingSnapshots(options: MlbDailyRosterSnapshotOptions = {}): Promise<MlbDailyRosterRatingSnapshotReport> {
   const season = options.season ?? seasonYear();
   const rosterType = options.rosterType ?? "active";
@@ -456,6 +518,8 @@ export async function buildDailyMlbRosterRatingSnapshots(options: MlbDailyRoster
     else {
       await ensureMlbRosterIntelligenceTables();
       await persistRatings(ratings, roster, season, snapshotDate, generatedAt);
+      const pipeResult = await persistPlayerDataPipeSnapshots({ hitterStats, pitcherStats, season, snapshotDate, generatedAt });
+      if (!pipeResult.ok) warnings.push(...pipeResult.warnings);
     }
   }
 

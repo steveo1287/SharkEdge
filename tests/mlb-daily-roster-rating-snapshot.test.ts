@@ -41,7 +41,7 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
   throw new Error(`Unexpected fetch URL ${url}`);
 }) as typeof fetch;
 
-try {
+async function main() {
   const report = await buildDailyMlbRosterRatingSnapshots({
     season: 2026,
     rosterType: "active",
@@ -62,8 +62,12 @@ try {
   assert.ok(report.ratings.hitters.every((row) => row.metrics_json?.sourceKind === "REAL_STATS"));
   assert.ok(report.ratings.pitchers.every((row) => row.metrics_json?.sourceKind === "REAL_STATS"));
   assert.ok(report.ratings.warnings.some((warning) => warning.includes("No market/outcome calibration rows")));
-} finally {
-  globalThis.fetch = originalFetch;
 }
 
-console.log("mlb-daily-roster-rating-snapshot.test.ts passed");
+main()
+  .then(() => {
+    console.log("mlb-daily-roster-rating-snapshot.test.ts passed");
+  })
+  .finally(() => {
+    globalThis.fetch = originalFetch;
+  });

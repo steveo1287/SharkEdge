@@ -242,6 +242,55 @@ async function upsertIdentity(args: { id: string; name: string; team: string; po
   `;
 }
 
+export async function persistMlbPlayerDataSnapshotsOnly(payload: MlbPlayerDataPipePayload): Promise<MlbPlayerDataPipeResult> {
+  if (!hasUsableServerDatabaseUrl()) {
+    return { ok: false, generatedAt: new Date().toISOString(), source: sourceName(payload.source), capturedAt: iso(payload.capturedAt), inserted: { batters: 0, pitchers: 0, identities: 0, ratings: 0 }, warnings: ["No usable server database URL is configured."] };
+  }
+  await ensureMlbPlayerDataPipeTables();
+  const source = sourceName(payload.source);
+  const capturedAt = iso(payload.capturedAt);
+  let identities = 0;
+
+  for (const batter of payload.batters ?? []) {
+    const snapshotDate = dateKey(batter.snapshotDate ?? payload.capturedAt);
+    await upsertIdentity({ id: batter.playerId, name: batter.playerName, team: batter.team, position: batter.primaryPosition, bats: batter.bats, throws: batter.throws, source });
+    identities += 1;
+    await prisma.$executeRaw`
+      INSERT INTO mlb_batter_stat_snapshots (id, player_id, player_name, team, season, snapshot_date, stats_json, source, captured_at)
+      VALUES (${randomUUID()}, ${batter.playerId}, ${batter.playerName}, ${batter.team}, ${batter.season}, ${snapshotDate}::date, ${JSON.stringify(batter)}::jsonb, ${source}, ${capturedAt}::timestamptz)
+      ON CONFLICT (player_id, season, snapshot_date, source) DO UPDATE SET
+        player_name = EXCLUDED.player_name,
+        team = EXCLUDED.team,
+        stats_json = EXCLUDED.stats_json,
+        captured_at = EXCLUDED.captured_at;
+    `;
+  }
+
+  for (const pitcher of payload.pitchers ?? []) {
+    const snapshotDate = dateKey(pitcher.snapshotDate ?? payload.capturedAt);
+    await upsertIdentity({ id: pitcher.pitcherId, name: pitcher.pitcherName, team: pitcher.team, position: "P", throws: pitcher.throws, source });
+    identities += 1;
+    await prisma.$executeRaw`
+      INSERT INTO mlb_pitcher_stat_snapshots (id, pitcher_id, pitcher_name, team, season, snapshot_date, stats_json, source, captured_at)
+      VALUES (${randomUUID()}, ${pitcher.pitcherId}, ${pitcher.pitcherName}, ${pitcher.team}, ${pitcher.season}, ${snapshotDate}::date, ${JSON.stringify(pitcher)}::jsonb, ${source}, ${capturedAt}::timestamptz)
+      ON CONFLICT (pitcher_id, season, snapshot_date, source) DO UPDATE SET
+        pitcher_name = EXCLUDED.pitcher_name,
+        team = EXCLUDED.team,
+        stats_json = EXCLUDED.stats_json,
+        captured_at = EXCLUDED.captured_at;
+    `;
+  }
+
+  return {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    source,
+    capturedAt,
+    inserted: { batters: payload.batters?.length ?? 0, pitchers: payload.pitchers?.length ?? 0, identities, ratings: 0 },
+    warnings: []
+  };
+}
+
 export async function ingestMlbPlayerDataPipe(payload: MlbPlayerDataPipePayload): Promise<MlbPlayerDataPipeResult> {
   if (!hasUsableServerDatabaseUrl()) {
     return { ok: false, generatedAt: new Date().toISOString(), source: sourceName(payload.source), capturedAt: iso(payload.capturedAt), inserted: { batters: 0, pitchers: 0, identities: 0, ratings: 0 }, warnings: ["No usable server database URL is configured."] };

@@ -3,6 +3,12 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
 
+$logDir = Join-Path $repoRoot 'logs'
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+$logPath = Join-Path $logDir 'local-workers.log'
+$timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+Add-Content -Path $logPath -Encoding UTF8 -Value "[$timestamp] boot SharkEdge local worker supervisor"
+
 $lockPath = Join-Path $repoRoot '.local-workers-supervisor.lock'
 if (Test-Path $lockPath) {
   $existingPid = (Get-Content $lockPath -ErrorAction SilentlyContinue | Select-Object -First 1)
@@ -10,6 +16,7 @@ if (Test-Path $lockPath) {
     $existing = Get-Process -Id ([int]$existingPid) -ErrorAction SilentlyContinue
     if ($existing) {
       Write-Host "SharkEdge local worker supervisor already running as PID $existingPid."
+      Add-Content -Path $logPath -Encoding UTF8 -Value "[$timestamp] already running pid=$existingPid"
       exit 0
     }
   }
@@ -35,8 +42,11 @@ $env:SHARKEDGE_DISABLE_WORKERS = 'false'
 $env:ALLOW_RAILWAY_HEAVY_WORKER = 'false'
 
 Write-Host 'Starting SharkEdge local worker supervisor...'
+Write-Host "Logging to $logPath"
 try {
-  & npm run workers:local:supervise
+  & npm run workers:local:supervise *>> $logPath
 } finally {
+  $stopTimestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+  Add-Content -Path $logPath -Encoding UTF8 -Value "[$stopTimestamp] stop SharkEdge local worker supervisor"
   Remove-Item $lockPath -Force -ErrorAction SilentlyContinue
 }

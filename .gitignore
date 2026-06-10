@@ -3,6 +3,7 @@
 !**/.env.example
 !**/.env.*.example
 .local-workers-supervisor.lock
+logs/
 **/node_modules
 **/.next
 **/.npm-cache
