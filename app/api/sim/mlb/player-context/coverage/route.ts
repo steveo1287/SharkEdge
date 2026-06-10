@@ -14,6 +14,15 @@ function hasContext(statsJson: unknown) {
   return stats.source === "mlb_statsapi_player_context";
 }
 
+function hasUsableContext(statsJson: unknown) {
+  const stats = asRecord(statsJson);
+  if (!hasContext(statsJson)) return false;
+  const quality = asRecord(stats.contextQuality);
+  if (quality.hasUsableStats === true || quality.hasHitting === true || quality.hasPitching === true) return true;
+  const statsApi = asRecord(stats.statsApi);
+  return Boolean(Object.keys(asRecord(statsApi.hitting)).length || Object.keys(asRecord(statsApi.pitching)).length);
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const lookaheadDays = Math.max(0, Math.min(14, Number(url.searchParams.get("lookaheadDays") ?? 3)));
@@ -36,12 +45,26 @@ export async function GET(req: Request) {
     const side = (players: typeof game.homeTeam.players) => {
       const active = players.length;
       const withContext = players.filter((player) => player.playerGameStats.some((row) => row.gameId === game.id && hasContext(row.statsJson))).length;
+      const withUsableContext = players.filter((player) => player.playerGameStats.some((row) => row.gameId === game.id && hasUsableContext(row.statsJson))).length;
       const pitchers = players.filter((player) => String(player.position).toUpperCase() === "P");
       const pitchersWithContext = pitchers.filter((player) => player.playerGameStats.some((row) => row.gameId === game.id && hasContext(row.statsJson))).length;
-      return { active, withContext, coveragePct: active ? Number((withContext / active).toFixed(3)) : 0, pitchers: pitchers.length, pitchersWithContext };
+      const pitchersWithUsableContext = pitchers.filter((player) => player.playerGameStats.some((row) => row.gameId === game.id && hasUsableContext(row.statsJson))).length;
+      return {
+        active,
+        withContext,
+        withUsableContext,
+        coveragePct: active ? Number((withContext / active).toFixed(3)) : 0,
+        usableCoveragePct: active ? Number((withUsableContext / active).toFixed(3)) : 0,
+        pitchers: pitchers.length,
+        pitchersWithContext,
+        pitchersWithUsableContext
+      };
     };
     const away = side(game.awayTeam.players);
     const home = side(game.homeTeam.players);
+    const totalActive = away.active + home.active;
+    const totalWithContext = away.withContext + home.withContext;
+    const totalWithUsableContext = away.withUsableContext + home.withUsableContext;
     return {
       gameId: game.id,
       externalEventId: game.externalEventId,
@@ -51,8 +74,11 @@ export async function GET(req: Request) {
       homeTeam: game.homeTeam.name,
       away,
       home,
-      gameCoveragePct: Number(((away.withContext + home.withContext) / Math.max(1, away.active + home.active)).toFixed(3)),
-      readyForPlayerFusedSim: away.withContext >= 9 && home.withContext >= 9 && away.pitchersWithContext >= 1 && home.pitchersWithContext >= 1
+      gameCoveragePct: Number((totalWithContext / Math.max(1, totalActive)).toFixed(3)),
+      usableGameCoveragePct: Number((totalWithUsableContext / Math.max(1, totalActive)).toFixed(3)),
+      readyForPlayerFusedSim: away.withUsableContext >= 9 && home.withUsableContext >= 9 && away.pitchersWithUsableContext >= 1 && home.pitchersWithUsableContext >= 1,
+      fullRosterContext: totalActive > 0 && totalWithContext >= totalActive,
+      fullRosterUsableContext: totalActive > 0 && totalWithUsableContext >= totalActive
     };
   });
 
@@ -61,6 +87,8 @@ export async function GET(req: Request) {
     lookaheadDays,
     gameCount: rows.length,
     readyGameCount: rows.filter((row) => row.readyForPlayerFusedSim).length,
+    fullRosterContextGameCount: rows.filter((row) => row.fullRosterContext).length,
+    fullRosterUsableContextGameCount: rows.filter((row) => row.fullRosterUsableContext).length,
     rows
   });
 }
