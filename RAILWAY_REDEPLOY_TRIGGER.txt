@@ -1,0 +1,6 @@
+Railway redeploy trigger
+
+Expected live health marker:
+accuracy-v3-separated-railway-2026-06-10-01
+
+Created to force Railway GitHub auto-deploy from main.
