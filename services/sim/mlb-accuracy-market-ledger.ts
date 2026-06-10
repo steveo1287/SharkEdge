@@ -414,14 +414,15 @@ export async function getMlbAccuracyMarketLedger(args: { date?: string | null; w
         prediction_json, result_json, graded_at
       FROM sim_prediction_snapshots
       WHERE UPPER(league) = 'MLB'
-        AND captured_at >= ${range.start}
-        AND captured_at < ${range.end}
-      ORDER BY captured_at DESC
+        AND COALESCE(start_time, captured_at) >= ${range.start}
+        AND COALESCE(start_time, captured_at) < ${range.end}
+      ORDER BY COALESCE(start_time, captured_at) DESC, captured_at DESC
       LIMIT ${Math.max(1, Math.min(1000, Math.round(args.limit ?? 250)))};
     `;
     const auditRows = rows.flatMap(mapSnapshotToAuditRows);
     const summaries = (["MONEYLINE", "FULL_TOTAL", "F5_MONEYLINE", "NRFI_YRFI"] as MlbAuditMarket[]).map((market) => summarize(auditRows, market));
     const warnings = [
+      "Date and window filters use MLB game start time first, then capture time only when start time is missing.",
       "Moneyline and full-game totals can grade from final score rows.",
       "F5 and NRFI/YRFI require inning-level settlement data; the page marks those rows as missing inning result instead of pretending they are graded.",
       "Older snapshots may not include stored inning projections until the capture job writes playerImpact.inningProjection into prediction_json."
