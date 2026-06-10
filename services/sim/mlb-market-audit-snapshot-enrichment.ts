@@ -1,4 +1,5 @@
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
+import { projectMlbInningMarkets } from "@/services/simulation/mlb-player-stat-inning-engine";
 import { buildSimProjection } from "@/services/simulation/sim-projection-engine";
 
 type SnapshotRow = {
@@ -67,10 +68,25 @@ function snapshotGame(row: SnapshotRow) {
   };
 }
 
-function trackedMarkets(args: { projection: Awaited<ReturnType<typeof buildSimProjection>>; marketTotal: number | null }) {
-  const { projection, marketTotal } = args;
-  const mlbIntel = projection.mlbIntel as Record<string, unknown> | null | undefined;
-  const inning = record(get(mlbIntel, "playerImpact.inningProjection")) ?? record(get(mlbIntel, "inningProjection"));
+function inningProjectionFor(args: { row: SnapshotRow; projection: Awaited<ReturnType<typeof buildSimProjection>> }) {
+  const mlbIntel = args.projection.mlbIntel as Record<string, unknown> | null | undefined;
+  const stored = record(get(mlbIntel, "playerImpact.inningProjection")) ?? record(get(mlbIntel, "inningProjection"));
+  if (stored) return stored;
+  return projectMlbInningMarkets({
+    awayTeam: args.row.away_team ?? args.projection.matchup.away,
+    homeTeam: args.row.home_team ?? args.projection.matchup.home,
+    awayRuns: args.projection.distribution.avgAway,
+    homeRuns: args.projection.distribution.avgHome
+  }) as unknown as Record<string, unknown>;
+}
+
+function firstInningExpectedRuns(inning: Record<string, unknown> | null) {
+  const innings = Array.isArray(inning?.innings) ? inning?.innings as Array<Record<string, unknown>> : [];
+  return numberValue(innings[0]?.expectedRuns);
+}
+
+function trackedMarkets(args: { projection: Awaited<ReturnType<typeof buildSimProjection>>; marketTotal: number | null; inning: Record<string, unknown> | null }) {
+  const { projection, marketTotal, inning } = args;
   const homeWin = projection.distribution.homeWinPct;
   const awayWin = projection.distribution.awayWinPct;
   const modelTotal = projection.distribution.avgAway + projection.distribution.avgHome;
@@ -82,7 +98,7 @@ function trackedMarkets(args: { projection: Awaited<ReturnType<typeof buildSimPr
     { market: "MONEYLINE", side: homeWin >= awayWin ? "HOME" : "AWAY", modelProbability: round(homeWin >= awayWin ? homeWin : awayWin), modelValue: null, line: null, source: "distribution" },
     { market: "FULL_TOTAL", side: marketTotal == null ? null : modelTotal >= marketTotal ? "OVER" : "UNDER", modelProbability: null, modelValue: round(modelTotal, 3), line: marketTotal, source: "distribution+market_total" },
     { market: "F5_MONEYLINE", side: f5Home == null || f5Away == null ? null : f5Home >= f5Away ? "HOME" : "AWAY", modelProbability: f5Home == null || f5Away == null ? null : round(Math.max(f5Home, f5Away)), modelValue: round(numberValue(get(inning, "firstFiveTotalRuns")), 3), line: null, source: "inningProjection" },
-    { market: "NRFI_YRFI", side: nrfi == null || yrfi == null ? null : nrfi >= yrfi ? "NRFI" : "YRFI", modelProbability: nrfi == null || yrfi == null ? null : round(Math.max(nrfi, yrfi)), modelValue: round(numberValue(get(inning, "innings.0.expectedRuns")), 3), line: 0, source: "inningProjection" }
+    { market: "NRFI_YRFI", side: nrfi == null || yrfi == null ? null : nrfi >= yrfi ? "NRFI" : "YRFI", modelProbability: nrfi == null || yrfi == null ? null : round(Math.max(nrfi, yrfi)), modelValue: round(firstInningExpectedRuns(inning), 3), line: 0, source: "inningProjection" }
   ];
 }
 
@@ -104,16 +120,16 @@ export async function enrichMlbMarketAuditSnapshots(limit = 100) {
     try {
       const projection = await buildSimProjection(snapshotGame(row));
       const mlbIntel = projection.mlbIntel as Record<string, unknown> | null | undefined;
-      const playerImpact = record(get(mlbIntel, "playerImpact"));
-      const inningProjection = record(get(mlbIntel, "playerImpact.inningProjection")) ?? record(get(mlbIntel, "inningProjection"));
       const existing = record(parseJson(row.prediction_json)) ?? {};
       const existingMlbIntel = record(existing.mlbIntel) ?? {};
-      const markets = trackedMarkets({ projection, marketTotal: numberValue(row.market_total) });
+      const inning = inningProjectionFor({ row, projection });
+      const playerImpact = record(get(mlbIntel, "playerImpact")) ?? { inningProjection: inning };
+      const markets = trackedMarkets({ projection, marketTotal: numberValue(row.market_total), inning });
       const payload = {
         ...existing,
         version: existing.version ?? "v3-market-audit-enriched",
         trackedMarkets: markets,
-        mlbIntel: { ...existingMlbIntel, playerImpact: playerImpact ?? existingMlbIntel.playerImpact ?? null, inningProjection: inningProjection ?? existingMlbIntel.inningProjection ?? null, trackedMarkets: markets }
+        mlbIntel: { ...existingMlbIntel, playerImpact, inningProjection: inning, trackedMarkets: markets }
       };
       await prisma.$executeRaw`
         UPDATE sim_prediction_snapshots
