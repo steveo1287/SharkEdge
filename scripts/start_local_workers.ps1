@@ -44,7 +44,7 @@ $env:ALLOW_RAILWAY_HEAVY_WORKER = 'false'
 Write-Host 'Starting SharkEdge local worker supervisor...'
 Write-Host "Logging to $logPath"
 try {
-  & npm run workers:local:supervise *>> $logPath
+  & cmd.exe /d /c "npm run workers:local:supervise >> `"$logPath`" 2>&1"
 } finally {
   $stopTimestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
   Add-Content -Path $logPath -Encoding UTF8 -Value "[$stopTimestamp] stop SharkEdge local worker supervisor"
