@@ -147,51 +147,16 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function hashString(value: string) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function seededRange(seed: string, min: number, max: number, salt = "") {
-  const unit = hashString(`${seed}:${salt}`) / 0xffffffff;
-  return min + (max - min) * unit;
-}
-
 function isGenericPitcherLine(innings: number | null | undefined, strikeouts: number | null | undefined) {
   const ipGeneric = innings == null || Math.abs(innings - 5.1) <= 0.08 || Math.abs(innings - 5.2) <= 0.08 || Math.abs(innings - 5.33) <= 0.08;
   const kGeneric = strikeouts == null || Math.abs(strikeouts - 5.1) <= 0.08 || Math.abs(strikeouts - 5.2) <= 0.08;
   return ipGeneric && kGeneric;
 }
 
-function pitcherFallbackBaseline(args: { name: string; teamName: string; teamSide: FranchiseTeamSide; opposingProjectedRuns: number | null }) {
-  const seed = `${args.teamSide}:${args.teamName}:${args.name}`;
-  const opponentRuns = typeof args.opposingProjectedRuns === "number" && Number.isFinite(args.opposingProjectedRuns) ? args.opposingProjectedRuns : 4.3;
-  const runPressure = opponentRuns - 4.3;
-  const workloadTrait = seededRange(seed, -0.9, 0.95, "workload");
-  const strikeoutTrait = seededRange(seed, -1.55, 1.75, "strikeouts");
-  const commandTrait = seededRange(seed, -0.35, 0.45, "command");
-  const contactTrait = seededRange(seed, -0.7, 0.8, "contact");
-  const powerTrait = seededRange(seed, -0.25, 0.3, "power");
-  const innings = clamp(5.25 + workloadTrait - runPressure * 0.09, 3.85, 6.95);
-  const outs = Math.round(innings * 3);
-  const strikeouts = clamp(4.55 + strikeoutTrait + (innings - 5.2) * 0.35 - runPressure * 0.08, 2.3, 9.6);
-  const earnedRuns = clamp(opponentRuns * 0.55 + runPressure * 0.08 - workloadTrait * 0.16 + contactTrait * 0.18, 0.45, 5.8);
-  const hitsAllowed = clamp(opponentRuns * 1.17 + contactTrait + runPressure * 0.28, 3.0, 10.8);
-  const walks = clamp(1.65 + commandTrait + Math.max(0, runPressure) * 0.08, 0.55, 4.1);
-  const homeRuns = clamp(0.58 + powerTrait + Math.max(0, runPressure) * 0.08, 0.12, 2.25);
-  return {
-    innings: round(outs / 3, 2),
-    outs,
-    strikeouts: round(strikeouts, 1),
-    earnedRuns: round(earnedRuns, 1),
-    hitsAllowed: round(hitsAllowed, 1),
-    walks: round(walks, 1),
-    homeRuns: round(homeRuns, 1)
-  };
+function hasReliablePitcherProjection(innings: number | null | undefined, strikeouts: number | null | undefined) {
+  if (innings == null || strikeouts == null) return false;
+  if (!Number.isFinite(innings) || !Number.isFinite(strikeouts)) return false;
+  return !isGenericPitcherLine(innings, strikeouts);
 }
 
 function parseInnings(value: unknown): number | null {
@@ -278,20 +243,10 @@ function playerStatProjections(projection: Projection) {
   return asRecord(asRecord(asRecord(projection.mlbIntel).playerImpact).playerStatProjections);
 }
 
-function buildPitcherFromLock(projection: Projection, side: FranchiseTeamSide, teamName: string): PitcherProjection | null {
+function lockStarterName(projection: Projection, side: FranchiseTeamSide) {
   const lock = asRecord(asRecord(projection.mlbIntel).lock);
   const name = side === "home" ? lock.homeStarterName : lock.awayStarterName;
-  if (typeof name !== "string" || !name.trim()) return null;
-  const projectedRuns = side === "home" ? projection.distribution.avgAway : projection.distribution.avgHome;
-  const fallback = pitcherFallbackBaseline({ name, teamName, teamSide: side, opposingProjectedRuns: projectedRuns });
-  return {
-    playerId: null,
-    name,
-    team: teamName,
-    teamSide: side,
-    ...fallback,
-    actual: null
-  };
+  return typeof name === "string" && name.trim() ? name.trim() : null;
 }
 
 function buildProjectedHitter(args: {
@@ -331,28 +286,25 @@ function buildPitcherProjection(args: {
   player: { id: string; name: string; playerGameStats: Array<{ statsJson: unknown; starter: boolean }> };
   teamName: string;
   teamSide: FranchiseTeamSide;
-  opposingProjectedRuns: number | null;
   actual: PlayerActualLine | null;
-}): PitcherProjection {
+}): PitcherProjection | null {
   const rows = args.player.playerGameStats;
-  const rawInnings = avg(rows, ["inningsPitched", "IP", "innings_pitched"]);
-  const rawStrikeouts = avg(rows, ["strikeouts", "SO", "K"]);
-  const fallback = pitcherFallbackBaseline({ name: args.player.name, teamName: args.teamName, teamSide: args.teamSide, opposingProjectedRuns: args.opposingProjectedRuns });
-  const useFallbackShape = isGenericPitcherLine(rawInnings, rawStrikeouts);
-  const innings = useFallbackShape ? fallback.innings : rawInnings;
-  const outs = innings == null ? fallback.outs : Math.round(innings * 3);
+  const innings = avg(rows, ["inningsPitched", "IP", "innings_pitched"]);
+  const strikeouts = avg(rows, ["strikeouts", "SO", "K"]);
+  if (!hasReliablePitcherProjection(innings, strikeouts)) return null;
+  const outs = innings == null ? null : Math.round(innings * 3);
   return {
     playerId: args.player.id,
     name: args.player.name,
     team: args.teamName,
     teamSide: args.teamSide,
-    innings: round(innings ?? fallback.innings, 2),
+    innings: round(innings, 2),
     outs,
-    strikeouts: round(useFallbackShape ? fallback.strikeouts : rawStrikeouts, 1),
-    earnedRuns: round(avg(rows, ["earnedRuns", "ER"]) ?? fallback.earnedRuns, 1),
-    hitsAllowed: round(avg(rows, ["hitsAllowed", "hits_allowed", "H"]) ?? fallback.hitsAllowed, 1),
-    walks: round(avg(rows, ["walks", "BB", "baseOnBalls"]) ?? fallback.walks, 1),
-    homeRuns: round(avg(rows, ["homeRuns", "HR", "home_runs"]) ?? fallback.homeRuns, 1),
+    strikeouts: round(strikeouts, 1),
+    earnedRuns: round(avg(rows, ["earnedRuns", "ER"]), 1),
+    hitsAllowed: round(avg(rows, ["hitsAllowed", "hits_allowed", "H"]), 1),
+    walks: round(avg(rows, ["walks", "BB", "baseOnBalls"]), 1),
+    homeRuns: round(avg(rows, ["homeRuns", "HR", "home_runs"]), 1),
     actual: args.actual
   };
 }
@@ -377,26 +329,25 @@ function buildSimHitterProjection(row: JsonRecord, args: { teamName: string; tea
   };
 }
 
-function buildSimPitcherProjection(row: JsonRecord, args: { teamName: string; teamSide: FranchiseTeamSide; opposingProjectedRuns: number | null; actual: PlayerActualLine | null }): PitcherProjection {
+function buildSimPitcherProjection(row: JsonRecord, args: { teamName: string; teamSide: FranchiseTeamSide; actual: PlayerActualLine | null }): PitcherProjection | null {
   const id = text(row, ["pitcherId", "playerId", "id"]);
-  const name = text(row, ["pitcherName", "playerName", "name"]) ?? `Projected ${args.teamName} starter`;
-  const rawInnings = num(row, ["expectedInningsPitched", "innings"]);
-  const rawStrikeouts = num(row, ["expectedStrikeouts", "strikeouts"]);
-  const fallback = pitcherFallbackBaseline({ name, teamName: args.teamName, teamSide: args.teamSide, opposingProjectedRuns: args.opposingProjectedRuns });
-  const useFallbackShape = isGenericPitcherLine(rawInnings, rawStrikeouts);
-  const innings = useFallbackShape ? fallback.innings : rawInnings;
+  const name = text(row, ["pitcherName", "playerName", "name"]);
+  const innings = num(row, ["expectedInningsPitched", "innings"]);
+  const strikeouts = num(row, ["expectedStrikeouts", "strikeouts"]);
+  if (!name || !hasReliablePitcherProjection(innings, strikeouts)) return null;
+  const outs = num(row, ["expectedOuts", "outs"]) ?? (innings == null ? null : innings * 3);
   return {
     playerId: id,
     name,
     team: args.teamName,
     teamSide: args.teamSide,
-    innings: round(innings ?? fallback.innings, 2),
-    outs: round(useFallbackShape ? fallback.outs : num(row, ["expectedOuts", "outs"]) ?? (innings == null ? fallback.outs : innings * 3), 0),
-    strikeouts: round(useFallbackShape ? fallback.strikeouts : rawStrikeouts ?? fallback.strikeouts, 1),
-    earnedRuns: round(num(row, ["expectedEarnedRuns", "earnedRuns"]) ?? fallback.earnedRuns, 1),
-    hitsAllowed: round(num(row, ["expectedHitsAllowed", "hitsAllowed"]) ?? fallback.hitsAllowed, 1),
-    walks: round(num(row, ["expectedWalksAllowed", "walks"]) ?? fallback.walks, 1),
-    homeRuns: round(num(row, ["expectedHomeRunsAllowed", "homeRuns"]) ?? fallback.homeRuns, 1),
+    innings: round(innings, 2),
+    outs: round(outs, 0),
+    strikeouts: round(strikeouts, 1),
+    earnedRuns: round(num(row, ["expectedEarnedRuns", "earnedRuns"]), 1),
+    hitsAllowed: round(num(row, ["expectedHitsAllowed", "hitsAllowed"]), 1),
+    walks: round(num(row, ["expectedWalksAllowed", "walks"]), 1),
+    homeRuns: round(num(row, ["expectedHomeRunsAllowed", "homeRuns"]), 1),
     actual: args.actual
   };
 }
@@ -416,8 +367,7 @@ function simStarter(projection: Projection, side: FranchiseTeamSide, teamName: s
   const row = asRecord(stats[key]);
   if (!Object.keys(row).length) return null;
   const id = text(row, ["pitcherId", "playerId", "id"]);
-  const opposingProjectedRuns = side === "home" ? projection.distribution.avgAway : projection.distribution.avgHome;
-  return buildSimPitcherProjection(row, { teamName, teamSide: side, opposingProjectedRuns, actual: id ? actualByPlayer.get(id) ?? null : null });
+  return buildSimPitcherProjection(row, { teamName, teamSide: side, actual: id ? actualByPlayer.get(id) ?? null : null });
 }
 
 function buildNrfiF5(projection: Projection, awayInnings: number[], homeInnings: number[]): NrfiF5View {
@@ -473,6 +423,10 @@ async function resolveGameId(detail: CachedDetail, eventExternalId: string | nul
     select: { id: true }
   }).catch(() => null);
   return game?.id ?? null;
+}
+
+function notNull<T>(value: T | null): value is T {
+  return value !== null;
 }
 
 export async function getMlbFranchiseGameCenter(gameId: string): Promise<MlbFranchiseGameCenter | null> {
@@ -532,13 +486,13 @@ export async function getMlbFranchiseGameCenter(gameId: string): Promise<MlbFran
   const awayHitters = linkedAwayHitters.length >= 5 ? linkedAwayHitters : simAwayHitters.length ? simAwayHitters : linkedAwayHitters;
   const homeHitters = linkedHomeHitters.length >= 5 ? linkedHomeHitters : simHomeHitters.length ? simHomeHitters : linkedHomeHitters;
 
-  const linkedAwayPitchers = pitchers.filter((player) => player.teamId === awayTeam?.id).sort((a, b) => b.playerGameStats.filter((row) => row.starter).length - a.playerGameStats.filter((row) => row.starter).length).slice(0, 3).map((player) => buildPitcherProjection({ player, teamName: awayName, teamSide: "away", opposingProjectedRuns: homeRuns, actual: actualByPlayer.get(player.id) ?? null }));
-  const linkedHomePitchers = pitchers.filter((player) => player.teamId === homeTeam?.id).sort((a, b) => b.playerGameStats.filter((row) => row.starter).length - a.playerGameStats.filter((row) => row.starter).length).slice(0, 3).map((player) => buildPitcherProjection({ player, teamName: homeName, teamSide: "home", opposingProjectedRuns: awayRuns, actual: actualByPlayer.get(player.id) ?? null }));
+  const linkedAwayPitchers = pitchers.filter((player) => player.teamId === awayTeam?.id).sort((a, b) => b.playerGameStats.filter((row) => row.starter).length - a.playerGameStats.filter((row) => row.starter).length).slice(0, 3).map((player) => buildPitcherProjection({ player, teamName: awayName, teamSide: "away", actual: actualByPlayer.get(player.id) ?? null })).filter(notNull);
+  const linkedHomePitchers = pitchers.filter((player) => player.teamId === homeTeam?.id).sort((a, b) => b.playerGameStats.filter((row) => row.starter).length - a.playerGameStats.filter((row) => row.starter).length).slice(0, 3).map((player) => buildPitcherProjection({ player, teamName: homeName, teamSide: "home", actual: actualByPlayer.get(player.id) ?? null })).filter(notNull);
   const simAwayStarter = simStarter(projection, "away", awayName, actualByPlayer);
   const simHomeStarter = simStarter(projection, "home", homeName, actualByPlayer);
 
-  const awayStarter = linkedAwayPitchers[0] ?? simAwayStarter ?? buildPitcherFromLock(projection, "away", awayName);
-  const homeStarter = linkedHomePitchers[0] ?? simHomeStarter ?? buildPitcherFromLock(projection, "home", homeName);
+  const awayStarter = linkedAwayPitchers[0] ?? simAwayStarter ?? null;
+  const homeStarter = linkedHomePitchers[0] ?? simHomeStarter ?? null;
   const awayPitchers = awayStarter ? [awayStarter, ...linkedAwayPitchers.filter((row) => row.playerId !== awayStarter.playerId).slice(0, 2)] : linkedAwayPitchers;
   const homePitchers = homeStarter ? [homeStarter, ...linkedHomePitchers.filter((row) => row.playerId !== homeStarter.playerId).slice(0, 2)] : linkedHomePitchers;
 
@@ -549,12 +503,14 @@ export async function getMlbFranchiseGameCenter(gameId: string): Promise<MlbFran
     ...(homeStarter ? [{ name: homeStarter.name, team: homeStarter.team, role: "Starter", summary: `${homeStarter.innings ?? "--"} IP, ${homeStarter.strikeouts ?? "--"} K projection.`, score: (homeStarter.strikeouts ?? 0) + (homeStarter.outs ?? 0) / 6 }] : [])
   ].sort((left, right) => (right.score ?? 0) - (left.score ?? 0)).slice(0, 6);
 
+  const awayLockName = lockStarterName(projection, "away");
+  const homeLockName = lockStarterName(projection, "home");
   if (!linkedAwayHitters.length && simAwayHitters.length) warnings.push(`${awayName} hitter rows are using cached sim player-stat projections because linked PlayerGameStat rows are missing.`);
   if (!linkedHomeHitters.length && simHomeHitters.length) warnings.push(`${homeName} hitter rows are using cached sim player-stat projections because linked PlayerGameStat rows are missing.`);
   if (!awayHitters.length && !homeHitters.length) warnings.push("Projected hitter box score needs playerStatProjections in the cached sim or linked PlayerGameStat rows.");
+  if (!awayStarter) warnings.push(`${awayLockName ? `${awayLockName} ` : awayName}starter projection suppressed: no reliable linked pitcher stats or non-generic cached sim starter projection.`);
+  if (!homeStarter) warnings.push(`${homeLockName ? `${homeLockName} ` : homeName}starter projection suppressed: no reliable linked pitcher stats or non-generic cached sim starter projection.`);
   if (!typedTeamActualRows.length) warnings.push("Actual team box score is not tracked yet for this game.");
-  if (awayStarter && isGenericPitcherLine(awayStarter.innings, awayStarter.strikeouts)) warnings.push(`${awayStarter.name} starter line still looks generic after diversity fallback.`);
-  if (homeStarter && isGenericPitcherLine(homeStarter.innings, homeStarter.strikeouts)) warnings.push(`${homeStarter.name} starter line still looks generic after diversity fallback.`);
 
   return {
     gameId,
