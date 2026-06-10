@@ -7,7 +7,7 @@ export type MlbV8ProductionMode = "off" | "shadow" | "gated" | "force_v7" | "v7_
 
 export function getMlbV8ProductionMode(value = process.env.MLB_V8_PRODUCTION_MODE): MlbV8ProductionMode {
   if (value === "off" || value === "shadow" || value === "gated" || value === "force_v7" || value === "v7_control") return value;
-  return "v7_control";
+  return "gated";
 }
 
 export async function runMlbProductionCapture(args: { windowDays?: number } = {}) {

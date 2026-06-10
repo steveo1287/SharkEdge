@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $tasks = @(
+  '\SharkEdge Local Worker Supervisor',
   '\SharkEdge Local Sim Worker',
   '\SharkEdge Local MLB Odds Worker',
   '\SharkEdge Local UFC Worker',

@@ -34,6 +34,7 @@ Run once manually:
 
 Install scheduled tasks:
 
+- `scripts/install_local_worker_supervisor_task.ps1`
 - `scripts/install_local_worker_tasks.ps1`
 - `scripts/install_local_sim_worker_task.ps1`
 - `scripts/install_local_mlb_odds_worker_task.ps1`
@@ -47,7 +48,8 @@ Install scheduled tasks:
 - `npm run worker:ufc:local`
 - `npm run worker:maintenance:local`
 - `npm run workers:local:supervise`
-- `npm run workers:local:install`
+- `npm run workers:local:install` (recommended supervisor task)
+- `npm run workers:local:install:oneshots` (separate one-shot tasks)
 - `npm run workers:local:remove`
 
 ## How to disable local tasks
@@ -59,6 +61,7 @@ schtasks.exe /Delete /TN "\SharkEdge Local Sim Worker" /F
 schtasks.exe /Delete /TN "\SharkEdge Local MLB Odds Worker" /F
 schtasks.exe /Delete /TN "\SharkEdge Local UFC Worker" /F
 schtasks.exe /Delete /TN "\SharkEdge Local Maintenance Worker" /F
+schtasks.exe /Delete /TN "\SharkEdge Local Worker Supervisor" /F
 ```
 
 Or remove everything at once:
@@ -73,19 +76,25 @@ powershell -ExecutionPolicy Bypass -File scripts/remove_local_worker_tasks.ps1
 powershell -ExecutionPolicy Bypass -File scripts/install_local_worker_tasks.ps1
 ```
 
+Recommended supervisor install:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install_local_worker_supervisor_task.ps1
+```
+
 ## How to run the supervisor instead of Task Scheduler
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/start_local_workers.ps1
 ```
 
-This keeps the workers running in the foreground of one PowerShell window. It is the simplest option if you want a single always-on session while the PC is up.
+This keeps the workers running in the foreground of one PowerShell window. The scheduled supervisor task checks every 30 minutes in a hidden PowerShell process and starts the supervisor only when it is not already running.
 
 ## Recommended use
 
-- Install the four tasks once on your Windows PC.
-- Keep the tasks enabled while the PC is on.
-- Let the sim and odds workers run every 15 minutes, UFC every 60 minutes, and maintenance daily.
+- Install the supervisor task once on your Windows PC.
+- Keep the task enabled while the PC is on.
+- Let the supervisor run sim and odds every 15 minutes, UFC every 60 minutes, and maintenance daily.
 - If you need to pause everything, remove the scheduled tasks.
 
 ## How to check logs

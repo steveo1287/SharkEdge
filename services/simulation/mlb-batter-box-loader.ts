@@ -176,7 +176,11 @@ async function loadGameOptionsFromRatings(): Promise<MlbBatterBoxGameOption[]> {
 
 export async function discoverMlbBatterBoxGameOptions(): Promise<MlbBatterBoxGameOption[]> {
   if (!hasUsableServerDatabaseUrl()) return [];
-  await ensureMlbRosterIntelligenceTables();
+  try {
+    await ensureMlbRosterIntelligenceTables();
+  } catch {
+    return [];
+  }
   const options: MlbBatterBoxGameOption[] = [];
   try { options.push(...await loadGameOptionsFromGames()); } catch { /* schedule table may be empty */ }
   try { options.push(...await loadGameOptionsFromLineups()); } catch { /* lineup table may be empty */ }
@@ -302,7 +306,12 @@ async function buildDiagnostics(args: { gameId: string | null; awayTeam: string 
     diagnostics.warnings.push("DATABASE_URL is unavailable to the server runtime.");
     return diagnostics;
   }
-  await ensureMlbRosterIntelligenceTables();
+  try {
+    await ensureMlbRosterIntelligenceTables();
+  } catch {
+    diagnostics.warnings.push("MLB roster intelligence tables could not be verified because the database is unreachable.");
+    return diagnostics;
+  }
   if (!args.awayTeam || !args.homeTeam) {
     diagnostics.warnings.push("No matchup selected yet.");
     return diagnostics;

@@ -71,6 +71,44 @@ function buildEliteBatters(rows: HitterProjection[]): EliteBatter[] {
   }).sort((left, right) => right.eliteScore - left.eliteScore || (left.battingOrder ?? 99) - (right.battingOrder ?? 99));
 }
 
+function projectionSignature(row: HitterProjection) {
+  return [
+    row.plateAppearances,
+    row.hits,
+    row.totalBases,
+    row.homeRuns,
+    row.runs,
+    row.rbi,
+    row.strikeouts,
+    row.stolenBaseChance
+  ].map((value) => typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "x").join("|");
+}
+
+function hasUsefulHitterDiversity(rows: HitterProjection[]) {
+  if (rows.length < 5) return false;
+  const uniqueLines = new Set(rows.map(projectionSignature)).size;
+  const uniqueNames = new Set(rows.map((row) => row.name.trim().toLowerCase()).filter(Boolean)).size;
+  return uniqueNames >= 5 && uniqueLines >= Math.min(4, Math.ceil(rows.length * 0.35));
+}
+
+function chooseHitterRows(args: {
+  label: string;
+  primary: HitterProjection[];
+  fallback: HitterProjection[];
+  warnings: string[];
+}) {
+  if (hasUsefulHitterDiversity(args.primary)) return args.primary;
+  if (hasUsefulHitterDiversity(args.fallback)) {
+    args.warnings.push(`${args.label} hitter projections were replaced with rating-backed player-card rows because the cached/linked rows lacked player-level stat diversity.`);
+    return args.fallback;
+  }
+  if (args.primary.length) {
+    args.warnings.push(`${args.label} hitter projections have low player-level stat diversity; refresh the local MLB sim worker/player-rating feed.`);
+    return args.primary;
+  }
+  return args.fallback;
+}
+
 function BoxScoreWarnings({ warnings }: { warnings: string[] }) {
   if (!warnings.length) return null;
   return (
@@ -155,11 +193,11 @@ export default async function MlbBoxScorePage({ params }: PageProps) {
     home: { name: game.teams.home.name, abbreviation: game.teams.home.abbreviation, projectedRuns: game.teams.home.projectedRuns }
   }).catch(() => ({ hitters: { away: [], home: [] }, starters: { away: null, home: null }, warnings: ["Rating-backed box-score fallback failed."] }));
 
-  const awayHitters = game.hitters.away.length ? game.hitters.away : ratingFallback.hitters.away as HitterProjection[];
-  const homeHitters = game.hitters.home.length ? game.hitters.home : ratingFallback.hitters.home as HitterProjection[];
+  const warnings = Array.from(new Set([...game.warnings, ...ratingFallback.warnings]));
+  const awayHitters = chooseHitterRows({ label: game.teams.away.name, primary: game.hitters.away, fallback: ratingFallback.hitters.away as HitterProjection[], warnings });
+  const homeHitters = chooseHitterRows({ label: game.teams.home.name, primary: game.hitters.home, fallback: ratingFallback.hitters.home as HitterProjection[], warnings });
   const awayPitchers = game.pitchers.away.length ? game.pitchers.away : ratingFallback.starters.away ? [ratingFallback.starters.away as PitcherProjection] : [];
   const homePitchers = game.pitchers.home.length ? game.pitchers.home : ratingFallback.starters.home ? [ratingFallback.starters.home as PitcherProjection] : [];
-  const warnings = Array.from(new Set([...game.warnings, ...ratingFallback.warnings]));
   const actualCount = [...awayHitters, ...homeHitters, ...awayPitchers, ...homePitchers].filter((row) => row.actual).length;
 
   return (

@@ -129,6 +129,28 @@ function metric(row: { metrics_json: Record<string, unknown> | null }, keys: str
   return fallback;
 }
 
+function optionalMetric(row: { metrics_json: Record<string, unknown> | null }, keys: string[]) {
+  for (const key of keys) {
+    const value = row.metrics_json?.[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && Number.isFinite(Number(value))) return Number(value);
+  }
+  return null;
+}
+
+function decimalRate(value: number | null, fallback: number, min: number, max: number) {
+  if (value == null) return fallback;
+  return clamp(value > 1.5 ? value / 100 : value, min, max);
+}
+
+function ratePerGame(row: HitterRow, keys: string[], pa: number, fallback: number) {
+  const direct = optionalMetric(row, keys);
+  if (direct != null) return direct;
+  const rate = optionalMetric(row, keys.map((key) => `${key}Rate`));
+  if (rate != null) return decimalRate(rate, fallback / Math.max(1, pa), 0, 1) * pa;
+  return fallback;
+}
+
 function teamKeys(name: string, abbreviation?: string | null) {
   const lower = name.trim().toLowerCase();
   const direct = [name, lower, name.toUpperCase(), abbreviation ?? ""].filter(Boolean);
@@ -173,9 +195,16 @@ function toHitter(row: HitterRow, args: { side: BoxScoreSide; teamName: string; 
   const power = n(row.power, 70);
   const discipline = n(row.discipline, 70);
   const runEnv = clamp((args.projectedRuns ?? 4.35) / 4.45, 0.65, 1.55);
-  const expectedHits = clamp(metric(row, ["hits", "expectedHits", "hitsPerGame"], 0.92) + (contact - 70) * 0.009, 0.35, 1.75);
-  const expectedHr = clamp(metric(row, ["homeRuns", "expectedHomeRuns", "homeRunsPerGame"], 0.11) + (power - 70) * 0.0032, 0.01, 0.42);
-  const totalBases = clamp(expectedHits * (1.42 + Math.max(0, power - 65) * 0.009) + expectedHr * 1.25, 0.45, 3.45);
+  const avg = optionalMetric(row, ["avg", "battingAverage", "ba"]);
+  const slg = optionalMetric(row, ["slg", "slugging"]);
+  const iso = optionalMetric(row, ["iso", "isolatedPower"]);
+  const hitRate = decimalRate(optionalMetric(row, ["hitRate", "hitsPerPa"]), avg != null ? (avg > 1 ? avg / 1000 : avg) * 0.9 : 0.225 + (contact - 70) * 0.0018, 0.11, 0.39);
+  const hrRate = decimalRate(optionalMetric(row, ["hrRate", "homeRunRate"]), iso != null ? Math.max(0.004, decimalRate(iso, 0.16, 0.02, 0.36) * 0.16) : 0.028 + (power - 70) * 0.001, 0.003, 0.105);
+  const kRate = decimalRate(optionalMetric(row, ["strikeoutRate", "kRate", "soRate"]), 0.225 - (contact - 70) * 0.0015, 0.07, 0.4);
+  const tbPerHit = clamp(optionalMetric(row, ["totalBasesPerHit", "tbPerHit"]) ?? (slg != null && hitRate > 0 ? decimalRate(slg, 0.405, 0.22, 0.72) / hitRate : 1.42 + Math.max(0, power - 65) * 0.009), 1.05, 2.55);
+  const expectedHits = clamp(ratePerGame(row, ["hits", "expectedHits", "hitsPerGame"], pa, pa * hitRate) + (contact - 70) * 0.004, 0.35, 1.75);
+  const expectedHr = clamp(ratePerGame(row, ["homeRuns", "expectedHomeRuns", "homeRunsPerGame"], pa, pa * hrRate) + (power - 70) * 0.0012, 0.01, 0.42);
+  const totalBases = clamp((optionalMetric(row, ["totalBases", "expectedTotalBases", "totalBasesPerGame"]) ?? expectedHits * tbPerHit) + expectedHr * 0.65, 0.45, 3.45);
   const runShare = (args.projectedRuns ?? 4.35) / 9;
   return {
     playerId: row.player_id,
@@ -189,7 +218,7 @@ function toHitter(row: HitterRow, args: { side: BoxScoreSide; teamName: string; 
     homeRuns: round(expectedHr * runEnv, 2),
     runs: round(runShare * (order <= 4 ? 1.1 : 0.9), 1),
     rbi: round(runShare * (order >= 3 && order <= 6 ? 1.15 : 0.88), 1),
-    strikeouts: round(clamp(1.0 - (contact - 70) * 0.008 + Math.max(0, 70 - discipline) * 0.006, 0.35, 1.7), 1),
+    strikeouts: round(clamp(pa * kRate + Math.max(0, 70 - discipline) * 0.003, 0.35, 1.7), 1),
     stolenBaseChance: round(clamp((n(row.baserunning, 60) - 45) / 160, 0.01, 0.42), 2),
     actual: null
   };

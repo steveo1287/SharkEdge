@@ -106,11 +106,11 @@ function keyFor(row: MlbSettledBatterPropProbabilityRow, scopeType: MlbCalibrati
 function parseBinKey(key: string) {
   const parts = key.split(":");
   const scopeType = parts.shift() as MlbCalibrationScopeType;
-  const scopeKey = parts.shift() ?? "ALL";
-  const market = parts.shift() ?? "ALL";
-  const rawLine = parts.shift() ?? "";
-  const side = parts.shift() ?? "ALL";
-  const range = parts.shift() ?? "0.0-1.0";
+  const range = parts.pop() ?? "0.0-1.0";
+  const side = parts.pop() ?? "ALL";
+  const rawLine = parts.pop() ?? "";
+  const market = parts.pop() ?? "ALL";
+  const scopeKey = parts.join(":") || "ALL";
   const [rawMin, rawMax] = range.split("-");
   return { scopeType, scopeKey, market, rawLine, side, rawMin, rawMax };
 }
