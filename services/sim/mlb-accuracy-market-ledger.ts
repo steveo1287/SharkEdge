@@ -186,10 +186,10 @@ function firstFiveScore(result: unknown) {
   const innings = arrayValue(get(result, "innings"));
   if (innings.length >= 5) {
     const firstFive = innings.slice(0, 5);
-    const summed = firstFive.reduce((acc, inning) => {
-      acc.away += numberValue(inning.awayRuns ?? inning.away ?? inning.awayScore) ?? 0;
-      acc.home += numberValue(inning.homeRuns ?? inning.home ?? inning.homeScore) ?? 0;
-      return acc;
+    const summed = firstFive.reduce<{ away: number; home: number }>((acc, inning) => {
+      const awayRuns = numberValue(inning.awayRuns ?? inning.away ?? inning.awayScore) ?? 0;
+      const homeRuns = numberValue(inning.homeRuns ?? inning.home ?? inning.homeScore) ?? 0;
+      return { away: acc.away + awayRuns, home: acc.home + homeRuns };
     }, { away: 0, home: 0 });
     return { ...summed, total: summed.away + summed.home };
   }
