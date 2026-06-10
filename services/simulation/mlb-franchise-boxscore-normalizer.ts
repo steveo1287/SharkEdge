@@ -78,14 +78,55 @@ function targetRuns(projectedRuns: number | null | undefined) {
   return Math.max(0, Math.round(clamp(projectedRuns ?? 4.4, 0, 13)));
 }
 
+export function resolveMlbSimScoreTargets(args: {
+  awayProjectedRuns: number | null | undefined;
+  homeProjectedRuns: number | null | undefined;
+  awayName: string;
+  homeName: string;
+}) {
+  let awayRuns = targetRuns(args.awayProjectedRuns);
+  let homeRuns = targetRuns(args.homeProjectedRuns);
+  let reason = "rounded projected runs";
+  if (awayRuns === homeRuns) {
+    const awayProjection = numeric(args.awayProjectedRuns, awayRuns);
+    const homeProjection = numeric(args.homeProjectedRuns, homeRuns);
+    if (awayProjection > homeProjection + 0.04) {
+      homeRuns = Math.max(0, homeRuns - 1);
+      reason = "rounded tie resolved by away projected-run edge";
+    } else if (homeProjection > awayProjection + 0.04) {
+      awayRuns = Math.max(0, awayRuns - 1);
+      reason = "rounded tie resolved by home projected-run edge";
+    } else if (unit(`${args.awayName}:${args.homeName}`, "tie-break") >= 0.5) {
+      homeRuns += 1;
+      reason = "rounded tie resolved by deterministic home tiebreak";
+    } else {
+      awayRuns += 1;
+      reason = "rounded tie resolved by deterministic away tiebreak";
+    }
+  }
+  return { awayRuns, homeRuns, reason };
+}
+
 function targetHits(projectedRuns: number | null | undefined, seed: string) {
   const runs = clamp(projectedRuns ?? 4.4, 0, 13);
-  return Math.max(1, Math.round(clamp(3.7 + runs * 1.18 + unit(seed, "team-hits") * 2.4, 3, 18)));
+  return Math.max(1, Math.round(clamp(3.5 + runs * 1.06 + unit(seed, "team-hits") * 2.1, 3, 17)));
 }
 
 function targetHomers(projectedRuns: number | null | undefined, seed: string) {
   const runs = clamp(projectedRuns ?? 4.4, 0, 13);
-  return Math.max(0, Math.round(clamp(runs * 0.21 + unit(seed, "team-hr") * 1.15 - 0.25, 0, 5)));
+  return Math.max(0, Math.round(clamp(runs * 0.2 + unit(seed, "team-hr") * 1.05 - 0.22, 0, 5)));
+}
+
+function targetWalks(runTarget: number, seed: string) {
+  return Math.round(clamp(1.4 + runTarget * 0.28 + unit(seed, "team-bb") * 2.1, 1, 7));
+}
+
+function targetTeamPlateAppearances(runTarget: number, hitTarget: number, seed: string) {
+  const walks = targetWalks(runTarget, seed);
+  const miscRunners = unit(seed, "misc-pa") > 0.62 ? 1 : 0;
+  const raw = 27 + hitTarget + walks + miscRunners;
+  const max = runTarget >= 10 ? 49 : runTarget >= 7 ? 46 : 44;
+  return Math.round(clamp(raw, 32, max));
 }
 
 function orderWeight(row: HitterRow, index: number) {
@@ -93,6 +134,12 @@ function orderWeight(row: HitterRow, index: number) {
   const base = [1.08, 1.05, 1.2, 1.28, 1.12, 0.96, 0.86, 0.76, 0.69][order - 1] ?? 0.72;
   const existing = numeric(row.totalBases, 0) * 0.18 + numeric(row.homeRuns, 0) * 0.65 + numeric(row.hits, 0) * 0.28;
   return base + existing + unit(`${row.team}:${row.playerId}:${row.name}`, "weight") * 0.25;
+}
+
+function plateAppearanceWeight(row: HitterRow, index: number) {
+  const order = row.battingOrder ?? index + 1;
+  const base = [1.16, 1.13, 1.08, 1.04, 1.0, 0.95, 0.9, 0.86, 0.82][order - 1] ?? 0.82;
+  return base + unit(`${row.team}:${row.playerId}:${row.name}`, "pa-weight") * 0.08;
 }
 
 export function normalizeMlbFranchiseHitterRows<T extends HitterRow>(rows: T[], projectedRuns: number | null | undefined): T[] {
@@ -108,8 +155,8 @@ export function normalizeMlbFranchiseHitterRows<T extends HitterRow>(rows: T[], 
   const homeRuns = allocateInteger(hrTarget, weights.map((weight, index) => weight * (index >= 2 && index <= 5 ? 1.22 : 0.82)));
   const runs = allocateInteger(runTarget, weights.map((weight, index) => weight * (index <= 4 ? 1.12 : 0.84)));
   const rbi = allocateInteger(rbiTarget, weights.map((weight, index) => weight * (index >= 2 && index <= 6 ? 1.18 : 0.78)));
-  const teamPas = clamp(34 + hitTarget + runTarget * 0.35 + unit(seed, "pa") * 3, 33, 54);
-  const plateAppearances = allocateInteger(teamPas, weights.map((weight, index) => weight * (index <= 1 ? 1.08 : 1)));
+  const teamPas = targetTeamPlateAppearances(runTarget, hitTarget, seed);
+  const plateAppearances = allocateInteger(teamPas, lineup.map(plateAppearanceWeight));
   const strikeouts = allocateInteger(clamp(5.2 + unit(seed, "team-k") * 5.4, 3, 14), weights.map((weight) => Math.max(0.1, 1.5 - weight * 0.23)));
 
   return rows.map((row, index) => {
@@ -122,7 +169,7 @@ export function normalizeMlbFranchiseHitterRows<T extends HitterRow>(rows: T[], 
     return {
       ...row,
       battingOrder: row.battingOrder ?? index + 1,
-      plateAppearances: plateAppearances[index],
+      plateAppearances: Math.max(hits[index], plateAppearances[index]),
       hits: hits[index],
       totalBases,
       homeRuns: hr,
