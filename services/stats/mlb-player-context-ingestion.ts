@@ -2,6 +2,8 @@ import { prisma } from "@/lib/db/prisma";
 import type { Prisma } from "@prisma/client";
 
 type JsonRecord = Record<string, unknown>;
+type NormalizedStats = ReturnType<typeof slugStats>;
+type StatsBundle = { hitting: NormalizedStats | null; pitching: NormalizedStats | null };
 
 type StatsApiSplits = { stats?: Array<{ splits?: Array<{ stat?: JsonRecord }> }> };
 
@@ -9,6 +11,7 @@ type ContextResult = {
   ok: boolean;
   gamesScanned: number;
   playersScanned: number;
+  uniquePlayersScanned: number;
   contextsUpserted: number;
   missingMlbIds: number;
   errors: string[];
@@ -37,6 +40,11 @@ function mlbId(value: unknown) {
   if (typeof id === "string" && id.trim()) return id.trim();
   if (typeof id === "number" && Number.isFinite(id)) return String(id);
   return null;
+}
+
+function isPitcherPosition(position: string | null | undefined) {
+  const normalized = String(position ?? "").toUpperCase();
+  return normalized === "P" || normalized.includes("PITCH");
 }
 
 function parseIp(value: unknown) {
@@ -158,11 +166,11 @@ function projectionPayload(args: {
   player: { id: string; name: string; position: string; externalIds: unknown };
   teamName: string;
   gameId: string;
-  hitting: ReturnType<typeof slugStats> | null;
-  pitching: ReturnType<typeof slugStats> | null;
+  hitting: NormalizedStats | null;
+  pitching: NormalizedStats | null;
   season: number;
 }) {
-  const isPitcher = args.player.position.toUpperCase() === "P" || Boolean(args.pitching?.group === "pitching" && args.pitching.games != null);
+  const isPitcher = isPitcherPosition(args.player.position) || Boolean(args.pitching?.group === "pitching" && args.pitching.games != null);
   const primary = isPitcher ? args.pitching : args.hitting;
   return {
     source: "mlb_statsapi_player_context",
@@ -176,6 +184,7 @@ function projectionPayload(args: {
     contextQuality: {
       hasHitting: Boolean(args.hitting),
       hasPitching: Boolean(args.pitching),
+      hasUsableStats: Boolean(args.hitting || args.pitching),
       games: primary?.games ?? null,
       role: args.pitching?.role ?? (isPitcher ? "pitcher" : "hitter")
     },
@@ -210,8 +219,14 @@ function projectionPayload(args: {
   };
 }
 
+async function runLimited<T>(items: T[], limit: number, worker: (item: T) => Promise<void>) {
+  for (let index = 0; index < items.length; index += limit) {
+    await Promise.all(items.slice(index, index + limit).map(worker));
+  }
+}
+
 export async function ingestMlbPlayerContext(args: { lookaheadDays?: number; maxPlayers?: number } = {}): Promise<ContextResult> {
-  const result: ContextResult = { ok: false, gamesScanned: 0, playersScanned: 0, contextsUpserted: 0, missingMlbIds: 0, errors: [] };
+  const result: ContextResult = { ok: false, gamesScanned: 0, playersScanned: 0, uniquePlayersScanned: 0, contextsUpserted: 0, missingMlbIds: 0, errors: [] };
   const league = await prisma.league.findUnique({ where: { key: "MLB" } });
   if (!league) {
     result.errors.push("MLB league missing");
@@ -224,11 +239,12 @@ export async function ingestMlbPlayerContext(args: { lookaheadDays?: number; max
     where: { leagueId: league.id, status: { in: ["PREGAME", "LIVE"] }, startTime: { gte: new Date(now.getTime() - 3 * 3600000), lte: end } },
     include: { homeTeam: { include: { players: true } }, awayTeam: { include: { players: true } } },
     orderBy: { startTime: "asc" },
-    take: 40
+    take: 50
   });
   result.gamesScanned = games.length;
-  const seen = new Set<string>();
-  const limit = Math.max(1, Math.min(900, args.maxPlayers ?? 500));
+  const limit = Math.max(1, Math.min(1200, args.maxPlayers ?? 900));
+  const seenGamePlayer = new Set<string>();
+  const targets: Array<{ gameId: string; player: { id: string; name: string; position: string; externalIds: unknown }; teamName: string }> = [];
 
   for (const game of games) {
     const players = [
@@ -236,31 +252,52 @@ export async function ingestMlbPlayerContext(args: { lookaheadDays?: number; max
       ...game.homeTeam.players.map((player) => ({ player, teamName: game.homeTeam.name }))
     ];
     for (const { player, teamName } of players) {
-      if (result.playersScanned >= limit) break;
+      if (targets.length >= limit) break;
       const dedupeKey = `${game.id}:${player.id}`;
-      if (seen.has(dedupeKey)) continue;
-      seen.add(dedupeKey);
-      result.playersScanned += 1;
-      const id = mlbId(player.externalIds);
-      if (!id) {
-        result.missingMlbIds += 1;
-        continue;
-      }
-      try {
-        const [hitting, pitching] = await Promise.all([fetchStats(id, "hitting", season), fetchStats(id, "pitching", season)]);
-        const payload = projectionPayload({ player, teamName, gameId: game.id, hitting, pitching, season });
-        const starter = Boolean(payload.isPitcher && payload.statsApi.pitching?.role === "starter");
-        await prisma.playerGameStat.upsert({
-          where: { gameId_playerId: { gameId: game.id, playerId: player.id } },
-          update: { statsJson: toJson(payload), starter, outcomeStatus: "PREGAME_CONTEXT" },
-          create: { gameId: game.id, playerId: player.id, statsJson: toJson(payload), starter, outcomeStatus: "PREGAME_CONTEXT" }
-        });
-        result.contextsUpserted += 1;
-      } catch (error) {
-        result.errors.push(`${player.name}: ${error instanceof Error ? error.message : String(error)}`);
-      }
+      if (seenGamePlayer.has(dedupeKey)) continue;
+      seenGamePlayer.add(dedupeKey);
+      targets.push({ gameId: game.id, player, teamName });
     }
   }
+
+  const statsCache = new Map<string, Promise<StatsBundle>>();
+  const uniquePlayers = new Set<string>();
+  const loadStats = (player: { id: string; position: string; externalIds: unknown }) => {
+    const id = mlbId(player.externalIds);
+    if (!id) return null;
+    uniquePlayers.add(player.id);
+    if (!statsCache.has(id)) {
+      const pitcher = isPitcherPosition(player.position);
+      statsCache.set(id, Promise.all([
+        pitcher ? Promise.resolve(null) : fetchStats(id, "hitting", season),
+        pitcher ? fetchStats(id, "pitching", season) : Promise.resolve(null)
+      ]).then(([hitting, pitching]) => ({ hitting, pitching })));
+    }
+    return statsCache.get(id)!;
+  };
+
+  result.playersScanned = targets.length;
+  await runLimited(targets, 24, async ({ gameId, player, teamName }) => {
+    const statsPromise = loadStats(player);
+    if (!statsPromise) {
+      result.missingMlbIds += 1;
+      return;
+    }
+    try {
+      const { hitting, pitching } = await statsPromise;
+      const payload = projectionPayload({ player, teamName, gameId, hitting, pitching, season });
+      const starter = Boolean(payload.isPitcher && payload.statsApi.pitching?.role === "starter");
+      await prisma.playerGameStat.upsert({
+        where: { gameId_playerId: { gameId, playerId: player.id } },
+        update: { statsJson: toJson(payload), starter, outcomeStatus: "PREGAME_CONTEXT" },
+        create: { gameId, playerId: player.id, statsJson: toJson(payload), starter, outcomeStatus: "PREGAME_CONTEXT" }
+      });
+      result.contextsUpserted += 1;
+    } catch (error) {
+      result.errors.push(`${player.name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+  result.uniquePlayersScanned = uniquePlayers.size;
   result.ok = result.errors.length === 0 || result.contextsUpserted > 0;
   return result;
 }
