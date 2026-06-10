@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
+import type { z } from "zod";
 
 import { alertRuleCreateSchema } from "@/lib/validation/product";
 import { createAlertRule, getAlertsPageData } from "@/services/alerts/alerts-service";
+
+type AlertRuleCreateInput = z.infer<typeof alertRuleCreateSchema>;
 
 function getStatusCode(error: unknown) {
   const message = error instanceof Error ? error.message : "";
@@ -36,8 +39,8 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const payload = alertRuleCreateSchema.parse(body);
-    const rule = await createAlertRule(payload as never);
+    const payload: AlertRuleCreateInput = alertRuleCreateSchema.parse(body);
+    const rule = await createAlertRule(payload);
 
     return NextResponse.json({
       rule
