@@ -1,3 +1,4 @@
+import { buildMlbCanonicalGameState } from "@/services/simulation/mlb-canonical-game-state";
 import type { CachedSimGameProjection, SimMarketSnapshot } from "@/services/simulation/sim-snapshot-service";
 
 export type MlbSimPickMarket = "MONEYLINE" | "OVER_UNDER" | "F5_MONEYLINE" | "F5_TOTAL" | "NRFI";
@@ -103,14 +104,18 @@ function edgeToMap(edges: Edge[]) {
 function market(edge: Edge | null | undefined): MarketLike {
   return (edge?.market ?? {}) as MarketLike;
 }
+function canonical(game: CachedSimGameProjection) {
+  return buildMlbCanonicalGameState(game.projection);
+}
 function matchupLabel(game: CachedSimGameProjection) {
-  return `${game.projection.matchup.away} @ ${game.projection.matchup.home}`;
+  const state = canonical(game);
+  return `${state.awayTeam} @ ${state.homeTeam}`;
 }
 function projectedTotal(game: CachedSimGameProjection) {
-  return safeNumber(game.projection.mlbIntel?.projectedTotal) ?? game.projection.distribution.avgAway + game.projection.distribution.avgHome;
+  return canonical(game).fullGameTotal.projection;
 }
 function projectedScore(game: CachedSimGameProjection) {
-  return `${round(game.projection.distribution.avgAway, 1)}-${round(game.projection.distribution.avgHome, 1)}`;
+  return canonical(game).projectedScore;
 }
 function dataQuality(game: CachedSimGameProjection, edge: Edge | null | undefined) {
   const mlbIntel = game.projection.mlbIntel as (NonNullable<typeof game.projection.mlbIntel> & { confidence?: unknown }) | null | undefined;
@@ -135,47 +140,45 @@ function makePick(args: Omit<MlbSimPick, "tier" | "confidence"> & { confidence?:
 }
 
 function moneylinePick(game: CachedSimGameProjection, edge: Edge | null): MlbSimPick {
-  const homeProb = game.projection.distribution.homeWinPct;
-  const awayProb = game.projection.distribution.awayWinPct;
-  const homeSide = homeProb >= awayProb;
+  const state = canonical(game);
+  const homeSide = state.moneyline.side === "HOME";
   const m = market(edge);
-  const modelProbability = homeSide ? homeProb : awayProb;
+  const modelProbability = state.moneyline.probability;
   const marketProbability = homeSide ? safeNumber(m.homeNoVigProbability) : safeNumber(m.awayNoVigProbability);
   const odds = homeSide ? safeNumber(m.homeMoneyline) : safeNumber(m.awayMoneyline);
   const edgeValue = marketProbability == null ? null : modelProbability - marketProbability;
   const q = dataQuality(game, edge);
   const score = Math.round(clamp(44 + (modelProbability - 0.5) * 220 + (edgeValue ?? 0) * 140 + q * 0.22, 0, 100));
-  const side = homeSide ? "HOME" : "AWAY";
-  const selection = homeSide ? game.projection.matchup.home : game.projection.matchup.away;
   return makePick({
-    id: `${game.game.id}:moneyline:${side}`,
+    id: `${game.game.id}:moneyline:${state.moneyline.side}`,
     gameId: game.game.id,
     gameLabel: matchupLabel(game),
     startTime: game.game.startTime,
     market: "MONEYLINE",
-    selection: `${selection} ML`,
-    side,
+    selection: `${state.moneyline.selection} ML`,
+    side: state.moneyline.side,
     modelProbability: round(modelProbability),
     marketProbability: marketProbability == null ? null : round(marketProbability),
     americanOdds: odds,
     expectedValue: null,
     edge: edgeValue == null ? null : round(edgeValue),
-    projectedRunEdge: round(Math.abs(game.projection.distribution.avgHome - game.projection.distribution.avgAway), 3),
-    projectedScore: projectedScore(game),
-    projectedTotal: round(projectedTotal(game), 2),
+    projectedRunEdge: state.moneyline.runDiff,
+    projectedScore: state.projectedScore,
+    projectedTotal: state.totalRuns,
     score,
     dataQuality: q,
     source: edge ? "market_context" : "simulation",
-    reasons: [`sim win lean ${round(modelProbability * 100, 1)}%`, `projected score ${projectedScore(game)}`],
-    warnings: []
+    reasons: [`canonical win lean ${round(modelProbability * 100, 1)}%`, `projected score ${state.projectedScore}`, `run diff ${round(state.moneyline.runDiff, 2)}`],
+    warnings: state.warnings
   });
 }
 
 function fullGameTotalPick(game: CachedSimGameProjection, edge: Edge | null): MlbSimPick {
+  const state = canonical(game);
   const m = market(edge);
   const marketLine = safeNumber(m.total);
   const line = marketLine ?? DEFAULT_FULL_GAME_TOTAL;
-  const projection = projectedTotal(game);
+  const projection = state.fullGameTotal.projection;
   const runEdge = projection - line;
   const over = runEdge >= 0;
   const probs = noVigTotal(m.overPrice, m.underPrice);
@@ -199,51 +202,52 @@ function fullGameTotalPick(game: CachedSimGameProjection, edge: Edge | null): Ml
     expectedValue: null,
     edge: edgeValue == null ? null : round(edgeValue),
     projectedRunEdge: round(over ? runEdge : -runEdge, 3),
-    projectedScore: projectedScore(game),
-    projectedTotal: round(projection, 2),
+    projectedScore: state.projectedScore,
+    projectedTotal: projection,
     score,
     dataQuality: q,
     source: edge ? "market_context" : "simulation",
-    reasons: [`sim total ${round(projection, 1)}`, `compare line ${line}`, `run edge ${round(Math.abs(runEdge), 2)}`],
-    warnings: []
+    reasons: [`canonical total ${round(projection, 1)}`, `compare line ${line}`, `run edge ${round(Math.abs(runEdge), 2)}`],
+    warnings: state.warnings
   });
 }
 
 function f5MoneylinePick(game: CachedSimGameProjection): MlbSimPick {
-  const away = game.projection.distribution.avgAway * 0.55;
-  const home = game.projection.distribution.avgHome * 0.55;
-  const diff = home - away;
-  const homeSide = diff >= 0;
-  const modelProbability = clamp(0.5 + Math.abs(diff) * 0.13, 0.5, 0.76);
+  const state = canonical(game);
+  const f5 = state.firstFive;
+  const side = f5.side === "TIE" ? (state.moneyline.side === "HOME" ? "HOME" : "AWAY") : f5.side;
+  const modelProbability = side === "HOME" ? f5.homeWinProbability : f5.awayWinProbability;
   const q = dataQuality(game, null);
-  const score = Math.round(clamp(38 + Math.abs(diff) * 42 + modelProbability * 30 + q * 0.18, 0, 100));
+  const diff = Math.abs(f5.homeRuns - f5.awayRuns);
+  const score = Math.round(clamp(38 + diff * 42 + modelProbability * 30 + q * 0.18, 0, 100));
   return makePick({
-    id: `${game.game.id}:f5ml:${homeSide ? "home" : "away"}`,
+    id: `${game.game.id}:f5ml:${side.toLowerCase()}`,
     gameId: game.game.id,
     gameLabel: matchupLabel(game),
     startTime: game.game.startTime,
     market: "F5_MONEYLINE",
-    selection: `${homeSide ? game.projection.matchup.home : game.projection.matchup.away} F5 ML lean`,
-    side: homeSide ? "HOME_F5" : "AWAY_F5",
+    selection: `${side === "HOME" ? state.homeTeam : state.awayTeam} F5 ML lean`,
+    side: side === "HOME" ? "HOME_F5" : "AWAY_F5",
     modelProbability: round(modelProbability),
     marketProbability: null,
     americanOdds: null,
     expectedValue: null,
     edge: null,
-    projectedRunEdge: round(Math.abs(diff), 3),
-    projectedScore: `${round(away, 1)}-${round(home, 1)}`,
-    projectedTotal: round(away + home, 2),
+    projectedRunEdge: round(diff, 3),
+    projectedScore: `${round(f5.awayRuns, 1)}-${round(f5.homeRuns, 1)}`,
+    projectedTotal: f5.totalRuns,
     score,
     dataQuality: q,
     source: "simulation",
-    reasons: [`sim F5 score ${round(away, 1)}-${round(home, 1)}`, `F5 run diff ${round(Math.abs(diff), 2)}`],
-    warnings: []
+    reasons: [`canonical F5 score ${round(f5.awayRuns, 1)}-${round(f5.homeRuns, 1)}`, `F5 run diff ${round(diff, 2)}`, `F5 tie component ${round(f5.tieProbability * 100, 1)}%`],
+    warnings: state.warnings
   });
 }
 
 function f5TotalPick(game: CachedSimGameProjection, edge: Edge | null): MlbSimPick {
+  const state = canonical(game);
   const fullLine = safeNumber(market(edge).total);
-  const projection = projectedTotal(game) * 0.55;
+  const projection = state.firstFive.totalRuns;
   const line = round((fullLine ?? DEFAULT_FULL_GAME_TOTAL) * 0.55 || DEFAULT_F5_TOTAL, 1);
   const runEdge = projection - line;
   const over = runEdge >= 0;
@@ -264,46 +268,42 @@ function f5TotalPick(game: CachedSimGameProjection, edge: Edge | null): MlbSimPi
     expectedValue: null,
     edge: null,
     projectedRunEdge: round(Math.abs(runEdge), 3),
-    projectedScore: `${round(game.projection.distribution.avgAway * 0.55, 1)}-${round(game.projection.distribution.avgHome * 0.55, 1)}`,
-    projectedTotal: round(projection, 2),
+    projectedScore: `${round(state.firstFive.awayRuns, 1)}-${round(state.firstFive.homeRuns, 1)}`,
+    projectedTotal: projection,
     score,
     dataQuality: q,
     source: "simulation",
-    reasons: [`sim F5 total ${round(projection, 1)}`, `compare line ${line}`, `F5 edge ${round(Math.abs(runEdge), 2)}`],
-    warnings: []
+    reasons: [`canonical F5 total ${round(projection, 1)}`, `compare line ${line}`, `F5 edge ${round(Math.abs(runEdge), 2)}`],
+    warnings: state.warnings
   });
 }
 
 function nrfiPick(game: CachedSimGameProjection): MlbSimPick {
-  const total = projectedTotal(game);
-  const firstInningLambda = clamp(total * 0.118, 0.55, 1.85);
-  const nrfiProbability = clamp(Math.exp(-firstInningLambda), 0.18, 0.64);
-  const yrfiProbability = 1 - nrfiProbability;
-  const nrfi = nrfiProbability >= yrfiProbability;
-  const modelProbability = nrfi ? nrfiProbability : yrfiProbability;
+  const state = canonical(game);
+  const nrfi = state.nrfi;
   const q = dataQuality(game, null);
-  const score = Math.round(clamp(32 + modelProbability * 72 + Math.abs(0.5 - nrfiProbability) * 45 + q * 0.12, 0, 100));
+  const score = Math.round(clamp(32 + nrfi.probability * 72 + Math.abs(0.5 - nrfi.nrfiProbability) * 45 + q * 0.12, 0, 100));
   return makePick({
-    id: `${game.game.id}:${nrfi ? "nrfi" : "yrfi"}`,
+    id: `${game.game.id}:${nrfi.side.toLowerCase()}`,
     gameId: game.game.id,
     gameLabel: matchupLabel(game),
     startTime: game.game.startTime,
     market: "NRFI",
-    selection: nrfi ? "NRFI lean" : "YRFI lean",
-    side: nrfi ? "NRFI" : "YRFI",
-    modelProbability: round(modelProbability),
+    selection: nrfi.side === "NRFI" ? "NRFI lean" : "YRFI lean",
+    side: nrfi.side,
+    modelProbability: round(nrfi.probability),
     marketProbability: null,
     americanOdds: null,
     expectedValue: null,
     edge: null,
-    projectedRunEdge: round(1 - firstInningLambda, 3),
-    projectedScore: projectedScore(game),
-    projectedTotal: round(total, 2),
+    projectedRunEdge: round(1 - nrfi.firstInningTotalRuns, 3),
+    projectedScore: state.projectedScore,
+    projectedTotal: state.totalRuns,
     score,
     dataQuality: q,
     source: "simulation",
-    reasons: [`first-inning run lambda ${round(firstInningLambda, 2)}`, `${nrfi ? "NRFI" : "YRFI"} sim ${round(modelProbability * 100, 1)}%`],
-    warnings: []
+    reasons: [`canonical 1st inning ${round(nrfi.firstInningAwayRuns, 2)}-${round(nrfi.firstInningHomeRuns, 2)}`, `${nrfi.side} sim ${round(nrfi.probability * 100, 1)}%`],
+    warnings: state.warnings
   });
 }
 
@@ -360,12 +360,6 @@ export function buildMlbDailySimPickBoard(args: { games: CachedSimGameProjection
     watchlist,
     pick3Parlays,
     allPicks,
-    summary: {
-      gameCount: args.games.length,
-      officialCount: officialPlays.length,
-      qualifiedLeanCount: qualifiedLeans.length,
-      watchlistCount: watchlist.length,
-      pick3Count: pick3Parlays.length
-    }
+    summary: { gameCount: args.games.length, officialCount: officialPlays.length, qualifiedLeanCount: qualifiedLeans.length, watchlistCount: watchlist.length, pick3Count: pick3Parlays.length }
   };
 }
