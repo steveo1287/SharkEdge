@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { enrichMlbMarketAuditSnapshots } from "@/services/sim/mlb-market-audit-snapshot-enrichment";
 import { runSimAccuracyLedgerJob } from "@/services/simulation/sim-accuracy-ledger";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,12 @@ export async function GET(req: Request) {
   }
 
   const result = await runSimAccuracyLedgerJob();
-  return NextResponse.json(result, { status: result.ok ? 200 : 503 });
+  const marketAuditEnrichment = await enrichMlbMarketAuditSnapshots(150).catch((error) => ({
+    ok: false,
+    error: error instanceof Error ? error.message : "MLB market audit enrichment failed."
+  }));
+
+  return NextResponse.json({ ...result, marketAuditEnrichment }, { status: result.ok ? 200 : 503 });
 }
 
 export async function POST(req: Request) {
