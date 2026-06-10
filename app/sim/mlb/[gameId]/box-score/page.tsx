@@ -1,16 +1,20 @@
 import { notFound } from "next/navigation";
 
+import { prisma } from "@/lib/db/prisma";
 import { FranchiseEmptyState, FranchiseTable } from "@/components/sim/mlb-franchise-primitives";
 import { MlbFranchiseTabs } from "@/components/sim/mlb-franchise-tabs";
 import { SimWorkspaceHeader } from "@/components/sim/sim-ui";
 import { buildMlbRatingBackedBoxScore } from "@/services/simulation/mlb-box-score-rating-fallback";
 import { buildFranchiseEliteBatters, type FranchiseEliteBatterGrade } from "@/services/simulation/mlb-franchise-elite-batter-board";
+import { buildSimulatedFranchiseHitters, buildSimulatedFranchisePitchers } from "@/services/simulation/mlb-franchise-sim-boxscore";
 import { getMlbFranchiseGameCenter, type HitterProjection, type PitcherProjection } from "@/services/simulation/mlb-franchise-game-stats";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type PageProps = { params: Promise<{ gameId: string }> };
+type TeamSide = "away" | "home";
+type RosterPlayer = { id: string; name: string; position: string | null };
 
 function num(value: number | null | undefined, digits = 1) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
@@ -19,6 +23,10 @@ function num(value: number | null | undefined, digits = 1) {
 
 function near(value: number | null | undefined, target: number, tolerance: number) {
   return typeof value === "number" && Number.isFinite(value) && Math.abs(value - target) <= tolerance;
+}
+
+function sum<T>(rows: T[], read: (row: T) => number | null | undefined) {
+  return rows.reduce((acc, row) => acc + (read(row) ?? 0), 0);
 }
 
 function gradeClass(value: FranchiseEliteBatterGrade) {
@@ -41,25 +49,26 @@ function projectionSignature(row: HitterProjection) {
 }
 
 function hasUsefulHitterDiversity(rows: HitterProjection[]) {
-  if (rows.length < 5) return false;
+  if (rows.length < 9) return false;
   const uniqueLines = new Set(rows.map(projectionSignature)).size;
   const uniqueNames = new Set(rows.map((row) => row.name.trim().toLowerCase()).filter(Boolean)).size;
-  return uniqueNames >= 5 && uniqueLines >= Math.min(4, Math.ceil(rows.length * 0.35));
+  return uniqueNames >= 9 && uniqueLines >= 5;
 }
 
 function chooseHitterRows(args: {
   label: string;
   primary: HitterProjection[];
   fallback: HitterProjection[];
+  fallbackLabel: string;
   warnings: string[];
 }) {
   if (hasUsefulHitterDiversity(args.primary)) return args.primary;
   if (hasUsefulHitterDiversity(args.fallback)) {
-    args.warnings.push(`${args.label} hitter projections were replaced with rating-backed player-card rows because the cached/linked rows lacked player-level stat diversity.`);
+    args.warnings.push(`${args.label} hitter box score is using ${args.fallbackLabel} rows because linked/cached rows were incomplete or lacked player-level diversity.`);
     return args.fallback;
   }
   if (args.primary.length) {
-    args.warnings.push(`${args.label} hitter projections have low player-level stat diversity; refresh the local MLB sim worker/player-rating feed.`);
+    args.warnings.push(`${args.label} hitter box score is partial; franchise sim roster rows were not available.`);
     return args.primary;
   }
   return args.fallback;
@@ -88,27 +97,33 @@ function hasUsefulPitcherRows(rows: PitcherProjection[]) {
   return pitcherStatCount(starter) >= 4;
 }
 
+function hasCompletePitchingStaff(rows: PitcherProjection[]) {
+  if (!hasUsefulPitcherRows(rows)) return false;
+  const outs = sum(rows, (row) => row.outs);
+  return rows.length >= 2 && outs >= 24;
+}
+
 function choosePitcherRows(args: {
   label: string;
   primary: PitcherProjection[];
   fallback: PitcherProjection[];
+  fallbackLabel: string;
   warnings: string[];
 }) {
-  if (hasUsefulPitcherRows(args.primary)) return args.primary;
-  if (hasUsefulPitcherRows(args.fallback)) {
-    args.warnings.push(`${args.label} starter projection was replaced with rating-backed pitcher-card rows because the cached/linked starter looked generic.`);
+  if (hasCompletePitchingStaff(args.primary)) return args.primary;
+  if (hasCompletePitchingStaff(args.fallback)) {
+    args.warnings.push(`${args.label} pitching staff is using ${args.fallbackLabel} rows so the box score has a full starter/bullpen line.`);
     return args.fallback;
   }
-  if (args.primary.length) {
-    args.warnings.push(`${args.label} starter projection still looks generic; no usable rating-backed pitcher row was available.`);
-    return args.primary;
-  }
-  return args.fallback;
+  if (hasUsefulPitcherRows(args.primary)) return args.primary;
+  if (hasUsefulPitcherRows(args.fallback)) return args.fallback;
+  return args.primary.length ? args.primary : args.fallback;
 }
 
-function sourceLabel<T>(selected: T[], primary: T[], fallback: T[]) {
+function sourceLabel<T>(selected: T[], primary: T[], franchise: T[], rating: T[]) {
   if (selected === primary && selected.length) return "linked/cached";
-  if (selected === fallback && selected.length) return "rating-backed";
+  if (selected === franchise && selected.length) return "franchise-sim";
+  if (selected === rating && selected.length) return "rating-backed";
   return "unavailable";
 }
 
@@ -124,9 +139,59 @@ function BoxScoreWarnings({ warnings }: { warnings: string[] }) {
   );
 }
 
+function TeamTotalsTable({ awayHitters, homeHitters, awayPitchers, homePitchers, awayName, homeName }: {
+  awayHitters: HitterProjection[];
+  homeHitters: HitterProjection[];
+  awayPitchers: PitcherProjection[];
+  homePitchers: PitcherProjection[];
+  awayName: string;
+  homeName: string;
+}) {
+  const rows = [
+    { name: awayName, hitters: awayHitters, pitchers: awayPitchers },
+    { name: homeName, hitters: homeHitters, pitchers: homePitchers }
+  ];
+  return (
+    <FranchiseTable title="Sim Team Box Score" description="Franchise-mode team totals generated from the sim box score. Actuals replace these once official player-game rows are linked.">
+      <table className="min-w-[920px] w-full text-sm">
+        <thead className="bg-cyan-400/[0.04] text-[10px] uppercase tracking-[0.14em] text-slate-500">
+          <tr>
+            <th className="px-4 py-3 text-left">Team</th>
+            <th className="px-3 py-3 text-right">R</th>
+            <th className="px-3 py-3 text-right">H</th>
+            <th className="px-3 py-3 text-right">TB</th>
+            <th className="px-3 py-3 text-right">HR</th>
+            <th className="px-3 py-3 text-right">PA</th>
+            <th className="px-3 py-3 text-right">Bat K</th>
+            <th className="px-3 py-3 text-right">Pitch K</th>
+            <th className="px-3 py-3 text-right">ER</th>
+            <th className="px-3 py-3 text-right">BB</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/[0.06]">
+          {rows.map((row) => (
+            <tr key={row.name}>
+              <td className="px-4 py-3 font-semibold text-white">{row.name}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.hitters, (item) => item.runs), 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.hitters, (item) => item.hits), 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.hitters, (item) => item.totalBases), 1)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.hitters, (item) => item.homeRuns), 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.hitters, (item) => item.plateAppearances), 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.hitters, (item) => item.strikeouts), 1)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.pitchers, (item) => item.strikeouts), 1)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.pitchers, (item) => item.earnedRuns), 1)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.pitchers, (item) => item.walks), 1)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </FranchiseTable>
+  );
+}
+
 function EliteBatterBoard({ rows }: { rows: HitterProjection[] }) {
   const elite = buildFranchiseEliteBatters(rows);
-  if (!elite.length) return <FranchiseEmptyState title="Elite Batter Board unavailable" description="No projected hitter rows are available yet from linked player-game rows, cached sim player-stat projections, or rating-backed fallback projections." />;
+  if (!elite.length) return <FranchiseEmptyState title="Elite Batter Board unavailable" description="No projected hitter rows are available yet from linked rows, cached sim rows, or franchise sim box-score rows." />;
   const core = elite.filter((row) => row.grade === "A+" || row.grade === "A").length;
   const traps = elite.filter((row) => row.warning).length;
   return (
@@ -168,9 +233,9 @@ function EliteBatterBoard({ rows }: { rows: HitterProjection[] }) {
 }
 
 function HitterTable({ title, rows }: { title: string; rows: HitterProjection[] }) {
-  if (!rows.length) return <FranchiseEmptyState title={`${title} unavailable`} description="No linked, cached sim, or rating-backed hitter projections are available yet for this team." />;
+  if (!rows.length) return <FranchiseEmptyState title={`${title} unavailable`} description="No linked, cached sim, rating-backed, or franchise simulated hitter rows are available yet for this team." />;
   return (
-    <FranchiseTable title={title} description="Projected hitter line from linked player-game rows, cached MLB sim player-stat rows, or rating-backed player cards.">
+    <FranchiseTable title={title} description="Complete simulated hitter line from the franchise box-score engine. Official actuals replace these rows after settlement.">
       <table className="min-w-[900px] w-full text-sm">
         <thead className="bg-white/[0.025] text-[10px] uppercase tracking-[0.14em] text-slate-600">
           <tr>
@@ -208,9 +273,9 @@ function HitterTable({ title, rows }: { title: string; rows: HitterProjection[] 
 }
 
 function PitcherTable({ title, rows }: { title: string; rows: PitcherProjection[] }) {
-  if (!rows.length) return <FranchiseEmptyState title={`${title} unavailable`} description="No linked, cached sim, or rating-backed pitcher projections are available yet for this team." />;
+  if (!rows.length) return <FranchiseEmptyState title={`${title} unavailable`} description="No linked, cached sim, rating-backed, or franchise simulated pitcher rows are available yet for this team." />;
   return (
-    <FranchiseTable title={title} description="Projected pitcher line from starter diversity, linked pitcher rows, cached sim starter rows, or rating-backed player cards.">
+    <FranchiseTable title={title} description="Complete simulated pitching line from the franchise box-score engine. Official actuals replace these rows after settlement.">
       <table className="min-w-[760px] w-full text-sm">
         <thead className="bg-white/[0.025] text-[10px] uppercase tracking-[0.14em] text-slate-600">
           <tr>
@@ -243,15 +308,29 @@ function PitcherTable({ title, rows }: { title: string; rows: PitcherProjection[
   );
 }
 
+async function roster(teamId: string | null): Promise<RosterPlayer[]> {
+  if (!teamId) return [];
+  return prisma.player.findMany({ where: { teamId }, select: { id: true, name: true, position: true }, orderBy: { name: "asc" } });
+}
+
+function simStarter(row: PitcherProjection | null): (PitcherProjection & { actual: null }) | null {
+  if (!row) return null;
+  return { ...row, actual: null };
+}
+
 export default async function MlbBoxScorePage({ params }: PageProps) {
   const { gameId } = await params;
   const game = await getMlbFranchiseGameCenter(decodeURIComponent(gameId));
   if (!game) notFound();
 
-  const ratingFallback = await buildMlbRatingBackedBoxScore({
-    away: { name: game.teams.away.name, abbreviation: game.teams.away.abbreviation, projectedRuns: game.teams.away.projectedRuns },
-    home: { name: game.teams.home.name, abbreviation: game.teams.home.abbreviation, projectedRuns: game.teams.home.projectedRuns }
-  }).catch(() => ({ hitters: { away: [], home: [] }, starters: { away: null, home: null }, warnings: ["Rating-backed box-score fallback failed."] }));
+  const [ratingFallback, awayRoster, homeRoster] = await Promise.all([
+    buildMlbRatingBackedBoxScore({
+      away: { name: game.teams.away.name, abbreviation: game.teams.away.abbreviation, projectedRuns: game.teams.away.projectedRuns },
+      home: { name: game.teams.home.name, abbreviation: game.teams.home.abbreviation, projectedRuns: game.teams.home.projectedRuns }
+    }).catch(() => ({ hitters: { away: [], home: [] }, starters: { away: null, home: null }, warnings: ["Rating-backed box-score fallback failed."] })),
+    roster(game.teams.away.teamId),
+    roster(game.teams.home.teamId)
+  ]);
 
   const warnings = Array.from(new Set([...game.warnings, ...ratingFallback.warnings]));
   const ratingAwayHitters = ratingFallback.hitters.away as HitterProjection[];
@@ -259,24 +338,35 @@ export default async function MlbBoxScorePage({ params }: PageProps) {
   const ratingAwayPitchers = ratingFallback.starters.away ? [ratingFallback.starters.away as PitcherProjection] : [];
   const ratingHomePitchers = ratingFallback.starters.home ? [ratingFallback.starters.home as PitcherProjection] : [];
 
-  const awayHitters = chooseHitterRows({ label: game.teams.away.name, primary: game.hitters.away, fallback: ratingAwayHitters, warnings });
-  const homeHitters = chooseHitterRows({ label: game.teams.home.name, primary: game.hitters.home, fallback: ratingHomeHitters, warnings });
-  const awayPitchers = choosePitcherRows({ label: game.teams.away.name, primary: game.pitchers.away, fallback: ratingAwayPitchers, warnings });
-  const homePitchers = choosePitcherRows({ label: game.teams.home.name, primary: game.pitchers.home, fallback: ratingHomePitchers, warnings });
-  warnings.push(`Projection source: ${game.teams.away.name} hitters=${sourceLabel(awayHitters, game.hitters.away, ratingAwayHitters)}, starter=${sourceLabel(awayPitchers, game.pitchers.away, ratingAwayPitchers)}; ${game.teams.home.name} hitters=${sourceLabel(homeHitters, game.hitters.home, ratingHomeHitters)}, starter=${sourceLabel(homePitchers, game.pitchers.home, ratingHomePitchers)}.`);
+  const franchiseAwayHitters = buildSimulatedFranchiseHitters({ players: awayRoster, teamName: game.teams.away.name, teamSide: "away", projectedRuns: game.teams.away.projectedRuns }) as HitterProjection[];
+  const franchiseHomeHitters = buildSimulatedFranchiseHitters({ players: homeRoster, teamName: game.teams.home.name, teamSide: "home", projectedRuns: game.teams.home.projectedRuns }) as HitterProjection[];
+  const franchiseAwayPitchers = buildSimulatedFranchisePitchers({ players: awayRoster, teamName: game.teams.away.name, teamSide: "away", starter: simStarter(game.teams.away.starter ?? game.pitchers.away[0] ?? null), opponentProjectedRuns: game.teams.home.projectedRuns, opponentProjectedHits: game.lineScore.home.hits }) as PitcherProjection[];
+  const franchiseHomePitchers = buildSimulatedFranchisePitchers({ players: homeRoster, teamName: game.teams.home.name, teamSide: "home", starter: simStarter(game.teams.home.starter ?? game.pitchers.home[0] ?? null), opponentProjectedRuns: game.teams.away.projectedRuns, opponentProjectedHits: game.lineScore.away.hits }) as PitcherProjection[];
+
+  const awayHitterFallback = hasUsefulHitterDiversity(franchiseAwayHitters) ? franchiseAwayHitters : ratingAwayHitters;
+  const homeHitterFallback = hasUsefulHitterDiversity(franchiseHomeHitters) ? franchiseHomeHitters : ratingHomeHitters;
+  const awayPitcherFallback = hasCompletePitchingStaff(franchiseAwayPitchers) ? franchiseAwayPitchers : ratingAwayPitchers;
+  const homePitcherFallback = hasCompletePitchingStaff(franchiseHomePitchers) ? franchiseHomePitchers : ratingHomePitchers;
+
+  const awayHitters = chooseHitterRows({ label: game.teams.away.name, primary: game.hitters.away, fallback: awayHitterFallback, fallbackLabel: awayHitterFallback === franchiseAwayHitters ? "franchise-sim box-score" : "rating-backed player-card", warnings });
+  const homeHitters = chooseHitterRows({ label: game.teams.home.name, primary: game.hitters.home, fallback: homeHitterFallback, fallbackLabel: homeHitterFallback === franchiseHomeHitters ? "franchise-sim box-score" : "rating-backed player-card", warnings });
+  const awayPitchers = choosePitcherRows({ label: game.teams.away.name, primary: game.pitchers.away, fallback: awayPitcherFallback, fallbackLabel: awayPitcherFallback === franchiseAwayPitchers ? "franchise-sim pitching staff" : "rating-backed starter", warnings });
+  const homePitchers = choosePitcherRows({ label: game.teams.home.name, primary: game.pitchers.home, fallback: homePitcherFallback, fallbackLabel: homePitcherFallback === franchiseHomePitchers ? "franchise-sim pitching staff" : "rating-backed starter", warnings });
+  warnings.push(`Projection source: ${game.teams.away.name} hitters=${sourceLabel(awayHitters, game.hitters.away, franchiseAwayHitters, ratingAwayHitters)}, pitchers=${sourceLabel(awayPitchers, game.pitchers.away, franchiseAwayPitchers, ratingAwayPitchers)}; ${game.teams.home.name} hitters=${sourceLabel(homeHitters, game.hitters.home, franchiseHomeHitters, ratingHomeHitters)}, pitchers=${sourceLabel(homePitchers, game.pitchers.home, franchiseHomePitchers, ratingHomePitchers)}.`);
 
   const actualCount = [...awayHitters, ...homeHitters, ...awayPitchers, ...homePitchers].filter((row) => row.actual).length;
 
   return (
     <div className="space-y-5">
-      <SimWorkspaceHeader eyebrow="MLB Game Center" title="Projected Box Score" description={`${game.teams.away.name} @ ${game.teams.home.name} - ${game.cacheLabel}`} actions={[{ href: `/sim/mlb/${encodeURIComponent(game.gameId)}`, label: "Summary" }, { href: "/sim/mlb", label: "MLB Board", tone: "primary" }]} />
+      <SimWorkspaceHeader eyebrow="MLB Game Center" title="Franchise Sim Box Score" description={`${game.teams.away.name} @ ${game.teams.home.name} - ${game.cacheLabel}`} actions={[{ href: `/sim/mlb/${encodeURIComponent(game.gameId)}`, label: "Summary" }, { href: "/sim/mlb", label: "MLB Board", tone: "primary" }]} />
       <MlbFranchiseTabs gameId={game.gameId} active="box-score" />
       <BoxScoreWarnings warnings={Array.from(new Set(warnings))} />
-      <PitcherTable title="Starting Pitchers" rows={[...awayPitchers.slice(0, 1), ...homePitchers.slice(0, 1)]} />
+      <TeamTotalsTable awayHitters={awayHitters} homeHitters={homeHitters} awayPitchers={awayPitchers} homePitchers={homePitchers} awayName={game.teams.away.name} homeName={game.teams.home.name} />
+      <PitcherTable title="Pitching Staff" rows={[...awayPitchers, ...homePitchers]} />
       <EliteBatterBoard rows={[...awayHitters, ...homeHitters]} />
       <HitterTable title={`${game.teams.away.name} Hitters`} rows={awayHitters} />
       <HitterTable title={`${game.teams.home.name} Hitters`} rows={homeHitters} />
-      {actualCount ? <FranchiseEmptyState title="Tracked actuals available" description={`${actualCount} player rows have actual stat tracking linked to this game.`} /> : <FranchiseEmptyState title="Actuals not tracked yet" description="This page is showing projected box-score lines. Official player-game actuals will appear once stat rows are linked to this game." />}
+      {actualCount ? <FranchiseEmptyState title="Tracked actuals available" description={`${actualCount} player rows have actual stat tracking linked to this game.`} /> : <FranchiseEmptyState title="Franchise sim mode" description="This page is showing a complete simulated box score. Official player-game actuals will replace simulated rows once stat rows are linked after settlement." />}
     </div>
   );
 }
