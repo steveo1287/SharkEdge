@@ -78,7 +78,7 @@ export async function buildMarketImpliedAnalysis(eventId: string): Promise<Marke
   const totalState = markets.find((m) => m.marketType === "total" && m.period === "full_game");
 
   // Compute freshness from latest update
-  const latestUpdate = markets.reduce<Date | null>((latest, m) => {
+  const latestUpdate = markets.reduce((latest: Date | null, m) => {
     return !latest || m.updatedAt > latest ? m.updatedAt : latest;
   }, null);
 

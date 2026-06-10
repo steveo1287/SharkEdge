@@ -3,6 +3,7 @@ import { refreshCurrentBookFeeds } from "@/services/current-odds/book-feed-refre
 import { recomputeEdgeSignals } from "@/services/edges/edge-engine";
 import { currentMarketStateJob } from "@/services/jobs/current-market-state-job";
 import { getBooleanArg, getNumberArg, logStep, parseArgs } from "@/scripts/_runtime-utils";
+import { shouldRunHeavyWorker } from "@/scripts/worker-mode";
 
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 const DEFAULT_LOOKBACK_HOURS = 12;
@@ -21,25 +22,6 @@ function getConfiguredNumber(
   const envValue = Number(process.env[envKey] ?? "");
   const envFallback = Number.isFinite(envValue) && envValue > 0 ? envValue : fallback;
   return getNumberArg(args, argKey, envFallback);
-}
-
-function shouldRunHeavyWorker() {
-  const mode = (process.env.SHARKEDGE_WORKER_MODE ?? "").trim().toLowerCase();
-  const allowRailway = (process.env.ALLOW_RAILWAY_HEAVY_WORKER ?? "").trim().toLowerCase();
-
-  if (mode === "local" || mode === "pc" || mode === "windows") {
-    return { ok: true as const };
-  }
-
-  if (allowRailway === "true" || allowRailway === "1" || allowRailway === "yes") {
-    return { ok: true as const };
-  }
-
-  return {
-    ok: false as const,
-    message:
-      "Heavy odds refresh is disabled on this worker. Set SHARKEDGE_WORKER_MODE=local on your PC or ALLOW_RAILWAY_HEAVY_WORKER=true if you intentionally want Railway to run it."
-  };
 }
 
 async function getActiveEventIds(lookbackHours: number, lookaheadHours: number) {
@@ -87,7 +69,7 @@ async function runRefreshCycle(lookbackHours: number, lookaheadHours: number) {
 }
 
 async function main() {
-  const gate = shouldRunHeavyWorker();
+  const gate = shouldRunHeavyWorker("odds-refresh-worker");
   if (!gate.ok) {
     console.log(`[worker] odds-refresh disabled: ${gate.message}`);
     return;

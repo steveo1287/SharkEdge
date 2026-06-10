@@ -81,7 +81,7 @@ export async function refreshCurrentBookFeeds(args?: { leagues?: LeagueKey[]; fo
 
     if (!result.ok) {
       const failures = state.consecutiveFailures + 1;
-      const retryAfterMs = result.retryAfterMs ?? Math.min(
+      const retryAfterMs = ("retryAfterMs" in result ? result.retryAfterMs : undefined) ?? Math.min(
         provider.polling.backoff.maxMs,
         provider.polling.backoff.baseMs * provider.polling.backoff.multiplier ** Math.max(0, failures - 1)
       );
@@ -97,8 +97,8 @@ export async function refreshCurrentBookFeeds(args?: { leagues?: LeagueKey[]; fo
         providerKey: provider.key,
         sportsbookKey: provider.sportsbookKey,
         attempted: true,
-        status: result.status,
-        reason: result.reason,
+        status: "ERROR",
+        reason: "reason" in result ? result.reason : "Book feed fetch failed.",
         leagues
       });
       continue;

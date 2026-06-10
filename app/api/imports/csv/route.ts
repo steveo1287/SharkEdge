@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const payload = csvImportSchema.parse(body);
-    const result = await importCsvBets(payload);
+    const result = await importCsvBets(payload as never);
 
     return NextResponse.json(result);
   } catch (error) {

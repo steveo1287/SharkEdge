@@ -101,7 +101,7 @@ async function fetchMlbGames() {
 }
 
 async function readRoleSummary(table: "mlb_player_ratings" | "mlb_pitcher_ratings", idColumn: "player_id" | "pitcher_id", team: string) {
-  return prisma.$queryRawUnsafe<RoleSummaryRow[]>(`
+  return (await prisma.$queryRawUnsafe(`
     WITH latest AS (
       SELECT DISTINCT ON (${idColumn}) role_tier, overall
       FROM ${table}
@@ -112,7 +112,7 @@ async function readRoleSummary(table: "mlb_player_ratings" | "mlb_pitcher_rating
     FROM latest
     GROUP BY role_tier
     ORDER BY count DESC;
-  `, team);
+  `, team)) as RoleSummaryRow[];
 }
 
 async function readLatestLineup(gameId: string, team: string) {

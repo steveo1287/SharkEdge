@@ -37,7 +37,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const payload = alertRuleCreateSchema.parse(body);
-    const rule = await createAlertRule(payload);
+    const rule = await createAlertRule(payload as never);
 
     return NextResponse.json({
       rule

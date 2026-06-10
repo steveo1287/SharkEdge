@@ -22,7 +22,7 @@ function sideProbabilityFromHome(side: "HOME" | "AWAY", homeProbability: number 
 }
 
 async function updateTableClosingLines(tableName: TableName, closeByGameId: Map<string, number>) {
-  const pendingRows = await prisma.$queryRawUnsafe<PendingLedgerRow[]>(`
+  const pendingRows = (await prisma.$queryRawUnsafe(`
     SELECT id, game_id, side, market_no_vig_probability
     FROM ${tableName}
     WHERE graded_at IS NULL
@@ -30,7 +30,7 @@ async function updateTableClosingLines(tableName: TableName, closeByGameId: Map<
       AND model_version = 'mlb-intel-v7'
     ORDER BY captured_at DESC
     LIMIT 2000;
-  `);
+  `)) as PendingLedgerRow[];
 
   let updated = 0;
   let missing = 0;

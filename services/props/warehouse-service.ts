@@ -1019,7 +1019,7 @@ async function getStoredMarketRows(filters?: Partial<PropFilters>, eventExternal
 async function getStoredPropGroups(filters?: Partial<PropFilters>, eventExternalId?: string) {
   const rows = await getStoredMarketRows(filters, eventExternalId);
 
-  return rows.reduce<{ key: string; rows: typeof rows }[]>((groups, row) => {
+  return rows.reduce((groups: Array<{ key: string; rows: typeof rows }>, row) => {
     const key = [row.game.externalEventId, row.playerId, row.marketType, row.side].join(":");
     const existing = groups.find((group) => group.key === key);
     if (existing) {

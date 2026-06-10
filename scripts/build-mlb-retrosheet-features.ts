@@ -2,12 +2,21 @@ import { PrismaClient } from "@prisma/client";
 
 import { buildRollingMlbEloSnapshots } from "@/services/data/retrosheet/feature-builder";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient() as any;
 const SOURCE_KEY = "RETROSHEET";
 const ROLLING_PITCHER_GAMES = 5;
 
 async function main() {
-  const games = await prisma.retrosheetGame.findMany({
+  const games: Array<{
+    retrosheetGameId: string;
+    gameDate: Date;
+    season: number;
+    homeTeamId: string;
+    awayTeamId: string;
+    homeScore: number | null;
+    awayScore: number | null;
+    isPostseason: boolean;
+  }> = await prisma.retrosheetGame.findMany({
     where: {
       sourceKey: SOURCE_KEY,
       homeScore: { not: null },
@@ -51,7 +60,14 @@ async function main() {
     });
   }
 
-  const pitchingRows = await prisma.retrosheetPitchingGameStat.findMany({
+  const pitchingRows: Array<{
+    pitcherId: string;
+    retrosheetGameId: string;
+    teamId: string;
+    season: number;
+    gameDate: Date;
+    gameScore: number;
+  }> = await prisma.retrosheetPitchingGameStat.findMany({
     where: { sourceKey: SOURCE_KEY },
     orderBy: [
       { gameDate: "asc" },

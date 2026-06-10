@@ -40,7 +40,10 @@ export async function PATCH(request: Request) {
     const defaults = buildDefaultNotificationPreferences();
     await updateNotificationPreferences({
       deliveryChannels: parsed.deliveryChannels,
-      quietHours: parsed.quietHours,
+      quietHours: {
+        ...defaults.quietHours,
+        ...(parsed.quietHours ?? {})
+      },
       sportPreferences: {
         ...defaults.sportPreferences,
         ...(parsed.sportPreferences ?? {})

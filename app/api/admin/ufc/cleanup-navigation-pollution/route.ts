@@ -16,6 +16,7 @@ type PollutedFightRow = {
 };
 
 type CountRow = { count: number | bigint };
+type PollutedFightSample = PollutedFightRow;
 
 const BAD_NAMES = [
   "ufc", "ufc apex", "find a gym", "find a bar", "skip to main content", "events", "tickets", "watch", "shop",
@@ -163,7 +164,7 @@ export async function GET(request: Request) {
       candidateFights: fights.length,
       markedFights,
       pollutedFighterNamesInTable: fighterJunkCount,
-      sample: fights.slice(0, 50).map((fight) => ({
+      sample: fights.slice(0, 50).map((fight: PollutedFightSample) => ({
         fightId: fight.fight_id,
         eventLabel: fight.event_label,
         fightDate: iso(fight.fight_date),

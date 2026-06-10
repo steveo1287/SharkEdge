@@ -169,7 +169,7 @@ export async function buildSharkVerdictFromEdges(
 
   if (signals.length === 0) return null;
 
-  const latestAt = signals.reduce<Date | null>((latest, s) => {
+  const latestAt = signals.reduce((latest: Date | null, s) => {
     return !latest || s.createdAt > latest ? s.createdAt : latest;
   }, null);
   const ageMinutes = latestAt ? (Date.now() - latestAt.getTime()) / 60000 : null;

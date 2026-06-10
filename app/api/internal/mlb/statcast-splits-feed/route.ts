@@ -33,7 +33,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ ok: false, error: "No Statcast data available — run the MLB statcast ingestion pipeline first." }, { status: 503 });
     }
     // Return empty-but-named rows so the consumer at least gets team names
-    const placeholder = Object.values(liveProfiles).map((p) => ({ teamName: p.teamName, source: "estimated" }));
+    const placeholder = Object.values(liveProfiles as Record<string, { teamName?: string }>)
+      .map((p) => ({ teamName: p.teamName ?? "Unknown", source: "estimated" }));
     return NextResponse.json({ ok: true, source: "estimated", splits: placeholder, count: placeholder.length });
   }
 

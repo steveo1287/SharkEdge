@@ -409,9 +409,11 @@ async function probeBookFeedProvider(
   let reason: string | null = null;
 
   if (!result.ok) {
-    state = nextState.lastSuccessAt ? "DEGRADED" : result.status === "NOT_CONFIGURED" ? "NOT_CONFIGURED" : "ERROR";
-    reason = result.reason;
-    pushIfPresent(warnings, result.reason);
+    const errorStatus = "status" in result ? result.status : null;
+    const errorReason = "reason" in result ? result.reason : "Feed fetch failed.";
+    state = nextState.lastSuccessAt ? "DEGRADED" : errorStatus === "NOT_CONFIGURED" ? "NOT_CONFIGURED" : "ERROR";
+    reason = errorReason;
+    pushIfPresent(warnings, errorReason);
   } else {
     const ageMinutes = getFreshnessMinutes(result.fetchedAt);
     if (typeof ageMinutes === "number" && ageMinutes > SOFT_STALE_MINUTES) {

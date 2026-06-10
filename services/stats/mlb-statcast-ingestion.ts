@@ -358,7 +358,7 @@ async function findMlbLeague() {
 
 async function teamByAbbreviation(leagueId: string) {
   const teams = await prisma.team.findMany({ where: { leagueId } });
-  return new Map(teams.map((team) => [normalizeTeam(team.abbreviation), team]));
+  return new Map<string, (typeof teams)[number]>(teams.map((team) => [normalizeTeam(team.abbreviation), team]));
 }
 
 async function playerByMlbIdOrName(leagueId: string) {

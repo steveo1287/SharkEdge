@@ -10,6 +10,8 @@ RUN npm ci --include=dev
 COPY . .
 
 ENV NODE_ENV=production
+ENV SHARKEDGE_WORKER_MODE=disabled
+ENV SHARKEDGE_DISABLE_WORKERS=true
 ENV RAILWAY_WORKER_KIND=sim-worker
 
 CMD ["npm", "run", "worker:railway:sim"]

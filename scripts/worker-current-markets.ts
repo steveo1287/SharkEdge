@@ -45,25 +45,22 @@ async function main() {
     liveOnly
   });
 
-  const batchLeagues = Array.from(
-    new Set(
-      (leagueKey
-        ? [toLeagueKey(leagueKey)]
-        : (
-            await prisma.event.findMany({
-              where: {
-                id: { in: events.map((event) => event.id) }
-              },
-              select: {
-                league: {
-                  select: { key: true }
-                }
-              }
-            })
-          ).map((event) => toLeagueKey(event.league.key))
-      ).filter((value): value is LeagueKey => Boolean(value))
-    )
-  );
+  const batchLeagueCandidates: Array<LeagueKey | null> = leagueKey
+    ? [toLeagueKey(leagueKey)]
+    : (
+        await prisma.event.findMany({
+          where: {
+            id: { in: events.map((event) => event.id) }
+          },
+          select: {
+            league: {
+              select: { key: true }
+            }
+          }
+        })
+      ).map((event) => toLeagueKey(event.league.key));
+
+  const batchLeagues = Array.from(new Set(batchLeagueCandidates.filter((value): value is LeagueKey => Boolean(value))));
 
   if (batchLeagues.length) {
     const bookFeedRefresh = await refreshCurrentBookFeeds({

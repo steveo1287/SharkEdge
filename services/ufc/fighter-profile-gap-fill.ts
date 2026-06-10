@@ -368,14 +368,14 @@ function numericProfile(profile: CompleteFighterProfile) {
 
 async function loadFighters(limit: number, upcomingOnly: boolean, horizonDays: number) {
   if (!upcomingOnly) {
-    return prisma.$queryRaw<FighterRow[]>`
+    return (await prisma.$queryRaw<FighterRow[]>`
       SELECT id, full_name, stance, height_inches, reach_inches, combat_base, payload_json
       FROM ufc_fighters
       ORDER BY updated_at DESC, full_name
       LIMIT ${limit}
-    `;
+    `) as FighterRow[];
   }
-  return prisma.$queryRaw<FighterRow[]>`
+  return (await prisma.$queryRaw<FighterRow[]>`
     SELECT DISTINCT ftr.id, ftr.full_name, ftr.stance, ftr.height_inches, ftr.reach_inches, ftr.combat_base, ftr.payload_json
     FROM ufc_fighters ftr
     JOIN ufc_fights f ON f.fighter_a_id = ftr.id OR f.fighter_b_id = ftr.id
@@ -385,11 +385,11 @@ async function loadFighters(limit: number, upcomingOnly: boolean, horizonDays: n
       AND COALESCE(f.payload_json->>'matchupQuality', '') <> 'FAKE_NAVIGATION'
     ORDER BY ftr.full_name
     LIMIT ${limit}
-  `;
+  `) as FighterRow[];
 }
 
 async function loadUpcomingFights(horizonDays: number, limit: number) {
-  return prisma.$queryRaw<UpcomingFightRow[]>`
+  return (await prisma.$queryRaw<UpcomingFightRow[]>`
     SELECT id AS fight_id, fight_date, event_label, weight_class, fighter_a_id, fighter_b_id
     FROM ufc_fights
     WHERE fight_date >= now() - interval '12 hours'
@@ -398,7 +398,7 @@ async function loadUpcomingFights(horizonDays: number, limit: number) {
       AND COALESCE(payload_json->>'matchupQuality', '') <> 'FAKE_NAVIGATION'
     ORDER BY fight_date ASC
     LIMIT ${limit}
-  `;
+  `) as UpcomingFightRow[];
 }
 
 async function updateFighter(profile: CompleteFighterProfile) {
@@ -530,7 +530,7 @@ export async function fillUfcFighterProfileGaps(options: { limit?: number; horiz
   }
   let writtenFightFeatures = 0;
   if (writeFightFeatures) {
-    const profileById = new Map(profiles.map((profile) => [profile.fighterId, profile]));
+    const profileById = new Map<string, CompleteFighterProfile>(profiles.map((profile) => [profile.fighterId, profile]));
     const fights = await loadUpcomingFights(horizonDays, Math.max(100, limit));
     for (const fight of fights) {
       const a = profileById.get(fight.fighter_a_id);

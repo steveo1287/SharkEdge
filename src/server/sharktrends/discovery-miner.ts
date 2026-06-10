@@ -283,7 +283,7 @@ export function buildDiscoveryFeedFromRows(rows: SharkTrendContextRow[], limit =
 }
 
 export async function fetchDiscoveryRows(limit = 25000) {
-  const rows = await prisma.$queryRawUnsafe<RawDiscoveryRow[]>(`
+  const rows = (await prisma.$queryRawUnsafe(`
     SELECT c.*, e."gameNumber" AS game_number
     FROM mlb_game_context c
     LEFT JOIN events e ON e.id = c.event_id
@@ -291,7 +291,7 @@ export async function fetchDiscoveryRows(limit = 25000) {
       AND c.data_quality_score >= 35
     ORDER BY c.start_time DESC
     LIMIT ${Math.max(100, Math.min(100000, Math.floor(limit)))}
-  `);
+  `)) as RawDiscoveryRow[];
   return rows.map(rawContextToRow);
 }
 

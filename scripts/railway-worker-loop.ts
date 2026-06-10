@@ -1,3 +1,6 @@
+import { getBooleanArg, logStep, parseArgs } from "./_runtime-utils";
+import { shouldRunHeavyWorker } from "./worker-mode";
+
 type WorkerTask = {
   name: string;
   path: string;
@@ -217,12 +220,25 @@ async function runTaskLoop(task: WorkerTask, baseUrl: string, secret: string) {
 
 async function main() {
   const kind = process.env.RAILWAY_WORKER_KIND?.trim() || process.argv[2]?.trim() || process.env.SHARKEDGE_SERVICE_MODE?.trim() || "sim-worker";
+  const gate = shouldRunHeavyWorker(kind);
+  if (!gate.ok) {
+    console.info(`[railway-worker] disabled kind=${kind} mode=${gate.mode} reason=${gate.message}`);
+    return;
+  }
   const baseUrl = serviceBaseUrl();
   const secret = authSecret();
   const tasks = tasksForKind(kind);
+  const once = getBooleanArg(parseArgs(process.argv.slice(2)), "once");
 
   console.info(`[railway-worker] start kind=${kind} baseUrl=${baseUrl} tasks=${tasks.map((task) => `${task.name}:${task.intervalSeconds}s`).join(",")}`);
   if (!secret) console.warn("[railway-worker] CRON_SECRET/INTERNAL_API_KEY is missing; protected endpoints will return 401.");
+
+  if (once) {
+    for (const task of tasks) {
+      await callTask(task, baseUrl, secret);
+    }
+    return;
+  }
 
   await Promise.all(tasks.map((task) => runTaskLoop(task, baseUrl, secret)));
 }

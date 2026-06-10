@@ -474,90 +474,98 @@ async function buildMlbLane(): Promise<TendencyCoverageLane> {
     safeMlbPitcherRatings(),
     safeMlbLineupSnapshots()
   ]);
+  const typedPlayers = players as Array<{ id: string; position?: string | null; externalIds?: unknown }>;
+  const typedPlayerStats = playerStats as Array<{ playerId: string; starter?: boolean | null; updatedAt: string | Date | null; statsJson: unknown }>;
+  const typedTeamStats = teamStats as Array<{ statsJson: unknown; updatedAt: string | Date | null }>;
+  const typedPitcherRatings = pitcherRatings as Array<{ team?: string | null; snapshot_at: string | Date | null } & Record<string, unknown>>;
+  const typedLineupSnapshots = lineupSnapshots as Array<MlbLineupSnapshotRow & { captured_at: string | Date | null }>;
 
-  const playerTotal = Math.max(1, players.length);
-  const statTotal = Math.max(1, playerStats.length);
-  const teamTotal = Math.max(1, teamStats.length);
-  const lineupTotal = Math.max(1, lineupSnapshots.length || teamStats.length);
-  const statRecords = playerStats.map((row) => asRecord(row.statsJson));
-  const pitcherStatRecords = statRecords.filter(pitcherStatLike);
-  const pitcherProfileTotal = Math.max(1, pitcherRatings.length || pitcherStatRecords.length);
-  const teamRecords = teamStats.map((row) => asRecord(row.statsJson));
-  const pitcherTeams = new Set(pitcherRatings.map((row) => row.team).filter(Boolean));
+  const playerTotal = Math.max(1, typedPlayers.length);
+  const statTotal = Math.max(1, typedPlayerStats.length);
+  const teamTotal = Math.max(1, typedTeamStats.length);
+  const lineupTotal = Math.max(1, typedLineupSnapshots.length || typedTeamStats.length);
+  const statRecords: JsonRecord[] = typedPlayerStats.map((row) => asRecord(row.statsJson));
+  const pitcherStatRecords: JsonRecord[] = statRecords.filter(pitcherStatLike);
+  const pitcherProfileTotal = Math.max(1, typedPitcherRatings.length || pitcherStatRecords.length);
+  const teamRecords: JsonRecord[] = typedTeamStats.map((row) => asRecord(row.statsJson));
+  const pitcherTeams = new Set<string>(typedPitcherRatings.map((row) => row.team).filter((team): team is string => Boolean(team)));
 
   const rawPitchMixCount = boolCount(pitcherStatRecords, (row) => Object.keys(nestedRecord(row, ["statcast", "pitching", "pitchMix"])).length > 0);
-  const runtimePitchMixCount = boolCount(pitcherRatings, pitcherRatingHasArsenal);
+  const runtimePitchMixCount = boolCount(typedPitcherRatings, pitcherRatingHasArsenal);
   const rawPitcherContextCount = boolCount(pitcherStatRecords, (row) => hasAny(row, ["pitcherOuts", "outsPitched", "pitchingStrikeouts", "pitchesThrown", "gameScore", "era", "fip", "xera", "xERA"]));
-  const runtimePitcherContextCount = boolCount(pitcherRatings, pitcherRatingHasContext);
+  const runtimePitcherContextCount = boolCount(typedPitcherRatings, pitcherRatingHasContext);
   const rawProbableCount = boolCount(teamRecords, (row) => hasAny(row, ["probablePitcherId", "probablePitcherName", "starterPitcherId", "starterPitcherName"]));
-  const runtimeProbableCount = boolCount(lineupSnapshots, (row) => lineupHasPitchingFallback(row, pitcherTeams));
+  const runtimeProbableCount = boolCount(typedLineupSnapshots, (row) => lineupHasPitchingFallback(row, pitcherTeams));
   const rawBullpenCount = boolCount(teamRecords, (row) => hasAny(row, ["bullpenInningsLast3", "bullpenPitchesLast3", "highLeveragePitchesLast3", "closerAvailable"]));
-  const runtimeBullpenCount = boolCount(lineupSnapshots, (row) => lineupHasBullpenFallback(row, pitcherTeams));
+  const runtimeBullpenCount = boolCount(typedLineupSnapshots, (row) => lineupHasBullpenFallback(row, pitcherTeams));
 
   const metrics = [
-    metric("mlb_roster_identity", "Roster players with external IDs", boolCount(players, (player) => Object.keys(asRecord(player.externalIds)).length > 0), playerTotal),
-    metric("mlb_positions", "Roster players with positions", boolCount(players, (player) => Boolean(player.position)), playerTotal),
-    metric("mlb_recent_player_rows", "Roster players with recent stat rows", uniqueCount(playerStats, (row) => row.playerId), playerTotal),
-    metric("mlb_starters_tagged", "Player stat rows tagged as starters", boolCount(playerStats, (row) => row.starter), statTotal),
+    metric("mlb_roster_identity", "Roster players with external IDs", boolCount(typedPlayers, (player) => Object.keys(asRecord(player.externalIds)).length > 0), playerTotal),
+    metric("mlb_positions", "Roster players with positions", boolCount(typedPlayers, (player) => Boolean(player.position)), playerTotal),
+    metric("mlb_recent_player_rows", "Roster players with recent stat rows", uniqueCount(typedPlayerStats, (row) => row.playerId), playerTotal),
+    metric("mlb_starters_tagged", "Player stat rows tagged as starters", boolCount(typedPlayerStats, (row) => row.starter), statTotal),
     metric("mlb_statcast_profiles", "Player rows with Statcast profiles", boolCount(statRecords, (row) => Object.keys(asRecord(row.statcast)).length > 0), statTotal),
     metric("mlb_xwoba", "Player rows with xwOBA", boolCount(statRecords, (row) => hasNested(row, ["statcast", "xwoba"])), statTotal),
     metric("mlb_hard_hit", "Player rows with hard-hit rate", boolCount(statRecords, (row) => hasNested(row, ["statcast", "hardHitRate"])), statTotal),
     metric("mlb_pitch_mix", "Pitcher rows with pitch/arsenal profile", Math.max(rawPitchMixCount, runtimePitchMixCount), pitcherProfileTotal),
     metric("mlb_pitcher_context", "Pitcher rows with model context", Math.max(rawPitcherContextCount, runtimePitcherContextCount), pitcherProfileTotal),
     metric("mlb_plate_discipline", "Rows with plate-discipline tendency", boolCount(statRecords, (row) => hasNested(row, ["statcast", "chaseRate"]) || hasNested(row, ["statcast", "contactRate"]) || hasAny(row, ["strikeoutRate", "walkRate"])), statTotal),
-    metric("mlb_probable_pitchers", "Games/teams with starter context", Math.max(rawProbableCount, runtimeProbableCount), lineupSnapshots.length ? lineupTotal : teamTotal),
-    metric("mlb_bullpen_usage", "Games/teams with bullpen context", Math.max(rawBullpenCount, runtimeBullpenCount), lineupSnapshots.length ? lineupTotal : teamTotal)
+    metric("mlb_probable_pitchers", "Games/teams with starter context", Math.max(rawProbableCount, runtimeProbableCount), typedLineupSnapshots.length ? lineupTotal : teamTotal),
+    metric("mlb_bullpen_usage", "Games/teams with bullpen context", Math.max(rawBullpenCount, runtimeBullpenCount), typedLineupSnapshots.length ? lineupTotal : teamTotal)
   ];
 
   return buildLane("MLB", "MLB roster/player tendencies", metrics, {
-    playerCount: players.length,
-    playerStatRows: playerStats.length,
+    playerCount: typedPlayers.length,
+    playerStatRows: typedPlayerStats.length,
     pitcherStatRows: pitcherStatRecords.length,
-    teamStatRows: teamStats.length,
-    pitcherRatingRows: pitcherRatings.length,
-    lineupSnapshotRows: lineupSnapshots.length,
-    latestPlayerStatAt: latestIso(playerStats.map((row) => row.updatedAt)),
-    latestTeamStatAt: latestIso(teamStats.map((row) => row.updatedAt)),
-    latestPitcherRatingAt: latestIso(pitcherRatings.map((row) => row.snapshot_at)),
-    latestLineupSnapshotAt: latestIso(lineupSnapshots.map((row) => row.captured_at))
+    teamStatRows: typedTeamStats.length,
+    pitcherRatingRows: typedPitcherRatings.length,
+    lineupSnapshotRows: typedLineupSnapshots.length,
+    latestPlayerStatAt: latestIso(typedPlayerStats.map((row) => row.updatedAt)),
+    latestTeamStatAt: latestIso(typedTeamStats.map((row) => (row as { updatedAt?: string | Date | null }).updatedAt)),
+    latestPitcherRatingAt: latestIso(typedPitcherRatings.map((row) => (row as { snapshot_at?: string | Date | null }).snapshot_at)),
+    latestLineupSnapshotAt: latestIso(typedLineupSnapshots.map((row) => row.captured_at))
   }, { includedInScore: true, scoringReason: "MLB is an active SimHub product lane." });
 }
 
 async function buildMmaLane(): Promise<TendencyCoverageLane> {
   const active = await safeActiveUfcFightSummary();
   let [fighters, features] = await Promise.all([safeUfcFighters(), safeUfcModelFeatures()]);
+  const typedFeatures = features as UfcModelFeatureRow[];
   const autoBuild = await maybeBuildUfcFeatures(active.activeFights, features.length);
   if (autoBuild.attempted && autoBuild.features !== features.length) {
     features = await safeUfcModelFeatures();
     fighters = await safeUfcFighters();
   }
+  const finalTypedFighters = fighters as UfcFighterRow[];
+  const finalTypedFeatures = features as UfcModelFeatureRow[];
 
-  const includedInScore = active.activeFights > 0 || features.length > 0;
-  const fighterMap = new Map(fighters.map((fighter) => [fighter.id, fighter]));
-  const total = Math.max(1, features.length || fighters.length || active.activeFights * 2);
-  const featureRows = features.length;
+  const includedInScore = active.activeFights > 0 || finalTypedFeatures.length > 0;
+  const fighterMap = new Map(finalTypedFighters.map((fighter) => [fighter.id, fighter]));
+  const total = Math.max(1, finalTypedFeatures.length || finalTypedFighters.length || active.activeFights * 2);
+  const featureRows = finalTypedFeatures.length;
   const metrics = [
-    metric("mma_fighter_identity", "Fighters with model identity", boolCount(features, (row) => ufcHasIdentity(row, fighterMap.get(row.fighter_id))), total),
-    metric("mma_bio_profiles", "Fighters with bio profile", boolCount(features, (row) => ufcHasBio(row, fighterMap.get(row.fighter_id))), total),
-    metric("mma_reach_stance", "Fighters with reach/stance", boolCount(features, (row) => ufcHasReachStance(row, fighterMap.get(row.fighter_id))), total),
-    metric("mma_fight_history", "Fighters with fight history", boolCount(features, ufcHasHistory), total),
-    metric("mma_opponent_strength", "Fighters with opponent-strength context", boolCount(features, ufcHasOpponentStrength), total),
-    metric("mma_striking_tendencies", "Fighters with striking tendencies", boolCount(features, (row) => ufcHasStriking(row, fighterMap.get(row.fighter_id))), total),
-    metric("mma_grappling_tendencies", "Fighters with grappling tendencies", boolCount(features, (row) => ufcHasGrappling(row, fighterMap.get(row.fighter_id))), total),
-    metric("mma_finish_profile", "Fighters with finish/decision profile", boolCount(features, (row) => ufcHasFinishProfile(row, fighterMap.get(row.fighter_id))), total),
-    metric("mma_layoff_short_notice", "Fighters with layoff/short-notice flags", boolCount(features, ufcHasLayoff), total)
+    metric("mma_fighter_identity", "Fighters with model identity", boolCount(finalTypedFeatures, (row) => ufcHasIdentity(row, fighterMap.get(row.fighter_id))), total),
+    metric("mma_bio_profiles", "Fighters with bio profile", boolCount(finalTypedFeatures, (row) => ufcHasBio(row, fighterMap.get(row.fighter_id))), total),
+    metric("mma_reach_stance", "Fighters with reach/stance", boolCount(finalTypedFeatures, (row) => ufcHasReachStance(row, fighterMap.get(row.fighter_id))), total),
+    metric("mma_fight_history", "Fighters with fight history", boolCount(finalTypedFeatures, ufcHasHistory), total),
+    metric("mma_opponent_strength", "Fighters with opponent-strength context", boolCount(finalTypedFeatures, ufcHasOpponentStrength), total),
+    metric("mma_striking_tendencies", "Fighters with striking tendencies", boolCount(finalTypedFeatures, (row) => ufcHasStriking(row, fighterMap.get(row.fighter_id))), total),
+    metric("mma_grappling_tendencies", "Fighters with grappling tendencies", boolCount(finalTypedFeatures, (row) => ufcHasGrappling(row, fighterMap.get(row.fighter_id))), total),
+    metric("mma_finish_profile", "Fighters with finish/decision profile", boolCount(finalTypedFeatures, (row) => ufcHasFinishProfile(row, fighterMap.get(row.fighter_id))), total),
+    metric("mma_layoff_short_notice", "Fighters with layoff/short-notice flags", boolCount(finalTypedFeatures, ufcHasLayoff), total)
   ];
 
   return buildLane("MMA", "MMA fighter profiles/tendencies", metrics, {
     activeFights: active.activeFights,
-    fighterCount: fighters.length,
+    fighterCount: finalTypedFighters.length,
     featureRows,
     autoBuildAttempted: autoBuild.attempted ? 1 : 0,
     autoBuildFeatures: autoBuild.features,
     autoBuildError: autoBuild.error,
     latestFightDate: active.latestFightDate,
-    latestFeatureUpdatedAt: latestIso(features.map((row) => row.updated_at)),
-    latestFighterUpdatedAt: latestIso(fighters.map((fighter) => fighter.updated_at))
+    latestFeatureUpdatedAt: latestIso(finalTypedFeatures.map((row) => row.updated_at)),
+    latestFighterUpdatedAt: latestIso(finalTypedFighters.map((fighter) => fighter.updated_at))
   }, {
     includedInScore,
     scoringReason: includedInScore

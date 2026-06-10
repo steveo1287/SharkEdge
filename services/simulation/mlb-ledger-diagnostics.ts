@@ -23,32 +23,32 @@ function rowsByLabel(rows: BreakdownRow[]) {
 }
 
 async function tableCount(table: "mlb_model_snapshot_ledger" | "mlb_official_pick_ledger", where = "") {
-  const rows = await prisma.$queryRawUnsafe<CountRow[]>(`SELECT COUNT(*)::bigint AS count FROM ${table} ${where};`);
+  const rows = (await prisma.$queryRawUnsafe(`SELECT COUNT(*)::bigint AS count FROM ${table} ${where};`)) as CountRow[];
   return count(rows[0]);
 }
 
 async function latestTimestamp(table: "mlb_model_snapshot_ledger" | "mlb_official_pick_ledger", column: "captured_at" | "released_at" | "graded_at") {
-  const rows = await prisma.$queryRawUnsafe<TimestampRow[]>(`SELECT MAX(${column}) AS latest FROM ${table};`);
+  const rows = (await prisma.$queryRawUnsafe(`SELECT MAX(${column}) AS latest FROM ${table};`)) as TimestampRow[];
   return iso(rows[0]?.latest);
 }
 
 async function breakdown(table: "mlb_model_snapshot_ledger" | "mlb_official_pick_ledger", column: "result" | "model_version") {
-  const rows = await prisma.$queryRawUnsafe<BreakdownRow[]>(`
+  const rows = (await prisma.$queryRawUnsafe(`
     SELECT ${column} AS label, COUNT(*)::bigint AS count
     FROM ${table}
     GROUP BY ${column}
     ORDER BY count DESC;
-  `);
+  `)) as BreakdownRow[];
   return rowsByLabel(rows);
 }
 
 async function pendingPastStart(table: "mlb_model_snapshot_ledger" | "mlb_official_pick_ledger") {
-  const rows = await prisma.$queryRawUnsafe<CountRow[]>(`
+  const rows = (await prisma.$queryRawUnsafe(`
     SELECT COUNT(*)::bigint AS count
     FROM ${table}
     WHERE result = 'PENDING'
       AND start_time < now() - interval '4 hours';
-  `);
+  `)) as CountRow[];
   return count(rows[0]);
 }
 

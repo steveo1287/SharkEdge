@@ -1,3 +1,5 @@
+import { Prisma } from "@prisma/client";
+
 import { hasUsableServerDatabaseUrl, prisma } from "@/lib/db/prisma";
 import { ensureMlbRosterIntelligenceTables } from "@/services/simulation/mlb-roster-intelligence";
 import { buildMlbV8PlayerImpactContext } from "@/services/simulation/mlb-v8-player-impact-model";
@@ -72,6 +74,11 @@ const TEAM_ALIASES: Record<string, string> = {
   "WASHINGTON NATIONALS": "WSH", NATIONALS: "WSH"
 };
 
+const TEAM_FULL_NAMES: Record<string, string> = Object.entries(TEAM_ALIASES).reduce<Record<string, string>>((acc, [fullName, abbr]) => {
+  if (!acc[abbr]) acc[abbr] = fullName;
+  return acc;
+}, {});
+
 function textParam(search: SearchParamsLike, key: string) {
   const value = search[key];
   if (Array.isArray(value)) return value[0] ?? "";
@@ -99,6 +106,19 @@ function toIso(value: Date | string | null | undefined) {
 function normalizeTeam(value: string) {
   const clean = value.trim().toUpperCase().replace(/\s+/g, " ");
   return TEAM_ALIASES[clean] ?? clean;
+}
+
+function teamMatchVariants(team: string) {
+  const normalized = normalizeTeam(team);
+  const alias = TEAM_FULL_NAMES[normalized];
+  const variants = new Set([team.trim(), normalized]);
+  if (alias) variants.add(alias);
+  return [...variants].filter((value) => value.trim().length > 0);
+}
+
+function teamWhereClause(team: string) {
+  const variants = teamMatchVariants(team);
+  return variants;
 }
 
 function optionLabel(option: Omit<MlbBatterBoxGameOption, "label">) {
@@ -186,6 +206,7 @@ async function countLineups(gameId: string, team: string) {
 }
 
 async function latestFallbackHitters(team: string): Promise<MlbProjectionRating[]> {
+  const variants = teamWhereClause(team);
   return prisma.$queryRaw<MlbProjectionRating[]>`
     SELECT DISTINCT ON (player_id)
       player_id AS id, player_name AS name, team, role_tier,
@@ -195,12 +216,13 @@ async function latestFallbackHitters(team: string): Promise<MlbProjectionRating[
       NULL::double precision AS stamina, NULL::double precision AS recent_workload, NULL::double precision AS arsenal_quality,
       overall, metrics_json
     FROM mlb_player_ratings
-    WHERE UPPER(team) = UPPER(${team})
+    WHERE ${variants.length === 1 ? Prisma.sql`UPPER(team) = UPPER(${variants[0]})` : Prisma.sql`UPPER(team) IN (${Prisma.join(variants.map((variant) => Prisma.sql`${variant}`))})`}
     ORDER BY player_id, snapshot_at DESC;
   `;
 }
 
 async function latestFallbackPitchers(team: string): Promise<MlbProjectionRating[]> {
+  const variants = teamWhereClause(team);
   return prisma.$queryRaw<MlbProjectionRating[]>`
     SELECT DISTINCT ON (pitcher_id)
       pitcher_id AS id, pitcher_name AS name, team, role_tier,
@@ -210,21 +232,50 @@ async function latestFallbackPitchers(team: string): Promise<MlbProjectionRating
       xera_quality, fip_quality, k_bb, hr_risk, groundball_rate, platoon_split, stamina, recent_workload, arsenal_quality,
       overall, metrics_json
     FROM mlb_pitcher_ratings
-    WHERE UPPER(team) = UPPER(${team})
+    WHERE ${variants.length === 1 ? Prisma.sql`UPPER(team) = UPPER(${variants[0]})` : Prisma.sql`UPPER(team) IN (${Prisma.join(variants.map((variant) => Prisma.sql`${variant}`))})`}
     ORDER BY pitcher_id, snapshot_at DESC;
   `;
 }
 
 async function latestFallbackLineup(gameId: string, team: string): Promise<MlbProjectionLineup | null> {
+  const variants = teamMatchVariants(team);
   const rows = await prisma.$queryRaw<RawLineupRow[]>`
     SELECT confirmed, batting_order_json, bench_json, starting_pitcher_id, starting_pitcher_name,
       available_relievers_json, unavailable_relievers_json, injuries_json, source, captured_at
     FROM mlb_lineup_snapshots
-    WHERE game_id = ${gameId} AND UPPER(team) = UPPER(${team})
+    WHERE game_id = ${gameId} AND ${variants.length === 1 ? Prisma.sql`UPPER(team) = UPPER(${variants[0]})` : Prisma.sql`UPPER(team) IN (${Prisma.join(variants.map((variant) => Prisma.sql`${variant}`))})`}
     ORDER BY captured_at DESC
     LIMIT 1;
   `;
   return rows[0] ?? null;
+}
+
+function synthesizeLineupFromRatings(hitters: MlbProjectionRating[], pitchers: MlbProjectionRating[], team: string): MlbProjectionLineup {
+  const battingOrder = hitters
+    .slice()
+    .sort((a, b) => (Number(b.overall ?? 0) - Number(a.overall ?? 0)) || a.name.localeCompare(b.name))
+    .slice(0, 9)
+    .map((player, index) => ({
+      playerId: player.id,
+      playerName: player.name,
+      battingOrder: index + 1,
+      roleTier: player.role_tier ?? null
+    }));
+  const starter = pitchers
+    .slice()
+    .sort((a, b) => (Number(b.overall ?? 0) - Number(a.overall ?? 0)) || a.name.localeCompare(b.name))[0] ?? null;
+  return {
+    confirmed: false,
+    batting_order_json: battingOrder,
+    bench_json: hitters.slice(9, 14).map((player) => ({ playerId: player.id, playerName: player.name })),
+    starting_pitcher_id: starter?.id ?? null,
+    starting_pitcher_name: starter?.name ?? null,
+    available_relievers_json: pitchers.slice(1, 6).map((player) => ({ playerId: player.id, playerName: player.name })),
+    unavailable_relievers_json: [],
+    injuries_json: [],
+    source: `synthetic-ratings-${team}`,
+    captured_at: new Date().toISOString()
+  };
 }
 
 async function buildFallbackTeamContext(gameId: string, team: string): Promise<MlbProjectionTeamContext> {
@@ -233,7 +284,8 @@ async function buildFallbackTeamContext(gameId: string, team: string): Promise<M
     latestFallbackHitters(team),
     latestFallbackPitchers(team)
   ]);
-  return { team, lineup, hitters, pitchers };
+  const resolvedLineup = lineup ?? (hitters.length || pitchers.length ? synthesizeLineupFromRatings(hitters, pitchers, team) : null);
+  return { team, lineup: resolvedLineup, hitters, pitchers };
 }
 
 async function buildDiagnostics(args: { gameId: string | null; awayTeam: string | null; homeTeam: string | null; selectedGame: MlbBatterBoxGameOption | null; gameOptions: MlbBatterBoxGameOption[]; paramsReady: boolean; baseWarnings?: string[] }): Promise<MlbBatterBoxDiagnostics> {
@@ -321,6 +373,11 @@ export async function loadMlbBatterBoxProjection(search: SearchParamsLike): Prom
 
   if (awayFallback.hitters.length && homeFallback.hitters.length) {
     diagnostics.warnings.push(`V8 context fallback used: ${context.reason ?? "exact team-key lookup did not return full hitter context"}.`);
+    return { projection: projectFromContexts({ away: awayFallback, home: homeFallback, search }), diagnostics, error: null };
+  }
+
+  if ((awayFallback.lineup || awayFallback.hitters.length || awayFallback.pitchers.length) && (homeFallback.lineup || homeFallback.hitters.length || homeFallback.pitchers.length)) {
+    diagnostics.warnings.push(`Synthetic ratings fallback used: ${context.reason ?? "roster intelligence context was incomplete"}.`);
     return { projection: projectFromContexts({ away: awayFallback, home: homeFallback, search }), diagnostics, error: null };
   }
 

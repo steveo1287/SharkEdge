@@ -265,9 +265,9 @@ export async function runUfcOperationalSkillSim(fightId: string, options: UfcOpe
   const bFeature = features.find((feature) => feature.fighter_id === fight.fighter_b_id);
   if (!aFeature || !bFeature) throw new Error(`UFC operational sim missing two pre-fight feature snapshots for ${fightId}:${modelVersion}`);
 
-  const fighterPayloadRows = await prisma.$queryRaw<FighterPayloadRow[]>`SELECT id, full_name, payload_json FROM ufc_fighters WHERE id IN (${fight.fighter_a_id}, ${fight.fighter_b_id})`;
-  const payloadById = new Map(fighterPayloadRows.map((row) => [row.id, row.payload_json]));
-  const nameById = new Map(fighterPayloadRows.map((row) => [row.id, row.full_name]));
+  const fighterPayloadRows = (await prisma.$queryRaw<FighterPayloadRow[]>`SELECT id, full_name, payload_json FROM ufc_fighters WHERE id IN (${fight.fighter_a_id}, ${fight.fighter_b_id})`) as FighterPayloadRow[];
+  const payloadById = new Map<string, unknown>(fighterPayloadRows.map((row) => [row.id, row.payload_json]));
+  const nameById = new Map<string, string | null>(fighterPayloadRows.map((row) => [row.id, row.full_name]));
   // The fight schedule row is canonical. Older feature rows can carry stale
   // fight_date metadata after provider corrections, so never let that block
   // pre-fight validation for the current fight.

@@ -6,10 +6,12 @@ function normalizeText(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
 }
 
-function inRange(value: number | null | undefined, range?: { min: number; max: number } | null) {
+function inRange(value: number | null | undefined, range?: { min?: number; max?: number } | null) {
   if (!range) return true;
   if (typeof value !== "number" || Number.isNaN(value)) return false;
-  return value >= range.min && value <= range.max;
+  if (typeof range.min === "number" && value < range.min) return false;
+  if (typeof range.max === "number" && value > range.max) return false;
+  return true;
 }
 
 export type TrendFilterBuilderResult = {

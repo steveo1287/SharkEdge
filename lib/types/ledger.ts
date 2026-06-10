@@ -62,14 +62,14 @@ export type SortDirection = (typeof SORT_DIRECTIONS)[number];
 export type LedgerFilterWindow = (typeof FILTER_WINDOWS)[number];
 
 export type LedgerFilters = {
-  status: "ALL" | LedgerBetResult | "SETTLED";
-  sport: "ALL" | SupportedSportCode;
-  league: "ALL" | SupportedLeagueKey;
-  market: "ALL" | LedgerMarketType;
-  sportsbook: string;
-  window: LedgerFilterWindow;
-  sort: LedgerSortKey;
-  direction: SortDirection;
+  status?: "ALL" | LedgerBetResult | "SETTLED";
+  sport?: "ALL" | SupportedSportCode;
+  league?: "ALL" | SupportedLeagueKey;
+  market?: "ALL" | LedgerMarketType;
+  sportsbook?: string;
+  window?: LedgerFilterWindow;
+  sort?: LedgerSortKey;
+  direction?: SortDirection;
 };
 
 export type EventParticipantView = {
@@ -125,7 +125,7 @@ export type BetLegInput = {
 
 export type LedgerBetFormInput = {
   id?: string;
-  placedAt: string;
+  placedAt?: string;
   settledAt?: string | null;
   source: LedgerBetSource;
   externalSourceKey?: string | null;

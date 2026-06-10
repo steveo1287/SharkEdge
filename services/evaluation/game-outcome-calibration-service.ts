@@ -170,13 +170,14 @@ function buildRules(args: { sample: number; brier: number | null; calibrationErr
   };
 }
 
-export async function rebuildGameOutcomeCalibration(args: { leagueKey: string; lookbackDays?: number }): Promise<GameOutcomeCalibrationProfile> {
+export async function rebuildGameOutcomeCalibration(args: { leagueKey?: string; lookbackDays?: number }): Promise<GameOutcomeCalibrationProfile> {
   const lookbackDays = Math.max(14, Math.min(730, args.lookbackDays ?? 180));
+  const leagueKey = (args.leagueKey ?? "MLB").toUpperCase();
   const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
   const projections = await (prisma.eventProjection as any).findMany({
     where: {
       event: {
-        league: { key: args.leagueKey },
+        league: { key: leagueKey },
         status: "FINAL",
         startTime: { gte: since }
       }

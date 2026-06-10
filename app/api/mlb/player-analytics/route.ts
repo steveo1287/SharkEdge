@@ -32,7 +32,7 @@ export async function GET() {
   const rows: Array<MlbPlayerAnalyticsRow & { source?: string }> = upstream && "players" in upstream
     ? upstream.players
     : upstream
-      ? normalizeMlbPlayerRows(rowsFromMlbPlayerBody(upstream.body))
+      ? normalizeMlbPlayerRows(rowsFromMlbPlayerBody((upstream as { body: unknown }).body))
       : await buildInternalFangraphsCompatibleFeed();
   return NextResponse.json({
     ok: true,

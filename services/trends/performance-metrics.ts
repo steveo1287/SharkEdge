@@ -46,13 +46,7 @@ export async function getTrendPerformanceMetrics(filters: TrendFilters): Promise
   try {
     const where = league ? `WHERE graded_at IS NOT NULL AND league = $1` : `WHERE graded_at IS NOT NULL`;
     const params = league ? [league] : [];
-    const rows = await prisma.$queryRawUnsafe<Array<{
-      graded: bigint;
-      wins: bigint;
-      losses: bigint;
-      brier: number | null;
-      avg_confidence: number | null;
-    }>>(`
+    const rows = (await prisma.$queryRawUnsafe(`
       SELECT COUNT(*)::bigint AS graded,
         SUM(CASE WHEN final_home_score <> final_away_score AND ((model_home_win_pct >= 0.5 AND home_won = TRUE) OR (model_home_win_pct < 0.5 AND home_won = FALSE)) THEN 1 ELSE 0 END)::bigint AS wins,
         SUM(CASE WHEN final_home_score <> final_away_score AND NOT ((model_home_win_pct >= 0.5 AND home_won = TRUE) OR (model_home_win_pct < 0.5 AND home_won = FALSE)) THEN 1 ELSE 0 END)::bigint AS losses,
@@ -60,7 +54,13 @@ export async function getTrendPerformanceMetrics(filters: TrendFilters): Promise
         AVG(confidence) AS avg_confidence
       FROM sim_prediction_snapshots
       ${where};
-    `, ...params);
+    `, ...params)) as Array<{
+      graded: bigint;
+      wins: bigint;
+      losses: bigint;
+      brier: number | null;
+      avg_confidence: number | null;
+    }>;
 
     const row = rows[0];
     if (!row) return EMPTY;

@@ -220,12 +220,12 @@ async function fetchRealProfiles() {
 
   // Overlay real rest/form from ESPN schedule data
   if (scheduleContexts) {
-    for (const [key, ctx] of Object.entries(scheduleContexts)) {
+    for (const [key, ctx] of Object.entries(scheduleContexts as Record<string, { restTravelEdge?: number; recentFormEdge?: number } >)) {
       if (merged[key]) {
         merged[key] = {
           ...merged[key],
           restTravel: ctx.restTravelEdge,
-          recentForm: Number((merged[key].recentForm * 0.5 + ctx.recentFormEdge * 0.5).toFixed(2))
+          recentForm: Number((merged[key].recentForm * 0.5 + (ctx.recentFormEdge ?? 0) * 0.5).toFixed(2))
         };
       }
     }

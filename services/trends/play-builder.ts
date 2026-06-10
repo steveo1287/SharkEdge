@@ -129,10 +129,12 @@ function pickTier(state: ActivationState, finalScore: number) {
   return "PASS" as const;
 }
 
-function isInRange(value: number | null, range: { min: number; max: number } | null | undefined) {
+function isInRange(value: number | null, range: { min?: number; max?: number } | null | undefined) {
   if (!range) return null;
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  return value >= range.min && value <= range.max;
+  if (typeof range.min === "number" && value < range.min) return null;
+  if (typeof range.max === "number" && value > range.max) return null;
+  return true;
 }
 
 function computeActivationState(args: {

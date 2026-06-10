@@ -11,7 +11,7 @@ export type SharkTrendSide = "TEAM" | "OPPONENT" | "OVER" | "UNDER" | "HOME" | "
 export type SharkTrendHomeAway = "HOME" | "AWAY" | "ALL";
 
 export type SharkTrendFilter = {
-  league: "MLB";
+  league?: "MLB";
   seasons?: number[];
   team?: string;
   opponent?: string;

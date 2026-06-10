@@ -685,7 +685,14 @@ export async function buildEliteUfcFighterProfiles(options: { modelVersion?: str
 
   for (const fighter of fighters) {
     try {
-      const { snapshot, profile } = buildProfileFeatureSnapshot({ fighter, stats: statsById.get(fighter.id), amateur: amateurById.get(fighter.id), prospect: prospectById.get(fighter.id), generatedAt, modelVersion });
+      const { snapshot, profile } = buildProfileFeatureSnapshot({
+        fighter,
+        stats: statsById.get(fighter.id) as AggregateStatsRow | undefined,
+        amateur: amateurById.get(fighter.id) as AmateurRow | undefined,
+        prospect: prospectById.get(fighter.id) as ProspectRow | undefined,
+        generatedAt,
+        modelVersion
+      });
       baseFeatureByFighter.set(fighter.id, snapshot);
       qualityCounts[profile.dataQuality] = (qualityCounts[profile.dataQuality] ?? 0) + 1;
       if (!options.dryRun) await updateFighterProfile(profile);

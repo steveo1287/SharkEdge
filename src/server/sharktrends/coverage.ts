@@ -78,7 +78,7 @@ function scoreCoverage(args: { eventCount: number; gradedEventCount: number; mar
 export async function getMlbHistoricalOddsCoverage(db: Db): Promise<MlbHistoricalOddsCoverage> {
   const sourceSql = HISTORICAL_SOURCE_KEYS.map((key) => `'${key}'`).join(",");
   const [summaryRows, marketTypeRows, sourceRows, seasonRows, statusRows] = await Promise.all([
-    db.$queryRawUnsafe<CoverageRow[]>(`
+    (await db.$queryRawUnsafe(`
       SELECT
         MIN(e."startTime") AS min_event_start_time,
         MAX(e."startTime") AS max_event_start_time,
@@ -95,8 +95,8 @@ export async function getMlbHistoricalOddsCoverage(db: Db): Promise<MlbHistorica
       LEFT JOIN event_market_snapshots ems ON ems."eventMarketId" = em.id
       LEFT JOIN event_results er ON er."eventId" = e.id
       WHERE l.key = 'MLB' AND em."sourceKey" IN (${sourceSql})
-    `),
-    db.$queryRawUnsafe<KeyCountRow[]>(`
+    `)) as CoverageRow[],
+    (await db.$queryRawUnsafe(`
       SELECT em."marketType"::text AS key, COUNT(*) AS count
       FROM event_markets em
       JOIN events e ON e.id = em."eventId"
@@ -104,8 +104,8 @@ export async function getMlbHistoricalOddsCoverage(db: Db): Promise<MlbHistorica
       WHERE l.key = 'MLB' AND em."sourceKey" IN (${sourceSql})
       GROUP BY em."marketType"::text
       ORDER BY em."marketType"::text
-    `),
-    db.$queryRawUnsafe<KeyCountRow[]>(`
+    `)) as KeyCountRow[],
+    (await db.$queryRawUnsafe(`
       SELECT COALESCE(em."sourceKey", 'unknown') AS key, COUNT(*) AS count
       FROM event_markets em
       JOIN events e ON e.id = em."eventId"
@@ -113,8 +113,8 @@ export async function getMlbHistoricalOddsCoverage(db: Db): Promise<MlbHistorica
       WHERE l.key = 'MLB' AND em."sourceKey" IN (${sourceSql})
       GROUP BY COALESCE(em."sourceKey", 'unknown')
       ORDER BY key
-    `),
-    db.$queryRawUnsafe<KeyCountRow[]>(`
+    `)) as KeyCountRow[],
+    (await db.$queryRawUnsafe(`
       SELECT EXTRACT(YEAR FROM e."startTime")::int AS key, COUNT(DISTINCT e.id) AS count
       FROM event_markets em
       JOIN events e ON e.id = em."eventId"
@@ -122,8 +122,8 @@ export async function getMlbHistoricalOddsCoverage(db: Db): Promise<MlbHistorica
       WHERE l.key = 'MLB' AND em."sourceKey" IN (${sourceSql})
       GROUP BY EXTRACT(YEAR FROM e."startTime")::int
       ORDER BY key
-    `),
-    db.$queryRawUnsafe<CoverageTableStatusRow[]>(`
+    `)) as KeyCountRow[],
+    (await db.$queryRawUnsafe(`
       SELECT
         COUNT(DISTINCT CASE WHEN ems.id IS NULL THEN em.id END) AS markets_without_snapshots,
         COUNT(DISTINCT CASE WHEN ems.id IS NOT NULL AND er.id IS NULL AND e.status <> 'FINAL' THEN e.id END) AS snapshots_without_results
@@ -133,7 +133,7 @@ export async function getMlbHistoricalOddsCoverage(db: Db): Promise<MlbHistorica
       LEFT JOIN event_market_snapshots ems ON ems."eventMarketId" = em.id
       LEFT JOIN event_results er ON er."eventId" = e.id
       WHERE l.key = 'MLB' AND em."sourceKey" IN (${sourceSql})
-    `)
+    `)) as CoverageTableStatusRow[]
   ]);
 
   const summary = summaryRows[0] ?? null;

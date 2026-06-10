@@ -67,10 +67,12 @@ if (!global.prismaResolutionLogged) {
   global.prismaResolutionLogged = true;
 }
 
-export const prisma =
+const prismaClient =
   global.prismaGlobal ??
   new PrismaClient(prismaOptions);
 
+export const prisma: any = prismaClient;
+
 if (process.env.NODE_ENV !== "production") {
-  global.prismaGlobal = prisma;
+  global.prismaGlobal = prismaClient;
 }

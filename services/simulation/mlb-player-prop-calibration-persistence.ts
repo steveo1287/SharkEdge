@@ -142,14 +142,14 @@ export async function fetchPersistedMlbPlayerPropCalibrationRows(args: { lookbac
   if (!hasUsableServerDatabaseUrl()) return [] as MlbSettledBatterPropProbabilityRow[];
   const lookbackDays = Math.max(1, args.lookbackDays ?? 365);
   const limit = Math.max(1, Math.min(args.limit ?? 20000, 100000));
-  const rows = await prisma.$queryRawUnsafe<DbCalibrationRow[]>(`
+  const rows = (await prisma.$queryRawUnsafe(`
     SELECT market, line, side, model_probability, won, player_id, player_name, hitter_archetype, pitcher_archetype,
            matchup_cluster_key, book, odds_american, confidence, settled_at
     FROM mlb_player_prop_calibration_rows
     WHERE settled_at IS NULL OR settled_at >= NOW() - INTERVAL '${lookbackDays} days'
     ORDER BY settled_at DESC NULLS LAST, created_at DESC
     LIMIT ${limit}
-  `);
+  `)) as DbCalibrationRow[];
   return rows.map(toCalibrationRow);
 }
 

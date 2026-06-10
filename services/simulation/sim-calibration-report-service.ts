@@ -324,14 +324,14 @@ export async function fitAndPersistSimCalibrationProfiles() {
     .map((event) => event.externalEventId)
     .filter((value): value is string => Boolean(value));
 
-  const games = externalIds.length > 0
+  const games = (externalIds.length > 0
     ? await prisma.game.findMany({
         where: { externalEventId: { in: externalIds } },
         include: {
           playerGameStats: true
         }
       })
-    : [];
+    : []) as Array<{ externalEventId: string | null; playerGameStats: Array<{ playerId: string; statsJson: unknown }> }>;
 
   const gamesByExternalId = new Map(games.map((game) => [game.externalEventId, game]));
   const recordsByLeague = new Map<string, {

@@ -120,23 +120,23 @@ async function statAgg(fightId: string) {
 
 async function latestRatings(fighterIds: string[], asOf: Date | string) {
   if (!fighterIds.length) return new Map<string, number>();
-  const rows = await prisma.$queryRaw<RatingRow[]>`
+  const rows = (await prisma.$queryRaw<RatingRow[]>`
     SELECT DISTINCT ON (fighter_id) fighter_id, COALESCE(post_fight_rating, pre_fight_rating) AS rating
     FROM ufc_fighter_ratings
     WHERE fighter_id = ANY(${fighterIds}::text[])
       AND as_of <= ${asOf}::timestamptz
     ORDER BY fighter_id, as_of DESC, updated_at DESC
-  `;
+  `) as RatingRow[];
   return new Map(rows.map((row) => [row.fighter_id, row.rating ?? BASE_RATING]));
 }
 
 async function payloads(fighterIds: string[]) {
   if (!fighterIds.length) return new Map<string, unknown>();
-  const rows = await prisma.$queryRaw<FighterPayloadRow[]>`
+  const rows = (await prisma.$queryRaw<FighterPayloadRow[]>`
     SELECT id, payload_json
     FROM ufc_fighters
     WHERE id = ANY(${fighterIds}::text[])
-  `;
+  `) as FighterPayloadRow[];
   return new Map(rows.map((row) => [row.id, row.payload_json]));
 }
 

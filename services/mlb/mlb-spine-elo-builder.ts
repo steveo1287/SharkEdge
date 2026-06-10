@@ -4,6 +4,7 @@ import type { MlbEloGameInput } from "@/services/data/retrosheet/feature-builder
 
 const SOURCE_KEY = "SPINE";
 const CHUNK_SIZE = 500;
+const db = prisma as any;
 
 type SpineGameRow = {
   game_pk: number;
@@ -26,7 +27,7 @@ export async function buildSpineEloSnapshots(): Promise<{
   teamsUpdated: number;
   eloRowsUpserted: number;
 }> {
-  const rows = await prisma.$queryRaw<SpineGameRow[]>`
+  const rows = (await db.$queryRaw<SpineGameRow[]>`
     SELECT
       game_pk,
       official_date,
@@ -42,13 +43,13 @@ export async function buildSpineEloSnapshots(): Promise<{
       AND home_team_id IS NOT NULL
       AND away_team_id IS NOT NULL
     ORDER BY official_date ASC, game_pk ASC
-  `;
+  `) as SpineGameRow[];
 
   if (!rows.length) return { gamesProcessed: 0, teamsUpdated: 0, eloRowsUpserted: 0 };
 
   // 1. Insert retrosheet_games (spine-sourced). skipDuplicates makes this idempotent.
-  await chunkCreate(rows, async (chunk) => {
-    await prisma.retrosheetGame.createMany({
+  await chunkCreate<SpineGameRow>(rows, async (chunk) => {
+    await db.retrosheetGame.createMany({
       data: chunk.map((row) => ({
         retrosheetGameId: `spine:${row.game_pk}`,
         sourceKey: SOURCE_KEY,
@@ -65,7 +66,17 @@ export async function buildSpineEloSnapshots(): Promise<{
   });
 
   // 2. Insert retrosheet_team_game_stats (home + away row per game).
-  const statRows = rows.flatMap((row) => [
+  const statRows: Array<{
+    retrosheetGameId: string;
+    teamId: string;
+    opponentTeamId: string;
+    isHome: boolean;
+    sourceKey: string;
+    gameDate: Date;
+    season: number;
+    runs: number;
+    runsAllowed: number;
+  }> = rows.flatMap((row) => [
     {
       retrosheetGameId: `spine:${row.game_pk}`,
       teamId: String(row.home_team_id),
@@ -90,7 +101,7 @@ export async function buildSpineEloSnapshots(): Promise<{
     },
   ]);
   await chunkCreate(statRows, async (chunk) => {
-    await prisma.retrosheetTeamGameStat.createMany({ data: chunk, skipDuplicates: true });
+    await db.retrosheetTeamGameStat.createMany({ data: chunk, skipDuplicates: true });
   });
 
   // 3. Compute rolling Elo from the full chronological game sequence.
@@ -107,9 +118,9 @@ export async function buildSpineEloSnapshots(): Promise<{
   const snapshots = buildRollingMlbEloSnapshots(gameInputs);
 
   // 4. Replace all SPINE Elo snapshots so rating history stays accurate after score corrections.
-  await prisma.mlbTeamEloSnapshot.deleteMany({ where: { sourceKey: SOURCE_KEY } });
+  await db.mlbTeamEloSnapshot.deleteMany({ where: { sourceKey: SOURCE_KEY } });
   await chunkCreate(snapshots, async (chunk) => {
-    await prisma.mlbTeamEloSnapshot.createMany({
+    await db.mlbTeamEloSnapshot.createMany({
       data: chunk.map((snap) => ({
         sourceKey: SOURCE_KEY,
         teamId: snap.teamId,

@@ -276,11 +276,11 @@ export type MockDatabase = {
 };
 
 export type BoardFilters = {
-  league: "ALL" | LeagueKey;
-  date: string;
-  sportsbook: string;
-  market: "all" | "spread" | "moneyline" | "total";
-  status: "pregame" | "live" | "all";
+  league?: "ALL" | LeagueKey;
+  date?: string;
+  sportsbook?: string;
+  market?: "all" | "spread" | "moneyline" | "total";
+  status?: "pregame" | "live" | "all";
 };
 
 export type PropFilters = {
@@ -294,11 +294,11 @@ export type PropFilters = {
 };
 
 export type TrendFilters = {
-  sport: "ALL" | SportCode;
-  league: "ALL" | LeagueKey;
-  market: "ALL" | MarketType;
-  sportsbook: string;
-  side:
+  sport?: "ALL" | SportCode;
+  league?: "ALL" | LeagueKey;
+  market?: "ALL" | MarketType;
+  sportsbook?: string;
+  side?:
     | "ALL"
     | "HOME"
     | "AWAY"
@@ -308,20 +308,20 @@ export type TrendFilters = {
     | "UNDERDOG"
     | "COMPETITOR_A"
     | "COMPETITOR_B";
-  subject: string;
-  team: string;
-  player: string;
-  fighter: string;
-  opponent: string;
-  window: "all" | "30d" | "90d" | "365d";
-  sample: number;
+  subject?: string;
+  team?: string;
+  player?: string;
+  fighter?: string;
+  opponent?: string;
+  window?: "all" | "30d" | "90d" | "365d";
+  sample?: number;
 };
 
 export type BetFilters = {
-  state: "ALL" | "OPEN" | "SETTLED";
-  sport: "ALL" | SportCode;
-  market: "ALL" | MarketType;
-  sportsbook: string;
+  state?: "ALL" | "OPEN" | "SETTLED";
+  sport?: "ALL" | SportCode;
+  market?: "ALL" | MarketType;
+  sportsbook?: string;
 };
 
 export type BoardSupportStatus = "LIVE" | "PARTIAL" | "COMING_SOON";

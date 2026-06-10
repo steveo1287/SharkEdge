@@ -268,7 +268,7 @@ export function BetForm({
     }
 
     setErrors({});
-    await onSubmit(parsed.data);
+    await onSubmit(parsed.data as LedgerBetFormInput);
     setValues(toFormState(null, defaultBookId));
   }
 

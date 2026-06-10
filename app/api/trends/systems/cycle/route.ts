@@ -99,7 +99,8 @@ export async function GET(request: NextRequest) {
     const resultBackfilled = resultBackfill.summary.totalFinalEvents;
     const graded = grade.summary.gradedMatches;
     const missingResults = afterQueue.summary?.missingEventResult ?? 0;
-    const warmedCards = warmCache.warmed.reduce((sum: number, row: any) => sum + (row.cards ?? 0), 0);
+    const warmedRows = warmCache.warmed as Array<{ cards?: number }>;
+    const warmedCards = warmedRows.reduce((sum, row) => sum + (row.cards ?? 0), 0);
     const action = nextAction(ok, graded, resultBackfilled, closingUpdated, captured, ledger.summary.totalSavedRows, missingResults, warmedCards);
     const warnings = [
       capture.ok ? null : "Capture step reported failure.",

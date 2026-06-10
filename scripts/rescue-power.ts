@@ -155,11 +155,12 @@ async function triggerBackendRefresh(baseUrl: string, source: string, force: boo
   });
 
   if (!result.ok) {
+    const reason = "reason" in result ? result.reason : "Request failed.";
     return {
       attempted: true,
       ok: false,
       url,
-      reason: result.reason
+      reason
     } as const;
   }
 
@@ -309,11 +310,12 @@ async function checkBoard(baseUrl: string, league: LeagueKey) {
   const url = buildUrl(baseUrl, "/api/odds/board", { league });
   const result = await fetchJson<BoardPayload>(url);
   if (!result.ok) {
+    const reason = "reason" in result ? result.reason : "Request failed.";
     return {
       ok: false,
       league,
       url,
-      reason: result.reason,
+      reason,
       gameCount: 0,
       configured: false,
       provider: null
@@ -339,11 +341,12 @@ async function checkBookFeed(baseUrl: string, provider: "draftkings" | "fanduel"
   const result = await fetchJson<BookFeedPayload>(url);
 
   if (!result.ok) {
+    const reason = "reason" in result ? result.reason : "Request failed.";
     return {
       ok: false,
       provider,
       url,
-      reason: result.reason,
+      reason,
       eventCount: 0
     } as const;
   }
@@ -414,7 +417,8 @@ async function main() {
   }
 
   if (!ingest.result?.ok) {
-    failures.push(`Ingest status failed: ${ingest.result?.reason ?? "unknown error"}`);
+    const reason = ingest.result && "reason" in ingest.result ? ingest.result.reason : "unknown error";
+    failures.push(`Ingest status failed: ${reason}`);
   } else if (!ingest.counts.some((entry) => entry.gameCount > 0)) {
     failures.push(`Ingest returned zero requested league games for ${leagues.join(", ")}.`);
   }
@@ -468,7 +472,7 @@ async function main() {
           gameCount: 0,
           requestedLeagueCounts: ingest.counts,
           timedOut: ingest.timedOut,
-          reason: ingest.result?.reason ?? null
+          reason: ingest.result && "reason" in ingest.result ? ingest.result.reason : null
         },
     feeds: [draftKings, fanDuel],
     boards: boardChecks,

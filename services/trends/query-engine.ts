@@ -1059,7 +1059,7 @@ export async function getTrendQueryResult(
 
   try {
     const [marketRows, betRows, eventRows] = await fetchSourceRows(filters);
-    const siblingMap = marketRows.reduce<Map<string, any[]>>((map, market: any) => {
+    const siblingMap = marketRows.reduce((map: Map<string, any[]>, market: any) => {
       const key = `${market.eventId}:${market.sportsbookId ?? "book"}:${market.marketType}`;
       map.set(key, [...(map.get(key) ?? []), market]);
       return map;

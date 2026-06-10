@@ -31,7 +31,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await rebuildEloRatings(parsed.data);
+    const result = await rebuildEloRatings(parsed.data as never);
     return NextResponse.json({ ok: true, result });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Elo rebuild failed";

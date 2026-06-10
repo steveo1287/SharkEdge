@@ -134,7 +134,7 @@ export function evaluateLiveQualifier(row: SharkTrendContextRow, filters: SharkT
 }
 
 export async function fetchUpcomingMlbRows(daysAhead = 7) {
-  return prisma.$queryRawUnsafe<UpcomingRow[]>(`
+  return (await prisma.$queryRawUnsafe(`
     SELECT
       e.id AS event_id,
       em.id AS event_market_id,
@@ -168,7 +168,7 @@ export async function fetchUpcomingMlbRows(daysAhead = 7) {
       AND em."marketType"::text IN ('moneyline','spread','total')
     ORDER BY e."startTime" ASC
     LIMIT 500
-  `);
+  `)) as UpcomingRow[];
 }
 
 export async function findLiveSharkTrendQualifiers(args: { filters: SharkTrendFilter; daysAhead?: number }) {

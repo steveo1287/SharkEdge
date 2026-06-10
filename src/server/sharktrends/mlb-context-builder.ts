@@ -374,7 +374,7 @@ export async function fetchMlbWarehouseRows(args: BuildArgs = {}) {
   const marketTypes = args.marketTypes?.length ? args.marketTypes : ["moneyline", "spread", "total"];
   const seasonClause = args.seasons?.length ? `AND EXTRACT(YEAR FROM e."startTime")::int IN (${args.seasons.map(Number).join(",")})` : "";
   const limitClause = args.limit ? `LIMIT ${Math.max(1, Math.floor(args.limit))}` : "";
-  return prisma.$queryRawUnsafe<WarehouseRow[]>(`
+  return (await prisma.$queryRawUnsafe(`
     SELECT
       e.id AS event_id,
       em.id AS event_market_id,
@@ -518,7 +518,7 @@ export async function fetchMlbWarehouseRows(args: BuildArgs = {}) {
       ${seasonClause}
     ORDER BY e."startTime" ASC, em.id ASC
     ${limitClause}
-  `);
+  `)) as WarehouseRow[];
 }
 
 function json(value: unknown): Prisma.JsonValue {

@@ -363,7 +363,7 @@ async function fetchHistoricalFeatureRows(filters: TrendFilters) {
       .catch(() => [])
   ]);
 
-  const siblingGroups = marketRows.reduce<Map<string, HistoricalFeatureRow["siblingProbabilities"]>>((acc, row) => {
+  const siblingGroups = marketRows.reduce((acc: Map<string, HistoricalFeatureRow["siblingProbabilities"]>, row) => {
     const key = `${row.eventId}:${row.sportsbookId}:${row.marketType}`;
     const existing = acc.get(key) ?? [];
     existing.push({

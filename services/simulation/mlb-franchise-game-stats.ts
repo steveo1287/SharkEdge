@@ -456,16 +456,24 @@ export async function getMlbFranchiseGameCenter(gameId: string): Promise<MlbFran
         })
       : Promise.resolve([])
   ]);
+  const typedTeamActualRows = teamActualRows as Array<{ teamId: string; statsJson: unknown }>;
+  const typedPlayerRows = playerRows as Array<{
+    id: string;
+    name: string;
+    teamId: string | null;
+    position: string | null;
+    playerGameStats: Array<{ gameId: string | null; starter: boolean | null; statsJson: unknown }>;
+  }>;
 
-  const actualByTeam = new Map(teamActualRows.map((row) => [row.teamId, teamActual(row.statsJson)]));
+  const actualByTeam = new Map(typedTeamActualRows.map((row) => [row.teamId, teamActual(row.statsJson)]));
   const actualByPlayer = new Map<string, PlayerActualLine>();
-  for (const player of playerRows) {
+  for (const player of typedPlayerRows) {
     const current = resolvedGameId ? player.playerGameStats.find((row) => row.gameId === resolvedGameId) : null;
     if (current) actualByPlayer.set(player.id, playerActual(current.statsJson));
   }
 
-  const hitters = playerRows.filter((player) => !isPitcher(player.position));
-  const pitchers = playerRows.filter((player) => isPitcher(player.position));
+  const hitters = typedPlayerRows.filter((player) => !isPitcher(player.position));
+  const pitchers = typedPlayerRows.filter((player) => isPitcher(player.position));
   const linkedAwayHitters = hitters.filter((player) => player.teamId === awayTeam?.id).slice(0, 9).map((player, index) => buildProjectedHitter({ player, teamName: awayName, teamSide: "away", order: index + 1, teamProjectedRuns: awayRuns, actual: actualByPlayer.get(player.id) ?? null }));
   const linkedHomeHitters = hitters.filter((player) => player.teamId === homeTeam?.id).slice(0, 9).map((player, index) => buildProjectedHitter({ player, teamName: homeName, teamSide: "home", order: index + 1, teamProjectedRuns: homeRuns, actual: actualByPlayer.get(player.id) ?? null }));
   const simAwayHitters = simHitters(projection, "away", awayName, actualByPlayer);
@@ -493,7 +501,7 @@ export async function getMlbFranchiseGameCenter(gameId: string): Promise<MlbFran
   if (!linkedAwayHitters.length && simAwayHitters.length) warnings.push(`${awayName} hitter rows are using cached sim player-stat projections because linked PlayerGameStat rows are missing.`);
   if (!linkedHomeHitters.length && simHomeHitters.length) warnings.push(`${homeName} hitter rows are using cached sim player-stat projections because linked PlayerGameStat rows are missing.`);
   if (!awayHitters.length && !homeHitters.length) warnings.push("Projected hitter box score needs playerStatProjections in the cached sim or linked PlayerGameStat rows.");
-  if (!teamActualRows.length) warnings.push("Actual team box score is not tracked yet for this game.");
+  if (!typedTeamActualRows.length) warnings.push("Actual team box score is not tracked yet for this game.");
 
   return {
     gameId,

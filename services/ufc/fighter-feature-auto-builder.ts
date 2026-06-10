@@ -236,11 +236,11 @@ async function upcomingFights(limit: number, horizonDays: number) {
 
 async function fightersFor(ids: string[]) {
   if (!ids.length) return [];
-  return prisma.$queryRaw<FighterRow[]>`
+  return (await prisma.$queryRaw<FighterRow[]>`
     SELECT id, full_name, stance, height_inches, reach_inches, combat_base, payload_json
     FROM ufc_fighters
     WHERE id = ANY(${ids}::text[]);
-  `;
+  `) as FighterRow[];
 }
 
 async function aggregateFor(fighterId: string, fight: FightRow) {
@@ -278,22 +278,22 @@ async function aggregateFor(fighterId: string, fight: FightRow) {
 
 async function ratingsFor(ids: string[]) {
   if (!ids.length) return [];
-  return prisma.$queryRaw<RatingRow[]>`
+  return (await prisma.$queryRaw<RatingRow[]>`
     SELECT fighter_id, pre_fight_rating, as_of
     FROM ufc_fighter_ratings
     WHERE fighter_id = ANY(${ids}::text[])
     ORDER BY fighter_id, as_of DESC;
-  `;
+  `) as RatingRow[];
 }
 
 async function strengthsFor(ids: string[]) {
   if (!ids.length) return [];
-  return prisma.$queryRaw<StrengthRow[]>`
+  return (await prisma.$queryRaw<StrengthRow[]>`
     SELECT fighter_id, opponent_strength_score, as_of
     FROM ufc_opponent_strength_snapshots
     WHERE fighter_id = ANY(${ids}::text[])
     ORDER BY fighter_id, as_of DESC;
-  `;
+  `) as StrengthRow[];
 }
 
 async function upsertFeature(args: { fight: FightRow; fighter: FighterRow; opponent: FighterRow; agg: RoundAggRow | null; rating: RatingRow | null; strength: StrengthRow | null; modelVersion: string; dryRun?: boolean }) {
@@ -329,9 +329,16 @@ export async function buildUfcModelFeaturesFromWarehouse(options: { limit?: numb
   const modelVersion = options.modelVersion ?? DEFAULT_MODEL_VERSION;
   const horizonDays = Math.max(1, Math.floor(options.horizonDays ?? 120));
   const fights = await upcomingFights(options.limit ?? 50, horizonDays);
-  const ids = Array.from(new Set(fights.flatMap((fight) => [fight.fighter_a_id, fight.fighter_b_id])));
-  const [fighters, ratings, strengths] = await Promise.all([fightersFor(ids), ratingsFor(ids), strengthsFor(ids)]);
-  const fighterMap = new Map(fighters.map((fighter) => [fighter.id, fighter]));
+  const fighterIds: string[] = fights
+    .flatMap((fight) => [fight.fighter_a_id, fight.fighter_b_id])
+    .filter((id): id is string => Boolean(id));
+  const ids = Array.from(new Set<string>(fighterIds));
+  const [fighters, ratings, strengths] = await Promise.all([
+    fightersFor(ids),
+    ratingsFor(ids),
+    strengthsFor(ids)
+  ]) as [FighterRow[], RatingRow[], StrengthRow[]];
+  const fighterMap = new Map<string, FighterRow>(fighters.map((fighter) => [fighter.id, fighter]));
   const results = [];
   const missing = [];
 

@@ -752,7 +752,7 @@ export function parsePropsFilters(searchParams: Record<string, string | string[]
       ? searchParams.valueFlag[0]
       : searchParams.valueFlag,
     sortBy: Array.isArray(searchParams.sortBy) ? searchParams.sortBy[0] : searchParams.sortBy
-  }) satisfies PropFilters;
+  }) as PropFilters;
 }
 
 function getMockPropsExplorerData(filters: PropFilters) {

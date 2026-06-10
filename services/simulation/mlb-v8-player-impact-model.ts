@@ -276,7 +276,7 @@ function blendProbability(rawHomeWinPct: number, adjustedAwayRuns: number, adjus
 }
 
 async function latestHitters(team: string) {
-  return prisma.$queryRawUnsafe<RatingRow[]>(`
+  return (await prisma.$queryRawUnsafe(`
     SELECT DISTINCT ON (player_id)
       player_id AS id, player_name AS name, team, role_tier,
       contact, power, discipline, vs_lhp, vs_rhp, baserunning, fielding, current_form,
@@ -287,11 +287,11 @@ async function latestHitters(team: string) {
     FROM mlb_player_ratings
     WHERE team = $1
     ORDER BY player_id, snapshot_at DESC;
-  `, team);
+  `, team)) as RatingRow[];
 }
 
 async function latestPitchers(team: string) {
-  return prisma.$queryRawUnsafe<RatingRow[]>(`
+  return (await prisma.$queryRawUnsafe(`
     SELECT DISTINCT ON (pitcher_id)
       pitcher_id AS id, pitcher_name AS name, team, role_tier,
       NULL::double precision AS contact, NULL::double precision AS power, NULL::double precision AS discipline,
@@ -302,7 +302,7 @@ async function latestPitchers(team: string) {
     FROM mlb_pitcher_ratings
     WHERE team = $1
     ORDER BY pitcher_id, snapshot_at DESC;
-  `, team);
+  `, team)) as RatingRow[];
 }
 
 async function latestLineup(gameId: string, team: string) {

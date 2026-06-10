@@ -6,7 +6,7 @@ export const revalidate = 0;
 
 export async function GET() {
   const teams = getKnownMlbVenueTeams();
-  const results = [];
+  const results = [] as Awaited<ReturnType<typeof getOpenMeteoVenueWeather>>[];
 
   for (const team of teams) {
     const weather = await getOpenMeteoVenueWeather(team);

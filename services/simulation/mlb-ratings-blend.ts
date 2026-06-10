@@ -1,6 +1,7 @@
 import { readHotCache, writeHotCache } from "@/lib/cache/live-cache";
 import { normalizeMlbTeam } from "@/services/simulation/mlb-team-analytics";
 import { prisma } from "@/lib/db/prisma";
+const db = prisma as any;
 
 export type MlbRatingsProfile = {
   teamName: string;
@@ -173,7 +174,7 @@ async function getSpineEloProfile(teamName: string): Promise<MlbRatingsProfile |
   try {
     const normalizedName = normalizeMlbTeam(teamName);
     // Resolve the integer team ID stored in mlb_betting_games using the normalized name.
-    const idRows = await prisma.$queryRaw<{ team_id: number }[]>`
+    const idRows = await db.$queryRaw<{ team_id: number }[]>`
       SELECT home_team_id AS team_id FROM mlb_betting_games
       WHERE REGEXP_REPLACE(LOWER(home_team_name), '[^a-z0-9]', '', 'g') = ${normalizedName}
         AND home_team_id IS NOT NULL
@@ -186,7 +187,7 @@ async function getSpineEloProfile(teamName: string): Promise<MlbRatingsProfile |
     const teamId = idRows[0]?.team_id;
     if (!teamId) return null;
 
-    const snapshot = await prisma.mlbTeamEloSnapshot.findFirst({
+    const snapshot = await db.mlbTeamEloSnapshot.findFirst({
       where: { sourceKey: "SPINE", teamId: String(teamId) },
       orderBy: { gameDate: "desc" },
     });

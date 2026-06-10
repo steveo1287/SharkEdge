@@ -441,13 +441,13 @@ async function gradeTable(
 ) {
   const finals = args.finals ?? await finalScoreMap();
   const limit = Math.max(1, Math.min(1000, Math.round(args.limit ?? 250)));
-  const rows = await prisma.$queryRawUnsafe<V7LedgerRow[]>(`
+  const rows = (await prisma.$queryRawUnsafe(`
     SELECT id, game_id, market, side, calibrated_probability, market_no_vig_probability, closing_probability
     FROM ${tableName}
     WHERE graded_at IS NULL
     ORDER BY captured_at ASC
     LIMIT ${limit};
-  `);
+  `)) as V7LedgerRow[];
   const databaseFinals = await databaseFinalScoreMap(rows.map((row) => row.game_id));
   for (const [key, value] of databaseFinals.entries()) finals.set(key, value);
   let graded = 0;

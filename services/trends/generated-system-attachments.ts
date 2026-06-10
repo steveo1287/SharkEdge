@@ -398,7 +398,7 @@ export async function buildGeneratedSystemAttachments(options: GeneratedSystemAt
       fetchGeneratedSystems()
     ]);
 
-    const games = events.map<GeneratedSystemAttachmentGame>((event) => {
+    const games = events.map((event): GeneratedSystemAttachmentGame => {
       const signals = systems
         .filter((system) => systemMatchesGame(system, event, includeResearch))
         .map((system) => toSignal(system, event))

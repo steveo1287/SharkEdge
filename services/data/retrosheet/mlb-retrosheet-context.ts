@@ -5,6 +5,7 @@ import { RETROSHEET_ATTRIBUTION, requiresRetrosheetAttribution } from "@/service
 import type { MlbPregameEloContext } from "@/services/simulation/contextual-game-sim";
 
 const SOURCE_KEY = "RETROSHEET";
+const db = prisma as any;
 
 export type RetrosheetTeamStrengthContext = {
   scored: number;
@@ -43,7 +44,7 @@ export async function buildMlbRetrosheetModelContext(args: {
   }
 
   const [recentTeamStats, latestElo, starterSnapshot, teamStarterSnapshots] = await Promise.all([
-    prisma.retrosheetTeamGameStat.findMany({
+    db.retrosheetTeamGameStat.findMany({
       where: {
         sourceKey: SOURCE_KEY,
         teamId: retrosheetTeamId,
@@ -52,7 +53,7 @@ export async function buildMlbRetrosheetModelContext(args: {
       orderBy: { gameDate: "desc" },
       take: 12
     }),
-    prisma.mlbTeamEloSnapshot.findFirst({
+    db.mlbTeamEloSnapshot.findFirst({
       where: {
         sourceKey: SOURCE_KEY,
         teamId: retrosheetTeamId,
@@ -61,7 +62,7 @@ export async function buildMlbRetrosheetModelContext(args: {
       orderBy: { gameDate: "desc" }
     }),
     getProbableStarterRollingSnapshot(args.probableStarterExternalIds, args.eventStartTime),
-    prisma.mlbPitcherRollingSnapshot.findMany({
+    db.mlbPitcherRollingSnapshot.findMany({
       where: {
         sourceKey: SOURCE_KEY,
         teamId: retrosheetTeamId,
@@ -75,14 +76,20 @@ export async function buildMlbRetrosheetModelContext(args: {
   const teamStrengthContext =
     recentTeamStats.length >= 2
       ? {
-          scored: recentTeamStats.reduce((sum, row) => sum + row.runs, 0),
-          allowed: recentTeamStats.reduce((sum, row) => sum + row.runsAllowed, 0)
+          scored: recentTeamStats.reduce((sum: number, row: (typeof recentTeamStats)[number]) => sum + row.runs, 0),
+          allowed: recentTeamStats.reduce(
+            (sum: number, row: (typeof recentTeamStats)[number]) => sum + row.runsAllowed,
+            0
+          )
         }
       : null;
 
   const teamRollingGameScore =
     teamStarterSnapshots.length > 0
-      ? teamStarterSnapshots.reduce((sum, row) => sum + row.rollingGameScore, 0) / teamStarterSnapshots.length
+      ? teamStarterSnapshots.reduce(
+          (sum: number, row: (typeof teamStarterSnapshots)[number]) => sum + row.rollingGameScore,
+          0
+        ) / teamStarterSnapshots.length
       : null;
 
   const mlbPregameEloContext: MlbPregameEloContext | null =
@@ -136,7 +143,7 @@ async function getProbableStarterRollingSnapshot(externalIds: Prisma.JsonValue |
   const retrosheetPitcherId = getRetrosheetExternalId(externalIds, ["playerId", "pitcherId", "retrosheetPitcherId"]);
   if (!retrosheetPitcherId) return null;
 
-  return prisma.mlbPitcherRollingSnapshot.findFirst({
+  return db.mlbPitcherRollingSnapshot.findFirst({
     where: {
       sourceKey: SOURCE_KEY,
       pitcherId: retrosheetPitcherId,

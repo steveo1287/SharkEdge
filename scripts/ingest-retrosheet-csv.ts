@@ -15,7 +15,7 @@ import {
   type RetrosheetCsvKind
 } from "@/services/data/retrosheet/csv";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient() as any;
 const SOURCE_KEY = "RETROSHEET";
 
 type LoadedCsv = {

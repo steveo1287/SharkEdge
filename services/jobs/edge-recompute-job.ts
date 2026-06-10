@@ -122,7 +122,7 @@ export async function edgeRecomputeJob(eventId: string) {
       })
     : [];
   const playerStatusById = new Map<string, string>(players.map((player): [string, string] => [player.id, String(player.status)]));
-  const playerById = new Map(players.map((player) => [player.id, player]));
+  const playerById = new Map<string, (typeof players)[number]>(players.map((player) => [player.id, player]));
   const recentStats = playerIds.length
     ? await prisma.playerGameStat.findMany({
         where: { playerId: { in: playerIds } },

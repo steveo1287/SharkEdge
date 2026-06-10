@@ -1453,7 +1453,7 @@ export async function createBet(input: LedgerBetFormInput) {
   assertLedgerWritesAvailable();
   await ensureDefaultUser();
   const parsed = ledgerBetFormSchema.parse(input);
-  const payload = await buildCreatePayload(parsed);
+  const payload = await buildCreatePayload(parsed as LedgerBetFormInput);
 
   const created = await prisma.bet.create({
     data: {
@@ -1513,7 +1513,7 @@ export async function updateBet(id: string, input: LedgerBetFormInput) {
     ...input,
     id
   });
-  const payload = await buildCreatePayload(parsed);
+  const payload = await buildCreatePayload(parsed as LedgerBetFormInput);
 
   const updated = await prisma.$transaction(async (tx) => {
     await tx.betLeg.deleteMany({

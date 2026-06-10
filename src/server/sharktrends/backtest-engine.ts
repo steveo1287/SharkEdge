@@ -431,14 +431,14 @@ function buildWhere(filters: SharkTrendFilter) {
 
 export async function fetchBacktestRows(filters: SharkTrendFilter, limit = 5000) {
   const parsed = sharkTrendFilterZodSchema.parse(filters);
-  const rows = await prisma.$queryRawUnsafe<RawContextRow[]>(`
+  const rows = (await prisma.$queryRawUnsafe(`
     SELECT c.*, e."gameNumber" AS game_number
     FROM mlb_game_context c
     LEFT JOIN events e ON e.id = c.event_id
     WHERE ${buildWhere(parsed)}
     ORDER BY c.start_time DESC
     LIMIT ${Math.max(1, Math.min(10000, Math.floor(limit)))}
-  `);
+  `)) as RawContextRow[];
   return rows.map(rawContextToRow).filter((row) => rowMatchesFilter(row, parsed));
 }
 

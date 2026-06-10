@@ -127,11 +127,11 @@ export type WatchlistItemView = {
 };
 
 export type WatchlistFilters = {
-  sport: "ALL" | SupportedSportCode;
-  league: "ALL" | LeagueKey;
-  market: "ALL" | MarketType;
-  liveStatus: "all" | "live" | "upcoming" | "final" | "unavailable";
-  status: "ACTIVE" | "ARCHIVED";
+  sport?: "ALL" | SupportedSportCode;
+  league?: "ALL" | LeagueKey;
+  market?: "ALL" | MarketType;
+  liveStatus?: "all" | "live" | "upcoming" | "final" | "unavailable";
+  status?: "ACTIVE" | "ARCHIVED";
 };
 
 export type WatchlistPageData = {

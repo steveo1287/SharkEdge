@@ -125,6 +125,7 @@ export async function getMlbDataQualityReport(args: { lookbackDays?: number } = 
       take: 5000
     })
   ]);
+  const typedMarkets: Array<{ closingOdds: number | null; closingLine: number | null; updatedAt: Date }> = markets;
 
   const finalGames = games.filter((game) => game.status === "FINAL");
   const upcomingGames = games.filter((game) => game.status === "PREGAME" || game.status === "LIVE");
@@ -134,8 +135,8 @@ export async function getMlbDataQualityReport(args: { lookbackDays?: number } = 
   const marketEventIds = new Set(markets.map((market) => market.eventId));
   const officialEvents = events.filter((event) => event.status === "FINAL" && event.resultState === "OFFICIAL");
 
-  const teamRecords = teamStats.map((row) => asRecord(row.statsJson));
-  const playerRecords = playerStats.map((row) => asRecord(row.statsJson));
+  const teamRecords: JsonRecord[] = teamStats.map((row) => asRecord(row.statsJson));
+  const playerRecords: JsonRecord[] = playerStats.map((row) => asRecord(row.statsJson));
   const teamTotal = Math.max(1, teamRecords.length);
   const playerTotal = Math.max(1, playerRecords.length);
 
@@ -152,7 +153,7 @@ export async function getMlbDataQualityReport(args: { lookbackDays?: number } = 
     metric("hard_hit", "Rows with hard-hit rate", boolCount([...teamRecords, ...playerRecords], (row) => hasNested(row, ["statcast", "hardHitRate"])), teamRecords.length + playerRecords.length),
     metric("pitch_mix", "Pitcher rows with pitch mix", boolCount(playerRecords, (row) => Object.keys(asRecord(asRecord(asRecord(row.statcast).pitching).pitchMix)).length > 0), playerTotal),
     metric("markets", "Events with market rows", marketEventIds.size, events.length),
-    metric("closing_lines", "Market rows with closing line/odds", boolCount(markets, (market) => market.closingOdds !== null || market.closingLine !== null), Math.max(1, markets.length)),
+    metric("closing_lines", "Market rows with closing line/odds", boolCount(typedMarkets, (market) => market.closingOdds !== null || market.closingLine !== null), Math.max(1, typedMarkets.length)),
     metric("official_results", "Final events with official results", officialEvents.length, Math.max(1, events.filter((event) => event.status === "FINAL").length))
   ];
 

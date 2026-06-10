@@ -37,7 +37,7 @@ function grade(score: number) {
 }
 
 async function tableStat(name: string, sql: string) {
-  const rows = await prisma.$queryRawUnsafe<CountRow[]>(sql);
+  const rows = await prisma.$queryRawUnsafe(sql) as CountRow[];
   const row = rows[0];
   return { name, rows: toNumber(row?.total), latestAt: toIso(row?.latest_at) };
 }

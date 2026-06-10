@@ -48,6 +48,9 @@ function Stat({ label, value, note }: { label: string; value: string | number; n
   );
 }
 
+type StatusSummaryRow = Awaited<ReturnType<typeof getUfcShadowAuditHealth>>["statusSummary"][number];
+type RecentRow = Awaited<ReturnType<typeof getUfcShadowAuditHealth>>["recent"][number];
+
 export default async function UfcShadowAuditPage({ searchParams }: PageProps) {
   const resolved = (await searchParams) ?? {};
   const modelVersion = param(resolved, "modelVersion") ?? "ufc-fight-iq-v1";
@@ -95,7 +98,7 @@ export default async function UfcShadowAuditPage({ searchParams }: PageProps) {
               </tr>
             </thead>
             <tbody>
-              {audit.statusSummary.map((row) => (
+              {audit.statusSummary.map((row: StatusSummaryRow) => (
                 <tr key={`${row.status}-${row.schemaVersion}`} className="border-b border-white/5 last:border-none">
                   <td className="px-3 py-3 text-white">{row.status}</td>
                   <td className="px-3 py-3 font-mono text-cyan-200">{row.schemaVersion}</td>
@@ -124,7 +127,7 @@ export default async function UfcShadowAuditPage({ searchParams }: PageProps) {
               </tr>
             </thead>
             <tbody>
-              {audit.recent.map((row) => (
+              {audit.recent.map((row: RecentRow) => (
                 <tr key={row.id} className="border-b border-white/5 last:border-none">
                   <td className="px-3 py-3">
                     <div className="font-semibold text-white">{row.fighterAName ?? "Fighter A"} vs {row.fighterBName ?? "Fighter B"}</div>

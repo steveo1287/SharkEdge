@@ -137,7 +137,7 @@ function readJsonArrayCount(filePath: string) {
 
 async function dbCount(sql: string): Promise<number | null> {
   if (!hasUsableServerDatabaseUrl()) return null;
-  const rows = await prisma.$queryRawUnsafe<CountRow[]>(sql);
+  const rows = (await prisma.$queryRawUnsafe(sql)) as CountRow[];
   return asNumber(rows[0]?.count, 0);
 }
 

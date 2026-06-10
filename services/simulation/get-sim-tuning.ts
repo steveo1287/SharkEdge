@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { DEFAULT_TUNING, getLeagueTuning, SimTuningParams } from "./sim-tuning";
+const db = prisma as any;
 
 function parseParams(raw: unknown): SimTuningParams | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -20,7 +21,7 @@ export async function getSimTuning(leagueKey?: string | null): Promise<SimTuning
   if (leagueKey && leagueOverride !== DEFAULT_TUNING) return leagueOverride;
 
   // Otherwise load global auto-tuned params from DB, falling back to defaults
-  const stored = await prisma.simTuning
+  const stored = await db.simTuning
     .findFirst({ where: { scope: "global" } })
     .catch(() => null);
 

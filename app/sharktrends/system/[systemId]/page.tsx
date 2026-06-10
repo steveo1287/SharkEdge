@@ -107,7 +107,17 @@ function withStrength<T extends Record<string, any>>(item: T): T & { strength: R
 }
 
 function buildQualifyingChecks(system: any, selectedMatch: any | null) {
-  const proof = system.proof ?? {};
+  const proof = (system.proof ?? {}) as {
+    rules?: Array<{ key?: string; label?: string; operator?: string; value?: unknown }>;
+    filters?: Record<string, unknown>;
+    grade?: string;
+    sampleSize?: number;
+    roiPct?: number;
+    profitUnits?: number;
+    winRatePct?: number;
+    clvPct?: number;
+    description?: string;
+  };
   const filters = proof.filters ?? {};
   return [
     { label: "League", value: filters.league ?? system.league ?? "ALL", matched: true },
@@ -193,7 +203,17 @@ export default async function SharkTrendsSystemDetailPage({ params, searchParams
 
   const selectedTrend = activeTrendRows.find((trend: any) => trend.gameId === selectedGameId) ?? activeTrendRows[0] ?? null;
   const selectedStrength = selectedTrend?.strength ?? system.strength;
-  const proof = system.proof ?? {};
+  const proof = (system.proof ?? {}) as {
+    rules?: Array<{ key?: string; label?: string; operator?: string; value?: unknown }>;
+    filters?: Record<string, unknown>;
+    description?: string;
+    grade?: string;
+    record?: string;
+    profitUnits?: number;
+    roiPct?: number;
+    winRatePct?: number;
+    clvPct?: number;
+  };
   const checks = buildQualifyingChecks(system, selectedTrend);
   const rules = Array.isArray(proof.rules) ? proof.rules : [];
   const filters = proof.filters ?? {};
