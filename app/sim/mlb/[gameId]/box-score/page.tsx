@@ -22,6 +22,10 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+function near(value: number | null | undefined, target: number, tolerance: number) {
+  return typeof value === "number" && Number.isFinite(value) && Math.abs(value - target) <= tolerance;
+}
+
 function grade(score: number, warning: string | null): EliteGrade {
   if (warning && score < 58) return "Fade";
   if (score >= 86) return "A+";
@@ -109,6 +113,53 @@ function chooseHitterRows(args: {
   return args.fallback;
 }
 
+function pitcherStatCount(row: PitcherProjection) {
+  return [row.innings, row.outs, row.strikeouts, row.earnedRuns, row.hitsAllowed, row.walks, row.homeRuns]
+    .filter((value) => typeof value === "number" && Number.isFinite(value)).length;
+}
+
+function isGenericStarterProjection(row: PitcherProjection) {
+  const defaultStarterCluster =
+    near(row.innings, 5.1, 0.3) &&
+    (near(row.outs, 15, 1) || near(row.outs, 16, 1)) &&
+    (near(row.strikeouts, 5.1, 0.25) || near(row.strikeouts, 5.2, 0.25)) &&
+    (near(row.walks, 1.7, 0.25) || near(row.walks, 1.8, 0.25));
+  const genericName = /^projected .* starter$/i.test(row.name.trim()) || /generic|fallback starter/i.test(row.name);
+  return genericName || (row.playerId == null && defaultStarterCluster) || defaultStarterCluster;
+}
+
+function hasUsefulPitcherRows(rows: PitcherProjection[]) {
+  if (!rows.length) return false;
+  const starter = rows[0];
+  if (!starter.name.trim()) return false;
+  if (isGenericStarterProjection(starter)) return false;
+  return pitcherStatCount(starter) >= 4;
+}
+
+function choosePitcherRows(args: {
+  label: string;
+  primary: PitcherProjection[];
+  fallback: PitcherProjection[];
+  warnings: string[];
+}) {
+  if (hasUsefulPitcherRows(args.primary)) return args.primary;
+  if (hasUsefulPitcherRows(args.fallback)) {
+    args.warnings.push(`${args.label} starter projection was replaced with rating-backed pitcher-card rows because the cached/linked starter looked generic.`);
+    return args.fallback;
+  }
+  if (args.primary.length) {
+    args.warnings.push(`${args.label} starter projection still looks generic; no usable rating-backed pitcher row was available.`);
+    return args.primary;
+  }
+  return args.fallback;
+}
+
+function sourceLabel<T>(selected: T[], primary: T[], fallback: T[]) {
+  if (selected === primary && selected.length) return "linked/cached";
+  if (selected === fallback && selected.length) return "rating-backed";
+  return "unavailable";
+}
+
 function BoxScoreWarnings({ warnings }: { warnings: string[] }) {
   if (!warnings.length) return null;
   return (
@@ -131,7 +182,16 @@ function EliteBatterBoard({ rows }: { rows: HitterProjection[] }) {
       <table className="min-w-[1040px] w-full text-sm">
         <thead className="bg-emerald-400/[0.04] text-[10px] uppercase tracking-[0.14em] text-slate-500">
           <tr>
-            <th className="px-4 py-3 text-left">Rank</th><th className="px-4 py-3 text-left">Player</th><th className="px-3 py-3 text-left">Team</th><th className="px-3 py-3 text-right">Score</th><th className="px-3 py-3 text-center">Grade</th><th className="px-3 py-3 text-right">H</th><th className="px-3 py-3 text-right">TB</th><th className="px-3 py-3 text-right">HR</th><th className="px-3 py-3 text-right">R/RBI</th><th className="px-3 py-3 text-left">Tags</th>
+            <th className="px-4 py-3 text-left">Rank</th>
+            <th className="px-4 py-3 text-left">Player</th>
+            <th className="px-3 py-3 text-left">Team</th>
+            <th className="px-3 py-3 text-right">Score</th>
+            <th className="px-3 py-3 text-center">Grade</th>
+            <th className="px-3 py-3 text-right">H</th>
+            <th className="px-3 py-3 text-right">TB</th>
+            <th className="px-3 py-3 text-right">HR</th>
+            <th className="px-3 py-3 text-right">R/RBI</th>
+            <th className="px-3 py-3 text-left">Tags</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-white/[0.06]">
@@ -160,9 +220,35 @@ function HitterTable({ title, rows }: { title: string; rows: HitterProjection[] 
   return (
     <FranchiseTable title={title} description="Projected hitter line from linked player-game rows, cached MLB sim player-stat rows, or rating-backed player cards.">
       <table className="min-w-[900px] w-full text-sm">
-        <thead className="bg-white/[0.025] text-[10px] uppercase tracking-[0.14em] text-slate-600"><tr><th className="px-4 py-3 text-left">Player</th><th className="px-3 py-3 text-right">Order</th><th className="px-3 py-3 text-right">PA</th><th className="px-3 py-3 text-right">H</th><th className="px-3 py-3 text-right">TB</th><th className="px-3 py-3 text-right">HR</th><th className="px-3 py-3 text-right">R</th><th className="px-3 py-3 text-right">RBI</th><th className="px-3 py-3 text-right">K</th><th className="px-3 py-3 text-right">SB chance</th></tr></thead>
+        <thead className="bg-white/[0.025] text-[10px] uppercase tracking-[0.14em] text-slate-600">
+          <tr>
+            <th className="px-4 py-3 text-left">Player</th>
+            <th className="px-3 py-3 text-right">Order</th>
+            <th className="px-3 py-3 text-right">PA</th>
+            <th className="px-3 py-3 text-right">H</th>
+            <th className="px-3 py-3 text-right">TB</th>
+            <th className="px-3 py-3 text-right">HR</th>
+            <th className="px-3 py-3 text-right">R</th>
+            <th className="px-3 py-3 text-right">RBI</th>
+            <th className="px-3 py-3 text-right">K</th>
+            <th className="px-3 py-3 text-right">SB chance</th>
+          </tr>
+        </thead>
         <tbody className="divide-y divide-white/[0.06]">
-          {rows.map((row) => <tr key={row.playerId}><td className="px-4 py-3 font-semibold text-white">{row.name}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{row.battingOrder ?? "--"}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.plateAppearances)}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.hits)}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.totalBases)}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.homeRuns, 2)}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.runs)}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.rbi)}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.strikeouts)}</td><td className="px-3 py-3 text-right font-mono text-aqua">{num((row.stolenBaseChance ?? 0) * 100, 0)}%</td></tr>)}
+          {rows.map((row) => (
+            <tr key={`${row.teamSide}:${row.playerId}`}>
+              <td className="px-4 py-3 font-semibold text-white">{row.name}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{row.battingOrder ?? "--"}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.plateAppearances)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.hits)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.totalBases)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.homeRuns, 2)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.runs)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.rbi)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.strikeouts)}</td>
+              <td className="px-3 py-3 text-right font-mono text-aqua">{num((row.stolenBaseChance ?? 0) * 100, 0)}%</td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </FranchiseTable>
@@ -172,11 +258,33 @@ function HitterTable({ title, rows }: { title: string; rows: HitterProjection[] 
 function PitcherTable({ title, rows }: { title: string; rows: PitcherProjection[] }) {
   if (!rows.length) return <FranchiseEmptyState title={`${title} unavailable`} description="No linked, cached sim, or rating-backed pitcher projections are available yet for this team." />;
   return (
-    <FranchiseTable title={title} description="Projected pitcher line from starter diversity, linked pitcher rows, or rating-backed player cards.">
+    <FranchiseTable title={title} description="Projected pitcher line from starter diversity, linked pitcher rows, cached sim starter rows, or rating-backed player cards.">
       <table className="min-w-[760px] w-full text-sm">
-        <thead className="bg-white/[0.025] text-[10px] uppercase tracking-[0.14em] text-slate-600"><tr><th className="px-4 py-3 text-left">Pitcher</th><th className="px-3 py-3 text-right">IP</th><th className="px-3 py-3 text-right">Outs</th><th className="px-3 py-3 text-right">K</th><th className="px-3 py-3 text-right">ER</th><th className="px-3 py-3 text-right">H</th><th className="px-3 py-3 text-right">BB</th><th className="px-3 py-3 text-right">HR</th></tr></thead>
+        <thead className="bg-white/[0.025] text-[10px] uppercase tracking-[0.14em] text-slate-600">
+          <tr>
+            <th className="px-4 py-3 text-left">Pitcher</th>
+            <th className="px-3 py-3 text-right">IP</th>
+            <th className="px-3 py-3 text-right">Outs</th>
+            <th className="px-3 py-3 text-right">K</th>
+            <th className="px-3 py-3 text-right">ER</th>
+            <th className="px-3 py-3 text-right">H</th>
+            <th className="px-3 py-3 text-right">BB</th>
+            <th className="px-3 py-3 text-right">HR</th>
+          </tr>
+        </thead>
         <tbody className="divide-y divide-white/[0.06]">
-          {rows.map((row) => <tr key={`${row.teamSide}:${row.playerId ?? row.name}`}><td className="px-4 py-3 font-semibold text-white">{row.name}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.innings)}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.outs, 0)}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.strikeouts)}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.earnedRuns)}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.hitsAllowed)}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.walks)}</td><td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.homeRuns)}</td></tr>)}
+          {rows.map((row) => (
+            <tr key={`${row.teamSide}:${row.playerId ?? row.name}`}>
+              <td className="px-4 py-3 font-semibold text-white">{row.name}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.innings)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.outs, 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.strikeouts)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.earnedRuns)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.hitsAllowed)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.walks)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.homeRuns)}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </FranchiseTable>
@@ -194,17 +302,24 @@ export default async function MlbBoxScorePage({ params }: PageProps) {
   }).catch(() => ({ hitters: { away: [], home: [] }, starters: { away: null, home: null }, warnings: ["Rating-backed box-score fallback failed."] }));
 
   const warnings = Array.from(new Set([...game.warnings, ...ratingFallback.warnings]));
-  const awayHitters = chooseHitterRows({ label: game.teams.away.name, primary: game.hitters.away, fallback: ratingFallback.hitters.away as HitterProjection[], warnings });
-  const homeHitters = chooseHitterRows({ label: game.teams.home.name, primary: game.hitters.home, fallback: ratingFallback.hitters.home as HitterProjection[], warnings });
-  const awayPitchers = game.pitchers.away.length ? game.pitchers.away : ratingFallback.starters.away ? [ratingFallback.starters.away as PitcherProjection] : [];
-  const homePitchers = game.pitchers.home.length ? game.pitchers.home : ratingFallback.starters.home ? [ratingFallback.starters.home as PitcherProjection] : [];
+  const ratingAwayHitters = ratingFallback.hitters.away as HitterProjection[];
+  const ratingHomeHitters = ratingFallback.hitters.home as HitterProjection[];
+  const ratingAwayPitchers = ratingFallback.starters.away ? [ratingFallback.starters.away as PitcherProjection] : [];
+  const ratingHomePitchers = ratingFallback.starters.home ? [ratingFallback.starters.home as PitcherProjection] : [];
+
+  const awayHitters = chooseHitterRows({ label: game.teams.away.name, primary: game.hitters.away, fallback: ratingAwayHitters, warnings });
+  const homeHitters = chooseHitterRows({ label: game.teams.home.name, primary: game.hitters.home, fallback: ratingHomeHitters, warnings });
+  const awayPitchers = choosePitcherRows({ label: game.teams.away.name, primary: game.pitchers.away, fallback: ratingAwayPitchers, warnings });
+  const homePitchers = choosePitcherRows({ label: game.teams.home.name, primary: game.pitchers.home, fallback: ratingHomePitchers, warnings });
+  warnings.push(`Projection source: ${game.teams.away.name} hitters=${sourceLabel(awayHitters, game.hitters.away, ratingAwayHitters)}, starter=${sourceLabel(awayPitchers, game.pitchers.away, ratingAwayPitchers)}; ${game.teams.home.name} hitters=${sourceLabel(homeHitters, game.hitters.home, ratingHomeHitters)}, starter=${sourceLabel(homePitchers, game.pitchers.home, ratingHomePitchers)}.`);
+
   const actualCount = [...awayHitters, ...homeHitters, ...awayPitchers, ...homePitchers].filter((row) => row.actual).length;
 
   return (
     <div className="space-y-5">
       <SimWorkspaceHeader eyebrow="MLB Game Center" title="Projected Box Score" description={`${game.teams.away.name} @ ${game.teams.home.name} - ${game.cacheLabel}`} actions={[{ href: `/sim/mlb/${encodeURIComponent(game.gameId)}`, label: "Summary" }, { href: "/sim/mlb", label: "MLB Board", tone: "primary" }]} />
       <MlbFranchiseTabs gameId={game.gameId} active="box-score" />
-      <BoxScoreWarnings warnings={warnings} />
+      <BoxScoreWarnings warnings={Array.from(new Set(warnings))} />
       <PitcherTable title="Starting Pitchers" rows={[...awayPitchers.slice(0, 1), ...homePitchers.slice(0, 1)]} />
       <EliteBatterBoard rows={[...awayHitters, ...homeHitters]} />
       <HitterTable title={`${game.teams.away.name} Hitters`} rows={awayHitters} />
