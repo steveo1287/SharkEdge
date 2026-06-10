@@ -57,7 +57,7 @@ export async function GET(request: Request) {
     const lookbackDays = intParam(url.searchParams.get("lookbackDays"), 3, 1, 14);
     const advancedLookbackDays = intParam(url.searchParams.get("advancedLookbackDays"), 7, 1, 14);
     const rosterLookaheadDays = intParam(url.searchParams.get("rosterLookaheadDays"), 3, 0, 14);
-    const playerContextMax = intParam(url.searchParams.get("playerContextMax"), 500, 1, 900);
+    const playerContextMax = intParam(url.searchParams.get("playerContextMax"), 900, 1, 1200);
     const leagues = includeNba ? ["MLB", "NBA"] as const : ["MLB"] as const;
 
     const mlbPregameRosters = includePregameRosters ? await ingestMlbPregameRosters({ lookaheadDays: rosterLookaheadDays }) : null;
