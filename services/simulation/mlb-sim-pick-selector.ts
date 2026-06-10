@@ -69,6 +69,7 @@ type MarketLike = {
   overPrice?: number | null;
   underPrice?: number | null;
 };
+type CanonicalState = ReturnType<typeof buildMlbCanonicalGameState>;
 
 const DEFAULT_FULL_GAME_TOTAL = 8.5;
 const DEFAULT_F5_TOTAL = 4.5;
@@ -111,19 +112,15 @@ function matchupLabel(game: CachedSimGameProjection) {
   const state = canonical(game);
   return `${state.awayTeam} @ ${state.homeTeam}`;
 }
-function projectedTotal(game: CachedSimGameProjection) {
-  return canonical(game).fullGameTotal.projection;
-}
-function projectedScore(game: CachedSimGameProjection) {
-  return canonical(game).projectedScore;
-}
 function dataQuality(game: CachedSimGameProjection, edge: Edge | null | undefined) {
+  const state = canonical(game);
   const mlbIntel = game.projection.mlbIntel as (NonNullable<typeof game.projection.mlbIntel> & { confidence?: unknown }) | null | undefined;
   const governor = mlbIntel?.governor;
   const confidence = safeNumber(governor?.confidence) ?? safeNumber(mlbIntel?.confidence) ?? 0.42;
   const calibration = game.projection.mlbIntel?.calibration?.ece != null ? 8 : 0;
   const marketContext = edge ? 6 : 0;
-  return Math.round(clamp(46 + confidence * 42 + calibration + marketContext, 0, 100));
+  const playerContext = playerContextGate(state).officialEligible ? 8 : state.realWorldContext.usedPlayerContext ? 3 : -10;
+  return Math.round(clamp(46 + confidence * 42 + calibration + marketContext + playerContext, 0, 100));
 }
 function confidenceFrom(score: number, quality: number) {
   return round(clamp(0.3 + score / 190 + quality / 450, 0.25, 0.78), 3);
@@ -137,6 +134,42 @@ function tier(score: number, dataQualityValue: number, confidence: number): MlbS
 function makePick(args: Omit<MlbSimPick, "tier" | "confidence"> & { confidence?: number }) {
   const confidence = args.confidence ?? confidenceFrom(args.score, args.dataQuality);
   return { ...args, confidence, tier: tier(args.score, args.dataQuality, confidence) } satisfies MlbSimPick;
+}
+
+function playerContextGate(state: CanonicalState) {
+  const ctx = state.realWorldContext;
+  const awayHitterCoverage = clamp(ctx.awayHitterCount / 9, 0, 1.2);
+  const homeHitterCoverage = clamp(ctx.homeHitterCount / 9, 0, 1.2);
+  const hitterCoverage = Math.min(awayHitterCoverage, homeHitterCoverage);
+  const starterCoverage = (ctx.awayStarterInnings != null || ctx.awayStarterStrikeouts != null ? 0.5 : 0) + (ctx.homeStarterInnings != null || ctx.homeStarterStrikeouts != null ? 0.5 : 0);
+  const score = Math.round(clamp(hitterCoverage * 72 + starterCoverage * 28, 0, 100));
+  const officialEligible = Boolean(ctx.usedPlayerContext && ctx.awayHitterCount >= 7 && ctx.homeHitterCount >= 7 && starterCoverage >= 0.5);
+  const fullStrength = Boolean(ctx.usedPlayerContext && ctx.awayHitterCount >= 9 && ctx.homeHitterCount >= 9 && starterCoverage >= 1);
+  const summary = `player context ${score}/100: hitters ${ctx.awayHitterCount}/9 away, ${ctx.homeHitterCount}/9 home; starter ctx ${Math.round(starterCoverage * 2)}/2; blend ${Math.round(ctx.blendWeight * 100)}%`;
+  return { score, officialEligible, fullStrength, summary };
+}
+
+function applyPlayerContextGate(pick: MlbSimPick, game: CachedSimGameProjection): MlbSimPick {
+  const state = canonical(game);
+  const gate = playerContextGate(state);
+  const reasons = [...pick.reasons, gate.summary];
+  const warnings = [...pick.warnings];
+  let score = pick.score;
+  let dataQualityValue = pick.dataQuality;
+
+  if (gate.fullStrength) {
+    dataQualityValue = Math.min(100, dataQualityValue + 4);
+    score = Math.min(100, score + 3);
+  } else if (gate.officialEligible) {
+    dataQualityValue = Math.min(100, dataQualityValue + 1);
+  } else {
+    warnings.push("Official-pick gate: player context coverage is not strong enough for a top-tier MLB play; downgraded to lean/watch until active roster context is complete.");
+    dataQualityValue = Math.min(dataQualityValue, 54);
+    score = Math.max(0, score - 18);
+  }
+
+  const confidence = confidenceFrom(score, dataQualityValue);
+  return { ...pick, score, dataQuality: dataQualityValue, confidence, tier: tier(score, dataQualityValue, confidence), reasons, warnings };
 }
 
 function moneylinePick(game: CachedSimGameProjection, edge: Edge | null): MlbSimPick {
@@ -168,7 +201,7 @@ function moneylinePick(game: CachedSimGameProjection, edge: Edge | null): MlbSim
     score,
     dataQuality: q,
     source: edge ? "market_context" : "simulation",
-    reasons: [`canonical win lean ${round(modelProbability * 100, 1)}%`, `projected score ${state.projectedScore}`, `run diff ${round(state.moneyline.runDiff, 2)}`],
+    reasons: [`player-fused win lean ${round(modelProbability * 100, 1)}%`, `projected score ${state.projectedScore}`, `run diff ${round(state.moneyline.runDiff, 2)}`],
     warnings: state.warnings
   });
 }
@@ -207,7 +240,7 @@ function fullGameTotalPick(game: CachedSimGameProjection, edge: Edge | null): Ml
     score,
     dataQuality: q,
     source: edge ? "market_context" : "simulation",
-    reasons: [`canonical total ${round(projection, 1)}`, `compare line ${line}`, `run edge ${round(Math.abs(runEdge), 2)}`],
+    reasons: [`player-fused total ${round(projection, 1)}`, `compare line ${line}`, `run edge ${round(Math.abs(runEdge), 2)}`],
     warnings: state.warnings
   });
 }
@@ -239,7 +272,7 @@ function f5MoneylinePick(game: CachedSimGameProjection): MlbSimPick {
     score,
     dataQuality: q,
     source: "simulation",
-    reasons: [`canonical F5 score ${round(f5.awayRuns, 1)}-${round(f5.homeRuns, 1)}`, `F5 run diff ${round(diff, 2)}`, `F5 tie component ${round(f5.tieProbability * 100, 1)}%`],
+    reasons: [`player-fused F5 score ${round(f5.awayRuns, 1)}-${round(f5.homeRuns, 1)}`, `F5 run diff ${round(diff, 2)}`, `F5 tie component ${round(f5.tieProbability * 100, 1)}%`],
     warnings: state.warnings
   });
 }
@@ -273,7 +306,7 @@ function f5TotalPick(game: CachedSimGameProjection, edge: Edge | null): MlbSimPi
     score,
     dataQuality: q,
     source: "simulation",
-    reasons: [`canonical F5 total ${round(projection, 1)}`, `compare line ${line}`, `F5 edge ${round(Math.abs(runEdge), 2)}`],
+    reasons: [`player-fused F5 total ${round(projection, 1)}`, `compare line ${line}`, `F5 edge ${round(Math.abs(runEdge), 2)}`],
     warnings: state.warnings
   });
 }
@@ -302,7 +335,7 @@ function nrfiPick(game: CachedSimGameProjection): MlbSimPick {
     score,
     dataQuality: q,
     source: "simulation",
-    reasons: [`canonical 1st inning ${round(nrfi.firstInningAwayRuns, 2)}-${round(nrfi.firstInningHomeRuns, 2)}`, `${nrfi.side} sim ${round(nrfi.probability * 100, 1)}%`],
+    reasons: [`player-fused 1st inning ${round(nrfi.firstInningAwayRuns, 2)}-${round(nrfi.firstInningHomeRuns, 2)}`, `${nrfi.side} sim ${round(nrfi.probability * 100, 1)}%`],
     warnings: state.warnings
   });
 }
@@ -312,7 +345,8 @@ function pickRank(pick: MlbSimPick) {
   return tierBoost + pick.score + pick.confidence * 70 + (pick.projectedRunEdge ?? 0) * 8;
 }
 function buildGamePicks(game: CachedSimGameProjection, edge: Edge | null): MlbSimPick[] {
-  return [moneylinePick(game, edge), fullGameTotalPick(game, edge), f5MoneylinePick(game), f5TotalPick(game, edge), nrfiPick(game)];
+  return [moneylinePick(game, edge), fullGameTotalPick(game, edge), f5MoneylinePick(game), f5TotalPick(game, edge), nrfiPick(game)]
+    .map((pick) => applyPlayerContextGate(pick, game));
 }
 function uncorrelated(picks: MlbSimPick[]) {
   const games = new Set<string>();
