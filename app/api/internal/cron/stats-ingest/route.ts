@@ -4,6 +4,7 @@ import { ingestNbaAvailability } from "@/services/stats/nba-availability-ingesti
 import { refreshTeamPowerRatings } from "@/services/stats/team-power-ratings";
 import { ingestMlbAdvancedStats } from "@/services/stats/mlb-advanced-ingestion";
 import { ingestMlbPregameRosters } from "@/services/stats/mlb-pregame-rosters";
+import { ingestMlbPlayerContext } from "@/services/stats/mlb-player-context-ingestion";
 import { ingestMlbStatcastQuality } from "@/services/stats/mlb-statcast-ingestion";
 import { ingestMlbPitchTracking } from "@/services/stats/mlb-pitch-tracking-feed";
 import { refreshUmpireAssignments, seedMlbUmpireDb } from "@/services/simulation/mlb-umpire-db";
@@ -48,6 +49,7 @@ export async function GET(request: Request) {
     // burn worker time on disabled sports before the MLB roster feed is fresh.
     const includeNba = boolParam(url.searchParams.get("includeNba"), process.env.STATS_INGEST_INCLUDE_NBA === "true");
     const includePregameRosters = boolParam(url.searchParams.get("includePregameRosters"), true);
+    const includePlayerContext = boolParam(url.searchParams.get("includePlayerContext"), true);
     const includeStatcast = boolParam(url.searchParams.get("includeStatcast"), true);
     const includePitchTracking = boolParam(url.searchParams.get("includePitchTracking"), true);
     const includeUmpires = boolParam(url.searchParams.get("includeUmpires"), true);
@@ -55,9 +57,11 @@ export async function GET(request: Request) {
     const lookbackDays = intParam(url.searchParams.get("lookbackDays"), 3, 1, 14);
     const advancedLookbackDays = intParam(url.searchParams.get("advancedLookbackDays"), 7, 1, 14);
     const rosterLookaheadDays = intParam(url.searchParams.get("rosterLookaheadDays"), 3, 0, 14);
+    const playerContextMax = intParam(url.searchParams.get("playerContextMax"), 500, 1, 900);
     const leagues = includeNba ? ["MLB", "NBA"] as const : ["MLB"] as const;
 
     const mlbPregameRosters = includePregameRosters ? await ingestMlbPregameRosters({ lookaheadDays: rosterLookaheadDays }) : null;
+    const mlbPlayerContext = includePlayerContext ? await ingestMlbPlayerContext({ lookaheadDays: rosterLookaheadDays, maxPlayers: playerContextMax }) : null;
     const results = await ingestTeamStats({ leagues: [...leagues], lookbackDays });
     const availability = includeNba ? await ingestNbaAvailability({ lookaheadDays: 3 }) : null;
     const mlbAdvanced = await ingestMlbAdvancedStats({ lookbackDays: advancedLookbackDays });
@@ -78,9 +82,11 @@ export async function GET(request: Request) {
       lookbackDays,
       advancedLookbackDays,
       rosterLookaheadDays,
+      playerContextMax,
       results,
       availability,
       mlbPregameRosters,
+      mlbPlayerContext,
       mlbAdvanced,
       mlbStatcast,
       mlbPitchTracking,
