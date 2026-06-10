@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { cacheAgeLabel, readCachedMlbGameDetail } from "@/services/simulation/mlb-game-detail-cache";
+import { buildMlbProbablePitcherStatProjections } from "@/services/simulation/mlb-probable-pitcher-stat-projection";
 
 type CachedDetail = NonNullable<Awaited<ReturnType<typeof readCachedMlbGameDetail>>>;
 type Projection = CachedDetail["row"]["projection"];
@@ -446,7 +447,7 @@ export async function getMlbFranchiseGameCenter(gameId: string): Promise<MlbFran
 
   if (!resolvedGameId) warnings.push("Actual box-score tracking is not linked to this cached game yet.");
 
-  const [teamActualRows, playerRows] = await Promise.all([
+  const [teamActualRows, playerRows, statsApiStarters] = await Promise.all([
     resolvedGameId ? prisma.teamGameStat.findMany({ where: { gameId: resolvedGameId }, orderBy: { updatedAt: "desc" } }) : Promise.resolve([]),
     (awayTeam?.id || homeTeam?.id)
       ? prisma.player.findMany({
@@ -459,8 +460,19 @@ export async function getMlbFranchiseGameCenter(gameId: string): Promise<MlbFran
           },
           orderBy: { name: "asc" }
         })
-      : Promise.resolve([])
+      : Promise.resolve([]),
+    buildMlbProbablePitcherStatProjections({
+      gameDate: event?.startTime ?? null,
+      awayTeam: { name: awayName, abbreviation: awayTeam?.abbreviation ?? null, externalIds: awayTeam?.externalIds ?? null },
+      homeTeam: { name: homeName, abbreviation: homeTeam?.abbreviation ?? null, externalIds: homeTeam?.externalIds ?? null }
+    }).catch((error) => ({
+      awayStarter: null,
+      homeStarter: null,
+      warnings: [`MLB Stats API probable pitcher projection failed: ${error instanceof Error ? error.message : String(error)}`]
+    }))
   ]);
+  warnings.push(...statsApiStarters.warnings);
+
   const typedTeamActualRows = teamActualRows as Array<{ teamId: string; statsJson: unknown }>;
   const typedPlayerRows = playerRows as Array<{
     id: string;
@@ -491,8 +503,8 @@ export async function getMlbFranchiseGameCenter(gameId: string): Promise<MlbFran
   const simAwayStarter = simStarter(projection, "away", awayName, actualByPlayer);
   const simHomeStarter = simStarter(projection, "home", homeName, actualByPlayer);
 
-  const awayStarter = linkedAwayPitchers[0] ?? simAwayStarter ?? null;
-  const homeStarter = linkedHomePitchers[0] ?? simHomeStarter ?? null;
+  const awayStarter = linkedAwayPitchers[0] ?? simAwayStarter ?? statsApiStarters.awayStarter ?? null;
+  const homeStarter = linkedHomePitchers[0] ?? simHomeStarter ?? statsApiStarters.homeStarter ?? null;
   const awayPitchers = awayStarter ? [awayStarter, ...linkedAwayPitchers.filter((row) => row.playerId !== awayStarter.playerId).slice(0, 2)] : linkedAwayPitchers;
   const homePitchers = homeStarter ? [homeStarter, ...linkedHomePitchers.filter((row) => row.playerId !== homeStarter.playerId).slice(0, 2)] : linkedHomePitchers;
 
@@ -508,8 +520,8 @@ export async function getMlbFranchiseGameCenter(gameId: string): Promise<MlbFran
   if (!linkedAwayHitters.length && simAwayHitters.length) warnings.push(`${awayName} hitter rows are using cached sim player-stat projections because linked PlayerGameStat rows are missing.`);
   if (!linkedHomeHitters.length && simHomeHitters.length) warnings.push(`${homeName} hitter rows are using cached sim player-stat projections because linked PlayerGameStat rows are missing.`);
   if (!awayHitters.length && !homeHitters.length) warnings.push("Projected hitter box score needs playerStatProjections in the cached sim or linked PlayerGameStat rows.");
-  if (!awayStarter) warnings.push(`${awayLockName ? `${awayLockName} ` : awayName}starter projection suppressed: no reliable linked pitcher stats or non-generic cached sim starter projection.`);
-  if (!homeStarter) warnings.push(`${homeLockName ? `${homeLockName} ` : homeName}starter projection suppressed: no reliable linked pitcher stats or non-generic cached sim starter projection.`);
+  if (!awayStarter) warnings.push(`${awayLockName ? `${awayLockName} ` : awayName}starter projection suppressed: no linked pitcher stats, non-generic cached sim starter projection, or MLB Stats API probable-pitcher season stats.`);
+  if (!homeStarter) warnings.push(`${homeLockName ? `${homeLockName} ` : homeName}starter projection suppressed: no linked pitcher stats, non-generic cached sim starter projection, or MLB Stats API probable-pitcher season stats.`);
   if (!typedTeamActualRows.length) warnings.push("Actual team box score is not tracked yet for this game.");
 
   return {
