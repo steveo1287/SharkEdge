@@ -77,6 +77,8 @@
     "rescue:power:skip-refresh": "node scripts/rescue-power.mjs --refresh=skip",
     "openclaw:discord": "tsx scripts/openclaw-discord-bot.ts",
     "cache:refresh": "tsx scripts/cache-refresh.ts",
+    "shark:snapshot": "tsx scripts/generate-board-snapshot.ts",
+    "shark:snapshot:mlb": "tsx scripts/generate-board-snapshot.ts --league=MLB",
     "deploy:prod": "npm run deploy:railway",
     "deploy:production": "npm run deploy:railway",
     "deploy:railway": "railway up",

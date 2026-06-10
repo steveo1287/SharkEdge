@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import type { BoardFilters, LeagueKey } from "@/lib/types/domain";
+import type { BoardFilters, BoardPageData, LeagueKey } from "@/lib/types/domain";
+import { getBoardSnapshotPageData } from "@/services/board/snapshot-board-service";
 import { getBoardPageData, parseBoardFilters } from "@/services/odds/board-service";
 
 const SUPPORTED_LEAGUES = new Set<LeagueKey>([
@@ -12,6 +13,10 @@ const SUPPORTED_LEAGUES = new Set<LeagueKey>([
   "UFC",
   "BOXING"
 ]);
+
+function liveFallbackAllowed() {
+  return process.env.SHARKEDGE_ALLOW_LIVE_BOARD_FALLBACK === "true";
+}
 
 function parseLeague(value: string | null): BoardFilters["league"] {
   const raw = value?.trim().toUpperCase() ?? null;
@@ -44,11 +49,37 @@ function parseFilters(request: Request): BoardFilters {
   });
 }
 
+async function getSnapshotFirstBoardPageData(filters: BoardFilters): Promise<BoardPageData | null> {
+  const snapshotPayload = await getBoardSnapshotPageData(filters);
+  if (snapshotPayload) {
+    return snapshotPayload;
+  }
+
+  if (liveFallbackAllowed()) {
+    return getBoardPageData(filters);
+  }
+
+  return null;
+}
+
 export async function GET(request: Request) {
   const filters = parseFilters(request);
 
   try {
-    const payload = await getBoardPageData(filters);
+    const payload = await getSnapshotFirstBoardPageData(filters);
+    if (!payload) {
+      return NextResponse.json({
+        configured: false,
+        generated_at: new Date().toISOString(),
+        provider: "snapshot",
+        provider_mode: "snapshot",
+        bookmakers: "",
+        errors: [
+          "No precomputed board snapshot was available. Live board fallback is disabled. Run npm run shark:snapshot or set SHARKEDGE_BOARD_SNAPSHOT_URL."
+        ],
+        sports: []
+      });
+    }
 
     const sports = payload.sportSections
       .map((section) => {
@@ -78,9 +109,9 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       configured: payload.providerHealth.state !== "OFFLINE",
-      generated_at: new Date().toISOString(),
+      generated_at: payload.providerHealth.asOf ?? new Date().toISOString(),
       provider: payload.source,
-      provider_mode: payload.source,
+      provider_mode: "snapshot",
       bookmakers: payload.sportsbooks?.map((sb) => sb.name).join(", ") ?? "best",
       errors: payload.providerHealth.warnings,
       sports

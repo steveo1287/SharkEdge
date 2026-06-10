@@ -1,0 +1,43 @@
+{
+  "snapshotSchemaVersion": 1,
+  "snapshotGeneratedAt": null,
+  "filters": {
+    "league": "ALL",
+    "date": "all",
+    "sportsbook": "best",
+    "market": "all",
+    "status": "all"
+  },
+  "availableDates": [],
+  "leagues": [],
+  "sportsbooks": [
+    {
+      "id": "best",
+      "key": "best",
+      "name": "Best available",
+      "region": "US"
+    }
+  ],
+  "games": [],
+  "sportSections": [],
+  "snapshots": [],
+  "summary": {
+    "totalGames": 0,
+    "totalProps": 0,
+    "totalSportsbooks": 0
+  },
+  "liveMessage": null,
+  "source": "mock",
+  "sourceNote": "Placeholder snapshot. Generate a real board snapshot with npm run shark:snapshot or configure SHARKEDGE_BOARD_SNAPSHOT_URL.",
+  "providerHealth": {
+    "state": "FALLBACK",
+    "label": "Snapshot pending",
+    "summary": "No generated board snapshot has been published yet.",
+    "freshnessLabel": "No snapshot",
+    "freshnessMinutes": null,
+    "asOf": null,
+    "warnings": [
+      "Placeholder board snapshot only. Run npm run shark:snapshot to generate public/data/latest-board.json."
+    ]
+  }
+}

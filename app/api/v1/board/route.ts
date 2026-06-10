@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import type { BoardFilters, LeagueKey } from "@/lib/types/domain";
+import { getBoardSnapshotPageData } from "@/services/board/snapshot-board-service";
 import { getBoardPageData, parseBoardFilters } from "@/services/odds/board-service";
 
 const SUPPORTED_LEAGUES = new Set<LeagueKey>([
@@ -12,6 +13,10 @@ const SUPPORTED_LEAGUES = new Set<LeagueKey>([
   "UFC",
   "BOXING"
 ]);
+
+function liveFallbackAllowed() {
+  return process.env.SHARKEDGE_ALLOW_LIVE_BOARD_FALLBACK === "true";
+}
 
 function parseLeague(value: string | null): BoardFilters["league"] {
   const raw = value?.trim().toUpperCase() ?? null;
@@ -59,31 +64,49 @@ function buildDegradedBoardResponse(filters: BoardFilters, reason: string) {
     source: "mock",
     sourceNote: reason,
     providerHealth: {
-      state: "DEGRADED",
-      label: "Degraded",
+      state: "FALLBACK",
+      label: "Snapshot pending",
       summary: reason,
+      freshnessLabel: "No board snapshot loaded",
+      freshnessMinutes: null,
+      asOf: null,
       warnings: [reason]
     }
   };
+}
+
+async function getSnapshotFirstBoardPageData(filters: BoardFilters) {
+  const snapshotPayload = await getBoardSnapshotPageData(filters);
+  if (snapshotPayload) {
+    return snapshotPayload;
+  }
+
+  if (liveFallbackAllowed()) {
+    return getBoardPageData(filters);
+  }
+
+  return buildDegradedBoardResponse(
+    filters,
+    "No precomputed board snapshot was available. Live board fallback is disabled. Run npm run shark:snapshot or set SHARKEDGE_BOARD_SNAPSHOT_URL."
+  );
 }
 
 export async function GET(request: Request) {
   const filters = parseFilters(request);
 
   try {
-    const payload = await getBoardPageData(filters);
+    const payload = await getSnapshotFirstBoardPageData(filters);
     if (!payload) {
       return NextResponse.json(
         buildDegradedBoardResponse(
           filters,
-          "Live board payload was unavailable, so SharkEdge returned a safe degraded board response instead of throwing."
+          "Board payload was unavailable, so SharkEdge returned a safe degraded board response instead of throwing."
         )
       );
     }
 
     return NextResponse.json({
       ...payload,
-      // Backward-compatible shape for any legacy consumer still expecting `events`.
       events: payload.games.map((game) => ({
         id: game.id,
         eventKey: game.externalEventId ?? game.id,
