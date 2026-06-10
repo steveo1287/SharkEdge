@@ -5,6 +5,7 @@ import { FranchiseEmptyState, FranchiseTable } from "@/components/sim/mlb-franch
 import { MlbFranchiseTabs } from "@/components/sim/mlb-franchise-tabs";
 import { SimWorkspaceHeader } from "@/components/sim/sim-ui";
 import { buildMlbRatingBackedBoxScore } from "@/services/simulation/mlb-box-score-rating-fallback";
+import { normalizeMlbFranchiseHitterRows, normalizeMlbFranchisePitcherRows } from "@/services/simulation/mlb-franchise-boxscore-normalizer";
 import { buildFranchiseEliteBatters, type FranchiseEliteBatterGrade } from "@/services/simulation/mlb-franchise-elite-batter-board";
 import { buildSimulatedFranchiseHitters, buildSimulatedFranchisePitchers } from "@/services/simulation/mlb-franchise-sim-boxscore";
 import { getMlbFranchiseGameCenter, type HitterProjection, type PitcherProjection } from "@/services/simulation/mlb-franchise-game-stats";
@@ -13,7 +14,6 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type PageProps = { params: Promise<{ gameId: string }> };
-type TeamSide = "away" | "home";
 type RosterPlayer = { id: string; name: string; position: string | null };
 
 function num(value: number | null | undefined, digits = 1) {
@@ -148,11 +148,11 @@ function TeamTotalsTable({ awayHitters, homeHitters, awayPitchers, homePitchers,
   homeName: string;
 }) {
   const rows = [
-    { name: awayName, hitters: awayHitters, pitchers: awayPitchers },
-    { name: homeName, hitters: homeHitters, pitchers: homePitchers }
+    { name: awayName, hitters: awayHitters, pitchers: homePitchers },
+    { name: homeName, hitters: homeHitters, pitchers: awayPitchers }
   ];
   return (
-    <FranchiseTable title="Sim Team Box Score" description="Franchise-mode team totals generated from the sim box score. Actuals replace these once official player-game rows are linked.">
+    <FranchiseTable title="Sim Team Box Score" description="Team totals reconciled to the projected score. Opposing pitching totals are normalized to match the hitter box score.">
       <table className="min-w-[920px] w-full text-sm">
         <thead className="bg-cyan-400/[0.04] text-[10px] uppercase tracking-[0.14em] text-slate-500">
           <tr>
@@ -163,9 +163,9 @@ function TeamTotalsTable({ awayHitters, homeHitters, awayPitchers, homePitchers,
             <th className="px-3 py-3 text-right">HR</th>
             <th className="px-3 py-3 text-right">PA</th>
             <th className="px-3 py-3 text-right">Bat K</th>
-            <th className="px-3 py-3 text-right">Pitch K</th>
-            <th className="px-3 py-3 text-right">ER</th>
-            <th className="px-3 py-3 text-right">BB</th>
+            <th className="px-3 py-3 text-right">Opp K</th>
+            <th className="px-3 py-3 text-right">Opp ER</th>
+            <th className="px-3 py-3 text-right">Opp BB</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-white/[0.06]">
@@ -174,13 +174,13 @@ function TeamTotalsTable({ awayHitters, homeHitters, awayPitchers, homePitchers,
               <td className="px-4 py-3 font-semibold text-white">{row.name}</td>
               <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.hitters, (item) => item.runs), 0)}</td>
               <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.hitters, (item) => item.hits), 0)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.hitters, (item) => item.totalBases), 1)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.hitters, (item) => item.totalBases), 0)}</td>
               <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.hitters, (item) => item.homeRuns), 0)}</td>
               <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.hitters, (item) => item.plateAppearances), 0)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.hitters, (item) => item.strikeouts), 1)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.pitchers, (item) => item.strikeouts), 1)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.pitchers, (item) => item.earnedRuns), 1)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.pitchers, (item) => item.walks), 1)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.hitters, (item) => item.strikeouts), 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.pitchers, (item) => item.strikeouts), 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.pitchers, (item) => item.earnedRuns), 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(sum(row.pitchers, (item) => item.walks), 0)}</td>
             </tr>
           ))}
         </tbody>
@@ -219,10 +219,10 @@ function EliteBatterBoard({ rows }: { rows: HitterProjection[] }) {
               <td className="px-3 py-3 text-slate-400">{row.team}</td>
               <td className="px-3 py-3 text-right font-mono text-emerald-200">{num(row.eliteScore, 1)}</td>
               <td className="px-3 py-3 text-center"><span className={`rounded-full border px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${gradeClass(row.grade)}`}>{row.grade}</span></td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.hits)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.totalBases)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.homeRuns, 2)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num((row.runs ?? 0) + (row.rbi ?? 0), 1)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.hits, 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.totalBases, 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.homeRuns, 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num((row.runs ?? 0) + (row.rbi ?? 0), 0)}</td>
               <td className="px-3 py-3 text-xs text-slate-400">{row.tags.slice(0, 3).join(" · ")}</td>
             </tr>
           ))}
@@ -235,7 +235,7 @@ function EliteBatterBoard({ rows }: { rows: HitterProjection[] }) {
 function HitterTable({ title, rows }: { title: string; rows: HitterProjection[] }) {
   if (!rows.length) return <FranchiseEmptyState title={`${title} unavailable`} description="No linked, cached sim, rating-backed, or franchise simulated hitter rows are available yet for this team." />;
   return (
-    <FranchiseTable title={title} description="Complete simulated hitter line from the franchise box-score engine. Official actuals replace these rows after settlement.">
+    <FranchiseTable title={title} description="Complete simulated hitter line normalized to projected team runs and plausible team hit/power totals.">
       <table className="min-w-[900px] w-full text-sm">
         <thead className="bg-white/[0.025] text-[10px] uppercase tracking-[0.14em] text-slate-600">
           <tr>
@@ -256,13 +256,13 @@ function HitterTable({ title, rows }: { title: string; rows: HitterProjection[] 
             <tr key={`${row.teamSide}:${row.playerId}`}>
               <td className="px-4 py-3 font-semibold text-white">{row.name}</td>
               <td className="px-3 py-3 text-right font-mono text-slate-300">{row.battingOrder ?? "--"}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.plateAppearances)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.hits)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.totalBases)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.homeRuns, 2)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.runs)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.rbi)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.strikeouts)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.plateAppearances, 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.hits, 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.totalBases, 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.homeRuns, 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.runs, 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.rbi, 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.strikeouts, 0)}</td>
               <td className="px-3 py-3 text-right font-mono text-aqua">{num((row.stolenBaseChance ?? 0) * 100, 0)}%</td>
             </tr>
           ))}
@@ -275,7 +275,7 @@ function HitterTable({ title, rows }: { title: string; rows: HitterProjection[] 
 function PitcherTable({ title, rows }: { title: string; rows: PitcherProjection[] }) {
   if (!rows.length) return <FranchiseEmptyState title={`${title} unavailable`} description="No linked, cached sim, rating-backed, or franchise simulated pitcher rows are available yet for this team." />;
   return (
-    <FranchiseTable title={title} description="Complete simulated pitching line from the franchise box-score engine. Official actuals replace these rows after settlement.">
+    <FranchiseTable title={title} description="Pitching staff normalized so outs reach 27 and ER/H/HR allowed reconcile to opposing hitter totals.">
       <table className="min-w-[760px] w-full text-sm">
         <thead className="bg-white/[0.025] text-[10px] uppercase tracking-[0.14em] text-slate-600">
           <tr>
@@ -295,11 +295,11 @@ function PitcherTable({ title, rows }: { title: string; rows: PitcherProjection[
               <td className="px-4 py-3 font-semibold text-white">{row.name}</td>
               <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.innings)}</td>
               <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.outs, 0)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.strikeouts)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.earnedRuns)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.hitsAllowed)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.walks)}</td>
-              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.homeRuns)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.strikeouts, 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.earnedRuns, 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.hitsAllowed, 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.walks, 0)}</td>
+              <td className="px-3 py-3 text-right font-mono text-slate-300">{num(row.homeRuns, 0)}</td>
             </tr>
           ))}
         </tbody>
@@ -348,11 +348,17 @@ export default async function MlbBoxScorePage({ params }: PageProps) {
   const awayPitcherFallback = hasCompletePitchingStaff(franchiseAwayPitchers) ? franchiseAwayPitchers : ratingAwayPitchers;
   const homePitcherFallback = hasCompletePitchingStaff(franchiseHomePitchers) ? franchiseHomePitchers : ratingHomePitchers;
 
-  const awayHitters = chooseHitterRows({ label: game.teams.away.name, primary: game.hitters.away, fallback: awayHitterFallback, fallbackLabel: awayHitterFallback === franchiseAwayHitters ? "franchise-sim box-score" : "rating-backed player-card", warnings });
-  const homeHitters = chooseHitterRows({ label: game.teams.home.name, primary: game.hitters.home, fallback: homeHitterFallback, fallbackLabel: homeHitterFallback === franchiseHomeHitters ? "franchise-sim box-score" : "rating-backed player-card", warnings });
-  const awayPitchers = choosePitcherRows({ label: game.teams.away.name, primary: game.pitchers.away, fallback: awayPitcherFallback, fallbackLabel: awayPitcherFallback === franchiseAwayPitchers ? "franchise-sim pitching staff" : "rating-backed starter", warnings });
-  const homePitchers = choosePitcherRows({ label: game.teams.home.name, primary: game.pitchers.home, fallback: homePitcherFallback, fallbackLabel: homePitcherFallback === franchiseHomePitchers ? "franchise-sim pitching staff" : "rating-backed starter", warnings });
-  warnings.push(`Projection source: ${game.teams.away.name} hitters=${sourceLabel(awayHitters, game.hitters.away, franchiseAwayHitters, ratingAwayHitters)}, pitchers=${sourceLabel(awayPitchers, game.pitchers.away, franchiseAwayPitchers, ratingAwayPitchers)}; ${game.teams.home.name} hitters=${sourceLabel(homeHitters, game.hitters.home, franchiseHomeHitters, ratingHomeHitters)}, pitchers=${sourceLabel(homePitchers, game.pitchers.home, franchiseHomePitchers, ratingHomePitchers)}.`);
+  const selectedAwayHitters = chooseHitterRows({ label: game.teams.away.name, primary: game.hitters.away, fallback: awayHitterFallback, fallbackLabel: awayHitterFallback === franchiseAwayHitters ? "franchise-sim box-score" : "rating-backed player-card", warnings });
+  const selectedHomeHitters = chooseHitterRows({ label: game.teams.home.name, primary: game.hitters.home, fallback: homeHitterFallback, fallbackLabel: homeHitterFallback === franchiseHomeHitters ? "franchise-sim box-score" : "rating-backed player-card", warnings });
+  const awayHitters = normalizeMlbFranchiseHitterRows(selectedAwayHitters, game.teams.away.projectedRuns) as HitterProjection[];
+  const homeHitters = normalizeMlbFranchiseHitterRows(selectedHomeHitters, game.teams.home.projectedRuns) as HitterProjection[];
+
+  const selectedAwayPitchers = choosePitcherRows({ label: game.teams.away.name, primary: game.pitchers.away, fallback: awayPitcherFallback, fallbackLabel: awayPitcherFallback === franchiseAwayPitchers ? "franchise-sim pitching staff" : "rating-backed starter", warnings });
+  const selectedHomePitchers = choosePitcherRows({ label: game.teams.home.name, primary: game.pitchers.home, fallback: homePitcherFallback, fallbackLabel: homePitcherFallback === franchiseHomePitchers ? "franchise-sim pitching staff" : "rating-backed starter", warnings });
+  const awayPitchers = normalizeMlbFranchisePitcherRows(selectedAwayPitchers, homeHitters, game.teams.home.projectedRuns) as PitcherProjection[];
+  const homePitchers = normalizeMlbFranchisePitcherRows(selectedHomePitchers, awayHitters, game.teams.away.projectedRuns) as PitcherProjection[];
+  warnings.push("Box-score normalizer active: hitter totals are reconciled to projected score, and pitcher totals are reconciled to opposing hitter totals.");
+  warnings.push(`Projection source: ${game.teams.away.name} hitters=${sourceLabel(selectedAwayHitters, game.hitters.away, franchiseAwayHitters, ratingAwayHitters)}, pitchers=${sourceLabel(selectedAwayPitchers, game.pitchers.away, franchiseAwayPitchers, ratingAwayPitchers)}; ${game.teams.home.name} hitters=${sourceLabel(selectedHomeHitters, game.hitters.home, franchiseHomeHitters, ratingHomeHitters)}, pitchers=${sourceLabel(selectedHomePitchers, game.pitchers.home, franchiseHomePitchers, ratingHomePitchers)}.`);
 
   const actualCount = [...awayHitters, ...homeHitters, ...awayPitchers, ...homePitchers].filter((row) => row.actual).length;
 
@@ -366,7 +372,7 @@ export default async function MlbBoxScorePage({ params }: PageProps) {
       <EliteBatterBoard rows={[...awayHitters, ...homeHitters]} />
       <HitterTable title={`${game.teams.away.name} Hitters`} rows={awayHitters} />
       <HitterTable title={`${game.teams.home.name} Hitters`} rows={homeHitters} />
-      {actualCount ? <FranchiseEmptyState title="Tracked actuals available" description={`${actualCount} player rows have actual stat tracking linked to this game.`} /> : <FranchiseEmptyState title="Franchise sim mode" description="This page is showing a complete simulated box score. Official player-game actuals will replace simulated rows once stat rows are linked after settlement." />}
+      {actualCount ? <FranchiseEmptyState title="Tracked actuals available" description={`${actualCount} player rows have actual stat tracking linked to this game.`} /> : <FranchiseEmptyState title="Franchise sim mode" description="This page is showing a normalized simulated box score. Official player-game actuals will replace simulated rows once stat rows are linked after settlement." />}
     </div>
   );
 }
