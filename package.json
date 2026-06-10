@@ -22,7 +22,7 @@
     "test:ufc-deep-matchup": "tsx tests/ufc-deep-profile-matchup-engine.test.ts",
     "test:ufc-deep-calibration": "tsx tests/ufc-deep-profile-calibration.test.ts",
     "test:ufc-deep-weights": "tsx tests/ufc-deep-profile-weight-store.test.ts",
-    "test:ufc-deep-adjuster": "tsx tests/ufc-deep-profile-weight-store.test.ts",
+    "test:ufc-deep-adjuster": "tsx tests/ufc-deep-profile-sim-adjuster.test.ts",
     "test:mlb-player-diagnostics": "tsx tests/mlb-player-matchup-diagnostics.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
