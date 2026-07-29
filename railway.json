@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "sh -lc 'case \"$SHARKEDGE_SERVICE_MODE\" in odds-worker) npm run worker:odds-refresh ;; sim-worker) npm run worker:railway:sim ;; mlb-odds-worker) npm run worker:railway:mlb-odds ;; ufc-worker) npm run worker:railway:ufc ;; maintenance-worker) npm run worker:railway:maintenance ;; *) npx prisma migrate deploy && npm run start -- -p ${PORT:-3000} ;; esac'",
+    "startCommand": "sh -lc 'case \"$SHARKEDGE_SERVICE_MODE\" in odds-worker) SHARKEDGE_WORKER_MODE=railway ALLOW_RAILWAY_HEAVY_WORKER=true npm run worker:odds-refresh ;; sim-worker) SHARKEDGE_WORKER_MODE=railway ALLOW_RAILWAY_HEAVY_WORKER=true npm run worker:railway:sim ;; mlb-odds-worker) SHARKEDGE_WORKER_MODE=railway ALLOW_RAILWAY_HEAVY_WORKER=true npm run worker:railway:mlb-odds ;; ufc-worker) SHARKEDGE_WORKER_MODE=railway ALLOW_RAILWAY_HEAVY_WORKER=true npm run worker:railway:ufc ;; maintenance-worker) SHARKEDGE_WORKER_MODE=railway ALLOW_RAILWAY_HEAVY_WORKER=true npm run worker:railway:maintenance ;; *) npx prisma migrate deploy && npm run start -- -p ${PORT:-3000} ;; esac'",
     "healthcheckPath": "/api/health/railway",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
