@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { MlbFranchiseImpactPlayers } from "@/components/sim/mlb-franchise-impact-players";
+import { MlbPlayerRatingsTendencies } from "@/components/sim/mlb-player-ratings-tendencies";
 import { MlbFranchiseLineScore } from "@/components/sim/mlb-franchise-line-score";
 import { FranchiseEmptyState, FranchiseStat } from "@/components/sim/mlb-franchise-primitives";
 import { MlbFranchiseTabs } from "@/components/sim/mlb-franchise-tabs";
@@ -102,6 +103,7 @@ export default async function MlbGameSummaryPage({ params }: PageProps) {
       </SimSignalCard>
 
       <MlbFranchiseLineScore away={game.lineScore.away} home={game.lineScore.home} />
+      <MlbPlayerRatingsTendencies game={game} />
       <MlbFranchiseImpactPlayers players={game.impactPlayers} />
 
       <section className="grid gap-4 lg:grid-cols-2">
