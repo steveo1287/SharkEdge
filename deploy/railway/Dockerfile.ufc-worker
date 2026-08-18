@@ -14,4 +14,4 @@ ENV SHARKEDGE_WORKER_MODE=disabled
 ENV SHARKEDGE_DISABLE_WORKERS=true
 ENV RAILWAY_WORKER_KIND=ufc-worker
 
-CMD ["npm", "run", "worker:railway:ufc"]
+CMD ["npx", "tsx", "scripts/railway-ufc-worker-loop.ts"]
