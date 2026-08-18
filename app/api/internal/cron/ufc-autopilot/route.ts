@@ -41,7 +41,7 @@ export async function GET(request: Request) {
   const hydrate = boolParam(url, "hydrate", true);
   const simulate = boolParam(url, "simulate", true);
   const allowFallbackFeatures = boolParam(url, "allowFallbackFeatures", false);
-  const forceRegenerate = boolParam(url, "forceRegenerate", autoBuildFeatures || hydrate);
+  const forceRegenerate = boolParam(url, "forceRegenerate", false);
   const horizonDays = numberParam(url, "horizonDays", 120);
   const limit = numberParam(url, "limit", 25);
   const simulations = numberParam(url, "simulations", 25000);
